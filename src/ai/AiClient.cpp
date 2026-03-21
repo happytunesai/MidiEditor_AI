@@ -188,12 +188,7 @@ void AiClient::sendMessages(const QJsonArray &messages, const QJsonArray &tools)
 
     if (reasoning) {
         if (_thinkingEnabled) {
-            QString effort = _reasoningEffort;
-            // Tool-calling needs enough output budget for arguments — enforce minimum "medium"
-            if (!tools.isEmpty() && effort == QLatin1String("low")) {
-                effort = QStringLiteral("medium");
-            }
-            body[QStringLiteral("reasoning_effort")] = effort;
+            body[QStringLiteral("reasoning_effort")] = _reasoningEffort;
         } else if (!tools.isEmpty()) {
             body[QStringLiteral("reasoning_effort")] = QStringLiteral("medium");
         } else {
