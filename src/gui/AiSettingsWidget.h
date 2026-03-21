@@ -46,6 +46,7 @@ private:
     QPushButton *_toggleKeyButton;
     QSpinBox *_contextMeasuresSpin;
     QLabel *_contextEstimateLabel;
+    QSpinBox *_agentMaxStepsSpin;
     bool _keyVisible;
 };
 

@@ -15,11 +15,14 @@
 #include <QSet>
 #include <QSettings>
 #include <QKeyEvent>
+#include <QComboBox>
+#include <QApplication>
 
 #include <cmath>
 
 #include "MainWindow.h"
 #include "../ai/AiClient.h"
+#include "../ai/AgentRunner.h"
 #include "../ai/EditorContext.h"
 #include "../ai/MidiEventSerializer.h"
 #include "../tool/Selection.h"
@@ -34,15 +37,147 @@
 #include "../MidiEvent/TimeSignatureEvent.h"
 #include "../protocol/Protocol.h"
 
+// ============================================================
+// Collapsible Agent Steps Widget (displayed in chat area)
+// ============================================================
+class AgentStepsWidget : public QWidget {
+public:
+    AgentStepsWidget(QWidget *parent = nullptr) : QWidget(parent) {
+        QVBoxLayout *layout = new QVBoxLayout(this);
+        layout->setContentsMargins(8, 6, 8, 6);
+        layout->setSpacing(0);
+
+        // Header with collapse/expand toggle
+        _headerBtn = new QPushButton(this);
+        _headerBtn->setFlat(true);
+        _headerBtn->setCursor(Qt::PointingHandCursor);
+        _headerBtn->setStyleSheet(
+            "text-align: left; font-weight: bold; font-size: 12px; "
+            "padding: 4px 2px; color: #555;");
+        connect(_headerBtn, &QPushButton::clicked, this, [this]() {
+            _collapsed = !_collapsed;
+            _stepsContainer->setVisible(!_collapsed);
+            updateHeader();
+        });
+        layout->addWidget(_headerBtn);
+
+        // Steps container
+        _stepsContainer = new QWidget(this);
+        _stepsLayout = new QVBoxLayout(_stepsContainer);
+        _stepsLayout->setContentsMargins(4, 2, 0, 4);
+        _stepsLayout->setSpacing(1);
+        layout->addWidget(_stepsContainer);
+
+        setStyleSheet(
+            "AgentStepsWidget { background-color: #F5F5F0; "
+            "border-radius: 8px; margin-right: 40px; }");
+
+        updateHeader();
+    }
+
+    void addStep(int step, const QString &toolName) {
+        // Humanize tool names
+        QString display = humanize(toolName);
+        QLabel *label = new QLabel(
+            QString("\xE2\x8F\xB3 %1").arg(display), _stepsContainer);  // ⏳
+        label->setStyleSheet("color: #CC7700; font-size: 11px; padding: 1px 2px;");
+        _stepsLayout->addWidget(label);
+        _stepLabels[step] = label;
+        _stepNames[step] = display;
+        _totalSteps++;
+        updateHeader();
+    }
+
+    void completeStep(int step, bool success) {
+        if (!_stepLabels.contains(step)) return;
+        QLabel *label = _stepLabels[step];
+        QString name = _stepNames[step];
+        if (success) {
+            label->setText(QString("\xE2\x9C\x85 %1").arg(name));  // ✅
+            label->setStyleSheet("color: #2D8C3C; font-size: 11px; padding: 1px 2px;");
+        } else {
+            label->setText(QString("\xE2\x9D\x8C %1 - failed").arg(name));  // ❌
+            label->setStyleSheet("color: #CC3333; font-size: 11px; padding: 1px 2px;");
+        }
+        _completedSteps++;
+        updateHeader();
+    }
+
+    void setFinished(bool success) {
+        _finished = true;
+        _finishSuccess = success;
+        updateHeader();
+    }
+
+private:
+    QString humanize(const QString &toolName) {
+        // Convert tool names to friendlier display
+        static const QMap<QString, QString> names = {
+            {"get_editor_state", "Get editor state"},
+            {"get_track_info", "Get track info"},
+            {"query_events", "Query events"},
+            {"create_track", "Create track"},
+            {"rename_track", "Rename track"},
+            {"set_channel", "Set channel"},
+            {"insert_events", "Insert events"},
+            {"replace_events", "Replace events"},
+            {"delete_events", "Delete events"},
+            {"set_tempo", "Set tempo"},
+            {"set_time_signature", "Set time signature"},
+            {"move_events_to_track", "Move events"}
+        };
+        return names.value(toolName, toolName);
+    }
+
+    void updateHeader() {
+        QString arrow = _collapsed
+            ? QString("\xE2\x96\xB6")    // ▶
+            : QString("\xE2\x96\xBC");   // ▼
+        QString status;
+        if (_finished) {
+            status = _finishSuccess
+                ? QString("\xE2\x9C\x85")   // ✅
+                : QString("\xE2\x9A\xA0");  // ⚠
+        }
+        if (_totalSteps == 0) {
+            _headerBtn->setText(QString("%1 Agent Steps").arg(arrow));
+        } else {
+            _headerBtn->setText(QString("%1 %4 Steps (%2/%3)")
+                .arg(arrow)
+                .arg(_completedSteps)
+                .arg(_totalSteps)
+                .arg(status));
+        }
+    }
+
+    QPushButton *_headerBtn;
+    QWidget *_stepsContainer;
+    QVBoxLayout *_stepsLayout;
+    QMap<int, QLabel*> _stepLabels;
+    QMap<int, QString> _stepNames;
+    int _totalSteps = 0;
+    int _completedSteps = 0;
+    bool _collapsed = false;
+    bool _finished = false;
+    bool _finishSuccess = false;
+};
+
 MidiPilotWidget::MidiPilotWidget(MainWindow *mainWindow, QWidget *parent)
-    : QWidget(parent), _mainWindow(mainWindow), _file(nullptr) {
+    : QWidget(parent), _mainWindow(mainWindow), _file(nullptr),
+      _isAgentRunning(false), _agentStepsWidget(nullptr) {
 
     _client = new AiClient(this);
+    _agentRunner = new AgentRunner(_client, this);
 
     setupUi();
 
     connect(_client, &AiClient::responseReceived, this, &MidiPilotWidget::onResponseReceived);
     connect(_client, &AiClient::errorOccurred, this, &MidiPilotWidget::onErrorOccurred);
+
+    connect(_agentRunner, &AgentRunner::stepStarted, this, &MidiPilotWidget::onAgentStepStarted);
+    connect(_agentRunner, &AgentRunner::stepCompleted, this, &MidiPilotWidget::onAgentStepCompleted);
+    connect(_agentRunner, &AgentRunner::finished, this, &MidiPilotWidget::onAgentFinished);
+    connect(_agentRunner, &AgentRunner::errorOccurred, this, &MidiPilotWidget::onAgentError);
 }
 
 // Helper: QTextEdit that sends on Enter, newline on Shift+Enter
@@ -144,6 +279,19 @@ void MidiPilotWidget::setupUi() {
     connect(newChatBtn, &QPushButton::clicked, this, &MidiPilotWidget::onNewChat);
     inputBtnLayout->addWidget(newChatBtn);
 
+    // Mode selector (Simple / Agent)
+    _modeCombo = new QComboBox(this);
+    _modeCombo->addItem("Simple", "simple");
+    _modeCombo->addItem("Agent", "agent");
+    _modeCombo->setToolTip("Simple: single-shot edits\nAgent: multi-step autonomous editing");
+    _modeCombo->setFixedHeight(28);
+    QSettings modeSettings;
+    int modeIdx = _modeCombo->findData(modeSettings.value("AI/mode", "simple").toString());
+    if (modeIdx >= 0) _modeCombo->setCurrentIndex(modeIdx);
+    connect(_modeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &MidiPilotWidget::onModeChanged);
+    inputBtnLayout->addWidget(_modeCombo);
+
     inputBtnLayout->addStretch();
 
     _sendButton = new QPushButton(QChar(0x27A4), this); // ➤
@@ -151,6 +299,18 @@ void MidiPilotWidget::setupUi() {
     _sendButton->setToolTip("Send");
     connect(_sendButton, &QPushButton::clicked, this, &MidiPilotWidget::onSendMessage);
     inputBtnLayout->addWidget(_sendButton);
+
+    _stopButton = new QPushButton(QChar(0x25A0), this); // ■ (stop)
+    _stopButton->setFixedSize(28, 28);
+    _stopButton->setToolTip("Stop Agent");
+    _stopButton->setStyleSheet("color: #CC3333; font-weight: bold;");
+    _stopButton->setVisible(false);
+    connect(_stopButton, &QPushButton::clicked, this, [this]() {
+        if (_isAgentRunning && _agentRunner) {
+            _agentRunner->cancel();
+        }
+    });
+    inputBtnLayout->addWidget(_stopButton);
 
     inputOuterLayout->addLayout(inputBtnLayout);
 
@@ -335,23 +495,46 @@ void MidiPilotWidget::onSendMessage() {
     entry.timestamp = QDateTime::currentDateTime();
     _entries.append(entry);
 
-    // Add "thinking" indicator
-    addChatBubble("system", "Thinking...");
+    // Add "thinking" indicator (Simple mode only; Agent uses steps widget)
 
     setStatus("Processing...", "orange");
     _inputField->setEnabled(false);
     _sendButton->setEnabled(false);
-
-    _client->sendRequest(EditorContext::systemPrompt(), _conversationHistory, fullMessage);
 
     // Update conversation history for future requests
     QJsonObject userMsg;
     userMsg["role"] = "user";
     userMsg["content"] = fullMessage;
     _conversationHistory.append(userMsg);
+
+    if (currentMode() == "agent") {
+        // Agent Mode: use AgentRunner with tool-calling loop
+        // Wrap all tool calls in a single undo action
+        _isAgentRunning = true;
+        _sendButton->setVisible(false);
+        _stopButton->setVisible(true);
+
+        // Create collapsible steps widget in chat area
+        AgentStepsWidget *stepsWidget = new AgentStepsWidget(_chatContainer);
+        _agentStepsWidget = stepsWidget;
+        _chatLayout->addWidget(stepsWidget);
+
+        if (_file)
+            _file->protocol()->startNewAction("MidiPilot Agent: " + text);
+        _agentRunner->run(EditorContext::agentSystemPrompt(),
+                          _conversationHistory, fullMessage, _file, this);
+    } else {
+        // Simple Mode: single-shot request
+        addChatBubble("system", "Thinking...");
+        _client->sendRequest(EditorContext::systemPrompt(),
+                             _conversationHistory, fullMessage);
+    }
 }
 
 void MidiPilotWidget::onResponseReceived(const QString &content, const QJsonObject &fullResponse) {
+    // Ignore AiClient signals during Agent Mode (AgentRunner handles them)
+    if (_isAgentRunning) return;
+
     // Remove "thinking" indicator
     if (_chatLayout->count() > 1) {
         QLayoutItem *last = _chatLayout->takeAt(_chatLayout->count() - 1);
@@ -394,7 +577,7 @@ void MidiPilotWidget::onResponseReceived(const QString &content, const QJsonObje
             for (int i = 0; i < actions.size(); i++) {
                 QJsonObject actionObj = actions[i].toObject();
                 QString stepExplanation = actionObj["explanation"].toString();
-                dispatchAction(actionObj);
+                dispatchAction(actionObj, true);
                 if (!stepExplanation.isEmpty()) {
                     stepResults << stepExplanation;
                 }
@@ -413,8 +596,8 @@ void MidiPilotWidget::onResponseReceived(const QString &content, const QJsonObje
             // Single action (existing behavior)
             QString action = response["action"].toString();
             QString explanation = response["explanation"].toString();
-            bool handled = dispatchAction(response);
-            if (handled) {
+            QJsonObject result = dispatchAction(response, true);
+            if (!result.isEmpty()) {
                 if (action == "info") {
                     addChatBubble("assistant", explanation);
                 } else if (action == "error") {
@@ -445,6 +628,9 @@ void MidiPilotWidget::onResponseReceived(const QString &content, const QJsonObje
 }
 
 void MidiPilotWidget::onErrorOccurred(const QString &errorMessage) {
+    // Ignore AiClient signals during Agent Mode (AgentRunner handles them)
+    if (_isAgentRunning) return;
+
     // Remove "thinking" indicator
     if (_chatLayout->count() > 1) {
         QLayoutItem *last = _chatLayout->takeAt(_chatLayout->count() - 1);
@@ -468,6 +654,117 @@ void MidiPilotWidget::onSettingsClicked() {
         _client->reloadSettings();
         setupSetupPrompt();
     });
+}
+
+QString MidiPilotWidget::currentMode() const {
+    return _modeCombo->currentData().toString();
+}
+
+QJsonObject MidiPilotWidget::executeAction(const QJsonObject &actionObj) {
+    return dispatchAction(actionObj, false);
+}
+
+void MidiPilotWidget::onModeChanged(int index) {
+    Q_UNUSED(index);
+    QSettings settings;
+    settings.setValue("AI/mode", currentMode());
+
+    // If there's an active conversation, start a new chat
+    if (!_conversationHistory.isEmpty()) {
+        onNewChat();
+    }
+}
+
+void MidiPilotWidget::onAgentStepStarted(int step, const QString &toolName) {
+    setStatus(QString("Agent step %1: %2...").arg(step).arg(toolName), "orange");
+
+    // Add step to the collapsible checklist
+    if (_agentStepsWidget) {
+        AgentStepsWidget *sw = static_cast<AgentStepsWidget *>(_agentStepsWidget);
+        sw->addStep(step, toolName);
+    }
+
+    // Scroll to bottom
+    QTimer::singleShot(50, this, [this]() {
+        _chatScroll->verticalScrollBar()->setValue(
+            _chatScroll->verticalScrollBar()->maximum());
+    });
+}
+
+void MidiPilotWidget::onAgentStepCompleted(int step, const QString &toolName, const QJsonObject &result) {
+    Q_UNUSED(toolName);
+    bool success = result["success"].toBool(true);
+    setStatus(QString("Step %1: %2").arg(step).arg(success ? "OK" : "failed"), "orange");
+
+    // Check off the step in the checklist
+    if (_agentStepsWidget) {
+        AgentStepsWidget *sw = static_cast<AgentStepsWidget *>(_agentStepsWidget);
+        sw->completeStep(step, success);
+    }
+}
+
+void MidiPilotWidget::onAgentFinished(const QString &finalMessage) {
+    _isAgentRunning = false;
+
+    // End the compound undo action
+    if (_file)
+        _file->protocol()->endAction();
+
+    // Mark steps widget as finished
+    if (_agentStepsWidget) {
+        AgentStepsWidget *sw = static_cast<AgentStepsWidget *>(_agentStepsWidget);
+        sw->setFinished(true);
+        _agentStepsWidget = nullptr;
+    }
+
+    // Restore send/stop buttons
+    _stopButton->setVisible(false);
+    _sendButton->setVisible(true);
+
+    setStatus("Ready", "green");
+    _inputField->setEnabled(true);
+    _sendButton->setEnabled(true);
+
+    addChatBubble("assistant", finalMessage);
+
+    // Store in conversation history
+    QJsonObject assistantMsg;
+    assistantMsg["role"] = "assistant";
+    assistantMsg["content"] = finalMessage;
+    _conversationHistory.append(assistantMsg);
+
+    ConversationEntry entry;
+    entry.role = "assistant";
+    entry.message = finalMessage;
+    entry.timestamp = QDateTime::currentDateTime();
+    _entries.append(entry);
+
+    refreshContext();
+}
+
+void MidiPilotWidget::onAgentError(const QString &error) {
+    _isAgentRunning = false;
+
+    // End the compound undo action (will undo any partial changes on Ctrl+Z)
+    if (_file)
+        _file->protocol()->endAction();
+
+    // Mark steps widget as failed
+    if (_agentStepsWidget) {
+        AgentStepsWidget *sw = static_cast<AgentStepsWidget *>(_agentStepsWidget);
+        sw->setFinished(false);
+        _agentStepsWidget = nullptr;
+    }
+
+    // Restore send/stop buttons
+    _stopButton->setVisible(false);
+    _sendButton->setVisible(true);
+
+    setStatus("Error", "red");
+    _inputField->setEnabled(true);
+    _sendButton->setEnabled(true);
+
+    addChatBubble("system", "Agent error: " + error);
 }
 
 void MidiPilotWidget::addChatBubble(const QString &role, const QString &text) {
@@ -507,40 +804,50 @@ void MidiPilotWidget::setStatus(const QString &text, const QString &color) {
         QString("font-weight: bold; font-size: 11px; color: %1;").arg(color));
 }
 
-bool MidiPilotWidget::dispatchAction(const QJsonObject &response) {
+QJsonObject MidiPilotWidget::dispatchAction(const QJsonObject &response, bool showBubbles) {
     QString action = response["action"].toString();
 
     if (action == "edit" && response.contains("events")) {
-        applyAiEdits(response);
+        return applyAiEdits(response, showBubbles);
     } else if (action == "delete" && response.contains("deleteIndices")) {
-        applyAiDeletes(response);
+        return applyAiDeletes(response, showBubbles);
     } else if (action == "move_to_track") {
-        applyMoveToTrack(response);
+        return applyMoveToTrack(response, showBubbles);
     } else if (action == "create_track" || action == "rename_track" || action == "set_channel") {
-        applyTrackAction(response);
+        return applyTrackAction(response, showBubbles);
     } else if (action == "set_tempo") {
-        applyTempoAction(response);
+        return applyTempoAction(response, showBubbles);
     } else if (action == "set_time_signature") {
-        applyTimeSignatureAction(response);
+        return applyTimeSignatureAction(response, showBubbles);
     } else if (action == "select_and_edit") {
-        applySelectAndEdit(response);
+        return applySelectAndEdit(response, showBubbles);
     } else if (action == "select_and_delete") {
-        applySelectAndDelete(response);
+        return applySelectAndDelete(response, showBubbles);
     } else if (action == "info" || action == "error") {
-        // No-op here; caller handles display
-    } else {
-        return false;
+        QJsonObject result;
+        result["success"] = true;
+        result["action"] = action;
+        return result;
     }
-    return true;
+    return QJsonObject(); // unknown action
 }
 
-void MidiPilotWidget::applyAiEdits(const QJsonObject &response) {
-    if (!_file)
-        return;
+QJsonObject MidiPilotWidget::applyAiEdits(const QJsonObject &response, bool showBubbles) {
+    QJsonObject result;
+    result["action"] = QString("edit");
+
+    if (!_file) {
+        result["success"] = false;
+        result["error"] = QString("No file loaded.");
+        return result;
+    }
 
     QJsonArray events = response["events"].toArray();
-    if (events.isEmpty())
-        return;
+    if (events.isEmpty()) {
+        result["success"] = false;
+        result["error"] = QString("No events provided.");
+        return result;
+    }
 
     QString explanation = response["explanation"].toString("MidiPilot edit");
 
@@ -561,11 +868,14 @@ void MidiPilotWidget::applyAiEdits(const QJsonObject &response) {
         track = _file->track(0);
     }
 
-    if (!track)
-        return;
+    if (!track) {
+        result["success"] = false;
+        result["error"] = QString("No valid track found.");
+        return result;
+    }
 
-    // Start protocol action for undo support
-    _file->protocol()->startNewAction("MidiPilot: " + explanation);
+    // Start protocol action for undo support (skip in agent mode — compound action is active)
+    if (showBubbles) _file->protocol()->startNewAction("MidiPilot: " + explanation);
 
     // Remove currently selected events (they will be replaced by AI output)
     QList<MidiEvent *> selected = Selection::instance()->selectedEvents();
@@ -580,32 +890,53 @@ void MidiPilotWidget::applyAiEdits(const QJsonObject &response) {
     bool ok = MidiEventSerializer::deserialize(events, _file, track, channel, created);
 
     if (!ok) {
-        _file->protocol()->endAction();
-        addChatBubble("system", "Warning: Some events could not be applied.");
-        return;
+        if (showBubbles) {
+            _file->protocol()->endAction();
+            addChatBubble("system", "Warning: Some events could not be applied.");
+        }
+        result["success"] = false;
+        result["error"] = QString("Some events could not be applied.");
+        return result;
     }
 
     // Select the newly created events
     Selection::instance()->setSelection(created);
 
-    _file->protocol()->endAction();
+    if (showBubbles) _file->protocol()->endAction();
 
     emit requestRepaint();
+
+    result["success"] = true;
+    result["eventsCreated"] = created.size();
+    return result;
 }
 
-void MidiPilotWidget::applyAiDeletes(const QJsonObject &response) {
-    if (!_file)
-        return;
+QJsonObject MidiPilotWidget::applyAiDeletes(const QJsonObject &response, bool showBubbles) {
+    Q_UNUSED(showBubbles);
+    QJsonObject result;
+    result["action"] = QString("delete");
+
+    if (!_file) {
+        result["success"] = false;
+        result["error"] = QString("No file loaded.");
+        return result;
+    }
 
     QJsonArray indices = response["deleteIndices"].toArray();
-    if (indices.isEmpty())
-        return;
+    if (indices.isEmpty()) {
+        result["success"] = false;
+        result["error"] = QString("No delete indices provided.");
+        return result;
+    }
 
     QString explanation = response["explanation"].toString("MidiPilot delete");
 
     QList<MidiEvent *> selected = Selection::instance()->selectedEvents();
-    if (selected.isEmpty())
-        return;
+    if (selected.isEmpty()) {
+        result["success"] = false;
+        result["error"] = QString("No events selected.");
+        return result;
+    }
 
     // Collect indices to delete (validate bounds)
     QSet<int> toDelete;
@@ -616,10 +947,13 @@ void MidiPilotWidget::applyAiDeletes(const QJsonObject &response) {
         }
     }
 
-    if (toDelete.isEmpty())
-        return;
+    if (toDelete.isEmpty()) {
+        result["success"] = false;
+        result["error"] = QString("No valid indices to delete.");
+        return result;
+    }
 
-    _file->protocol()->startNewAction("MidiPilot: " + explanation);
+    if (showBubbles) _file->protocol()->startNewAction("MidiPilot: " + explanation);
 
     // Remove the specified events
     QList<MidiEvent *> remaining;
@@ -637,14 +971,24 @@ void MidiPilotWidget::applyAiDeletes(const QJsonObject &response) {
         Selection::instance()->setSelection(remaining);
     }
 
-    _file->protocol()->endAction();
+    if (showBubbles) _file->protocol()->endAction();
 
     emit requestRepaint();
+
+    result["success"] = true;
+    result["eventsDeleted"] = toDelete.size();
+    return result;
 }
 
-void MidiPilotWidget::applyTrackAction(const QJsonObject &response) {
-    if (!_file)
-        return;
+QJsonObject MidiPilotWidget::applyTrackAction(const QJsonObject &response, bool showBubbles) {
+    QJsonObject result;
+    result["action"] = response["action"].toString();
+
+    if (!_file) {
+        result["success"] = false;
+        result["error"] = QString("No file loaded.");
+        return result;
+    }
 
     QString action = response["action"].toString();
     QString explanation = response["explanation"].toString("MidiPilot track action");
@@ -653,92 +997,130 @@ void MidiPilotWidget::applyTrackAction(const QJsonObject &response) {
         QString trackName = response["trackName"].toString("New Track");
         int channel = response["channel"].toInt(-1);
 
-        _file->protocol()->startNewAction("MidiPilot: " + explanation);
+        if (showBubbles) _file->protocol()->startNewAction("MidiPilot: " + explanation);
         _file->addTrack();
         MidiTrack *newTrack = _file->tracks()->at(_file->numTracks() - 1);
         newTrack->setName(trackName);
         if (channel >= 0 && channel <= 15) {
             newTrack->assignChannel(channel);
         }
-        _file->protocol()->endAction();
+        if (showBubbles) _file->protocol()->endAction();
+
+        result["success"] = true;
+        result["trackIndex"] = _file->numTracks() - 1;
 
     } else if (action == "rename_track") {
         int trackIndex = response["trackIndex"].toInt(-1);
         QString newName = response["newName"].toString();
 
         if (trackIndex < 0 || trackIndex >= _file->numTracks() || newName.isEmpty()) {
-            addChatBubble("system", "Invalid track index or name for rename.");
-            return;
+            if (showBubbles) addChatBubble("system", "Invalid track index or name for rename.");
+            result["success"] = false;
+            result["error"] = QString("Invalid track index or name for rename.");
+            return result;
         }
 
-        _file->protocol()->startNewAction("MidiPilot: " + explanation);
+        if (showBubbles) _file->protocol()->startNewAction("MidiPilot: " + explanation);
         _file->track(trackIndex)->setName(newName);
-        _file->protocol()->endAction();
+        if (showBubbles) _file->protocol()->endAction();
+
+        result["success"] = true;
 
     } else if (action == "set_channel") {
         int trackIndex = response["trackIndex"].toInt(-1);
         int channel = response["channel"].toInt(-1);
 
         if (trackIndex < 0 || trackIndex >= _file->numTracks()) {
-            addChatBubble("system", "Invalid track index for channel assignment.");
-            return;
+            if (showBubbles) addChatBubble("system", "Invalid track index for channel assignment.");
+            result["success"] = false;
+            result["error"] = QString("Invalid track index for channel assignment.");
+            return result;
         }
         if (channel < 0 || channel > 15) {
-            addChatBubble("system", "Channel must be 0-15.");
-            return;
+            if (showBubbles) addChatBubble("system", "Channel must be 0-15.");
+            result["success"] = false;
+            result["error"] = QString("Channel must be 0-15.");
+            return result;
         }
 
-        _file->protocol()->startNewAction("MidiPilot: " + explanation);
+        if (showBubbles) _file->protocol()->startNewAction("MidiPilot: " + explanation);
         _file->track(trackIndex)->assignChannel(channel);
-        _file->protocol()->endAction();
+        if (showBubbles) _file->protocol()->endAction();
+
+        result["success"] = true;
 
     } else {
-        return;
+        result["success"] = false;
+        result["error"] = QString("Unknown track action: ") + action;
+        return result;
     }
 
     _mainWindow->updateTrackMenu();
 
     emit requestRepaint();
+    return result;
 }
 
-void MidiPilotWidget::applyMoveToTrack(const QJsonObject &response) {
-    if (!_file)
-        return;
+QJsonObject MidiPilotWidget::applyMoveToTrack(const QJsonObject &response, bool showBubbles) {
+    QJsonObject result;
+    result["action"] = QString("move_to_track");
+
+    if (!_file) {
+        result["success"] = false;
+        result["error"] = QString("No file loaded.");
+        return result;
+    }
 
     int targetTrackIndex = response["trackIndex"].toInt(-1);
     if (targetTrackIndex < 0 || targetTrackIndex >= _file->numTracks()) {
-        addChatBubble("system", "Invalid target track index.");
-        return;
+        if (showBubbles) addChatBubble("system", "Invalid target track index.");
+        result["success"] = false;
+        result["error"] = QString("Invalid target track index.");
+        return result;
     }
 
     QList<MidiEvent *> selected = Selection::instance()->selectedEvents();
     if (selected.isEmpty()) {
-        addChatBubble("system", "No events selected to move.");
-        return;
+        if (showBubbles) addChatBubble("system", "No events selected to move.");
+        result["success"] = false;
+        result["error"] = QString("No events selected to move.");
+        return result;
     }
 
     MidiTrack *targetTrack = _file->track(targetTrackIndex);
     QString explanation = response["explanation"].toString("MidiPilot move to track");
 
-    _file->protocol()->startNewAction("MidiPilot: " + explanation);
+    if (showBubbles) _file->protocol()->startNewAction("MidiPilot: " + explanation);
 
     for (MidiEvent *ev : selected) {
         ev->setTrack(targetTrack, false);
     }
 
-    _file->protocol()->endAction();
+    if (showBubbles) _file->protocol()->endAction();
 
     emit requestRepaint();
+
+    result["success"] = true;
+    result["eventsMoved"] = selected.size();
+    return result;
 }
 
-void MidiPilotWidget::applyTempoAction(const QJsonObject &response) {
-    if (!_file)
-        return;
+QJsonObject MidiPilotWidget::applyTempoAction(const QJsonObject &response, bool showBubbles) {
+    QJsonObject result;
+    result["action"] = QString("set_tempo");
+
+    if (!_file) {
+        result["success"] = false;
+        result["error"] = QString("No file loaded.");
+        return result;
+    }
 
     int bpm = response["bpm"].toInt(-1);
     if (bpm <= 0 || bpm > 999) {
-        addChatBubble("system", "Invalid BPM value (must be 1-999).");
-        return;
+        if (showBubbles) addChatBubble("system", "Invalid BPM value (must be 1-999).");
+        result["success"] = false;
+        result["error"] = QString("Invalid BPM value (must be 1-999).");
+        return result;
     }
 
     int tick = response["tick"].toInt(0);
@@ -746,7 +1128,7 @@ void MidiPilotWidget::applyTempoAction(const QJsonObject &response) {
 
     QString explanation = response["explanation"].toString("MidiPilot set tempo");
 
-    _file->protocol()->startNewAction("MidiPilot: " + explanation);
+    if (showBubbles) _file->protocol()->startNewAction("MidiPilot: " + explanation);
 
     // Check if there's already a tempo event at this tick
     QMap<int, MidiEvent *> *tempoMap = _file->tempoEvents();
@@ -769,22 +1151,34 @@ void MidiPilotWidget::applyTempoAction(const QJsonObject &response) {
         _file->channel(17)->insertEvent(ev, tick);
     }
 
-    _file->protocol()->endAction();
+    if (showBubbles) _file->protocol()->endAction();
     _file->calcMaxTime();
 
     emit requestRepaint();
+
+    result["success"] = true;
+    result["bpm"] = bpm;
+    return result;
 }
 
-void MidiPilotWidget::applyTimeSignatureAction(const QJsonObject &response) {
-    if (!_file)
-        return;
+QJsonObject MidiPilotWidget::applyTimeSignatureAction(const QJsonObject &response, bool showBubbles) {
+    QJsonObject result;
+    result["action"] = QString("set_time_signature");
+
+    if (!_file) {
+        result["success"] = false;
+        result["error"] = QString("No file loaded.");
+        return result;
+    }
 
     int num = response["numerator"].toInt(-1);
     int denomActual = response["denominator"].toInt(-1);
 
     if (num <= 0 || num > 32) {
-        addChatBubble("system", "Invalid numerator (must be 1-32).");
-        return;
+        if (showBubbles) addChatBubble("system", "Invalid numerator (must be 1-32).");
+        result["success"] = false;
+        result["error"] = QString("Invalid numerator (must be 1-32).");
+        return result;
     }
 
     // Convert musical denominator (4=quarter, 8=eighth) to MIDI power-of-2
@@ -796,8 +1190,10 @@ void MidiPilotWidget::applyTimeSignatureAction(const QJsonObject &response) {
     else if (denomActual == 16) denomMidi = 4;
     else if (denomActual == 32) denomMidi = 5;
     else {
-        addChatBubble("system", "Invalid denominator (must be 1, 2, 4, 8, 16, or 32).");
-        return;
+        if (showBubbles) addChatBubble("system", "Invalid denominator (must be 1, 2, 4, 8, 16, or 32).");
+        result["success"] = false;
+        result["error"] = QString("Invalid denominator (must be 1, 2, 4, 8, 16, or 32).");
+        return result;
     }
 
     int tick = response["tick"].toInt(0);
@@ -805,7 +1201,7 @@ void MidiPilotWidget::applyTimeSignatureAction(const QJsonObject &response) {
 
     QString explanation = response["explanation"].toString("MidiPilot set time signature");
 
-    _file->protocol()->startNewAction("MidiPilot: " + explanation);
+    if (showBubbles) _file->protocol()->startNewAction("MidiPilot: " + explanation);
 
     // Check if there's already a time signature event at this tick
     QMap<int, MidiEvent *> *tsMap = _file->timeSignatureEvents();
@@ -828,14 +1224,25 @@ void MidiPilotWidget::applyTimeSignatureAction(const QJsonObject &response) {
         _file->channel(18)->insertEvent(ev, tick);
     }
 
-    _file->protocol()->endAction();
+    if (showBubbles) _file->protocol()->endAction();
 
     emit requestRepaint();
+
+    result["success"] = true;
+    result["numerator"] = num;
+    result["denominator"] = denomActual;
+    return result;
 }
 
-void MidiPilotWidget::applySelectAndEdit(const QJsonObject &response) {
-    if (!_file)
-        return;
+QJsonObject MidiPilotWidget::applySelectAndEdit(const QJsonObject &response, bool showBubbles) {
+    QJsonObject result;
+    result["action"] = QString("select_and_edit");
+
+    if (!_file) {
+        result["success"] = false;
+        result["error"] = QString("No file loaded.");
+        return result;
+    }
 
     int trackIndex = response["trackIndex"].toInt(-1);
     int startTick = response["startTick"].toInt(-1);
@@ -843,16 +1250,22 @@ void MidiPilotWidget::applySelectAndEdit(const QJsonObject &response) {
     QJsonArray events = response["events"].toArray();
 
     if (trackIndex < 0 || trackIndex >= _file->numTracks()) {
-        addChatBubble("system", "Invalid track index for select_and_edit.");
-        return;
+        if (showBubbles) addChatBubble("system", "Invalid track index for select_and_edit.");
+        result["success"] = false;
+        result["error"] = QString("Invalid track index for select_and_edit.");
+        return result;
     }
     if (startTick < 0 || endTick < startTick) {
-        addChatBubble("system", "Invalid tick range for select_and_edit.");
-        return;
+        if (showBubbles) addChatBubble("system", "Invalid tick range for select_and_edit.");
+        result["success"] = false;
+        result["error"] = QString("Invalid tick range for select_and_edit.");
+        return result;
     }
     if (events.isEmpty()) {
-        addChatBubble("system", "No events provided for select_and_edit.");
-        return;
+        if (showBubbles) addChatBubble("system", "No events provided for select_and_edit.");
+        result["success"] = false;
+        result["error"] = QString("No events provided for select_and_edit.");
+        return result;
     }
 
     MidiTrack *targetTrack = _file->track(trackIndex);
@@ -861,7 +1274,7 @@ void MidiPilotWidget::applySelectAndEdit(const QJsonObject &response) {
 
     QString explanation = response["explanation"].toString("MidiPilot select and edit");
 
-    _file->protocol()->startNewAction("MidiPilot: " + explanation);
+    if (showBubbles) _file->protocol()->startNewAction("MidiPilot: " + explanation);
 
     // Find and remove existing events in the tick range on this track
     QList<MidiEvent *> *allEvents = _file->eventsBetween(startTick, endTick);
@@ -888,32 +1301,46 @@ void MidiPilotWidget::applySelectAndEdit(const QJsonObject &response) {
         Selection::instance()->setSelection(created);
     }
 
-    _file->protocol()->endAction();
+    if (showBubbles) _file->protocol()->endAction();
 
     emit requestRepaint();
+
+    result["success"] = true;
+    result["eventsCreated"] = created.size();
+    return result;
 }
 
-void MidiPilotWidget::applySelectAndDelete(const QJsonObject &response) {
-    if (!_file)
-        return;
+QJsonObject MidiPilotWidget::applySelectAndDelete(const QJsonObject &response, bool showBubbles) {
+    QJsonObject result;
+    result["action"] = QString("select_and_delete");
+
+    if (!_file) {
+        result["success"] = false;
+        result["error"] = QString("No file loaded.");
+        return result;
+    }
 
     int trackIndex = response["trackIndex"].toInt(-1);
     int startTick = response["startTick"].toInt(-1);
     int endTick = response["endTick"].toInt(-1);
 
     if (trackIndex < 0 || trackIndex >= _file->numTracks()) {
-        addChatBubble("system", "Invalid track index for select_and_delete.");
-        return;
+        if (showBubbles) addChatBubble("system", "Invalid track index for select_and_delete.");
+        result["success"] = false;
+        result["error"] = QString("Invalid track index for select_and_delete.");
+        return result;
     }
     if (startTick < 0 || endTick < startTick) {
-        addChatBubble("system", "Invalid tick range for select_and_delete.");
-        return;
+        if (showBubbles) addChatBubble("system", "Invalid tick range for select_and_delete.");
+        result["success"] = false;
+        result["error"] = QString("Invalid tick range for select_and_delete.");
+        return result;
     }
 
     MidiTrack *targetTrack = _file->track(trackIndex);
     QString explanation = response["explanation"].toString("MidiPilot select and delete");
 
-    _file->protocol()->startNewAction("MidiPilot: " + explanation);
+    if (showBubbles) _file->protocol()->startNewAction("MidiPilot: " + explanation);
 
     // Find and remove events in the tick range on this track
     QList<MidiEvent *> *allEvents = _file->eventsBetween(startTick, endTick);
@@ -935,11 +1362,17 @@ void MidiPilotWidget::applySelectAndDelete(const QJsonObject &response) {
 
     Selection::instance()->clearSelection();
 
-    _file->protocol()->endAction();
+    if (showBubbles) _file->protocol()->endAction();
 
     if (deletedCount == 0) {
-        addChatBubble("system", "No events found in the specified range.");
+        if (showBubbles) addChatBubble("system", "No events found in the specified range.");
+        result["success"] = false;
+        result["error"] = QString("No events found in the specified range.");
+    } else {
+        result["success"] = true;
+        result["eventsDeleted"] = deletedCount;
     }
 
     emit requestRepaint();
+    return result;
 }

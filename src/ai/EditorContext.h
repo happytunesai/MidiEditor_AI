@@ -40,6 +40,12 @@ public:
     static QString systemPrompt();
 
     /**
+     * \brief Returns the Agent Mode system prompt (shorter, tools are self-documenting).
+     * \return The agent system prompt string
+     */
+    static QString agentSystemPrompt();
+
+    /**
      * \brief Captures surrounding events (±N measures) as JSON per track.
      * \param file The current MidiFile
      * \param cursorTick The cursor position

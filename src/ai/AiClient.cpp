@@ -135,18 +135,6 @@ void AiClient::sendRequest(const QString &systemPrompt,
                             const QJsonArray &conversationHistory,
                             const QString &userMessage)
 {
-    if (!isConfigured()) {
-        emit errorOccurred(tr("No API key configured. Please set your OpenAI API key in Settings."));
-        return;
-    }
-
-    if (_currentReply) {
-        emit errorOccurred(tr("A request is already in progress."));
-        return;
-    }
-
-    _isTestRequest = false;
-
     // Build messages array
     QJsonArray messages;
 
@@ -170,19 +158,39 @@ void AiClient::sendRequest(const QString &systemPrompt,
     userMsg[QStringLiteral("content")] = userMessage;
     messages.append(userMsg);
 
+    sendMessages(messages);
+}
+
+void AiClient::sendMessages(const QJsonArray &messages, const QJsonArray &tools)
+{
+    if (!isConfigured()) {
+        emit errorOccurred(tr("No API key configured. Please set your OpenAI API key in Settings."));
+        return;
+    }
+
+    if (_currentReply) {
+        emit errorOccurred(tr("A request is already in progress."));
+        return;
+    }
+
+    _isTestRequest = false;
+
+    bool reasoning = isReasoningModel();
+
     // Build request body
     QJsonObject body;
     body[QStringLiteral("model")] = _model;
     body[QStringLiteral("messages")] = messages;
 
+    if (!tools.isEmpty()) {
+        body[QStringLiteral("tools")] = tools;
+    }
+
     if (reasoning) {
-        // Reasoning models: no temperature allowed.
-        // Chat Completions API uses top-level "reasoning_effort" string.
         body[QStringLiteral("reasoning_effort")] = _thinkingEnabled
             ? _reasoningEffort
             : QStringLiteral("low");
     } else {
-        // Standard models: use temperature (reasoning_effort not supported)
         body[QStringLiteral("temperature")] = 0.3;
     }
 
@@ -195,9 +203,10 @@ void AiClient::sendRequest(const QString &systemPrompt,
     request.setRawHeader("Authorization", QStringLiteral("Bearer %1").arg(apiKey()).toUtf8());
     request.setTransferTimeout(reasoning ? 120000 : 60000);
 
-    logApi(QStringLiteral("[REQUEST] model=%1 reasoning=%2 body=%3")
+    logApi(QStringLiteral("[REQUEST] model=%1 reasoning=%2 tools=%3 body=%4")
            .arg(_model,
                 reasoning ? QStringLiteral("yes") : QStringLiteral("no"),
+                tools.isEmpty() ? QStringLiteral("none") : QString::number(tools.size()),
                 QString::fromUtf8(data)));
 
     _currentReply = _manager->post(request, data);

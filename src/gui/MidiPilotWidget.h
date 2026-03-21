@@ -12,8 +12,10 @@ class QLabel;
 class QTextEdit;
 class QPushButton;
 class QScrollArea;
+class QComboBox;
 class MidiFile;
 class AiClient;
+class AgentRunner;
 class MainWindow;
 
 /**
@@ -39,7 +41,15 @@ public:
      * \brief Sets focus to the input field.
      */
     void focusInput();
+    /**
+     * \\brief Returns the current mode: \"simple\" or \"agent\".
+     */
+    QString currentMode() const;
 
+    /**
+     * \brief Executes an action silently (no chat bubbles). Used by Agent Mode tool calls.
+     */
+    QJsonObject executeAction(const QJsonObject &actionObj);
 public slots:
     /**
      * \brief Called when a new file is loaded or file changes.
@@ -57,11 +67,17 @@ signals:
      */
     void requestRepaint();
 
+
 private slots:
     void onSendMessage();
     void onResponseReceived(const QString &content, const QJsonObject &fullResponse);
     void onErrorOccurred(const QString &errorMessage);
     void onSettingsClicked();
+    void onModeChanged(int index);
+    void onAgentStepStarted(int step, const QString &toolName);
+    void onAgentStepCompleted(int step, const QString &toolName, const QJsonObject &result);
+    void onAgentFinished(const QString &finalMessage);
+    void onAgentError(const QString &error);
 
 private:
     struct ConversationEntry {
@@ -75,19 +91,24 @@ private:
     void setupSetupPrompt();
     void addChatBubble(const QString &role, const QString &text);
     void setStatus(const QString &text, const QString &color);
-    bool dispatchAction(const QJsonObject &actionObj);
-    void applyAiEdits(const QJsonObject &response);
-    void applyAiDeletes(const QJsonObject &response);
-    void applyTrackAction(const QJsonObject &response);
-    void applyMoveToTrack(const QJsonObject &response);
-    void applyTempoAction(const QJsonObject &response);
-    void applyTimeSignatureAction(const QJsonObject &response);
-    void applySelectAndEdit(const QJsonObject &response);
-    void applySelectAndDelete(const QJsonObject &response);
+    QJsonObject dispatchAction(const QJsonObject &actionObj, bool showBubbles = true);
+    QJsonObject applyAiEdits(const QJsonObject &response, bool showBubbles = true);
+    QJsonObject applyAiDeletes(const QJsonObject &response, bool showBubbles = true);
+    QJsonObject applyTrackAction(const QJsonObject &response, bool showBubbles = true);
+    QJsonObject applyMoveToTrack(const QJsonObject &response, bool showBubbles = true);
+    QJsonObject applyTempoAction(const QJsonObject &response, bool showBubbles = true);
+    QJsonObject applyTimeSignatureAction(const QJsonObject &response, bool showBubbles = true);
+    QJsonObject applySelectAndEdit(const QJsonObject &response, bool showBubbles = true);
+    QJsonObject applySelectAndDelete(const QJsonObject &response, bool showBubbles = true);
 
     MainWindow *_mainWindow;
     MidiFile *_file;
     AiClient *_client;
+    AgentRunner *_agentRunner;
+    bool _isAgentRunning;
+
+    // Agent steps UI
+    QWidget *_agentStepsWidget;  // Actually AgentStepsWidget*, stored as QWidget* to avoid header dep
 
     // Context bar
     QLabel *_contextLabel;
@@ -100,6 +121,8 @@ private:
     // Input area
     QTextEdit *_inputField;
     QPushButton *_sendButton;
+    QPushButton *_stopButton;
+    QComboBox *_modeCombo;
 
     // Footer (status, model, settings)
     QLabel *_statusLabel;

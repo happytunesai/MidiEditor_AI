@@ -110,6 +110,16 @@ AiSettingsWidget::AiSettingsWidget(QSettings *settings, QWidget *parent)
     layout->addWidget(_contextEstimateLabel, row, 2);
     row++;
 
+    // Agent max steps
+    layout->addWidget(new QLabel("Agent Max Steps:"), row, 0);
+    _agentMaxStepsSpin = new QSpinBox(this);
+    _agentMaxStepsSpin->setRange(5, 100);
+    _agentMaxStepsSpin->setValue(_settings->value("AI/agent_max_steps", 25).toInt());
+    _agentMaxStepsSpin->setToolTip("Maximum number of tool calls the Agent can make per request.\n"
+                                   "Higher values allow more complex tasks but take longer.");
+    layout->addWidget(_agentMaxStepsSpin, row, 1);
+    row++;
+
     auto updateEstimate = [this]() {
         int m = _contextMeasuresSpin->value();
         if (m == 0) {
@@ -147,6 +157,7 @@ bool AiSettingsWidget::accept() {
     _settings->setValue("AI/thinking_enabled", _thinkingCheck->isChecked());
     _settings->setValue("AI/reasoning_effort", _effortCombo->currentData().toString());
     _settings->setValue("AI/context_measures", _contextMeasuresSpin->value());
+    _settings->setValue("AI/agent_max_steps", _agentMaxStepsSpin->value());
     return true;
 }
 

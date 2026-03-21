@@ -34,6 +34,15 @@ public:
                      const QString &userMessage);
 
     /**
+     * \brief Sends a raw messages array (with optional tools) to the API.
+     * Used by AgentRunner for the tool-calling loop.
+     * \param messages Complete messages array (system + user + assistant + tool)
+     * \param tools Optional tools array in OpenAI format
+     */
+    void sendMessages(const QJsonArray &messages,
+                      const QJsonArray &tools = QJsonArray());
+
+    /**
      * \brief Checks whether an API key is configured.
      * \return true if an API key is set
      */
