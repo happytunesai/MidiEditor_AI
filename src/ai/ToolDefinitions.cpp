@@ -326,10 +326,18 @@ QJsonObject ToolDefinitions::executeTool(const QString &toolName,
         return execWriteAction(toolName, args, widget);
     }
     if (toolName == "insert_events") {
+        // Validate events array exists and is non-empty
+        QJsonArray events = args["events"].toArray();
+        if (events.isEmpty()) {
+            QJsonObject result;
+            result["success"] = false;
+            result["error"] = QString("No events provided. The 'events' array is required and must contain at least one event object with type, tick, note, velocity, duration fields.");
+            return result;
+        }
         // Map to "edit" action (insert without selection = pure insert)
         QJsonObject actionObj;
         actionObj["action"] = QString("edit");
-        actionObj["events"] = args["events"];
+        actionObj["events"] = events;
         if (args.contains("trackIndex"))
             actionObj["track"] = args["trackIndex"];
         if (args.contains("channel"))
@@ -338,13 +346,21 @@ QJsonObject ToolDefinitions::executeTool(const QString &toolName,
         return widget->executeAction(actionObj);
     }
     if (toolName == "replace_events") {
+        // Validate events array exists and is non-empty
+        QJsonArray events = args["events"].toArray();
+        if (events.isEmpty()) {
+            QJsonObject result;
+            result["success"] = false;
+            result["error"] = QString("No events provided. The 'events' array is required and must contain at least one event object with type, tick, note, velocity, duration fields. If you want to delete events instead, use the delete_events tool.");
+            return result;
+        }
         // Map to "select_and_edit"
         QJsonObject actionObj;
         actionObj["action"] = QString("select_and_edit");
         actionObj["trackIndex"] = args["trackIndex"];
         actionObj["startTick"] = args["startTick"];
         actionObj["endTick"] = args["endTick"];
-        actionObj["events"] = args["events"];
+        actionObj["events"] = events;
         actionObj["explanation"] = QString("Agent: replace events");
         return widget->executeAction(actionObj);
     }

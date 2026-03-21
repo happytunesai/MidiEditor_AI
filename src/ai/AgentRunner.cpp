@@ -27,6 +27,7 @@ void AgentRunner::run(const QString &systemPrompt,
                       MidiFile *file,
                       MidiPilotWidget *widget)
 {
+    Q_UNUSED(userMessage);  // Already included in conversationHistory
     if (_running) {
         emit errorOccurred("Agent is already running.");
         return;
@@ -53,16 +54,10 @@ void AgentRunner::run(const QString &systemPrompt,
     sysMsg["content"] = systemPrompt;
     _messages.append(sysMsg);
 
-    // Conversation history
+    // Conversation history (already includes the current user message)
     for (const QJsonValue &msg : conversationHistory) {
         _messages.append(msg);
     }
-
-    // User message
-    QJsonObject userMsg;
-    userMsg["role"] = QString("user");
-    userMsg["content"] = userMessage;
-    _messages.append(userMsg);
 
     // Get tool schemas
     _tools = ToolDefinitions::toolSchemas();

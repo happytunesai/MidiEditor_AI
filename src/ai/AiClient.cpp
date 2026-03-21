@@ -187,9 +187,14 @@ void AiClient::sendMessages(const QJsonArray &messages, const QJsonArray &tools)
     }
 
     if (reasoning) {
-        body[QStringLiteral("reasoning_effort")] = _thinkingEnabled
-            ? _reasoningEffort
-            : QStringLiteral("low");
+        if (_thinkingEnabled) {
+            body[QStringLiteral("reasoning_effort")] = _reasoningEffort;
+        } else if (!tools.isEmpty()) {
+            // Tool-calling needs enough budget for arguments — use at least medium
+            body[QStringLiteral("reasoning_effort")] = QStringLiteral("medium");
+        } else {
+            body[QStringLiteral("reasoning_effort")] = QStringLiteral("low");
+        }
     } else {
         body[QStringLiteral("temperature")] = 0.3;
     }
