@@ -859,7 +859,18 @@ QJsonObject MidiPilotWidget::applyAiEdits(const QJsonObject &response, bool show
     if (trackIndex < 0 || trackIndex >= _file->numTracks()) {
         trackIndex = NewNoteTool::editTrack();
     }
-    int channel = NewNoteTool::editChannel();
+
+    // Determine channel: prefer AI-specified, then track's assigned, then UI active
+    int channel = -1;
+    if (response.contains("channel")) {
+        channel = response["channel"].toInt(-1);
+    }
+    if (channel < 0 && trackIndex >= 0 && trackIndex < _file->numTracks()) {
+        channel = _file->track(trackIndex)->assignedChannel();
+    }
+    if (channel < 0) {
+        channel = NewNoteTool::editChannel();
+    }
 
     MidiTrack *track = nullptr;
     if (trackIndex >= 0 && trackIndex < _file->numTracks()) {
