@@ -897,7 +897,8 @@ QStringList LayoutSettingsWidget::getDefaultToolbarOrder() {
             << "metronome" << "align_left" << "equalize" << "align_right" << "separator7"
             << "zoom_hor_in" << "zoom_hor_out" << "zoom_ver_in" << "zoom_ver_out"
             << "lock" << "separator8" << "quantize" << "magnet" << "separator9"
-            << "measure" << "time_signature" << "tempo";
+            << "measure" << "time_signature" << "tempo"
+            << "separator10" << "toggle_midipilot";
     return order;
 }
 

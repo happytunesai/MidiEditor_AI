@@ -1,0 +1,160 @@
+#ifndef AICLIENT_H
+#define AICLIENT_H
+
+#include <QObject>
+#include <QJsonObject>
+#include <QJsonArray>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QSettings>
+
+/**
+ * \class AiClient
+ *
+ * \brief Handles communication with the OpenAI API for MidiPilot.
+ *
+ * AiClient sends chat completion requests to the OpenAI API and emits
+ * signals when responses are received or errors occur. It manages the
+ * conversation history and constructs properly formatted API requests.
+ */
+class AiClient : public QObject {
+    Q_OBJECT
+
+public:
+    explicit AiClient(QObject *parent = nullptr);
+
+    /**
+     * \brief Sends a chat completion request to the OpenAI API.
+     * \param systemPrompt The system prompt defining the AI's behavior
+     * \param conversationHistory Previous messages in the conversation
+     * \param userMessage The current user message (appended to history)
+     */
+    void sendRequest(const QString &systemPrompt,
+                     const QJsonArray &conversationHistory,
+                     const QString &userMessage);
+
+    /**
+     * \brief Checks whether an API key is configured.
+     * \return true if an API key is set
+     */
+    bool isConfigured() const;
+
+    /**
+     * \brief Gets the currently configured model name.
+     * \return Model identifier string (e.g. "gpt-4o-mini")
+     */
+    QString model() const;
+
+    /**
+     * \brief Sets the model to use for API requests.
+     * \param model Model identifier string
+     */
+    void setModel(const QString &model);
+
+    /**
+     * \brief Gets the API key from settings.
+     * \return The stored API key (may be empty)
+     */
+    QString apiKey() const;
+
+    /**
+     * \brief Stores the API key in settings.
+     * \param key The OpenAI API key
+     */
+    void setApiKey(const QString &key);
+
+    /**
+     * \brief Gets whether thinking/reasoning is enabled.
+     */
+    bool thinkingEnabled() const;
+
+    /**
+     * \brief Sets whether thinking/reasoning is enabled.
+     */
+    void setThinkingEnabled(bool enabled);
+
+    /**
+     * \brief Gets the reasoning effort level.
+     * \return "low", "medium", or "high"
+     */
+    QString reasoningEffort() const;
+
+    /**
+     * \brief Sets the reasoning effort level.
+     * \param effort "low", "medium", or "high"
+     */
+    void setReasoningEffort(const QString &effort);
+
+    /**
+     * \brief Reloads all settings from QSettings (after settings dialog closes).
+     */
+    void reloadSettings();
+
+    /**
+     * \brief Checks whether the current model is a reasoning-native model.
+     * \return true for o-series and GPT-5.x models
+     */
+    bool isReasoningModel() const;
+
+    /**
+     * \brief Tests the API connection with a simple request.
+     */
+    void testConnection();
+
+    /**
+     * \brief Clears the API debug log file.
+     */
+    static void clearLog();
+
+    /**
+     * \brief Cancels any pending request.
+     */
+    void cancelRequest();
+
+    /**
+     * \brief Returns whether a request is currently in progress.
+     */
+    bool isBusy() const;
+
+signals:
+    /**
+     * \brief Emitted when a successful response is received.
+     * \param content The assistant's response text
+     * \param fullResponse The complete API response JSON
+     */
+    void responseReceived(const QString &content, const QJsonObject &fullResponse);
+
+    /**
+     * \brief Emitted when an error occurs.
+     * \param errorMessage Human-readable error description
+     */
+    void errorOccurred(const QString &errorMessage);
+
+    /**
+     * \brief Emitted when a connection test completes.
+     * \param success Whether the test was successful
+     * \param message Description of the result
+     */
+    void connectionTestResult(bool success, const QString &message);
+
+private slots:
+    void onReplyFinished(QNetworkReply *reply);
+
+private:
+    QNetworkAccessManager *_manager;
+    QNetworkReply *_currentReply;
+    QSettings _settings;
+    QString _model;
+    bool _isTestRequest;
+    bool _thinkingEnabled;
+    QString _reasoningEffort;
+
+    static const QString API_URL;
+    static const QString DEFAULT_MODEL;
+    static const QString SETTINGS_KEY_API_KEY;
+    static const QString SETTINGS_KEY_MODEL;
+    static const QString SETTINGS_KEY_THINKING;
+    static const QString SETTINGS_KEY_REASONING_EFFORT;
+};
+
+#endif // AICLIENT_H

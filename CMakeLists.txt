@@ -200,6 +200,7 @@ target_include_directories(MidiEditor PRIVATE
     src/MidiEvent
     src/protocol
     src/tool
+    src/ai
 )
 message(STATUS "Added project include directories")
 
@@ -209,6 +210,7 @@ file(GLOB SOURCES_MIDIEVENT "src/MidiEvent/*.cpp")
 file(GLOB SOURCES_GUI "src/gui/*.cpp")
 file(GLOB SOURCES_PROTOCOL "src/protocol/*.cpp")
 file(GLOB SOURCES_TOOL "src/tool/*.cpp")
+file(GLOB SOURCES_AI "src/ai/*.cpp")
 
 # For midi directory, be selective to avoid test files
 file(GLOB SOURCES_MIDI "src/midi/*.cpp")
@@ -221,6 +223,7 @@ set(SOURCES
     ${SOURCES_MIDI}
     ${SOURCES_PROTOCOL}
     ${SOURCES_TOOL}
+    ${SOURCES_AI}
 )
 
 # Add only main rtmidi files if they exist (not tests/docs/examples)
@@ -250,6 +253,7 @@ file(GLOB HEADERS_MIDIEVENT "src/MidiEvent/*.h")
 file(GLOB HEADERS_GUI "src/gui/*.h")
 file(GLOB HEADERS_PROTOCOL "src/protocol/*.h")
 file(GLOB HEADERS_TOOL "src/tool/*.h")
+file(GLOB HEADERS_AI "src/ai/*.h")
 
 # For midi directory, be selective to avoid test files
 file(GLOB HEADERS_MIDI "src/midi/*.h")
@@ -262,6 +266,7 @@ set(HEADERS
     ${HEADERS_MIDI}
     ${HEADERS_PROTOCOL}
     ${HEADERS_TOOL}
+    ${HEADERS_AI}
 )
 
 if(EXISTS "${CMAKE_SOURCE_DIR}/src/midi/rtmidi/RtMidi.h")
@@ -335,15 +340,6 @@ elseif(PLAT_WINDOWS)
     set_target_properties(MidiEditor PROPERTIES
             WIN32_EXECUTABLE TRUE
     )
-
-    # Set appropriate linker flags based on compiler
-    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
-        # MinGW/GCC syntax
-        target_link_options(MidiEditor PRIVATE -mwindows)
-    elseif(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
-        # MSVC syntax
-        target_link_options(MidiEditor PRIVATE /SUBSYSTEM:WINDOWS)
-    endif()
 elseif(PLAT_MACOSX)
     target_compile_definitions(MidiEditor PRIVATE __MACOSX_CORE__)
     target_link_libraries(MidiEditor PRIVATE
@@ -365,14 +361,14 @@ if(WIN32)
         # Deploy Qt libraries to build directory for debugging
         add_custom_command(TARGET MidiEditor POST_BUILD
             COMMAND ${WINDEPLOYQT_EXECUTABLE}
-                --debug
+                --release
                 --compiler-runtime
                 --force
                 --no-translations
                 --no-system-d3d-compiler
                 --no-opengl-sw
                 $<TARGET_FILE:MidiEditor>
-            COMMENT "Deploying Qt libraries for debug"
+            COMMENT "Deploying Qt libraries for release"
         )
 
         # Ensure platforms plugin is deployed

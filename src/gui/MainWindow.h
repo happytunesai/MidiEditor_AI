@@ -52,6 +52,8 @@ class Update;
 class SelectionNavigator;
 class TweakTarget;
 class UpdateChecker;
+class MidiPilotWidget;
+class QDockWidget;
 
 /**
  * \class MainWindow
@@ -998,6 +1000,15 @@ private:
 
     /** \brief Update checker instance */
     UpdateChecker *_updateChecker;
+
+    /** \brief MidiPilot AI sidebar widget */
+    MidiPilotWidget *_midiPilotWidget = nullptr;
+
+    /** \brief Dock widget containing MidiPilot */
+    QDockWidget *_midiPilotDock = nullptr;
+
+    /** \brief Action to toggle MidiPilot visibility */
+    QAction *_toggleMidiPilotAction;
 
     /** \brief Whether the current update check should be silent (no UI if no update) */
     bool _silentUpdateCheck;

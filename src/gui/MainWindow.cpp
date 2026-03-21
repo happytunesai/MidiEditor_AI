@@ -67,6 +67,9 @@
 #include "TransposeDialog.h"
 #include "TweakTarget.h"
 #include "UpdateChecker.h"
+#include "MidiPilotWidget.h"
+
+#include <QDockWidget>
 
 #include "../tool/DeleteOverlapsTool.h"
 #include "../tool/EraserTool.h"
@@ -557,6 +560,20 @@ MainWindow::MainWindow(QString initFile)
 
     setCentralWidget(central);
 
+    // === MidiPilot Dock Widget (must be created before setupActions because View menu references it) ===
+    _midiPilotWidget = new MidiPilotWidget(this);
+    _midiPilotDock = new QDockWidget(tr("MidiPilot"), this);
+    _midiPilotDock->setWidget(_midiPilotWidget);
+    _midiPilotDock->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
+    _midiPilotDock->setMinimumWidth(280);
+    addDockWidget(Qt::RightDockWidgetArea, _midiPilotDock);
+    _midiPilotDock->setVisible(false);
+
+    connect(_midiPilotWidget, &MidiPilotWidget::requestRepaint, this, [this]() {
+        _matrixWidgetContainer->update();
+        _miscWidgetContainer->update();
+    });
+
     QWidget *buttons = setupActions(central);
 
     rightSplitter->setStretchFactor(0, 5);
@@ -575,6 +592,7 @@ MainWindow::MainWindow(QString initFile)
         colorsByTrack();
     }
     copiedEventsChanged();
+
     setAcceptDrops(true);
 
     currentTweakTarget = new TimeTweakTarget(this);
@@ -722,6 +740,7 @@ void MainWindow::setFile(MidiFile *newFile) {
     eventWidget()->setFile(newFile);
 
     Tool::setFile(newFile);
+    _midiPilotWidget->onFileChanged(newFile);
     this->file = newFile;
     connect(newFile, SIGNAL(trackChanged()), this, SLOT(updateTrackMenu()));
     setWindowTitle(QApplication::applicationName() + " - " + newFile->path() + "[*]");
@@ -3010,6 +3029,22 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
 
     editMB->addSeparator();
 
+    QAction *askMidiPilotAction = new QAction(tr("Ask MidiPilot..."), this);
+    Appearance::setActionIcon(askMidiPilotAction, ":/run_environment/graphics/tool/midipilot.png");
+    connect(askMidiPilotAction, &QAction::triggered, this, [this]() {
+        if (_midiPilotDock) {
+            _midiPilotDock->setVisible(true);
+            _midiPilotDock->raise();
+        }
+        if (_midiPilotWidget) {
+            _midiPilotWidget->focusInput();
+        }
+    });
+    editMB->addAction(askMidiPilotAction);
+    _actionMap["ask_midipilot"] = askMidiPilotAction;
+
+    editMB->addSeparator();
+
     QAction *configAction = new QAction(tr("Settings"), this);
     Appearance::setActionIcon(configAction, ":/run_environment/graphics/tool/config.png");
     connect(configAction, SIGNAL(triggered()), this, SLOT(openConfig()));
@@ -3017,7 +3052,6 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
 
     // Tools
     QMenu *toolsToolsMenu = new QMenu(tr("Current tool..."), toolsMB);
-
     StandardTool *tool = new StandardTool();
     Tool::setCurrentTool(tool);
     stdToolAction = new ToolButton(tool, QKeySequence(Qt::Key_F1), toolsToolsMenu);
@@ -3586,6 +3620,23 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
     viewMB->addAction(_allChannelsInvisible);
     viewMB->addAction(_allTracksVisible);
     viewMB->addAction(_allTracksInvisible);
+
+    viewMB->addSeparator();
+
+    // MidiPilot toggle
+    _toggleMidiPilotAction = _midiPilotDock->toggleViewAction();
+    _toggleMidiPilotAction->setText(tr("MidiPilot"));
+    _toggleMidiPilotAction->setIcon(QIcon(QStringLiteral(":/run_environment/graphics/tool/midipilot.png")));
+    _toggleMidiPilotAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_I));
+    _defaultShortcuts["toggle_midipilot"] = QList<QKeySequence>() << _toggleMidiPilotAction->shortcut();
+    _toggleMidiPilotAction->setToolTip(tr("Toggle MidiPilot AI assistant panel (Ctrl+I)"));
+    connect(_toggleMidiPilotAction, &QAction::triggered, this, [this](bool checked) {
+        if (checked && _midiPilotWidget) {
+            _midiPilotWidget->focusInput();
+        }
+    });
+    viewMB->addAction(_toggleMidiPilotAction);
+    _actionMap["toggle_midipilot"] = _toggleMidiPilotAction;
 
     viewMB->addSeparator();
 
@@ -5081,6 +5132,9 @@ void MainWindow::checkEnableActionsForSelection() {
     if (file) {
         undoAction->setEnabled(file->protocol()->stepsBack() > 1);
         redoAction->setEnabled(file->protocol()->stepsForward() > 0);
+    }
+    if (_midiPilotWidget) {
+        _midiPilotWidget->refreshContext();
     }
 }
 

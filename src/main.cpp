@@ -206,5 +206,6 @@ int main(int argc, char *argv[]) {
     else
         w = new MainWindow();
     w->showMaximized();
-    return a.exec();
+    int result = a.exec();
+    return result;
 }
