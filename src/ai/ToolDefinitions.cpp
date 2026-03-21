@@ -152,7 +152,12 @@ QJsonArray ToolDefinitions::toolSchemas() {
     {
         QJsonObject eventSchema;
         eventSchema["type"] = QString("object");
-        eventSchema["description"] = QString("A MIDI event object with type, tick, note/value, velocity, duration fields.");
+        eventSchema["description"] = QString(
+            "A MIDI event object. Supported types: "
+            "note (tick, note, velocity, duration), "
+            "cc (tick, control, value), "
+            "pitch_bend (tick, value), "
+            "program_change (tick, program 0-127).");
 
         QJsonObject props;
         props["trackIndex"] = QJsonObject{
@@ -165,7 +170,7 @@ QJsonArray ToolDefinitions::toolSchemas() {
         props["events"] = QJsonObject{
             {"type", "array"},
             {"items", eventSchema},
-            {"description", "Array of MIDI event objects to insert."}};
+            {"description", "Array of MIDI event objects to insert. Include a program_change event at tick 0 to set the GM instrument."}};
         QJsonObject params;
         params["type"] = QString("object");
         params["properties"] = props;
