@@ -11,6 +11,7 @@
 #include <QJsonArray>
 #include <QTextEdit>
 #include <QFrame>
+#include <QTime>
 #include <QTimer>
 #include <QSet>
 #include <QSettings>
@@ -768,7 +769,11 @@ void MidiPilotWidget::onAgentError(const QString &error) {
 }
 
 void MidiPilotWidget::addChatBubble(const QString &role, const QString &text) {
-    QLabel *bubble = new QLabel(text, _chatContainer);
+    // Add timestamp prefix
+    QString timestamp = QTime::currentTime().toString("HH:mm:ss");
+    QString displayText = QString("[%1] %2").arg(timestamp, text);
+
+    QLabel *bubble = new QLabel(displayText, _chatContainer);
     bubble->setWordWrap(true);
     bubble->setTextInteractionFlags(Qt::TextSelectableByMouse);
     bubble->setContentsMargins(10, 6, 10, 6);
@@ -888,13 +893,16 @@ QJsonObject MidiPilotWidget::applyAiEdits(const QJsonObject &response, bool show
     // Start protocol action for undo support (skip in agent mode — compound action is active)
     if (showBubbles) _file->protocol()->startNewAction("MidiPilot: " + explanation);
 
-    // Remove currently selected events (they will be replaced by AI output)
-    QList<MidiEvent *> selected = Selection::instance()->selectedEvents();
-    for (MidiEvent *ev : selected) {
-        MidiChannel *ch = _file->channel(ev->channel());
-        if (ch) ch->removeEvent(ev);
+    // In simple mode, remove currently selected events (they will be replaced by AI output).
+    // In agent mode (showBubbles=false), skip this — each tool call is an independent insert.
+    if (showBubbles) {
+        QList<MidiEvent *> selected = Selection::instance()->selectedEvents();
+        for (MidiEvent *ev : selected) {
+            MidiChannel *ch = _file->channel(ev->channel());
+            if (ch) ch->removeEvent(ev);
+        }
+        Selection::instance()->clearSelection();
     }
-    Selection::instance()->clearSelection();
 
     // Deserialize and insert new events
     QList<MidiEvent *> created;
@@ -910,10 +918,12 @@ QJsonObject MidiPilotWidget::applyAiEdits(const QJsonObject &response, bool show
         return result;
     }
 
-    // Select the newly created events
-    Selection::instance()->setSelection(created);
-
-    if (showBubbles) _file->protocol()->endAction();
+    // In simple mode, select the newly created events for visual feedback.
+    // In agent mode, skip selection to prevent next tool call from deleting these events.
+    if (showBubbles) {
+        Selection::instance()->setSelection(created);
+        _file->protocol()->endAction();
+    }
 
     emit requestRepaint();
 
