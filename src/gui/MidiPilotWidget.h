@@ -6,8 +6,11 @@
 #include <QJsonObject>
 #include <QDateTime>
 
+class QTimer;
+
 class QVBoxLayout;
 class QHBoxLayout;
+class QFrame;
 class QLabel;
 class QTextEdit;
 class QPushButton;
@@ -128,7 +131,12 @@ private:
     QComboBox *_modeCombo;
 
     // Footer (status, model, settings)
+    QFrame *_statusBar;
     QLabel *_statusLabel;
+    QLabel *_statusDots;
+    QTimer *_statusTimer;
+    int _dotPhase;
+    int _msgPhase;
     QComboBox *_modelCombo;
     QComboBox *_effortCombo;
 

@@ -75,6 +75,7 @@ private slots:
 private:
     void sendNextRequest();
     void processToolCalls(const QJsonObject &assistantMessage);
+    static QString buildStepLabel(const QString &toolName, const QJsonObject &args);
     void cleanup();
 
     AiClient *_client;

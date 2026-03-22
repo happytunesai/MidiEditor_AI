@@ -18,6 +18,7 @@
 #include <QKeyEvent>
 #include <QComboBox>
 #include <QApplication>
+#include <QRandomGenerator>
 
 #include <cmath>
 #include <algorithm>
@@ -127,23 +128,21 @@ public:
         updateHeader();
     }
 
-    void addStep(int step, const QString &toolName) {
+    void addStep(int step, const QString &label) {
         if (_stepLabels.contains(step)) return;  // Already planned
-        // Humanize tool names
-        QString display = humanize(toolName);
-        QLabel *label = new QLabel(
-            QString("\xE2\x8F\xB3 %1").arg(display), _stepsContainer);  // ⏳
-        label->setStyleSheet("color: #CC7700; font-size: 11px; padding: 1px 2px;");
-        _stepsLayout->addWidget(label);
-        _stepLabels[step] = label;
-        _stepNames[step] = display;
+        QLabel *lbl = new QLabel(
+            QString("\xE2\x8F\xB3 %1").arg(label), _stepsContainer);  // ⏳
+        lbl->setStyleSheet("color: #CC7700; font-size: 11px; padding: 1px 2px;");
+        _stepsLayout->addWidget(lbl);
+        _stepLabels[step] = lbl;
+        _stepNames[step] = label;
         _totalSteps++;
         updateHeader();
     }
 
-    void planSteps(int firstStep, const QStringList &toolNames) {
-        for (int i = 0; i < toolNames.size(); ++i) {
-            addStep(firstStep + i, toolNames[i]);
+    void planSteps(int firstStep, const QStringList &labels) {
+        for (int i = 0; i < labels.size(); ++i) {
+            addStep(firstStep + i, labels[i]);
         }
     }
 
@@ -180,25 +179,6 @@ public:
     }
 
 private:
-    QString humanize(const QString &toolName) {
-        // Convert tool names to friendlier display
-        static const QMap<QString, QString> names = {
-            {"get_editor_state", "Get editor state"},
-            {"get_track_info", "Get track info"},
-            {"query_events", "Query events"},
-            {"create_track", "Create track"},
-            {"rename_track", "Rename track"},
-            {"set_channel", "Set channel"},
-            {"insert_events", "Insert events"},
-            {"replace_events", "Replace events"},
-            {"delete_events", "Delete events"},
-            {"set_tempo", "Set tempo"},
-            {"set_time_signature", "Set time signature"},
-            {"move_events_to_track", "Move events"}
-        };
-        return names.value(toolName, toolName);
-    }
-
     void updateHeader() {
         QString arrow = _collapsed
             ? QString("\xE2\x96\xB6")    // ▶
@@ -390,16 +370,127 @@ void MidiPilotWidget::setupUi() {
 
     mainLayout->addWidget(inputFrame);
 
-    // === Footer (status, model, settings — below input) ===
+    // === Status Bar (above footer, prominent) ===
+    _statusBar = new QFrame(this);
+    _statusBar->setFrameShape(QFrame::NoFrame);
+    _statusBar->setStyleSheet(
+        "QFrame { background-color: #E8F5E9; border-radius: 6px; }");
+    QHBoxLayout *statusLayout = new QHBoxLayout(_statusBar);
+    statusLayout->setContentsMargins(10, 5, 10, 5);
+    statusLayout->setSpacing(6);
+
+    _statusDots = new QLabel(this);
+    _statusDots->setFixedWidth(28);
+    _statusDots->setStyleSheet("font-size: 13px; color: #4CAF50;");
+    _statusDots->setText(QString::fromUtf8("\u25CF")); // ●
+    statusLayout->addWidget(_statusDots);
+
+    _statusLabel = new QLabel("Ready", this);
+    _statusLabel->setStyleSheet(
+        "font-weight: bold; font-size: 12px; color: #2E7D32;");
+    statusLayout->addWidget(_statusLabel);
+    statusLayout->addStretch();
+
+    _dotPhase = 0;
+    _msgPhase = 0;
+    _statusTimer = new QTimer(this);
+    _statusTimer->setInterval(400);
+    connect(_statusTimer, &QTimer::timeout, this, [this]() {
+        static const char *dotFrames[] = {
+            "\u25CF \u25CB \u25CB",  // ● ○ ○
+            "\u25CB \u25CF \u25CB",  // ○ ● ○
+            "\u25CB \u25CB \u25CF",  // ○ ○ ●
+            "\u25CB \u25CF \u25CB"   // ○ ● ○
+        };
+        _dotPhase = (_dotPhase + 1) % 4;
+        _statusDots->setText(QString::fromUtf8(dotFrames[_dotPhase]));
+
+        // Cycle fun status messages every ~10 seconds (every 25th tick at 400ms)
+        if (_dotPhase == 0 && (_msgPhase % 6) == 0) {
+            static const char *msgs[] = {
+                // Classic music production
+                "Counting notes...",
+                "Analyzing chord progressions...",
+                "Tuning virtual instruments...",
+                "Checking harmony...",
+                "Crunching MIDI data...",
+                "Polishing melodies...",
+                "Transposing stuff...",
+                "Quantizing to the grid...",
+                "Calculating optimal velocity...",
+                "Arranging voices...",
+                "Warming up the synths...",
+                "Double-checking the time signature...",
+                "Choosing the perfect octave...",
+                "Resolving dissonances...",
+                "Fine-tuning dynamics...",
+                "Mixing channels...",
+                "Balancing frequencies...",
+                "Aligning staccatos...",
+                "Calibrating the sustain pedal...",
+                "Stacking harmonics...",
+                // Vibes & attitude
+                "Adding musical rizz...",
+                "Making it slap...",
+                "Adding groove...",
+                "Vibing with the tempo...",
+                "Generating fresh bars...",
+                "Dropping the beat...",
+                "Cooking up a masterpiece...",
+                "Sprinkling reverb...",
+                "Rolling out the red carpet for notes...",
+                "Turning it up to eleven...",
+                "Making the bass go brrrr...",
+                "Yeeting bad notes...",
+                "Adding extra sauce...",
+                "Putting the lit in polyphonic literature...",
+                "Achieving maximum bop...",
+                // Historical & classical
+                "Composing like it's 1791...",
+                "Channeling inner Mozart...",
+                "Consulting the music theory gods...",
+                "Summoning the ghost of Beethoven...",
+                "Asking Bach for permission...",
+                "Borrowing Chopin's left hand...",
+                "Debussy would be proud...",
+                "Vivaldi called, he wants his tempo back...",
+                // Nerdy & meta
+                "Defragmenting the MIDI bus...",
+                "Reticulating musical splines...",
+                "Converting feelings to hex...",
+                "Compiling emotions into bytecode...",
+                "Running notes through the algorithm...",
+                "Optimizing semibreve throughput...",
+                "Garbage-collecting unused rests...",
+                "Allocating memory for vibes...",
+                // Absurd & funny
+                "Teaching the AI to feel rhythm...",
+                "Bribing the metronome...",
+                "Negotiating with middle C...",
+                "Convincing the sharps to be natural...",
+                "Apologizing to the neighbors...",
+                "Hiding the wrong notes...",
+                "Pretending to know music theory...",
+                "Googling what a fermata is...",
+                "Telling the rests to be patient...",
+                "Feeding the MIDI hamster..."
+            };
+            constexpr int msgCount = sizeof(msgs) / sizeof(msgs[0]);
+            // Pick a random message instead of sequential
+            int idx = QRandomGenerator::global()->bounded(msgCount);
+            _statusLabel->setText(QString::fromUtf8(msgs[idx]));
+        }
+        if (_dotPhase == 0) _msgPhase++;
+    });
+
+    mainLayout->addWidget(_statusBar);
+
+    // === Footer (model, settings — below status) ===
     QFrame *footerFrame = new QFrame(this);
     footerFrame->setFrameShape(QFrame::NoFrame);
     QHBoxLayout *footerLayout = new QHBoxLayout(footerFrame);
     footerLayout->setContentsMargins(4, 2, 4, 2);
     footerLayout->setSpacing(6);
-
-    _statusLabel = new QLabel("Disconnected", this);
-    _statusLabel->setStyleSheet("font-weight: bold; font-size: 11px;");
-    footerLayout->addWidget(_statusLabel);
 
     footerLayout->addStretch();
 
@@ -934,8 +1025,36 @@ void MidiPilotWidget::addChatBubble(const QString &role, const QString &text) {
 
 void MidiPilotWidget::setStatus(const QString &text, const QString &color) {
     _statusLabel->setText(text);
+
+    bool isProcessing = (color == "orange");
+    bool isError = (color == "red");
+
+    QString bgColor, textColor, dotColor;
+    if (isProcessing) {
+        bgColor = "#FFF3E0"; textColor = "#E65100"; dotColor = "#FF9800";
+    } else if (isError) {
+        bgColor = "#FFEBEE"; textColor = "#C62828"; dotColor = "#EF5350";
+    } else {
+        bgColor = "#E8F5E9"; textColor = "#2E7D32"; dotColor = "#4CAF50";
+    }
+
+    _statusBar->setStyleSheet(
+        QString("QFrame { background-color: %1; border-radius: 6px; }").arg(bgColor));
     _statusLabel->setStyleSheet(
-        QString("font-weight: bold; font-size: 11px; color: %1;").arg(color));
+        QString("font-weight: bold; font-size: 12px; color: %1;").arg(textColor));
+    _statusDots->setStyleSheet(
+        QString("font-size: 13px; color: %1;").arg(dotColor));
+
+    if (isProcessing) {
+        if (!_statusTimer->isActive()) {
+            _dotPhase = 0;
+            _msgPhase = 0;
+            _statusTimer->start();
+        }
+    } else {
+        _statusTimer->stop();
+        _statusDots->setText(QString::fromUtf8("\u25CF"));
+    }
 }
 
 QJsonObject MidiPilotWidget::dispatchAction(const QJsonObject &response, bool showBubbles) {
