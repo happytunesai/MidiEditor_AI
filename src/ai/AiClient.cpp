@@ -194,6 +194,7 @@ void AiClient::sendMessages(const QJsonArray &messages, const QJsonArray &tools)
         } else {
             body[QStringLiteral("reasoning_effort")] = QStringLiteral("low");
         }
+
     } else {
         body[QStringLiteral("temperature")] = 0.3;
     }
@@ -205,7 +206,7 @@ void AiClient::sendMessages(const QJsonArray &messages, const QJsonArray &tools)
     QNetworkRequest request{QUrl(API_URL)};
     request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
     request.setRawHeader("Authorization", QStringLiteral("Bearer %1").arg(apiKey()).toUtf8());
-    request.setTransferTimeout(reasoning ? 120000 : 60000);
+    request.setTransferTimeout(reasoning ? 600000 : 60000);
 
     logApi(QStringLiteral("[REQUEST] model=%1 reasoning=%2 tools=%3 body=%4")
            .arg(_model,
@@ -268,6 +269,9 @@ void AiClient::onReplyFinished(QNetworkReply *reply)
     _currentReply = nullptr;
 
     if (reply->error() == QNetworkReply::OperationCanceledError) {
+        if (!_isTestRequest) {
+            emit errorOccurred(tr("Request was cancelled or timed out. Try a lower reasoning effort."));
+        }
         reply->deleteLater();
         return;
     }

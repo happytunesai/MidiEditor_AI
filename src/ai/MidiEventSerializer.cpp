@@ -198,6 +198,29 @@ bool MidiEventSerializer::validateEventJson(const QJsonObject &eventObj, QString
             errorMsg = QStringLiteral("Program number out of range (0-127): %1").arg(prog);
             return false;
         }
+    } else if (type == QStringLiteral("note_on")) {
+        if (!eventObj.contains(QStringLiteral("tick")) ||
+            !eventObj.contains(QStringLiteral("note")) ||
+            !eventObj.contains(QStringLiteral("velocity"))) {
+            errorMsg = QStringLiteral("note_on event missing required fields (tick, note, velocity)");
+            return false;
+        }
+        int note = eventObj[QStringLiteral("note")].toInt();
+        int vel = eventObj[QStringLiteral("velocity")].toInt();
+        if (note < 0 || note > 127) {
+            errorMsg = QStringLiteral("Note value out of range (0-127): %1").arg(note);
+            return false;
+        }
+        if (vel < 0 || vel > 127) {
+            errorMsg = QStringLiteral("Velocity out of range (0-127): %1").arg(vel);
+            return false;
+        }
+    } else if (type == QStringLiteral("note_off")) {
+        if (!eventObj.contains(QStringLiteral("tick")) ||
+            !eventObj.contains(QStringLiteral("note"))) {
+            errorMsg = QStringLiteral("note_off event missing required fields (tick, note)");
+            return false;
+        }
     } else {
         errorMsg = QStringLiteral("Unknown event type: %1").arg(type);
         return false;
@@ -220,7 +243,8 @@ bool MidiEventSerializer::deserialize(const QJsonArray &eventsJson,
 {
     if (!file || !defaultTrack) return false;
 
-    for (const QJsonValue &val : eventsJson) {
+    for (int i = 0; i < eventsJson.size(); ++i) {
+        const QJsonValue &val = eventsJson[i];
         if (!val.isObject()) continue;
         QJsonObject obj = val.toObject();
 
@@ -257,6 +281,35 @@ bool MidiEventSerializer::deserialize(const QJsonArray &eventsJson,
                     createdEvents.append(noteEvent);
                 }
             }
+        } else if (type == QStringLiteral("note_on")) {
+            int note = qBound(0, obj[QStringLiteral("note")].toInt(), 127);
+            int vel = qBound(1, obj[QStringLiteral("velocity")].toInt(), 127);
+
+            // Find matching note_off to compute duration
+            int duration = 192; // Default: 1 quarter note
+            for (int j = i + 1; j < eventsJson.size(); ++j) {
+                if (!eventsJson[j].isObject()) continue;
+                QJsonObject next = eventsJson[j].toObject();
+                if (next[QStringLiteral("type")].toString() == QStringLiteral("note_off") &&
+                    next[QStringLiteral("note")].toInt() == obj[QStringLiteral("note")].toInt()) {
+                    int offTick = next[QStringLiteral("tick")].toInt();
+                    if (offTick > tick) {
+                        duration = offTick - tick;
+                    }
+                    break;
+                }
+            }
+
+            MidiChannel *midiCh = file->channel(ch);
+            if (midiCh) {
+                NoteOnEvent *noteEvent = midiCh->insertNote(note, tick, tick + duration, vel, track);
+                if (noteEvent) {
+                    createdEvents.append(noteEvent);
+                }
+            }
+        } else if (type == QStringLiteral("note_off")) {
+            // Handled by note_on pairing above
+            continue;
         } else if (type == QStringLiteral("cc")) {
             int ctrl = qBound(0, obj[QStringLiteral("control")].toInt(), 127);
             int value = qBound(0, obj[QStringLiteral("value")].toInt(), 127);

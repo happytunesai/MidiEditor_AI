@@ -20,6 +20,7 @@
 #include <QApplication>
 
 #include <cmath>
+#include <algorithm>
 
 #include "MainWindow.h"
 #include "../ai/AiClient.h"
@@ -37,6 +38,56 @@
 #include "../MidiEvent/TempoChangeEvent.h"
 #include "../MidiEvent/TimeSignatureEvent.h"
 #include "../protocol/Protocol.h"
+#include "../MidiEvent/ProgChangeEvent.h"
+#include "../MidiEvent/ControlChangeEvent.h"
+
+// Build a concise musical summary of created events so the model
+// can compose coherent follow-up tracks (key, register, rhythm).
+static QJsonObject buildMusicalSummary(const QList<MidiEvent *> &events) {
+    QJsonObject summary;
+    int noteCount = 0, ccCount = 0, progChange = -1;
+    int minNote = 128, maxNote = -1;
+    int minTick = INT_MAX, maxTick = 0;
+    QSet<int> pitchClasses;
+
+    for (MidiEvent *ev : events) {
+        int t = ev->midiTime();
+        if (t < minTick) minTick = t;
+        if (t > maxTick) maxTick = t;
+
+        if (auto *on = dynamic_cast<NoteOnEvent *>(ev)) {
+            noteCount++;
+            int n = on->note();
+            if (n < minNote) minNote = n;
+            if (n > maxNote) maxNote = n;
+            pitchClasses.insert(n % 12);
+        } else if (dynamic_cast<ControlChangeEvent *>(ev)) {
+            ccCount++;
+        } else if (auto *pc = dynamic_cast<ProgChangeEvent *>(ev)) {
+            progChange = pc->program();
+        }
+    }
+
+    static const char *noteNames[] = {"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
+    auto noteName = [](int midi) -> QString {
+        return QString("%1%2").arg(noteNames[midi % 12]).arg(midi / 12 - 1);
+    };
+
+    summary["noteCount"] = noteCount;
+    if (noteCount > 0) {
+        summary["noteRange"] = noteName(minNote) + "-" + noteName(maxNote);
+        summary["tickRange"] = QString("%1-%2").arg(minTick).arg(maxTick);
+        QList<int> pcList(pitchClasses.begin(), pitchClasses.end());
+        std::sort(pcList.begin(), pcList.end());
+        QJsonArray pcArr;
+        for (int pc : pcList) pcArr.append(QString(noteNames[pc]));
+        summary["pitchClasses"] = pcArr;
+    }
+    if (ccCount > 0) summary["ccCount"] = ccCount;
+    if (progChange >= 0) summary["gmProgram"] = progChange;
+
+    return summary;
+}
 
 // ============================================================
 // Collapsible Agent Steps Widget (displayed in chat area)
@@ -77,6 +128,7 @@ public:
     }
 
     void addStep(int step, const QString &toolName) {
+        if (_stepLabels.contains(step)) return;  // Already planned
         // Humanize tool names
         QString display = humanize(toolName);
         QLabel *label = new QLabel(
@@ -89,13 +141,30 @@ public:
         updateHeader();
     }
 
-    void completeStep(int step, bool success) {
+    void planSteps(int firstStep, const QStringList &toolNames) {
+        for (int i = 0; i < toolNames.size(); ++i) {
+            addStep(firstStep + i, toolNames[i]);
+        }
+    }
+
+    void markActive(int step) {
+        if (!_stepLabels.contains(step)) return;
+        QLabel *label = _stepLabels[step];
+        QString name = _stepNames[step];
+        label->setText(QString("\xF0\x9F\x94\x84 %1").arg(name));  // 🔄
+        label->setStyleSheet("color: #0066CC; font-weight: bold; font-size: 11px; padding: 1px 2px;");
+    }
+
+    void completeStep(int step, bool success, bool recoverable = false) {
         if (!_stepLabels.contains(step)) return;
         QLabel *label = _stepLabels[step];
         QString name = _stepNames[step];
         if (success) {
             label->setText(QString("\xE2\x9C\x85 %1").arg(name));  // ✅
             label->setStyleSheet("color: #2D8C3C; font-size: 11px; padding: 1px 2px;");
+        } else if (recoverable) {
+            label->setText(QString("\xE2\x9A\xA0 %1 - retrying").arg(name));  // ⚠
+            label->setStyleSheet("color: #CC7700; font-size: 11px; padding: 1px 2px;");
         } else {
             label->setText(QString("\xE2\x9D\x8C %1 - failed").arg(name));  // ❌
             label->setStyleSheet("color: #CC3333; font-size: 11px; padding: 1px 2px;");
@@ -175,6 +244,7 @@ MidiPilotWidget::MidiPilotWidget(MainWindow *mainWindow, QWidget *parent)
     connect(_client, &AiClient::responseReceived, this, &MidiPilotWidget::onResponseReceived);
     connect(_client, &AiClient::errorOccurred, this, &MidiPilotWidget::onErrorOccurred);
 
+    connect(_agentRunner, &AgentRunner::stepsPlanned, this, &MidiPilotWidget::onAgentStepsPlanned);
     connect(_agentRunner, &AgentRunner::stepStarted, this, &MidiPilotWidget::onAgentStepStarted);
     connect(_agentRunner, &AgentRunner::stepCompleted, this, &MidiPilotWidget::onAgentStepCompleted);
     connect(_agentRunner, &AgentRunner::finished, this, &MidiPilotWidget::onAgentFinished);
@@ -333,9 +403,37 @@ void MidiPilotWidget::setupUi() {
 
     footerLayout->addStretch();
 
-    _modelLabel = new QLabel(_client->model(), this);
-    _modelLabel->setStyleSheet("color: gray; font-size: 11px;");
-    footerLayout->addWidget(_modelLabel);
+    _modelCombo = new QComboBox(this);
+    _modelCombo->addItem("gpt-4o-mini", "gpt-4o-mini");
+    _modelCombo->addItem("gpt-4o", "gpt-4o");
+    _modelCombo->addItem("gpt-4.1-nano", "gpt-4.1-nano");
+    _modelCombo->addItem("gpt-4.1-mini", "gpt-4.1-mini");
+    _modelCombo->addItem("gpt-4.1", "gpt-4.1");
+    _modelCombo->addItem("gpt-5", "gpt-5");
+    _modelCombo->addItem("gpt-5-mini", "gpt-5-mini");
+    _modelCombo->addItem("o4-mini", "o4-mini");
+    _modelCombo->setEditable(true);
+    _modelCombo->setFixedHeight(20);
+    _modelCombo->setStyleSheet("font-size: 11px;");
+    int modelIdx = _modelCombo->findData(_client->model());
+    if (modelIdx >= 0) _modelCombo->setCurrentIndex(modelIdx);
+    else _modelCombo->setEditText(_client->model());
+    connect(_modelCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &MidiPilotWidget::onModelComboChanged);
+    footerLayout->addWidget(_modelCombo);
+
+    _effortCombo = new QComboBox(this);
+    _effortCombo->addItem(QString::fromUtf8("\xF0\x9F\x92\xAD low"), "low");
+    _effortCombo->addItem(QString::fromUtf8("\xF0\x9F\x92\xAD med"), "medium");
+    _effortCombo->addItem(QString::fromUtf8("\xF0\x9F\x92\xAD high"), "high");
+    _effortCombo->setFixedHeight(20);
+    _effortCombo->setStyleSheet("font-size: 11px;");
+    int effortIdx = _effortCombo->findData(_client->reasoningEffort());
+    if (effortIdx >= 0) _effortCombo->setCurrentIndex(effortIdx);
+    _effortCombo->setVisible(_client->isReasoningModel());
+    connect(_effortCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &MidiPilotWidget::onEffortComboChanged);
+    footerLayout->addWidget(_effortCombo);
 
     QPushButton *settingsBtn = new QPushButton(QChar(0x2699), this); // ⚙
     settingsBtn->setFixedSize(20, 20);
@@ -360,13 +458,16 @@ void MidiPilotWidget::setupSetupPrompt() {
 
     if (configured) {
         setStatus("Ready", "green");
-        QString modelText = _client->model();
-        if (_client->thinkingEnabled()) {
-            modelText += QString(" \xF0\x9F\x92\xAD %1").arg(_client->reasoningEffort());
-        } else if (_client->isReasoningModel()) {
-            modelText += QString(" \xF0\x9F\x92\xAD auto");
-        }
-        _modelLabel->setText(modelText);
+        // Sync model combo
+        int modelIdx = _modelCombo->findData(_client->model());
+        if (modelIdx >= 0)
+            _modelCombo->setCurrentIndex(modelIdx);
+        else
+            _modelCombo->setEditText(_client->model());
+        // Show effort combo only for reasoning models
+        _effortCombo->setVisible(_client->isReasoningModel());
+        int effortIdx = _effortCombo->findData(_client->reasoningEffort());
+        if (effortIdx >= 0) _effortCombo->setCurrentIndex(effortIdx);
     } else {
         setStatus("Not configured", "orange");
     }
@@ -676,31 +777,59 @@ void MidiPilotWidget::onModeChanged(int index) {
     }
 }
 
-void MidiPilotWidget::onAgentStepStarted(int step, const QString &toolName) {
-    setStatus(QString("Agent step %1: %2...").arg(step).arg(toolName), "orange");
+void MidiPilotWidget::onModelComboChanged(int index) {
+    Q_UNUSED(index);
+    QString model = _modelCombo->currentData().toString();
+    if (model.isEmpty()) model = _modelCombo->currentText().trimmed();
+    if (!model.isEmpty()) {
+        _client->setModel(model);
+        _effortCombo->setVisible(_client->isReasoningModel());
+    }
+}
 
-    // Add step to the collapsible checklist
+void MidiPilotWidget::onEffortComboChanged(int index) {
+    Q_UNUSED(index);
+    QString effort = _effortCombo->currentData().toString();
+    if (!effort.isEmpty()) {
+        _client->setReasoningEffort(effort);
+        _client->setThinkingEnabled(true);
+    }
+}
+
+void MidiPilotWidget::onAgentStepsPlanned(int firstStep, const QStringList &toolNames) {
     if (_agentStepsWidget) {
         AgentStepsWidget *sw = static_cast<AgentStepsWidget *>(_agentStepsWidget);
-        sw->addStep(step, toolName);
+        sw->planSteps(firstStep, toolNames);
     }
 
-    // Scroll to bottom
+    // Scroll to bottom to show all planned steps
     QTimer::singleShot(50, this, [this]() {
         _chatScroll->verticalScrollBar()->setValue(
             _chatScroll->verticalScrollBar()->maximum());
     });
 }
 
+void MidiPilotWidget::onAgentStepStarted(int step, const QString &toolName) {
+    setStatus(QString("Agent step %1: %2...").arg(step).arg(toolName), "orange");
+
+    // Mark step as active (🔄) — it was already added by stepsPlanned
+    if (_agentStepsWidget) {
+        AgentStepsWidget *sw = static_cast<AgentStepsWidget *>(_agentStepsWidget);
+        sw->addStep(step, toolName);  // No-op if already planned
+        sw->markActive(step);
+    }
+}
+
 void MidiPilotWidget::onAgentStepCompleted(int step, const QString &toolName, const QJsonObject &result) {
     Q_UNUSED(toolName);
     bool success = result["success"].toBool(true);
-    setStatus(QString("Step %1: %2").arg(step).arg(success ? "OK" : "failed"), "orange");
+    bool recoverable = result["recoverable"].toBool(false);
+    setStatus(QString("Step %1: %2").arg(step).arg(success ? "OK" : (recoverable ? "retrying" : "failed")), "orange");
 
     // Check off the step in the checklist
     if (_agentStepsWidget) {
         AgentStepsWidget *sw = static_cast<AgentStepsWidget *>(_agentStepsWidget);
-        sw->completeStep(step, success);
+        sw->completeStep(step, success, recoverable);
     }
 }
 
@@ -929,6 +1058,7 @@ QJsonObject MidiPilotWidget::applyAiEdits(const QJsonObject &response, bool show
 
     result["success"] = true;
     result["eventsCreated"] = created.size();
+    result["summary"] = buildMusicalSummary(created);
     return result;
 }
 
@@ -1328,6 +1458,7 @@ QJsonObject MidiPilotWidget::applySelectAndEdit(const QJsonObject &response, boo
 
     result["success"] = true;
     result["eventsCreated"] = created.size();
+    result["summary"] = buildMusicalSummary(created);
     return result;
 }
 

@@ -13,7 +13,7 @@
 #include <QJsonDocument>
 
 // ---------------------------------------------------------------------------
-// Helper: create a tool schema object in OpenAI format
+// Helper: create a tool schema object in OpenAI format (strict mode)
 // ---------------------------------------------------------------------------
 QJsonObject ToolDefinitions::makeTool(const QString &name,
                                       const QString &description,
@@ -21,12 +21,78 @@ QJsonObject ToolDefinitions::makeTool(const QString &name,
     QJsonObject func;
     func["name"] = name;
     func["description"] = description;
+    func["strict"] = true;
     func["parameters"] = parameters;
 
     QJsonObject tool;
     tool["type"] = QString("function");
     tool["function"] = func;
     return tool;
+}
+
+// Helper: build a strict-mode-compatible parameter object
+static QJsonObject makeParams(const QJsonObject &properties,
+                               const QJsonArray &required) {
+    QJsonObject params;
+    params["type"] = QString("object");
+    params["properties"] = properties;
+    params["required"] = required;
+    params["additionalProperties"] = false;
+    return params;
+}
+
+// Helper: build the MIDI event schema as a discriminated union (anyOf)
+static QJsonObject makeEventSchema() {
+    // note (compact format with duration)
+    QJsonObject noteProps;
+    noteProps["type"] = QJsonObject{{"type", "string"}, {"enum", QJsonArray{"note"}}};
+    noteProps["tick"] = QJsonObject{{"type", "integer"}, {"description", "Tick position."}};
+    noteProps["note"] = QJsonObject{{"type", "integer"}, {"description", "MIDI note number (0-127). 60 = Middle C."}};
+    noteProps["velocity"] = QJsonObject{{"type", "integer"}, {"description", "Note velocity (1-127)."}};
+    noteProps["duration"] = QJsonObject{{"type", "integer"}, {"description", "Duration in ticks."}};
+    QJsonObject noteSchema;
+    noteSchema["type"] = QString("object");
+    noteSchema["properties"] = noteProps;
+    noteSchema["required"] = QJsonArray{"type", "tick", "note", "velocity", "duration"};
+    noteSchema["additionalProperties"] = false;
+
+    // cc (control change)
+    QJsonObject ccProps;
+    ccProps["type"] = QJsonObject{{"type", "string"}, {"enum", QJsonArray{"cc"}}};
+    ccProps["tick"] = QJsonObject{{"type", "integer"}, {"description", "Tick position."}};
+    ccProps["control"] = QJsonObject{{"type", "integer"}, {"description", "CC number (0-127)."}};
+    ccProps["value"] = QJsonObject{{"type", "integer"}, {"description", "CC value (0-127)."}};
+    QJsonObject ccSchema;
+    ccSchema["type"] = QString("object");
+    ccSchema["properties"] = ccProps;
+    ccSchema["required"] = QJsonArray{"type", "tick", "control", "value"};
+    ccSchema["additionalProperties"] = false;
+
+    // pitch_bend
+    QJsonObject pbProps;
+    pbProps["type"] = QJsonObject{{"type", "string"}, {"enum", QJsonArray{"pitch_bend"}}};
+    pbProps["tick"] = QJsonObject{{"type", "integer"}, {"description", "Tick position."}};
+    pbProps["value"] = QJsonObject{{"type", "integer"}, {"description", "Pitch bend value (0-16383, center=8192)."}};
+    QJsonObject pbSchema;
+    pbSchema["type"] = QString("object");
+    pbSchema["properties"] = pbProps;
+    pbSchema["required"] = QJsonArray{"type", "tick", "value"};
+    pbSchema["additionalProperties"] = false;
+
+    // program_change
+    QJsonObject pcProps;
+    pcProps["type"] = QJsonObject{{"type", "string"}, {"enum", QJsonArray{"program_change"}}};
+    pcProps["tick"] = QJsonObject{{"type", "integer"}, {"description", "Tick position."}};
+    pcProps["program"] = QJsonObject{{"type", "integer"}, {"description", "GM program number (0-127)."}};
+    QJsonObject pcSchema;
+    pcSchema["type"] = QString("object");
+    pcSchema["properties"] = pcProps;
+    pcSchema["required"] = QJsonArray{"type", "tick", "program"};
+    pcSchema["additionalProperties"] = false;
+
+    QJsonObject eventSchema;
+    eventSchema["anyOf"] = QJsonArray{noteSchema, ccSchema, pbSchema, pcSchema};
+    return eventSchema;
 }
 
 // ---------------------------------------------------------------------------
@@ -37,16 +103,13 @@ QJsonArray ToolDefinitions::toolSchemas() {
 
     // --- Read-only tools ---
 
-    // get_editor_state
+    // get_editor_state (no parameters)
     {
-        QJsonObject params;
-        params["type"] = QString("object");
-        params["properties"] = QJsonObject();
         tools.append(makeTool(
             "get_editor_state",
             "Get the current editor state including file info, tracks, cursor position, "
             "tempo, time signature, and selected events.",
-            params));
+            makeParams(QJsonObject(), QJsonArray())));
     }
 
     // get_track_info
@@ -55,14 +118,10 @@ QJsonArray ToolDefinitions::toolSchemas() {
         props["trackIndex"] = QJsonObject{
             {"type", "integer"},
             {"description", "Zero-based index of the track to inspect."}};
-        QJsonObject params;
-        params["type"] = QString("object");
-        params["properties"] = props;
-        params["required"] = QJsonArray{"trackIndex"};
         tools.append(makeTool(
             "get_track_info",
             "Get detailed information about a specific track: name, channel, event count.",
-            params));
+            makeParams(props, {"trackIndex"})));
     }
 
     // query_events
@@ -77,14 +136,10 @@ QJsonArray ToolDefinitions::toolSchemas() {
         props["endTick"] = QJsonObject{
             {"type", "integer"},
             {"description", "End tick of the range (inclusive)."}};
-        QJsonObject params;
-        params["type"] = QString("object");
-        params["properties"] = props;
-        params["required"] = QJsonArray{"trackIndex", "startTick", "endTick"};
         tools.append(makeTool(
             "query_events",
             "Query MIDI events in a tick range on a specific track. Returns serialized events.",
-            params));
+            makeParams(props, {"trackIndex", "startTick", "endTick"})));
     }
 
     // --- Write tools ---
@@ -97,16 +152,11 @@ QJsonArray ToolDefinitions::toolSchemas() {
             {"description", "Name for the new track."}};
         props["channel"] = QJsonObject{
             {"type", "integer"},
-            {"minimum", 0}, {"maximum", 15},
             {"description", "MIDI channel to assign (0-15)."}};
-        QJsonObject params;
-        params["type"] = QString("object");
-        params["properties"] = props;
-        params["required"] = QJsonArray{"trackName", "channel"};
         tools.append(makeTool(
             "create_track",
             "Create a new MIDI track with the given name and channel.",
-            params));
+            makeParams(props, {"trackName", "channel"})));
     }
 
     // rename_track
@@ -118,14 +168,10 @@ QJsonArray ToolDefinitions::toolSchemas() {
         props["newName"] = QJsonObject{
             {"type", "string"},
             {"description", "New name for the track."}};
-        QJsonObject params;
-        params["type"] = QString("object");
-        params["properties"] = props;
-        params["required"] = QJsonArray{"trackIndex", "newName"};
         tools.append(makeTool(
             "rename_track",
             "Rename an existing track.",
-            params));
+            makeParams(props, {"trackIndex", "newName"})));
     }
 
     // set_channel
@@ -136,57 +182,34 @@ QJsonArray ToolDefinitions::toolSchemas() {
             {"description", "Zero-based index of the track."}};
         props["channel"] = QJsonObject{
             {"type", "integer"},
-            {"minimum", 0}, {"maximum", 15},
             {"description", "MIDI channel to assign (0-15)."}};
-        QJsonObject params;
-        params["type"] = QString("object");
-        params["properties"] = props;
-        params["required"] = QJsonArray{"trackIndex", "channel"};
         tools.append(makeTool(
             "set_channel",
             "Set the MIDI channel for a track.",
-            params));
+            makeParams(props, {"trackIndex", "channel"})));
     }
 
     // insert_events
     {
-        QJsonObject eventSchema;
-        eventSchema["type"] = QString("object");
-        eventSchema["description"] = QString(
-            "A MIDI event object. Supported types: "
-            "note (tick, note, velocity, duration), "
-            "cc (tick, control, value), "
-            "pitch_bend (tick, value), "
-            "program_change (tick, program 0-127).");
-
         QJsonObject props;
         props["trackIndex"] = QJsonObject{
             {"type", "integer"},
             {"description", "Zero-based track index to insert events into."}};
         props["channel"] = QJsonObject{
             {"type", "integer"},
-            {"minimum", 0}, {"maximum", 15},
-            {"description", "MIDI channel for the events (0-15)."}};
+            {"description", "MIDI channel for the events (0-15). Required."}};
         props["events"] = QJsonObject{
             {"type", "array"},
-            {"items", eventSchema},
+            {"items", makeEventSchema()},
             {"description", "Array of MIDI event objects to insert. Include a program_change event at tick 0 to set the GM instrument."}};
-        QJsonObject params;
-        params["type"] = QString("object");
-        params["properties"] = props;
-        params["required"] = QJsonArray{"trackIndex", "events"};
         tools.append(makeTool(
             "insert_events",
             "Insert new MIDI events into a track without removing existing events.",
-            params));
+            makeParams(props, {"trackIndex", "channel", "events"})));
     }
 
     // replace_events
     {
-        QJsonObject eventSchema;
-        eventSchema["type"] = QString("object");
-        eventSchema["description"] = QString("A MIDI event object.");
-
         QJsonObject props;
         props["trackIndex"] = QJsonObject{
             {"type", "integer"},
@@ -199,17 +222,13 @@ QJsonArray ToolDefinitions::toolSchemas() {
             {"description", "End tick of the range to replace (inclusive)."}};
         props["events"] = QJsonObject{
             {"type", "array"},
-            {"items", eventSchema},
+            {"items", makeEventSchema()},
             {"description", "New events to insert after removing existing ones in the range."}};
-        QJsonObject params;
-        params["type"] = QString("object");
-        params["properties"] = props;
-        params["required"] = QJsonArray{"trackIndex", "startTick", "endTick", "events"};
         tools.append(makeTool(
             "replace_events",
             "Remove all events in a tick range on a track and insert new events. "
             "Used for editing/modifying existing passages.",
-            params));
+            makeParams(props, {"trackIndex", "startTick", "endTick", "events"})));
     }
 
     // delete_events
@@ -224,14 +243,10 @@ QJsonArray ToolDefinitions::toolSchemas() {
         props["endTick"] = QJsonObject{
             {"type", "integer"},
             {"description", "End tick of the range to delete (inclusive)."}};
-        QJsonObject params;
-        params["type"] = QString("object");
-        params["properties"] = props;
-        params["required"] = QJsonArray{"trackIndex", "startTick", "endTick"};
         tools.append(makeTool(
             "delete_events",
             "Delete all MIDI events in a tick range on a specific track.",
-            params));
+            makeParams(props, {"trackIndex", "startTick", "endTick"})));
     }
 
     // set_tempo
@@ -239,20 +254,14 @@ QJsonArray ToolDefinitions::toolSchemas() {
         QJsonObject props;
         props["bpm"] = QJsonObject{
             {"type", "integer"},
-            {"minimum", 1}, {"maximum", 999},
-            {"description", "Tempo in beats per minute."}};
+            {"description", "Tempo in beats per minute (1-999)."}};
         props["tick"] = QJsonObject{
             {"type", "integer"},
-            {"minimum", 0},
-            {"description", "Tick position for the tempo change (0 = beginning). Default: 0."}};
-        QJsonObject params;
-        params["type"] = QString("object");
-        params["properties"] = props;
-        params["required"] = QJsonArray{"bpm"};
+            {"description", "Tick position for the tempo change (0 = beginning)."}};
         tools.append(makeTool(
             "set_tempo",
             "Set the tempo (BPM) at a specific tick position.",
-            params));
+            makeParams(props, {"bpm", "tick"})));
     }
 
     // set_time_signature
@@ -260,24 +269,18 @@ QJsonArray ToolDefinitions::toolSchemas() {
         QJsonObject props;
         props["numerator"] = QJsonObject{
             {"type", "integer"},
-            {"minimum", 1}, {"maximum", 32},
-            {"description", "Time signature numerator (beats per measure)."}};
+            {"description", "Time signature numerator (beats per measure, 1-32)."}};
         props["denominator"] = QJsonObject{
             {"type", "integer"},
             {"enum", QJsonArray{1, 2, 4, 8, 16, 32}},
             {"description", "Time signature denominator (note value: 1, 2, 4, 8, 16, or 32)."}};
         props["tick"] = QJsonObject{
             {"type", "integer"},
-            {"minimum", 0},
-            {"description", "Tick position for the time signature change. Default: 0."}};
-        QJsonObject params;
-        params["type"] = QString("object");
-        params["properties"] = props;
-        params["required"] = QJsonArray{"numerator", "denominator"};
+            {"description", "Tick position for the time signature change (0 = beginning)."}};
         tools.append(makeTool(
             "set_time_signature",
             "Set the time signature at a specific tick position.",
-            params));
+            makeParams(props, {"numerator", "denominator", "tick"})));
     }
 
     // move_events_to_track
@@ -295,14 +298,10 @@ QJsonArray ToolDefinitions::toolSchemas() {
         props["endTick"] = QJsonObject{
             {"type", "integer"},
             {"description", "End tick of events to move (inclusive)."}};
-        QJsonObject params;
-        params["type"] = QString("object");
-        params["properties"] = props;
-        params["required"] = QJsonArray{"sourceTrackIndex", "targetTrackIndex", "startTick", "endTick"};
         tools.append(makeTool(
             "move_events_to_track",
             "Move MIDI events from one track to another within a tick range.",
-            params));
+            makeParams(props, {"sourceTrackIndex", "targetTrackIndex", "startTick", "endTick"})));
     }
 
     return tools;
@@ -336,7 +335,9 @@ QJsonObject ToolDefinitions::executeTool(const QString &toolName,
         if (events.isEmpty()) {
             QJsonObject result;
             result["success"] = false;
-            result["error"] = QString("No events provided. The 'events' array is required and must contain at least one event object with type, tick, note, velocity, duration fields.");
+            result["recoverable"] = true;
+            result["error"] = QString("Events array missing or empty (likely output truncation). "
+                                      "Please retry with the complete events array for this track.");
             return result;
         }
         // Map to "edit" action (insert without selection = pure insert)
@@ -356,7 +357,10 @@ QJsonObject ToolDefinitions::executeTool(const QString &toolName,
         if (events.isEmpty()) {
             QJsonObject result;
             result["success"] = false;
-            result["error"] = QString("No events provided. The 'events' array is required and must contain at least one event object with type, tick, note, velocity, duration fields. If you want to delete events instead, use the delete_events tool.");
+            result["recoverable"] = true;
+            result["error"] = QString("Events array missing or empty (likely output truncation). "
+                                      "Please retry with the complete events array. "
+                                      "If you want to delete events instead, use the delete_events tool.");
             return result;
         }
         // Map to "select_and_edit"

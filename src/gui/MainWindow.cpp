@@ -570,8 +570,13 @@ MainWindow::MainWindow(QString initFile)
     _midiPilotDock->setVisible(false);
 
     connect(_midiPilotWidget, &MidiPilotWidget::requestRepaint, this, [this]() {
+        // Invalidate the cached pixmap so the matrix redraws from current MidiFile data.
+        // Without this, update() just repaints the stale cache (normally invalidated
+        // only by Protocol::actionFinished which doesn't fire mid-agent-run).
+        mw_matrixWidget->registerRelayout();
         _matrixWidgetContainer->update();
         _miscWidgetContainer->update();
+        _trackWidget->update();
     });
 
     QWidget *buttons = setupActions(central);

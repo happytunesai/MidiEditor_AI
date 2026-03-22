@@ -118,8 +118,13 @@ void AgentRunner::onApiResponse(const QString &content, const QJsonObject &fullR
 
     // Check if the model wants to call tools
     if (message.contains("tool_calls") && !message["tool_calls"].toArray().isEmpty()) {
-        // Append the assistant message (with tool_calls) to conversation
-        _messages.append(message);
+        // Strip response-only fields (annotations, refusal, etc.) before re-sending
+        // to avoid HTTP 400 "could not parse JSON body" from the API.
+        QJsonObject cleanMsg;
+        cleanMsg["role"] = message["role"];
+        cleanMsg["content"] = message["content"];
+        cleanMsg["tool_calls"] = message["tool_calls"];
+        _messages.append(cleanMsg);
 
         processToolCalls(message);
         return;
@@ -140,6 +145,15 @@ void AgentRunner::onApiError(const QString &error)
 void AgentRunner::processToolCalls(const QJsonObject &assistantMessage)
 {
     QJsonArray toolCalls = assistantMessage["tool_calls"].toArray();
+
+    // Emit all planned step names upfront so the UI can display them
+    int firstStep = _currentStep + 1;
+    QStringList plannedNames;
+    for (const QJsonValue &tcVal : toolCalls) {
+        QJsonObject fn = tcVal.toObject()["function"].toObject();
+        plannedNames << fn["name"].toString();
+    }
+    emit stepsPlanned(firstStep, plannedNames);
 
     for (const QJsonValue &tcVal : toolCalls) {
         if (_cancelled) {

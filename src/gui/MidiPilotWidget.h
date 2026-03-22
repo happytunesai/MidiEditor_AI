@@ -76,8 +76,11 @@ private slots:
     void onModeChanged(int index);
     void onAgentStepStarted(int step, const QString &toolName);
     void onAgentStepCompleted(int step, const QString &toolName, const QJsonObject &result);
+    void onAgentStepsPlanned(int firstStep, const QStringList &toolNames);
     void onAgentFinished(const QString &finalMessage);
     void onAgentError(const QString &error);
+    void onModelComboChanged(int index);
+    void onEffortComboChanged(int index);
 
 private:
     struct ConversationEntry {
@@ -126,7 +129,8 @@ private:
 
     // Footer (status, model, settings)
     QLabel *_statusLabel;
-    QLabel *_modelLabel;
+    QComboBox *_modelCombo;
+    QComboBox *_effortCombo;
 
     // Setup prompt (shown when no API key)
     QWidget *_setupWidget;

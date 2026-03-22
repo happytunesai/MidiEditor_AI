@@ -44,6 +44,11 @@ public:
 
 signals:
     /**
+     * \brief Emitted with all tool names from a batch before any are executed.
+     */
+    void stepsPlanned(int firstStep, const QStringList &toolNames);
+
+    /**
      * \brief Emitted when beginning to execute a tool call.
      */
     void stepStarted(int stepNumber, const QString &toolName);
