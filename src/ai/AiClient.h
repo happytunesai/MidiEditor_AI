@@ -155,10 +155,12 @@ private:
     QSettings _settings;
     QString _model;
     bool _isTestRequest;
+    bool _useResponsesApi;
     bool _thinkingEnabled;
     QString _reasoningEffort;
 
     static const QString API_URL;
+    static const QString RESPONSES_API_URL;
     static const QString DEFAULT_MODEL;
     static const QString SETTINGS_KEY_API_KEY;
     static const QString SETTINGS_KEY_MODEL;

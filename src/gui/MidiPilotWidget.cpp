@@ -19,6 +19,7 @@
 #include <QComboBox>
 #include <QApplication>
 #include <QRandomGenerator>
+#include <QCheckBox>
 
 #include <cmath>
 #include <algorithm>
@@ -492,6 +493,16 @@ void MidiPilotWidget::setupUi() {
     footerLayout->setContentsMargins(4, 2, 4, 2);
     footerLayout->setSpacing(6);
 
+    _ffxivCheck = new QCheckBox("FFXIV", this);
+    _ffxivCheck->setToolTip("Enable FFXIV Bard Performance mode — constrains output to game rules\n"
+                            "(C3-C6 range, monophonic, max 8 tracks, FFXIV instrument names)");
+    _ffxivCheck->setStyleSheet("font-size: 11px;");
+    _ffxivCheck->setChecked(QSettings().value("AI/ffxiv_mode", false).toBool());
+    connect(_ffxivCheck, &QCheckBox::toggled, this, [](bool checked) {
+        QSettings().setValue("AI/ffxiv_mode", checked);
+    });
+    footerLayout->addWidget(_ffxivCheck);
+
     footerLayout->addStretch();
 
     _modelCombo = new QComboBox(this);
@@ -502,6 +513,9 @@ void MidiPilotWidget::setupUi() {
     _modelCombo->addItem("gpt-4.1", "gpt-4.1");
     _modelCombo->addItem("gpt-5", "gpt-5");
     _modelCombo->addItem("gpt-5-mini", "gpt-5-mini");
+    _modelCombo->addItem("gpt-5.4", "gpt-5.4");
+    _modelCombo->addItem("gpt-5.4-mini", "gpt-5.4-mini");
+    _modelCombo->addItem("gpt-5.4-nano", "gpt-5.4-nano");
     _modelCombo->addItem("o4-mini", "o4-mini");
     _modelCombo->setEditable(true);
     _modelCombo->setFixedHeight(20);
@@ -514,9 +528,11 @@ void MidiPilotWidget::setupUi() {
     footerLayout->addWidget(_modelCombo);
 
     _effortCombo = new QComboBox(this);
+    _effortCombo->addItem(QString::fromUtf8("\xF0\x9F\x92\xAD off"), "none");
     _effortCombo->addItem(QString::fromUtf8("\xF0\x9F\x92\xAD low"), "low");
     _effortCombo->addItem(QString::fromUtf8("\xF0\x9F\x92\xAD med"), "medium");
     _effortCombo->addItem(QString::fromUtf8("\xF0\x9F\x92\xAD high"), "high");
+    _effortCombo->addItem(QString::fromUtf8("\xF0\x9F\x92\xAD xhigh"), "xhigh");
     _effortCombo->setFixedHeight(20);
     _effortCombo->setStyleSheet("font-size: 11px;");
     int effortIdx = _effortCombo->findData(_client->reasoningEffort());
@@ -714,12 +730,18 @@ void MidiPilotWidget::onSendMessage() {
 
         if (_file)
             _file->protocol()->startNewAction("MidiPilot Agent: " + text);
-        _agentRunner->run(EditorContext::agentSystemPrompt(),
+        QString agentPrompt = EditorContext::agentSystemPrompt();
+        if (ffxivMode())
+            agentPrompt += EditorContext::ffxivContext();
+        _agentRunner->run(agentPrompt,
                           _conversationHistory, fullMessage, _file, this);
     } else {
         // Simple Mode: single-shot request
         addChatBubble("system", "Thinking...");
-        _client->sendRequest(EditorContext::systemPrompt(),
+        QString simplePrompt = EditorContext::systemPrompt();
+        if (ffxivMode())
+            simplePrompt += EditorContext::ffxivContext();
+        _client->sendRequest(simplePrompt,
                              _conversationHistory, fullMessage);
     }
 }
@@ -806,8 +828,15 @@ void MidiPilotWidget::onResponseReceived(const QString &content, const QJsonObje
             addChatBubble("assistant", content);
         }
     } else {
-        // Plain text response (analysis, explanation)
-        addChatBubble("assistant", content);
+        // JSON parse failed — might be truncated output
+        if (content.length() > 500 && !content.trimmed().endsWith('}')) {
+            addChatBubble("assistant",
+                "\xe2\x9a\xa0 Response was truncated (output too large for Simple mode). "
+                "Switch to **Agent** mode for complex compositions — it handles "
+                "multi-step work like creating 8-track FFXIV songs.");
+        } else {
+            addChatBubble("assistant", content);
+        }
     }
 
     // Store entry
@@ -851,6 +880,10 @@ void MidiPilotWidget::onSettingsClicked() {
 
 QString MidiPilotWidget::currentMode() const {
     return _modeCombo->currentData().toString();
+}
+
+bool MidiPilotWidget::ffxivMode() const {
+    return _ffxivCheck->isChecked();
 }
 
 QJsonObject MidiPilotWidget::executeAction(const QJsonObject &actionObj) {
@@ -1349,11 +1382,38 @@ QJsonObject MidiPilotWidget::applyMoveToTrack(const QJsonObject &response, bool 
         return result;
     }
 
-    QList<MidiEvent *> selected = Selection::instance()->selectedEvents();
-    if (selected.isEmpty()) {
-        if (showBubbles) addChatBubble("system", "No events selected to move.");
+    // Collect events to move: use sourceTrackIndex + tick range if provided,
+    // otherwise fall back to the current UI selection.
+    QList<MidiEvent *> toMove;
+
+    int sourceTrackIndex = response["sourceTrackIndex"].toInt(-1);
+    if (sourceTrackIndex >= 0 && sourceTrackIndex < _file->numTracks()) {
+        MidiTrack *srcTrack = _file->track(sourceTrackIndex);
+        int startTick = response["startTick"].toInt(0);
+        int endTick   = response["endTick"].toInt(INT_MAX);
+        // Gather all events on the source track within the tick range
+        for (int ch = 0; ch < 19; ch++) {
+            MidiChannel *channel = _file->channel(ch);
+            if (!channel) continue;
+            QMultiMap<int, MidiEvent *> *map = channel->eventMap();
+            for (auto it = map->begin(); it != map->end(); ++it) {
+                int tick = it.key();
+                if (tick < startTick) continue;
+                if (tick > endTick) break;
+                MidiEvent *ev = it.value();
+                if (ev->track() == srcTrack) {
+                    toMove.append(ev);
+                }
+            }
+        }
+    } else {
+        toMove = Selection::instance()->selectedEvents();
+    }
+
+    if (toMove.isEmpty()) {
+        if (showBubbles) addChatBubble("system", "No events found to move.");
         result["success"] = false;
-        result["error"] = QString("No events selected to move.");
+        result["error"] = QString("No events found to move.");
         return result;
     }
 
@@ -1362,7 +1422,7 @@ QJsonObject MidiPilotWidget::applyMoveToTrack(const QJsonObject &response, bool 
 
     if (showBubbles) _file->protocol()->startNewAction("MidiPilot: " + explanation);
 
-    for (MidiEvent *ev : selected) {
+    for (MidiEvent *ev : toMove) {
         ev->setTrack(targetTrack, false);
     }
 
@@ -1371,7 +1431,7 @@ QJsonObject MidiPilotWidget::applyMoveToTrack(const QJsonObject &response, bool 
     emit requestRepaint();
 
     result["success"] = true;
-    result["eventsMoved"] = selected.size();
+    result["eventsMoved"] = toMove.size();
     return result;
 }
 

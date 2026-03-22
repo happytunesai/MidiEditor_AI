@@ -255,7 +255,7 @@ bool MidiEventSerializer::deserialize(const QJsonArray &eventsJson,
 
         QString type = obj[QStringLiteral("type")].toString();
         int tick = obj[QStringLiteral("tick")].toInt();
-        int ch = obj.contains(QStringLiteral("channel"))
+        int ch = (obj.contains(QStringLiteral("channel")) && obj[QStringLiteral("channel")].isDouble())
                      ? qBound(0, obj[QStringLiteral("channel")].toInt(), 15)
                      : channel;
 

@@ -1,6 +1,7 @@
 midieditor.pro.user
 build/
 Planning/
+test/
 doxy/
 .qmake.stash
 .xmake/

@@ -40,8 +40,8 @@ void AgentRunner::run(const QString &systemPrompt,
     _cancelled = false;
 
     // Read configurable step limit from settings
-    QSettings settings;
-    _maxSteps = settings.value("AI/agent_max_steps", 25).toInt();
+    QSettings settings(QStringLiteral("MidiEditor"), QStringLiteral("NONE"));
+    _maxSteps = settings.value("AI/agent_max_steps", 50).toInt();
     if (_maxSteps < 5) _maxSteps = 5;
     if (_maxSteps > 100) _maxSteps = 100;
 
@@ -264,6 +264,16 @@ QString AgentRunner::buildStepLabel(const QString &toolName, const QJsonObject &
     }
     if (toolName == "get_editor_state") {
         return QStringLiteral("Get editor state");
+    }
+    if (toolName == "validate_ffxiv") {
+        return QStringLiteral("Validate FFXIV constraints");
+    }
+    if (toolName == "setup_channel_pattern") {
+        return QStringLiteral("Setup channel pattern & guitar switches");
+    }
+    if (toolName == "convert_drums_ffxiv") {
+        int track = args["trackIndex"].toInt(-1);
+        return QStringLiteral("Convert GM drums \u2014 Track %1").arg(track);
     }
     return toolName;
 }

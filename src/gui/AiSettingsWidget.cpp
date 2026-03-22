@@ -51,10 +51,13 @@ AiSettingsWidget::AiSettingsWidget(QSettings *settings, QWidget *parent)
     _modelCombo->addItem("gpt-4.1 (strong)", "gpt-4.1");
     _modelCombo->addItem("gpt-5 (GPT-5)", "gpt-5");
     _modelCombo->addItem("gpt-5-mini (GPT-5 mini)", "gpt-5-mini");
+    _modelCombo->addItem("gpt-5.4 (128K output)", "gpt-5.4");
+    _modelCombo->addItem("gpt-5.4-mini (128K output, fast)", "gpt-5.4-mini");
+    _modelCombo->addItem("gpt-5.4-nano (128K output, cheap)", "gpt-5.4-nano");
     _modelCombo->addItem("o4-mini (reasoning)", "o4-mini");
     _modelCombo->setEditable(true); // Allow custom model names
 
-    QString currentModel = _settings->value("AI/model", "gpt-4o-mini").toString();
+    QString currentModel = _settings->value("AI/model", "gpt-5.4").toString();
     int idx = _modelCombo->findData(currentModel);
     if (idx >= 0) {
         _modelCombo->setCurrentIndex(idx);
@@ -65,7 +68,7 @@ AiSettingsWidget::AiSettingsWidget(QSettings *settings, QWidget *parent)
     // Thinking / Reasoning toggle
     layout->addWidget(new QLabel("Thinking:"), row, 0);
     _thinkingCheck = new QCheckBox("Enable reasoning (for o-series and GPT-5.x models)", this);
-    _thinkingCheck->setChecked(_settings->value("AI/thinking_enabled", false).toBool());
+    _thinkingCheck->setChecked(_settings->value("AI/thinking_enabled", true).toBool());
     layout->addWidget(_thinkingCheck, row, 1, 1, 2);
     row++;
 
@@ -73,9 +76,11 @@ AiSettingsWidget::AiSettingsWidget(QSettings *settings, QWidget *parent)
     _effortLabel = new QLabel("Reasoning Effort:", this);
     layout->addWidget(_effortLabel, row, 0);
     _effortCombo = new QComboBox(this);
+    _effortCombo->addItem("None (no reasoning, fastest)", "none");
     _effortCombo->addItem("Low (fast, less thorough)", "low");
     _effortCombo->addItem("Medium (balanced)", "medium");
     _effortCombo->addItem("High (thorough, slower)", "high");
+    _effortCombo->addItem("Extra High (most thorough)", "xhigh");
     QString currentEffort = _settings->value("AI/reasoning_effort", "medium").toString();
     int effortIdx = _effortCombo->findData(currentEffort);
     if (effortIdx >= 0) _effortCombo->setCurrentIndex(effortIdx);
@@ -110,11 +115,26 @@ AiSettingsWidget::AiSettingsWidget(QSettings *settings, QWidget *parent)
     layout->addWidget(_contextEstimateLabel, row, 2);
     row++;
 
+    // FFXIV Bard Performance mode
+    layout->addWidget(new QLabel("FFXIV Mode:"), row, 0);
+    _ffxivCheck = new QCheckBox("Enable FFXIV Bard Performance mode", this);
+    _ffxivCheck->setChecked(_settings->value("AI/ffxiv_mode", false).toBool());
+    _ffxivCheck->setToolTip("When enabled, MidiPilot constrains output to FFXIV Bard Performance rules:\n"
+                            "- All notes in C3-C6 (MIDI 48-84), MidiBard2 auto-transposes\n"
+                            "- Monophonic per track (one note at a time)\n"
+                            "- Maximum 8 tracks for ensemble\n"
+                            "- Track names must match MidiBard2 instrument names\n"
+                            "- Drums are separate tonal tracks (no GM drum kit)");
+    layout->addWidget(_ffxivCheck, row, 1, 1, 2);
+    row++;
+
+    layout->addWidget(separator(), row++, 0, 1, 3);
+
     // Agent max steps
     layout->addWidget(new QLabel("Agent Max Steps:"), row, 0);
     _agentMaxStepsSpin = new QSpinBox(this);
     _agentMaxStepsSpin->setRange(5, 100);
-    _agentMaxStepsSpin->setValue(_settings->value("AI/agent_max_steps", 25).toInt());
+    _agentMaxStepsSpin->setValue(_settings->value("AI/agent_max_steps", 50).toInt());
     _agentMaxStepsSpin->setToolTip("Maximum number of tool calls the Agent can make per request.\n"
                                    "Higher values allow more complex tasks but take longer.");
     layout->addWidget(_agentMaxStepsSpin, row, 1);
@@ -158,6 +178,7 @@ bool AiSettingsWidget::accept() {
     _settings->setValue("AI/reasoning_effort", _effortCombo->currentData().toString());
     _settings->setValue("AI/context_measures", _contextMeasuresSpin->value());
     _settings->setValue("AI/agent_max_steps", _agentMaxStepsSpin->value());
+    _settings->setValue("AI/ffxiv_mode", _ffxivCheck->isChecked());
     return true;
 }
 

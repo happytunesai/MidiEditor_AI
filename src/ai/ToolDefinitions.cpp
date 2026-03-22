@@ -11,6 +11,9 @@
 #include "../MidiEvent/OffEvent.h"
 
 #include <QJsonDocument>
+#include <QSettings>
+#include <QSet>
+#include <QRegularExpression>
 
 // ---------------------------------------------------------------------------
 // Helper: create a tool schema object in OpenAI format (strict mode)
@@ -50,10 +53,13 @@ static QJsonObject makeEventSchema() {
     noteProps["note"] = QJsonObject{{"type", "integer"}, {"description", "MIDI note number (0-127). 60 = Middle C."}};
     noteProps["velocity"] = QJsonObject{{"type", "integer"}, {"description", "Note velocity (1-127)."}};
     noteProps["duration"] = QJsonObject{{"type", "integer"}, {"description", "Duration in ticks."}};
+    noteProps["channel"] = QJsonObject{
+        {"anyOf", QJsonArray{QJsonObject{{"type", "integer"}}, QJsonObject{{"type", "null"}}}},
+        {"description", "Per-note MIDI channel override (0-15). Use null for default track channel. Set to a specific channel for FFXIV guitar switches."}};
     QJsonObject noteSchema;
     noteSchema["type"] = QString("object");
     noteSchema["properties"] = noteProps;
-    noteSchema["required"] = QJsonArray{"type", "tick", "note", "velocity", "duration"};
+    noteSchema["required"] = QJsonArray{"type", "tick", "note", "velocity", "duration", "channel"};
     noteSchema["additionalProperties"] = false;
 
     // cc (control change)
@@ -304,6 +310,43 @@ QJsonArray ToolDefinitions::toolSchemas() {
             makeParams(props, {"sourceTrackIndex", "targetTrackIndex", "startTick", "endTick"})));
     }
 
+    // --- FFXIV tools (only when FFXIV mode is active) ---
+    if (QSettings().value("AI/ffxiv_mode", false).toBool()) {
+
+        // validate_ffxiv (no parameters)
+        {
+            tools.append(makeTool(
+                "validate_ffxiv",
+                "Check if the current MIDI file meets FFXIV Bard Performance constraints. "
+                "Reports issues: polyphony, out-of-range notes, invalid track names, too many tracks.",
+                makeParams(QJsonObject(), QJsonArray())));
+        }
+
+        // convert_drums_ffxiv
+        {
+            QJsonObject props;
+            props["trackIndex"] = QJsonObject{
+                {"type", "integer"},
+                {"description", "Zero-based index of the GM drum track (channel 9) to convert."}};
+            tools.append(makeTool(
+                "convert_drums_ffxiv",
+                "Convert a GM drum track (channel 9) into separate FFXIV drum instrument tracks "
+                "(Bass Drum, Snare Drum, Cymbal, Timpani). Splits drum hits by GM note mapping.",
+                makeParams(props, {"trackIndex"})));
+        }
+
+        // setup_channel_pattern (no parameters)
+        {
+            tools.append(makeTool(
+                "setup_channel_pattern",
+                "Auto-configure MIDI channels and program_change events for all tracks. "
+                "Assigns each track a unique channel, inserts program_change at tick 0 for "
+                "each instrument, and pre-configures all 5 guitar switch channels when any "
+                "guitar track is present. Call after creating/renaming tracks.",
+                makeParams(QJsonObject(), QJsonArray())));
+        }
+    }
+
     return tools;
 }
 
@@ -399,6 +442,17 @@ QJsonObject ToolDefinitions::executeTool(const QString &toolName,
         actionObj["endTick"] = args["endTick"];
         actionObj["explanation"] = QString("Agent: move events to track");
         return widget->executeAction(actionObj);
+    }
+
+    // FFXIV tools
+    if (toolName == "validate_ffxiv") {
+        return execValidateFFXIV(file);
+    }
+    if (toolName == "convert_drums_ffxiv") {
+        return execConvertDrumsFFXIV(args, file, widget);
+    }
+    if (toolName == "setup_channel_pattern") {
+        return execSetupChannelPattern(file, widget);
     }
 
     QJsonObject result;
@@ -525,4 +579,461 @@ QJsonObject ToolDefinitions::execWriteAction(const QString &action,
     if (!actionObj.contains("explanation"))
         actionObj["explanation"] = QString("Agent: ") + action;
     return widget->executeAction(actionObj);
+}
+
+// ---------------------------------------------------------------------------
+// FFXIV tools
+// ---------------------------------------------------------------------------
+
+static const QSet<QString> FFXIV_INSTRUMENT_NAMES = {
+    "Piano", "Harp", "Fiddle", "Lute", "Fife", "Flute", "Oboe", "Panpipes",
+    "Clarinet", "Trumpet", "Saxophone", "Trombone", "Horn", "Tuba",
+    "Violin", "Viola", "Cello", "Double Bass",
+    "Timpani", "Bongo", "Bass Drum", "Snare Drum", "Cymbal",
+    "ElectricGuitarClean", "ElectricGuitarMuted", "ElectricGuitarOverdriven",
+    "ElectricGuitarPowerChords", "ElectricGuitarSpecial"
+};
+
+static bool isGuitarInstrument(const QString &name) {
+    QString base = name;
+    QRegularExpression suffixRe("[+-]\\d+$");
+    base.remove(suffixRe);
+    return base.startsWith("ElectricGuitar");
+}
+
+QJsonObject ToolDefinitions::execValidateFFXIV(MidiFile *file) {
+    QJsonObject result;
+    if (!file) {
+        result["success"] = false;
+        result["error"] = QString("No file loaded.");
+        return result;
+    }
+
+    QJsonArray issues;
+    int trackCount = file->numTracks();
+
+    // Check track count
+    if (trackCount > 8) {
+        QJsonObject issue;
+        issue["issue"] = QString("too_many_tracks");
+        issue["details"] = QString("%1 tracks exceed maximum of 8").arg(trackCount);
+        issues.append(issue);
+    }
+
+    for (int t = 0; t < trackCount; t++) {
+        MidiTrack *track = file->track(t);
+        QString name = track->name();
+
+        // Check track name — strip +N/-N suffix for validation
+        QString baseName = name;
+        QRegularExpression suffixRe("[+-]\\d+$");
+        baseName.remove(suffixRe);
+        if (!baseName.isEmpty() && !FFXIV_INSTRUMENT_NAMES.contains(baseName)) {
+            QJsonObject issue;
+            issue["track"] = t;
+            issue["issue"] = QString("track_name");
+            issue["details"] = QString("Track name '%1' doesn't match any FFXIV instrument").arg(name);
+            issues.append(issue);
+        }
+
+        // Collect NoteOn events on this track to check range and polyphony
+        struct NoteInfo { int tick; int note; int endTick; int channel; };
+        QList<NoteInfo> notes;
+        bool trackIsGuitar = isGuitarInstrument(name);
+
+        for (int ch = 0; ch < 16; ch++) {
+            MidiChannel *channel = file->channel(ch);
+            if (!channel) continue;
+            QMultiMap<int, MidiEvent *> *map = channel->eventMap();
+            for (auto it = map->begin(); it != map->end(); ++it) {
+                MidiEvent *ev = it.value();
+                if (ev->track() != track) continue;
+                auto *noteOn = dynamic_cast<NoteOnEvent *>(ev);
+                if (!noteOn) continue;
+
+                int note = noteOn->note();
+                int tick = noteOn->midiTime();
+
+                // Check range (C3-C6 = MIDI 48-84)
+                if (note < 48 || note > 84) {
+                    static const char *noteNames[] = {"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"};
+                    QString noteName = QString("%1%2").arg(noteNames[note % 12]).arg(note / 12 - 1);
+                    QJsonObject issue;
+                    issue["track"] = t;
+                    issue["issue"] = QString("out_of_range");
+                    issue["details"] = QString("Note %1 (%2) outside C3-C6 (MIDI 48-84) at tick %3")
+                                           .arg(noteName).arg(note).arg(tick);
+                    issues.append(issue);
+                }
+
+                // Find end tick for polyphony check
+                int endTick = tick;
+                MidiEvent *offEv = noteOn->offEvent();
+                if (offEv) endTick = offEv->midiTime();
+                notes.append({tick, note, endTick, ch});
+            }
+        }
+
+        // Check polyphony (overlapping notes)
+        // For guitar tracks: only flag overlaps on the SAME channel (different
+        // channels are intentional guitar switches)
+        for (int i = 0; i < notes.size(); i++) {
+            for (int j = i + 1; j < notes.size(); j++) {
+                if (trackIsGuitar && notes[i].channel != notes[j].channel)
+                    continue; // different guitar switch channels — OK
+                if (notes[i].endTick > notes[j].tick && notes[j].endTick > notes[i].tick) {
+                    QJsonObject issue;
+                    issue["track"] = t;
+                    issue["issue"] = QString("polyphonic");
+                    issue["details"] = QString("Overlapping notes at tick %1 and %2")
+                                           .arg(notes[i].tick).arg(notes[j].tick);
+                    issues.append(issue);
+                    // Only report first overlap per track to avoid flooding
+                    goto nextTrack;
+                }
+            }
+        }
+        nextTrack:;
+    }
+
+    result["success"] = true;
+    result["valid"] = issues.isEmpty();
+    result["issues"] = issues;
+    result["summary"] = issues.isEmpty()
+        ? QString("File is FFXIV-compliant")
+        : QString("%1 issue(s) found").arg(issues.size());
+    return result;
+}
+
+QJsonObject ToolDefinitions::execConvertDrumsFFXIV(const QJsonObject &args,
+                                                    MidiFile *file,
+                                                    MidiPilotWidget *widget) {
+    QJsonObject result;
+    if (!file) {
+        result["success"] = false;
+        result["error"] = QString("No file loaded.");
+        return result;
+    }
+
+    int trackIndex = args["trackIndex"].toInt(-1);
+    if (trackIndex < 0 || trackIndex >= file->numTracks()) {
+        result["success"] = false;
+        result["error"] = QString("Invalid track index: %1").arg(trackIndex);
+        return result;
+    }
+
+    MidiTrack *srcTrack = file->track(trackIndex);
+
+    // Collect all NoteOn events from the source track
+    struct DrumHit { int tick; int note; int velocity; int duration; };
+    QList<DrumHit> kicks, snares, cymbals, toms;
+
+    for (int ch = 0; ch < 16; ch++) {
+        MidiChannel *channel = file->channel(ch);
+        if (!channel) continue;
+        QMultiMap<int, MidiEvent *> *map = channel->eventMap();
+        for (auto it = map->begin(); it != map->end(); ++it) {
+            MidiEvent *ev = it.value();
+            if (ev->track() != srcTrack) continue;
+            auto *noteOn = dynamic_cast<NoteOnEvent *>(ev);
+            if (!noteOn) continue;
+
+            int note = noteOn->note();
+            int tick = noteOn->midiTime();
+            int vel = noteOn->velocity();
+            int dur = 96; // default short duration
+            MidiEvent *offEv = noteOn->offEvent();
+            if (offEv) dur = offEv->midiTime() - tick;
+            if (dur < 1) dur = 96;
+
+            // GM drum mapping
+            if (note == 35 || note == 36) {
+                // Kick -> Bass Drum
+                kicks.append({tick, 60, vel, dur}); // C4
+            } else if (note == 38 || note == 40) {
+                // Snare -> Snare Drum
+                snares.append({tick, 72, vel, dur}); // C5
+            } else if (note == 42 || note == 44 || note == 46) {
+                // Hi-hat -> Cymbal (high range)
+                cymbals.append({tick, 84, vel, dur}); // C6
+            } else if (note == 49 || note == 57) {
+                // Crash -> Cymbal (low range)
+                cymbals.append({tick, 72, vel, dur}); // C5
+            } else if (note == 51 || note == 59) {
+                // Ride -> Cymbal (mid range)
+                cymbals.append({tick, 78, vel, dur}); // F#5
+            } else if (note >= 41 && note <= 50) {
+                // Toms -> Timpani (map tonally: low toms = lower pitch)
+                int timpaniNote = 60 + (note - 41) * 2; // spread across range
+                if (timpaniNote > 84) timpaniNote = 84;
+                if (timpaniNote < 48) timpaniNote = 48;
+                toms.append({tick, timpaniNote, vel, dur});
+            }
+        }
+    }
+
+    if (kicks.isEmpty() && snares.isEmpty() && cymbals.isEmpty() && toms.isEmpty()) {
+        result["success"] = false;
+        result["error"] = QString("No GM drum events found on track %1").arg(trackIndex);
+        return result;
+    }
+
+    // Helper: create a track and insert events
+    auto createDrumTrack = [&](const QString &name, const QList<DrumHit> &hits) -> int {
+        if (hits.isEmpty()) return -1;
+
+        // Create track
+        QJsonObject createAction;
+        createAction["action"] = QString("create_track");
+        createAction["trackName"] = name;
+        createAction["channel"] = 0;
+        createAction["explanation"] = QString("FFXIV drum: %1").arg(name);
+        QJsonObject createResult = widget->executeAction(createAction);
+        int newTrackIdx = createResult["trackIndex"].toInt(-1);
+        if (newTrackIdx < 0) return -1;
+
+        // Build events array
+        QJsonArray events;
+        for (const DrumHit &hit : hits) {
+            QJsonObject ev;
+            ev["type"] = QString("note");
+            ev["tick"] = hit.tick;
+            ev["note"] = hit.note;
+            ev["velocity"] = hit.velocity;
+            ev["duration"] = hit.duration;
+            events.append(ev);
+        }
+
+        // Insert events
+        QJsonObject insertAction;
+        insertAction["action"] = QString("edit");
+        insertAction["events"] = events;
+        insertAction["track"] = newTrackIdx;
+        insertAction["channel"] = 0;
+        insertAction["explanation"] = QString("FFXIV drum events: %1").arg(name);
+        widget->executeAction(insertAction);
+        return newTrackIdx;
+    };
+
+    QJsonArray createdTracks;
+    int idx;
+
+    idx = createDrumTrack("Bass Drum", kicks);
+    if (idx >= 0) createdTracks.append(QJsonObject{{"name", "Bass Drum"}, {"trackIndex", idx}, {"events", kicks.size()}});
+
+    idx = createDrumTrack("Snare Drum", snares);
+    if (idx >= 0) createdTracks.append(QJsonObject{{"name", "Snare Drum"}, {"trackIndex", idx}, {"events", snares.size()}});
+
+    idx = createDrumTrack("Cymbal", cymbals);
+    if (idx >= 0) createdTracks.append(QJsonObject{{"name", "Cymbal"}, {"trackIndex", idx}, {"events", cymbals.size()}});
+
+    idx = createDrumTrack("Timpani", toms);
+    if (idx >= 0) createdTracks.append(QJsonObject{{"name", "Timpani"}, {"trackIndex", idx}, {"events", toms.size()}});
+
+    result["success"] = true;
+    result["createdTracks"] = createdTracks;
+    result["summary"] = QString("Created %1 FFXIV drum tracks from GM drum track %2")
+                            .arg(createdTracks.size()).arg(trackIndex);
+    return result;
+}
+
+// ---------------------------------------------------------------------------
+// FFXIV instrument → GM program number mapping
+// ---------------------------------------------------------------------------
+static int ffxivProgramNumber(const QString &instrumentName) {
+    // Strip +N/-N suffix
+    QString base = instrumentName;
+    QRegularExpression suffixRe("[+-]\\d+$");
+    base.remove(suffixRe);
+
+    static const QHash<QString, int> map = {
+        {"Piano", 0},       {"Harp", 46},       {"Fiddle", 45},
+        {"Lute", 24},       {"Fife", 72},        {"Flute", 73},
+        {"Oboe", 68},       {"Panpipes", 75},    {"Clarinet", 71},
+        {"Trumpet", 56},    {"Saxophone", 65},   {"Trombone", 57},
+        {"Horn", 60},       {"Tuba", 58},
+        {"Violin", 40},     {"Viola", 41},       {"Cello", 42},
+        {"Double Bass", 43},
+        {"Timpani", 47},    {"Bongo", 116},      {"Bass Drum", 117},
+        {"Snare Drum", 115}, {"Cymbal", 127},
+        {"ElectricGuitarClean", 27},       {"ElectricGuitarMuted", 28},
+        {"ElectricGuitarOverdriven", 29},  {"ElectricGuitarPowerChords", 30},
+        {"ElectricGuitarSpecial", 31}
+    };
+    return map.value(base, -1);
+}
+
+// ---------------------------------------------------------------------------
+// setup_channel_pattern — auto-configure channels + program_change for all tracks
+// ---------------------------------------------------------------------------
+QJsonObject ToolDefinitions::execSetupChannelPattern(MidiFile *file,
+                                                      MidiPilotWidget *widget) {
+    QJsonObject result;
+    if (!file) {
+        result["success"] = false;
+        result["error"] = QString("No file loaded.");
+        return result;
+    }
+
+    int trackCount = file->numTracks();
+    if (trackCount == 0) {
+        result["success"] = false;
+        result["error"] = QString("No tracks in file.");
+        return result;
+    }
+
+    // Check if any guitar track exists
+    bool hasGuitar = false;
+    for (int t = 0; t < trackCount; t++) {
+        if (isGuitarInstrument(file->track(t)->name())) {
+            hasGuitar = true;
+            break;
+        }
+    }
+
+    // Guitar switch channels: always reserve 5 channels for guitar variants
+    // when any guitar is present
+    static const QStringList guitarVariants = {
+        "ElectricGuitarClean", "ElectricGuitarMuted",
+        "ElectricGuitarOverdriven", "ElectricGuitarPowerChords",
+        "ElectricGuitarSpecial"
+    };
+
+    // Build channel assignments:
+    // - Non-guitar tracks get unique channels starting from 0
+    // - All guitar variants share a block of 5 channels
+    // - Skip channel 9 (GM drum channel, some players choke on it)
+    QJsonArray channelMap;
+    int nextChannel = 0;
+    QHash<QString, int> guitarChannels; // variant name → channel
+    int guitarBlockStart = -1;
+
+    // First pass: assign guitar block if needed
+    if (hasGuitar) {
+        // Count non-guitar tracks to determine where guitar block starts
+        int nonGuitarCount = 0;
+        for (int t = 0; t < trackCount; t++) {
+            if (!isGuitarInstrument(file->track(t)->name()))
+                nonGuitarCount++;
+        }
+        // Place guitar block after non-guitar channels
+        guitarBlockStart = nonGuitarCount;
+        if (guitarBlockStart >= 9) guitarBlockStart++; // skip ch 9
+        for (int i = 0; i < guitarVariants.size(); i++) {
+            int ch = guitarBlockStart + i;
+            if (ch >= 9) ch++; // skip ch 9
+            if (ch > 15) ch = 15; // clamp
+            guitarChannels[guitarVariants[i]] = ch;
+        }
+    }
+
+    // Second pass: assign channels to tracks
+    for (int t = 0; t < trackCount; t++) {
+        MidiTrack *track = file->track(t);
+        QString name = track->name();
+        QString baseName = name;
+        QRegularExpression suffixRe("[+-]\\d+$");
+        baseName.remove(suffixRe);
+
+        int channel;
+        if (isGuitarInstrument(name)) {
+            // Use the guitar channel for this variant
+            channel = guitarChannels.value(baseName, guitarBlockStart);
+        } else {
+            channel = nextChannel;
+            if (channel == 9) channel = nextChannel + 1; // skip ch 9
+            nextChannel = channel + 1;
+        }
+
+        // Set the track's channel
+        {
+            QJsonObject setChAction;
+            setChAction["action"] = QString("set_channel");
+            setChAction["trackIndex"] = t;
+            setChAction["channel"] = channel;
+            setChAction["explanation"] = QString("FFXIV channel pattern: %1 → ch %2").arg(name).arg(channel);
+            widget->executeAction(setChAction);
+        }
+
+        // Insert program_change at tick 0 on this channel
+        int program = ffxivProgramNumber(name);
+        if (program >= 0) {
+            QJsonArray events;
+            QJsonObject pc;
+            pc["type"] = QString("program_change");
+            pc["tick"] = 0;
+            pc["program"] = program;
+            events.append(pc);
+
+            QJsonObject insertAction;
+            insertAction["action"] = QString("edit");
+            insertAction["events"] = events;
+            insertAction["track"] = t;
+            insertAction["channel"] = channel;
+            insertAction["explanation"] = QString("FFXIV program_change: %1 (program %2)").arg(name).arg(program);
+            widget->executeAction(insertAction);
+        }
+
+        QJsonObject entry;
+        entry["track"] = t;
+        entry["name"] = name;
+        entry["channel"] = channel;
+        entry["program"] = program;
+        channelMap.append(entry);
+    }
+
+    // If guitar is present, also insert program_change for unused guitar variants
+    if (hasGuitar) {
+        QSet<QString> usedGuitars;
+        for (int t = 0; t < trackCount; t++) {
+            QString baseName = file->track(t)->name();
+            QRegularExpression suffixRe("[+-]\\d+$");
+            baseName.remove(suffixRe);
+            if (baseName.startsWith("ElectricGuitar"))
+                usedGuitars.insert(baseName);
+        }
+
+        QJsonArray extraGuitarChannels;
+        for (const QString &variant : guitarVariants) {
+            if (usedGuitars.contains(variant)) continue;
+            // Insert program_change on the reserved channel (on track 0 as carrier)
+            int ch = guitarChannels.value(variant, -1);
+            if (ch < 0) continue;
+
+            int program = ffxivProgramNumber(variant);
+            QJsonArray events;
+            QJsonObject pc;
+            pc["type"] = QString("program_change");
+            pc["tick"] = 0;
+            pc["program"] = program;
+            events.append(pc);
+
+            QJsonObject insertAction;
+            insertAction["action"] = QString("edit");
+            insertAction["events"] = events;
+            insertAction["track"] = 0; // attach to first track
+            insertAction["channel"] = ch;
+            insertAction["explanation"] = QString("FFXIV guitar switch reserve: %1 (program %2, ch %3)")
+                                              .arg(variant).arg(program).arg(ch);
+            widget->executeAction(insertAction);
+
+            QJsonObject entry;
+            entry["variant"] = variant;
+            entry["channel"] = ch;
+            entry["program"] = program;
+            entry["reserved"] = true;
+            extraGuitarChannels.append(entry);
+        }
+        if (!extraGuitarChannels.isEmpty())
+            result["reservedGuitarChannels"] = extraGuitarChannels;
+    }
+
+    result["success"] = true;
+    result["channelMap"] = channelMap;
+    result["summary"] = QString("Configured %1 track channels with program_change events%2")
+                            .arg(trackCount)
+                            .arg(hasGuitar ? QString(", plus %1 reserved guitar switch channels")
+                                               .arg(5 - (int)channelMap.size()) // unused guitar count
+                                           : QString());
+    return result;
 }

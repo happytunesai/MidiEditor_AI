@@ -47,6 +47,7 @@ private:
     QSpinBox *_contextMeasuresSpin;
     QLabel *_contextEstimateLabel;
     QSpinBox *_agentMaxStepsSpin;
+    QCheckBox *_ffxivCheck;
     bool _keyVisible;
 };
 

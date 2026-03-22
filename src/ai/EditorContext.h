@@ -46,6 +46,18 @@ public:
     static QString agentSystemPrompt();
 
     /**
+     * \brief Returns FFXIV Bard Performance mode context to append to system prompts.
+     * \return The FFXIV rules and constraints string
+     */
+    static QString ffxivContext();
+
+    /**
+     * \brief Returns compact FFXIV context for Simple mode (no tool references).
+     * Shorter to leave more output token budget for the model.
+     */
+    static QString ffxivContextCompact();
+
+    /**
      * \brief Captures surrounding events (±N measures) as JSON per track.
      * \param file The current MidiFile
      * \param cursorTick The cursor position

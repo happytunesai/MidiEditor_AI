@@ -7,6 +7,7 @@
 #include <QDateTime>
 
 class QTimer;
+class QCheckBox;
 
 class QVBoxLayout;
 class QHBoxLayout;
@@ -48,6 +49,11 @@ public:
      * \\brief Returns the current mode: \"simple\" or \"agent\".
      */
     QString currentMode() const;
+
+    /**
+     * \brief Returns whether FFXIV Bard Performance mode is enabled.
+     */
+    bool ffxivMode() const;
 
     /**
      * \brief Executes an action silently (no chat bubbles). Used by Agent Mode tool calls.
@@ -139,6 +145,7 @@ private:
     int _msgPhase;
     QComboBox *_modelCombo;
     QComboBox *_effortCombo;
+    QCheckBox *_ffxivCheck;
 
     // Setup prompt (shown when no API key)
     QWidget *_setupWidget;

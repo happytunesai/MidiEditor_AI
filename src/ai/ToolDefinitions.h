@@ -50,6 +50,14 @@ private:
     static QJsonObject execWriteAction(const QString &action,
                                        const QJsonObject &args,
                                        MidiPilotWidget *widget);
+
+    // FFXIV tools
+    static QJsonObject execValidateFFXIV(MidiFile *file);
+    static QJsonObject execConvertDrumsFFXIV(const QJsonObject &args,
+                                             MidiFile *file,
+                                             MidiPilotWidget *widget);
+    static QJsonObject execSetupChannelPattern(MidiFile *file,
+                                               MidiPilotWidget *widget);
 };
 
 #endif // TOOLDEFINITIONS_H
