@@ -199,6 +199,9 @@ public:
     /** \brief Static list of copied events */
     static QList<MidiEvent *> *copiedEvents;
 
+    /** \brief Ticks per quarter of the source file at copy time */
+    static int _copiedTicksPerQuarter;
+
 protected:
     /** \brief Flag indicating if the last clipboard operation was a cut */
     static bool isCutAction;

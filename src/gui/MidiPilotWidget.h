@@ -66,6 +66,11 @@ public slots:
     void onFileChanged(MidiFile *f);
 
     /**
+     * \brief Called when application settings have changed (e.g. API key updated).
+     */
+    void onSettingsChanged();
+
+    /**
      * \brief Clears the conversation history and chat display.
      */
     void onNewChat();

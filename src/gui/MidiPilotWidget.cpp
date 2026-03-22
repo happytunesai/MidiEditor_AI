@@ -870,12 +870,11 @@ void MidiPilotWidget::onErrorOccurred(const QString &errorMessage) {
 
 void MidiPilotWidget::onSettingsClicked() {
     _mainWindow->openConfig();
+}
 
-    // Re-check configuration after dialog closes
-    QTimer::singleShot(500, this, [this]() {
-        _client->reloadSettings();
-        setupSetupPrompt();
-    });
+void MidiPilotWidget::onSettingsChanged() {
+    _client->reloadSettings();
+    setupSetupPrompt();
 }
 
 QString MidiPilotWidget::currentMode() const {

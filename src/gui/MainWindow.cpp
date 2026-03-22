@@ -4131,6 +4131,9 @@ void MainWindow::checkForUpdates(bool silent) {
 void MainWindow::openConfig() {
     SettingsDialog *d = new SettingsDialog(tr("Settings"), _settings, this);
     connect(d, SIGNAL(settingsChanged()), this, SLOT(updateAll()));
+    if (_midiPilotWidget) {
+        connect(d, SIGNAL(settingsChanged()), _midiPilotWidget, SLOT(onSettingsChanged()));
+    }
     // Note: We don't connect settingsChanged() to updateRenderingMode() here because
     // we connect directly to PerformanceSettingsWidget for immediate updates
 

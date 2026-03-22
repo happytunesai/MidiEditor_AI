@@ -44,6 +44,7 @@
 #include <cmath>
 
 QList<MidiEvent *> *EventTool::copiedEvents = new QList<MidiEvent *>;
+int EventTool::_copiedTicksPerQuarter = 0;
 
 int EventTool::_pasteChannel = -1;
 int EventTool::_pasteTrack = -2;
@@ -203,6 +204,10 @@ void EventTool::copyAction() {
         // clear old copied Events
         copiedEvents->clear();
 
+        // Store source file's ticksPerQuarter before copying events
+        MidiFile *sourceFile = currentFile();
+        _copiedTicksPerQuarter = sourceFile ? sourceFile->ticksPerQuarter() : 192;
+
         foreach(MidiEvent* event, Selection::instance()->selectedEvents()) {
             // add the current Event
             MidiEvent *ev = dynamic_cast<MidiEvent *>(event->copy());
@@ -225,8 +230,13 @@ void EventTool::copyAction() {
             }
         }
 
-        // Also copy to shared clipboard for cross-instance pasting
+        // Copy to shared clipboard BEFORE detaching file pointers
         copyToSharedClipboard();
+
+        // Detach copied events from source file so stale pointers can't be dereferenced
+        foreach(MidiEvent* event, *copiedEvents) {
+            event->setFile(nullptr);
+        }
 
         _mainWindow->copiedEventsChanged();
     }
@@ -281,8 +291,8 @@ void EventTool::pasteAction() {
         currentFile()->protocol()->startNewAction(QObject::tr("Paste ") + QString::number(copiedCopiedEvents.count()) + QObject::tr(" events"));
 
         double tickscale = 1;
-        if (currentFile() != copiedEvents->first()->file()) {
-            tickscale = ((double) (currentFile()->ticksPerQuarter())) / ((double) copiedEvents->first()->file()->ticksPerQuarter());
+        if (_copiedTicksPerQuarter > 0 && currentFile()->ticksPerQuarter() != _copiedTicksPerQuarter) {
+            tickscale = ((double) (currentFile()->ticksPerQuarter())) / ((double) _copiedTicksPerQuarter);
         }
 
         // get first Tick of the copied events
@@ -344,10 +354,11 @@ void EventTool::pasteAction() {
                 track = currentFile()->track(NewNoteTool::editTrack());
             } else if ((pasteTrack() >= 0) && (pasteTrack() < currentFile()->tracks()->size())) {
                 track = currentFile()->track(pasteTrack());
-            } else if (event->file() != currentFile() || !currentFile()->tracks()->contains(track)) {
+            } else if (event->file() != currentFile() || event->file() == nullptr || !currentFile()->tracks()->contains(track)) {
                 track = currentFile()->getPasteTrack(event->track(), event->file());
                 if (!track) {
-                    track = event->track()->copyToFile(currentFile());
+                    // Track from deleted file or unknown — use first track
+                    track = currentFile()->track(0);
                 }
             }
 
