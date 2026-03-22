@@ -30,7 +30,7 @@ The editor is able to open existing midi files and modify their content. New fil
 
 ---
 
-## MidiPilot — AI-Powered MIDI Assistant
+## MidiPilot - AI-Powered MIDI Assistant
 
 MidiPilot is an integrated AI copilot that can compose, edit, and transform MIDI data using natural language. It is embedded directly in the MidiEditor interface and communicates with OpenAI's API to understand musical intent and execute changes on the active MIDI file.
 
