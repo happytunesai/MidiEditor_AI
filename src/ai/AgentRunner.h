@@ -42,6 +42,17 @@ public:
     void cancel();
     bool isRunning() const;
 
+    /**
+     * \brief Extends the step limit and continues the agent loop.
+     * Called when the user chooses to continue after hitting the limit.
+     */
+    void continueRunning(int additionalSteps);
+
+    /**
+     * \brief Stops the agent at the current step limit (user chose not to continue).
+     */
+    void stopAtLimit();
+
 signals:
     /**
      * \brief Emitted with all tool names from a batch before any are executed.
@@ -62,6 +73,11 @@ signals:
      * \brief Emitted when the agent produces its final text response.
      */
     void finished(const QString &finalMessage);
+
+    /**
+     * \brief Emitted when the step limit is reached, allowing the user to continue or stop.
+     */
+    void stepLimitReached(int currentStep, int maxSteps);
 
     /**
      * \brief Emitted on error (API or tool execution).

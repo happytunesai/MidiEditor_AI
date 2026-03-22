@@ -84,6 +84,21 @@ bool AgentRunner::isRunning() const
     return _running;
 }
 
+void AgentRunner::continueRunning(int additionalSteps)
+{
+    if (!_running) return;
+    _maxSteps += additionalSteps;
+    if (_maxSteps > 500) _maxSteps = 500;
+    sendNextRequest();
+}
+
+void AgentRunner::stopAtLimit()
+{
+    cleanup();
+    emit finished("Agent stopped at step limit (" +
+                  QString::number(_currentStep) + " steps).");
+}
+
 void AgentRunner::sendNextRequest()
 {
     if (_cancelled) {
@@ -92,9 +107,7 @@ void AgentRunner::sendNextRequest()
     }
 
     if (_currentStep >= _maxSteps) {
-        cleanup();
-        emit finished("Agent reached maximum step limit (" +
-                      QString::number(_maxSteps) + " steps).");
+        emit stepLimitReached(_currentStep, _maxSteps);
         return;
     }
 

@@ -20,6 +20,7 @@
 #include <QApplication>
 #include <QRandomGenerator>
 #include <QCheckBox>
+#include <QMessageBox>
 
 #include <cmath>
 #include <algorithm>
@@ -230,6 +231,7 @@ MidiPilotWidget::MidiPilotWidget(MainWindow *mainWindow, QWidget *parent)
     connect(_agentRunner, &AgentRunner::stepCompleted, this, &MidiPilotWidget::onAgentStepCompleted);
     connect(_agentRunner, &AgentRunner::finished, this, &MidiPilotWidget::onAgentFinished);
     connect(_agentRunner, &AgentRunner::errorOccurred, this, &MidiPilotWidget::onAgentError);
+    connect(_agentRunner, &AgentRunner::stepLimitReached, this, &MidiPilotWidget::onAgentStepLimitReached);
 }
 
 // Helper: QTextEdit that sends on Enter, newline on Shift+Enter
@@ -1018,6 +1020,28 @@ void MidiPilotWidget::onAgentError(const QString &error) {
     _sendButton->setEnabled(true);
 
     addChatBubble("system", "Agent error: " + error);
+}
+
+void MidiPilotWidget::onAgentStepLimitReached(int currentStep, int maxSteps) {
+    Q_UNUSED(maxSteps);
+
+    QMessageBox msgBox(this);
+    msgBox.setWindowTitle("MidiPilot Agent");
+    msgBox.setText(QString("The agent has reached the step limit (%1 steps).\n\n"
+                           "The task may not be complete yet. "
+                           "Would you like to continue?").arg(currentStep));
+    msgBox.setIcon(QMessageBox::Question);
+    QPushButton *continueBtn = msgBox.addButton("Continue", QMessageBox::AcceptRole);
+    msgBox.addButton("Stop", QMessageBox::RejectRole);
+    msgBox.setDefaultButton(continueBtn);
+    msgBox.exec();
+
+    if (msgBox.clickedButton() == continueBtn) {
+        addChatBubble("system", QString("Step limit reached (%1 steps). Continuing...").arg(currentStep));
+        _agentRunner->continueRunning(maxSteps);  // Double the budget
+    } else {
+        _agentRunner->stopAtLimit();
+    }
 }
 
 void MidiPilotWidget::addChatBubble(const QString &role, const QString &text) {

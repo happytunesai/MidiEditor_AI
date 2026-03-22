@@ -93,6 +93,7 @@ private slots:
     void onAgentStepsPlanned(int firstStep, const QStringList &toolNames);
     void onAgentFinished(const QString &finalMessage);
     void onAgentError(const QString &error);
+    void onAgentStepLimitReached(int currentStep, int maxSteps);
     void onModelComboChanged(int index);
     void onEffortComboChanged(int index);
 
