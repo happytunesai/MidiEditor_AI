@@ -739,6 +739,10 @@ QList<ToolbarActionInfo> LayoutSettingsWidget::getDefaultActions() {
     actions << ToolbarActionInfo{"transpose_up", "Transpose Up", ":/run_environment/graphics/tool/transpose_up.png", nullptr, false, false, "Tools"};
     actions << ToolbarActionInfo{"transpose_down", "Transpose Down", ":/run_environment/graphics/tool/transpose_down.png", nullptr, false, false, "Tools"};
 
+    // MidiPilot toggle
+    actions << ToolbarActionInfo{"separator14", "--- Separator ---", "", nullptr, true, false, "Separator"};
+    actions << ToolbarActionInfo{"toggle_midipilot", "MidiPilot", ":/run_environment/graphics/tool/midipilot.png", nullptr, true, false, "View"};
+
     return actions;
 }
 
@@ -810,7 +814,8 @@ QStringList LayoutSettingsWidget::getComprehensiveActionOrder() {
             << "lock" << "separator10"
             << "quantize" << "magnet" << "separator11"
             << "thru" << "panic" << "separator12"
-            << "measure" << "time_signature" << "tempo";
+            << "measure" << "time_signature" << "tempo"
+            << "separator14" << "toggle_midipilot";
     return order;
 }
 
@@ -831,7 +836,8 @@ QStringList LayoutSettingsWidget::getDefaultEnabledActions() {
             << "quantize" << "magnet" << "separator11"
             // thru and panic disabled by default
             // << "thru" << "panic" << "separator12"
-            << "measure" << "time_signature" << "tempo";
+            << "measure" << "time_signature" << "tempo"
+            << "separator14" << "toggle_midipilot";
     return enabled;
 }
 
@@ -848,7 +854,8 @@ void LayoutSettingsWidget::getDefaultRowDistribution(QStringList &row1Actions, Q
             << "transpose" << "transpose_up" << "transpose_down" << "separator7"
             << "align_left" << "equalize" << "align_right" << "separator8"
             << "quantize" << "magnet" << "separator9"
-            << "measure" << "time_signature" << "tempo";
+            << "measure" << "time_signature" << "tempo"
+            << "separator14" << "toggle_midipilot";
 
     // Row 2: Playback and view actions
     row2Actions << "back_to_begin" << "back_marker" << "back" << "play" << "pause"
@@ -938,5 +945,6 @@ void LayoutSettingsWidget::getDefaultToolbarRowDistribution(QStringList &row1Act
     row2Actions << "back_to_begin" << "back_marker" << "back" << "play" << "pause"
             << "stop" << "record" << "forward" << "forward_marker" << "separator10"
             << "metronome" << "zoom_hor_in" << "zoom_hor_out" << "zoom_ver_in" << "zoom_ver_out"
-            << "lock" << "separator11";
+            << "lock" << "separator11"
+            << "separator14" << "toggle_midipilot";
 }

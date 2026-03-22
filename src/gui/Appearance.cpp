@@ -48,6 +48,7 @@ bool Appearance::_toolbarCustomizeEnabled = false;
 QStringList Appearance::_toolbarActionOrder = QStringList();
 QStringList Appearance::_toolbarEnabledActions = QStringList();
 bool Appearance::_shuttingDown = false;
+bool Appearance::_startupComplete = false;
 
 void Appearance::init(QSettings *settings) {
     // CRITICAL: Load application style FIRST before creating any colors
@@ -158,13 +159,17 @@ void Appearance::init(QSettings *settings) {
     }
 
     // Apply the style after loading settings
+    qDebug() << "[STARTUP] Appearance: applyStyle...";
     applyStyle();
 
     // Force initial color refresh to ensure colors match current theme
+    qDebug() << "[STARTUP] Appearance: autoResetDefaultColors...";
     autoResetDefaultColors();
 
     // Connect to system theme changes
+    qDebug() << "[STARTUP] Appearance: connectToSystemThemeChanges...";
     connectToSystemThemeChanges();
+    qDebug() << "[STARTUP] Appearance: init complete";
 }
 
 QColor *Appearance::channelColor(int channel) {
@@ -816,6 +821,9 @@ void Appearance::applyStyle() {
 }
 
 void Appearance::notifyIconSizeChanged() {
+    // Skip during startup — the toolbar is built once in createCustomToolbar()
+    if (!_startupComplete) return;
+
     // Find the main window and trigger a toolbar rebuild to apply new icon size
     QApplication *app = qobject_cast<QApplication *>(QApplication::instance());
     if (!app) return;
@@ -1313,6 +1321,16 @@ void Appearance::setActionIcon(QAction *action, const QString &iconPath) {
 }
 
 void Appearance::refreshColors() {
+    qDebug() << "[STARTUP] refreshColors() called";
+
+    // Skip heavy refresh during initial construction — the toolbar and widgets
+    // are not yet fully built, so iterating them here can cause reentrancy or
+    // layout issues on some system configurations.
+    if (!_startupComplete) {
+        qDebug() << "[STARTUP] refreshColors() skipped (startup not complete)";
+        return;
+    }
+
     // Prevent cascading toolbar updates during style changes
     static bool isRefreshingColors = false;
     static QDateTime lastRefresh;
@@ -1440,8 +1458,8 @@ void Appearance::refreshColors() {
                 QMetaObject::invokeMethod(widget, "refreshToolbarIcons", Qt::DirectConnection);
             }
 
-            // Force immediate processing of paint events
-            app->processEvents();
+            // Schedule a repaint — avoid inline processEvents() to prevent
+            // reentrant event-loop problems during layout operations.
         }
     }
 
@@ -1534,4 +1552,17 @@ void Appearance::cleanup() {
 
 void Appearance::setShuttingDown(bool shuttingDown) {
     _shuttingDown = shuttingDown;
+}
+
+void Appearance::setStartupComplete() {
+    _startupComplete = true;
+    // Now safe to do a one-time color/icon refresh to pick up the current theme.
+    // Use a short delay so the event loop has fully started.
+    QTimer::singleShot(50, []() {
+        refreshColors();
+    });
+}
+
+bool Appearance::isStartupComplete() {
+    return _startupComplete;
 }

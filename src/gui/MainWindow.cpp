@@ -4271,6 +4271,14 @@ QWidget *MainWindow::createCustomToolbar(QWidget *parent) {
 
         // Use default toolbar enabled actions (all actions in default toolbar are enabled)
         enabledActions = LayoutSettingsWidget::getDefaultToolbarEnabledActions();
+    } else {
+        // Migration: ensure toggle_midipilot is present in saved custom settings
+        if (!actionOrder.contains("toggle_midipilot")) {
+            actionOrder << "separator14" << "toggle_midipilot";
+        }
+        if (!enabledActions.contains("toggle_midipilot")) {
+            enabledActions << "toggle_midipilot";
+        }
     }
 
     // Only prepend essential actions for single row mode
@@ -4642,6 +4650,14 @@ void MainWindow::updateToolbarContents(QWidget *toolbarWidget, QGridLayout *btnL
 
         // Use default toolbar enabled actions (all actions in default toolbar are enabled)
         enabledActions = LayoutSettingsWidget::getDefaultToolbarEnabledActions();
+    } else {
+        // Migration: ensure toggle_midipilot is present in saved custom settings
+        if (!actionOrder.contains("toggle_midipilot")) {
+            actionOrder << "separator14" << "toggle_midipilot";
+        }
+        if (!enabledActions.contains("toggle_midipilot")) {
+            enabledActions << "toggle_midipilot";
+        }
     }
 
     // Only prepend essential actions for single row mode

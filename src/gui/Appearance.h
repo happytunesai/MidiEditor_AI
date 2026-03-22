@@ -64,6 +64,16 @@ public:
      */
     static void setShuttingDown(bool shuttingDown);
 
+    /**
+     * \brief Marks startup as complete, allowing deferred operations (refreshColors, etc.)
+     */
+    static void setStartupComplete();
+
+    /**
+     * \brief Returns true when the initial construction phase is finished.
+     */
+    static bool isStartupComplete();
+
     // === Color Management ===
 
     /**
@@ -725,6 +735,9 @@ private:
 
     /** \brief Flag to prevent QPixmap creation during application shutdown */
     static bool _shuttingDown;
+
+    /** \brief Flag indicating initial construction is complete; guards deferred operations */
+    static bool _startupComplete;
 };
 
 #endif // APPEARANCE_H_
