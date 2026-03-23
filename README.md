@@ -126,24 +126,26 @@ Below are two compositions created entirely by AI in **Agent mode** — from a s
 
 ---
 
-#### Metal Mozart — Agent Mode (Gemini 2.5 Pro)
+#### Metal Mozart — Agent Mode (Gemini 3.1 Pro)
 
 > *"Create a metal version of Mozart's Eine kleine Nachtmusik with shredding guitars, bass, strings, and a drum kit. Make it 20 measures long, with a guitar solo in the middle."*
 
 ![Metal Mozart by Gemini Agent](examples/Mozart_by_gemini_agent.png)
 
-📥 [Download MIDI](examples/Mozart_by_gemini_agent.mid)
+https://github.com/user-attachments/assets/f0113a74-14d4-47c1-945e-6fc61fa2fbc6
 
-https://github.com/happytunesai/MidiEditor_AI/raw/main/examples/Mozart_by_gemini_agent.mov
+📥 [Download MIDI](examples/Mozart_by_gemini_agent.mid)
 
 ---
 
-#### Metal Mozart — FFXIV Octett Mode (Gemini 2.5 Pro)
+#### Metal Mozart — FFXIV Octett Mode (Gemini 3.1 Pro)
 
 > *"Create a metal version of Mozart's Eine kleine Nachtmusik with shredding guitars, bass, strings, and a drum kit. Make it 20 measures long, with a guitar solo in the middle. 8 Tracks ready for a FFXIV Octett"*
 
 ![Metal Mozart FFXIV by Gemini Agent](examples/Mozart_by_gemini_agent_FFXIV.png)
 
+https://github.com/user-attachments/assets/789ad60b-69d1-46aa-acce-4970f6e2acf2
+
 📥 [Download MIDI](examples/Mozart_by_gemini_agent_FFXIV.mid)
 
-https://github.com/happytunesai/MidiEditor_AI/raw/main/examples/Mozart_by_gemini_agent_FFXIV.mov
+
