@@ -136,10 +136,10 @@ Below are two compositions created entirely by AI in **Agent mode** — from a s
 
 ---
 
-#### Metal Mozart — FFXIV Octett Mode (Claude Sonnet 4)
+#### Metal Mozart — FFXIV Octett Mode (Gemini 2.5 Pro)
 
 > *"Create a metal version of Mozart's Eine kleine Nachtmusik with shredding guitars, bass, strings, and a drum kit. Make it 20 measures long, with a guitar solo in the middle. 8 Tracks ready for a FFXIV Octett"*
 
-![Metal Mozart FFXIV by Claude Agent](examples/Mozart_by_claude_agent_FFXIV.png)
+![Metal Mozart FFXIV by Gemini Agent](examples/Mozart_by_gemini_agent_FFXIV.png)
 
-📥 [Download MIDI](examples/Mozart_by_claude_agent_FFXIV.mid) · 🔊 [Listen (WAV)](examples/Mozart_by_claude_agent_FFXIV.wav)
+📥 [Download MIDI](examples/Mozart_by_gemini_agent_FFXIV.mid) · 🔊 [Listen (WAV)](examples/Mozart_by_gemini_agent_FFXIV.wav)
