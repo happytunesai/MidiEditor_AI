@@ -132,7 +132,9 @@ Below are two compositions created entirely by AI in **Agent mode** — from a s
 
 ![Metal Mozart by Gemini Agent](examples/Mozart_by_gemini_agent.png)
 
-📥 [Download MIDI](examples/Mozart_by_gemini_agent.mid) · 🔊 [Listen (WAV)](examples/Mozart_by_gemini_agent.wav)
+📥 [Download MIDI](examples/Mozart_by_gemini_agent.mid)
+
+https://github.com/happytunesai/MidiEditor_AI/raw/main/examples/Mozart_by_gemini_agent.mov
 
 ---
 
@@ -142,4 +144,6 @@ Below are two compositions created entirely by AI in **Agent mode** — from a s
 
 ![Metal Mozart FFXIV by Gemini Agent](examples/Mozart_by_gemini_agent_FFXIV.png)
 
-📥 [Download MIDI](examples/Mozart_by_gemini_agent_FFXIV.mid) · 🔊 [Listen (WAV)](examples/Mozart_by_gemini_agent_FFXIV.wav)
+📥 [Download MIDI](examples/Mozart_by_gemini_agent_FFXIV.mid)
+
+https://github.com/happytunesai/MidiEditor_AI/raw/main/examples/Mozart_by_gemini_agent_FFXIV.mov
