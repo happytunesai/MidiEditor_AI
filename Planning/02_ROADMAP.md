@@ -298,7 +298,7 @@ All operations below are supported via the AI action system (edit/delete/info/er
 - ✅ Simple operations → cheaper model (gpt-4o-mini)
 - ✅ Complex generation → stronger model (gpt-4o, gpt-5, o4-mini, etc.)
 - ✅ Token count display in status bar
-- ✅ Local LLM support (Ollama, LM Studio) via Phase 8.1 custom base URL
+- ❌ Local LLM support (Ollama, LM Studio) — SCRAPPED, not shipping with local endpoints
 
 ---
 
@@ -1595,7 +1595,6 @@ Phase 9.4  App startup auto-loading                     ✅ DONE
 - ⬜ **Rate limit awareness** + auto-retry for free tiers (Phase 8.3) — *nice-to-have*
 
 ### Completed Since Last Update
-- ✅ **Local LLM support** (Ollama/LM Studio) via custom base URL (Phase 8.1)
 - ✅ **Editable system prompts** via JSON + dialog (Phase 9.1-9.4)
 - ✅ **Manual / Wiki** — GitHub Pages with dark theme + MidiPilot page (Phase 10.6)
 - ✅ **Independent repo & rebranding** — all sub-phases complete (Phase 10.1-10.7)

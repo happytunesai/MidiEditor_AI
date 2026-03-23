@@ -23,6 +23,7 @@
 <a href="index.html">Index</a>
 <a href="introduction.html">Introduction</a>
 <a href="midipilot.html" class="active">MidiPilot</a>
+<a href="midi-overview.html">MIDI Overview</a>
 <a href="editor-and-components.html">Editor</a>
 <a href="setup.html">Setup</a>
 <a href="editing-midi-files.html">Editing</a>
@@ -60,7 +61,7 @@ MidiPilot is the AI brain embedded directly in MidiEditor AI. Open the sidebar p
 </div>
 <div class="feature-card">
 <h4>&#x1F50C; Multi-Provider</h4>
-<p>OpenAI, OpenRouter, Google Gemini, Ollama, LM Studio, or any OpenAI-compatible endpoint. Bring your own API key.</p>
+<p>OpenAI, OpenRouter, Google Gemini, or any OpenAI-compatible endpoint. Bring your own API key.</p>
 </div>
 <div class="feature-card">
 <h4>&#x1F9E0; Reasoning Support</h4>
@@ -119,7 +120,7 @@ Configure your AI connection from <b>Settings &rarr; MidiPilot AI</b>. Select a 
 
 <table>
 <tr><th>Setting</th><th>Description</th></tr>
-<tr><td><b>Provider</b></td><td>OpenAI, OpenRouter, Google Gemini, Ollama, LM Studio, or Custom</td></tr>
+<tr><td><b>Provider</b></td><td>OpenAI, OpenRouter, Google Gemini, or Custom</td></tr>
 <tr><td><b>Base URL</b></td><td>Auto-filled per provider, or enter your own endpoint</td></tr>
 <tr><td><b>API Key</b></td><td>Your provider API key (not required for local models)</td></tr>
 <tr><td><b>Model</b></td><td>Dropdown of popular models + custom entry</td></tr>
@@ -190,8 +191,6 @@ In Agent mode, the AI has access to <b>13 tools</b> for inspecting and modifying
 <tr><td><b>OpenAI</b></td><td>api.openai.com/v1</td><td>Required</td><td>Limited</td></tr>
 <tr><td><b>OpenRouter</b></td><td>openrouter.ai/api/v1</td><td>Required</td><td>Free models available</td></tr>
 <tr><td><b>Google Gemini</b></td><td>generativelanguage.googleapis.com</td><td>Required</td><td>15 RPM, 1M TPM</td></tr>
-<tr><td><b>Ollama</b> (local)</td><td>localhost:11434/v1</td><td>No</td><td>Unlimited</td></tr>
-<tr><td><b>LM Studio</b> (local)</td><td>localhost:1234/v1</td><td>No</td><td>Unlimited</td></tr>
 <tr><td><b>Custom</b></td><td>User-specified</td><td>User-specified</td><td>Varies</td></tr>
 </table>
 
