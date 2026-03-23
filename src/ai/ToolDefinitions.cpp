@@ -612,13 +612,8 @@ QJsonObject ToolDefinitions::execValidateFFXIV(MidiFile *file) {
     QJsonArray issues;
     int trackCount = file->numTracks();
 
-    // Check track count
-    if (trackCount > 8) {
-        QJsonObject issue;
-        issue["issue"] = QString("too_many_tracks");
-        issue["details"] = QString("%1 tracks exceed maximum of 8").arg(trackCount);
-        issues.append(issue);
-    }
+    // Note: track count is informational — more than 8 tracks is fine
+    // when using guitar switches or additional instrument channels.
 
     for (int t = 0; t < trackCount; t++) {
         MidiTrack *track = file->track(t);

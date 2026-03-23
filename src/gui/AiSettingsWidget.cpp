@@ -146,11 +146,11 @@ AiSettingsWidget::AiSettingsWidget(QSettings *settings, QWidget *parent)
     _ffxivCheck = new QCheckBox("Enable FFXIV Bard Performance mode", this);
     _ffxivCheck->setChecked(_settings->value("AI/ffxiv_mode", false).toBool());
     _ffxivCheck->setToolTip("When enabled, MidiPilot constrains output to FFXIV Bard Performance rules:\n"
-                            "- All notes in C3-C6 (MIDI 48-84), MidiBard2 auto-transposes\n"
+                            "- All notes in C3-C6 (MIDI 48-84), player auto-transposes\n"
                             "- Monophonic per track (one note at a time)\n"
-                            "- Maximum 8 tracks for ensemble\n"
-                            "- Track names must match MidiBard2 instrument names\n"
-                            "- Drums are separate tonal tracks (no GM drum kit)");
+                            "- Track names must match valid instrument names\n"
+                            "- Drums are separate tonal tracks (no GM drum kit)\n"
+                            "- Each track needs its own channel with program_change at tick 0");
     layout->addWidget(_ffxivCheck, row, 1, 1, 2);
     row++;
 
