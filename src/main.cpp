@@ -25,6 +25,7 @@
 #include "gui/Appearance.h"
 #include "midi/MidiInput.h"
 #include "midi/MidiOutput.h"
+#include "ai/EditorContext.h"
 
 #include <QFile>
 
@@ -199,6 +200,14 @@ int main(int argc, char *argv[]) {
 
     MidiOutput::init();
     MidiInput::init();
+
+    // Load custom system prompts if present
+    QString promptsPath = QCoreApplication::applicationDirPath() + "/system_prompts.json";
+    if (QFile::exists(promptsPath)) {
+        if (!EditorContext::loadCustomPrompts(promptsPath)) {
+            qWarning() << "Invalid system_prompts.json — using defaults";
+        }
+    }
 
     MainWindow *w;
     if (argc == 2)

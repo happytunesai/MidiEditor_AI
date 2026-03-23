@@ -3,6 +3,7 @@
 
 #include <QJsonObject>
 #include <QJsonArray>
+#include <QString>
 
 class MidiFile;
 class MatrixWidget;
@@ -65,6 +66,41 @@ public:
      * \return QJsonObject with range info and per-track events
      */
     static QJsonObject captureSurroundingEvents(MidiFile *file, int cursorTick, int measures);
+
+    /**
+     * \brief Loads custom prompts from a JSON file.
+     * \param path Path to system_prompts.json
+     * \return true if loaded successfully, false on error
+     */
+    static bool loadCustomPrompts(const QString &path);
+
+    /**
+     * \brief Resets all custom prompts to hardcoded defaults.
+     */
+    static void resetToDefaults();
+
+    /**
+     * \brief Returns true if custom prompts are currently loaded.
+     */
+    static bool hasCustomPrompts();
+
+    /**
+     * \brief Returns the path to the currently loaded custom prompts file (empty if defaults).
+     */
+    static QString customPromptsPath();
+
+    /**
+     * \brief Saves current prompts (custom or default) to a JSON file.
+     * \param path Output file path
+     * \return true on success
+     */
+    static bool savePromptsToJson(const QString &path);
+
+    /**
+     * \brief Returns the default (hardcoded) prompt for the given key.
+     * Keys: "simple", "agent", "ffxiv", "ffxiv_compact"
+     */
+    static QString defaultPrompt(const QString &key);
 
 private:
     static QJsonObject captureTempo(MidiFile *file, int tick);

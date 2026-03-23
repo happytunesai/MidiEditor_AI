@@ -11,6 +11,7 @@ class QLabel;
 class QCheckBox;
 class QSpinBox;
 class AiClient;
+class SystemPromptDialog;
 
 /**
  * \class AiSettingsWidget
@@ -34,6 +35,7 @@ private slots:
     void onTestResult(bool success, const QString &message);
     void onToggleKeyVisibility();
     void onProviderChanged(int index);
+    void onEditSystemPrompts();
 
 private:
     void populateModelsForProvider(const QString &provider);
@@ -54,6 +56,8 @@ private:
     QLabel *_contextEstimateLabel;
     QSpinBox *_agentMaxStepsSpin;
     QCheckBox *_ffxivCheck;
+    QPushButton *_editPromptsButton;
+    QLabel *_promptsStatusLabel;
     bool _keyVisible;
     QString _lastProvider;
 };

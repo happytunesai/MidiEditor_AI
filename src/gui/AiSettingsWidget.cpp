@@ -1,4 +1,5 @@
 #include "AiSettingsWidget.h"
+#include "SystemPromptDialog.h"
 
 #include <QGridLayout>
 #include <QLabel>
@@ -10,6 +11,7 @@
 #include <QMessageBox>
 
 #include "../ai/AiClient.h"
+#include "../ai/EditorContext.h"
 
 AiSettingsWidget::AiSettingsWidget(QSettings *settings, QWidget *parent)
     : SettingsWidget("MidiPilot AI", parent), _settings(settings), _keyVisible(false), _lastProvider() {
@@ -152,6 +154,23 @@ AiSettingsWidget::AiSettingsWidget(QSettings *settings, QWidget *parent)
                             "- Drums are separate tonal tracks (no GM drum kit)\n"
                             "- Each track needs its own channel with program_change at tick 0");
     layout->addWidget(_ffxivCheck, row, 1, 1, 2);
+    row++;
+
+    // System Prompts
+    layout->addWidget(new QLabel("System Prompts:"), row, 0);
+    _editPromptsButton = new QPushButton("Edit System Prompts...", this);
+    _editPromptsButton->setToolTip("Open the system prompt editor to customize AI behavior");
+    connect(_editPromptsButton, &QPushButton::clicked, this, &AiSettingsWidget::onEditSystemPrompts);
+    layout->addWidget(_editPromptsButton, row, 1);
+    _promptsStatusLabel = new QLabel(this);
+    if (EditorContext::hasCustomPrompts()) {
+        _promptsStatusLabel->setText(QString::fromUtf8("\xe2\x97\x8f Custom"));
+        _promptsStatusLabel->setStyleSheet("color: green;");
+    } else {
+        _promptsStatusLabel->setText(QString::fromUtf8("\xe2\x97\x8b Default"));
+        _promptsStatusLabel->setStyleSheet("color: gray;");
+    }
+    layout->addWidget(_promptsStatusLabel, row, 2);
     row++;
 
     layout->addWidget(separator(), row++, 0, 1, 3);
@@ -335,5 +354,20 @@ void AiSettingsWidget::populateModelsForProvider(const QString &provider) {
     } else {
         // Custom provider — no presets, user types the model
         _modelCombo->addItem("(enter model name)", "");
+    }
+}
+
+void AiSettingsWidget::onEditSystemPrompts()
+{
+    SystemPromptDialog dialog(this);
+    dialog.exec();
+
+    // Update status indicator after dialog closes
+    if (EditorContext::hasCustomPrompts()) {
+        _promptsStatusLabel->setText(QString::fromUtf8("\xe2\x97\x8f Custom"));
+        _promptsStatusLabel->setStyleSheet("color: green;");
+    } else {
+        _promptsStatusLabel->setText(QString::fromUtf8("\xe2\x97\x8b Default"));
+        _promptsStatusLabel->setStyleSheet("color: gray;");
     }
 }

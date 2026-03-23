@@ -3,6 +3,13 @@
 
 #include <cmath>
 
+#include <QCoreApplication>
+#include <QFile>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
+#include <QDir>
+
 #include "../midi/MidiFile.h"
 #include "../midi/MidiTrack.h"
 #include "../midi/MidiChannel.h"
@@ -15,6 +22,13 @@
 #include "../tool/Selection.h"
 #include "../tool/NewNoteTool.h"
 #include "../gui/MatrixWidget.h"
+
+// Custom prompt storage (empty = use hardcoded default)
+static QString s_customSimplePrompt;
+static QString s_customAgentPrompt;
+static QString s_customFfxivPrompt;
+static QString s_customFfxivCompactPrompt;
+static QString s_customPromptsPath;
 
 const char *EditorContext::NOTE_NAMES[] = {
     "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"
@@ -270,6 +284,7 @@ QJsonObject EditorContext::captureSurroundingEvents(MidiFile *file, int cursorTi
 
 QString EditorContext::systemPrompt()
 {
+    if (!s_customSimplePrompt.isEmpty()) return s_customSimplePrompt;
     return QStringLiteral(
         "You are MidiPilot, an AI assistant embedded in MidiEditor.\n"
         "You receive the current editor state and selected MIDI events as JSON.\n"
@@ -406,6 +421,7 @@ QString EditorContext::systemPrompt()
 
 QString EditorContext::agentSystemPrompt()
 {
+    if (!s_customAgentPrompt.isEmpty()) return s_customAgentPrompt;
     return QStringLiteral(
         "You are MidiPilot, an AI assistant embedded in MidiEditor.\n"
         "You have tools to inspect and modify MIDI files. Use them to fulfill the user's request.\n"
@@ -450,6 +466,7 @@ QString EditorContext::agentSystemPrompt()
 
 QString EditorContext::ffxivContext()
 {
+    if (!s_customFfxivPrompt.isEmpty()) return s_customFfxivPrompt;
     return QStringLiteral(
         "\n"
         "## FFXIV BARD PERFORMANCE MODE (ACTIVE)\n"
@@ -460,21 +477,19 @@ QString EditorContext::ffxivContext()
         "### Hard Constraints\n"
         "- Each track is MONOPHONIC by default — only ONE note sounding at a time.\n"
         "  Exception: Some instruments support chord simulation (see Polyphony section).\n"
-        "- All notes MUST be in C3-C6 (MIDI 48-84). The player auto-transposes to each\n"
-        "  instrument's native range. Notes outside this range will be silent or wrong.\n"
-        "- Track names MUST match valid instrument names EXACTLY (see list below).\n"
+        "- All notes MUST be in C3-C6 (MIDI 48-84).\n"
+        "- Track names MUST match valid instrument names EXACTLY (see Valid Instrument Track Names).\n"
         "- Do NOT use MIDI channel 9 / GM drum kit. There is no drum kit in FFXIV.\n"
-        "- Do NOT use pitch_bend events. Pitch bend has no effect.\n"
-        "- Do NOT edit note velocity. FFXIV ignores velocity. Use fixed velocity (100).\n"
+        "- Do NOT use pitch_bend events.\n"
+        "- Do NOT edit note velocity.\n"
         "- Use program_change events at tick 0 on each channel to define the instrument.\n"
         "\n"
         "### Channels & Tracks\n"
-        "- You can use as many MIDI channels (0-15, excluding 9) as needed.\n"
+        "- You can use MIDI channels (0-15, excluding 9) as needed.\n"
         "- Each instrument track needs its OWN unique channel with a program_change at tick 0.\n"
         "- Guitar switch variants (Clean, Muted, Overdriven, PowerChords, Special) each\n"
         "  need their own channel with program_change, even if they share a track.\n"
-        "- There is NO limit on the number of channels you can configure. Use what you need.\n"
-        "- A typical ensemble has 8 instrument tracks, but you can have more channels for\n"
+        "- A typical Octett ensemble has 8 instrument tracks, but you can have more channels for\n"
         "  guitar switches and additional instruments.\n"
         "\n"
         "### Valid Instrument Track Names\n"
@@ -578,13 +593,14 @@ QString EditorContext::ffxivContext()
 
 QString EditorContext::ffxivContextCompact()
 {
+    if (!s_customFfxivCompactPrompt.isEmpty()) return s_customFfxivCompactPrompt;
     return QStringLiteral(
         "\n"
         "## FFXIV BARD PERFORMANCE MODE (ACTIVE)\n"
         "\n"
         "You are creating/editing MIDI for FFXIV Bard Performance. STRICT rules:\n"
         "- Tracks are MONOPHONIC unless noted below.\n"
-        "- Notes MUST be C3-C6 (MIDI 48-84). Player auto-transposes.\n"
+        "- Notes MUST be C3-C6 (MIDI 48-84).\n"
         "- Track names MUST be exact instrument names (see below).\n"
         "- No channel 9 / GM drum kit. Drums are separate tonal tracks.\n"
         "- No pitch_bend events. No velocity editing (use fixed 100).\n"
@@ -623,4 +639,149 @@ QString EditorContext::ffxivContextCompact()
         "- WARNING: Large compositions (8 tracks, 10+ measures) may exceed output\n"
         "  limits in Simple mode. Use Agent mode for full ensemble songs.\n"
     );
+}
+
+// --- Custom Prompt Loading ---
+
+bool EditorContext::loadCustomPrompts(const QString &path)
+{
+    QFile file(path);
+    if (!file.exists())
+        return false;
+
+    // Safety: reject files > 1 MB
+    if (file.size() > 1024 * 1024)
+        return false;
+
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
+        return false;
+
+    QByteArray data = file.readAll();
+    file.close();
+
+    QJsonParseError parseError;
+    QJsonDocument doc = QJsonDocument::fromJson(data, &parseError);
+    if (parseError.error != QJsonParseError::NoError)
+        return false;
+
+    if (!doc.isObject())
+        return false;
+
+    QJsonObject root = doc.object();
+
+    // Version check
+    if (!root.contains(QStringLiteral("version")) || !root[QStringLiteral("version")].isDouble())
+        return false;
+
+    int version = root[QStringLiteral("version")].toInt();
+    if (version != 1)
+        return false;
+
+    if (!root.contains(QStringLiteral("prompts")) || !root[QStringLiteral("prompts")].isObject())
+        return false;
+
+    QJsonObject prompts = root[QStringLiteral("prompts")].toObject();
+
+    // Partial overrides: only set prompts that are present and non-empty
+    if (prompts.contains(QStringLiteral("simple"))) {
+        QString val = prompts[QStringLiteral("simple")].toString();
+        if (!val.isEmpty()) s_customSimplePrompt = val;
+    }
+    if (prompts.contains(QStringLiteral("agent"))) {
+        QString val = prompts[QStringLiteral("agent")].toString();
+        if (!val.isEmpty()) s_customAgentPrompt = val;
+    }
+    if (prompts.contains(QStringLiteral("ffxiv"))) {
+        QString val = prompts[QStringLiteral("ffxiv")].toString();
+        if (!val.isEmpty()) s_customFfxivPrompt = val;
+    }
+    if (prompts.contains(QStringLiteral("ffxiv_compact"))) {
+        QString val = prompts[QStringLiteral("ffxiv_compact")].toString();
+        if (!val.isEmpty()) s_customFfxivCompactPrompt = val;
+    }
+
+    s_customPromptsPath = path;
+    return true;
+}
+
+void EditorContext::resetToDefaults()
+{
+    s_customSimplePrompt.clear();
+    s_customAgentPrompt.clear();
+    s_customFfxivPrompt.clear();
+    s_customFfxivCompactPrompt.clear();
+    s_customPromptsPath.clear();
+}
+
+bool EditorContext::hasCustomPrompts()
+{
+    return !s_customPromptsPath.isEmpty();
+}
+
+QString EditorContext::customPromptsPath()
+{
+    return s_customPromptsPath;
+}
+
+bool EditorContext::savePromptsToJson(const QString &path)
+{
+    // Back up existing file
+    if (QFile::exists(path)) {
+        QString bakPath = path + QStringLiteral(".bak");
+        QFile::remove(bakPath);
+        QFile::rename(path, bakPath);
+    }
+
+    QJsonObject prompts;
+    prompts[QStringLiteral("simple")] = systemPrompt();
+    prompts[QStringLiteral("agent")] = agentSystemPrompt();
+    prompts[QStringLiteral("ffxiv")] = ffxivContext();
+    prompts[QStringLiteral("ffxiv_compact")] = ffxivContextCompact();
+
+    QJsonObject root;
+    root[QStringLiteral("version")] = 1;
+    root[QStringLiteral("prompts")] = prompts;
+
+    QJsonDocument doc(root);
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text))
+        return false;
+
+    file.write(doc.toJson(QJsonDocument::Indented));
+    file.close();
+
+    s_customPromptsPath = path;
+    return true;
+}
+
+QString EditorContext::defaultPrompt(const QString &key)
+{
+    // Temporarily clear custom prompts to get defaults
+    QString savedSimple = s_customSimplePrompt;
+    QString savedAgent = s_customAgentPrompt;
+    QString savedFfxiv = s_customFfxivPrompt;
+    QString savedFfxivCompact = s_customFfxivCompactPrompt;
+
+    s_customSimplePrompt.clear();
+    s_customAgentPrompt.clear();
+    s_customFfxivPrompt.clear();
+    s_customFfxivCompactPrompt.clear();
+
+    QString result;
+    if (key == QStringLiteral("simple"))
+        result = systemPrompt();
+    else if (key == QStringLiteral("agent"))
+        result = agentSystemPrompt();
+    else if (key == QStringLiteral("ffxiv"))
+        result = ffxivContext();
+    else if (key == QStringLiteral("ffxiv_compact"))
+        result = ffxivContextCompact();
+
+    // Restore custom prompts
+    s_customSimplePrompt = savedSimple;
+    s_customAgentPrompt = savedAgent;
+    s_customFfxivPrompt = savedFfxiv;
+    s_customFfxivCompactPrompt = savedFfxivCompact;
+
+    return result;
 }
