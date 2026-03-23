@@ -1,27 +1,27 @@
 <?xml version="1.0"?>
 <Installer>
-    <Name>MidiEditor</Name>
-    <Version>4.3.1</Version>
-    <Title>MidiEditor</Title>
-    <Publisher>Meowchestra</Publisher>
-    <ProductUrl>https://github.com/Meowchestra/MidiEditor</ProductUrl>
+    <Name>MidiEditor AI</Name>
+    <Version>1.0.0</Version>
+    <Title>MidiEditor AI</Title>
+    <Publisher>happytunesai</Publisher>
+    <ProductUrl>https://github.com/happytunesai/MidiEditor_AI</ProductUrl>
     <InstallerWindowIcon>package.png</InstallerWindowIcon>
     <Logo>midieditor.png</Logo>
-    <RunProgram>@TargetDir@/MidiEditor.exe</RunProgram>
+    <RunProgram>@TargetDir@/MidiEditorAI.exe</RunProgram>
     <RunProgramArguments/>
-    <RunProgramDescription>Run MidiEditor</RunProgramDescription>
-    <StartMenuDir>MidiEditor</StartMenuDir>
+    <RunProgramDescription>Run MidiEditor AI</RunProgramDescription>
+    <StartMenuDir>MidiEditor AI</StartMenuDir>
     <AllowNonAsciiCharacters>true</AllowNonAsciiCharacters>
     <WizardStyle>Modern</WizardStyle>
     <WizardDefaultWidth>800</WizardDefaultWidth>
     <WizardDefaultHeight>450</WizardDefaultHeight>
     <ControlScript>controlscript.qs</ControlScript>
 
-    <TargetDir>@HomeDir@/MidiEditor</TargetDir>
-    <AdminTargetDir>@RootDir@/MidiEditor</AdminTargetDir>
+    <TargetDir>@HomeDir@/MidiEditorAI</TargetDir>
+    <AdminTargetDir>@RootDir@/MidiEditorAI</AdminTargetDir>
     <RemoteRepositories>
         <Repository>
-            <Url>https://Meowchestra.github.io/MidiEditor/</Url>
+            <Url>https://happytunesai.github.io/MidiEditor_AI/</Url>
             <Enabled>1</Enabled>
             <DisplayName>Github Repository</DisplayName>
         </Repository>

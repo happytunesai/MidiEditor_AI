@@ -184,8 +184,8 @@ int main(int argc, char *argv[]) {
         qDebug() << "Skipping OpenGL initialization - using software rendering";
     }
 
-    a.setApplicationVersion("4.3.1");
-    a.setApplicationName("MeowMidiEditor");
+    a.setApplicationVersion("1.0.0");
+    a.setApplicationName("MidiEditor AI");
     a.setQuitOnLastWindowClosed(true);
 
     a.setAttribute(Qt::AA_CompressHighFrequencyEvents, true);

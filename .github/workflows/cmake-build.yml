@@ -1,0 +1,73 @@
+name: Build MidiEditor AI (CMake)
+
+on:
+  push:
+    branches: [ main ]
+    paths-ignore:
+      - 'README.md'
+      - 'manual/**'
+      - 'Planning/**'
+      - 'examples/**'
+      - '.github/workflows/release.yml'
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        include:
+          - qt_ver: '6.5.*'
+            qt_arch: win64_msvc2019_64
+            msvc_arch: x64
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: ${{ matrix.qt_ver }}
+          arch: ${{ matrix.qt_arch }}
+          host: 'windows'
+          target: 'desktop'
+          cache: true
+          modules: 'qtmultimedia'
+
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: ${{ matrix.msvc_arch }}
+
+      - name: CMake Configure
+        run: |
+          cmake -S . -B build -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release
+
+      - name: CMake Build
+        run: |
+          cmake --build build --config Release
+
+      - name: Deploy Qt
+        run: |
+          windeployqt build\bin\MidiEditorAI.exe --release --no-translations --no-system-d3d-compiler --no-opengl-sw
+
+      - name: Prepare Artifact
+        shell: pwsh
+        run: |
+          # Copy runtime assets
+          Copy-Item -Recurse "run_environment\metronome" "build\bin\metronome"
+          Copy-Item -Recurse "run_environment\graphics" "build\bin\graphics"
+          Copy-Item "run_environment\midieditor.ico" "build\bin\"
+          if (Test-Path "run_environment\mozart_turkish_march.mid") {
+            Copy-Item "run_environment\mozart_turkish_march.mid" "build\bin\"
+          }
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MidiEditorAI-win64
+          path: build/bin/

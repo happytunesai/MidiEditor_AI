@@ -2,9 +2,9 @@
 [Desktop Entry]
 Version=1.0.0
 Encoding=UTF-8
-Name=MidiEditor
-Comment=NONE
-Exec=midieditor
+Name=MidiEditor AI
+Comment=AI-powered MIDI editor with MidiPilot assistant
+Exec=midieditor-ai
 Icon=midieditor.png
 Terminal=false
 Type=Application

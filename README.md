@@ -1,14 +1,12 @@
 <img align="left" width="70px" src="run_environment/midieditor.ico">
 
-# MidiEditor
+# MidiEditor AI
 
-[![build windows](https://github.com/Meowchestra/MidiEditor/actions/workflows/xmake.yml/badge.svg)](https://github.com/Meowchestra/MidiEditor/actions/workflows/xmake.yml)
+[![Build](https://github.com/happytunesai/MidiEditor_AI/actions/workflows/cmake-build.yml/badge.svg)](https://github.com/happytunesai/MidiEditor_AI/actions/workflows/cmake-build.yml)
 
-Downloads : [latest release](https://github.com/Meowchestra/MidiEditor/releases)
+Downloads: [latest release](https://github.com/happytunesai/MidiEditor_AI/releases)
 
-Project Page & Manual : [https://meowchestra.github.io/MidiEditor/](https://meowchestra.github.io/MidiEditor/)
-
-Updated MidiEditor with additional improvements, custom changes, & merged pull-requests ahead of upstream. Based on [jingkaimori's fork](https://github.com/jingkaimori/midieditor/) of [ProMidEdit](https://github.com/PROPHESSOR/ProMidEdit), built on top of [MidiEditor](https://github.com/markusschwenk/midieditor).
+AI-powered MIDI editor with **MidiPilot** — an integrated AI copilot that can compose, arrange, analyze, and edit MIDI data via natural language. Built on top of [Meowchestra/MidiEditor](https://github.com/Meowchestra/MidiEditor), which is based on [jingkaimori's fork](https://github.com/jingkaimori/midieditor/) of [ProMidEdit](https://github.com/PROPHESSOR/ProMidEdit), built on top of [MidiEditor](https://github.com/markusschwenk/midieditor) by Markus Schwenk.
 
 ### Introduction
 
@@ -149,5 +147,24 @@ https://github.com/user-attachments/assets/f0113a74-14d4-47c1-945e-6fc61fa2fbc6
 https://github.com/user-attachments/assets/789ad60b-69d1-46aa-acce-4970f6e2acf2
 
 📥 [Download MIDI](examples/Mozart_by_gemini_agent_FFXIV.mid)
+
+### Credits & Acknowledgments
+
+MidiEditor AI is built on the shoulders of these projects:
+
+| Project | Author | Link |
+|---------|--------|------|
+| **MidiEditor** (upstream) | Meowchestra | [github.com/Meowchestra/MidiEditor](https://github.com/Meowchestra/MidiEditor) |
+| **MidiEditor** (original) | Markus Schwenk | [github.com/markusschwenk/midieditor](https://github.com/markusschwenk/midieditor) |
+| **ProMidEdit** | PROPHESSOR | [github.com/PROPHESSOR/ProMidEdit](https://github.com/PROPHESSOR/ProMidEdit) |
+| **jingkaimori fork** | jingkaimori | [github.com/jingkaimori/midieditor](https://github.com/jingkaimori/midieditor) |
+
+Third-party resources:
+- 3D icons by Double-J Design
+- Flat icons by Freepik
+- Metronome sound by Mike Koenig
+- RtMidi library by Gary P. Scavone
+
+See the full list of contributors in the [CONTRIBUTORS](CONTRIBUTORS) file.
 
 

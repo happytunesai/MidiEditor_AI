@@ -29,11 +29,11 @@ if %ERRORLEVEL% neq 0 (
 
 echo.
 echo === Build SUCCESS ===
-echo Executable: build\MidiEditor.exe
+echo Executable: build\bin\MidiEditorAI.exe
 echo.
 echo To run, you need Qt DLLs in PATH. Running windeployqt...
-%QT_DIR%\bin\windeployqt.exe build\MidiEditor.exe
+%QT_DIR%\bin\windeployqt.exe build\bin\MidiEditorAI.exe
 echo.
 echo === Ready to run! ===
-echo Run: build\MidiEditor.exe
+echo Run: build\bin\MidiEditorAI.exe
 pause

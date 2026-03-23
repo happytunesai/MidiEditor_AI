@@ -1,5 +1,5 @@
 TEMPLATE = app
-TARGET = MidiEditor
+TARGET = MidiEditorAI
 
 # Force 64-bit build by default
 CONFIG += force_64bit

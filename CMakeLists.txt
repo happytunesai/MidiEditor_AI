@@ -1,7 +1,7 @@
-cmake_minimum_required(VERSION 3.24 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.20 FATAL_ERROR)
 
-set(MIDIEDITOR_RELEASE_VERSION_STRING "4.3.1")
-project(MidiEditor VERSION ${MIDIEDITOR_RELEASE_VERSION_STRING} LANGUAGES CXX)
+set(MIDIEDITOR_RELEASE_VERSION_STRING "1.0.0")
+project(MidiEditorAI VERSION ${MIDIEDITOR_RELEASE_VERSION_STRING} LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -163,16 +163,16 @@ if(Qt6_FOUND)
 endif()
 
 # Main target
-add_executable(MidiEditor)
+add_executable(MidiEditorAI)
 
 # Apply performance optimizations to target
 if(CMAKE_BUILD_TYPE STREQUAL "Release" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
     if(ipo_supported)
-        set_property(TARGET MidiEditor PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+        set_property(TARGET MidiEditorAI PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
     endif()
 endif()
 
-target_link_libraries(MidiEditor PRIVATE
+target_link_libraries(MidiEditorAI PRIVATE
         Qt6::Core
         Qt6::Gui
         Qt6::Widgets
@@ -185,15 +185,15 @@ target_link_libraries(MidiEditor PRIVATE
 
 # Link system OpenGL library for cross-platform compatibility
 find_package(OpenGL REQUIRED)
-target_link_libraries(MidiEditor PRIVATE ${OPENGL_LIBRARIES})
+target_link_libraries(MidiEditorAI PRIVATE ${OPENGL_LIBRARIES})
 
 # Additional linking for MinGW compatibility
 if(WIN32 AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    target_link_options(MidiEditor PRIVATE -Wl,--allow-multiple-definition)
+    target_link_options(MidiEditorAI PRIVATE -Wl,--allow-multiple-definition)
 endif()
 
 # Include directories
-target_include_directories(MidiEditor PRIVATE
+target_include_directories(MidiEditorAI PRIVATE
     src
     src/gui
     src/midi
@@ -230,7 +230,7 @@ set(SOURCES
 if(EXISTS "${CMAKE_SOURCE_DIR}/src/midi/rtmidi/RtMidi.cpp")
     list(APPEND SOURCES "src/midi/rtmidi/RtMidi.cpp")
     # Add rtmidi include directory so RtMidi.h can be found
-    target_include_directories(MidiEditor PRIVATE "src/midi/rtmidi")
+    target_include_directories(MidiEditorAI PRIVATE "src/midi/rtmidi")
     message(STATUS "Added RtMidi.cpp and include directory")
 else()
     message(WARNING "RtMidi.cpp not found at src/midi/rtmidi/RtMidi.cpp")
@@ -295,11 +295,11 @@ endif()
 
 message(STATUS "Found ${SOURCE_COUNT} source files")
 
-target_sources(MidiEditor PRIVATE ${SOURCES} ${HEADERS})
+target_sources(MidiEditorAI PRIVATE ${SOURCES} ${HEADERS})
 
 # Qt resources
 if(EXISTS "${CMAKE_SOURCE_DIR}/resources.qrc")
-    target_sources(MidiEditor PRIVATE resources.qrc)
+    target_sources(MidiEditorAI PRIVATE resources.qrc)
     message(STATUS "Added Qt resources from resources.qrc")
 else()
     message(WARNING "resources.qrc not found - some resources may be missing")
@@ -307,12 +307,12 @@ endif()
 
 # Architecture defines
 if(CMAKE_SIZEOF_VOID_P EQUAL 8)
-    target_compile_definitions(MidiEditor PRIVATE __ARCH64__)
+    target_compile_definitions(MidiEditorAI PRIVATE __ARCH64__)
 endif()
 
 # Version defines
 string(TIMESTAMP CURRENT_DATE "%x")
-target_compile_definitions(MidiEditor PRIVATE
+target_compile_definitions(MidiEditorAI PRIVATE
         MIDIEDITOR_RELEASE_VERSION_ID_DEF=0
         MIDIEDITOR_RELEASE_DATE_DEF="${CURRENT_DATE}"
         MIDIEDITOR_RELEASE_VERSION_STRING_DEF="${MIDIEDITOR_RELEASE_VERSION_STRING}"
@@ -320,29 +320,29 @@ target_compile_definitions(MidiEditor PRIVATE
 
 # Platform-specific settings
 if(PLAT_LINUX)
-    target_compile_definitions(MidiEditor PRIVATE
+    target_compile_definitions(MidiEditorAI PRIVATE
             __LINUX_ALSASEQ__
             __LINUX_ALSA__
     )
-    target_link_libraries(MidiEditor PRIVATE asound)
+    target_link_libraries(MidiEditorAI PRIVATE asound)
 elseif(PLAT_WINDOWS)
-    target_compile_definitions(MidiEditor PRIVATE __WINDOWS_MM__)
-    target_link_libraries(MidiEditor PRIVATE winmm)
+    target_compile_definitions(MidiEditorAI PRIVATE __WINDOWS_MM__)
+    target_link_libraries(MidiEditorAI PRIVATE winmm)
 
     # Add Windows resource file if it exists
     if(EXISTS "${CMAKE_SOURCE_DIR}/midieditor.rc")
-        target_sources(MidiEditor PRIVATE midieditor.rc)
+        target_sources(MidiEditorAI PRIVATE midieditor.rc)
         message(STATUS "Added Windows resource file: midieditor.rc")
     else()
         message(WARNING "midieditor.rc not found - Windows resources may be missing")
     endif()
 
-    set_target_properties(MidiEditor PROPERTIES
+    set_target_properties(MidiEditorAI PROPERTIES
             WIN32_EXECUTABLE TRUE
     )
 elseif(PLAT_MACOSX)
-    target_compile_definitions(MidiEditor PRIVATE __MACOSX_CORE__)
-    target_link_libraries(MidiEditor PRIVATE
+    target_compile_definitions(MidiEditorAI PRIVATE __MACOSX_CORE__)
+    target_link_libraries(MidiEditorAI PRIVATE
             "-framework CoreMidi"
             "-framework CoreAudio"
             "-framework CoreFoundation"
@@ -350,7 +350,7 @@ elseif(PLAT_MACOSX)
 endif()
 
 # Output directory
-set_target_properties(MidiEditor PROPERTIES
+set_target_properties(MidiEditorAI PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
 )
 
@@ -359,7 +359,7 @@ if(WIN32)
     find_program(WINDEPLOYQT_EXECUTABLE windeployqt HINTS ${Qt6_DIR}/../../../bin)
     if(WINDEPLOYQT_EXECUTABLE)
         # Deploy Qt libraries to build directory for debugging
-        add_custom_command(TARGET MidiEditor POST_BUILD
+        add_custom_command(TARGET MidiEditorAI POST_BUILD
             COMMAND ${WINDEPLOYQT_EXECUTABLE}
                 --release
                 --compiler-runtime
@@ -367,17 +367,17 @@ if(WIN32)
                 --no-translations
                 --no-system-d3d-compiler
                 --no-opengl-sw
-                $<TARGET_FILE:MidiEditor>
+                $<TARGET_FILE:MidiEditorAI>
             COMMENT "Deploying Qt libraries for release"
         )
 
         # Ensure platforms plugin is deployed
-        add_custom_command(TARGET MidiEditor POST_BUILD
+        add_custom_command(TARGET MidiEditorAI POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E make_directory
-                $<TARGET_FILE_DIR:MidiEditor>/platforms
+                $<TARGET_FILE_DIR:MidiEditorAI>/platforms
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 ${Qt6_DIR}/../../../plugins/platforms/qwindows$<$<CONFIG:Debug>:d>.dll
-                $<TARGET_FILE_DIR:MidiEditor>/platforms/
+                $<TARGET_FILE_DIR:MidiEditorAI>/platforms/
             COMMENT "Ensuring Qt platform plugins are available"
         )
     else()
@@ -388,7 +388,7 @@ if(WIN32)
         set(QT_PLUGINS_DIR ${Qt6_DIR}/../../../plugins)
 
         # Copy essential Qt DLLs
-        add_custom_command(TARGET MidiEditor POST_BUILD
+        add_custom_command(TARGET MidiEditorAI POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 ${QT_BIN_DIR}/Qt6Core$<$<CONFIG:Debug>:d>.dll
                 ${QT_BIN_DIR}/Qt6Gui$<$<CONFIG:Debug>:d>.dll
@@ -397,17 +397,17 @@ if(WIN32)
                 ${QT_BIN_DIR}/Qt6Xml$<$<CONFIG:Debug>:d>.dll
                 ${QT_BIN_DIR}/Qt6Multimedia$<$<CONFIG:Debug>:d>.dll
                 ${QT_BIN_DIR}/Qt6MultimediaWidgets$<$<CONFIG:Debug>:d>.dll
-                $<TARGET_FILE_DIR:MidiEditor>/
+                $<TARGET_FILE_DIR:MidiEditorAI>/
             COMMENT "Manually copying Qt DLLs"
         )
 
         # Copy platform plugins
-        add_custom_command(TARGET MidiEditor POST_BUILD
+        add_custom_command(TARGET MidiEditorAI POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E make_directory
-                $<TARGET_FILE_DIR:MidiEditor>/platforms
+                $<TARGET_FILE_DIR:MidiEditorAI>/platforms
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 ${QT_PLUGINS_DIR}/platforms/qwindows$<$<CONFIG:Debug>:d>.dll
-                $<TARGET_FILE_DIR:MidiEditor>/platforms/
+                $<TARGET_FILE_DIR:MidiEditorAI>/platforms/
             COMMENT "Manually copying Qt platform plugins"
         )
     endif()
@@ -418,7 +418,7 @@ set(INSTALL_DIR "packaging/org.midieditor.midieditor/data/")
 set(BIN_DIR "${INSTALL_DIR}/bin")
 set(PLUGIN_DIR "${BIN_DIR}/plugins")
 
-install(TARGETS MidiEditor DESTINATION "${BIN_DIR}")
+install(TARGETS MidiEditorAI DESTINATION "${BIN_DIR}")
 
 # Install metronome file if it exists
 if(EXISTS "${CMAKE_SOURCE_DIR}/run_environment/metronome/metronome-01.wav")
@@ -435,7 +435,7 @@ if(PLAT_WINDOWS)
             execute_process(COMMAND ${WINDEPLOYQT_EXECUTABLE}
                 --plugindir ${PLUGIN_DIR}
                 --libdir ${BIN_DIR}
-                \${CMAKE_INSTALL_PREFIX}/${BIN_DIR}/MidiEditor.exe
+                \${CMAKE_INSTALL_PREFIX}/${BIN_DIR}/MidiEditorAI.exe
             )
             file(GLOB DSENGINE_FILES \"\${CMAKE_INSTALL_PREFIX}/${BIN_DIR}/**/dsengine.dll\")
             foreach(FILE \${DSENGINE_FILES})
@@ -453,7 +453,7 @@ endif()
 
 # Installer target
 if(PLAT_WINDOWS OR PLAT_LINUX)
-    add_custom_target(installer DEPENDS MidiEditor)
+    add_custom_target(installer DEPENDS MidiEditorAI)
 
     if(PLAT_WINDOWS)
         add_dependencies(installer manual)
@@ -489,7 +489,7 @@ if(PLAT_WINDOWS OR PLAT_LINUX)
                 COMMAND chmod 755 ${CMAKE_INSTALL_PREFIX}
                 COMMAND find ${CMAKE_INSTALL_PREFIX} -type d -exec chmod 755 {} +
                 COMMAND find ${CMAKE_INSTALL_PREFIX} -type f -exec chmod 644 {} +
-                COMMAND chmod +x ${CMAKE_INSTALL_PREFIX}/${BIN_DIR}/MidiEditor
+                COMMAND chmod +x ${CMAKE_INSTALL_PREFIX}/${BIN_DIR}/MidiEditorAI
                 COMMAND fakeroot dpkg-deb --build ${CMAKE_INSTALL_PREFIX}
                 COMMENT "Building Debian package"
         )
