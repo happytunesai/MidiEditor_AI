@@ -36,48 +36,19 @@ Built on top of [Meowchestra/MidiEditor](https://github.com/Meowchestra/MidiEdit
 MidiPilot is the AI brain embedded directly in MidiEditor AI. Open the sidebar, type what you want in plain English, and it builds your music — composing, editing, transforming, and analyzing MIDI events automatically.
 
 <p align="center">
-  <img src="docs/images/midipilot-overview.png" alt="MidiPilot integrated in MidiEditor AI" width="800"/>
+  <img src="manual/screenshots/midipilot-overview.png" alt="MidiPilot integrated in MidiEditor AI" width="800"/>
   <br/>
   <i>MidiPilot panel docked alongside the piano roll editor</i>
 </p>
 
-### Chat Panel
-
-The MidiPilot panel features a clean chat interface with context-aware track info, mode selection, and model switching — all accessible without leaving the editor.
-
 <p align="center">
-  <img src="docs/images/midipilot-panel.png" alt="MidiPilot chat panel" width="350"/>
-  <img src="docs/images/midipilot-panel-alt.png" alt="MidiPilot with different provider" width="350"/>
+  <img src="manual/screenshots/midipilot-panel.png" alt="MidiPilot chat panel" width="300"/>
+  <img src="manual/screenshots/midipilot-settings.png" alt="MidiPilot settings" width="450"/>
   <br/>
-  <i>Docked panel (Gemini 2.5 Flash) — Alt panel (Gemini 3.1 Pro)</i>
+  <i>Chat panel &mdash; AI Settings with connection test</i>
 </p>
 
-<p align="center">
-  <img src="docs/images/midipilot-input-bar.png" alt="MidiPilot input bar close-up" width="600"/>
-  <br/>
-  <i>Input bar with Agent/Simple mode toggle, FFXIV checkbox, model selector & reasoning level</i>
-</p>
-
-### AI Settings
-
-Configure your provider, API key, model, reasoning effort, context range, and more — all from a dedicated settings page.
-
-<p align="center">
-  <img src="docs/images/midipilot-settings.png" alt="MidiPilot AI settings" width="500"/>
-  <img src="docs/images/midipilot-connection-test.png" alt="Connection test successful" width="500"/>
-  <br/>
-  <i>Provider configuration — Connection test: ✅ Model: gemini-2.5-flash</i>
-</p>
-
-### Custom System Prompts
-
-Edit the AI's behavior per mode (Simple / Agent / FFXIV / FFXIV Compact) without recompiling. Export/import as JSON for sharing.
-
-<p align="center">
-  <img src="docs/images/midipilot-system-prompts.png" alt="System Prompt Editor" width="500"/>
-  <br/>
-  <i>Built-in System Prompt Editor with tab-based mode selection</i>
-</p>
+📖 **[Full MidiPilot Documentation →](https://happytunesai.github.io/MidiEditor_AI/midipilot.html)**
 
 ---
 

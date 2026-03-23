@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MidiPilot — AI Copilot | MidiEditor AI Manual</title>
+<link rel="stylesheet" href="style.css">
+<style>
+.screenshot-row { display: flex; flex-wrap: wrap; gap: 1.5rem; justify-content: center; margin: 1.5rem 0; }
+.screenshot-row img { border: 1px solid var(--border); border-radius: 8px; }
+.screenshot-single { text-align: center; margin: 1.5rem 0; }
+.screenshot-single img { max-width: 100%; border: 1px solid var(--border); border-radius: 8px; }
+.caption { text-align: center; color: var(--text-muted); font-style: italic; margin-top: 0.5rem; font-size: 0.9rem; }
+.feature-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; margin: 1.5rem 0; }
+.feature-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 1.2rem; }
+.feature-card h4 { color: var(--accent); margin-bottom: 0.5rem; }
+.feature-card p { color: var(--text-muted); font-size: 0.95rem; line-height: 1.5; }
+</style>
+</head>
+<body>
+<div class="nav-bar">
+<span class="nav-title">MidiEditor AI Manual</span>
+<a href="index.html">Index</a>
+<a href="introduction.html">Introduction</a>
+<a href="midipilot.html" class="active">MidiPilot</a>
+<a href="editor-and-components.html">Editor</a>
+<a href="setup.html">Setup</a>
+<a href="editing-midi-files.html">Editing</a>
+<a href="playback.html">Playback</a>
+<a href="record.html">Recording</a>
+</div>
+
+<h1 id="midipilot">MidiPilot &mdash; Your AI Copilot</h1>
+
+<p>
+MidiPilot is the AI brain embedded directly in MidiEditor AI. Open the sidebar panel, type what you want in plain English, and watch it compose, edit, transform, and analyze your MIDI data automatically.
+</p>
+
+<div class="screenshot-single">
+<img src="screenshots/midipilot-overview.png" alt="MidiPilot integrated in MidiEditor AI" width="900">
+<div class="caption">MidiPilot panel docked alongside the piano roll editor</div>
+</div>
+
+<hr>
+
+<h2 id="features">Key Features</h2>
+
+<div class="feature-grid">
+<div class="feature-card">
+<h4>&#x1F3AF; Agent Mode</h4>
+<p>Multi-step agentic loop &mdash; the AI calls tools iteratively, inspecting results between steps to build complex compositions from a single prompt.</p>
+</div>
+<div class="feature-card">
+<h4>&#x1F4AC; Simple Mode</h4>
+<p>Single request/response for quick edits, small transformations, and focused tasks without the overhead of multi-step planning.</p>
+</div>
+<div class="feature-card">
+<h4>&#x1F3AE; FFXIV Bard Mode</h4>
+<p>Enforces Final Fantasy XIV Performance constraints &mdash; 8 tracks, monophonic, C3&ndash;C6 range, tonal drum conversion for MidiBard2 octets.</p>
+</div>
+<div class="feature-card">
+<h4>&#x1F50C; Multi-Provider</h4>
+<p>OpenAI, OpenRouter, Google Gemini, Ollama, LM Studio, or any OpenAI-compatible endpoint. Bring your own API key.</p>
+</div>
+<div class="feature-card">
+<h4>&#x1F9E0; Reasoning Support</h4>
+<p>Toggle thinking/reasoning for o-series and GPT-5.x models. Configurable effort from None to Extra High.</p>
+</div>
+<div class="feature-card">
+<h4>&#x270F;&#xFE0F; Custom System Prompts</h4>
+<p>Edit AI behavior per mode via the built-in editor. Export/import as JSON &mdash; no recompiling needed.</p>
+</div>
+</div>
+
+<hr>
+
+<h2 id="chat-panel">Chat Panel</h2>
+
+<p>
+The MidiPilot panel features a clean chat interface with context-aware track info, mode selection (Agent / Simple), and model switching &mdash; all accessible without leaving the editor.
+</p>
+
+<div class="screenshot-row">
+<img src="screenshots/midipilot-panel.png" alt="MidiPilot chat panel" width="380">
+<img src="screenshots/midipilot-panel-alt.png" alt="MidiPilot with different provider" width="380">
+</div>
+<div class="caption">Docked panel with Gemini 2.5 Flash (left) &mdash; Gemini 3.1 Pro (right)</div>
+
+<p>
+The input bar at the bottom provides quick access to everything you need:
+</p>
+
+<div class="screenshot-single">
+<img src="screenshots/midipilot-input-bar.png" alt="MidiPilot input bar close-up" width="700">
+<div class="caption">Agent/Simple mode toggle &middot; FFXIV checkbox &middot; Model selector &middot; Reasoning level</div>
+</div>
+
+<ul>
+<li><b>Mode selector</b> &mdash; Switch between Agent (multi-step) and Simple (single response)</li>
+<li><b>FFXIV checkbox</b> &mdash; Enable FFXIV Bard Performance constraints</li>
+<li><b>Model dropdown</b> &mdash; Switch models on the fly without opening settings</li>
+<li><b>Reasoning level</b> &mdash; Adjust thinking effort (when supported by the model)</li>
+<li><b>Status indicator</b> &mdash; Shows Ready, Thinking, or error states in real time</li>
+</ul>
+
+<hr>
+
+<h2 id="settings">AI Settings</h2>
+
+<p>
+Configure your AI connection from <b>Settings &rarr; MidiPilot AI</b>. Select a provider, enter your API key, choose a model, and customize behavior.
+</p>
+
+<div class="screenshot-row">
+<img src="screenshots/midipilot-settings.png" alt="MidiPilot AI settings" width="420">
+<img src="screenshots/midipilot-connection-test.png" alt="Connection test successful" width="420">
+</div>
+<div class="caption">Provider configuration &mdash; Connection test: &#x2705; Model: gemini-2.5-flash</div>
+
+<table>
+<tr><th>Setting</th><th>Description</th></tr>
+<tr><td><b>Provider</b></td><td>OpenAI, OpenRouter, Google Gemini, Ollama, LM Studio, or Custom</td></tr>
+<tr><td><b>Base URL</b></td><td>Auto-filled per provider, or enter your own endpoint</td></tr>
+<tr><td><b>API Key</b></td><td>Your provider API key (not required for local models)</td></tr>
+<tr><td><b>Model</b></td><td>Dropdown of popular models + custom entry</td></tr>
+<tr><td><b>Token Limit</b></td><td>Optional cap on output tokens to control costs</td></tr>
+<tr><td><b>Thinking</b></td><td>Enable reasoning for o-series and GPT-5.x models</td></tr>
+<tr><td><b>Reasoning Effort</b></td><td>None / Low / Medium / High / Extra High</td></tr>
+<tr><td><b>Context Range</b></td><td>Measures before/after cursor sent as musical context (0&ndash;50)</td></tr>
+<tr><td><b>FFXIV Mode</b></td><td>Enable Bard Performance rule enforcement</td></tr>
+<tr><td><b>Agent Max Steps</b></td><td>Maximum tool calls per Agent request (5&ndash;100)</td></tr>
+<tr><td><b>Test Connection</b></td><td>Verify your API key and model work correctly</td></tr>
+</table>
+
+<hr>
+
+<h2 id="system-prompts">Custom System Prompts</h2>
+
+<p>
+Click <b>Edit System Prompts&hellip;</b> in settings to open the built-in editor. Each mode (Simple, Agent, FFXIV, FFXIV Compact) has its own tab with fully customizable instructions.
+</p>
+
+<div class="screenshot-single">
+<img src="screenshots/midipilot-system-prompts.png" alt="System Prompt Editor" width="550">
+<div class="caption">Built-in System Prompt Editor with tab-based mode selection</div>
+</div>
+
+<ul>
+<li><b>Load Default</b> &mdash; Reset the current tab to the built-in default prompt</li>
+<li><b>Export to JSON</b> &mdash; Save all prompts to a file for backup or sharing</li>
+<li><b>Import from JSON</b> &mdash; Load prompts from a previously exported file</li>
+<li><b>Reset All to Defaults</b> &mdash; Restore all modes to factory defaults</li>
+</ul>
+
+<p>
+Prompts are saved as <code>system_prompts.json</code> in the application directory. If no custom file exists, MidiPilot uses the hardcoded defaults.
+</p>
+
+<hr>
+
+<h2 id="tools">AI Tools Reference</h2>
+
+<p>
+In Agent mode, the AI has access to <b>13 tools</b> for inspecting and modifying MIDI files:
+</p>
+
+<table>
+<tr><th>Tool</th><th>Description</th></tr>
+<tr><td><code>get_editor_state</code></td><td>Read file info, tracks, tempo, time signature, cursor position</td></tr>
+<tr><td><code>create_track</code></td><td>Create a new MIDI track</td></tr>
+<tr><td><code>rename_track</code></td><td>Rename an existing track</td></tr>
+<tr><td><code>set_channel</code></td><td>Set the MIDI channel for a track</td></tr>
+<tr><td><code>insert_events</code></td><td>Add new MIDI events (notes, control changes, etc.)</td></tr>
+<tr><td><code>replace_events</code></td><td>Modify existing events in a range</td></tr>
+<tr><td><code>delete_events</code></td><td>Remove events by index</td></tr>
+<tr><td><code>query_events</code></td><td>Read events in a tick range on a track</td></tr>
+<tr><td><code>move_events_to_track</code></td><td>Move events between tracks</td></tr>
+<tr><td><code>set_tempo</code></td><td>Change the tempo (BPM)</td></tr>
+<tr><td><code>set_time_signature</code></td><td>Change the time signature</td></tr>
+<tr><td><code>setup_channel_pattern</code></td><td>Auto-configure MidiBard2 channel mapping (FFXIV)</td></tr>
+<tr><td><code>validate_ffxiv</code></td><td>Check FFXIV Bard Performance rule compliance</td></tr>
+</table>
+
+<hr>
+
+<h2 id="providers">Supported Providers</h2>
+
+<table>
+<tr><th>Provider</th><th>Base URL</th><th>API Key</th><th>Free Tier</th></tr>
+<tr><td><b>OpenAI</b></td><td>api.openai.com/v1</td><td>Required</td><td>Limited</td></tr>
+<tr><td><b>OpenRouter</b></td><td>openrouter.ai/api/v1</td><td>Required</td><td>Free models available</td></tr>
+<tr><td><b>Google Gemini</b></td><td>generativelanguage.googleapis.com</td><td>Required</td><td>15 RPM, 1M TPM</td></tr>
+<tr><td><b>Ollama</b> (local)</td><td>localhost:11434/v1</td><td>No</td><td>Unlimited</td></tr>
+<tr><td><b>LM Studio</b> (local)</td><td>localhost:1234/v1</td><td>No</td><td>Unlimited</td></tr>
+<tr><td><b>Custom</b></td><td>User-specified</td><td>User-specified</td><td>Varies</td></tr>
+</table>
+
+<hr>
+
+<h2 id="getting-started">Getting Started</h2>
+
+<ol>
+<li>Open <b>Settings</b> (gear icon or Edit &rarr; Settings) and click the <b>MidiPilot AI</b> tab</li>
+<li>Select your <b>Provider</b> (Google Gemini is a great free option)</li>
+<li>Enter your <b>API Key</b></li>
+<li>Choose a <b>Model</b> (e.g., gemini-2.5-flash)</li>
+<li>Click <b>Test Connection</b> to verify everything works</li>
+<li>Close settings and open the <b>MidiPilot</b> panel from the sidebar</li>
+<li>Type a prompt and press Enter:</li>
+</ol>
+
+<blockquote>
+<i>"Create an 8-bar jazz waltz in Bb major with piano, bass, and drums"</i>
+</blockquote>
+
+<p>
+The AI will compose the requested music directly into the editor using its built-in tools. In Agent mode, it works iteratively &mdash; creating tracks, setting tempo, inserting notes, and validating the result step by step.
+</p>
+
+<div class="footer"><p>MidiEditor AI &mdash; <a href="https://github.com/happytunesai/MidiEditor_AI">GitHub</a> &middot; Created with &hearts; + AI</p></div>
+</body>
+</html>
