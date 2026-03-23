@@ -119,3 +119,27 @@ MidiPilot has access to the following tools for inspecting and modifying MIDI fi
 - `setup_channel_pattern` *(FFXIV)* — Auto-configure MidiBard2 channel mapping
 - `validate_ffxiv` *(FFXIV)* — Check FFXIV rule compliance
 - `convert_drums_ffxiv` *(FFXIV)* — Convert GM drum tracks to FFXIV tonal percussion
+
+### Examples
+
+Below are two compositions created entirely by AI in **Agent mode** — from a single text prompt to a finished MIDI file.
+
+---
+
+#### Metal Mozart — Agent Mode (Gemini 2.5 Pro)
+
+> *"Create a metal version of Mozart's Eine kleine Nachtmusik with shredding guitars, bass, strings, and a drum kit. Make it 20 measures long, with a guitar solo in the middle."*
+
+![Metal Mozart by Gemini Agent](examples/Mozart_by_gemini_agent.png)
+
+📥 [Download MIDI](examples/Mozart_by_gemini_agent.mid) · 🔊 [Listen (WAV)](examples/Mozart_by_gemini_agent.wav)
+
+---
+
+#### Metal Mozart — FFXIV Octett Mode (Claude Sonnet 4)
+
+> *"Create a metal version of Mozart's Eine kleine Nachtmusik with shredding guitars, bass, strings, and a drum kit. Make it 20 measures long, with a guitar solo in the middle. 8 Tracks ready for a FFXIV Octett"*
+
+![Metal Mozart FFXIV by Claude Agent](examples/Mozart_by_claude_agent_FFXIV.png)
+
+📥 [Download MIDI](examples/Mozart_by_claude_agent_FFXIV.mid) · 🔊 [Listen (WAV)](examples/Mozart_by_claude_agent_FFXIV.wav)
