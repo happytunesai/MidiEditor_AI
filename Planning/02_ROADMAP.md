@@ -786,7 +786,8 @@ Phase 6    Post-launch hardening & polish               ✅ DONE (6.1-6.9)
 Phase 7    FFXIV Bard Performance Mode                   ✅ DONE (7.1-7.5)
 Phase 4.6  Persistent history (SQLite)                  ⬜ TODO  (low priority)
 Phase 8    Multi-provider & free API access              ✅ DONE (8.1, 8.2, 8.5 — providers + tokens + model lists)
-Phase 9    Editable system prompts (JSON + dialog)       ⬜ TODO  (planned)
+Phase 9    Editable system prompts (JSON + dialog)       ✅ DONE
+Phase 10   Independent repo & rebranding                 ⬜ TODO  (planned)
 ```
 
 ### Bonus Features (not in original plan)
@@ -1599,7 +1600,127 @@ Phase 9.4  App startup auto-loading                     ⬜
 - ⬜ **Persistent history** (SQLite) across sessions (Phase 4.6)
 - ⬜ **Loading spinner** animation instead of "Thinking..." text (Phase 2.1)
 - ⬜ **Rate limit awareness** + auto-retry for free tiers (Phase 8.3)
-- ⬜ **Editable system prompts** via JSON + dialog (Phase 9)
+- ✅ **Editable system prompts** via JSON + dialog (Phase 9)
+
+---
+
+## Phase 10: Independent Repo & Rebranding ⬜
+
+> **Goal:** Establish MidiEditor AI as a standalone project with its own GitHub repository,
+> proper credits to upstream projects, automated builds, and a publishing strategy.
+
+### 10.1 — App Rebranding ⬜
+
+Rename the application from "MidiEditor" / "MeowMidiEditor" to **"MidiEditor AI"**.
+
+**Locations to update:**
+
+| File | Current | New |
+|------|---------|-----|
+| `src/main.cpp` | `a.setApplicationName("MeowMidiEditor")` | `"MidiEditor AI"` |
+| `CMakeLists.txt` | `project(MidiEditor ...)` | `project(MidiEditorAI ...)` |
+| `midieditor.pro` | `TARGET = MidiEditor` | `TARGET = MidiEditorAI` |
+| `scripts/packaging/windows/config.xml` | `<Name>MidiEditor</Name>` | `<Name>MidiEditor AI</Name>` |
+| `scripts/packaging/debian/control` | `Package: midieditor` | `Package: midieditor-ai` |
+| `scripts/packaging/debian/MidiEditor.desktop` | `Name=MidiEditor` | `Name=MidiEditor AI` |
+| Window title | Auto from `applicationName()` | Automatic |
+| About dialog | Auto from `applicationName()` | Automatic |
+
+**⚠ QSettings key:** Currently uses `QSettings("MidiEditor", "NONE")`. Consider keeping `"MidiEditor"` as the organization name for backward compatibility (existing users keep their API keys and settings), or migrate settings on first launch.
+
+### 10.2 — Credits & About Dialog ⬜
+
+Update `AboutDialog.cpp` to properly credit the upstream chain:
+
+- **MidiEditor AI** — AI-powered fork by happytunesai
+- **Based on:** [Meowchestra/MidiEditor](https://github.com/Meowchestra/MidiEditor) — maintained by Meowchestra
+- **Which is based on:** [jingkaimori/midieditor](https://github.com/jingkaimori/midieditor/) fork of [ProMidEdit](https://github.com/PROPHESSOR/ProMidEdit)
+- **Original project:** [MidiEditor](https://github.com/markusschwenk/midieditor) by Markus Schwenk
+- Keep all existing contributor credits (CONTRIBUTORS file)
+- Keep all third-party credits (icons, metronome sound, RtMidi)
+- Update Ko-fi/funding link if applicable
+- Update GitHub link to new repo URL
+
+### 10.3 — Update Checker ⬜
+
+Redirect the update checker to the new repo.
+
+**Current:** `https://api.github.com/repos/Meowchestra/MidiEditor/releases/latest`
+**New:** `https://api.github.com/repos/happytunesai/MidiEditor_AI/releases/latest` (or final repo name)
+
+**File:** `src/gui/UpdateChecker.cpp`
+- Change the GitHub API URL
+- Change the User-Agent header from `"MidiEditor"` to `"MidiEditor AI"`
+- Version scheme: continue from current `4.3.1` or start fresh (e.g., `1.0.0`) — decide
+
+### 10.4 — GitHub Actions (CI/CD) ⬜
+
+Re-enable and adapt the disabled workflows:
+
+1. **`xmake.yml.disabled` → `cmake.yml`** — Adapt to CMake build (current build system)
+   - Qt 6.5.3, MSVC 2019/2022
+   - Build on push to main + PRs
+   - Produce Release artifact (zip/installer)
+   - Consider adding Qt 6.6+ compatibility test
+
+2. **`deploy-pages.yml.disabled`** — Re-enable if a manual/wiki site is wanted
+   - Point to new repo's GitHub Pages
+
+3. **New: `release.yml`** — Automated release workflow
+   - Trigger on tag push (`v*`)
+   - Build Release binary
+   - Run `windeployqt`
+   - Zip the output
+   - Create GitHub Release with zip attached
+   - Generate changelog from commits
+
+### 10.5 — Automated Release Build ⬜
+
+Create a publish pipeline that builds and packages the latest version:
+
+**Existing asset:** `build.bat` in repo root (MSVC 2019 + Qt 6.5.3 + CMake + windeployqt)
+
+**Steps for a release batch/script:**
+1. Build Release binary (`cmake --build build --config Release`)
+2. Run `windeployqt` to gather Qt DLLs
+3. Copy `run_environment/` assets (graphics, metronome, MIDI)
+4. Zip everything into `MidiEditorAI-v<version>-win64.zip`
+5. (Optional) Build Qt Installer Framework package
+
+**Local script:** Create `release.bat` or adapt existing `build.bat`
+**CI script:** GitHub Actions workflow (see 10.4)
+
+### 10.6 — Manual / Wiki ⬜
+
+The existing `manual/` folder has HTML docs. Options:
+- **GitHub Wiki:** Create wiki pages with MidiPilot documentation (AI features, settings, examples)
+- **GitHub Pages:** Re-enable `deploy-pages.yml` to serve `manual/` as a static site
+- **Screenshots needed:** User will provide screenshots of:
+  - MidiPilot sidebar (chat, context bar, agent steps)
+  - Settings dialog (provider, model, token limit, system prompts)
+  - FFXIV mode in action
+  - Agent mode step-by-step execution
+
+### 10.7 — README Update for New Repo ⬜
+
+Update README.md header for the standalone project:
+- Change title to "MidiEditor AI"
+- Update badges to point to new repo
+- Update download/release links
+- Add "Credits & Acknowledgments" section with upstream chain
+- Keep MidiPilot feature docs and examples
+
+### Implementation Order
+
+```
+Phase 10.1  App rebranding (name, CMake, .pro)           ⬜
+Phase 10.2  Credits & About Dialog                       ⬜
+Phase 10.3  Update Checker redirect                      ⬜
+Phase 10.4  GitHub Actions (CI/CD)                       ⬜
+Phase 10.5  Automated release build                      ⬜
+Phase 10.6  Manual / Wiki                                ⬜
+Phase 10.7  README update for new repo                   ⬜
+```
 
 ### Open Questions
 - [ ] Max events per request? (Token budget consideration)
