@@ -87,7 +87,7 @@ public:
 
     /**
      * \brief Gets the configured provider name.
-     * \return Provider identifier (e.g. "openai", "ollama", "openrouter")
+     * \return Provider identifier (e.g. "openai", "gemini", "openrouter")
      */
     QString provider() const;
 

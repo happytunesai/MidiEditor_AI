@@ -33,9 +33,6 @@ AiSettingsWidget::AiSettingsWidget(QSettings *settings, QWidget *parent)
     _providerCombo->addItem("OpenAI", "openai");
     _providerCombo->addItem("OpenRouter", "openrouter");
     _providerCombo->addItem("Google Gemini", "gemini");
-    _providerCombo->addItem("Groq", "groq");
-    _providerCombo->addItem("Ollama (local)", "ollama");
-    _providerCombo->addItem("LM Studio (local)", "lmstudio");
     _providerCombo->addItem("Custom", "custom");
     QString currentProvider = _settings->value("AI/provider", "openai").toString();
     int provIdx = _providerCombo->findData(currentProvider);
@@ -223,10 +220,9 @@ QIcon AiSettingsWidget::icon() {
 
 void AiSettingsWidget::onTestConnection() {
     QString provider = _providerCombo->currentData().toString();
-    bool isLocal = (provider == "ollama" || provider == "lmstudio");
     QString key = _apiKeyEdit->text().trimmed();
 
-    if (!isLocal && key.isEmpty()) {
+    if (key.isEmpty()) {
         _statusLabel->setStyleSheet("color: red;");
         _statusLabel->setText("Please enter an API key first.");
         return;
@@ -271,12 +267,6 @@ void AiSettingsWidget::onToggleKeyVisibility() {
 
 void AiSettingsWidget::onProviderChanged(int /*index*/) {
     QString provider = _providerCombo->currentData().toString();
-    bool isLocal = (provider == "ollama" || provider == "lmstudio");
-
-    // Hide API Key for local providers
-    _apiKeyLabel->setVisible(!isLocal);
-    _apiKeyEdit->setVisible(!isLocal);
-    _toggleKeyButton->setVisible(!isLocal);
 
     // Save current key for the previous provider before switching
     if (!_lastProvider.isEmpty() && _lastProvider != provider) {
@@ -294,9 +284,6 @@ void AiSettingsWidget::onProviderChanged(int /*index*/) {
         {"openai",     "https://api.openai.com/v1"},
         {"openrouter", "https://openrouter.ai/api/v1"},
         {"gemini",     "https://generativelanguage.googleapis.com/v1beta/openai"},
-        {"groq",       "https://api.groq.com/openai/v1"},
-        {"ollama",     "http://localhost:11434/v1"},
-        {"lmstudio",   "http://localhost:1234/v1"},
     };
 
     if (provider != "custom") {
@@ -352,16 +339,6 @@ void AiSettingsWidget::populateModelsForProvider(const QString &provider) {
         _modelCombo->addItem("gemini-3-flash-preview", "gemini-3-flash-preview");
         _modelCombo->addItem("gemini-3.1-flash-lite-preview", "gemini-3.1-flash-lite-preview");
         _modelCombo->addItem("gemini-3.1-pro-preview (slow)", "gemini-3.1-pro-preview");
-    } else if (provider == "groq") {
-        _modelCombo->addItem("llama-3.3-70b-versatile", "llama-3.3-70b-versatile");
-        _modelCombo->addItem("llama-3.1-8b-instant", "llama-3.1-8b-instant");
-        _modelCombo->addItem("mixtral-8x7b-32768", "mixtral-8x7b-32768");
-        _modelCombo->addItem("gemma2-9b-it", "gemma2-9b-it");
-    } else if (provider == "ollama" || provider == "lmstudio") {
-        _modelCombo->addItem("llama3.1 (8B)", "llama3.1");
-        _modelCombo->addItem("codellama (7B)", "codellama");
-        _modelCombo->addItem("mistral (7B)", "mistral");
-        _modelCombo->addItem("qwen2.5-coder (7B)", "qwen2.5-coder");
     } else {
         // Custom provider — no presets, user types the model
         _modelCombo->addItem("(enter model name)", "");

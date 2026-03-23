@@ -593,15 +593,6 @@ void MidiPilotWidget::populateFooterModels() {
         _modelCombo->addItem("gemini-3-flash", "gemini-3-flash-preview");
         _modelCombo->addItem("gemini-3.1-flash-lite", "gemini-3.1-flash-lite-preview");
         _modelCombo->addItem("gemini-3.1-pro", "gemini-3.1-pro-preview");
-    } else if (provider == "groq") {
-        _modelCombo->addItem("llama-3.3-70b", "llama-3.3-70b-versatile");
-        _modelCombo->addItem("llama-3.1-8b", "llama-3.1-8b-instant");
-        _modelCombo->addItem("mixtral-8x7b", "mixtral-8x7b-32768");
-    } else if (provider == "ollama" || provider == "lmstudio") {
-        _modelCombo->addItem("llama3.1", "llama3.1");
-        _modelCombo->addItem("codellama", "codellama");
-        _modelCombo->addItem("mistral", "mistral");
-        _modelCombo->addItem("qwen2.5-coder", "qwen2.5-coder");
     } else {
         // OpenAI or custom — show OpenAI models
         _modelCombo->addItem("gpt-4o-mini", "gpt-4o-mini");

@@ -61,9 +61,6 @@ void AiClient::clearLog()
 
 bool AiClient::isConfigured() const
 {
-    // Local providers (Ollama, LM Studio) don't need an API key
-    if (_provider == QStringLiteral("ollama") || _provider == QStringLiteral("lmstudio"))
-        return true;
     return !apiKey().isEmpty();
 }
 
