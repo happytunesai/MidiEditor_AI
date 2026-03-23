@@ -118,6 +118,14 @@ void AgentRunner::onApiResponse(const QString &content, const QJsonObject &fullR
 {
     if (!_running) return;
 
+    // Emit token usage if present
+    QJsonObject usage = fullResponse["usage"].toObject();
+    if (!usage.isEmpty()) {
+        emit tokenUsageUpdated(usage["prompt_tokens"].toInt(),
+                              usage["completion_tokens"].toInt(),
+                              usage["total_tokens"].toInt());
+    }
+
     QJsonArray choices = fullResponse["choices"].toArray();
     if (choices.isEmpty()) {
         cleanup();

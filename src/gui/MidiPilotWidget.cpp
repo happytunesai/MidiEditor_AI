@@ -232,6 +232,13 @@ MidiPilotWidget::MidiPilotWidget(MainWindow *mainWindow, QWidget *parent)
     connect(_agentRunner, &AgentRunner::finished, this, &MidiPilotWidget::onAgentFinished);
     connect(_agentRunner, &AgentRunner::errorOccurred, this, &MidiPilotWidget::onAgentError);
     connect(_agentRunner, &AgentRunner::stepLimitReached, this, &MidiPilotWidget::onAgentStepLimitReached);
+    connect(_agentRunner, &AgentRunner::tokenUsageUpdated, this, [this](int pt, int ct, int /*tt*/) {
+        _lastPromptTokens = pt;
+        _lastCompletionTokens = ct;
+        _totalPromptTokens += pt;
+        _totalCompletionTokens += ct;
+        updateTokenLabel();
+    });
 }
 
 // Helper: QTextEdit that sends on Enter, newline on Shift+Enter
@@ -345,6 +352,15 @@ void MidiPilotWidget::setupUi() {
     connect(_modeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &MidiPilotWidget::onModeChanged);
     inputBtnLayout->addWidget(_modeCombo);
+
+    _tokenLabel = new QLabel(this);
+    _tokenLabel->setStyleSheet("font-size: 10px; color: #888;");
+    _tokenLabel->setToolTip("Token usage: last request / session total");
+    _lastPromptTokens = 0;
+    _lastCompletionTokens = 0;
+    _totalPromptTokens = 0;
+    _totalCompletionTokens = 0;
+    inputBtnLayout->addWidget(_tokenLabel);
 
     inputBtnLayout->addStretch();
 
@@ -655,6 +671,13 @@ void MidiPilotWidget::onNewChat() {
     _entries.clear();
     AiClient::clearLog();
 
+    // Reset token counters
+    _lastPromptTokens = 0;
+    _lastCompletionTokens = 0;
+    _totalPromptTokens = 0;
+    _totalCompletionTokens = 0;
+    updateTokenLabel();
+
     // Remove all chat bubbles (keep the stretch at index 0)
     while (_chatLayout->count() > 1) {
         QLayoutItem *item = _chatLayout->takeAt(1);
@@ -783,6 +806,16 @@ void MidiPilotWidget::onSendMessage() {
 void MidiPilotWidget::onResponseReceived(const QString &content, const QJsonObject &fullResponse) {
     // Ignore AiClient signals during Agent Mode (AgentRunner handles them)
     if (_isAgentRunning) return;
+
+    // Extract token usage
+    QJsonObject usage = fullResponse["usage"].toObject();
+    if (!usage.isEmpty()) {
+        _lastPromptTokens = usage["prompt_tokens"].toInt();
+        _lastCompletionTokens = usage["completion_tokens"].toInt();
+        _totalPromptTokens += _lastPromptTokens;
+        _totalCompletionTokens += _lastCompletionTokens;
+        updateTokenLabel();
+    }
 
     // Remove "thinking" indicator
     if (_chatLayout->count() > 1) {
@@ -917,6 +950,20 @@ QString MidiPilotWidget::currentMode() const {
 
 bool MidiPilotWidget::ffxivMode() const {
     return _ffxivCheck->isChecked();
+}
+
+void MidiPilotWidget::updateTokenLabel() {
+    int lastTotal = _lastPromptTokens + _lastCompletionTokens;
+    int sessionTotal = _totalPromptTokens + _totalCompletionTokens;
+    if (sessionTotal == 0) {
+        _tokenLabel->clear();
+    } else {
+        _tokenLabel->setText(QString("%1 | %2%3")
+            .arg(lastTotal)
+            .arg(sessionTotal >= 1000 ? QString::number(sessionTotal / 1000.0, 'f', 1) + "k"
+                                      : QString::number(sessionTotal))
+            .arg(QString::fromUtf8(" \xF0\x9F\x94\xA5"))); // 🔥
+    }
 }
 
 QJsonObject MidiPilotWidget::executeAction(const QJsonObject &actionObj) {

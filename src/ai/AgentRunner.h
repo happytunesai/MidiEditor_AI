@@ -84,6 +84,11 @@ signals:
      */
     void errorOccurred(const QString &error);
 
+    /**
+     * \brief Emitted with token usage from each API response during the agent loop.
+     */
+    void tokenUsageUpdated(int promptTokens, int completionTokens, int totalTokens);
+
 private slots:
     void onApiResponse(const QString &content, const QJsonObject &fullResponse);
     void onApiError(const QString &error);

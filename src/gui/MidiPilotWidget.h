@@ -59,6 +59,10 @@ public:
      * \brief Executes an action silently (no chat bubbles). Used by Agent Mode tool calls.
      */
     QJsonObject executeAction(const QJsonObject &actionObj);
+
+private:
+    void updateTokenLabel();
+
 public slots:
     /**
      * \brief Called when a new file is loaded or file changes.
@@ -142,6 +146,7 @@ private:
     QPushButton *_sendButton;
     QPushButton *_stopButton;
     QComboBox *_modeCombo;
+    QLabel *_tokenLabel;
 
     // Footer (status, model, settings)
     QFrame *_statusBar;
@@ -160,6 +165,12 @@ private:
     // Conversation
     QJsonArray _conversationHistory;
     QList<ConversationEntry> _entries;
+
+    // Token tracking
+    int _lastPromptTokens;
+    int _lastCompletionTokens;
+    int _totalPromptTokens;
+    int _totalCompletionTokens;
 };
 
 #endif // MIDIPILOTWIDGET_H
