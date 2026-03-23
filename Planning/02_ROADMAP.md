@@ -787,7 +787,7 @@ Phase 7    FFXIV Bard Performance Mode                   ✅ DONE (7.1-7.5)
 Phase 4.6  Persistent history (SQLite)                  ⬜ TODO  (low priority)
 Phase 8    Multi-provider & free API access              ✅ DONE (8.1, 8.2, 8.5 — providers + tokens + model lists)
 Phase 9    Editable system prompts (JSON + dialog)       ✅ DONE
-Phase 10   Independent repo & rebranding                 ⬜ TODO  (planned)
+Phase 10   Independent repo & rebranding                 ✅ DONE (10.1-10.5)
 ```
 
 ### Bonus Features (not in original plan)
@@ -1609,7 +1609,7 @@ Phase 9.4  App startup auto-loading                     ⬜
 > **Goal:** Establish MidiEditor AI as a standalone project with its own GitHub repository,
 > proper credits to upstream projects, automated builds, and a publishing strategy.
 
-### 10.1 — App Rebranding ⬜
+### 10.1 — App Rebranding ✅
 
 Rename the application from "MidiEditor" / "MeowMidiEditor" to **"MidiEditor AI"**.
 
@@ -1628,7 +1628,7 @@ Rename the application from "MidiEditor" / "MeowMidiEditor" to **"MidiEditor AI"
 
 **⚠ QSettings key:** Currently uses `QSettings("MidiEditor", "NONE")`. Consider keeping `"MidiEditor"` as the organization name for backward compatibility (existing users keep their API keys and settings), or migrate settings on first launch.
 
-### 10.2 — Credits & About Dialog ⬜
+### 10.2 — Credits & About Dialog ✅
 
 Update `AboutDialog.cpp` to properly credit the upstream chain:
 
@@ -1641,7 +1641,7 @@ Update `AboutDialog.cpp` to properly credit the upstream chain:
 - Update Ko-fi/funding link if applicable
 - Update GitHub link to new repo URL
 
-### 10.3 — Update Checker ⬜
+### 10.3 — Update Checker ✅
 
 Redirect the update checker to the new repo.
 
@@ -1653,7 +1653,7 @@ Redirect the update checker to the new repo.
 - Change the User-Agent header from `"MidiEditor"` to `"MidiEditor AI"`
 - Version scheme: continue from current `4.3.1` or start fresh (e.g., `1.0.0`) — decide
 
-### 10.4 — GitHub Actions (CI/CD) ⬜
+### 10.4 — GitHub Actions (CI/CD) ✅
 
 Re-enable and adapt the disabled workflows:
 
@@ -1674,7 +1674,7 @@ Re-enable and adapt the disabled workflows:
    - Create GitHub Release with zip attached
    - Generate changelog from commits
 
-### 10.5 — Automated Release Build ⬜
+### 10.5 — Automated Release Build ✅
 
 Create a publish pipeline that builds and packages the latest version:
 
@@ -1701,7 +1701,7 @@ The existing `manual/` folder has HTML docs. Options:
   - FFXIV mode in action
   - Agent mode step-by-step execution
 
-### 10.7 — README Update for New Repo ⬜
+### 10.7 — README Update for New Repo ✅
 
 Update README.md header for the standalone project:
 - Change title to "MidiEditor AI"
@@ -1713,13 +1713,13 @@ Update README.md header for the standalone project:
 ### Implementation Order
 
 ```
-Phase 10.1  App rebranding (name, CMake, .pro)           ⬜
-Phase 10.2  Credits & About Dialog                       ⬜
-Phase 10.3  Update Checker redirect                      ⬜
-Phase 10.4  GitHub Actions (CI/CD)                       ⬜
-Phase 10.5  Automated release build                      ⬜
+Phase 10.1  App rebranding (name, CMake, .pro)           ✅ DONE
+Phase 10.2  Credits & About Dialog                       ✅ DONE
+Phase 10.3  Update Checker redirect                      ✅ DONE
+Phase 10.4  GitHub Actions (CI/CD)                       ✅ DONE
+Phase 10.5  Automated release build                      ✅ DONE
 Phase 10.6  Manual / Wiki                                ⬜
-Phase 10.7  README update for new repo                   ⬜
+Phase 10.7  README update for new repo                   ✅ DONE
 ```
 
 ### Open Questions
