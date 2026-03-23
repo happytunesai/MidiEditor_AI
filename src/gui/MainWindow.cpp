@@ -2778,7 +2778,7 @@ void MainWindow::spreadSelection() {
 }
 
 void MainWindow::manual() {
-    QDesktopServices::openUrl(QUrl("https://meowchestra.github.io/MidiEditor/manual/", QUrl::TolerantMode));
+    QDesktopServices::openUrl(QUrl("https://happytunesai.github.io/MidiEditor_AI/", QUrl::TolerantMode));
 }
 
 void MainWindow::changeMiscMode(int mode) {
