@@ -295,17 +295,10 @@ void AiSettingsWidget::onProviderChanged(int /*index*/) {
 
     // Update model list (guard: _modelCombo may not exist during initial call)
     if (_modelCombo) {
-        QString previousModel = _modelCombo->currentData().toString();
-        if (previousModel.isEmpty()) previousModel = _modelCombo->currentText().trimmed();
         populateModelsForProvider(provider);
-
-        // Try to restore previous model
-        int idx = _modelCombo->findData(previousModel);
-        if (idx >= 0) {
-            _modelCombo->setCurrentIndex(idx);
-        } else {
-            _modelCombo->setEditText(previousModel);
-        }
+        // Select first model for the new provider
+        if (_modelCombo->count() > 0)
+            _modelCombo->setCurrentIndex(0);
     }
 }
 
@@ -336,9 +329,9 @@ void AiSettingsWidget::populateModelsForProvider(const QString &provider) {
         _modelCombo->addItem("gemini-2.5-flash (recommended)", "gemini-2.5-flash");
         _modelCombo->addItem("gemini-2.5-flash-lite", "gemini-2.5-flash-lite");
         _modelCombo->addItem("gemini-2.5-pro", "gemini-2.5-pro");
-        _modelCombo->addItem("gemini-3-flash-preview", "gemini-3-flash-preview");
-        _modelCombo->addItem("gemini-3.1-flash-lite-preview", "gemini-3.1-flash-lite-preview");
-        _modelCombo->addItem("gemini-3.1-pro-preview (slow)", "gemini-3.1-pro-preview");
+        _modelCombo->addItem("gemini-3-flash", "gemini-3-flash-preview");
+        _modelCombo->addItem("gemini-3.1-flash-lite", "gemini-3.1-flash-lite-preview");
+        _modelCombo->addItem("gemini-3.1-pro (slow)", "gemini-3.1-pro-preview");
     } else {
         // Custom provider — no presets, user types the model
         _modelCombo->addItem("(enter model name)", "");

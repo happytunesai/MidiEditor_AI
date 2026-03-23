@@ -573,14 +573,18 @@ void MidiPilotWidget::setupSetupPrompt() {
 
     if (configured) {
         setStatus("Ready", "green");
-        // Re-populate model list for current provider
+        // Re-populate model list for current provider (block signals to avoid
+        // onModelComboChanged firing during clear/addItem and overwriting
+        // the model the user just chose in Settings)
+        _modelCombo->blockSignals(true);
         populateFooterModels();
-        // Sync model combo
+        // Sync model combo with the model from settings
         int modelIdx = _modelCombo->findData(_client->model());
         if (modelIdx >= 0)
             _modelCombo->setCurrentIndex(modelIdx);
         else
             _modelCombo->setEditText(_client->model());
+        _modelCombo->blockSignals(false);
         // Show effort combo only for reasoning models
         _effortCombo->setVisible(_client->isReasoningModel());
         int effortIdx = _effortCombo->findData(_client->reasoningEffort());
