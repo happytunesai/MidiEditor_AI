@@ -46,6 +46,8 @@ private:
     QLabel *_apiKeyLabel;
     QLineEdit *_apiKeyEdit;
     QComboBox *_modelCombo;
+    QCheckBox *_tokenLimitCheck;
+    QSpinBox *_tokenLimitSpin;
     QCheckBox *_thinkingCheck;
     QComboBox *_effortCombo;
     QLabel *_effortLabel;

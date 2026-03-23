@@ -355,7 +355,8 @@ void MidiPilotWidget::setupUi() {
 
     _tokenLabel = new QLabel(this);
     _tokenLabel->setStyleSheet("font-size: 10px; color: #888;");
-    _tokenLabel->setToolTip("Token usage: last request / session total");
+    _tokenLabel->setToolTip("Token usage: last request | session total\n"
+                            "Scissors icon (✂) = output token limit active");
     _lastPromptTokens = 0;
     _lastCompletionTokens = 0;
     _totalPromptTokens = 0;
@@ -962,11 +963,20 @@ void MidiPilotWidget::updateTokenLabel() {
     if (sessionTotal == 0) {
         _tokenLabel->clear();
     } else {
-        _tokenLabel->setText(QString("%1 | %2%3")
+        QString limitStr;
+        if (_client->maxTokensEnabled()) {
+            int limit = _client->maxTokensLimit();
+            limitStr = QString(" [%1%2]")
+                .arg(limit >= 1000 ? QString::number(limit / 1000.0, 'f', 1) + "k"
+                                   : QString::number(limit))
+                .arg(QString::fromUtf8(" \xE2\x9C\x82")); // ✂
+        }
+        _tokenLabel->setText(QString("%1 | %2%3%4")
             .arg(lastTotal)
             .arg(sessionTotal >= 1000 ? QString::number(sessionTotal / 1000.0, 'f', 1) + "k"
                                       : QString::number(sessionTotal))
-            .arg(QString::fromUtf8(" \xF0\x9F\x94\xA5"))); // 🔥
+            .arg(QString::fromUtf8(" \xF0\x9F\x94\xA5")) // 🔥
+            .arg(limitStr));
     }
 }
 

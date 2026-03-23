@@ -27,13 +27,18 @@ AiClient::AiClient(QObject *parent)
       _isTestRequest(false),
       _useResponsesApi(false),
       _thinkingEnabled(false),
-      _reasoningEffort(QStringLiteral("medium"))
+      _reasoningEffort(QStringLiteral("medium")),
+      _maxTokensEnabled(false),
+      _maxTokensLimit(16384),
+      _hasToolsInRequest(false)
 {
     _model = _settings.value(SETTINGS_KEY_MODEL, DEFAULT_MODEL).toString();
     _thinkingEnabled = _settings.value(SETTINGS_KEY_THINKING, true).toBool();
     _reasoningEffort = _settings.value(SETTINGS_KEY_REASONING_EFFORT, QStringLiteral("medium")).toString();
     _apiBaseUrl = _settings.value(SETTINGS_KEY_API_BASE_URL, DEFAULT_API_BASE_URL).toString();
     _provider = _settings.value(SETTINGS_KEY_PROVIDER, QStringLiteral("openai")).toString();
+    _maxTokensEnabled = _settings.value(QStringLiteral("AI/max_token_enabled"), false).toBool();
+    _maxTokensLimit = _settings.value(QStringLiteral("AI/max_token_limit"), 16384).toInt();
     connect(_manager, &QNetworkAccessManager::finished, this, &AiClient::onReplyFinished);
 }
 
@@ -136,6 +141,18 @@ void AiClient::reloadSettings()
     _reasoningEffort = _settings.value(SETTINGS_KEY_REASONING_EFFORT, QStringLiteral("medium")).toString();
     _apiBaseUrl = _settings.value(SETTINGS_KEY_API_BASE_URL, DEFAULT_API_BASE_URL).toString();
     _provider = _settings.value(SETTINGS_KEY_PROVIDER, QStringLiteral("openai")).toString();
+    _maxTokensEnabled = _settings.value(QStringLiteral("AI/max_token_enabled"), false).toBool();
+    _maxTokensLimit = _settings.value(QStringLiteral("AI/max_token_limit"), 16384).toInt();
+}
+
+bool AiClient::maxTokensEnabled() const
+{
+    return _maxTokensEnabled;
+}
+
+int AiClient::maxTokensLimit() const
+{
+    return _maxTokensLimit;
 }
 
 bool AiClient::isReasoningModel() const
@@ -220,6 +237,7 @@ void AiClient::sendMessages(const QJsonArray &messages, const QJsonArray &tools)
     }
 
     _isTestRequest = false;
+    _hasToolsInRequest = !tools.isEmpty();
 
     bool reasoning = isReasoningModel();
     bool geminiThinking = isGeminiThinkingModel();
@@ -329,11 +347,10 @@ void AiClient::sendMessages(const QJsonArray &messages, const QJsonArray &tools)
             body[QStringLiteral("temperature")] = 0.3;
         }
 
-        // Set max_tokens for non-OpenAI providers to avoid defaulting to model
-        // maximum (e.g. OpenRouter defaults to 64000 for Claude, causing 402
-        // errors when the user's credit balance is insufficient).
-        if (_provider != QStringLiteral("openai") && !_provider.isEmpty()) {
-            body[QStringLiteral("max_tokens")] = 16384;
+        // Only set max_tokens if the user explicitly enabled a token limit
+        // in settings.  By default, let models use their full output capacity.
+        if (_maxTokensEnabled && _maxTokensLimit > 0) {
+            body[QStringLiteral("max_tokens")] = _maxTokensLimit;
         }
     }
 
@@ -554,9 +571,15 @@ void AiClient::onReplyFinished(QNetworkReply *reply)
 
     // Detect output truncation (model hit max output tokens)
     if (finishReason == QStringLiteral("length")) {
-        emit errorOccurred(tr("Response was truncated (output token limit reached). "
-                              "This request is too complex for Simple mode. "
-                              "Switch to Agent mode for large compositions."));
+        if (_hasToolsInRequest) {
+            emit errorOccurred(tr("Response was truncated (output token limit reached). "
+                                  "Try a simpler request, reduce the number of tracks/measures, "
+                                  "or increase the token limit in Settings."));
+        } else {
+            emit errorOccurred(tr("Response was truncated (output token limit reached). "
+                                  "This request may be too complex for Simple mode. "
+                                  "Switch to Agent mode for large compositions."));
+        }
         reply->deleteLater();
         return;
     }

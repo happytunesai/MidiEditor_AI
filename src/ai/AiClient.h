@@ -120,6 +120,16 @@ public:
     void setReasoningEffort(const QString &effort);
 
     /**
+     * \brief Gets whether max output tokens limit is enabled.
+     */
+    bool maxTokensEnabled() const;
+
+    /**
+     * \brief Gets the max output tokens limit value.
+     */
+    int maxTokensLimit() const;
+
+    /**
      * \brief Reloads all settings from QSettings (after settings dialog closes).
      */
     void reloadSettings();
@@ -186,6 +196,9 @@ private:
     bool _useResponsesApi;
     bool _thinkingEnabled;
     QString _reasoningEffort;
+    bool _maxTokensEnabled;
+    int _maxTokensLimit;
+    bool _hasToolsInRequest;
 
     static const QString API_URL;
     static const QString RESPONSES_API_URL;

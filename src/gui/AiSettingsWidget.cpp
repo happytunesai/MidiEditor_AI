@@ -87,6 +87,25 @@ AiSettingsWidget::AiSettingsWidget(QSettings *settings, QWidget *parent)
     layout->addWidget(_modelCombo, row, 1, 1, 2);
     row++;
 
+    // Output token limit
+    layout->addWidget(new QLabel("Token Limit:"), row, 0);
+    _tokenLimitCheck = new QCheckBox("Limit output tokens", this);
+    _tokenLimitCheck->setChecked(_settings->value("AI/max_token_enabled", false).toBool());
+    _tokenLimitCheck->setToolTip("When enabled, limits the maximum number of output tokens per API request.\n"
+                                  "By default, models use their full output capacity.\n"
+                                  "Enable this if you want to control costs or if your provider\n"
+                                  "charges based on max_tokens rather than actual usage.");
+    layout->addWidget(_tokenLimitCheck, row, 1);
+    _tokenLimitSpin = new QSpinBox(this);
+    _tokenLimitSpin->setRange(1024, 131072);
+    _tokenLimitSpin->setSingleStep(1024);
+    _tokenLimitSpin->setValue(_settings->value("AI/max_token_limit", 16384).toInt());
+    _tokenLimitSpin->setSuffix(" tokens");
+    _tokenLimitSpin->setEnabled(_tokenLimitCheck->isChecked());
+    connect(_tokenLimitCheck, &QCheckBox::toggled, _tokenLimitSpin, &QSpinBox::setEnabled);
+    layout->addWidget(_tokenLimitSpin, row, 2);
+    row++;
+
     // Connect provider changes (after _modelCombo is created)
     connect(_providerCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &AiSettingsWidget::onProviderChanged);
@@ -230,6 +249,8 @@ bool AiSettingsWidget::accept() {
     _settings->setValue("AI/context_measures", _contextMeasuresSpin->value());
     _settings->setValue("AI/agent_max_steps", _agentMaxStepsSpin->value());
     _settings->setValue("AI/ffxiv_mode", _ffxivCheck->isChecked());
+    _settings->setValue("AI/max_token_enabled", _tokenLimitCheck->isChecked());
+    _settings->setValue("AI/max_token_limit", _tokenLimitSpin->value());
     return true;
 }
 
