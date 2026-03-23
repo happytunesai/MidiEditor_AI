@@ -32,14 +32,15 @@ The editor is able to open existing midi files and modify their content. New fil
 
 ## MidiPilot - AI-Powered MIDI Assistant
 
-MidiPilot is an integrated AI copilot that can compose, edit, and transform MIDI data using natural language. It is embedded directly in the MidiEditor interface and communicates with OpenAI's API to understand musical intent and execute changes on the active MIDI file.
+MidiPilot is an integrated AI copilot that can compose, edit, and transform MIDI data using natural language. It is embedded directly in the MidiEditor interface and communicates with AI APIs to understand musical intent and execute changes on the active MIDI file.
 
 ### Getting Started
 
-1. Open **Settings** and enter your OpenAI API key.
-2. Select a model (default: gpt-5.4) and configure reasoning effort.
-3. Open the **MidiPilot** panel from the sidebar.
-4. Type a natural language instruction (e.g. *"Create an 8-bar jazz waltz in Bb major"*) and press Enter.
+1. Open **Settings** and select your AI provider (OpenAI, OpenRouter, Google Gemini, or Custom).
+2. Enter your API key for the selected provider.
+3. Select a model and configure reasoning effort.
+4. Open the **MidiPilot** panel from the sidebar.
+5. Type a natural language instruction (e.g. *"Create an 8-bar jazz waltz in Bb major"*) and press Enter.
 
 ### Modes
 
@@ -60,15 +61,50 @@ When the **FFXIV** checkbox is enabled, MidiPilot enforces the constraints of Fi
 - **Automatic channel pattern setup** — assigns unique channels and program_change events for MidiBard2 compatibility
 - **Velocity is ignored** — FFXIV plays all notes at the same loudness
 
+### Supported Providers
+
+MidiPilot supports multiple AI providers through OpenAI-compatible APIs:
+
+| Provider | Description |
+|----------|-------------|
+| **OpenAI** | Direct OpenAI API (GPT-5.x, GPT-4.x, o-series) |
+| **OpenRouter** | Aggregator supporting OpenAI, Anthropic, Google, Meta models |
+| **Google Gemini** | Native Gemini API via OpenAI compatibility layer (Gemini 2.5, 3.x) |
+| **Custom** | Any OpenAI-compatible endpoint (local or remote) |
+
+API keys are stored per provider — switching providers restores the previously saved key.
+
 ### Supported Models
 
-MidiPilot supports a range of OpenAI models with configurable reasoning effort:
+MidiPilot supports a range of models with configurable reasoning effort:
 
 - **gpt-5.4 / gpt-5.4-mini / gpt-5.4-nano** — Latest generation, reasoning-capable
 - **gpt-5 / gpt-5-mini** — Previous generation reasoning models
 - **gpt-4.1-nano / gpt-4.1-mini / gpt-4.1** — Efficient non-reasoning models
 - **gpt-4o / gpt-4o-mini** — Fast general-purpose models
 - **o4-mini** — Dedicated reasoning model
+- **gemini-2.5-flash / gemini-2.5-pro** — Google Gemini with thinking support
+- **gemini-3-flash / gemini-3.1-pro** — Latest Gemini generation
+- **anthropic/claude-sonnet-4** — Via OpenRouter
+- **meta-llama/llama-4-maverick** — Via OpenRouter
+
+### Settings
+
+| Setting | Description |
+|---------|-------------|
+| **Provider & Model** | Select AI provider and model. Custom models can be typed manually. |
+| **Thinking / Reasoning Effort** | Toggle reasoning and set effort level (None, Low, Medium, High, Extra High). |
+| **Context Range** | Number of measures before and after the cursor to include as musical context (0–50). |
+| **Agent Max Steps** | Maximum number of tool calls per Agent request (5–100, default 50). |
+| **Output Token Limit** | Optional cap on output tokens per request. Disabled by default — models use their full capacity. Enable to control costs or avoid provider billing surprises. |
+| **System Prompts** | Open the system prompt editor to customize AI behavior for each mode (Simple, Agent, FFXIV, FFXIV Compact). Custom prompts are saved as JSON and loaded automatically on startup. |
+
+### Token Usage Display
+
+The chat footer shows real-time token usage:
+
+- **Format:** `<last request> | <session total> 🔥`
+- When an output token limit is active: `<last request> | <session total> 🔥 [<limit> ✂]`
 
 ### Tools
 
