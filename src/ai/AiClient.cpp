@@ -331,6 +331,13 @@ void AiClient::sendMessages(const QJsonArray &messages, const QJsonArray &tools)
         } else {
             body[QStringLiteral("temperature")] = 0.3;
         }
+
+        // Set max_tokens for non-OpenAI providers to avoid defaulting to model
+        // maximum (e.g. OpenRouter defaults to 64000 for Claude, causing 402
+        // errors when the user's credit balance is insufficient).
+        if (_provider != QStringLiteral("openai") && !_provider.isEmpty()) {
+            body[QStringLiteral("max_tokens")] = 16384;
+        }
     }
 
     QJsonDocument doc(body);

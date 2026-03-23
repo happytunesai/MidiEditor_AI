@@ -339,7 +339,7 @@ void MidiPilotWidget::setupUi() {
     _modeCombo->addItem("Agent", "agent");
     _modeCombo->setToolTip("Simple: single-shot edits\nAgent: multi-step autonomous editing");
     _modeCombo->setFixedHeight(28);
-    QSettings modeSettings;
+    QSettings modeSettings("MidiEditor", "NONE");
     int modeIdx = _modeCombo->findData(modeSettings.value("AI/mode", "simple").toString());
     if (modeIdx >= 0) _modeCombo->setCurrentIndex(modeIdx);
     connect(_modeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
@@ -499,9 +499,9 @@ void MidiPilotWidget::setupUi() {
     _ffxivCheck->setToolTip("Enable FFXIV Bard Performance mode — constrains output to game rules\n"
                             "(C3-C6 range, monophonic, max 8 tracks, FFXIV instrument names)");
     _ffxivCheck->setStyleSheet("font-size: 11px;");
-    _ffxivCheck->setChecked(QSettings().value("AI/ffxiv_mode", false).toBool());
+    _ffxivCheck->setChecked(QSettings("MidiEditor", "NONE").value("AI/ffxiv_mode", false).toBool());
     connect(_ffxivCheck, &QCheckBox::toggled, this, [](bool checked) {
-        QSettings().setValue("AI/ffxiv_mode", checked);
+        QSettings("MidiEditor", "NONE").setValue("AI/ffxiv_mode", checked);
     });
     footerLayout->addWidget(_ffxivCheck);
 
@@ -570,7 +570,7 @@ void MidiPilotWidget::setupSetupPrompt() {
         int effortIdx = _effortCombo->findData(_client->reasoningEffort());
         if (effortIdx >= 0) _effortCombo->setCurrentIndex(effortIdx);
         // Sync FFXIV checkbox with settings
-        _ffxivCheck->setChecked(QSettings().value("AI/ffxiv_mode", false).toBool());
+        _ffxivCheck->setChecked(QSettings("MidiEditor", "NONE").value("AI/ffxiv_mode", false).toBool());
     } else {
         setStatus("Not configured", "orange");
     }
@@ -705,7 +705,7 @@ void MidiPilotWidget::onSendMessage() {
         }
 
         // Capture surrounding events (±N measures)
-        QSettings settings;
+        QSettings settings("MidiEditor", "NONE");
         int contextMeasures = settings.value("AI/context_measures", 5).toInt();
         if (contextMeasures > 0) {
             surroundingEvents = EditorContext::captureSurroundingEvents(
@@ -934,7 +934,7 @@ QJsonObject MidiPilotWidget::executeAction(const QJsonObject &actionObj) {
 
 void MidiPilotWidget::onModeChanged(int index) {
     Q_UNUSED(index);
-    QSettings settings;
+    QSettings settings("MidiEditor", "NONE");
     settings.setValue("AI/mode", currentMode());
 
     // If there's an active conversation, start a new chat
