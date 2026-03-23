@@ -297,7 +297,7 @@ All operations below are supported via the AI action system (edit/delete/info/er
 ### 4.7 — Model Configuration ✅ (partial)
 - ✅ Simple operations → cheaper model (gpt-4o-mini)
 - ✅ Complex generation → stronger model (gpt-4o, gpt-5, o4-mini, etc.)
-- ⬜ Token count display in status bar (optional)
+- ✅ Token count display in status bar
 - ⬜ Local LLM support (Ollama) as alternative backend
 
 ---
@@ -783,8 +783,9 @@ Phase 5.5  UI: Step progress display                    ✅ DONE
 Phase 5.6  Protocol integration (single undo)           ✅ DONE
 Phase 5.7  Handler refactoring (return results)         ✅ DONE
 Phase 6    Post-launch hardening & polish               ✅ DONE (6.1-6.9)
+Phase 7    FFXIV Bard Performance Mode                   ✅ DONE (7.1-7.5)
 Phase 4.6  Persistent history (SQLite)                  ⬜ TODO  (low priority)
-Phase 8    Multi-provider & free API access              ✅ DONE (8.1, 8.2 — providers + token display)
+Phase 8    Multi-provider & free API access              ✅ DONE (8.1, 8.2, 8.5 — providers + tokens + model lists)
 Phase 9    Editable system prompts (JSON + dialog)       ⬜ TODO  (planned)
 ```
 
@@ -805,6 +806,11 @@ Phase 9    Editable system prompts (JSON + dialog)       ⬜ TODO  (planned)
 - ✅ Strict mode on all 12 tool schemas- ✅ Tempo & time signature modification actions (`set_tempo`, `set_time_signature`)
 - ✅ Range-based autonomous editing (`select_and_edit`, `select_and_delete`)
 - ✅ Fixed time signature display (actual denominator instead of MIDI power-of-2)
+- ✅ Multi-provider support (OpenAI, OpenRouter, Google Gemini, Custom URL)
+- ✅ Google Gemini native API integration (not just via OpenRouter)
+- ✅ Token usage display (last request / session totals)
+- ✅ Provider-specific model dropdowns (per-provider model lists)
+- ✅ FFXIV Bard Performance mode (toggle, prompts, validation, drum conversion)
 
 ---
 
@@ -949,7 +955,7 @@ Rules:
 
 ---
 
-## Phase 7: FFXIV Bard Performance Mode ⬜
+## Phase 7: FFXIV Bard Performance Mode ✅
 
 > **Goal:** Add a "FFXIV Mode" toggle to MidiPilot that injects FFXIV Bard Performance
 > constraints into the AI context. When enabled, the AI automatically follows the game's
@@ -1013,7 +1019,7 @@ When converting from GM drum tracks (channel 9), the AI must:
 2. Map GM drum notes to appropriate FFXIV pitch on each track
 3. Create separate tracks named e.g. `Bass Drum`, `Snare Drum`, `Cymbal`
 
-### 7.1 — FFXIV Mode Toggle ⬜
+### 7.1 — FFXIV Mode Toggle ✅
 
 UI addition to MidiPilot chat panel:
 
@@ -1032,7 +1038,7 @@ UI addition to MidiPilot chat panel:
 
 **Files:** Modify `MidiPilotWidget.h/cpp`, `AiSettingsWidget.h/cpp`
 
-### 7.2 — FFXIV System Prompt Injection ⬜
+### 7.2 — FFXIV System Prompt Injection ✅
 
 When FFXIV mode is enabled, append FFXIV-specific rules to both Simple and Agent system prompts:
 
@@ -1084,7 +1090,7 @@ ElectricGuitarPowerChords, ElectricGuitarSpecial
 
 **Files:** Modify `EditorContext.h/cpp`
 
-### 7.3 — FFXIV Validation Tool (Agent Mode) ⬜
+### 7.3 — FFXIV Validation Tool (Agent Mode) ✅
 
 New agent tool: `validate_ffxiv` — checks if the current MIDI file conforms to FFXIV rules:
 
@@ -1114,7 +1120,7 @@ The AI can then use this tool to diagnose issues and fix them autonomously.
 
 **Files:** Modify `ToolDefinitions.h/cpp`
 
-### 7.4 — GM Drum Conversion Tool (Agent Mode) ⬜
+### 7.4 — GM Drum Conversion Tool (Agent Mode) ✅
 
 New agent tool: `convert_drums_ffxiv` — splits a GM drum track into separate FFXIV drum tracks:
 
@@ -1138,7 +1144,7 @@ Mapping strategy:
 
 **Files:** Modify `ToolDefinitions.h/cpp`
 
-### 7.5 — FFXIV-Aware Compose Mode ⬜
+### 7.5 — FFXIV-Aware Compose Mode ✅
 
 When FFXIV mode is active and user asks to create a song:
 - AI automatically uses FFXIV instrument names for tracks
@@ -1161,11 +1167,11 @@ This is handled entirely by the system prompt — no additional code needed beyo
 ### Implementation Order
 
 ```
-Phase 7.1  FFXIV Mode toggle (checkbox in UI)           ⬜ NEXT
-Phase 7.2  System prompt injection (rules + ranges)      ⬜
-Phase 7.3  Validation tool (check FFXIV compliance)      ⬜ (optional)
-Phase 7.4  GM Drum conversion tool                       ⬜ (optional)
-Phase 7.5  FFXIV-aware compose (via prompt only)         ⬜ (free with 7.2)
+Phase 7.1  FFXIV Mode toggle (checkbox in UI)           ✅ DONE
+Phase 7.2  System prompt injection (rules + ranges)      ✅ DONE
+Phase 7.3  Validation tool (check FFXIV compliance)      ✅ DONE
+Phase 7.4  GM Drum conversion tool                       ✅ DONE
+Phase 7.5  FFXIV-aware compose (via prompt only)         ✅ DONE (free with 7.2)
 ```
 
 ### Estimated Complexity
@@ -1180,7 +1186,7 @@ Phase 7.5  FFXIV-aware compose (via prompt only)         ⬜ (free with 7.2)
 
 ---
 
-## Phase 8: Multi-Provider Support & Free API Access ⬜
+## Phase 8: Multi-Provider Support & Free API Access ✅
 
 > **Goal:** Allow users to choose between multiple API providers — including free options —
 > so MidiPilot is accessible to users who don't want to pay for an API key.
@@ -1217,7 +1223,7 @@ Many providers expose an OpenAI-compatible endpoint — just change the base URL
 - **Anthropic Claude**: `https://api.anthropic.com/v1/messages` — NOT OpenAI-compatible (different request/response format: `messages` API with `anthropic-version` header, `content` blocks instead of `choices`). Best accessed via OpenRouter for compatibility.
 - **Google Gemini**: `https://generativelanguage.googleapis.com/v1beta/` — NOT OpenAI-compatible (uses `generateContent` endpoint, different auth via API key in URL). Best accessed via OpenRouter or Google's OpenAI-compatible endpoint `https://generativelanguage.googleapis.com/v1beta/openai/` (experimental).
 
-### 8.1 — Provider Abstraction (Custom Base URL) ⬜
+### 8.1 — Provider Abstraction (Custom Base URL) ✅
 
 Simplest first step: make the API base URL configurable instead of hardcoded.
 
@@ -1258,7 +1264,7 @@ static const QString API_URL = "https://api.openai.com/v1/chat/completions";
 
 **Files:** Modify `AiClient.h/cpp`, `AiSettingsWidget.h/cpp`
 
-### 8.2 — Token Usage Tracking & Display ⬜
+### 8.2 — Token Usage Tracking & Display ✅
 
 Parse token usage from API responses and display in the UI.
 
@@ -1331,7 +1337,7 @@ x-ratelimit-reset-tokens: 6m0s
 **Recommended approach:** Start with **Option C** (OpenRouter free models via custom base URL)
 for immediate free access, then investigate Option A (Puter REST API) later.
 
-### 8.5 — Provider-Specific Model Lists ⬜
+### 8.5 — Provider-Specific Model Lists ✅
 
 Each provider supports different models. Populate model dropdown based on selected provider.
 
@@ -1354,11 +1360,11 @@ Each provider supports different models. Populate model dropdown based on select
 ### Implementation Order
 
 ```
-Phase 8.1  Custom base URL (provider presets)           ⬜ NEXT — unlocks all compatible providers
-Phase 8.2  Token usage tracking & display               ⬜ — easy, high value
-Phase 8.3  Rate limit awareness + auto-retry            ⬜ — important for free tiers
-Phase 8.4  Puter.com / free provider integration        ⬜ — needs investigation
-Phase 8.5  Provider-specific model lists                ⬜ — polish
+Phase 8.1  Custom base URL (provider presets)           ✅ DONE — OpenAI, OpenRouter, Gemini, Custom
+Phase 8.2  Token usage tracking & display               ✅ DONE — last request + session totals
+Phase 8.3  Rate limit awareness + auto-retry            ⬜ TODO — important for free tiers
+Phase 8.4  Puter.com / free provider integration        ⬜ TODO — needs investigation
+Phase 8.5  Provider-specific model lists                ✅ DONE — per-provider model dropdowns
 ```
 
 ### Estimated Complexity
@@ -1592,7 +1598,7 @@ Phase 9.4  App startup auto-loading                     ⬜
 - ⬜ **Local LLM support** (Ollama/llama.cpp) as offline alternative (Phase 4.7)
 - ⬜ **Persistent history** (SQLite) across sessions (Phase 4.6)
 - ⬜ **Loading spinner** animation instead of "Thinking..." text (Phase 2.1)
-- ⬜ **Multi-provider support** with free tier options (Phase 8)
+- ⬜ **Rate limit awareness** + auto-retry for free tiers (Phase 8.3)
 - ⬜ **Editable system prompts** via JSON + dialog (Phase 9)
 
 ### Open Questions
