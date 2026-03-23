@@ -306,17 +306,17 @@ void AiSettingsWidget::populateModelsForProvider(const QString &provider) {
     _modelCombo->clear();
 
     if (provider == "openai") {
-        _modelCombo->addItem("gpt-4o-mini (fast, cheap)", "gpt-4o-mini");
-        _modelCombo->addItem("gpt-4o (balanced)", "gpt-4o");
-        _modelCombo->addItem("gpt-4.1-nano (fastest)", "gpt-4.1-nano");
-        _modelCombo->addItem("gpt-4.1-mini (fast)", "gpt-4.1-mini");
-        _modelCombo->addItem("gpt-4.1 (strong)", "gpt-4.1");
-        _modelCombo->addItem("gpt-5 (GPT-5)", "gpt-5");
-        _modelCombo->addItem("gpt-5-mini (GPT-5 mini)", "gpt-5-mini");
-        _modelCombo->addItem("gpt-5.4 (128K output)", "gpt-5.4");
-        _modelCombo->addItem("gpt-5.4-mini (128K output, fast)", "gpt-5.4-mini");
-        _modelCombo->addItem("gpt-5.4-nano (128K output, cheap)", "gpt-5.4-nano");
-        _modelCombo->addItem("o4-mini (reasoning)", "o4-mini");
+        _modelCombo->addItem("gpt-4o-mini", "gpt-4o-mini");
+        _modelCombo->addItem("gpt-4o", "gpt-4o");
+        _modelCombo->addItem("gpt-4.1-nano", "gpt-4.1-nano");
+        _modelCombo->addItem("gpt-4.1-mini", "gpt-4.1-mini");
+        _modelCombo->addItem("gpt-4.1", "gpt-4.1");
+        _modelCombo->addItem("gpt-5", "gpt-5");
+        _modelCombo->addItem("gpt-5-mini", "gpt-5-mini");
+        _modelCombo->addItem("gpt-5.4", "gpt-5.4");
+        _modelCombo->addItem("gpt-5.4-mini", "gpt-5.4-mini");
+        _modelCombo->addItem("gpt-5.4-nano", "gpt-5.4-nano");
+        _modelCombo->addItem("o4-mini", "o4-mini");
     } else if (provider == "openrouter") {
         _modelCombo->addItem("openai/gpt-5.4", "openai/gpt-5.4");
         _modelCombo->addItem("openai/gpt-4.1", "openai/gpt-4.1");
@@ -326,12 +326,12 @@ void AiSettingsWidget::populateModelsForProvider(const QString &provider) {
         _modelCombo->addItem("google/gemini-2.5-flash", "google/gemini-2.5-flash");
         _modelCombo->addItem("meta-llama/llama-4-maverick", "meta-llama/llama-4-maverick");
     } else if (provider == "gemini") {
-        _modelCombo->addItem("gemini-2.5-flash (recommended)", "gemini-2.5-flash");
+        _modelCombo->addItem("gemini-2.5-flash", "gemini-2.5-flash");
         _modelCombo->addItem("gemini-2.5-flash-lite", "gemini-2.5-flash-lite");
         _modelCombo->addItem("gemini-2.5-pro", "gemini-2.5-pro");
         _modelCombo->addItem("gemini-3-flash", "gemini-3-flash-preview");
         _modelCombo->addItem("gemini-3.1-flash-lite", "gemini-3.1-flash-lite-preview");
-        _modelCombo->addItem("gemini-3.1-pro (slow)", "gemini-3.1-pro-preview");
+        _modelCombo->addItem("gemini-3.1-pro", "gemini-3.1-pro-preview");
     } else {
         // Custom provider — no presets, user types the model
         _modelCombo->addItem("(enter model name)", "");
