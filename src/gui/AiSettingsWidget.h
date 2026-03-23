@@ -33,9 +33,15 @@ private slots:
     void onTestConnection();
     void onTestResult(bool success, const QString &message);
     void onToggleKeyVisibility();
+    void onProviderChanged(int index);
 
 private:
+    void populateModelsForProvider(const QString &provider);
+
     QSettings *_settings;
+    QComboBox *_providerCombo;
+    QLineEdit *_baseUrlEdit;
+    QLabel *_apiKeyLabel;
     QLineEdit *_apiKeyEdit;
     QComboBox *_modelCombo;
     QCheckBox *_thinkingCheck;
@@ -49,6 +55,7 @@ private:
     QSpinBox *_agentMaxStepsSpin;
     QCheckBox *_ffxivCheck;
     bool _keyVisible;
+    QString _lastProvider;
 };
 
 #endif // AISETTINGSWIDGET_H

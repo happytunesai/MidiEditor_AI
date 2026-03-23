@@ -354,10 +354,13 @@ void EventTool::pasteAction() {
                 track = currentFile()->track(NewNoteTool::editTrack());
             } else if ((pasteTrack() >= 0) && (pasteTrack() < currentFile()->tracks()->size())) {
                 track = currentFile()->track(pasteTrack());
-            } else if (event->file() != currentFile() || event->file() == nullptr || !currentFile()->tracks()->contains(track)) {
+            } else if (track && currentFile()->tracks()->contains(track)) {
+                // Track is still valid and belongs to the current file — keep it
+            } else {
+                // Cross-file paste or track from deleted file
                 track = currentFile()->getPasteTrack(event->track(), event->file());
                 if (!track) {
-                    // Track from deleted file or unknown — use first track
+                    // Fallback: try to find a track by index or use track 0
                     track = currentFile()->track(0);
                 }
             }

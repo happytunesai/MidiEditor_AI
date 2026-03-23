@@ -107,6 +107,7 @@ private:
 
     void setupUi();
     void setupSetupPrompt();
+    void populateFooterModels();
     void addChatBubble(const QString &role, const QString &text);
     void setStatus(const QString &text, const QString &color);
     QJsonObject dispatchAction(const QJsonObject &actionObj, bool showBubbles = true);

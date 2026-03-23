@@ -11,11 +11,12 @@
 /**
  * \class AiClient
  *
- * \brief Handles communication with the OpenAI API for MidiPilot.
+ * \brief Handles communication with AI APIs for MidiPilot.
  *
- * AiClient sends chat completion requests to the OpenAI API and emits
+ * AiClient sends chat completion requests to OpenAI-compatible APIs and emits
  * signals when responses are received or errors occur. It manages the
  * conversation history and constructs properly formatted API requests.
+ * Supports multiple providers via configurable base URL.
  */
 class AiClient : public QObject {
     Q_OBJECT
@@ -73,6 +74,30 @@ public:
     void setApiKey(const QString &key);
 
     /**
+     * \brief Gets the configured API base URL.
+     * \return Base URL string (e.g. "https://api.openai.com/v1")
+     */
+    QString apiBaseUrl() const;
+
+    /**
+     * \brief Sets the API base URL.
+     * \param url Base URL (e.g. "https://api.openai.com/v1")
+     */
+    void setApiBaseUrl(const QString &url);
+
+    /**
+     * \brief Gets the configured provider name.
+     * \return Provider identifier (e.g. "openai", "ollama", "openrouter")
+     */
+    QString provider() const;
+
+    /**
+     * \brief Sets the provider name.
+     * \param provider Provider identifier
+     */
+    void setProvider(const QString &provider);
+
+    /**
      * \brief Gets whether thinking/reasoning is enabled.
      */
     bool thinkingEnabled() const;
@@ -104,6 +129,7 @@ public:
      * \return true for o-series and GPT-5.x models
      */
     bool isReasoningModel() const;
+    bool isGeminiThinkingModel() const;
 
     /**
      * \brief Tests the API connection with a simple request.
@@ -154,6 +180,8 @@ private:
     QNetworkReply *_currentReply;
     QSettings _settings;
     QString _model;
+    QString _apiBaseUrl;
+    QString _provider;
     bool _isTestRequest;
     bool _useResponsesApi;
     bool _thinkingEnabled;
@@ -162,10 +190,13 @@ private:
     static const QString API_URL;
     static const QString RESPONSES_API_URL;
     static const QString DEFAULT_MODEL;
+    static const QString DEFAULT_API_BASE_URL;
     static const QString SETTINGS_KEY_API_KEY;
     static const QString SETTINGS_KEY_MODEL;
     static const QString SETTINGS_KEY_THINKING;
     static const QString SETTINGS_KEY_REASONING_EFFORT;
+    static const QString SETTINGS_KEY_API_BASE_URL;
+    static const QString SETTINGS_KEY_PROVIDER;
 };
 
 #endif // AICLIENT_H

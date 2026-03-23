@@ -12,7 +12,7 @@
 #include "../ai/AiClient.h"
 
 AiSettingsWidget::AiSettingsWidget(QSettings *settings, QWidget *parent)
-    : SettingsWidget("MidiPilot AI", parent), _settings(settings), _keyVisible(false) {
+    : SettingsWidget("MidiPilot AI", parent), _settings(settings), _keyVisible(false), _lastProvider() {
 
     QGridLayout *layout = new QGridLayout(this);
     setLayout(layout);
@@ -21,18 +21,47 @@ AiSettingsWidget::AiSettingsWidget(QSettings *settings, QWidget *parent)
     int row = 0;
 
     // Info box
-    layout->addWidget(createInfoBox("Configure the OpenAI API connection for MidiPilot. "
-                                    "An API key is required to use AI-assisted MIDI editing features."),
+    layout->addWidget(createInfoBox("Configure the AI API connection for MidiPilot. "
+                                    "Select your provider, enter an API key (if required), and choose a model."),
                       row++, 0, 1, 3);
 
     layout->addWidget(separator(), row++, 0, 1, 3);
 
+    // Provider selection
+    layout->addWidget(new QLabel("Provider:"), row, 0);
+    _providerCombo = new QComboBox(this);
+    _providerCombo->addItem("OpenAI", "openai");
+    _providerCombo->addItem("OpenRouter", "openrouter");
+    _providerCombo->addItem("Google Gemini", "gemini");
+    _providerCombo->addItem("Groq", "groq");
+    _providerCombo->addItem("Ollama (local)", "ollama");
+    _providerCombo->addItem("LM Studio (local)", "lmstudio");
+    _providerCombo->addItem("Custom", "custom");
+    QString currentProvider = _settings->value("AI/provider", "openai").toString();
+    int provIdx = _providerCombo->findData(currentProvider);
+    if (provIdx >= 0) _providerCombo->setCurrentIndex(provIdx);
+    layout->addWidget(_providerCombo, row, 1, 1, 2);
+    row++;
+
+    // Base URL
+    layout->addWidget(new QLabel("Base URL:"), row, 0);
+    _baseUrlEdit = new QLineEdit(this);
+    _baseUrlEdit->setPlaceholderText("https://api.openai.com/v1");
+    _baseUrlEdit->setText(_settings->value("AI/api_base_url", "https://api.openai.com/v1").toString());
+    layout->addWidget(_baseUrlEdit, row, 1, 1, 2);
+    row++;
+
     // API Key
-    layout->addWidget(new QLabel("API Key:"), row, 0);
+    _apiKeyLabel = new QLabel("API Key:", this);
+    layout->addWidget(_apiKeyLabel, row, 0);
     _apiKeyEdit = new QLineEdit(this);
     _apiKeyEdit->setEchoMode(QLineEdit::Password);
     _apiKeyEdit->setPlaceholderText("sk-...");
-    _apiKeyEdit->setText(_settings->value("AI/api_key").toString());
+    // Load per-provider key (fall back to legacy shared key)
+    QString providerKey = _settings->value(QString("AI/api_key/%1").arg(currentProvider)).toString();
+    if (providerKey.isEmpty())
+        providerKey = _settings->value("AI/api_key").toString();
+    _apiKeyEdit->setText(providerKey);
     layout->addWidget(_apiKeyEdit, row, 1);
 
     _toggleKeyButton = new QPushButton("Show", this);
@@ -44,26 +73,26 @@ AiSettingsWidget::AiSettingsWidget(QSettings *settings, QWidget *parent)
     // Model selection
     layout->addWidget(new QLabel("Model:"), row, 0);
     _modelCombo = new QComboBox(this);
-    _modelCombo->addItem("gpt-4o-mini (fast, cheap)", "gpt-4o-mini");
-    _modelCombo->addItem("gpt-4o (balanced)", "gpt-4o");
-    _modelCombo->addItem("gpt-4.1-nano (fastest)", "gpt-4.1-nano");
-    _modelCombo->addItem("gpt-4.1-mini (fast)", "gpt-4.1-mini");
-    _modelCombo->addItem("gpt-4.1 (strong)", "gpt-4.1");
-    _modelCombo->addItem("gpt-5 (GPT-5)", "gpt-5");
-    _modelCombo->addItem("gpt-5-mini (GPT-5 mini)", "gpt-5-mini");
-    _modelCombo->addItem("gpt-5.4 (128K output)", "gpt-5.4");
-    _modelCombo->addItem("gpt-5.4-mini (128K output, fast)", "gpt-5.4-mini");
-    _modelCombo->addItem("gpt-5.4-nano (128K output, cheap)", "gpt-5.4-nano");
-    _modelCombo->addItem("o4-mini (reasoning)", "o4-mini");
     _modelCombo->setEditable(true); // Allow custom model names
+
+    // Populate models for current provider
+    populateModelsForProvider(currentProvider);
 
     QString currentModel = _settings->value("AI/model", "gpt-5.4").toString();
     int idx = _modelCombo->findData(currentModel);
     if (idx >= 0) {
         _modelCombo->setCurrentIndex(idx);
+    } else {
+        _modelCombo->setEditText(currentModel);
     }
     layout->addWidget(_modelCombo, row, 1, 1, 2);
     row++;
+
+    // Connect provider changes (after _modelCombo is created)
+    connect(_providerCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &AiSettingsWidget::onProviderChanged);
+    // Apply current provider state (hides API key for local, sets URL)
+    onProviderChanged(_providerCombo->currentIndex());
 
     // Thinking / Reasoning toggle
     layout->addWidget(new QLabel("Thinking:"), row, 0);
@@ -170,7 +199,13 @@ AiSettingsWidget::AiSettingsWidget(QSettings *settings, QWidget *parent)
 }
 
 bool AiSettingsWidget::accept() {
-    _settings->setValue("AI/api_key", _apiKeyEdit->text().trimmed());
+    QString provider = _providerCombo->currentData().toString();
+    _settings->setValue("AI/provider", provider);
+    _settings->setValue("AI/api_base_url", _baseUrlEdit->text().trimmed());
+    // Save API key per-provider and as active key
+    QString key = _apiKeyEdit->text().trimmed();
+    _settings->setValue(QString("AI/api_key/%1").arg(provider), key);
+    _settings->setValue("AI/api_key", key);
     QString model = _modelCombo->currentData().toString();
     if (model.isEmpty()) model = _modelCombo->currentText().trimmed();
     _settings->setValue("AI/model", model);
@@ -187,8 +222,11 @@ QIcon AiSettingsWidget::icon() {
 }
 
 void AiSettingsWidget::onTestConnection() {
+    QString provider = _providerCombo->currentData().toString();
+    bool isLocal = (provider == "ollama" || provider == "lmstudio");
     QString key = _apiKeyEdit->text().trimmed();
-    if (key.isEmpty()) {
+
+    if (!isLocal && key.isEmpty()) {
         _statusLabel->setStyleSheet("color: red;");
         _statusLabel->setText("Please enter an API key first.");
         return;
@@ -199,6 +237,8 @@ void AiSettingsWidget::onTestConnection() {
     _statusLabel->setText("Testing connection...");
 
     AiClient *client = new AiClient(this);
+    client->setProvider(provider);
+    client->setApiBaseUrl(_baseUrlEdit->text().trimmed());
     client->setApiKey(key);
     client->setModel(_modelCombo->currentData().toString().isEmpty()
                       ? _modelCombo->currentText().trimmed()
@@ -226,5 +266,104 @@ void AiSettingsWidget::onToggleKeyVisibility() {
     } else {
         _apiKeyEdit->setEchoMode(QLineEdit::Password);
         _toggleKeyButton->setText("Show");
+    }
+}
+
+void AiSettingsWidget::onProviderChanged(int /*index*/) {
+    QString provider = _providerCombo->currentData().toString();
+    bool isLocal = (provider == "ollama" || provider == "lmstudio");
+
+    // Hide API Key for local providers
+    _apiKeyLabel->setVisible(!isLocal);
+    _apiKeyEdit->setVisible(!isLocal);
+    _toggleKeyButton->setVisible(!isLocal);
+
+    // Save current key for the previous provider before switching
+    if (!_lastProvider.isEmpty() && _lastProvider != provider) {
+        _settings->setValue(QString("AI/api_key/%1").arg(_lastProvider),
+                            _apiKeyEdit->text().trimmed());
+    }
+    _lastProvider = provider;
+
+    // Load key for the new provider
+    QString storedKey = _settings->value(QString("AI/api_key/%1").arg(provider)).toString();
+    _apiKeyEdit->setText(storedKey);
+
+    // Set default base URL based on provider
+    static const QMap<QString, QString> defaultUrls = {
+        {"openai",     "https://api.openai.com/v1"},
+        {"openrouter", "https://openrouter.ai/api/v1"},
+        {"gemini",     "https://generativelanguage.googleapis.com/v1beta/openai"},
+        {"groq",       "https://api.groq.com/openai/v1"},
+        {"ollama",     "http://localhost:11434/v1"},
+        {"lmstudio",   "http://localhost:1234/v1"},
+    };
+
+    if (provider != "custom") {
+        _baseUrlEdit->setText(defaultUrls.value(provider, "https://api.openai.com/v1"));
+        _baseUrlEdit->setReadOnly(true);
+    } else {
+        _baseUrlEdit->setReadOnly(false);
+    }
+
+    // Update model list (guard: _modelCombo may not exist during initial call)
+    if (_modelCombo) {
+        QString previousModel = _modelCombo->currentData().toString();
+        if (previousModel.isEmpty()) previousModel = _modelCombo->currentText().trimmed();
+        populateModelsForProvider(provider);
+
+        // Try to restore previous model
+        int idx = _modelCombo->findData(previousModel);
+        if (idx >= 0) {
+            _modelCombo->setCurrentIndex(idx);
+        } else {
+            _modelCombo->setEditText(previousModel);
+        }
+    }
+}
+
+void AiSettingsWidget::populateModelsForProvider(const QString &provider) {
+    _modelCombo->clear();
+
+    if (provider == "openai") {
+        _modelCombo->addItem("gpt-4o-mini (fast, cheap)", "gpt-4o-mini");
+        _modelCombo->addItem("gpt-4o (balanced)", "gpt-4o");
+        _modelCombo->addItem("gpt-4.1-nano (fastest)", "gpt-4.1-nano");
+        _modelCombo->addItem("gpt-4.1-mini (fast)", "gpt-4.1-mini");
+        _modelCombo->addItem("gpt-4.1 (strong)", "gpt-4.1");
+        _modelCombo->addItem("gpt-5 (GPT-5)", "gpt-5");
+        _modelCombo->addItem("gpt-5-mini (GPT-5 mini)", "gpt-5-mini");
+        _modelCombo->addItem("gpt-5.4 (128K output)", "gpt-5.4");
+        _modelCombo->addItem("gpt-5.4-mini (128K output, fast)", "gpt-5.4-mini");
+        _modelCombo->addItem("gpt-5.4-nano (128K output, cheap)", "gpt-5.4-nano");
+        _modelCombo->addItem("o4-mini (reasoning)", "o4-mini");
+    } else if (provider == "openrouter") {
+        _modelCombo->addItem("openai/gpt-5.4", "openai/gpt-5.4");
+        _modelCombo->addItem("openai/gpt-4.1", "openai/gpt-4.1");
+        _modelCombo->addItem("anthropic/claude-sonnet-4", "anthropic/claude-sonnet-4");
+        _modelCombo->addItem("anthropic/claude-3.5-sonnet", "anthropic/claude-3.5-sonnet");
+        _modelCombo->addItem("google/gemini-2.5-pro", "google/gemini-2.5-pro");
+        _modelCombo->addItem("google/gemini-2.5-flash", "google/gemini-2.5-flash");
+        _modelCombo->addItem("meta-llama/llama-4-maverick", "meta-llama/llama-4-maverick");
+    } else if (provider == "gemini") {
+        _modelCombo->addItem("gemini-2.5-flash (recommended)", "gemini-2.5-flash");
+        _modelCombo->addItem("gemini-2.5-flash-lite", "gemini-2.5-flash-lite");
+        _modelCombo->addItem("gemini-2.5-pro", "gemini-2.5-pro");
+        _modelCombo->addItem("gemini-3-flash-preview", "gemini-3-flash-preview");
+        _modelCombo->addItem("gemini-3.1-flash-lite-preview", "gemini-3.1-flash-lite-preview");
+        _modelCombo->addItem("gemini-3.1-pro-preview (slow)", "gemini-3.1-pro-preview");
+    } else if (provider == "groq") {
+        _modelCombo->addItem("llama-3.3-70b-versatile", "llama-3.3-70b-versatile");
+        _modelCombo->addItem("llama-3.1-8b-instant", "llama-3.1-8b-instant");
+        _modelCombo->addItem("mixtral-8x7b-32768", "mixtral-8x7b-32768");
+        _modelCombo->addItem("gemma2-9b-it", "gemma2-9b-it");
+    } else if (provider == "ollama" || provider == "lmstudio") {
+        _modelCombo->addItem("llama3.1 (8B)", "llama3.1");
+        _modelCombo->addItem("codellama (7B)", "codellama");
+        _modelCombo->addItem("mistral (7B)", "mistral");
+        _modelCombo->addItem("qwen2.5-coder (7B)", "qwen2.5-coder");
+    } else {
+        // Custom provider — no presets, user types the model
+        _modelCombo->addItem("(enter model name)", "");
     }
 }

@@ -11,10 +11,13 @@
 const QString AiClient::API_URL = QStringLiteral("https://api.openai.com/v1/chat/completions");
 const QString AiClient::RESPONSES_API_URL = QStringLiteral("https://api.openai.com/v1/responses");
 const QString AiClient::DEFAULT_MODEL = QStringLiteral("gpt-5.4");
+const QString AiClient::DEFAULT_API_BASE_URL = QStringLiteral("https://api.openai.com/v1");
 const QString AiClient::SETTINGS_KEY_API_KEY = QStringLiteral("AI/api_key");
 const QString AiClient::SETTINGS_KEY_MODEL = QStringLiteral("AI/model");
 const QString AiClient::SETTINGS_KEY_THINKING = QStringLiteral("AI/thinking_enabled");
 const QString AiClient::SETTINGS_KEY_REASONING_EFFORT = QStringLiteral("AI/reasoning_effort");
+const QString AiClient::SETTINGS_KEY_API_BASE_URL = QStringLiteral("AI/api_base_url");
+const QString AiClient::SETTINGS_KEY_PROVIDER = QStringLiteral("AI/provider");
 
 AiClient::AiClient(QObject *parent)
     : QObject(parent),
@@ -29,6 +32,8 @@ AiClient::AiClient(QObject *parent)
     _model = _settings.value(SETTINGS_KEY_MODEL, DEFAULT_MODEL).toString();
     _thinkingEnabled = _settings.value(SETTINGS_KEY_THINKING, true).toBool();
     _reasoningEffort = _settings.value(SETTINGS_KEY_REASONING_EFFORT, QStringLiteral("medium")).toString();
+    _apiBaseUrl = _settings.value(SETTINGS_KEY_API_BASE_URL, DEFAULT_API_BASE_URL).toString();
+    _provider = _settings.value(SETTINGS_KEY_PROVIDER, QStringLiteral("openai")).toString();
     connect(_manager, &QNetworkAccessManager::finished, this, &AiClient::onReplyFinished);
 }
 
@@ -56,6 +61,9 @@ void AiClient::clearLog()
 
 bool AiClient::isConfigured() const
 {
+    // Local providers (Ollama, LM Studio) don't need an API key
+    if (_provider == QStringLiteral("ollama") || _provider == QStringLiteral("lmstudio"))
+        return true;
     return !apiKey().isEmpty();
 }
 
@@ -78,6 +86,28 @@ QString AiClient::apiKey() const
 void AiClient::setApiKey(const QString &key)
 {
     _settings.setValue(SETTINGS_KEY_API_KEY, key);
+}
+
+QString AiClient::apiBaseUrl() const
+{
+    return _apiBaseUrl;
+}
+
+void AiClient::setApiBaseUrl(const QString &url)
+{
+    _apiBaseUrl = url;
+    _settings.setValue(SETTINGS_KEY_API_BASE_URL, url);
+}
+
+QString AiClient::provider() const
+{
+    return _provider;
+}
+
+void AiClient::setProvider(const QString &provider)
+{
+    _provider = provider;
+    _settings.setValue(SETTINGS_KEY_PROVIDER, provider);
 }
 
 bool AiClient::thinkingEnabled() const
@@ -107,6 +137,8 @@ void AiClient::reloadSettings()
     _model = _settings.value(SETTINGS_KEY_MODEL, DEFAULT_MODEL).toString();
     _thinkingEnabled = _settings.value(SETTINGS_KEY_THINKING, true).toBool();
     _reasoningEffort = _settings.value(SETTINGS_KEY_REASONING_EFFORT, QStringLiteral("medium")).toString();
+    _apiBaseUrl = _settings.value(SETTINGS_KEY_API_BASE_URL, DEFAULT_API_BASE_URL).toString();
+    _provider = _settings.value(SETTINGS_KEY_PROVIDER, QStringLiteral("openai")).toString();
 }
 
 bool AiClient::isReasoningModel() const
@@ -118,6 +150,20 @@ bool AiClient::isReasoningModel() const
         || m.startsWith(QStringLiteral("o3"))
         || m.startsWith(QStringLiteral("o4"))
         || m.startsWith(QStringLiteral("gpt-5"));
+}
+
+bool AiClient::isGeminiThinkingModel() const
+{
+    // Gemini 2.5+ and 3.x models are "thinking" models that support
+    // reasoning_effort but NOT temperature.  Sending temperature causes
+    // the model to use its default (high) thinking level, leading to very
+    // slow responses.  We detect these so we can send reasoning_effort: "low"
+    // to keep responses fast.
+    if (_provider != QStringLiteral("gemini"))
+        return false;
+    QString m = _model.toLower();
+    return m.startsWith(QStringLiteral("gemini-2.5"))
+        || m.startsWith(QStringLiteral("gemini-3"));
 }
 
 bool AiClient::isBusy() const
@@ -140,10 +186,11 @@ void AiClient::sendRequest(const QString &systemPrompt,
     // Build messages array
     QJsonArray messages;
 
-    // System prompt: reasoning models require "developer" role, standard models use "system"
+    // System prompt: reasoning models require "developer" role, standard models use "system".
+    // Gemini thinking models still use "system" per Google's docs.
     bool reasoning = isReasoningModel();
     QJsonObject systemMsg;
-    systemMsg[QStringLiteral("role")] = reasoning
+    systemMsg[QStringLiteral("role")] = (reasoning && _provider != QStringLiteral("gemini"))
         ? QStringLiteral("developer")
         : QStringLiteral("system");
     systemMsg[QStringLiteral("content")] = systemPrompt;
@@ -166,7 +213,7 @@ void AiClient::sendRequest(const QString &systemPrompt,
 void AiClient::sendMessages(const QJsonArray &messages, const QJsonArray &tools)
 {
     if (!isConfigured()) {
-        emit errorOccurred(tr("No API key configured. Please set your OpenAI API key in Settings."));
+        emit errorOccurred(tr("No API key configured. Please set your API key in Settings."));
         return;
     }
 
@@ -178,10 +225,13 @@ void AiClient::sendMessages(const QJsonArray &messages, const QJsonArray &tools)
     _isTestRequest = false;
 
     bool reasoning = isReasoningModel();
+    bool geminiThinking = isGeminiThinkingModel();
 
     // gpt-5.4 does not support reasoning_effort + tools on /v1/chat/completions;
-    // use /v1/responses for that combination.
-    _useResponsesApi = !tools.isEmpty() && _model.toLower().startsWith(QStringLiteral("gpt-5.4"));
+    // use /v1/responses for that combination (OpenAI only).
+    _useResponsesApi = !tools.isEmpty()
+                       && _model.toLower().startsWith(QStringLiteral("gpt-5.4"))
+                       && (_provider.isEmpty() || _provider == QStringLiteral("openai"));
 
     QJsonObject body;
     body[QStringLiteral("model")] = _model;
@@ -269,6 +319,15 @@ void AiClient::sendMessages(const QJsonArray &messages, const QJsonArray &tools)
             } else {
                 body[QStringLiteral("reasoning_effort")] = QStringLiteral("low");
             }
+        } else if (geminiThinking) {
+            // Gemini 2.5+ / 3.x are thinking models that support reasoning_effort
+            // via OpenAI compat.  Without this, they default to high thinking
+            // which makes responses extremely slow (40-200+ seconds).
+            if (_thinkingEnabled) {
+                body[QStringLiteral("reasoning_effort")] = _reasoningEffort;
+            } else {
+                body[QStringLiteral("reasoning_effort")] = QStringLiteral("low");
+            }
         } else {
             body[QStringLiteral("temperature")] = 0.3;
         }
@@ -278,10 +337,15 @@ void AiClient::sendMessages(const QJsonArray &messages, const QJsonArray &tools)
     QByteArray data = doc.toJson(QJsonDocument::Compact);
 
     // Create HTTP request — use Responses API URL when needed
-    QNetworkRequest request{QUrl(_useResponsesApi ? RESPONSES_API_URL : API_URL)};
+    QString url = _useResponsesApi
+                  ? (_apiBaseUrl + QStringLiteral("/responses"))
+                  : (_apiBaseUrl + QStringLiteral("/chat/completions"));
+    QNetworkRequest request{QUrl(url)};
     request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
     request.setRawHeader("Authorization", QStringLiteral("Bearer %1").arg(apiKey()).toUtf8());
-    request.setTransferTimeout(reasoning ? 600000 : 60000);
+    // Generous timeouts: reasoning/thinking models can take minutes,
+    // non-reasoning models still need time for large structured outputs.
+    request.setTransferTimeout((reasoning || geminiThinking) ? 600000 : 180000);
 
     logApi(QStringLiteral("[REQUEST] model=%1 reasoning=%2 tools=%3 api=%4 body=%5")
            .arg(_model,
@@ -330,7 +394,7 @@ void AiClient::testConnection()
     QJsonDocument doc(body);
     QByteArray data = doc.toJson(QJsonDocument::Compact);
 
-    QNetworkRequest request{QUrl(API_URL)};
+    QNetworkRequest request{QUrl(_apiBaseUrl + QStringLiteral("/chat/completions"))};
     request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
     request.setRawHeader("Authorization", QStringLiteral("Bearer %1").arg(apiKey()).toUtf8());
     request.setTransferTimeout(15000);
@@ -405,8 +469,10 @@ void AiClient::onReplyFinished(QNetworkReply *reply)
     _currentReply = nullptr;
 
     if (reply->error() == QNetworkReply::OperationCanceledError) {
+        logApi(QStringLiteral("[TIMEOUT] Request timed out or was cancelled"));
         if (!_isTestRequest) {
-            emit errorOccurred(tr("Request was cancelled or timed out. Try a lower reasoning effort."));
+            emit errorOccurred(tr("Request timed out. The prompt may be too complex for this model, "
+                                  "or the provider is slow. Try a simpler prompt or a different model."));
         }
         reply->deleteLater();
         return;
@@ -425,10 +491,10 @@ void AiClient::onReplyFinished(QNetworkReply *reply)
         } else if (statusCode == 429) {
             errorMsg = tr("Rate limit exceeded. Please wait a moment and try again.");
         } else if (statusCode == 500 || statusCode == 503) {
-            errorMsg = tr("OpenAI service is temporarily unavailable. Please try again later.");
+            errorMsg = tr("API service is temporarily unavailable. Please try again later.");
         } else if (reply->error() == QNetworkReply::HostNotFoundError ||
                    reply->error() == QNetworkReply::ConnectionRefusedError) {
-            errorMsg = tr("Unable to connect to OpenAI. Please check your internet connection.");
+            errorMsg = tr("Unable to connect to the API. Please check your internet connection.");
         } else {
             errorMsg = tr("API error (HTTP %1): %2").arg(statusCode).arg(reply->errorString());
         }

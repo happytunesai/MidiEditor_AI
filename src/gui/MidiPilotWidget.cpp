@@ -508,17 +508,7 @@ void MidiPilotWidget::setupUi() {
     footerLayout->addStretch();
 
     _modelCombo = new QComboBox(this);
-    _modelCombo->addItem("gpt-4o-mini", "gpt-4o-mini");
-    _modelCombo->addItem("gpt-4o", "gpt-4o");
-    _modelCombo->addItem("gpt-4.1-nano", "gpt-4.1-nano");
-    _modelCombo->addItem("gpt-4.1-mini", "gpt-4.1-mini");
-    _modelCombo->addItem("gpt-4.1", "gpt-4.1");
-    _modelCombo->addItem("gpt-5", "gpt-5");
-    _modelCombo->addItem("gpt-5-mini", "gpt-5-mini");
-    _modelCombo->addItem("gpt-5.4", "gpt-5.4");
-    _modelCombo->addItem("gpt-5.4-mini", "gpt-5.4-mini");
-    _modelCombo->addItem("gpt-5.4-nano", "gpt-5.4-nano");
-    _modelCombo->addItem("o4-mini", "o4-mini");
+    populateFooterModels();
     _modelCombo->setEditable(true);
     _modelCombo->setFixedHeight(20);
     _modelCombo->setStyleSheet("font-size: 11px;");
@@ -567,6 +557,8 @@ void MidiPilotWidget::setupSetupPrompt() {
 
     if (configured) {
         setStatus("Ready", "green");
+        // Re-populate model list for current provider
+        populateFooterModels();
         // Sync model combo
         int modelIdx = _modelCombo->findData(_client->model());
         if (modelIdx >= 0)
@@ -577,8 +569,52 @@ void MidiPilotWidget::setupSetupPrompt() {
         _effortCombo->setVisible(_client->isReasoningModel());
         int effortIdx = _effortCombo->findData(_client->reasoningEffort());
         if (effortIdx >= 0) _effortCombo->setCurrentIndex(effortIdx);
+        // Sync FFXIV checkbox with settings
+        _ffxivCheck->setChecked(QSettings().value("AI/ffxiv_mode", false).toBool());
     } else {
         setStatus("Not configured", "orange");
+    }
+}
+
+void MidiPilotWidget::populateFooterModels() {
+    _modelCombo->clear();
+    QString provider = _client->provider();
+
+    if (provider == "openrouter") {
+        _modelCombo->addItem("openai/gpt-5.4", "openai/gpt-5.4");
+        _modelCombo->addItem("openai/gpt-4.1", "openai/gpt-4.1");
+        _modelCombo->addItem("anthropic/claude-sonnet-4", "anthropic/claude-sonnet-4");
+        _modelCombo->addItem("google/gemini-2.5-pro", "google/gemini-2.5-pro");
+        _modelCombo->addItem("google/gemini-2.5-flash", "google/gemini-2.5-flash");
+    } else if (provider == "gemini") {
+        _modelCombo->addItem("gemini-2.5-flash", "gemini-2.5-flash");
+        _modelCombo->addItem("gemini-2.5-flash-lite", "gemini-2.5-flash-lite");
+        _modelCombo->addItem("gemini-2.5-pro", "gemini-2.5-pro");
+        _modelCombo->addItem("gemini-3-flash", "gemini-3-flash-preview");
+        _modelCombo->addItem("gemini-3.1-flash-lite", "gemini-3.1-flash-lite-preview");
+        _modelCombo->addItem("gemini-3.1-pro", "gemini-3.1-pro-preview");
+    } else if (provider == "groq") {
+        _modelCombo->addItem("llama-3.3-70b", "llama-3.3-70b-versatile");
+        _modelCombo->addItem("llama-3.1-8b", "llama-3.1-8b-instant");
+        _modelCombo->addItem("mixtral-8x7b", "mixtral-8x7b-32768");
+    } else if (provider == "ollama" || provider == "lmstudio") {
+        _modelCombo->addItem("llama3.1", "llama3.1");
+        _modelCombo->addItem("codellama", "codellama");
+        _modelCombo->addItem("mistral", "mistral");
+        _modelCombo->addItem("qwen2.5-coder", "qwen2.5-coder");
+    } else {
+        // OpenAI or custom — show OpenAI models
+        _modelCombo->addItem("gpt-4o-mini", "gpt-4o-mini");
+        _modelCombo->addItem("gpt-4o", "gpt-4o");
+        _modelCombo->addItem("gpt-4.1-nano", "gpt-4.1-nano");
+        _modelCombo->addItem("gpt-4.1-mini", "gpt-4.1-mini");
+        _modelCombo->addItem("gpt-4.1", "gpt-4.1");
+        _modelCombo->addItem("gpt-5", "gpt-5");
+        _modelCombo->addItem("gpt-5-mini", "gpt-5-mini");
+        _modelCombo->addItem("gpt-5.4", "gpt-5.4");
+        _modelCombo->addItem("gpt-5.4-mini", "gpt-5.4-mini");
+        _modelCombo->addItem("gpt-5.4-nano", "gpt-5.4-nano");
+        _modelCombo->addItem("o4-mini", "o4-mini");
     }
 }
 
@@ -712,14 +748,14 @@ void MidiPilotWidget::onSendMessage() {
     _inputField->setEnabled(false);
     _sendButton->setEnabled(false);
 
-    // Update conversation history for future requests
-    QJsonObject userMsg;
-    userMsg["role"] = "user";
-    userMsg["content"] = fullMessage;
-    _conversationHistory.append(userMsg);
-
     if (currentMode() == "agent") {
         // Agent Mode: use AgentRunner with tool-calling loop
+        // Add user message to history (AgentRunner reads it from there)
+        QJsonObject userMsg;
+        userMsg["role"] = "user";
+        userMsg["content"] = fullMessage;
+        _conversationHistory.append(userMsg);
+
         // Wrap all tool calls in a single undo action
         _isAgentRunning = true;
         _sendButton->setVisible(false);
@@ -738,13 +774,18 @@ void MidiPilotWidget::onSendMessage() {
         _agentRunner->run(agentPrompt,
                           _conversationHistory, fullMessage, _file, this);
     } else {
-        // Simple Mode: single-shot request
+        // Simple Mode: single-shot request (sendRequest appends userMessage itself)
         addChatBubble("system", "Thinking...");
         QString simplePrompt = EditorContext::systemPrompt();
         if (ffxivMode())
             simplePrompt += EditorContext::ffxivContext();
         _client->sendRequest(simplePrompt,
                              _conversationHistory, fullMessage);
+        // Add user message to history AFTER constructing the request
+        QJsonObject userMsg;
+        userMsg["role"] = "user";
+        userMsg["content"] = fullMessage;
+        _conversationHistory.append(userMsg);
     }
 }
 
