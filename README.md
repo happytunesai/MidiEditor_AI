@@ -1,132 +1,152 @@
-<img align="left" width="70px" src="run_environment/midieditor.ico">
-
 # MidiEditor AI
 
+```
+███╗   ███╗██╗██████╗ ██╗███████╗██████╗ ██╗████████╗ ██████╗ ██████╗      █████╗ ██╗
+████╗ ████║██║██╔══██╗██║██╔════╝██╔══██╗██║╚══██╔══╝██╔═══██╗██╔══██╗    ██╔══██╗██║
+██╔████╔██║██║██║  ██║██║█████╗  ██║  ██║██║   ██║   ██║   ██║██████╔╝    ███████║██║
+██║╚██╔╝██║██║██║  ██║██║██╔══╝  ██║  ██║██║   ██║   ██║   ██║██╔══██╗    ██╔══██║██║
+██║ ╚═╝ ██║██║██████╔╝██║███████╗██████╔╝██║   ██║   ╚██████╔╝██║  ██║    ██║  ██║██║
+╚═╝     ╚═╝╚═╝╚═════╝ ╚═╝╚══════╝╚═════╝ ╚═╝   ╚═╝    ╚═════╝ ╚═╝  ╚═╝    ╚═╝  ╚═╝╚═╝
+```
+
+**An AI-powered MIDI editor with an integrated AI copilot.**
+
 [![Build](https://github.com/happytunesai/MidiEditor_AI/actions/workflows/cmake-build.yml/badge.svg)](https://github.com/happytunesai/MidiEditor_AI/actions/workflows/cmake-build.yml)
+[![Release](https://img.shields.io/github/v/release/happytunesai/MidiEditor_AI?include_prereleases&label=release)](https://github.com/happytunesai/MidiEditor_AI/releases/latest)
+[![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
+[![Platform: Windows](https://img.shields.io/badge/platform-Windows-0078D6?logo=windows)](https://github.com/happytunesai/MidiEditor_AI/releases)
 
-Downloads: [latest release](https://github.com/happytunesai/MidiEditor_AI/releases)
+**Version:** 1.0.0
+**Status:** Release
 
-AI-powered MIDI editor with **MidiPilot** — an integrated AI copilot that can compose, arrange, analyze, and edit MIDI data via natural language. Built on top of [Meowchestra/MidiEditor](https://github.com/Meowchestra/MidiEditor), which is based on [jingkaimori's fork](https://github.com/jingkaimori/midieditor/) of [ProMidEdit](https://github.com/PROPHESSOR/ProMidEdit), built on top of [MidiEditor](https://github.com/markusschwenk/midieditor) by Markus Schwenk.
-
-### Introduction
-
-MidiEditor is a free software providing an interface to edit, record, and play midi data.
-
-The editor is able to open existing midi files and modify their content. New files can be created and the user can enter his own composition by either recording Midi data from a connected Midi device (e.g., a digital piano or a keyboard) or by manually creating new notes and other Midi events. The recorded data can be easily quantified and edited afterwards using MidiEditor.
-
-![image](manual/screenshots/midieditor-full.png)
-
-### Features
-
-* Easily edits, records and plays Midi files
-* Can be connected to any Midi port (e.g., a digital piano or a synthesizer)
-* Tracks, channels and Midi events can be edited
-* Event quantization
-* Control changes can be visualized
-* Free
-* Available for Windows
+📥 **[Download Latest Release](https://github.com/happytunesai/MidiEditor_AI/releases/latest)**
 
 ---
 
-## MidiPilot - AI-Powered MIDI Assistant
+![MidiEditor AI](manual/screenshots/midieditor-full.png)
 
-MidiPilot is an integrated AI copilot that can compose, edit, and transform MIDI data using natural language. It is embedded directly in the MidiEditor interface and communicates with AI APIs to understand musical intent and execute changes on the active MIDI file.
+## ✨ Overview
 
-### Getting Started
+MidiEditor AI is a free MIDI editor with **MidiPilot** — an integrated AI copilot that can compose, arrange, analyze, and edit MIDI data using natural language. Tell the AI what you want in plain English and watch it build your music.
 
-1. Open **Settings** and select your AI provider (OpenAI, OpenRouter, Google Gemini, or Custom).
-2. Enter your API key for the selected provider.
-3. Select a model and configure reasoning effort.
-4. Open the **MidiPilot** panel from the sidebar.
-5. Type a natural language instruction (e.g. *"Create an 8-bar jazz waltz in Bb major"*) and press Enter.
+Built on top of [Meowchestra/MidiEditor](https://github.com/Meowchestra/MidiEditor), which traces back through [jingkaimori](https://github.com/jingkaimori/midieditor/), [ProMidEdit](https://github.com/PROPHESSOR/ProMidEdit), and the original [MidiEditor](https://github.com/markusschwenk/midieditor) by Markus Schwenk.
 
-### Modes
+## ✨ Features
 
-| Mode | Description |
+| Feature | Description |
+|---------|-------------|
+| 🤖 **MidiPilot AI Copilot** | Compose, edit, and transform MIDI via natural language chat |
+| 🎹 **Full MIDI Editor** | Edit, record, and play MIDI files with track/channel/event editing |
+| 🎯 **Agent Mode** | Multi-step agentic loop — AI calls tools iteratively, inspecting results between steps |
+| 💬 **Simple Mode** | Single request/response for quick edits and small tasks |
+| 🎮 **FFXIV Bard Mode** | Enforces Final Fantasy XIV Performance constraints (8 tracks, monophonic, C3–C6) |
+| 🔌 **Multi-Provider** | OpenAI, OpenRouter, Google Gemini, or any OpenAI-compatible endpoint |
+| 🧠 **Reasoning Support** | Configurable thinking/reasoning effort (None → Extra High) |
+| 📊 **Token Tracking** | Real-time token usage display per request and session |
+| ✏️ **Custom System Prompts** | Edit AI behavior via JSON — no recompiling needed |
+| 🔄 **Auto-Update Checker** | Built-in update notifications from GitHub Releases |
+| 🎵 **Quantization** | Event quantization and control change visualization |
+| 🎤 **MIDI Recording** | Record from connected MIDI devices (keyboards, digital pianos) |
+
+## 🏗️ Architecture
+
+```
+MidiEditor AI
+├── Core Editor          → MIDI file I/O, tracks, channels, events
+├── MatrixWidget         → Piano roll note editor with OpenGL rendering
+├── MidiPilot            → AI copilot sidebar (chat + tools)
+│   ├── AiClient         → OpenAI-compatible API client (streaming)
+│   ├── EditorContext     → Musical context extraction for AI
+│   ├── ToolDefinitions   → 13 MIDI manipulation tools for AI
+│   └── SystemPrompts     → Customizable per-mode AI instructions
+├── FFXIV Module         → Bard Performance validation & drum conversion
+├── Multi-Provider       → OpenAI / OpenRouter / Gemini / Custom / Local
+├── MIDI I/O             → RtMidi for real-time MIDI device communication
+└── Settings             → Provider, model, appearance, keybinds, layout
+```
+
+## 🚀 Quick Start
+
+### 1. Download & Run
+
+1. Download the latest release from the [**Releases page**](https://github.com/happytunesai/MidiEditor_AI/releases/latest)
+2. Extract the zip file
+3. Run **MidiEditorAI.exe**
+
+### 2. Configure AI
+
+1. Open **Settings** (gear icon) and go to the **AI** tab
+2. Select your provider (OpenAI, OpenRouter, Google Gemini, or Custom)
+3. Enter your API key
+4. Choose a model
+
+### 3. Start Creating
+
+1. Open the **MidiPilot** panel from the sidebar
+2. Type a natural language instruction:
+   > *"Create an 8-bar jazz waltz in Bb major with piano, bass, and drums"*
+3. Press Enter and watch the AI build your music
+
+## 🎮 FFXIV Bard Performance Mode
+
+When the **FFXIV** checkbox is enabled, MidiPilot enforces Final Fantasy XIV constraints:
+
+| Constraint | Rule |
+|------------|------|
+| 🎵 **Tracks** | Maximum 8 tracks (octet ensemble) |
+| 🔊 **Polyphony** | Monophonic only — one note at a time per instrument |
+| 🎹 **Range** | C3–C6 (MIDI 48–84) — MidiBard2 auto-transposes |
+| 🥁 **Drums** | No drum kit — separate tonal tracks (Bass Drum, Snare, Cymbal, etc.) |
+| 🎸 **Guitars** | 5 electric guitar variants via channel-based switching |
+| ⚡ **Auto-Setup** | Channel pattern tool configures MidiBard2 mapping automatically |
+
+## 🔌 Supported Providers
+
+| Provider | Base URL | API Key | Free Tier |
+|----------|----------|---------|-----------|
+| **OpenAI** | `api.openai.com/v1` | Required | Limited |
+| **OpenRouter** | `openrouter.ai/api/v1` | Required | Free models available |
+| **Google Gemini** | `generativelanguage.googleapis.com` | Required | 15 RPM, 1M TPM |
+| **Ollama** (local) | `localhost:11434/v1` | No | Unlimited |
+| **LM Studio** (local) | `localhost:1234/v1` | No | Unlimited |
+| **Custom** | User-specified | User-specified | Varies |
+
+## 🛠️ MidiPilot Tools
+
+The AI has access to 13 tools for inspecting and modifying MIDI files:
+
+| Tool | Description |
 |------|-------------|
-| **Simple** | Single request/response. The model generates all tool calls in one shot. Best for small edits and quick tasks. |
-| **Agent** | Multi-step agentic loop. The model calls tools iteratively, inspecting results between steps. The maximum number of steps is configurable in Settings (default: 50). |
+| `get_editor_state` | Read file info, tracks, tempo, time signature, cursor |
+| `create_track` / `rename_track` / `set_channel` | Manage tracks |
+| `insert_events` / `replace_events` / `delete_events` | Add, modify, remove MIDI events |
+| `query_events` | Read events in a tick range on a track |
+| `move_events_to_track` | Move events between tracks |
+| `set_tempo` / `set_time_signature` | Change tempo and meter |
+| `setup_channel_pattern` | Auto-configure MidiBard2 channel mapping *(FFXIV)* |
+| `validate_ffxiv` | Check FFXIV rule compliance *(FFXIV)* |
+| `convert_drums_ffxiv` | Convert GM drums to FFXIV tonal percussion *(FFXIV)* |
 
-### FFXIV Bard Performance Mode
-
-When the **FFXIV** checkbox is enabled, MidiPilot enforces the constraints of Final Fantasy XIV's Bard Performance system:
-
-- **8-track maximum** (octet ensemble)
-- **Monophonic tracks** — one note at a time per instrument
-- **Note range C3–C6** (MIDI 48–84) — MidiBard2 auto-transposes to each instrument's native range
-- **No drum kit** — percussion is split into separate tonal tracks (Bass Drum, Snare Drum, Cymbal, Timpani, Bongo)
-- **Guitar switches** — 5 electric guitar variants can share a track slot using channel-based switching
-- **Automatic channel pattern setup** — assigns unique channels and program_change events for MidiBard2 compatibility
-- **Velocity is ignored** — FFXIV plays all notes at the same loudness
-
-### Supported Providers
-
-MidiPilot supports multiple AI providers through OpenAI-compatible APIs:
-
-| Provider | Description |
-|----------|-------------|
-| **OpenAI** | Direct OpenAI API (GPT-5.x, GPT-4.x, o-series) |
-| **OpenRouter** | Aggregator supporting OpenAI, Anthropic, Google, Meta models |
-| **Google Gemini** | Native Gemini API via OpenAI compatibility layer (Gemini 2.5, 3.x) |
-| **Custom** | Any OpenAI-compatible endpoint (local or remote) |
-
-API keys are stored per provider — switching providers restores the previously saved key.
-
-### Supported Models
-
-MidiPilot supports a range of models with configurable reasoning effort:
-
-- **gpt-5.4 / gpt-5.4-mini / gpt-5.4-nano** — Latest generation, reasoning-capable
-- **gpt-5 / gpt-5-mini** — Previous generation reasoning models
-- **gpt-4.1-nano / gpt-4.1-mini / gpt-4.1** — Efficient non-reasoning models
-- **gpt-4o / gpt-4o-mini** — Fast general-purpose models
-- **o4-mini** — Dedicated reasoning model
-- **gemini-2.5-flash / gemini-2.5-pro** — Google Gemini with thinking support
-- **gemini-3-flash / gemini-3.1-pro** — Latest Gemini generation
-- **anthropic/claude-sonnet-4** — Via OpenRouter
-- **meta-llama/llama-4-maverick** — Via OpenRouter
-
-### Settings
+## ⚙️ Settings
 
 | Setting | Description |
 |---------|-------------|
 | **Provider & Model** | Select AI provider and model. Custom models can be typed manually. |
-| **Thinking / Reasoning Effort** | Toggle reasoning and set effort level (None, Low, Medium, High, Extra High). |
-| **Context Range** | Number of measures before and after the cursor to include as musical context (0–50). |
-| **Agent Max Steps** | Maximum number of tool calls per Agent request (5–100, default 50). |
-| **Output Token Limit** | Optional cap on output tokens per request. Disabled by default — models use their full capacity. Enable to control costs or avoid provider billing surprises. |
-| **System Prompts** | Open the system prompt editor to customize AI behavior for each mode (Simple, Agent, FFXIV, FFXIV Compact). Custom prompts are saved as JSON and loaded automatically on startup. |
+| **Thinking / Reasoning** | Toggle reasoning and set effort level (None → Extra High) |
+| **Context Range** | Measures before/after cursor included as musical context (0–50) |
+| **Agent Max Steps** | Maximum tool calls per Agent request (5–100, default 50) |
+| **Output Token Limit** | Optional cap on output tokens to control costs |
+| **System Prompts** | Customize AI behavior for each mode via built-in editor |
 
-### Token Usage Display
+## 🎬 Examples
 
-The chat footer shows real-time token usage:
-
-- **Format:** `<last request> | <session total> 🔥`
-- When an output token limit is active: `<last request> | <session total> 🔥 [<limit> ✂]`
-
-### Tools
-
-MidiPilot has access to the following tools for inspecting and modifying MIDI files:
-
-- `get_editor_state` — Read current file info, tracks, tempo, time signature, cursor position
-- `create_track` / `rename_track` / `set_channel` — Manage tracks
-- `insert_events` / `replace_events` / `delete_events` — Add, modify, or remove MIDI events
-- `query_events` — Read events in a tick range on a track
-- `move_events_to_track` — Move events between tracks
-- `set_tempo` / `set_time_signature` — Change tempo and meter
-- `setup_channel_pattern` *(FFXIV)* — Auto-configure MidiBard2 channel mapping
-- `validate_ffxiv` *(FFXIV)* — Check FFXIV rule compliance
-- `convert_drums_ffxiv` *(FFXIV)* — Convert GM drum tracks to FFXIV tonal percussion
-
-### Examples
-
-Below are two compositions created entirely by AI in **Agent mode** — from a single text prompt to a finished MIDI file.
+Compositions created entirely by AI in **Agent mode** — from a single text prompt to a finished MIDI file.
 
 ---
 ![Loading](examples/loading_animation.gif)
 ---
 
-#### Metal Mozart — Agent Mode (Gemini 3.1 Pro)
+### Metal Mozart — Agent Mode (Gemini 3.1 Pro)
 
 > *"Create a metal version of Mozart's Eine kleine Nachtmusik with shredding guitars, bass, strings, and a drum kit. Make it 20 measures long, with a guitar solo in the middle."*
 
@@ -138,7 +158,7 @@ https://github.com/user-attachments/assets/f0113a74-14d4-47c1-945e-6fc61fa2fbc6
 
 ---
 
-#### Metal Mozart — FFXIV Octett Mode (Gemini 3.1 Pro)
+### Metal Mozart — FFXIV Octett Mode (Gemini 3.1 Pro)
 
 > *"Create a metal version of Mozart's Eine kleine Nachtmusik with shredding guitars, bass, strings, and a drum kit. Make it 20 measures long, with a guitar solo in the middle. 8 Tracks ready for a FFXIV Octett"*
 
@@ -148,7 +168,60 @@ https://github.com/user-attachments/assets/789ad60b-69d1-46aa-acce-4970f6e2acf2
 
 📥 [Download MIDI](examples/Mozart_by_gemini_agent_FFXIV.mid)
 
-### Credits & Acknowledgments
+---
+
+## 🔨 Building from Source
+
+### Requirements
+
+- **Windows 10/11**
+- **Visual Studio 2019/2022** (MSVC Build Tools)
+- **Qt 6.5.3** (with Multimedia module)
+- **CMake 3.20+**
+
+### Build
+
+```bash
+# Clone with submodules (RtMidi)
+git clone --recursive https://github.com/happytunesai/MidiEditor_AI.git
+cd MidiEditor_AI
+
+# Configure and build
+cmake -S . -B build -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release
+cmake --build build --config Release
+```
+
+The executable will be at `build/bin/MidiEditorAI.exe` with Qt DLLs auto-deployed.
+
+## 📂 Project Structure
+
+```
+MidiEditor_AI/
+├── src/
+│   ├── main.cpp              # Application entry point
+│   ├── gui/                   # UI components
+│   │   ├── MainWindow.*       # Main application window
+│   │   ├── MidiPilotWidget.*  # AI copilot sidebar
+│   │   ├── AiSettingsWidget.* # AI provider/model settings
+│   │   ├── MatrixWidget.*     # Piano roll editor
+│   │   ├── AboutDialog.*      # Credits & version info
+│   │   └── ...                # 40+ GUI components
+│   ├── midi/                  # MIDI file I/O & devices
+│   │   ├── MidiFile.*         # MIDI file read/write
+│   │   ├── MidiInput.*        # Real-time MIDI input (RtMidi)
+│   │   └── ...
+│   ├── MidiEvent/             # MIDI event types
+│   ├── protocol/              # Undo/redo protocol
+│   └── tool/                  # Editor tools (select, draw, etc.)
+├── run_environment/           # Runtime assets (graphics, metronome, icons)
+├── manual/                    # HTML documentation & screenshots
+├── examples/                  # AI-generated MIDI examples
+├── .github/workflows/         # CI/CD (build + release)
+├── CMakeLists.txt             # CMake build configuration
+└── build.bat                  # Local build script
+```
+
+## 🤝 Credits & Acknowledgments
 
 MidiEditor AI is built on the shoulders of these projects:
 
@@ -159,12 +232,27 @@ MidiEditor AI is built on the shoulders of these projects:
 | **ProMidEdit** | PROPHESSOR | [github.com/PROPHESSOR/ProMidEdit](https://github.com/PROPHESSOR/ProMidEdit) |
 | **jingkaimori fork** | jingkaimori | [github.com/jingkaimori/midieditor](https://github.com/jingkaimori/midieditor) |
 
-Third-party resources:
+**Third-party resources:**
 - 3D icons by Double-J Design
 - Flat icons by Freepik
 - Metronome sound by Mike Koenig
 - RtMidi library by Gary P. Scavone
 
 See the full list of contributors in the [CONTRIBUTORS](CONTRIBUTORS) file.
+
+## 📄 License
+
+This project is licensed under the [GNU General Public License v3.0](LICENSE).
+
+## 👀 Contact
+
+For questions, issues, or contribution suggestions, please contact: `ChatGPT`, `Gemini`, `DeepSeek`, `Claude.ai` 🤖
+or try to dump it [here](https://github.com/happytunesai/MidiEditor_AI/issues)! ✅
+
+**GitHub:** [github.com/happytunesai/MidiEditor_AI](https://github.com/happytunesai/MidiEditor_AI)
+
+---
+
+*Created with ❤️ + AI*
 
 
