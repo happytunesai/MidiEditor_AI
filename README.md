@@ -125,6 +125,8 @@ MidiPilot has access to the following tools for inspecting and modifying MIDI fi
 Below are two compositions created entirely by AI in **Agent mode** — from a single text prompt to a finished MIDI file.
 
 ---
+![Loading](examples/loading_animation.gif)
+---
 
 #### Metal Mozart — Agent Mode (Gemini 3.1 Pro)
 
