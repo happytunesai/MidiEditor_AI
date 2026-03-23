@@ -298,7 +298,7 @@ All operations below are supported via the AI action system (edit/delete/info/er
 - ✅ Simple operations → cheaper model (gpt-4o-mini)
 - ✅ Complex generation → stronger model (gpt-4o, gpt-5, o4-mini, etc.)
 - ✅ Token count display in status bar
-- ⬜ Local LLM support (Ollama) as alternative backend
+- ✅ Local LLM support (Ollama, LM Studio) via Phase 8.1 custom base URL
 
 ---
 
@@ -786,8 +786,8 @@ Phase 6    Post-launch hardening & polish               ✅ DONE (6.1-6.9)
 Phase 7    FFXIV Bard Performance Mode                   ✅ DONE (7.1-7.5)
 Phase 4.6  Persistent history (SQLite)                  ⬜ TODO  (low priority)
 Phase 8    Multi-provider & free API access              ✅ DONE (8.1, 8.2, 8.5 — providers + tokens + model lists)
-Phase 9    Editable system prompts (JSON + dialog)       ✅ DONE
-Phase 10   Independent repo & rebranding                 ✅ DONE (10.1-10.5)
+Phase 9    Editable system prompts (JSON + dialog)       ✅ DONE (9.1-9.4)
+Phase 10   Independent repo & rebranding                 ✅ DONE (10.1-10.7)
 ```
 
 ### Bonus Features (not in original plan)
@@ -1318,25 +1318,19 @@ x-ratelimit-reset-tokens: 6m0s
 
 **Files:** Modify `AiClient.h/cpp`, `MidiPilotWidget.h/cpp`
 
-### 8.4 — Free Provider Integration (Puter.com) ⬜
+### 8.4 — Free Provider Integration (Puter.com) ❌ DEFERRED
 
-> **Investigation needed:** Puter.js is a JavaScript SDK — need to determine if there's a
-> REST API endpoint we can call from C++ directly. Options:
+> **Status:** Deferred indefinitely. Puter.js is a JavaScript-only SDK with no documented
+> REST API for C++ desktop apps. The effort to reverse-engineer their API or embed a WebView
+> bridge is not justified given the alternatives.
 >
-> **Option A — REST API (preferred):** Puter likely has an internal REST API that the JS SDK
-> calls. If we can identify the endpoint and auth mechanism, we can call it directly from
-> `QNetworkAccessManager`. Needs reverse-engineering of the Puter.js SDK.
+> **What we did instead:** Phase 8.1 (custom base URL) + Google Gemini native support
+> already provide free/low-cost access:
+> - **Google Gemini free tier:** 15 RPM, 1M TPM — generous enough for casual use
+> - **OpenRouter free models:** $0 open-source models via OpenAI-compatible API
+> - **Ollama / LM Studio:** Unlimited local AI, no API key needed
 >
-> **Option B — Embedded WebView bridge:** Use `QWebEngineView` to load a minimal HTML page
-> with Puter.js, send prompts via JavaScript bridge, receive responses. More complex but
-> guaranteed to work since it uses the official SDK.
->
-> **Option C — Skip Puter, focus on OpenRouter:** OpenRouter has genuinely free models
-> (some open-source models at $0 cost) with an OpenAI-compatible API. This works with
-> Phase 8.1 (custom base URL) with zero additional code.
-
-**Recommended approach:** Start with **Option C** (OpenRouter free models via custom base URL)
-for immediate free access, then investigate Option A (Puter REST API) later.
+> These three options cover the "free access" goal without Puter.com.
 
 ### 8.5 — Provider-Specific Model Lists ✅
 
@@ -1363,8 +1357,8 @@ Each provider supports different models. Populate model dropdown based on select
 ```
 Phase 8.1  Custom base URL (provider presets)           ✅ DONE — OpenAI, OpenRouter, Gemini, Custom
 Phase 8.2  Token usage tracking & display               ✅ DONE — last request + session totals
-Phase 8.3  Rate limit awareness + auto-retry            ⬜ TODO — important for free tiers
-Phase 8.4  Puter.com / free provider integration        ⬜ TODO — needs investigation
+Phase 8.3  Rate limit awareness + auto-retry            ⬜ TODO — nice-to-have for free tiers
+Phase 8.4  Puter.com / free provider integration        ❌ DEFERRED — covered by Gemini/OpenRouter/Ollama
 Phase 8.5  Provider-specific model lists                ✅ DONE — per-provider model dropdowns
 ```
 
@@ -1405,7 +1399,7 @@ Phase 8.5  Provider-specific model lists                ✅ DONE — per-provide
 
 ---
 
-## Phase 9: Editable System Prompts ⬜
+## Phase 9: Editable System Prompts ✅
 
 > **Goal:** Allow users to customize the system prompts sent to the AI without recompiling.
 > Hardcoded defaults remain as fallback. User edits are saved as a JSON file.
@@ -1449,7 +1443,7 @@ Phase 8.5  Provider-specific model lists                ✅ DONE — per-provide
 - Primary: `<exe_directory>/system_prompts.json` (portable, next to MidiEditor.exe)
 - Fallback: `<AppData>/MidiEditor/system_prompts.json` (per-user config)
 
-### 9.1 — Prompt Loading from JSON ⬜
+### 9.1 — Prompt Loading from JSON ✅
 
 Modify `EditorContext` to check for external prompts before returning hardcoded ones:
 
@@ -1481,7 +1475,7 @@ QString EditorContext::systemPrompt() {
 
 **Files:** Modify `EditorContext.h/cpp`
 
-### 9.2 — System Prompt Editor Dialog ⬜
+### 9.2 — System Prompt Editor Dialog ✅
 
 New dialog accessible from Settings → "Edit System Prompts..." button:
 
@@ -1527,7 +1521,7 @@ New dialog accessible from Settings → "Edit System Prompts..." button:
 
 **Files:** New `src/gui/SystemPromptDialog.h/cpp`
 
-### 9.3 — Settings Integration ⬜
+### 9.3 — Settings Integration ✅
 
 Add button in `AiSettingsWidget` to open the System Prompt Editor:
 
@@ -1547,7 +1541,7 @@ Add button in `AiSettingsWidget` to open the System Prompt Editor:
 
 **Files:** Modify `AiSettingsWidget.h/cpp`
 
-### 9.4 — App Startup Loading ⬜
+### 9.4 — App Startup Loading ✅
 
 Call `EditorContext::loadCustomPrompts()` on application startup:
 
@@ -1566,10 +1560,10 @@ if (QFile::exists(promptsPath)) {
 ### Implementation Order
 
 ```
-Phase 9.1  Prompt loading from JSON                     ⬜ NEXT
-Phase 9.2  System Prompt Editor dialog                  ⬜
-Phase 9.3  Settings button + status indicator           ⬜
-Phase 9.4  App startup auto-loading                     ⬜
+Phase 9.1  Prompt loading from JSON                     ✅ DONE
+Phase 9.2  System Prompt Editor dialog                  ✅ DONE
+Phase 9.3  Settings button + status indicator           ✅ DONE
+Phase 9.4  App startup auto-loading                     ✅ DONE
 ```
 
 ### Estimated Complexity
@@ -1592,19 +1586,24 @@ Phase 9.4  App startup auto-loading                     ⬜
 
 ## Remaining Work
 
-### Not Yet Implemented
+### Not Yet Implemented (Nice-to-Have)
 - ⬜ **Context menu in MatrixWidget:** Right-click on selected notes → "Ask MidiPilot..." (Phase 2.2)
-- ⬜ **Inline API key setup:** Enter API key directly in MidiPilot panel (Phase 2.3)
+- ⬜ **Inline API key setup:** Enter API key directly in MidiPilot panel (Phase 2.3) — *low priority, Settings redirect works fine*
 - ⬜ **Conversation reset on file change** (Phase 3.4)
-- ⬜ **Local LLM support** (Ollama/llama.cpp) as offline alternative (Phase 4.7)
-- ⬜ **Persistent history** (SQLite) across sessions (Phase 4.6)
-- ⬜ **Loading spinner** animation instead of "Thinking..." text (Phase 2.1)
-- ⬜ **Rate limit awareness** + auto-retry for free tiers (Phase 8.3)
-- ✅ **Editable system prompts** via JSON + dialog (Phase 9)
+- ⬜ **Persistent history** (SQLite) across sessions (Phase 4.6) — *low priority*
+- ⬜ **Loading spinner** animation instead of "Thinking..." text (Phase 2.1) — *cosmetic*
+- ⬜ **Rate limit awareness** + auto-retry for free tiers (Phase 8.3) — *nice-to-have*
+
+### Completed Since Last Update
+- ✅ **Local LLM support** (Ollama/LM Studio) via custom base URL (Phase 8.1)
+- ✅ **Editable system prompts** via JSON + dialog (Phase 9.1-9.4)
+- ✅ **Manual / Wiki** — GitHub Pages with dark theme + MidiPilot page (Phase 10.6)
+- ✅ **Independent repo & rebranding** — all sub-phases complete (Phase 10.1-10.7)
+- ✅ **v1.0.0 released** on GitHub with automated CI/CD builds
 
 ---
 
-## Phase 10: Independent Repo & Rebranding ⬜
+## Phase 10: Independent Repo & Rebranding ✅
 
 > **Goal:** Establish MidiEditor AI as a standalone project with its own GitHub repository,
 > proper credits to upstream projects, automated builds, and a publishing strategy.
@@ -1690,16 +1689,23 @@ Create a publish pipeline that builds and packages the latest version:
 **Local script:** Create `release.bat` or adapt existing `build.bat`
 **CI script:** GitHub Actions workflow (see 10.4)
 
-### 10.6 — Manual / Wiki ⬜
+### 10.6 — Manual / Wiki ✅
 
-The existing `manual/` folder has HTML docs. Options:
-- **GitHub Wiki:** Create wiki pages with MidiPilot documentation (AI features, settings, examples)
-- **GitHub Pages:** Re-enable `deploy-pages.yml` to serve `manual/` as a static site
-- **Screenshots needed:** User will provide screenshots of:
-  - MidiPilot sidebar (chat, context bar, agent steps)
-  - Settings dialog (provider, model, token limit, system prompts)
-  - FFXIV mode in action
-  - Agent mode step-by-step execution
+The `manual/` folder is deployed to GitHub Pages via `deploy-pages.yml` workflow.
+
+**Completed:**
+- ✅ Dark-themed CSS stylesheet (`manual/style.css`) — GitHub-dark inspired
+- ✅ All 14 HTML pages wrapped with proper `<!DOCTYPE>`, responsive `<head>`, nav bar, footer
+- ✅ Nav bar on every page with links to all sections including MidiPilot
+- ✅ **New `midipilot.html` page** — full MidiPilot documentation with:
+  - 7 screenshots (overview, settings, connection test, system prompts, chat panels, input bar)
+  - Feature cards grid (Agent Mode, Simple Mode, FFXIV, Multi-Provider, Reasoning, Custom Prompts)
+  - AI Tools reference table (13 tools)
+  - Supported Providers table
+  - Getting Started guide
+- ✅ Screenshots stored in `manual/screenshots/midipilot-*.png`
+- ✅ GitHub Pages auto-deploys on push to main (when `manual/**` changes)
+- ✅ Live at: `https://happytunesai.github.io/MidiEditor_AI/`
 
 ### 10.7 — README Update for New Repo ✅
 
@@ -1718,13 +1724,13 @@ Phase 10.2  Credits & About Dialog                       ✅ DONE
 Phase 10.3  Update Checker redirect                      ✅ DONE
 Phase 10.4  GitHub Actions (CI/CD)                       ✅ DONE
 Phase 10.5  Automated release build                      ✅ DONE
-Phase 10.6  Manual / Wiki                                ⬜
+Phase 10.6  Manual / Wiki (GitHub Pages + MidiPilot)     ✅ DONE
 Phase 10.7  README update for new repo                   ✅ DONE
 ```
 
 ### Open Questions
-- [ ] Max events per request? (Token budget consideration)
+- [x] Max events per request? — *Handled via token budget warning (Phase 4.1) + configurable context range*
 - [x] Should MidiPilot work without selection (on entire visible area)? — *Yes, AI can generate into current track/channel without selection*
-- [ ] Auto-suggest mode? (AI proactively offers suggestions?)
-- [ ] Keyboard shortcut for "apply last AI suggestion"?
-- [ ] Support for batch operations (multiple prompts queued)?
+- [ ] Auto-suggest mode? (AI proactively offers suggestions?) — *deferred, not planned*
+- [ ] Keyboard shortcut for "apply last AI suggestion"? — *deferred*
+- [ ] Support for batch operations (multiple prompts queued)? — *deferred*
