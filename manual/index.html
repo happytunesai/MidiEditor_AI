@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -237,7 +237,7 @@
 .agent-step.pending { color: #CC7700; }
 .agent-step.active { color: #0066CC; font-weight: bold; }
 .agent-step.done { color: #2D8C3C; }
-/* Status bar — matches app's ● ○ ○ animation */
+/* Status bar � matches app's ? ? ? animation */
 .chat-status-bar {
     display: flex;
     align-items: center;
@@ -324,7 +324,7 @@
 .chat-demo-input .send-btn.active {
     opacity: 1;
 }
-/* Footer bar — FFXIV checkbox, model, reasoning */
+/* Footer bar � FFXIV checkbox, model, reasoning */
 .chat-demo-footer {
     border-top: 1px solid #eee;
     padding: 4px 0.75rem;
@@ -373,7 +373,7 @@
 </head>
 <body>
 <div class="nav-bar">
-<div class="nav-header"><span class="nav-icon">&#129302;</span><span class="nav-title">MidiEditor AI Manual</span><span class="nav-version">v1.0.1</span></div>
+<div class="nav-header"><span class="nav-icon">&#129302;</span><span class="nav-title">MidiEditor AI Manual</span><span class="nav-version">v1.0.2</span></div>
 <div class="nav-links">
 <a href="index.html" class="active">Index</a>
 <a href="introduction.html">Introduction</a>
@@ -392,7 +392,7 @@
 <div class="hero">
 <pre id="ascii-logo" aria-label="MidiEditor AI"></pre>
 <p class="tagline" id="hero-tagline" style="opacity:0">Your complete guide to the AI-powered MIDI editor</p>
-<span class="version-badge" id="hero-badge" style="opacity:0">v1.0.1 &middot; Manual</span>
+<span class="version-badge" id="hero-badge" style="opacity:0">v1.0.2 &middot; Manual</span>
 
 <!-- Fake Chat Demo -->
 <div class="chat-demo" id="chat-demo">
@@ -693,7 +693,7 @@
         statusText.textContent = 'Ready';
     }
 
-    // --- Status bar: animated processing (● ○ ○ cycling) ---
+    // --- Status bar: animated processing (? ? ? cycling) ---
     var dotTimer = null;
     var msgTimer = null;
     function setStatusProcessing() {

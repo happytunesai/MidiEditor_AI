@@ -5,6 +5,21 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 
 ---
 
+## [1.0.2] - 2026-03-24
+
+### Changed
+* FFXIV Bard Mode system prompts rewritten for better LLM compliance:
+  - Strict 8-track maximum enforced in both full and compact prompts
+  - Clear Track→Channel mapping (T0→CH0, T1→CH1, etc.; drums share CH9)
+  - Concrete 8-track Octett example with guitar switch channels
+  - All tracks must include program_change events for ALL used channels at tick 0
+  - Guitar switches clarified: 5 variants share channels, no extra tracks needed
+  - Track name determines instrument — channels are cosmetic except for guitar switches
+  - Drum tracks ordered at end (highest track indices)
+* Version bump to 1.0.2
+
+---
+
 ## [1.0.1] - 2026-03-24
 
 ### Changed
