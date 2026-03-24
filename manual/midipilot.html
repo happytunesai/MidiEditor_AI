@@ -134,12 +134,158 @@ The input bar at the bottom provides quick access to everything you need:
 </div>
 
 <ul>
-<li id="agent-mode"><b>Mode selector</b> &mdash; Switch between Agent (multi-step) and Simple (single response)</li>
-<li id="ffxiv-mode"><b>FFXIV checkbox</b> &mdash; Enable FFXIV Bard Performance constraints</li>
-<li id="simple-mode"><b>Model dropdown</b> &mdash; Switch models on the fly without opening settings</li>
+<li><b>Mode selector</b> &mdash; Switch between Agent (multi-step) and Simple (single response)</li>
+<li><b>FFXIV checkbox</b> &mdash; Enable FFXIV Bard Performance constraints</li>
+<li><b>Model dropdown</b> &mdash; Switch models on the fly without opening settings</li>
 <li><b>Reasoning level</b> &mdash; Adjust thinking effort (when supported by the model)</li>
 <li><b>Status indicator</b> &mdash; Shows Ready, Thinking, or error states in real time</li>
 </ul>
+
+<hr>
+
+<h2 id="simple-mode">Simple Mode (One-Shot)</h2>
+
+<p>
+Simple mode sends a <b>single API call</b> to the AI model containing your instruction, the current editor state, selected events, and surrounding musical context. The model responds with one complete answer &mdash; no follow-up calls, no iterative loop.
+</p>
+
+<h3>How It Works</h3>
+
+<ol>
+<li>Your prompt is bundled with a JSON snapshot of the editor (cursor position, active track, tempo, time signature, selection, and &#x00B1;5 measures of surrounding events)</li>
+<li>Everything is sent as one request to the model</li>
+<li>The model returns a single JSON response with one or more actions (<code>edit</code>, <code>delete</code>, <code>create_track</code>, <code>set_tempo</code>, etc.)</li>
+<li>MidiEditor executes all actions from that response at once</li>
+</ol>
+
+<h3>When to Use Simple Mode</h3>
+
+<ul>
+<li><b>Quick edits</b> &mdash; transpose a selection, quantize notes, change velocities</li>
+<li><b>Small segments</b> &mdash; work on a specific track or a few measures</li>
+<li><b>Focused tasks</b> &mdash; delete notes, change instruments, adjust tempo</li>
+<li><b>Fast turnaround</b> &mdash; one call means instant results with no waiting for multi-step loops</li>
+</ul>
+
+<h3>Limitations</h3>
+
+<ul>
+<li><b>Token limit risk</b> &mdash; Complex requests (many tracks, long passages) can exceed the model&rsquo;s output token limit. When this happens the response is <b>truncated</b>, which can result in incomplete or broken edits</li>
+<li><b>No tool access</b> &mdash; The model cannot call tools to inspect the file or request additional context. It works only with whatever was included in the initial snapshot</li>
+<li><b>No self-correction</b> &mdash; If something goes wrong, it cannot verify or retry. You have to undo and try again manually</li>
+</ul>
+
+<p>
+If MidiPilot detects a truncated response (<code>finish_reason: "length"</code>), it will display a warning suggesting you switch to Agent mode for the task.
+</p>
+
+<hr>
+
+<h2 id="agent-mode">Agent Mode (Multi-Step)</h2>
+
+<p>
+Agent mode is the powerhouse for complex compositions and large-scale edits. Instead of squeezing everything into one response, the AI works <b>iteratively</b> &mdash; planning, executing, inspecting, and adjusting across multiple API calls until the task is complete.
+</p>
+
+<h3>How It Works</h3>
+
+<ol>
+<li>Your prompt is sent along with the system prompt and a set of <b>15 tools</b> the model can call</li>
+<li>The model responds with one or more <b>tool calls</b> (e.g., <code>create_track</code>, <code>insert_events</code>, <code>get_editor_state</code>)</li>
+<li>MidiEditor executes each tool call and sends the results back to the model</li>
+<li>The model reviews the results, decides the next step, and issues more tool calls</li>
+<li>This loop continues until the model decides the task is complete (or the <b>max steps</b> limit is reached)</li>
+</ol>
+
+<h3>Why This Matters</h3>
+
+<ul>
+<li><b>No token limit risk</b> &mdash; Work is split across many smaller API calls, so each individual response stays well within token limits. No truncation, no data loss</li>
+<li><b>Self-monitoring</b> &mdash; The model can call <code>get_editor_state</code> or <code>query_events</code> at any time to inspect what it has built so far, catch mistakes, and correct them</li>
+<li><b>Complex compositions</b> &mdash; Multi-track arrangements, genre conversions, full orchestrations &mdash; tasks that would overwhelm a single response are handled step by step</li>
+<li><b>Parallel tool calls</b> &mdash; The model can issue multiple tool calls in a single step (e.g., create three tracks at once), speeding up large jobs</li>
+<li><b>Single undo</b> &mdash; All steps from one Agent run are wrapped into a single undo action, so Ctrl+Z reverts the entire operation cleanly</li>
+</ul>
+
+<h3>Agent Steps Panel</h3>
+
+<p>
+During an Agent run, a collapsible <b>Agent Steps</b> panel appears below the chat showing real-time progress: each tool call, its parameters, and results. This gives you full transparency into what the AI is doing.
+</p>
+
+<h3>When to Use Agent Mode</h3>
+
+<ul>
+<li><b>Composing from scratch</b> &mdash; &ldquo;Create a jazz waltz with piano, bass, and drums&rdquo;</li>
+<li><b>Multi-track work</b> &mdash; Adding harmonies, arranging for multiple instruments</li>
+<li><b>Genre conversion</b> &mdash; &ldquo;Make this classical piece into a metal version&rdquo;</li>
+<li><b>FFXIV setups</b> &mdash; Preparing an 8-track octet with channel mapping and drum conversion</li>
+<li><b>Analysis tasks</b> &mdash; &ldquo;Check all tracks for issues and fix them&rdquo;</li>
+</ul>
+
+<h3>Configuration</h3>
+
+<table>
+<tr><th>Setting</th><th>Description</th></tr>
+<tr><td><b>Agent Max Steps</b></td><td>Maximum tool calls per request (5&ndash;100, default 50). Increase for very large compositions.</td></tr>
+<tr><td><b>Token Limit</b></td><td>Optional output cap. Agent mode is less sensitive to this since each call is smaller, but very low limits can still truncate individual steps.</td></tr>
+</table>
+
+<hr>
+
+<h2 id="ffxiv-mode">FFXIV Bard Mode</h2>
+
+<p>
+When the <b>FFXIV</b> checkbox is enabled, MidiPilot appends additional constraints to the system prompt that enforce Final Fantasy XIV Bard Performance rules. This works with both Simple and Agent mode.
+</p>
+
+<ul>
+<li><b>Agent + FFXIV</b> &mdash; Full FFXIV context (~3500 chars) with detailed guidance + 3 FFXIV-specific tools (<code>validate_ffxiv</code>, <code>convert_drums_ffxiv</code>, <code>setup_channel_pattern</code>)</li>
+<li><b>Simple + FFXIV</b> &mdash; Compact FFXIV context (~1300 chars) optimized for token budget. Includes a warning that large compositions may exceed limits</li>
+</ul>
+
+<p>
+See <a href="prompt-examples.html#ffxiv">FFXIV Prompt Examples</a> for tested prompts.
+</p>
+
+<hr>
+
+<h2 id="mode-comparison">Mode Comparison</h2>
+
+<table>
+<tr><th>Feature</th><th>Simple Mode</th><th>Agent Mode</th></tr>
+<tr><td><b>API Calls</b></td><td>1 (one-shot)</td><td>Multiple (iterative loop)</td></tr>
+<tr><td><b>Tool Access</b></td><td>None</td><td>15 tools</td></tr>
+<tr><td><b>Self-Correction</b></td><td>No</td><td>Yes &mdash; can inspect and fix</td></tr>
+<tr><td><b>Token Limit Risk</b></td><td>High for complex tasks</td><td>Low &mdash; work is split</td></tr>
+<tr><td><b>Truncation Handling</b></td><td>Warns, suggests Agent mode</td><td>Per-step, can continue</td></tr>
+<tr><td><b>Speed</b></td><td>Fast (single round-trip)</td><td>Slower (multiple round-trips)</td></tr>
+<tr><td><b>UI Feedback</b></td><td>&ldquo;Thinking&hellip;&rdquo; bubble</td><td>Agent Steps panel (live)</td></tr>
+<tr><td><b>Undo</b></td><td>Per action</td><td>Single undo for entire run</td></tr>
+<tr><td><b>Ideal For</b></td><td>Quick edits, small changes</td><td>Complex compositions, multi-track</td></tr>
+</table>
+
+<hr>
+
+<h2 id="token-tracking">Token Tracking</h2>
+
+<p>
+MidiPilot tracks token usage per API call and per session. The token counter is displayed at the bottom of the chat panel:
+</p>
+
+<p>
+<code>&lt;last call&gt; | &lt;session total&gt;&#x1F525; [&lt;limit&gt;&#x2702;]</code>
+</p>
+
+<ul>
+<li><b>Last call</b> &mdash; Prompt + completion tokens from the most recent API call</li>
+<li><b>Session total</b> &mdash; Cumulative tokens since the chat was opened (&#x1F525; fire icon)</li>
+<li><b>Limit</b> &mdash; Only shown when a max token limit is enabled (&#x2702; scissors icon)</li>
+</ul>
+
+<p>
+This helps you monitor API costs and spot when a task is consuming more tokens than expected. If a response is truncated, the truncation warning includes a suggestion to switch modes or increase the token limit.
+</p>
 
 <hr>
 
