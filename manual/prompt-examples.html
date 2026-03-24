@@ -15,7 +15,25 @@
     font-size: 0.95em;
     line-height: 1.6;
     color: var(--text);
+    position: relative;
 }
+.copy-btn {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 0.78em;
+    padding: 0.25rem 0.5rem;
+    opacity: 0;
+    transition: opacity 0.2s, background 0.2s, color 0.2s;
+}
+.prompt-box:hover .copy-btn { opacity: 1; }
+.copy-btn:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
+.copy-btn.copied { background: #22c55e; color: #fff; border-color: #22c55e; opacity: 1; }
 .prompt-box .label {
     display: inline-block;
     font-size: 0.75em;
@@ -40,7 +58,28 @@
 .tip { background: #1a2332; border-left: 4px solid var(--accent); padding: 0.75rem 1rem; border-radius: 0 8px 8px 0; margin: 1rem 0; color: var(--text-muted); font-size: 0.93em; }
 .tip b { color: var(--accent); }
 .category-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem; margin: 1.5rem 0; }
-.category-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 1.2rem; }
+.category-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.2rem;
+    animation: cardPopIn 0.5s ease-out both;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+.category-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 6px 24px rgba(88, 166, 255, 0.15);
+}
+.category-card:nth-child(1) { animation-delay: 0.05s; }
+.category-card:nth-child(2) { animation-delay: 0.10s; }
+.category-card:nth-child(3) { animation-delay: 0.15s; }
+.category-card:nth-child(4) { animation-delay: 0.20s; }
+.category-card:nth-child(5) { animation-delay: 0.25s; }
+.category-card:nth-child(6) { animation-delay: 0.30s; }
+@keyframes cardPopIn {
+    from { opacity: 0; transform: translateY(16px) scale(0.96); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+}
 .category-card h4 { color: var(--accent); margin-bottom: 0.4rem; border-bottom: none; margin-top: 0; }
 .category-card p { color: var(--text-muted); font-size: 0.92em; line-height: 1.5; margin-bottom: 0; }
 .video-placeholder { background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 2rem; text-align: center; color: var(--text-muted); margin: 1rem 0; font-size: 0.95em; }
@@ -373,5 +412,26 @@ Enable the <b>FFXIV</b> checkbox before sending these prompts. MidiPilot will en
 
 <div class="footer"><p>MidiEditor AI &mdash; <a href="https://github.com/happytunesai/MidiEditor_AI">GitHub</a> &middot; Created with &hearts; + AI</p></div>
 <script src="lightbox.js"></script>
+<script>
+document.querySelectorAll('.prompt-box').forEach(function(box) {
+    var btn = document.createElement('button');
+    btn.className = 'copy-btn';
+    btn.textContent = '\u{1F4CB} Copy';
+    btn.addEventListener('click', function() {
+        var bq = box.querySelector('blockquote');
+        if (!bq) return;
+        var text = bq.textContent.trim();
+        navigator.clipboard.writeText(text).then(function() {
+            btn.textContent = '\u2714 Copied!';
+            btn.classList.add('copied');
+            setTimeout(function() {
+                btn.textContent = '\u{1F4CB} Copy';
+                btn.classList.remove('copied');
+            }, 1500);
+        });
+    });
+    box.appendChild(btn);
+});
+</script>
 </body>
 </html>

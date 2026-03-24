@@ -12,9 +12,37 @@
 .screenshot-single img { max-width: 100%; border: 1px solid var(--border); border-radius: 8px; }
 .caption { text-align: center; color: var(--text-muted); font-style: italic; margin-top: 0.5rem; font-size: 0.9rem; }
 .feature-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; margin: 1.5rem 0; }
-.feature-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 1.2rem; }
-.feature-card h4 { color: var(--accent); margin-bottom: 0.5rem; }
+.feature-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.2rem;
+    cursor: pointer;
+    text-decoration: none;
+    display: block;
+    opacity: 0;
+    transform: translateY(20px) scale(0.95);
+    animation: featurePopIn 0.45s ease-out forwards;
+    transition: transform 0.2s, border-color 0.2s, box-shadow 0.2s;
+}
+.feature-card:nth-child(1) { animation-delay: 0.05s; }
+.feature-card:nth-child(2) { animation-delay: 0.12s; }
+.feature-card:nth-child(3) { animation-delay: 0.19s; }
+.feature-card:nth-child(4) { animation-delay: 0.26s; }
+.feature-card:nth-child(5) { animation-delay: 0.33s; }
+.feature-card:nth-child(6) { animation-delay: 0.40s; }
+@keyframes featurePopIn {
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.feature-card:hover {
+    border-color: var(--accent);
+    transform: translateY(-3px) scale(1.02);
+    box-shadow: 0 6px 24px rgba(88, 166, 255, 0.12);
+}
+.feature-card h4 { color: var(--accent); margin-bottom: 0.5rem; border-bottom: none; }
 .feature-card p { color: var(--text-muted); font-size: 0.95rem; line-height: 1.5; }
+.feature-card .card-arrow { color: var(--accent); font-size: 0.85em; margin-top: 0.6rem; display: block; opacity: 0; transition: opacity 0.2s; }
+.feature-card:hover .card-arrow { opacity: 1; }
 </style>
 </head>
 <body>
@@ -50,30 +78,36 @@ MidiPilot is the AI brain embedded directly in MidiEditor AI. Open the sidebar p
 <h2 id="features">Key Features</h2>
 
 <div class="feature-grid">
-<div class="feature-card">
+<a class="feature-card" href="#agent-mode">
 <h4>&#x1F3AF; Agent Mode</h4>
 <p>Multi-step agentic loop &mdash; the AI calls tools iteratively, inspecting results between steps to build complex compositions from a single prompt.</p>
-</div>
-<div class="feature-card">
+<span class="card-arrow">Learn more &rarr;</span>
+</a>
+<a class="feature-card" href="#simple-mode">
 <h4>&#x1F4AC; Simple Mode</h4>
 <p>Single request/response for quick edits, small transformations, and focused tasks without the overhead of multi-step planning.</p>
-</div>
-<div class="feature-card">
+<span class="card-arrow">Learn more &rarr;</span>
+</a>
+<a class="feature-card" href="#ffxiv-mode">
 <h4>&#x1F3AE; FFXIV Bard Mode</h4>
 <p>Enforces Final Fantasy XIV Performance constraints &mdash; 8 tracks, monophonic, C3&ndash;C6 range, tonal drum conversion for MidiBard2 octets.</p>
-</div>
-<div class="feature-card">
+<span class="card-arrow">Learn more &rarr;</span>
+</a>
+<a class="feature-card" href="#providers">
 <h4>&#x1F50C; Multi-Provider</h4>
 <p>OpenAI, OpenRouter, Google Gemini, or any OpenAI-compatible endpoint. Bring your own API key.</p>
-</div>
-<div class="feature-card">
+<span class="card-arrow">Learn more &rarr;</span>
+</a>
+<a class="feature-card" href="#settings">
 <h4>&#x1F9E0; Reasoning Support</h4>
 <p>Toggle thinking/reasoning for o-series and GPT-5.x models. Configurable effort from None to Extra High.</p>
-</div>
-<div class="feature-card">
+<span class="card-arrow">Learn more &rarr;</span>
+</a>
+<a class="feature-card" href="#system-prompts">
 <h4>&#x270F;&#xFE0F; Custom System Prompts</h4>
 <p>Edit AI behavior per mode via the built-in editor. Export/import as JSON &mdash; no recompiling needed.</p>
-</div>
+<span class="card-arrow">Learn more &rarr;</span>
+</a>
 </div>
 
 <hr>
@@ -100,9 +134,9 @@ The input bar at the bottom provides quick access to everything you need:
 </div>
 
 <ul>
-<li><b>Mode selector</b> &mdash; Switch between Agent (multi-step) and Simple (single response)</li>
-<li><b>FFXIV checkbox</b> &mdash; Enable FFXIV Bard Performance constraints</li>
-<li><b>Model dropdown</b> &mdash; Switch models on the fly without opening settings</li>
+<li id="agent-mode"><b>Mode selector</b> &mdash; Switch between Agent (multi-step) and Simple (single response)</li>
+<li id="ffxiv-mode"><b>FFXIV checkbox</b> &mdash; Enable FFXIV Bard Performance constraints</li>
+<li id="simple-mode"><b>Model dropdown</b> &mdash; Switch models on the fly without opening settings</li>
 <li><b>Reasoning level</b> &mdash; Adjust thinking effort (when supported by the model)</li>
 <li><b>Status indicator</b> &mdash; Shows Ready, Thinking, or error states in real time</li>
 </ul>
@@ -165,12 +199,13 @@ Prompts are saved as <code>system_prompts.json</code> in the application directo
 <h2 id="tools">AI Tools Reference</h2>
 
 <p>
-In Agent mode, the AI has access to <b>13 tools</b> for inspecting and modifying MIDI files:
+In Agent mode, the AI has access to <b>15 tools</b> (12 base + 3 FFXIV-specific) for inspecting and modifying MIDI files:
 </p>
 
 <table>
 <tr><th>Tool</th><th>Description</th></tr>
 <tr><td><code>get_editor_state</code></td><td>Read file info, tracks, tempo, time signature, cursor position</td></tr>
+<tr><td><code>get_track_info</code></td><td>Get detailed info for a specific track (channel, event count, note range)</td></tr>
 <tr><td><code>create_track</code></td><td>Create a new MIDI track</td></tr>
 <tr><td><code>rename_track</code></td><td>Rename an existing track</td></tr>
 <tr><td><code>set_channel</code></td><td>Set the MIDI channel for a track</td></tr>
@@ -182,6 +217,7 @@ In Agent mode, the AI has access to <b>13 tools</b> for inspecting and modifying
 <tr><td><code>set_tempo</code></td><td>Change the tempo (BPM)</td></tr>
 <tr><td><code>set_time_signature</code></td><td>Change the time signature</td></tr>
 <tr><td><code>setup_channel_pattern</code></td><td>Auto-configure MidiBard2 channel mapping (FFXIV)</td></tr>
+<tr><td><code>convert_drums_ffxiv</code></td><td>Convert GM drum kit to FFXIV-compatible tone-mapped notes</td></tr>
 <tr><td><code>validate_ffxiv</code></td><td>Check FFXIV Bard Performance rule compliance</td></tr>
 </table>
 
@@ -235,7 +271,7 @@ MidiPilot writes every API request and response to a log file for debugging and 
 <tr><th>Detail</th><th>Description</th></tr>
 <tr><td><b>Location</b></td><td><code>midipilot_api.log</code> next to the <code>.exe</code></td></tr>
 <tr><td><b>Format</b></td><td>ISO-8601 timestamp + direction (<code>[REQUEST]</code> / <code>[RESPONSE]</code>) + JSON body</td></tr>
-<tr><td><b>Auto-cleared</b></td><td>When you open a different MIDI file, or start a new chat</td></tr>
+<tr><td><b>Cleared on</b></td><td>Starting a new chat or loading a different MIDI file &mdash; the previous log is overwritten</td></tr>
 <tr><td><b>Manual clear</b></td><td>Delete the file &mdash; it will be recreated on the next API call</td></tr>
 </table>
 

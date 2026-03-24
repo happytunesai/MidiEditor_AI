@@ -56,11 +56,21 @@
     border: 1px solid var(--border);
     border-radius: 10px;
     padding: 1.4rem;
-    transition: border-color 0.2s, transform 0.15s;
+    opacity: 0;
+    transform: translateY(20px) scale(0.95);
+    animation: cardPopIn 0.45s ease-out forwards;
+    transition: border-color 0.2s, transform 0.2s, box-shadow 0.2s;
 }
+@keyframes cardPopIn {
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+.section-card:nth-child(1) { animation-delay: 0.05s; }
+.section-card:nth-child(2) { animation-delay: 0.12s; }
+.section-card:nth-child(3) { animation-delay: 0.19s; }
 .section-card:hover {
     border-color: var(--accent);
-    transform: translateY(-2px);
+    transform: translateY(-3px) scale(1.02);
+    box-shadow: 0 6px 24px rgba(88, 166, 255, 0.12);
 }
 .section-card h3 {
     margin: 0 0 0.6rem;
@@ -428,13 +438,13 @@
 <h3><span class="icon">&#x1F4AC;</span> MidiPilot &mdash; AI Copilot</h3>
 <p class="card-desc">The integrated AI brain that composes, edits, transforms, and analyzes your MIDI data via natural language.</p>
 <ul>
-<li><a href="midipilot.html#features">Key Features</a></li>
-<li><a href="midipilot.html#chat-panel">Chat Panel</a></li>
-<li><a href="midipilot.html#settings">AI Settings</a></li>
-<li><a href="midipilot.html#system-prompts">Custom System Prompts</a></li>
-<li><a href="midipilot.html#tools">AI Tools Reference (13 tools)</a></li>
-<li><a href="midipilot.html#providers">Supported Providers</a></li>
-<li><a href="midipilot.html#getting-started">Getting Started</a></li>
+<li><a href="midipilot.html#features">&#x2B50; Key Features</a></li>
+<li><a href="midipilot.html#chat-panel">&#x1F4AC; Chat Panel</a></li>
+<li><a href="midipilot.html#settings">&#x2699;&#xFE0F; AI Settings</a></li>
+<li><a href="midipilot.html#system-prompts">&#x270F;&#xFE0F; Custom System Prompts</a></li>
+<li><a href="midipilot.html#tools">&#x1F527; AI Tools Reference (15 tools)</a></li>
+<li><a href="midipilot.html#providers">&#x1F50C; Supported Providers</a></li>
+<li><a href="midipilot.html#getting-started">&#x1F680; Getting Started</a></li>
 </ul>
 </div>
 
@@ -442,12 +452,12 @@
 <h3><span class="icon">&#x1F4A1;</span> Prompt Examples</h3>
 <p class="card-desc">Real-world examples showing how to use MidiPilot for composing, editing, harmonizing, converting, and more.</p>
 <ul>
-<li><a href="prompt-examples.html#composing">Composing &amp; Generating</a></li>
-<li><a href="prompt-examples.html#editing">Editing &amp; Transforming</a></li>
-<li><a href="prompt-examples.html#harmony">Harmony &amp; Theory</a></li>
-<li><a href="prompt-examples.html#arrangement">Arrangement &amp; Orchestration</a></li>
-<li><a href="prompt-examples.html#conversion">MIDI Conversion &amp; Cleanup</a></li>
-<li><a href="prompt-examples.html#ffxiv">FFXIV Bard Performance</a></li>
+<li><a href="prompt-examples.html#composing">&#x1F3B5; Composing &amp; Generating</a></li>
+<li><a href="prompt-examples.html#editing">&#x270F;&#xFE0F; Editing &amp; Transforming</a></li>
+<li><a href="prompt-examples.html#harmony">&#x1F3B6; Harmony &amp; Theory</a></li>
+<li><a href="prompt-examples.html#arrangement">&#x1F3BB; Arrangement &amp; Orchestration</a></li>
+<li><a href="prompt-examples.html#conversion">&#x1F504; MIDI Conversion &amp; Cleanup</a></li>
+<li><a href="prompt-examples.html#ffxiv">&#x1F3AE; FFXIV Bard Performance</a></li>
 </ul>
 </div>
 
@@ -468,12 +478,12 @@
 <h3><span class="icon">&#x2699;&#xFE0F;</span> Setup &amp; Installation</h3>
 <p class="card-desc">Configure MIDI I/O, connect instruments, set up synthesizers, and configure auto-updates.</p>
 <ul>
-<li><a href="setup.html#io">MIDI I/O</a></li>
-<li><a href="setup.html#connect">Making Input Device Audible</a></li>
-<li><a href="setup.html#external">Starting Synthesizers</a></li>
-<li><a href="setup.html#updates">Automatic Updates</a></li>
-<li><a href="setup.html#old">Older MIDI Devices</a></li>
-<li><a href="setup.html#large_playback">Larger Playback Toolbar</a></li>
+<li><a href="setup.html#io">&#x1F50C; MIDI I/O</a></li>
+<li><a href="setup.html#connect">&#x1F50A; Making Input Device Audible</a></li>
+<li><a href="setup.html#external">&#x1F3B9; Starting Synthesizers</a></li>
+<li><a href="setup.html#updates">&#x1F504; Automatic Updates</a></li>
+<li><a href="setup.html#old">&#x1F3B9; Older MIDI Devices</a></li>
+<li><a href="setup.html#large_playback">&#x1F4CF; Larger Playback Toolbar</a></li>
 </ul>
 </div>
 
@@ -488,9 +498,9 @@
 <h3><span class="icon">&#x1F4DA;</span> MIDI Overview</h3>
 <p class="card-desc">A primer on the MIDI protocol: tracks, channels, events, and I/O.</p>
 <ul>
-<li><a href="midi-overview.html#tracksandchannels">Tracks and Channels</a></li>
-<li><a href="midi-overview.html#events">MIDI Events</a></li>
-<li><a href="midi-overview.html#io">MIDI I/O</a></li>
+<li><a href="midi-overview.html#tracksandchannels">&#x1F3B5; Tracks and Channels</a></li>
+<li><a href="midi-overview.html#events">&#x1F4E8; MIDI Events</a></li>
+<li><a href="midi-overview.html#io">&#x1F50C; MIDI I/O</a></li>
 </ul>
 </div>
 
@@ -498,12 +508,12 @@
 <h3><span class="icon">&#x1F5A5;&#xFE0F;</span> Editor &amp; Components</h3>
 <p class="card-desc">The main window, menus, toolbar, event view, and side panels explained.</p>
 <ul>
-<li><a href="editor-and-components.html#menu">Menubar</a></li>
-<li><a href="editor-and-components.html#tools">Toolbar</a></li>
-<li><a href="editor-and-components.html#event-view">Event View</a></li>
-<li><a href="editor-and-components.html#track_editor">Track Editor</a></li>
-<li><a href="editor-and-components.html#channel_editor">Channel Editor</a></li>
-<li><a href="editor-and-components.html#event_editor">Event Editor</a></li>
+<li><a href="editor-and-components.html#menu">&#x1F4CB; Menubar</a></li>
+<li><a href="editor-and-components.html#tools">&#x1F6E0;&#xFE0F; Toolbar</a></li>
+<li><a href="editor-and-components.html#event-view">&#x1F4CA; Event View</a></li>
+<li><a href="editor-and-components.html#track_editor">&#x1F3B5; Track Editor</a></li>
+<li><a href="editor-and-components.html#channel_editor">&#x1F39B;&#xFE0F; Channel Editor</a></li>
+<li><a href="editor-and-components.html#event_editor">&#x270F;&#xFE0F; Event Editor</a></li>
 </ul>
 </div>
 
@@ -518,16 +528,16 @@
 <h3><span class="icon">&#x1F3B9;</span> Editing MIDI Files</h3>
 <p class="card-desc">Select, move, create, delete, quantize, copy/paste events and manage tracks.</p>
 <ul>
-<li><a href="editing-midi-files.html#selecting">Selecting Events</a></li>
-<li><a href="editing-midi-files.html#moving">Moving Events</a></li>
-<li><a href="editing-midi-files.html#duration">Changing Duration</a></li>
-<li><a href="editing-midi-files.html#create_and_delete">Creating &amp; Deleting</a></li>
-<li><a href="editing-midi-files.html#std_tool">Standard Tool</a></li>
-<li><a href="editing-midi-files.html#magnet">Magnet &amp; Raster</a></li>
-<li><a href="editing-midi-files.html#quantization">Quantization</a></li>
-<li><a href="editing-midi-files.html#copy_paste">Copy/Paste</a></li>
-<li><a href="editing-midi-files.html#controls-and-velocities">Controls &amp; Velocities</a></li>
-<li><a href="editing-midi-files.html#tracks-and-channels">Tracks &amp; Channels</a></li>
+<li><a href="editing-midi-files.html#selecting">&#x1F4CC; Selecting Events</a></li>
+<li><a href="editing-midi-files.html#moving">&#x2194;&#xFE0F; Moving Events</a></li>
+<li><a href="editing-midi-files.html#duration">&#x23F1;&#xFE0F; Changing Duration</a></li>
+<li><a href="editing-midi-files.html#create_and_delete">&#x2795; Creating &amp; Deleting</a></li>
+<li><a href="editing-midi-files.html#std_tool">&#x1F5B1;&#xFE0F; Standard Tool</a></li>
+<li><a href="editing-midi-files.html#magnet">&#x1F9F2; Magnet &amp; Raster</a></li>
+<li><a href="editing-midi-files.html#quantization">&#x1F3AF; Quantization</a></li>
+<li><a href="editing-midi-files.html#copy_paste">&#x1F4CB; Copy/Paste</a></li>
+<li><a href="editing-midi-files.html#controls-and-velocities">&#x1F39B;&#xFE0F; Controls &amp; Velocities</a></li>
+<li><a href="editing-midi-files.html#tracks-and-channels">&#x1F3B5; Tracks &amp; Channels</a></li>
 </ul>
 </div>
 
@@ -535,12 +545,12 @@
 <h3><span class="icon">&#x25B6;&#xFE0F;</span> Playback &amp; Recording</h3>
 <p class="card-desc">Play, record, mute tracks/channels, set cursor, adjust speed, and use the metronome.</p>
 <ul>
-<li><a href="playback.html#muting-tracks-channels">Muting Tracks &amp; Channels</a></li>
-<li><a href="playback.html#cursor">Setting the Cursor</a></li>
-<li><a href="playback.html#speed">Playback Speed</a></li>
-<li><a href="playback.html#metronome">Metronome</a></li>
-<li><a href="playback.html#lock">Locking the Screen</a></li>
-<li><a href="record.html">Recording MIDI Data</a></li>
+<li><a href="playback.html#muting-tracks-channels">&#x1F507; Muting Tracks &amp; Channels</a></li>
+<li><a href="playback.html#cursor">&#x1F4CD; Setting the Cursor</a></li>
+<li><a href="playback.html#speed">&#x23E9; Playback Speed</a></li>
+<li><a href="playback.html#metronome">&#x1F941; Metronome</a></li>
+<li><a href="playback.html#lock">&#x1F512; Locking the Screen</a></li>
+<li><a href="record.html">&#x1F534; Recording MIDI Data</a></li>
 </ul>
 </div>
 
@@ -554,12 +564,12 @@
 <h3><span class="icon">&#x1F4C1;</span> Menus</h3>
 <p class="card-desc">Detailed reference for every menu action in MidiEditor AI.</p>
 <ul>
-<li><a href="menu-file.html">File Menu</a></li>
-<li><a href="menu-edit.html">Edit Menu</a></li>
-<li><a href="menu-view.html">View Menu</a></li>
-<li><a href="menu-midi.html">MIDI Menu</a></li>
-<li><a href="menu-playback.html">Playback Menu</a></li>
-<li><a href="menu-tools.html">Tools Menu</a></li>
+<li><a href="menu-file.html">&#x1F4C2; File Menu</a></li>
+<li><a href="menu-edit.html">&#x270F;&#xFE0F; Edit Menu</a></li>
+<li><a href="menu-view.html">&#x1F441;&#xFE0F; View Menu</a></li>
+<li><a href="menu-midi.html">&#x1F3B9; MIDI Menu</a></li>
+<li><a href="menu-playback.html">&#x25B6;&#xFE0F; Playback Menu</a></li>
+<li><a href="menu-tools.html">&#x1F6E0;&#xFE0F; Tools Menu</a></li>
 </ul>
 </div>
 </div>

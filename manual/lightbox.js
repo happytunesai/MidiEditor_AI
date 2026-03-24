@@ -55,3 +55,25 @@
         })(img);
     }
 })();
+
+/* Scroll-to-top button */
+(function () {
+    'use strict';
+    var btn = document.createElement('button');
+    btn.className = 'scroll-top';
+    btn.setAttribute('aria-label', 'Scroll to top');
+    btn.innerHTML = '&#x2191;';
+    document.body.appendChild(btn);
+
+    btn.addEventListener('click', function () {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+
+    window.addEventListener('scroll', function () {
+        if (window.scrollY > 400) {
+            btn.classList.add('visible');
+        } else {
+            btn.classList.remove('visible');
+        }
+    }, { passive: true });
+})();
