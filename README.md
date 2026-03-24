@@ -23,7 +23,7 @@
 
 ---
 
-![MidiEditor AI](manual/screenshots/midieditor-full.png)
+![MidiEditor AI](manual/screenshots/MidiPilot_Agent_run.gif)
 
 ## ✨ Overview
 
@@ -34,12 +34,6 @@ Built on top of [Meowchestra/MidiEditor](https://github.com/Meowchestra/MidiEdit
 ## 🤖 MidiPilot — Your AI Copilot
 
 MidiPilot is the AI brain embedded directly in MidiEditor AI. Open the sidebar, type what you want in plain English, and it builds your music — composing, editing, transforming, and analyzing MIDI events automatically.
-
-<p align="center">
-  <img src="manual/screenshots/midipilot-overview.png" alt="MidiPilot integrated in MidiEditor AI" width="800"/>
-  <br/>
-  <i>MidiPilot panel docked alongside the piano roll editor</i>
-</p>
 
 <p align="center">
   <img src="manual/screenshots/midipilot-panel.png" alt="MidiPilot chat panel" width="300"/>
