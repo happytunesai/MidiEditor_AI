@@ -244,6 +244,21 @@ When the <b>FFXIV</b> checkbox is enabled, MidiPilot appends additional constrai
 <li><b>Simple + FFXIV</b> &mdash; Compact FFXIV context (~1300 chars) optimized for token budget. Includes a warning that large compositions may exceed limits</li>
 </ul>
 
+<h3>Enforced Rules Overview</h3>
+
+<ul>
+<li>&#x2705; <b>Note range C3&ndash;C6</b> (MIDI 48&ndash;84) &mdash; strict boundaries, no notes outside</li>
+<li>&#x2705; <b>Monophonic tracks</b> &mdash; one note at a time (Lute/Harp/Piano allow limited chords)</li>
+<li>&#x2705; <b>29 valid FFXIV instruments</b> &mdash; track names must match exactly (Piano, Harp, Fiddle, Lute, Flute, etc.)</li>
+<li>&#x2705; <b>Instrument &rarr; GM program mapping</b> &mdash; correct <code>program_change</code> at tick 0 per channel</li>
+<li>&#x2705; <b>No channel 9 / no GM drum kit</b> &mdash; drums are separate tonal tracks (Bass Drum, Snare, Cymbal, Timpani, Bongo)</li>
+<li>&#x2705; <b>GM drum conversion</b> &mdash; kick &rarr; Bass Drum C4, snare &rarr; Snare C5, hi-hat &rarr; Cymbal C6, crash &rarr; Cymbal C5, toms &rarr; Timpani</li>
+<li>&#x2705; <b>Guitar switch handling</b> &mdash; 5 Electric Guitar variants (Clean, Muted, Overdriven, PowerChords, Special), each on its own channel</li>
+<li>&#x2705; <b>No pitch bend / no velocity editing</b> &mdash; velocity fixed at 100</li>
+<li>&#x2705; <b>Instrument transposition</b> &mdash; native ranges mapped per instrument (e.g., Piano C4&ndash;C7 = &minus;1 octave, Tuba C1&ndash;C4 = +2 octaves)</li>
+<li>&#x2705; <b>Track ordering</b> &mdash; melodic instruments first, drums at end (highest track indices)</li>
+</ul>
+
 <p>
 See <a href="prompt-examples.html#ffxiv">FFXIV Prompt Examples</a> for tested prompts.
 </p>
