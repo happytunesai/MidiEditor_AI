@@ -23,6 +23,7 @@
 <a href="index.html">Index</a>
 <a href="introduction.html">Introduction</a>
 <a href="midipilot.html" class="active">MidiPilot</a>
+<a href="prompt-examples.html">Prompt Examples</a>
 <a href="midi-overview.html">MIDI Overview</a>
 <a href="editor-and-components.html">Editor</a>
 <a href="setup.html">Setup</a>
@@ -38,8 +39,8 @@ MidiPilot is the AI brain embedded directly in MidiEditor AI. Open the sidebar p
 </p>
 
 <div class="screenshot-single">
-<img src="screenshots/midipilot-overview.png" alt="MidiPilot integrated in MidiEditor AI" width="900">
-<div class="caption">MidiPilot panel docked alongside the piano roll editor</div>
+<img src="screenshots/MidiPilot_Agent_run.gif" alt="MidiPilot Agent mode in action" width="900">
+<div class="caption">MidiPilot Agent mode composing a full arrangement from a single prompt</div>
 </div>
 
 <hr>
@@ -122,7 +123,7 @@ Configure your AI connection from <b>Settings &rarr; MidiPilot AI</b>. Select a 
 <tr><th>Setting</th><th>Description</th></tr>
 <tr><td><b>Provider</b></td><td>OpenAI, OpenRouter, Google Gemini, or Custom</td></tr>
 <tr><td><b>Base URL</b></td><td>Auto-filled per provider, or enter your own endpoint</td></tr>
-<tr><td><b>API Key</b></td><td>Your provider API key (not required for local models)</td></tr>
+<tr><td><b>API Key</b></td><td>Your provider API key &mdash; get one from <a href="https://platform.openai.com/settings/organization/api-keys" target="_blank" rel="noopener">OpenAI</a>, <a href="https://openrouter.ai/settings/keys" target="_blank" rel="noopener">OpenRouter</a>, or <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener">Google Gemini</a></td></tr>
 <tr><td><b>Model</b></td><td>Dropdown of popular models + custom entry</td></tr>
 <tr><td><b>Token Limit</b></td><td>Optional cap on output tokens to control costs</td></tr>
 <tr><td><b>Thinking</b></td><td>Enable reasoning for o-series and GPT-5.x models</td></tr>
@@ -188,9 +189,9 @@ In Agent mode, the AI has access to <b>13 tools</b> for inspecting and modifying
 
 <table>
 <tr><th>Provider</th><th>Base URL</th><th>API Key</th><th>Free Tier</th></tr>
-<tr><td><b>OpenAI</b></td><td>api.openai.com/v1</td><td>Required</td><td>Limited</td></tr>
-<tr><td><b>OpenRouter</b></td><td>openrouter.ai/api/v1</td><td>Required</td><td>Free models available</td></tr>
-<tr><td><b>Google Gemini</b></td><td>generativelanguage.googleapis.com</td><td>Required</td><td>15 RPM, 1M TPM</td></tr>
+<tr><td><b>OpenAI</b></td><td>api.openai.com/v1</td><td><a href="https://platform.openai.com/settings/organization/api-keys" target="_blank" rel="noopener">Get API Key &rarr;</a></td><td>Limited</td></tr>
+<tr><td><b>OpenRouter</b></td><td>openrouter.ai/api/v1</td><td><a href="https://openrouter.ai/settings/keys" target="_blank" rel="noopener">Get API Key &rarr;</a></td><td>Free models available</td></tr>
+<tr><td><b>Google Gemini</b></td><td>generativelanguage.googleapis.com</td><td><a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener">Get API Key &rarr;</a></td><td>15 RPM, 1M TPM</td></tr>
 <tr><td><b>Custom</b></td><td>User-specified</td><td>User-specified</td><td>Varies</td></tr>
 </table>
 
@@ -201,7 +202,7 @@ In Agent mode, the AI has access to <b>13 tools</b> for inspecting and modifying
 <ol>
 <li>Open <b>Settings</b> (gear icon or Edit &rarr; Settings) and click the <b>MidiPilot AI</b> tab</li>
 <li>Select your <b>Provider</b> (Google Gemini is a great free option)</li>
-<li>Enter your <b>API Key</b></li>
+<li>Enter your <b>API Key</b> (get one from <a href="https://platform.openai.com/settings/organization/api-keys" target="_blank" rel="noopener">OpenAI</a>, <a href="https://openrouter.ai/settings/keys" target="_blank" rel="noopener">OpenRouter</a>, or <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener">Google Gemini</a>)</li>
 <li>Choose a <b>Model</b> (e.g., gemini-2.5-flash)</li>
 <li>Click <b>Test Connection</b> to verify everything works</li>
 <li>Close settings and open the <b>MidiPilot</b> panel from the sidebar</li>
@@ -214,6 +215,30 @@ In Agent mode, the AI has access to <b>13 tools</b> for inspecting and modifying
 
 <p>
 The AI will compose the requested music directly into the editor using its built-in tools. In Agent mode, it works iteratively &mdash; creating tracks, setting tempo, inserting notes, and validating the result step by step.
+</p>
+
+<p>
+See <a href="prompt-examples.html">Prompt Examples</a> for more real-world prompts and a full demo.
+</p>
+
+<hr>
+
+<h2 id="api-log">API Log</h2>
+
+<p>
+MidiPilot writes every API request and response to a log file for debugging and transparency. The log is saved as <code>midipilot_api.log</code> in the same directory as the MidiEditor AI executable.
+</p>
+
+<table>
+<tr><th>Detail</th><th>Description</th></tr>
+<tr><td><b>Location</b></td><td><code>midipilot_api.log</code> next to the <code>.exe</code></td></tr>
+<tr><td><b>Format</b></td><td>ISO-8601 timestamp + direction (<code>[REQUEST]</code> / <code>[RESPONSE]</code>) + JSON body</td></tr>
+<tr><td><b>Auto-cleared</b></td><td>When you open a different MIDI file, or start a new chat</td></tr>
+<tr><td><b>Manual clear</b></td><td>Delete the file &mdash; it will be recreated on the next API call</td></tr>
+</table>
+
+<p>
+If the AI produces unexpected results, open the log to inspect the raw JSON sent to and received from the provider. This is especially useful for debugging tool-call sequences in Agent mode.
 </p>
 
 <div class="footer"><p>MidiEditor AI &mdash; <a href="https://github.com/happytunesai/MidiEditor_AI">GitHub</a> &middot; Created with &hearts; + AI</p></div>

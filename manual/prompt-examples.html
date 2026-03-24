@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Prompt Examples | MidiEditor AI Manual</title>
+<link rel="stylesheet" href="style.css">
+<style>
+.prompt-box {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    margin: 0.75rem 0 1.25rem;
+    font-size: 0.95em;
+    line-height: 1.6;
+    color: var(--text);
+}
+.prompt-box .label {
+    display: inline-block;
+    font-size: 0.75em;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--accent);
+    margin-bottom: 0.3rem;
+}
+.prompt-box blockquote {
+    margin: 0.4rem 0 0;
+    padding-left: 0.75rem;
+    border-left: 3px solid var(--accent);
+    color: var(--text);
+    font-style: italic;
+}
+.screenshot-single { text-align: center; margin: 1.5rem 0; }
+.screenshot-single img { max-width: 100%; border: 1px solid var(--border); border-radius: 8px; }
+.screenshot-row { display: flex; flex-wrap: wrap; gap: 1.5rem; justify-content: center; margin: 1.5rem 0; }
+.screenshot-row img { border: 1px solid var(--border); border-radius: 8px; }
+.caption { text-align: center; color: var(--text-muted); font-style: italic; margin-top: 0.5rem; font-size: 0.9rem; }
+.tip { background: #1a2332; border-left: 4px solid var(--accent); padding: 0.75rem 1rem; border-radius: 0 8px 8px 0; margin: 1rem 0; color: var(--text-muted); font-size: 0.93em; }
+.tip b { color: var(--accent); }
+.category-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem; margin: 1.5rem 0; }
+.category-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 1.2rem; }
+.category-card h4 { color: var(--accent); margin-bottom: 0.4rem; border-bottom: none; margin-top: 0; }
+.category-card p { color: var(--text-muted); font-size: 0.92em; line-height: 1.5; margin-bottom: 0; }
+.video-placeholder { background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 2rem; text-align: center; color: var(--text-muted); margin: 1rem 0; font-size: 0.95em; }
+.video-embed { text-align: center; margin: 1.5rem 0; }
+.video-embed iframe { border: 1px solid var(--border); border-radius: 8px; max-width: 100%; }
+.video-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(380px, 1fr)); gap: 1.5rem; margin: 1.5rem 0; }
+.video-grid .video-embed { margin: 0; }
+</style>
+</head>
+<body>
+<div class="nav-bar">
+<span class="nav-title">MidiEditor AI Manual</span>
+<a href="index.html">Index</a>
+<a href="introduction.html">Introduction</a>
+<a href="midipilot.html">MidiPilot</a>
+<a href="prompt-examples.html" class="active">Prompt Examples</a>
+<a href="midi-overview.html">MIDI Overview</a>
+<a href="editor-and-components.html">Editor</a>
+<a href="setup.html">Setup</a>
+<a href="editing-midi-files.html">Editing</a>
+<a href="playback.html">Playback</a>
+<a href="record.html">Recording</a>
+</div>
+
+<h1 id="prompt-examples">Prompt Examples</h1>
+
+<p>
+Real-world examples showing what MidiPilot can do. Each prompt below has been tested with actual AI models. Copy them, adapt them, or use them as inspiration for your own creations.
+</p>
+
+<div class="category-grid">
+<div class="category-card">
+<h4><a href="#composing">&#x1F3B5; Composing</a></h4>
+<p>Generate full compositions from a single prompt</p>
+</div>
+<div class="category-card">
+<h4><a href="#editing">&#x270F;&#xFE0F; Editing</a></h4>
+<p>Transform, transpose, quantize, and restructure</p>
+</div>
+<div class="category-card">
+<h4><a href="#harmony">&#x1F3B6; Harmony</a></h4>
+<p>Add chords, analyze progressions, reharmonize</p>
+</div>
+<div class="category-card">
+<h4><a href="#arrangement">&#x1F3BC; Arrangement</a></h4>
+<p>Orchestrate, add instruments, revoice parts</p>
+</div>
+<div class="category-card">
+<h4><a href="#conversion">&#x1F504; Conversion</a></h4>
+<p>Clean up MIDI files, fix channels, reorganize</p>
+</div>
+<div class="category-card">
+<h4><a href="#ffxiv">&#x1F3AE; FFXIV Bard</a></h4>
+<p>Convert for Final Fantasy XIV Bard Performance</p>
+</div>
+</div>
+
+<hr>
+
+<!-- ═══════════════════ FEATURED EXAMPLE ═══════════════════ -->
+
+<h2 id="featured">&#x2B50; Featured: Metal Mozart</h2>
+
+<p>
+This example demonstrates MidiPilot&rsquo;s Agent mode at full power &mdash; composing a complete multi-track arrangement from a single prompt using Gemini 2.5 Flash.
+</p>
+
+<div class="prompt-box">
+<span class="label">Prompt</span>
+<blockquote>Create a metal version of Mozart&rsquo;s Eine kleine Nachtmusik with shredding guitars, bass, strings, and a drum kit. Make it 20 measures long, with a guitar solo in the middle.</blockquote>
+</div>
+
+<div class="screenshot-single">
+<img src="screenshots/MidiPilot_Agent_run.gif" alt="MidiPilot Agent mode composing Metal Mozart" width="900">
+<div class="caption">Agent mode: multi-step composition with Gemini 2.5 Flash &mdash; creating tracks, setting tempo, inserting notes</div>
+</div>
+
+<p>
+The AI executes multiple tool calls iteratively &mdash; creating tracks for each instrument, setting tempo to 160+ BPM, inserting note patterns, and building the arrangement step by step. The status bar shows real-time progress with tool call counts.
+</p>
+
+<div class="screenshot-row">
+<img src="screenshots/midipilot-promt-example.png" alt="Prompt entry for Metal Mozart" width="420">
+<img src="screenshots/midipilot-example.png" alt="Completed Metal Mozart in the editor" width="420">
+</div>
+<div class="caption">Left: The prompt in the chat panel &mdash; Right: The completed composition in the piano roll</div>
+
+<h3>&#x1F3AC; Video: Full Agent Run</h3>
+<p>Watch the complete agent run from prompt to finished composition:</p>
+<div class="video-embed">
+<iframe width="560" height="315" src="https://www.youtube.com/embed/WHIBkxMWnIo?si=iMgloosJ3gzAQiF1" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+</div>
+<div class="caption">Full agent run: single prompt &rarr; 5 tracks &rarr; 20 measures of Metal Mozart</div>
+
+<h3>&#x1F50A; Audio Preview</h3>
+<p>Hear the result &mdash; the MIDI output played back through GM instruments:</p>
+<div class="video-embed">
+<iframe width="560" height="315" src="https://www.youtube.com/embed/CISOpY56lIA?si=9Dn09rXFBo9Y3w_8" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+</div>
+
+<h3>&#x1F3B8; Follow-Up: Adding a Guitar Solo</h3>
+<p>After the initial composition, a follow-up prompt adds a shredding guitar solo in the middle section:</p>
+<div class="video-embed">
+<iframe width="560" height="315" src="https://www.youtube.com/embed/D84VBzjHMAQ?si=Nfp4Y5wm5JPC77WW" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+</div>
+
+<h3>&#x1F3B6; Follow-Up: Adding Harmony</h3>
+<p>Another follow-up prompt enriches the arrangement with additional harmony parts:</p>
+<div class="video-embed">
+<iframe width="560" height="315" src="https://www.youtube.com/embed/K9vzuNST82A?si=gk4thBBcJ3Y5Qsbr" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
+</div>
+
+<div class="tip">
+<b>Tip:</b> Agent mode works best for complex, multi-step tasks. For quick edits like transposing or deleting notes, Simple mode is faster and uses fewer tokens.
+</div>
+
+<hr>
+
+<!-- ═══════════════════ COMPOSING ═══════════════════ -->
+
+<h2 id="composing">&#x1F3B5; Composing &amp; Generating</h2>
+
+<p>MidiPilot can compose full pieces from scratch. Be specific about tempo, key, instruments, length, and style for best results.</p>
+
+<div class="prompt-box">
+<span class="label">Basic composition</span>
+<blockquote>Compose a 4-bar piano melody in C major at 120 BPM</blockquote>
+</div>
+
+<div class="screenshot-single">
+<img src="screenshots/midipilot-compose-piano.png" alt="4-bar piano melody composed by MidiPilot" width="900">
+<div class="caption">Result: 4-bar C major melody at 120 BPM composed with Gemini 3.1 Pro</div>
+</div>
+
+<div class="prompt-box">
+<span class="label">Multi-instrument</span>
+<blockquote>Create an 8-bar jazz waltz in Bb major with piano, upright bass, and brushed drums. Use a I-vi-ii-V progression.</blockquote>
+</div>
+
+<div class="prompt-box">
+<span class="label">Genre-specific</span>
+<blockquote>Write a 16-bar lo-fi hip hop beat at 85 BPM with jazzy piano chords, a mellow bass, and vinyl-style drums. Add a Rhodes pad for atmosphere.</blockquote>
+</div>
+
+<div class="screenshot-single">
+<img src="screenshots/midipilot-lofi.png" alt="Lo-fi hip hop beat composed by MidiPilot" width="900">
+<div class="caption">Result: 16-bar lo-fi beat with jazzy piano, bass, drums, and atmospheric pad</div>
+</div>
+
+<div class="tip">
+<b>Listen:</b> Download the <a href="../examples/MidiEditro_AI-lo-fi.mid">MIDI file</a> or <a href="../examples/MidiEditro_AI-lo-fi.wav">WAV audio</a> of this composition.
+</div>
+
+<div class="prompt-box">
+<span class="label">Classical</span>
+<blockquote>Compose a 12-bar Baroque-style invention for two voices (right hand and left hand) in D minor. Use counterpoint with imitation at the octave.</blockquote>
+</div>
+
+<div class="prompt-box">
+<span class="label">Game music</span>
+<blockquote>Create a retro 8-bit game soundtrack: 16 bars at 140 BPM in E minor with a square-wave lead melody, arpeggiated chords, and a simple bass line. Use channels 0-2.</blockquote>
+</div>
+
+<hr>
+
+<!-- ═══════════════════ EDITING ═══════════════════ -->
+
+<h2 id="editing">&#x270F;&#xFE0F; Editing &amp; Transforming</h2>
+
+<p>Transform existing MIDI data with natural language. MidiPilot can read the current file state and apply targeted modifications.</p>
+
+<div class="prompt-box">
+<span class="label">Transpose</span>
+<blockquote>Transpose all notes on Track 1 up by a perfect fifth</blockquote>
+</div>
+
+<div class="prompt-box">
+<span class="label">Velocity</span>
+<blockquote>Set all note velocities on the drum track to 100, except hi-hats which should be 70</blockquote>
+</div>
+
+<div class="prompt-box">
+<span class="label">Restructure</span>
+<blockquote>Copy measures 1-4 and paste them at measure 9. Then copy measures 5-8 and paste at measure 13 to create an AABB form.</blockquote>
+</div>
+
+<div class="prompt-box">
+<span class="label">Humanize</span>
+<blockquote>Add slight timing and velocity variations to the piano part to make it sound more human. Keep it subtle &mdash; no more than &plusmn;10 ticks and &plusmn;15 velocity.</blockquote>
+</div>
+
+<div class="prompt-box">
+<span class="label">Extend</span>
+<blockquote>The melody on Track 1 is 8 bars. Extend it to 16 bars by developing the existing motifs &mdash; vary the rhythm and add passing tones in the second half.</blockquote>
+</div>
+
+<hr>
+
+<!-- ═══════════════════ HARMONY ═══════════════════ -->
+
+<h2 id="harmony">&#x1F3B6; Harmony &amp; Theory</h2>
+
+<p>Let the AI analyze your music and add harmonically correct parts.</p>
+
+<div class="prompt-box">
+<span class="label">Chord analysis</span>
+<blockquote>Analyze the chord progression on the piano track and tell me the roman numeral analysis in the key of G major</blockquote>
+</div>
+
+<div class="prompt-box">
+<span class="label">Add chords</span>
+<blockquote>Add block chords to accompany the melody on Track 1. Use a new track called "Chords" on Channel 1. Follow standard voice leading.</blockquote>
+</div>
+
+<div class="prompt-box">
+<span class="label">Reharmonize</span>
+<blockquote>Reharmonize the melody using jazz substitutions &mdash; try tritone subs, chromatic approach chords, and secondary dominants where appropriate</blockquote>
+</div>
+
+<div class="prompt-box">
+<span class="label">Countermelody</span>
+<blockquote>Write a countermelody for the existing melody on Track 1. Put it on a new track, stay in the same key, and use contrary motion where possible.</blockquote>
+</div>
+
+<hr>
+
+<!-- ═══════════════════ ARRANGEMENT ═══════════════════ -->
+
+<h2 id="arrangement">&#x1F3BC; Arrangement &amp; Orchestration</h2>
+
+<p>Build up arrangements from existing parts or create full orchestrations.</p>
+
+<div class="prompt-box">
+<span class="label">Add accompaniment</span>
+<blockquote>Add a walking bass line on a new track following the chord progression of the piano part. Use Channel 1 with acoustic bass (Program 32).</blockquote>
+</div>
+
+<div class="prompt-box">
+<span class="label">Drum pattern</span>
+<blockquote>Create a drum track on Channel 9 with a standard rock beat: kick on 1 and 3, snare on 2 and 4, hi-hat eighths. Add a crash on beat 1 of every 4th measure.</blockquote>
+</div>
+
+<div class="prompt-box">
+<span class="label">Full orchestration</span>
+<blockquote>Take the piano melody on Track 1 and orchestrate it for strings: violins play the melody, violas play a harmony a third below, cellos play a simplified bass line, and double bass plays pedal tones on the root.</blockquote>
+</div>
+
+<div class="prompt-box">
+<span class="label">Style transformation</span>
+<blockquote>Convert this classical piece into a bossa nova arrangement. Change the tempo to 130 BPM, add a bossa rhythm guitar pattern, a syncopated bass, and a light drum groove.</blockquote>
+</div>
+
+<hr>
+
+<!-- ═══════════════════ CONVERSION ═══════════════════ -->
+
+<h2 id="conversion">&#x1F504; MIDI Conversion &amp; Cleanup</h2>
+
+<p>Fix, reorganize, and clean up MIDI files.</p>
+
+<div class="prompt-box">
+<span class="label">Channel remap</span>
+<blockquote>Move all notes from Channel 0 to Channel 2, and reassign the drums from Channel 5 to Channel 9</blockquote>
+</div>
+
+<div class="prompt-box">
+<span class="label">Track split</span>
+<blockquote>This file has all notes on a single track. Split them into separate tracks by channel &mdash; one track per channel, named by their GM instrument.</blockquote>
+</div>
+
+<div class="prompt-box">
+<span class="label">Cleanup</span>
+<blockquote>Remove all notes shorter than 10 ticks (ghost notes) and delete any empty tracks</blockquote>
+</div>
+
+<div class="prompt-box">
+<span class="label">Range limit</span>
+<blockquote>Clamp all notes to the range C2&ndash;C7. Transpose any notes outside this range by octaves until they fit.</blockquote>
+</div>
+
+<hr>
+
+<!-- ═══════════════════ FFXIV ═══════════════════ -->
+
+<h2 id="ffxiv">&#x1F3AE; FFXIV Bard Performance</h2>
+
+<p>
+Enable the <b>FFXIV</b> checkbox before sending these prompts. MidiPilot will enforce Final Fantasy XIV Bard Performance rules: C3&ndash;C6 range, monophonic, max 8 tracks, tonal drum mapping.
+</p>
+
+<div class="prompt-box">
+<span class="label">Convert existing song</span>
+<blockquote>Convert this song into FFXIV Bard Performance Octet. Please add the following instruments: Flute, Violin, Harp, Lute, Piano, Snare Drum, Bass Drum, Cymbal.</blockquote>
+</div>
+
+<div class="prompt-box">
+<span class="label">Compose for FFXIV</span>
+<blockquote>Compose an 8-bar FFXIV bard-ready piece in A minor with harp melody, lute chords, and flute countermelody</blockquote>
+</div>
+
+<div class="prompt-box">
+<span class="label">Validate &amp; fix</span>
+<blockquote>Validate this file for FFXIV compliance and fix any issues you find</blockquote>
+</div>
+
+<div class="screenshot-single">
+<img src="screenshots/midipilot-ffxiv-validate.png" alt="FFXIV validation and auto-fix" width="900">
+<div class="caption">Agent mode validating FFXIV compliance &mdash; channel remapping, program changes, range verification</div>
+</div>
+
+<div class="tip">
+<b>Tip:</b> The FFXIV system prompt automatically configures the AI to follow all Bard Performance constraints. You don&rsquo;t need to repeat the rules in every prompt &mdash; just enable the checkbox.
+</div>
+
+<hr>
+
+<h2 id="tips">&#x1F4A1; Prompt Writing Tips</h2>
+
+<ul>
+<li><b>Be specific:</b> Include tempo, key, length, and instrument names for best results</li>
+<li><b>Use Agent mode</b> for multi-step tasks (composing, arranging, orchestrating)</li>
+<li><b>Use Simple mode</b> for quick single-step edits (transpose, velocity, delete)</li>
+<li><b>Reference tracks by name or number:</b> &ldquo;Track 1&rdquo; or &ldquo;the Piano track&rdquo;</li>
+<li><b>Iterate:</b> Start with a basic composition, then refine with follow-up prompts</li>
+<li><b>Use the context range</b> setting to control how much of the file the AI sees</li>
+<li><b>Check the <a href="midipilot.html#api-log">API log</a></b> if something doesn&rsquo;t work as expected</li>
+</ul>
+
+<div class="footer"><p>MidiEditor AI &mdash; <a href="https://github.com/happytunesai/MidiEditor_AI">GitHub</a> &middot; Created with &hearts; + AI</p></div>
+</body>
+</html>

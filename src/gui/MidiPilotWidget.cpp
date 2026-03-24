@@ -26,6 +26,7 @@
 #include <algorithm>
 
 #include "MainWindow.h"
+#include "Appearance.h"
 #include "../ai/AiClient.h"
 #include "../ai/AgentRunner.h"
 #include "../ai/EditorContext.h"
@@ -333,9 +334,11 @@ void MidiPilotWidget::setupUi() {
     inputBtnLayout->setContentsMargins(0, 0, 0, 0);
     inputBtnLayout->setSpacing(4);
 
-    QPushButton *newChatBtn = new QPushButton(QChar(0x2795), this); // ➕
+    QPushButton *newChatBtn = new QPushButton(this);
+    newChatBtn->setIcon(Appearance::adjustIconForDarkMode(":/run_environment/graphics/tool/new_chat.png"));
+    newChatBtn->setIconSize(QSize(18, 18));
     newChatBtn->setFixedSize(28, 28);
-    newChatBtn->setToolTip("New Chat");
+    newChatBtn->setToolTip("New Chat — clear current conversation");
     newChatBtn->setFlat(true);
     connect(newChatBtn, &QPushButton::clicked, this, &MidiPilotWidget::onNewChat);
     inputBtnLayout->addWidget(newChatBtn);
@@ -672,6 +675,19 @@ void MidiPilotWidget::onFileChanged(MidiFile *f) {
 }
 
 void MidiPilotWidget::onNewChat() {
+    // Only ask for confirmation if there are messages in the chat
+    if (!_conversationHistory.isEmpty()) {
+        QMessageBox msgBox(this);
+        msgBox.setIcon(QMessageBox::Question);
+        msgBox.setWindowTitle("New Chat");
+        msgBox.setText("Start a new conversation?");
+        msgBox.setInformativeText("This will clear the current chat history and token counters.");
+        msgBox.setStandardButtons(QMessageBox::Yes | QMessageBox::Cancel);
+        msgBox.setDefaultButton(QMessageBox::Cancel);
+        if (msgBox.exec() != QMessageBox::Yes)
+            return;
+    }
+
     _conversationHistory = QJsonArray();
     _entries.clear();
     AiClient::clearLog();

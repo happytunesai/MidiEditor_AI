@@ -5,29 +5,829 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>MidiEditor AI Manual</title>
 <link rel="stylesheet" href="style.css">
+<style>
+/* Hero section */
+.hero {
+    text-align: center;
+    padding: 2.5rem 1rem 1.5rem;
+    margin-bottom: 1rem;
+}
+.hero pre {
+    display: inline-block;
+    text-align: left;
+    font-size: 0.55em;
+    line-height: 1.15;
+    color: var(--accent);
+    background: transparent;
+    border: none;
+    margin: 0 auto;
+    padding: 0;
+    overflow-x: auto;
+}
+@media (max-width: 700px) {
+    .hero pre { font-size: 0.3em; }
+}
+.hero .tagline {
+    color: var(--text-muted);
+    font-size: 1.15em;
+    margin-top: 1rem;
+    margin-bottom: 0.25rem;
+}
+.hero .version-badge {
+    display: inline-block;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 0.25em 0.9em;
+    font-size: 0.85em;
+    color: var(--accent);
+    margin-top: 0.5rem;
+}
+
+/* Section cards */
+.section-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1.25rem;
+    margin: 1.5rem 0 2rem;
+}
+.section-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.4rem;
+    transition: border-color 0.2s, transform 0.15s;
+}
+.section-card:hover {
+    border-color: var(--accent);
+    transform: translateY(-2px);
+}
+.section-card h3 {
+    margin: 0 0 0.6rem;
+    font-size: 1.1em;
+    border-bottom: none;
+    color: var(--text);
+}
+.section-card h3 .icon {
+    margin-right: 0.4em;
+}
+.section-card ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+.section-card li {
+    margin-bottom: 0.35rem;
+}
+.section-card li a {
+    color: var(--text-muted);
+    font-size: 0.92em;
+    transition: color 0.15s;
+}
+.section-card li a:hover {
+    color: var(--accent);
+}
+.section-card .card-link {
+    display: block;
+    color: var(--accent);
+    font-weight: 600;
+    font-size: 0.95em;
+    margin-bottom: 0.5rem;
+    text-decoration: none;
+}
+.section-card .card-link:hover {
+    text-decoration: underline;
+}
+.section-card .card-desc {
+    color: var(--text-muted);
+    font-size: 0.9em;
+    margin-bottom: 0.6rem;
+    line-height: 1.5;
+}
+
+/* Quick-start banner */
+.quick-start {
+    background: linear-gradient(135deg, #161b22 0%, #1c2129 100%);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.5rem 1.75rem;
+    margin: 2rem 0;
+    display: flex;
+    align-items: center;
+    gap: 1.25rem;
+}
+.quick-start .qs-icon {
+    font-size: 2.5em;
+    flex-shrink: 0;
+}
+.quick-start .qs-text h3 {
+    margin: 0 0 0.3rem;
+    border-bottom: none;
+    font-size: 1.1em;
+}
+.quick-start .qs-text p {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 0.92em;
+}
+.quick-start .qs-text a {
+    font-weight: 600;
+}
+
+/* Chat demo animation */
+.chat-demo {
+    max-width: 600px;
+    margin: 1.5rem auto 0;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: #f8f8f6;
+    overflow: hidden;
+    opacity: 0;
+    transform: translateY(15px);
+    transition: opacity 0.5s, transform 0.5s;
+    text-align: left;
+}
+.chat-demo.visible {
+    opacity: 1;
+    transform: translateY(0);
+}
+.chat-demo-header {
+    background: #eee;
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid #ddd;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.82em;
+    font-weight: 600;
+    color: #333;
+}
+.chat-demo-header .label { color: #555; }
+.chat-demo-body {
+    padding: 0.75rem;
+    min-height: 100px;
+    max-height: 200px;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    overflow-y: auto;
+    background: #fff;
+}
+.chat-msg {
+    padding: 6px 10px;
+    border-radius: 8px;
+    font-size: 0.84em;
+    line-height: 1.45;
+    max-width: 85%;
+    opacity: 0;
+    transform: translateY(8px);
+    transition: opacity 0.3s, transform 0.3s;
+    word-wrap: break-word;
+}
+.chat-msg.visible {
+    opacity: 1;
+    transform: translateY(0);
+}
+.chat-msg .ts {
+    color: #999;
+    font-size: 0.85em;
+    margin-right: 0.3em;
+}
+.chat-msg.user {
+    background: #0078D4;
+    color: #fff;
+    align-self: flex-end;
+    margin-left: 40px;
+}
+.chat-msg.ai {
+    background: #E8E8E8;
+    color: #222;
+    align-self: flex-start;
+    margin-right: 40px;
+}
+.chat-msg.ai .tool-call {
+    color: #6a3dba;
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 0.88em;
+}
+/* Agent steps container */
+.agent-step {
+    font-size: 0.82em;
+    padding: 4px 10px;
+    background: #F5F5F0;
+    border-radius: 8px;
+    margin-right: 40px;
+    align-self: flex-start;
+    opacity: 0;
+    transform: translateY(8px);
+    transition: opacity 0.3s, transform 0.3s;
+    color: #333;
+}
+.agent-step.visible { opacity: 1; transform: translateY(0); }
+.agent-step.pending { color: #CC7700; }
+.agent-step.active { color: #0066CC; font-weight: bold; }
+.agent-step.done { color: #2D8C3C; }
+/* Status bar — matches app's ● ○ ○ animation */
+.chat-status-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 10px;
+    border-radius: 6px;
+    margin: 0 0.75rem;
+    font-size: 0.78em;
+    font-weight: 600;
+    transition: background 0.3s;
+}
+.chat-status-bar.ready {
+    background: #E8F5E9;
+    color: #2E7D32;
+}
+.chat-status-bar.processing {
+    background: #FFF3E0;
+    color: #E65100;
+}
+.chat-status-bar .status-dots {
+    font-size: 13px;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+.chat-status-bar.ready .status-dots { color: #4CAF50; }
+.chat-status-bar.processing .status-dots { color: #FF9800; }
+/* Input bar */
+.chat-demo-input {
+    border-top: 1px solid #ddd;
+    padding: 0.5rem 0.75rem;
+    background: #f8f8f6;
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+.chat-demo-input .new-chat-btn {
+    background: none;
+    border: none;
+    cursor: default;
+    padding: 2px 4px;
+    display: flex;
+    align-items: center;
+}
+.chat-demo-input .new-chat-btn svg {
+    width: 18px;
+    height: 18px;
+    stroke: #6a3dba;
+}
+.chat-demo-input .mode-select {
+    background: #fff;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 0.75em;
+    padding: 2px 6px;
+    height: 24px;
+    color: #333;
+}
+.chat-demo-input .input-field {
+    flex: 1;
+    background: #fff;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    padding: 5px 8px;
+    color: #333;
+    font-size: 0.82em;
+    font-family: inherit;
+    min-height: 1.4em;
+    overflow: hidden;
+    white-space: nowrap;
+}
+.chat-demo-input .input-field.placeholder {
+    color: #999;
+}
+.chat-demo-input .send-btn {
+    background: none;
+    border: none;
+    color: #333;
+    padding: 2px 6px;
+    cursor: default;
+    font-size: 1em;
+    opacity: 0.4;
+    transition: opacity 0.2s;
+}
+.chat-demo-input .send-btn.active {
+    opacity: 1;
+}
+/* Footer bar — FFXIV checkbox, model, reasoning */
+.chat-demo-footer {
+    border-top: 1px solid #eee;
+    padding: 4px 0.75rem;
+    background: #f0f0ee;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.72em;
+    color: #666;
+}
+.chat-demo-footer .ffxiv-box {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+}
+.chat-demo-footer .ffxiv-box input {
+    margin: 0;
+    accent-color: #6a3dba;
+}
+.chat-demo-footer .spacer { flex: 1; }
+.chat-demo-footer .model-tag {
+    background: #fff;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    padding: 1px 8px;
+    font-size: 1em;
+    color: #333;
+}
+.chat-demo-footer .effort-tag {
+    background: #fff;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    padding: 1px 8px;
+    font-size: 1em;
+    color: #333;
+}
+.chat-demo-footer .settings-btn {
+    background: none;
+    border: none;
+    font-size: 1.1em;
+    color: #888;
+    cursor: default;
+    padding: 0 2px;
+}
+</style>
 </head>
 <body>
-<div class="nav-bar"><span class="nav-title">MidiEditor AI Manual</span><a href="index.html">Index</a><a href="introduction.html">Introduction</a><a href="midipilot.html">MidiPilot</a><a href="midi-overview.html">MIDI Overview</a><a href="editor-and-components.html">Editor</a><a href="setup.html">Setup</a><a href="editing-midi-files.html">Editing</a><a href="playback.html">Playback</a><a href="record.html">Recording</a></div>
-<h2><b>MidiEditor AI - Manual</b></h2>
+<div class="nav-bar">
+<span class="nav-title">MidiEditor AI Manual</span>
+<a href="index.html" class="active">Index</a>
+<a href="introduction.html">Introduction</a>
+<a href="midipilot.html">MidiPilot</a>
+<a href="prompt-examples.html">Prompt Examples</a>
+<a href="midi-overview.html">MIDI Overview</a>
+<a href="editor-and-components.html">Editor</a>
+<a href="setup.html">Setup</a>
+<a href="editing-midi-files.html">Editing</a>
+<a href="playback.html">Playback</a>
+<a href="record.html">Recording</a>
+</div>
+
+<!-- Hero -->
+<div class="hero">
+<pre id="ascii-logo" aria-label="MidiEditor AI"></pre>
+<p class="tagline" id="hero-tagline" style="opacity:0">Your complete guide to the AI-powered MIDI editor</p>
+<span class="version-badge" id="hero-badge" style="opacity:0">v1.0.1 &middot; Manual</span>
+
+<!-- Fake Chat Demo -->
+<div class="chat-demo" id="chat-demo">
+<div class="chat-demo-header"><span class="label">&#x1F9E0; MidiPilot</span></div>
+<div class="chat-demo-body" id="chat-body"></div>
+<div class="chat-demo-input">
+<span class="new-chat-btn" title="New Chat"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M8 9h8"/><path d="M8 13h6"/><path d="M12.01 18.594l-4.01 2.406v-3h-2a3 3 0 0 1 -3 -3v-8a3 3 0 0 1 3 -3h12a3 3 0 0 1 3 3v5.5"/><path d="M16 19h6"/><path d="M19 16v6"/></svg></span>
+<select class="mode-select" disabled><option>Agent</option></select>
+<div class="input-field placeholder" id="chat-input">Ask MidiPilot...</div>
+<button class="send-btn" id="chat-send">&#x27A4;</button>
+</div>
+<div class="chat-status-bar ready" id="chat-status">
+<span class="status-dots" id="status-dots">&#x25CF;</span>
+<span class="status-text" id="status-text">Ready</span>
+</div>
+<div class="chat-demo-footer">
+<label class="ffxiv-box"><input type="checkbox" disabled> FFXIV</label>
+<span class="spacer"></span>
+<span class="model-tag">gpt-5.4</span>
+<span class="effort-tag">&#x1F4AD; med</span>
+<span class="settings-btn">&#x2699;</span>
+</div>
+</div>
+</div>
+
+<hr>
+
+<!-- Quick Start -->
+<div class="quick-start">
+<span class="qs-icon">&#x1F680;</span>
+<div class="qs-text">
+<h3>New to MidiEditor AI?</h3>
+<p>Start with the <a href="introduction.html">Introduction</a>, then jump to <a href="midipilot.html">MidiPilot</a> to learn how the AI copilot works. Check out the <a href="prompt-examples.html">Prompt Examples</a> for real-world use cases.</p>
+</div>
+</div>
+
+<!-- AI Features -->
+<h2>&#x1F916; AI Features</h2>
+
+<div class="section-grid">
+
+<div class="section-card">
+<h3><span class="icon">&#x1F4AC;</span> MidiPilot &mdash; AI Copilot</h3>
+<p class="card-desc">The integrated AI brain that composes, edits, transforms, and analyzes your MIDI data via natural language.</p>
 <ul>
-<li><a href="index.html">Index</a></li>
-<li><a href="introduction.html">Introduction</a></li>
-<li><a href="midipilot.html"><b>MidiPilot — AI Copilot</b></a>
-<ul><li><a href="midipilot.html#features">Key Features</a></li><li><a href="midipilot.html#chat-panel">Chat Panel</a></li><li><a href="midipilot.html#settings">AI Settings</a></li><li><a href="midipilot.html#system-prompts">Custom System Prompts</a></li><li><a href="midipilot.html#tools">AI Tools Reference</a></li><li><a href="midipilot.html#providers">Supported Providers</a></li><li><a href="midipilot.html#getting-started">Getting Started</a></li></ul></li>
-<li><a href="midi-overview.html">MIDI - a Short Overview</a>
-<ul><li><a href="midi-overview.html#tracksandchannels">Tracks and Channels</a></li><li><a href="midi-overview.html#events">MIDI Events</a></li><li><a href="midi-overview.html#io">MIDI I/O</a></li></ul></li>
-<li><a href="editor-and-components.html">The Editor and its Components</a>
-<ul><li><a href="editor-and-components.html#menu">Menubar</a></li><li><a href="editor-and-components.html#tools">Toolbar</a></li><li><a href="editor-and-components.html#event-view">Event View</a></li><li><a href="editor-and-components.html#track_editor">Track Editor</a></li><li><a href="editor-and-components.html#channel_editor">Channel Editor</a></li><li><a href="editor-and-components.html#event_editor">Event Editor</a></li></ul></li>
-<li><a href="setup.html">Setting up MidiEditor</a>
-<ul><li><a href="setup.html#io">MIDI I/O</a></li><li><a href="setup.html#connect">Making the Input Device audible</a></li><li><a href="setup.html#external">Starting Synthesizers along with MidiEditor</a></li><li><a href="setup.html#updates">Automatic Updates</a></li><li><a href="setup.html#old">Support for older MIDI Devices</a></li><li><a href="setup.html#large_playback">Larger Playback Toolbar</a></li></ul></li>
-<li><a href="editing-midi-files.html">Editing MIDI Files</a>
-<ul><li><a href="editing-midi-files.html#selecting">Selecting Events</a></li><li><a href="editing-midi-files.html#moving">Moving events</a></li><li><a href="editing-midi-files.html#duration">Changing duration</a></li><li><a href="editing-midi-files.html#create_and_delete">Creating and deleting events</a></li><li><a href="editing-midi-files.html#std_tool">Standard Tool</a></li><li><a href="editing-midi-files.html#magnet">Magnet and Raster</a></li><li><a href="editing-midi-files.html#quantization">Quantization</a></li><li><a href="editing-midi-files.html#copy_paste">Copy/Paste</a></li><li><a href="editing-midi-files.html#controls-and-velocities">Controls and Velocities</a></li><li><a href="editing-midi-files.html#tracks-and-channels">Tracks and Channels</a></li></ul></li>
-<li><a href="playback.html">Playback</a>
-<ul><li><a href="playback.html#muting-tracks-channels">Muting Tracks and Channels</a></li><li><a href="playback.html#cursor">Setting the Cursor</a></li><li><a href="playback.html#speed">Speed</a></li><li><a href="playback.html#metronome">Metronome</a></li><li><a href="playback.html#lock">Locking the Screen</a></li></ul></li>
-<li><a href="record.html">Recording MIDI Data</a></li>
-<li>Menu Reference
-<ul><li><a href="menu-file.html">File Menu</a></li><li><a href="menu-edit.html">Edit Menu</a></li><li><a href="menu-view.html">View Menu</a></li><li><a href="menu-midi.html">MIDI Menu</a></li><li><a href="menu-playback.html">Playback Menu</a></li><li><a href="menu-tools.html">Tools Menu</a></li></ul></li>
+<li><a href="midipilot.html#features">Key Features</a></li>
+<li><a href="midipilot.html#chat-panel">Chat Panel</a></li>
+<li><a href="midipilot.html#settings">AI Settings</a></li>
+<li><a href="midipilot.html#system-prompts">Custom System Prompts</a></li>
+<li><a href="midipilot.html#tools">AI Tools Reference (13 tools)</a></li>
+<li><a href="midipilot.html#providers">Supported Providers</a></li>
+<li><a href="midipilot.html#getting-started">Getting Started</a></li>
 </ul>
-<div class="footer"><p>MidiEditor AI &mdash; <a href="https://github.com/happytunesai/MidiEditor_AI">GitHub</a> &middot; Created with &hearts; + AI</p></div>
+</div>
+
+<div class="section-card">
+<h3><span class="icon">&#x1F4A1;</span> Prompt Examples</h3>
+<p class="card-desc">Real-world examples showing how to use MidiPilot for composing, editing, harmonizing, converting, and more.</p>
+<ul>
+<li><a href="prompt-examples.html#composing">Composing &amp; Generating</a></li>
+<li><a href="prompt-examples.html#editing">Editing &amp; Transforming</a></li>
+<li><a href="prompt-examples.html#harmony">Harmony &amp; Theory</a></li>
+<li><a href="prompt-examples.html#arrangement">Arrangement &amp; Orchestration</a></li>
+<li><a href="prompt-examples.html#conversion">MIDI Conversion &amp; Cleanup</a></li>
+<li><a href="prompt-examples.html#ffxiv">FFXIV Bard Performance</a></li>
+</ul>
+</div>
+
+</div>
+
+<!-- Getting Started -->
+<h2>&#x1F3B5; Getting Started</h2>
+
+<div class="section-grid">
+
+<div class="section-card">
+<h3><span class="icon">&#x1F44B;</span> Introduction</h3>
+<p class="card-desc">Overview of MidiEditor AI, what it can do, and how it differs from the original MidiEditor.</p>
+<a href="introduction.html" class="card-link">Read Introduction &rarr;</a>
+</div>
+
+<div class="section-card">
+<h3><span class="icon">&#x2699;&#xFE0F;</span> Setup &amp; Installation</h3>
+<p class="card-desc">Configure MIDI I/O, connect instruments, set up synthesizers, and configure auto-updates.</p>
+<ul>
+<li><a href="setup.html#io">MIDI I/O</a></li>
+<li><a href="setup.html#connect">Making Input Device Audible</a></li>
+<li><a href="setup.html#external">Starting Synthesizers</a></li>
+<li><a href="setup.html#updates">Automatic Updates</a></li>
+<li><a href="setup.html#old">Older MIDI Devices</a></li>
+<li><a href="setup.html#large_playback">Larger Playback Toolbar</a></li>
+</ul>
+</div>
+
+</div>
+
+<!-- MIDI Fundamentals -->
+<h2>&#x1F3BC; MIDI Fundamentals</h2>
+
+<div class="section-grid">
+
+<div class="section-card">
+<h3><span class="icon">&#x1F4DA;</span> MIDI Overview</h3>
+<p class="card-desc">A primer on the MIDI protocol: tracks, channels, events, and I/O.</p>
+<ul>
+<li><a href="midi-overview.html#tracksandchannels">Tracks and Channels</a></li>
+<li><a href="midi-overview.html#events">MIDI Events</a></li>
+<li><a href="midi-overview.html#io">MIDI I/O</a></li>
+</ul>
+</div>
+
+<div class="section-card">
+<h3><span class="icon">&#x1F5A5;&#xFE0F;</span> Editor &amp; Components</h3>
+<p class="card-desc">The main window, menus, toolbar, event view, and side panels explained.</p>
+<ul>
+<li><a href="editor-and-components.html#menu">Menubar</a></li>
+<li><a href="editor-and-components.html#tools">Toolbar</a></li>
+<li><a href="editor-and-components.html#event-view">Event View</a></li>
+<li><a href="editor-and-components.html#track_editor">Track Editor</a></li>
+<li><a href="editor-and-components.html#channel_editor">Channel Editor</a></li>
+<li><a href="editor-and-components.html#event_editor">Event Editor</a></li>
+</ul>
+</div>
+
+</div>
+
+<!-- Editing & Workflow -->
+<h2>&#x270F;&#xFE0F; Editing &amp; Workflow</h2>
+
+<div class="section-grid">
+
+<div class="section-card">
+<h3><span class="icon">&#x1F3B9;</span> Editing MIDI Files</h3>
+<p class="card-desc">Select, move, create, delete, quantize, copy/paste events and manage tracks.</p>
+<ul>
+<li><a href="editing-midi-files.html#selecting">Selecting Events</a></li>
+<li><a href="editing-midi-files.html#moving">Moving Events</a></li>
+<li><a href="editing-midi-files.html#duration">Changing Duration</a></li>
+<li><a href="editing-midi-files.html#create_and_delete">Creating &amp; Deleting</a></li>
+<li><a href="editing-midi-files.html#std_tool">Standard Tool</a></li>
+<li><a href="editing-midi-files.html#magnet">Magnet &amp; Raster</a></li>
+<li><a href="editing-midi-files.html#quantization">Quantization</a></li>
+<li><a href="editing-midi-files.html#copy_paste">Copy/Paste</a></li>
+<li><a href="editing-midi-files.html#controls-and-velocities">Controls &amp; Velocities</a></li>
+<li><a href="editing-midi-files.html#tracks-and-channels">Tracks &amp; Channels</a></li>
+</ul>
+</div>
+
+<div class="section-card">
+<h3><span class="icon">&#x25B6;&#xFE0F;</span> Playback &amp; Recording</h3>
+<p class="card-desc">Play, record, mute tracks/channels, set cursor, adjust speed, and use the metronome.</p>
+<ul>
+<li><a href="playback.html#muting-tracks-channels">Muting Tracks &amp; Channels</a></li>
+<li><a href="playback.html#cursor">Setting the Cursor</a></li>
+<li><a href="playback.html#speed">Playback Speed</a></li>
+<li><a href="playback.html#metronome">Metronome</a></li>
+<li><a href="playback.html#lock">Locking the Screen</a></li>
+<li><a href="record.html">Recording MIDI Data</a></li>
+</ul>
+</div>
+
+</div>
+
+<!-- Menu Reference -->
+<h2>&#x1F4CB; Menu Reference</h2>
+
+<div class="section-grid">
+<div class="section-card">
+<h3><span class="icon">&#x1F4C1;</span> Menus</h3>
+<p class="card-desc">Detailed reference for every menu action in MidiEditor AI.</p>
+<ul>
+<li><a href="menu-file.html">File Menu</a></li>
+<li><a href="menu-edit.html">Edit Menu</a></li>
+<li><a href="menu-view.html">View Menu</a></li>
+<li><a href="menu-midi.html">MIDI Menu</a></li>
+<li><a href="menu-playback.html">Playback Menu</a></li>
+<li><a href="menu-tools.html">Tools Menu</a></li>
+</ul>
+</div>
+</div>
+
+<div class="footer">
+<p>MidiEditor AI &mdash; <a href="https://github.com/happytunesai/MidiEditor_AI">GitHub</a> &middot; Created with &hearts; + AI</p>
+</div>
+
+<script>
+(function() {
+    'use strict';
+
+    // ASCII logo lines (raw Unicode)
+    var LOGO = [
+        '\u2588\u2588\u2588\u2557   \u2588\u2588\u2588\u2557\u2588\u2588\u2557\u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2557\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557\u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2557\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2588\u2557      \u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2557',
+        '\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2551\u2588\u2588\u2551\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557\u2588\u2588\u2551\u2588\u2588\u2554\u2550\u2550\u2550\u2550\u255D\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557\u2588\u2588\u2551\u255A\u2550\u2550\u2588\u2588\u2554\u2550\u2550\u255D\u2588\u2588\u2554\u2550\u2550\u2550\u2588\u2588\u2557\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557    \u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557\u2588\u2588\u2551',
+        '\u2588\u2588\u2554\u2588\u2588\u2588\u2588\u2554\u2588\u2588\u2551\u2588\u2588\u2551\u2588\u2588\u2551  \u2588\u2588\u2551\u2588\u2588\u2551\u2588\u2588\u2588\u2588\u2588\u2557  \u2588\u2588\u2551  \u2588\u2588\u2551\u2588\u2588\u2551   \u2588\u2588\u2551   \u2588\u2588\u2551   \u2588\u2588\u2551\u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255D    \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2551\u2588\u2588\u2551',
+        '\u2588\u2588\u2551\u255A\u2588\u2588\u2554\u255D\u2588\u2588\u2551\u2588\u2588\u2551\u2588\u2588\u2551  \u2588\u2588\u2551\u2588\u2588\u2551\u2588\u2588\u2554\u2550\u2550\u255D  \u2588\u2588\u2551  \u2588\u2588\u2551\u2588\u2588\u2551   \u2588\u2588\u2551   \u2588\u2588\u2551   \u2588\u2588\u2551\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557    \u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2551\u2588\u2588\u2551',
+        '\u2588\u2588\u2551 \u255A\u2550\u255D \u2588\u2588\u2551\u2588\u2588\u2551\u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255D\u2588\u2588\u2551\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557\u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255D\u2588\u2588\u2551   \u2588\u2588\u2551   \u255A\u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255D\u2588\u2588\u2551  \u2588\u2588\u2551    \u2588\u2588\u2551  \u2588\u2588\u2551\u2588\u2588\u2551',
+        '\u255A\u2550\u255D     \u255A\u2550\u255D\u255A\u2550\u255D\u255A\u2550\u2550\u2550\u2550\u2550\u255D \u255A\u2550\u255D\u255A\u2550\u2550\u2550\u2550\u2550\u2550\u255D\u255A\u2550\u2550\u2550\u2550\u2550\u255D \u255A\u2550\u255D   \u255A\u2550\u255D    \u255A\u2550\u2550\u2550\u2550\u2550\u255D \u255A\u2550\u255D  \u255A\u2550\u255D    \u255A\u2550\u255D  \u255A\u2550\u255D\u255A\u2550\u255D'
+    ];
+
+    // Status messages from the real app (subset of ~60)
+    var STATUS_MSGS = [
+        'Counting notes...', 'Analyzing chord progressions...', 'Adding musical rizz...',
+        'Cooking up a masterpiece...', 'Channeling inner Mozart...', 'Tuning the algorithms...',
+        'Harmonizing the universe...', 'Consulting the music theory gods...', 'Sprinkling some stardust...',
+        'Generating MIDI magic...', 'Thinking in 12-tone equal temperament...',
+        'Calculating optimal voicings...', 'Wrangling semitones...',
+        'Composing at the speed of thought...', 'Aligning the notes...'
+    ];
+
+    // Chat conversation pairs
+    var CHATS = [
+        {
+            prompt: 'Compose a 4-bar piano melody in C major at 120 BPM',
+            steps: [
+                { icon: '\u2705', text: 'set_tempo(bpm=120)', state: 'done' },
+                { icon: '\u2705', text: 'create_notes(track=1, notes=[C4, E4, G4, ...])', state: 'done' }
+            ],
+            response: '\u2705 Created 16 notes on Track 1, Channel 0\nC major melody \u2022 120 BPM \u2022 4 bars'
+        },
+        {
+            prompt: 'Transpose all notes up by a perfect fifth',
+            steps: [
+                { icon: '\u2705', text: 'transpose_notes(semitones=7)', state: 'done' }
+            ],
+            response: '\u2705 Transposed 42 notes by +7 semitones\nC major \u2192 G major'
+        },
+        {
+            prompt: 'Convert this for FFXIV Bard performance (3 octaves)',
+            steps: [
+                { icon: '\u2705', text: 'get_all_notes()', state: 'done' },
+                { icon: '\u2705', text: 'constrain_range(min=48, max=84)', state: 'done' }
+            ],
+            response: '\u2705 Mapped to C3\u2013C6 range, split chords to arpeggios\n6 notes adjusted \u2022 Bard-ready'
+        },
+        {
+            prompt: 'Add a walking bass line following the chord progression',
+            steps: [
+                { icon: '\u2705', text: 'create_track(name="Bass")', state: 'done' },
+                { icon: '\u2705', text: 'create_notes(track=2, channel=1, ...)', state: 'done' }
+            ],
+            response: '\u2705 Generated bass on Track 2, Channel 1\nQuarter notes \u2022 following root motion'
+        }
+    ];
+
+    var logoEl = document.getElementById('ascii-logo');
+    var taglineEl = document.getElementById('hero-tagline');
+    var badgeEl = document.getElementById('hero-badge');
+    var chatDemo = document.getElementById('chat-demo');
+    var chatBody = document.getElementById('chat-body');
+    var chatInput = document.getElementById('chat-input');
+    var sendBtn = document.getElementById('chat-send');
+    var statusBar = document.getElementById('chat-status');
+    var statusDots = document.getElementById('status-dots');
+    var statusText = document.getElementById('status-text');
+
+    // --- Timestamp helper ---
+    function ts() {
+        var d = new Date();
+        var h = String(d.getHours()).padStart(2, '0');
+        var m = String(d.getMinutes()).padStart(2, '0');
+        var s = String(d.getSeconds()).padStart(2, '0');
+        return '[' + h + ':' + m + ':' + s + ']';
+    }
+
+    // --- Typewriter for ASCII logo ---
+    function typewriterLogo(cb) {
+        var fullText = LOGO.join('\n');
+        var i = 0;
+        var charsPerTick = 3;
+        logoEl.textContent = '';
+        var timer = setInterval(function() {
+            var end = Math.min(i + charsPerTick, fullText.length);
+            logoEl.textContent += fullText.substring(i, end);
+            i = end;
+            if (i >= fullText.length) {
+                clearInterval(timer);
+                if (cb) cb();
+            }
+        }, 8);
+    }
+
+    // --- Fade in element ---
+    function fadeIn(el, cb) {
+        el.style.transition = 'opacity 0.5s';
+        el.style.opacity = '1';
+        setTimeout(cb || function(){}, 500);
+    }
+
+    // --- Status bar: set to ready ---
+    function setStatusReady() {
+        statusBar.className = 'chat-status-bar ready';
+        statusDots.textContent = '\u25CF';
+        statusText.textContent = 'Ready';
+    }
+
+    // --- Status bar: animated processing (● ○ ○ cycling) ---
+    var dotTimer = null;
+    var msgTimer = null;
+    function setStatusProcessing() {
+        statusBar.className = 'chat-status-bar processing';
+        var frames = ['\u25CF \u25CB \u25CB', '\u25CB \u25CF \u25CB', '\u25CB \u25CB \u25CF', '\u25CB \u25CF \u25CB'];
+        var fi = 0;
+        statusDots.textContent = frames[0];
+        statusText.textContent = STATUS_MSGS[Math.floor(Math.random() * STATUS_MSGS.length)];
+        dotTimer = setInterval(function() {
+            fi = (fi + 1) % frames.length;
+            statusDots.textContent = frames[fi];
+        }, 400);
+        msgTimer = setInterval(function() {
+            statusText.textContent = STATUS_MSGS[Math.floor(Math.random() * STATUS_MSGS.length)];
+        }, 2400);
+    }
+    function stopStatusProcessing() {
+        if (dotTimer) { clearInterval(dotTimer); dotTimer = null; }
+        if (msgTimer) { clearInterval(msgTimer); msgTimer = null; }
+        setStatusReady();
+    }
+
+    // --- Typewriter for input field ---
+    function typeInInput(text, cb) {
+        var i = 0;
+        chatInput.textContent = '';
+        chatInput.classList.remove('placeholder');
+        sendBtn.classList.remove('active');
+        var timer = setInterval(function() {
+            chatInput.textContent += text.charAt(i);
+            i++;
+            if (i >= text.length) {
+                clearInterval(timer);
+                sendBtn.classList.add('active');
+                setTimeout(cb || function(){}, 600);
+            }
+        }, 45);
+    }
+
+    // --- Add user message bubble ---
+    function addUserMsg(text, cb) {
+        chatInput.textContent = 'Ask MidiPilot...';
+        chatInput.classList.add('placeholder');
+        sendBtn.classList.remove('active');
+        var msg = document.createElement('div');
+        msg.className = 'chat-msg user';
+        var stamp = document.createElement('span');
+        stamp.className = 'ts';
+        stamp.textContent = ts();
+        msg.appendChild(stamp);
+        msg.appendChild(document.createTextNode(text));
+        chatBody.appendChild(msg);
+        void msg.offsetWidth;
+        msg.classList.add('visible');
+        setTimeout(cb || function(){}, 350);
+    }
+
+    // --- Show agent steps one by one ---
+    function showSteps(steps, idx, cb) {
+        if (idx >= steps.length) { if (cb) cb(); return; }
+        var s = steps[idx];
+        var el = document.createElement('div');
+        el.className = 'agent-step active';
+        el.textContent = '\uD83D\uDD04 ' + s.text;
+        chatBody.appendChild(el);
+        void el.offsetWidth;
+        el.classList.add('visible');
+        setTimeout(function() {
+            el.className = 'agent-step done visible';
+            el.textContent = s.icon + ' ' + s.text;
+            setTimeout(function() {
+                showSteps(steps, idx + 1, cb);
+            }, 500);
+        }, 900);
+    }
+
+    // --- Add AI response bubble ---
+    function addAiMsg(text, cb) {
+        var msg = document.createElement('div');
+        msg.className = 'chat-msg ai';
+        var stamp = document.createElement('span');
+        stamp.className = 'ts';
+        stamp.textContent = ts();
+        msg.appendChild(stamp);
+        var lines = text.split('\n');
+        for (var i = 0; i < lines.length; i++) {
+            if (i > 0) msg.appendChild(document.createElement('br'));
+            msg.appendChild(document.createTextNode(lines[i]));
+        }
+        chatBody.appendChild(msg);
+        void msg.offsetWidth;
+        msg.classList.add('visible');
+        setTimeout(cb || function(){}, 900);
+    }
+
+    // --- Clear chat body for next round ---
+    function clearChat(cb) {
+        var children = chatBody.children;
+        for (var i = 0; i < children.length; i++) {
+            children[i].style.opacity = '0';
+            children[i].style.transform = 'translateY(-8px)';
+        }
+        setTimeout(function() {
+            chatBody.innerHTML = '';
+            if (cb) cb();
+        }, 400);
+    }
+
+    // --- Run one chat conversation ---
+    function runChat(idx, cb) {
+        var chat = CHATS[idx];
+        typeInInput(chat.prompt, function() {
+            addUserMsg(chat.prompt, function() {
+                setStatusProcessing();
+                // Simulate thinking time, then show agent steps
+                setTimeout(function() {
+                    showSteps(chat.steps, 0, function() {
+                        stopStatusProcessing();
+                        addAiMsg(chat.response, function() {
+                            setTimeout(function() {
+                                clearChat(cb);
+                            }, 4000);
+                        });
+                    });
+                }, 2400);
+            });
+        });
+    }
+
+    // --- Cycle through all chats ---
+    function cycleChats() {
+        var idx = 0;
+        function next() {
+            runChat(idx, function() {
+                idx = (idx + 1) % CHATS.length;
+                next();
+            });
+        }
+        next();
+    }
+
+    // --- Start the animation sequence ---
+    typewriterLogo(function() {
+        fadeIn(taglineEl, function() {
+            fadeIn(badgeEl, function() {
+                chatDemo.classList.add('visible');
+                setTimeout(cycleChats, 600);
+            });
+        });
+    });
+})();
+</script>
 </body>
 </html>

@@ -1,127 +1,57 @@
-# Changelog
+# Changelog — MidiEditor AI
 
-Rudimentary changelog of new features & fixes between recent versions.
-A more complete list of all noteworthly changes can be found on the releases page.
-https://github.com/Meowchestra/MidiEditor/releases
+All notable changes to MidiEditor AI are documented here.
+Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 
+---
 
-## [4.3.1] - 2026-01-17
+## [1.0.1] - 2026-03-24
 
-<details>
-<summary>Summary</summary>
+### Changed
+* New Chat button: replaced ambiguous ➕ icon with a dedicated "message-plus" icon for clarity
+* New Chat now shows a confirmation dialog when conversation history exists
+* Manual: added Prompt Examples page with real-world prompts, screenshots, and demo videos
+* Manual: added API Log documentation to MidiPilot page
+* Manual: added navigation links on all pages for Prompt Examples
+* MidiPilot page hero image updated to animated Agent Run GIF
+* Manual: added lo-fi hip hop example files (MIDI + WAV) as downloadable examples
+* FFXIV example prompts improved: removed redundant MidiBard2 references and over-specified constraints
+* YouTube demo videos embedded on Prompt Examples page (4 videos: full agent run, audio preview, guitar solo, harmony)
+* Version bump to 1.0.1
 
-* Fixed DataEditor & EventWidget strings not properly displaying. (i.e. SysEx events)
-* Fixed MidiOutput channel instruments not resetting on file change.
-* Fixed StrummerDialog End Timing tooltips not newlining.
+---
 
-</details>
+## [1.0.0] - 2026-03-20
 
-## [4.3.0] - 2025-11-23
+### MidiPilot AI Assistant (New)
+* **MidiPilot** — integrated AI chat panel for composing, editing, and transforming MIDI
+* **Agent Mode** — multi-step autonomous AI with 13 tool functions (create tracks, insert/replace/delete events, set tempo, transpose, etc.)
+* **Simple Mode** — single-step AI for quick edits with lower token usage
+* **FFXIV Bard Mode** — toggle for Final Fantasy XIV performance constraints (C3-C6 range, monophonic, 8-track limit, instrument validation)
+* **FFXIV Validation tool** — checks and auto-fixes MIDI files for FFXIV compliance
+* **GM Drum Conversion tool** — splits GM drum tracks into separate FFXIV tonal drum tracks
+* **Multi-Provider Support** — OpenAI, Google Gemini, OpenRouter, Groq, Ollama, LM Studio, or any custom OpenAI-compatible endpoint
+* **Token Usage Tracking** — displays per-request and session token counts in the status bar
+* **Editable System Prompts** — customize AI behavior via JSON file or built-in editor dialog
+* **API Logging** — all API requests/responses logged to `midipilot_api.log` for debugging
+* **Reasoning Display** — shows AI thinking/reasoning tokens in a collapsible section
 
-<details>
-<summary>Summary</summary>
+### App & Infrastructure
+* Rebranded from MeowMidiEditor to **MidiEditor AI**
+* About dialog credits full upstream chain (Markus Schwenk → ProMidEdit → Meowchestra → MidiEditor AI)
+* Update checker redirected to `happytunesai/MidiEditor_AI` releases
+* GitHub Actions CI/CD: automated build on push + release workflow on tag
+* GitHub Pages manual/wiki deployed automatically
+* Dark-themed manual with MidiPilot documentation, screenshots, and getting started guide
 
-* Strummer Tool: strum / arpeggiate selected chord notes with ``ctrl`` + ``alt`` + ``s``
-  - adjustable modes: ``start (timing)``, ``end (timing)``, ``velocity``
-  - options: ``preserve end``, ``alternate direction``, ``relative strength (per note)``, ``strum across tracks``
-* Added a simple update checker. Start of the application will now compare the app version with the github repo release tags. If there is a higher tag version available than your current version, you will be prompted with an update is available asking if you would like to update. Clicking yes will take you to the github releases page for the new version. Optionally, you can also force manual version checks under the Help dropdown.
-* Improved in-place upgrading via the installer wizard for the default directory. If you use the installer for a new version but have an older version already installed, the installer will now ask to run the maintenancetool uninstaller for the previous version before continuing with the new installation.
-* Improved custom keybinds ui to notify on duplicate shortcuts, special handling for actions with multiple default shortcuts, and minor ui adjustments for fitting.
-* Control change number is now shown in the misc widget dropdown & "undefined" control changes no longer show the text undefined to make it easier to navigate.
-* Can now set custom control change names (for specifying undefined out-of-spec # names used in other programs) & instrument definitions (via instrument .ins files or manually renaming).
-* Settings window is now scrollable and resizable smaller for lower resolutions.
-* Qt version bumped to 6.10.1 & rtmidi dependency updated.
-
-</details>
-
-## [4.2.0] - 2025-10-16
-<details>
-<summary>Summary</summary>
-
-* Implemented Drag & Drop track reordering.
-* Implemented the ability to set custom keybinds.
-_Some hardcoded binds still remain._ -- https://github.com/Meowchestra/MidiEditor/issues/28#issuecomment-3567161623
-_(i.e. ctrl drag note edge to adjust duration, shift + # to move selected events to specific track, holding modifier keys while dragging note(s) to lock in place, etc. etc.)_
-* Convert Pitch Bends Tool:
-  - ``ctrl`` + ``b`` selected notes to convert assigned pitch bend events into separate notes of the nearest semitone
-  - options: ±2 semitones (general MIDI default), ±12 semitones (guitar/bass VSTs), ±24 semitones (extreme pitch modulation), custom (±1-96 semitones)
-_Use of the glue tool (ctrl + g) afterwards is helpful to recombine notes of the same pitch back into a single note. Each individual pitch bend event (on a note's position) is converted into a separate note and then removed._
-* Explode Chords to Tracks Tool:
-  - ``ctrl`` + ``e`` to explode chords into separate tracks. Select / focus a track to operate across the entire track or highlight chords after track selection to minimize scope.
-  - chord detection modes: same start tick, same start tick & note length
-  - grouping modes: group equal parts (voices) into tracks, each chord into separate track, all chords into single track
-  - options: minimum simultaneous notes, insert new tracks at end of track list, keep original notes on source track
-* UI improvements for settings & toolbar separator inconsistencies.
-* Keybinds for Measure tool, Time Signature tool, and Tempo tool changed to ``ctrl`` + ``F1``, ``ctrl`` + ``F2``, & ``ctrl`` + ``F3``.
-_F13 and F14 keys are not commonly used in standard keyboards lol..._
-* Compiled with Qt 6.10.0 release build. This seemingly fixes the MaintenanceTool not removing properly when uninstalling if using the standard Setup installer.
-* Fixed metronome amplifying loudness oddities.
-
-</details>
-
-## [4.1.4] - 2025-08-29
-<details>
-<summary>Summary</summary>
-
-* Fixed source instance notes not preserving musical tempo / duration when pasted into target instance if tempo was mismatched.
-(i.e. pasting from midi 1 tempo 120 -> midi 2 tempo 700, the note position / duration will properly preserve original note intent)
-* Fixed cross-pasted key signature events, tempo events, and time signature events pasting into the correct channels (16, 17, & 18).
-* Fixed the midi not recalculating its tempo map if tempo events are pasted from the shared clipboard to the cursor location.
-* Fixed weird edge case of shared clipboard notes becoming ghost notes (which don't delete on track remove and couldn't be manually deleted) not properly removing on protocol undo (ctrl + z) if meta events were included in the paste.
-
-</details>
-
-## [4.1.3] - 2025-08-15
-<details>
-<summary>Summary</summary>
-
-- Horizontal scrollbar is now fixed in place and no longer collapses if the misc widget (velocity box) is collapsed. Allowing you to collapse the misc widget to have a larger view & still be able to scroll.
-- Fixed a bunch of horizontal scrollbar oddities with it not properly aligned to the start at 0 (empty left space padding) and scaling / resizing issues.
-- No longer caching note colors. Notes should immediately repaint accurate colors on track deletion or protocol undo/redo/jump-to actions.
-
-</details>
-
-## [4.1.2] - 2025-08-09
-<details>
-<summary>Summary</summary>
-
-- Option to unlock widget minimum resizing before snapping closed.
-
-</details>
-
-## [4.1.1] - 2025-08-08
-<details>
-<summary>Summary</summary>
-
-- Fixed application crash (hopefully) when changing app styles while a midi is loaded.
-- Fixed some cached colors not clearing when changing app styles from light -> dark mode compatible theme or toggling windows dark mode on/off on a compatible theme while the app is running.
-
-</details>
-
-## [4.1.0] - 2025-08-08
-<details>
-<summary>Summary</summary>
-
-* Modernized installer wizard, supporting windows dark mode.
-* Windows dark mode compatibility for application styles windows11, windows, & fusion.
-  - Channel/Track colors will automatically update to a darker shade if no custom colors are saved.
-* Fully customizable toolbar header with support for compact single row and expanded double row.
-* System options to ignore default Qt6 scaling with windows & changing scaling behavior.
-* Performance improvements for rendering, batch selecting events, batch deleting events, & initial hardware acceleration for widgets.
-  - Additional tweaks for visuals & performance available in settings.
-* Quantize selection keybind changed to ``ctrl`` + ``q``.
-* Glue tool: glue notes of the same pitch & track together.
-  - ``ctrl`` + ``g`` (same channel) 
-  - ``ctrl`` + ``shift`` + ``g`` (all channels)
-* Scissors tool: cut notes into separate events from cursor position with ``ctrl`` + ``x``.
-* Delete overlap tool: delete overlapping notes with ``ctrl`` + ``d``.
-  - modes: delete overlaps (mono), delete overlaps (poly), delete doubles
-  - options: respect track boundaries, respect channel boundaries
-* Shared Clipboard: now able to copy & paste events across multiple MidiEditor instances. Cross-instance pasting at cursor location & selected track.
-* Expanded raster & quantization options for triplets and other musical coverage.
-* Fixed overlapping keybinds & updated default binds for ergonomics.
-  - Large Increase/Decrease tweak now requires all 3 modifier keys (being the 3rd step of small, medium, large).
-  - Zoom in actions no longer require holding shift (+ -> =) when it didn't for zoom out actions (-).
+### Based On
+* [Meowchestra/MidiEditor](https://github.com/Meowchestra/MidiEditor) v4.3.1 — all upstream features included:
+  - Strummer tool, Glue tool, Scissors tool, Delete Overlaps tool
+  - Explode Chords to Tracks, Convert Pitch Bends
+  - Shared Clipboard (cross-instance copy/paste)
+  - Custom keybinds, drag & drop track reordering
+  - Windows dark mode, customizable toolbar
+  - Hardware-accelerated rendering, Qt 6.5.3
   - Vertical out/in updated to ``shift`` + ``-/=`` to match Qt vertical mouse scrolling on shift.
   - Scroll multiplier with ``ctrl`` + ``shift`` + ``mousewheel``. Default zoom now only scrolls 1 line at a time.
   - Full reset view with ``ctrl`` + ``shift`` + ``backspace`` and updated zoom reset to ``ctrl`` + ``backspace``.
