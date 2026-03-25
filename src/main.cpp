@@ -18,6 +18,7 @@
 
 #include <QApplication>
 #include <QDir>
+#include <QFileInfo>
 #include <QSurfaceFormat>
 #include <QOpenGLContext>
 
@@ -113,6 +114,12 @@ int main(int argc, char *argv[]) {
         // Disable font DPI scaling to keep fonts at their original sizes
         qputenv("QT_FONT_DPI", "96"); // Force standard 96 DPI for fonts
         qputenv("QT_USE_PHYSICAL_DPI", "0"); // Don't use physical DPI for font sizing
+    }
+
+    // Add application directory plugins path before QApplication construction
+    {
+        QString appDir = QFileInfo(QString::fromLocal8Bit(argv[0])).absolutePath();
+        QCoreApplication::addLibraryPath(appDir + "/plugins");
     }
 
     QApplication a(argc, argv);

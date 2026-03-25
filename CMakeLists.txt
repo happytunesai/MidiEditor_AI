@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20 FATAL_ERROR)
 
-set(MIDIEDITOR_RELEASE_VERSION_STRING "1.1.0")
+set(MIDIEDITOR_RELEASE_VERSION_STRING "1.1.1")
 project(MidiEditorAI VERSION ${MIDIEDITOR_RELEASE_VERSION_STRING} LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -116,13 +116,13 @@ if(WIN32)
 endif()
 
 # Try to find Qt6 with different approaches
-find_package(Qt6 REQUIRED COMPONENTS Core Widgets Gui Network Xml Multimedia MultimediaWidgets OpenGL OpenGLWidgets)
+find_package(Qt6 REQUIRED COMPONENTS Core Widgets Gui Network OpenGL OpenGLWidgets)
 
 if(NOT Qt6_FOUND)
     # Try with Qt6_DIR environment variable
     if(DEFINED ENV{Qt6_DIR})
         set(Qt6_DIR $ENV{Qt6_DIR})
-        find_package(Qt6 QUIET COMPONENTS Core Widgets Gui Network Xml Multimedia MultimediaWidgets OpenGL OpenGLWidgets)
+        find_package(Qt6 QUIET COMPONENTS Core Widgets Gui Network OpenGL OpenGLWidgets)
     endif()
 endif()
 
@@ -130,7 +130,7 @@ if(NOT Qt6_FOUND)
     # Try with QT_ROOT_DIR environment variable
     if(DEFINED ENV{QT_ROOT_DIR})
         set(CMAKE_PREFIX_PATH ${CMAKE_PREFIX_PATH} $ENV{QT_ROOT_DIR})
-        find_package(Qt6 QUIET COMPONENTS Core Widgets Gui Network Xml Multimedia MultimediaWidgets OpenGL OpenGLWidgets)
+        find_package(Qt6 QUIET COMPONENTS Core Widgets Gui Network OpenGL OpenGLWidgets)
     endif()
 endif()
 
@@ -177,8 +177,6 @@ target_link_libraries(MidiEditorAI PRIVATE
         Qt6::Gui
         Qt6::Widgets
         Qt6::Network
-        Qt6::Xml
-        Qt6::Multimedia
         Qt6::OpenGL
         Qt6::OpenGLWidgets
 )
@@ -367,6 +365,7 @@ if(WIN32)
                 --no-translations
                 --no-system-d3d-compiler
                 --no-opengl-sw
+                --plugindir $<TARGET_FILE_DIR:MidiEditorAI>/plugins
                 $<TARGET_FILE:MidiEditorAI>
             COMMENT "Deploying Qt libraries for release"
         )
@@ -374,10 +373,10 @@ if(WIN32)
         # Ensure platforms plugin is deployed
         add_custom_command(TARGET MidiEditorAI POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E make_directory
-                $<TARGET_FILE_DIR:MidiEditorAI>/platforms
+                $<TARGET_FILE_DIR:MidiEditorAI>/plugins/platforms
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 ${Qt6_DIR}/../../../plugins/platforms/qwindows$<$<CONFIG:Debug>:d>.dll
-                $<TARGET_FILE_DIR:MidiEditorAI>/platforms/
+                $<TARGET_FILE_DIR:MidiEditorAI>/plugins/platforms/
             COMMENT "Ensuring Qt platform plugins are available"
         )
     else()
@@ -394,9 +393,6 @@ if(WIN32)
                 ${QT_BIN_DIR}/Qt6Gui$<$<CONFIG:Debug>:d>.dll
                 ${QT_BIN_DIR}/Qt6Widgets$<$<CONFIG:Debug>:d>.dll
                 ${QT_BIN_DIR}/Qt6Network$<$<CONFIG:Debug>:d>.dll
-                ${QT_BIN_DIR}/Qt6Xml$<$<CONFIG:Debug>:d>.dll
-                ${QT_BIN_DIR}/Qt6Multimedia$<$<CONFIG:Debug>:d>.dll
-                ${QT_BIN_DIR}/Qt6MultimediaWidgets$<$<CONFIG:Debug>:d>.dll
                 $<TARGET_FILE_DIR:MidiEditorAI>/
             COMMENT "Manually copying Qt DLLs"
         )
@@ -404,10 +400,10 @@ if(WIN32)
         # Copy platform plugins
         add_custom_command(TARGET MidiEditorAI POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E make_directory
-                $<TARGET_FILE_DIR:MidiEditorAI>/platforms
+                $<TARGET_FILE_DIR:MidiEditorAI>/plugins/platforms
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 ${QT_PLUGINS_DIR}/platforms/qwindows$<$<CONFIG:Debug>:d>.dll
-                $<TARGET_FILE_DIR:MidiEditorAI>/platforms/
+                $<TARGET_FILE_DIR:MidiEditorAI>/plugins/platforms/
             COMMENT "Manually copying Qt platform plugins"
         )
     endif()
@@ -419,13 +415,6 @@ set(BIN_DIR "${INSTALL_DIR}/bin")
 set(PLUGIN_DIR "${BIN_DIR}/plugins")
 
 install(TARGETS MidiEditorAI DESTINATION "${BIN_DIR}")
-
-# Install metronome file if it exists
-if(EXISTS "${CMAKE_SOURCE_DIR}/run_environment/metronome/metronome-01.wav")
-    install(FILES "run_environment/metronome/metronome-01.wav" DESTINATION "${INSTALL_DIR}/metronome")
-else()
-    message(WARNING "metronome-01.wav not found - metronome functionality may be limited")
-endif()
 
 if(PLAT_WINDOWS)
     # Qt deployment

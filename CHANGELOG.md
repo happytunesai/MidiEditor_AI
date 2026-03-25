@@ -5,6 +5,22 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 
 ---
 
+## [1.1.1] - 2026-03-25 — Upstream merge
+
+### Changed
+* **Metronome rewrite** — replaced `QSoundEffect` audio playback with General MIDI drum notes on Channel 10 (High/Low Wood Block). No more WAV file dependency, works through the connected MIDI output device. Downbeats and regular beats now use distinct drum sounds
+* **Metronome timing** — all PlayerThread→Metronome signal connections now use `Qt::DirectConnection` for tighter timing in the audio thread
+* **Removed Qt6::Multimedia and Qt6::Xml** dependencies — fewer Qt modules required, smaller deployment footprint
+* **Plugin path fix** — `QCoreApplication::addLibraryPath(appDir + "/plugins")` added before QApplication construction; windeployqt now deploys to `plugins/` subdirectory for reliable Qt plugin discovery
+* **rtmidi updated** — submodule bumped to latest upstream (`a3233c2`)
+* Version bump to 1.1.1
+
+### Removed
+* Metronome WAV/MP3 audio files (no longer needed — metronome clicks via MIDI)
+* Qt6::Xml and Qt6::Multimedia from build dependencies
+
+---
+
 ## [1.1.0] - 2026-03-25
 
 ### Added
