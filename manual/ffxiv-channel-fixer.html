@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fix X|V Channels &mdash; FFXIV Channel Fixer | MidiEditor AI Manual</title>
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="stylesheet" href="style.css">
+<style>
+.screenshot-row { display: flex; flex-wrap: wrap; gap: 1.5rem; justify-content: center; margin: 1.5rem 0; }
+.screenshot-row img { border: 1px solid var(--border); border-radius: 8px; }
+.screenshot-single { text-align: center; margin: 1.5rem 0; }
+.screenshot-single img { max-width: 100%; border: 1px solid var(--border); border-radius: 8px; }
+.caption { text-align: center; color: var(--text-muted); font-style: italic; margin-top: 0.5rem; font-size: 0.9rem; }
+.info-table { width: 100%; border-collapse: collapse; margin: 1rem 0 1.5rem; }
+.info-table th, .info-table td { padding: 0.6rem 0.8rem; border: 1px solid var(--border); text-align: left; }
+.info-table th { background: var(--bg-secondary); font-weight: 600; }
+.info-table tr:nth-child(even) td { background: var(--table-alt); }
+.step-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; margin: 1.5rem 0; }
+.step-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.2rem;
+}
+.step-card h4 { margin-top: 0; border-bottom: none; }
+.step-card p { margin-bottom: 0; font-size: 0.92em; color: var(--text-muted); }
+.instrument-table { width: 100%; border-collapse: collapse; margin: 1rem 0 1.5rem; font-size: 0.9em; }
+.instrument-table th, .instrument-table td { padding: 0.45rem 0.7rem; border: 1px solid var(--border); text-align: left; }
+.instrument-table th { background: var(--bg-secondary); font-weight: 600; }
+.instrument-table tr:nth-child(even) td { background: var(--table-alt); }
+.highlight-box {
+    background: var(--bg-card);
+    border-left: 4px solid var(--accent);
+    padding: 1rem 1.25rem;
+    margin: 1.5rem 0;
+    border-radius: 0 8px 8px 0;
+}
+.highlight-box p { margin: 0; }
+</style>
+</head>
+<body>
+<div class="nav-bar">
+<div class="nav-header"><span class="nav-icon">&#129302;</span><span class="nav-title">MidiEditor AI Manual</span><span class="nav-version">v1.1.0</span></div>
+<div class="nav-links">
+<a href="index.html">Index</a>
+<a href="introduction.html">Introduction</a>
+<a href="midipilot.html">MidiPilot</a>
+<a href="prompt-examples.html">Prompt Examples</a>
+<a href="ffxiv-channel-fixer.html" class="active">Fix X|V</a>
+<a href="midi-overview.html">MIDI Overview</a>
+<a href="editor-and-components.html">Editor</a>
+<a href="setup.html">Setup</a>
+<a href="editing-midi-files.html">Editing</a>
+<a href="playback.html">Playback</a>
+<a href="record.html">Recording</a>
+</div>
+</div>
+
+<h1><img src="tools/ffxiv_fix.png" alt="Fix X|V" style="height:1.1em;vertical-align:middle;"> Fix X|V Channels &mdash; FFXIV Channel Fixer</h1>
+
+<p>
+The <b>Fix X|V Channels</b> tool provides a <b>one-click, deterministic</b> channel fixer that sets up the complete
+<a href="https://github.com/fluentechco/MidiBard2" target="_blank">MidiBard2</a> channel mapping for FFXIV Bard Performance.
+It requires <b>no AI calls</b>, no API key, and works fully offline.
+</p>
+
+<div class="highlight-box">
+<p>&#x1F4A1; <b>Find it in:</b> Toolbar button <img src="tools/ffxiv_fix.png" alt="Fix X|V" style="height:1.1em;vertical-align:middle;"> or menu <b>Tools &rarr; Fix X|V Channels</b></p>
+</div>
+
+<hr>
+
+<h2 id="overview">How It Works</h2>
+
+<p>
+The fixer analyzes your MIDI file by track name, auto-detects the best mode, and applies a <b>5-step algorithm</b> to set up all channel assignments and program changes. The entire operation is wrapped in a single undo action.
+</p>
+
+<div class="step-grid">
+<div class="step-card">
+<h4>1&#xFE0F;&#x20E3; Analyze</h4>
+<p>Scans all tracks and identifies FFXIV instruments by track name. Counts existing program changes and guitar variants.</p>
+</div>
+<div class="step-card">
+<h4>2&#xFE0F;&#x20E3; Clean</h4>
+<p>Removes existing <code>program_change</code> events. Rebuild mode removes all; Preserve mode removes only guitar channels.</p>
+</div>
+<div class="step-card">
+<h4>3&#xFE0F;&#x20E3; Migrate</h4>
+<p>Assigns each track a unique MIDI channel (T0&rarr;CH0, T1&rarr;CH1, etc.). Percussion goes to CH9. Guitar tracks get 5 channels for variant switching.</p>
+</div>
+<div class="step-card">
+<h4>4&#xFE0F;&#x20E3; Program</h4>
+<p>Inserts correct <code>program_change</code> events at tick 0 for every channel on every track, plus mid-song switches for guitar variants.</p>
+</div>
+<div class="step-card">
+<h4>5&#xFE0F;&#x20E3; Report</h4>
+<p>Shows a rich HTML result summary with channel mapping table, removed/inserted program changes, track renames, and undo hint.</p>
+</div>
+</div>
+
+<hr>
+
+<h2 id="modes">Two Modes</h2>
+
+<p>
+When you click <b>Fix X|V Channels</b>, a confirmation dialog appears with two modes. The tool auto-detects the best mode based on your file, but you can override the selection.
+</p>
+
+<div class="screenshot-single">
+<img src="screenshots/midipilot-ffxiv-channelfix_popup.png" alt="Fix X|V Channels confirmation dialog" width="480">
+<div class="caption">Mode selection dialog &mdash; auto-detects Rebuild or Preserve based on file analysis</div>
+</div>
+
+<table class="info-table">
+<tr><th>Mode</th><th>What It Does</th><th>Best For</th></tr>
+<tr>
+<td><b>&#x1F504; Rebuild</b><br>(Full Reassignment)</td>
+<td>
+<ul style="margin:0; padding-left:1.2em;">
+<li>Maps every track to a fresh channel (T0&rarr;CH0, T1&rarr;CH1, &hellip;)</li>
+<li>Percussion tracks &rarr; CH9</li>
+<li>Removes <b>all</b> existing program changes</li>
+<li>Moves all events to the correct channel</li>
+<li>Inserts new program changes at tick 0</li>
+</ul>
+</td>
+<td>New or unconfigured MIDI files, files exported from a DAW, files with scrambled channels</td>
+</tr>
+<tr>
+<td><b>&#x1F6E1;&#xFE0F; Preserve</b><br>(Minimal Changes)</td>
+<td>
+<ul style="margin:0; padding-left:1.2em;">
+<li>Keeps all existing channel assignments</li>
+<li>Non-guitar channels completely untouched</li>
+<li>Only refreshes guitar program changes (tick 0 + switch points)</li>
+<li>Auto-renames guitar tracks if first note differs from track name</li>
+</ul>
+</td>
+<td>Already configured files needing a guitar touch-up, files that were partially fixed by MidiPilot AI</td>
+</tr>
+</table>
+
+<h3>Auto-Detection Logic</h3>
+<p>The tool auto-selects the mode based on these criteria:</p>
+<ul>
+<li><b>Rebuild</b> is selected when the file has FFXIV instrument names but no existing guitar program changes</li>
+<li><b>Preserve</b> is selected when guitar program changes already exist, or when guitar tracks have notes spread across multiple channels (indicating a pre-configured file)</li>
+</ul>
+
+<hr>
+
+<h2 id="result">Result Summary</h2>
+
+<p>
+After the fix completes, a structured result popup shows exactly what was changed:
+</p>
+
+<div class="screenshot-single">
+<img src="screenshots/midipilot-ffxiv-channelfix_popup_sucess.png" alt="Fix X|V Channels result summary" width="400">
+<div class="caption">Result summary &mdash; channel mapping table, program change statistics, and undo hint</div>
+</div>
+
+<p>The result includes:</p>
+<ul>
+<li><b>Mode used</b> &mdash; Rebuild or Preserve</li>
+<li><b>Channel mapping table</b> &mdash; Track &rarr; Instrument &rarr; Channel &rarr; Program number</li>
+<li><b>Removed program changes</b> &mdash; how many old PCs were cleaned up</li>
+<li><b>Guitar switches</b> &mdash; how many mid-song variant switches were inserted</li>
+<li><b>Track renames</b> &mdash; any guitar tracks auto-renamed to match their actual variant</li>
+</ul>
+
+<hr>
+
+<h2 id="before-after">Before &amp; After</h2>
+
+<div class="screenshot-row">
+<img src="screenshots/midipilot-ffxiv-channelfix_before.png" alt="Before Fix X|V Channels" width="420">
+<img src="screenshots/midipilot-ffxiv-channelfix_fixed.png" alt="After Fix X|V Channels" width="420">
+</div>
+<div class="caption">Left: channels and programs unconfigured &nbsp;&bull;&nbsp; Right: MidiBard2 mapping applied</div>
+
+<h3>Rebuild Mode Demo</h3>
+
+<div class="screenshot-single">
+<img src="screenshots/ffxiv_channel_fix_rebuild.gif" alt="Fix X|V Channels — Rebuild mode demo" width="700">
+<div class="caption"><b>Rebuild</b> &mdash; full channel reassignment from scratch</div>
+</div>
+
+<h3>Preserve Mode Demo</h3>
+
+<div class="screenshot-single">
+<img src="screenshots/ffxiv_channel_fix_Preserve.gif" alt="Fix X|V Channels — Preserve mode demo" width="700">
+<div class="caption"><b>Preserve</b> &mdash; minimal changes, only refreshes guitar channels</div>
+</div>
+
+<hr>
+
+<h2 id="instruments">Supported Instruments</h2>
+
+<p>
+The fixer recognizes all FFXIV Bard Performance instruments by track name. Track names must match exactly (case-sensitive).
+Octave suffixes like <code>+1</code> or <code>-2</code> are automatically stripped.
+</p>
+
+<table class="instrument-table">
+<tr><th>Category</th><th>Instrument</th><th>GM Program</th><th>Channel Rule</th></tr>
+<tr><td rowspan="2"><b>Keyboard</b></td><td>Piano</td><td>0</td><td>Track index</td></tr>
+<tr><td>Harp</td><td>46</td><td>Track index</td></tr>
+<tr><td rowspan="4"><b>Wind</b></td><td>Fife</td><td>72</td><td>Track index</td></tr>
+<tr><td>Flute</td><td>73</td><td>Track index</td></tr>
+<tr><td>Oboe</td><td>68</td><td>Track index</td></tr>
+<tr><td>Panpipes</td><td>75</td><td>Track index</td></tr>
+<tr><td rowspan="2"><b>Reed</b></td><td>Clarinet</td><td>71</td><td>Track index</td></tr>
+<tr><td>Saxophone</td><td>65</td><td>Track index</td></tr>
+<tr><td rowspan="4"><b>Brass</b></td><td>Trumpet</td><td>56</td><td>Track index</td></tr>
+<tr><td>Trombone</td><td>57</td><td>Track index</td></tr>
+<tr><td>Horn</td><td>60</td><td>Track index</td></tr>
+<tr><td>Tuba</td><td>58</td><td>Track index</td></tr>
+<tr><td rowspan="5"><b>Strings</b></td><td>Violin</td><td>40</td><td>Track index</td></tr>
+<tr><td>Viola</td><td>41</td><td>Track index</td></tr>
+<tr><td>Cello</td><td>42</td><td>Track index</td></tr>
+<tr><td>Double Bass</td><td>43</td><td>Track index</td></tr>
+<tr><td>Fiddle</td><td>45</td><td>Track index</td></tr>
+<tr><td><b>Plucked</b></td><td>Lute</td><td>24</td><td>Track index</td></tr>
+<tr><td rowspan="5"><b>Guitar</b></td><td>ElectricGuitarClean</td><td>27</td><td rowspan="5">5 shared channels with mid-song variant switching</td></tr>
+<tr><td>ElectricGuitarMuted</td><td>28</td></tr>
+<tr><td>ElectricGuitarOverdriven</td><td>29</td></tr>
+<tr><td>ElectricGuitarPowerChords</td><td>30</td></tr>
+<tr><td>ElectricGuitarSpecial</td><td>31</td></tr>
+<tr><td rowspan="5"><b>Percussion</b></td><td>Timpani</td><td>47</td><td>Track index (tonal)</td></tr>
+<tr><td>Snare Drum</td><td>115</td><td>CH9</td></tr>
+<tr><td>Bass Drum</td><td>117</td><td>CH9</td></tr>
+<tr><td>Cymbal</td><td>127</td><td>CH9</td></tr>
+<tr><td>Bongo</td><td>116</td><td>CH9</td></tr>
+</table>
+
+<hr>
+
+<h2 id="guitar">Guitar Variant Switching</h2>
+
+<p>
+FFXIV electric guitar supports 5 tonal variants that share channels via <code>program_change</code> events. The fixer handles this automatically:
+</p>
+
+<ul>
+<li><b>5 channels reserved</b> &mdash; even if your file only uses 1-2 guitar variants, all 5 get a channel so MidiBard2 can switch freely</li>
+<li><b>Mid-song switches</b> &mdash; when notes jump between guitar channels, a <code>program_change</code> is inserted at the switch point</li>
+<li><b>Auto-rename</b> &mdash; in Preserve mode, if a guitar track's first note is on a different variant's channel, the track is automatically renamed to match</li>
+</ul>
+
+<hr>
+
+<h2 id="validation">Validation</h2>
+
+<p>
+After applying the fix, you can use MidiPilot's <b>validate_ffxiv</b> tool (via Agent mode with FFXIV enabled) to confirm all tracks pass FFXIV Bard Performance rules:
+</p>
+
+<div class="screenshot-single">
+<img src="screenshots/midipilot-ffxiv-validate.png" alt="FFXIV validation after channel fix" width="600">
+<div class="caption">AI validation confirms all tracks pass FFXIV Bard Performance rules</div>
+</div>
+
+<hr>
+
+<h2 id="undo">Undo</h2>
+
+<p>
+The entire Fix X|V Channels operation is wrapped in a <b>single undo action</b>. Press <b>Ctrl+Z</b> to revert all channel assignments, program changes, and track renames at once.
+</p>
+
+<hr>
+
+<h2 id="tips">Tips</h2>
+
+<ul>
+<li><b>Name your tracks correctly</b> &mdash; the fixer identifies instruments purely by track name. Use the exact FFXIV instrument names listed above</li>
+<li><b>Run Rebuild first</b> &mdash; for fresh files, always start with Rebuild mode to get a clean baseline</li>
+<li><b>Use Preserve for touch-ups</b> &mdash; if you only need to fix guitar variants after manual editing, Preserve keeps everything else intact</li>
+<li><b>Combine with MidiPilot</b> &mdash; use "Convert this for FFXIV Bard performance" in Agent mode to compose, then Fix X|V to clean up channels</li>
+<li><b>Check with validate_ffxiv</b> &mdash; after fixing, ask MidiPilot to validate for complete FFXIV rule compliance</li>
+</ul>
+
+<div class="footer">
+<p>MidiEditor AI &mdash; <a href="https://github.com/happytunesai/MidiEditor_AI">GitHub</a> &middot; Created with &hearts; + AI</p>
+</div>
+
+<button class="scroll-top" id="scrollTopBtn" title="Back to top">&#x2191;</button>
+<script>
+(function() {
+    var btn = document.getElementById('scrollTopBtn');
+    window.addEventListener('scroll', function() {
+        btn.classList.toggle('visible', window.scrollY > 300);
+    });
+    btn.addEventListener('click', function() {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+})();
+</script>
+</body>
+</html>
