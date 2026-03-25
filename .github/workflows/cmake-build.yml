@@ -37,7 +37,6 @@ jobs:
           host: 'windows'
           target: 'desktop'
           cache: true
-          modules: 'qtmultimedia'
 
       - name: Setup MSVC
         uses: ilammy/msvc-dev-cmd@v1
@@ -60,7 +59,6 @@ jobs:
         shell: pwsh
         run: |
           # Copy runtime assets
-          Copy-Item -Recurse "run_environment\metronome" "build\bin\metronome"
           Copy-Item -Recurse "run_environment\graphics" "build\bin\graphics"
           Copy-Item "run_environment\midieditor.ico" "build\bin\"
           if (Test-Path "run_environment\mozart_turkish_march.mid") {
