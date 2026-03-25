@@ -184,7 +184,13 @@ int main(int argc, char *argv[]) {
         qDebug() << "Skipping OpenGL initialization - using software rendering";
     }
 
-    a.setApplicationVersion("1.0.1");
+    // Version comes from CMakeLists.txt → MIDIEDITOR_RELEASE_VERSION_STRING
+    // Single source of truth: only update version in CMakeLists.txt line 3
+#ifdef MIDIEDITOR_RELEASE_VERSION_STRING_DEF
+    a.setApplicationVersion(MIDIEDITOR_RELEASE_VERSION_STRING_DEF);
+#else
+    a.setApplicationVersion("0.0.0-dev");
+#endif
     a.setApplicationName("MidiEditor AI");
     a.setQuitOnLastWindowClosed(true);
 

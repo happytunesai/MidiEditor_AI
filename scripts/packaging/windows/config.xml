@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <Installer>
     <Name>MidiEditor AI</Name>
-    <Version>1.0.1</Version>
+    <Version>1.1.0</Version>
     <Title>MidiEditor AI</Title>
     <Publisher>happytunesai</Publisher>
     <ProductUrl>https://github.com/happytunesai/MidiEditor_AI</ProductUrl>

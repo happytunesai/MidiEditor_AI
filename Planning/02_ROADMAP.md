@@ -789,7 +789,14 @@ Phase 8    Multi-provider & free API access              ✅ DONE (8.1, 8.2, 8.5
 Phase 9    Editable system prompts (JSON + dialog)       ✅ DONE (9.1-9.4)
 Phase 10   Independent repo & rebranding                 ✅ DONE (10.1-10.7)
 Phase 11   FFXIV Channel Fix (deterministic fixer + UI)   ✅ DONE (11.1-11.4)
+Phase 11.5 FFXIV Channel Fix v2 — 3-Tier Detection       🔧 IN PROGRESS
 ```
+
+#### Phase 11.5 — 3-Tier Smart Detection (Fix X|V v2)
+- **Tier 1 — No FFXIV MIDI:** No track names match known FFXIV instruments → abort + warning
+- **Tier 2 — Dirty FFXIV (Rebuild):** FFXIV track names present, but guitar notes on only 1 channel → full clean+rebuild (channels, program_changes, switches)
+- **Tier 3 — Configured FFXIV (Preserve):** FFXIV names + guitar notes already on multiple guitar-variant channels → preserve channels/notes, only clean+rebuild program_changes (tick-0 + switch ticks), reserve missing guitar channels, rename track if tick-0 note ≠ track name variant
+- **Bonus:** Running the fixer twice works cleanly (Tier 2 → manual edits → Tier 3 picks up switches)
 
 ### Bonus Features (not in original plan)
 - ✅ Reasoning model support (GPT-5, o4-mini, o3-mini, etc.)

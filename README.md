@@ -55,7 +55,7 @@ MidiPilot is the AI brain embedded directly in MidiEditor AI. Open the sidebar, 
 | 🎯 **Agent Mode** | Multi-step agentic loop — AI calls tools iteratively, inspecting results between steps |
 | 💬 **Simple Mode** | Single request/response for quick edits and small tasks |
 | 🎮 **FFXIV Bard Mode** | Enforces Final Fantasy XIV Performance constraints (8 tracks, monophonic, C3–C6) |
-| 🎸 **Fix X\|V Channels** | One-click deterministic channel fixer — sets up MidiBard2 mapping, guitar switches, and program changes |
+| 🎸 **Fix X\|V Channels** | One-click deterministic channel fixer — choose Rebuild or Preserve mode, see a rich result summary with channel mapping, program changes, and track renames |
 | 🔌 **Multi-Provider** | OpenAI, OpenRouter, Google Gemini, or any OpenAI-compatible endpoint |
 | 🧠 **Reasoning Support** | Configurable thinking/reasoning effort (None → Extra High) |
 | 📊 **Token Tracking** | Real-time token usage display per request and session |
@@ -115,7 +115,22 @@ When the **FFXIV** checkbox is enabled, MidiPilot enforces Final Fantasy XIV con
 | 🥁 **Drums** | No drum kit — separate tonal tracks (Bass Drum, Snare, Cymbal, etc.) |
 | 🎸 **Guitars** | 5 electric guitar variants via channel-based switching |
 | ⚡ **Auto-Setup** | Channel pattern tool configures MidiBard2 mapping automatically |
-| 🎸 **Fix X\|V Channels** | One-click toolbar button — deterministic channel fixer resets all program changes and maps the FFXIV channel pattern (no AI needed) |
+| 🎸 **Fix X\|V Channels** | One-click toolbar button — deterministic channel fixer with Rebuild/Preserve modes and rich result summary (no AI needed) |
+
+## 🎮 Fix X|V Channels — FFXIV Channel Fixer
+
+The **Fix X|V Channels** button provides a deterministic channel fixer for FFXIV MIDI files — no AI needed. Open your file, click the button, and choose between **Rebuild** (full reassignment) or **Preserve** (minimal changes).
+
+<p align="center">
+  <img src="manual/screenshots/midipilot-ffxiv-channelfix_popup.png" alt="Fix X|V Channels — choose Rebuild or Preserve" width="450"/>
+  <img src="manual/screenshots/midipilot-ffxiv-channelfix_popup_sucess.png" alt="Fix X|V Channels — result summary" width="450"/>
+  <br/>
+  <i>Mode selection dialog &mdash; Rich result summary with channel mapping and changes</i>
+</p>
+
+Find it in the toolbar or via **Tools → Fix X|V Channels**. The entire operation is a single undo action (Ctrl+Z).
+
+---
 
 ## 🔌 Supported Providers
 

@@ -12,20 +12,27 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
   - Toolbar button + menu entry under Tools → Fix X|V Channels
   - 5-step algorithm: Analyze → Clean all program_change → Migrate channels → Program mapping → Report
   - Guitar tracks automatically get 5 channels for variant switching (Clean, Muted, Overdriven, PowerChords, Special)
-  - Confirmation popup before applying changes
+  - **Confirmation dialog** with two modes: Rebuild (Full Reassignment) or Preserve (Minimal Changes), auto-detected based on file analysis
+  - **Rich result summary** — HTML-formatted info panel showing channel mapping table, removed/inserted program changes, track renames, and undo hint
+  - **Progress dialog** — shows percentage and phase description during channel fix to prevent apparent UI freeze on large files
   - Entire operation wrapped in a single undo action
 * `FFXIVChannelFixer` class — static deterministic fixer delegated from `setup_channel_pattern` tool
 * Toolbar migration code ensures Fix X|V button appears for existing users
 
 ### Fixed
 * **QSettings constructor mismatch** — FFXIV tools (`setup_channel_pattern`, `validate_ffxiv`, `convert_drums_ffxiv`) were never sent to the LLM because `ToolDefinitions` read from a different registry path than `MidiPilotWidget` wrote to. Both now use `QSettings("MidiEditor", "NONE")`
+* **Stale channel menus** — "Move events to channel" and similar channel context menus now refresh after Fix X|V Channels (added `updateChannelMenu()` to `updateAll()`)
 
 ### Changed
+* **Fix X|V Channels dialog** — removed redundant Tier 1 (Abort) option; Abort button already cancels. Tier labels simplified to "Rebuild (Full Reassignment)" and "Preserve (Minimal Changes)" without tier numbers
+* **Fix X|V Channels result** — replaced debug text popup with structured HTML info log showing success status, channel mapping table, program change stats, and track renames
 * FFXIV system prompts simplified — removed verbose channel/program tables, now instructs the LLM to call `setup_channel_pattern` once
 * UI label renamed from "Fix FFXIV Channels" to "Fix X|V Channels" across all dialogs and menus
 * README: added Fix X|V Channels to Features table, FFXIV constraint table, and Tools reference
 * Manual: new Fix X|V Channels section in MidiPilot page with before/after screenshots and animated GIF
 * Manual: new Fix X|V Channels entry in Tools Menu page
+* Manual: separate Rebuild and Preserve GIF animations replacing single animation
+* **Version single source of truth** — `setApplicationVersion()` now reads from CMake define `MIDIEDITOR_RELEASE_VERSION_STRING_DEF` instead of a hardcoded string. Only update version in `CMakeLists.txt` line 3
 * Version bump to 1.1.0
 
 ---

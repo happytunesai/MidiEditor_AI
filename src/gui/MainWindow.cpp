@@ -19,15 +19,19 @@
 
 #include <QAction>
 #include <QActionGroup>
+#include <QApplication>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QIcon>
 #include <QInputDialog>
+#include <QJsonArray>
+#include <QJsonObject>
 #include <QList>
 #include <QMap>
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QMimeData>
+#include <QProgressDialog>
 #include <QSettings>
 #include <QSplitter>
 #include <QTabWidget>
@@ -93,6 +97,7 @@
 #include "../Terminal.h"
 #include "../protocol/Protocol.h"
 #include "../ai/FFXIVChannelFixer.h"
+#include "FFXIVFixerDialog.h"
 
 #include "../MidiEvent/MidiEvent.h"
 #include "../MidiEvent/NoteOnEvent.h"
@@ -1674,26 +1679,107 @@ void MainWindow::fixFFXIVChannels() {
         return;
     }
 
-    // Confirmation dialog before executing
-    QMessageBox confirmBox(this);
-    confirmBox.setWindowTitle(tr("Fix X|V Channels"));
-    confirmBox.setText(tr("This action resets all Program Changes and maps the Final Fantasy X|V channel setup."));
-    confirmBox.setStandardButtons(QMessageBox::Yes | QMessageBox::No);
-    confirmBox.setDefaultButton(QMessageBox::No);
-    confirmBox.button(QMessageBox::Yes)->setText(tr("Yes, Continue"));
-    confirmBox.button(QMessageBox::No)->setText(tr("No, Abort"));
-    if (confirmBox.exec() != QMessageBox::Yes) {
+    // Analyze file and show tier selection dialog
+    QJsonObject analysis = FFXIVChannelFixer::analyzeFile(file);
+
+    if (!analysis["valid"].toBool()) {
+        QMessageBox::warning(this, tr("Fix X|V Channels"),
+            tr("No FFXIV instrument names detected. "
+               "Track names must match FFXIV instruments "
+               "(e.g. Piano, Flute, ElectricGuitarOverdriven, Snare Drum, etc.)."));
         return;
     }
 
+    FFXIVFixerDialog dialog(analysis, this);
+    if (dialog.exec() != QDialog::Accepted)
+        return;
+
+    int tier = dialog.selectedTier();
+    if (tier == 0)
+        return;
+
     file->protocol()->startNewAction(tr("Fix X|V Channels"));
-    QJsonObject result = FFXIVChannelFixer::fixChannels(file);
+
+    // Show progress dialog during the fix operation
+    QProgressDialog progressDlg(tr("Fixing channels..."), QString(), 0, 100, this);
+    progressDlg.setWindowTitle(tr("Fix X|V Channels"));
+    progressDlg.setWindowModality(Qt::WindowModal);
+    progressDlg.setMinimumDuration(0);
+    progressDlg.setValue(0);
+    QApplication::processEvents();
+
+    QJsonObject result = FFXIVChannelFixer::fixChannels(file, tier,
+        [&](int pct, const QString &msg) {
+            progressDlg.setLabelText(msg);
+            progressDlg.setValue(pct);
+            QApplication::processEvents();
+        });
+
+    progressDlg.close();
     file->protocol()->endAction();
 
     if (result["success"].toBool()) {
         updateAll();
-        QMessageBox::information(this, tr("Fix X|V Channels"),
-                                 result["summary"].toString());
+
+        // Build rich HTML result summary
+        QString mode = result["tierDescription"].toString();
+        int trackCount = result["trackCount"].toInt();
+        int removedPCs = result["removedProgramChanges"].toInt();
+        int switchPCs  = result["guitarSwitchProgramChanges"].toInt();
+        QJsonArray channelMap = result["channelMap"].toArray();
+        QJsonArray renames    = result["trackRenames"].toArray();
+
+        QString html = QStringLiteral(
+            "<h3 style='color:#2e7d32; margin-bottom:4px;'>&#x2705; Success</h3>"
+            "<p style='margin-top:0;'><b>Mode:</b> %1<br>"
+            "<b>Tracks processed:</b> %2</p>").arg(mode).arg(trackCount);
+
+        // Channel mapping table
+        html += QStringLiteral(
+            "<table cellpadding='3' cellspacing='0' style='border-collapse:collapse; font-size:11px; margin-bottom:8px;'>"
+            "<tr style='background:#e0e0e0;'>"
+            "<th align='left' style='padding:3px 8px;'>Track</th>"
+            "<th align='left' style='padding:3px 8px;'>Instrument</th>"
+            "<th align='center' style='padding:3px 8px;'>Channel</th>"
+            "<th align='center' style='padding:3px 8px;'>Program</th></tr>");
+        for (const auto &val : channelMap) {
+            QJsonObject entry = val.toObject();
+            html += QString(
+                "<tr style='border-bottom:1px solid #ddd;'>"
+                "<td style='padding:2px 8px;'>T%1</td>"
+                "<td style='padding:2px 8px;'>%2</td>"
+                "<td align='center' style='padding:2px 8px;'>CH%3</td>"
+                "<td align='center' style='padding:2px 8px;'>%4</td></tr>")
+                .arg(entry["track"].toInt())
+                .arg(entry["name"].toString())
+                .arg(entry["channel"].toInt())
+                .arg(entry["program"].toInt());
+        }
+        html += QStringLiteral("</table>");
+
+        // Changes summary
+        html += QStringLiteral("<p style='font-size:11px; margin:4px 0;'>");
+        html += QString("&#x1F5D1; Removed <b>%1</b> old program change(s)").arg(removedPCs);
+        if (switchPCs > 0)
+            html += QString("<br>&#x1F3B8; Inserted <b>%1</b> mid-song guitar switch(es)").arg(switchPCs);
+        if (!renames.isEmpty()) {
+            html += QString("<br>&#x1F4DD; Renamed <b>%1</b> track(s):").arg(renames.size());
+            for (const auto &r : renames) {
+                QJsonObject re = r.toObject();
+                html += QString("<br>&nbsp;&nbsp;&nbsp;%1 &rarr; %2")
+                    .arg(re["oldName"].toString())
+                    .arg(re["newName"].toString());
+            }
+        }
+        html += QStringLiteral("</p>");
+        html += QStringLiteral("<p style='font-size:10px; color:gray; margin-top:8px;'>Press Ctrl+Z to undo all changes.</p>");
+
+        QMessageBox infoBox(this);
+        infoBox.setWindowTitle(tr("Fix X|V Channels — Result"));
+        infoBox.setTextFormat(Qt::RichText);
+        infoBox.setText(html);
+        infoBox.setIcon(QMessageBox::Information);
+        infoBox.exec();
     } else {
         QMessageBox::warning(this, tr("Fix X|V Channels"),
                              result["error"].toString());
@@ -5254,6 +5340,9 @@ void MainWindow::updateAll() {
     channelWidget->update();
     _trackWidget->update();
     _miscWidgetContainer->update();
+
+    // Refresh channel names in context menus (Move to channel, Delete channel, etc.)
+    updateChannelMenu();
 }
 
 void MainWindow::updateRenderingMode() {

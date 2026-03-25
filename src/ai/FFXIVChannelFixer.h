@@ -6,6 +6,7 @@
 #include <QString>
 #include <QHash>
 #include <QList>
+#include <functional>
 
 class MidiFile;
 class MidiTrack;
@@ -30,11 +31,24 @@ class MidiTrack;
 class FFXIVChannelFixer {
 public:
     /**
-     * \brief Fix all channel assignments and program_change events.
+     * \brief Analyze the file and return scan info for the tier selection dialog.
      * \param file  The loaded MidiFile
+     * \return JSON with trackCount, ffxivTrackCount, autoDetectedTier, etc.
+     */
+    static QJsonObject analyzeFile(MidiFile *file);
+
+    /// Progress callback: (percent 0-100, phase description)
+    using ProgressCallback = std::function<void(int, const QString &)>;
+
+    /**
+     * \brief Fix all channel assignments and program_change events.
+     * \param file       The loaded MidiFile
+     * \param forcedTier 0 = auto-detect, 2 = Rebuild, 3 = Preserve
+     * \param progress   Optional callback for progress updates
      * \return JSON result with success, channelMap, summary
      */
-    static QJsonObject fixChannels(MidiFile *file);
+    static QJsonObject fixChannels(MidiFile *file, int forcedTier = 0,
+                                   ProgressCallback progress = nullptr);
 
 private:
     // Percussion instrument base names that go to CH9

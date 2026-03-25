@@ -275,7 +275,16 @@ The <b>Fix X|V Channels</b> button provides a <b>one-click, deterministic</b> ch
 
 <div class="screenshot-single">
 <img src="screenshots/midipilot-ffxiv-channelfix_popup.png" alt="Fix X|V Channels confirmation dialog" width="480">
-<div class="caption">Confirmation dialog before applying the channel fix</div>
+<div class="caption">Choose between <b>Rebuild</b> (full reassignment) or <b>Preserve</b> (minimal changes) &mdash; the mode is auto-detected based on your file</div>
+</div>
+
+<p>
+After the fix completes, a structured result summary shows the channel mapping, removed/inserted program changes, and any track renames:
+</p>
+
+<div class="screenshot-single">
+<img src="screenshots/midipilot-ffxiv-channelfix_popup_sucess.png" alt="Fix X|V Channels result summary" width="480">
+<div class="caption">Rich result summary &mdash; channel mapping table, program change statistics, track renames, and undo hint</div>
 </div>
 
 <h3>What It Does</h3>
@@ -286,11 +295,19 @@ The fixer runs a 5-step algorithm on the current MIDI file:
 
 <ol>
 <li><b>Analyze</b> &mdash; Scans all tracks and identifies instruments by track name</li>
-<li><b>Clean</b> &mdash; Removes all existing <code>program_change</code> events from every track</li>
-<li><b>Migrate</b> &mdash; Assigns each track a unique MIDI channel (guitars get 5 channels for variant switching)</li>
+<li><b>Clean</b> &mdash; Removes existing <code>program_change</code> events (all in Rebuild mode, guitar-only in Preserve mode)</li>
+<li><b>Migrate</b> &mdash; Assigns each track a unique MIDI channel; guitars get 5 channels for variant switching (Rebuild mode only)</li>
 <li><b>Program</b> &mdash; Inserts correct <code>program_change</code> events at tick 0 for each channel</li>
-<li><b>Report</b> &mdash; Displays a summary of all changes made</li>
+<li><b>Report</b> &mdash; Shows a rich result summary with channel mapping table, program change statistics, and track renames</li>
 </ol>
+
+<h3>Two Modes</h3>
+
+<table class="info-table">
+<tr><th>Mode</th><th>Description</th><th>Best for</th></tr>
+<tr><td><b>Rebuild</b></td><td>Full channel reassignment &mdash; maps every track to a fresh channel, removes all program changes, moves all events</td><td>New or unconfigured MIDI files</td></tr>
+<tr><td><b>Preserve</b></td><td>Minimal changes &mdash; keeps existing channel assignments, only refreshes guitar program changes and auto-renames mismatched guitar tracks</td><td>Already configured files needing a guitar touch-up</td></tr>
+</table>
 
 <h3>Before &amp; After</h3>
 
@@ -301,8 +318,13 @@ The fixer runs a 5-step algorithm on the current MIDI file:
 <div class="caption">Before &mdash; channels and programs unconfigured &nbsp;&bull;&nbsp; After &mdash; MidiBard2 mapping applied</div>
 
 <div class="screenshot-single">
-<img src="screenshots/ffxiv_channel_fix.gif" alt="Fix X|V Channels animation" width="700">
-<div class="caption">Full Fix X|V Channels workflow &mdash; one click from messy channels to clean MidiBard2 mapping</div>
+<img src="screenshots/ffxiv_channel_fix_rebuild.gif" alt="Fix X|V Channels — Rebuild mode" width="700">
+<div class="caption"><b>Rebuild</b> mode &mdash; full channel reassignment from scratch</div>
+</div>
+
+<div class="screenshot-single">
+<img src="screenshots/ffxiv_channel_fix_Preserve.gif" alt="Fix X|V Channels — Preserve mode" width="700">
+<div class="caption"><b>Preserve</b> mode &mdash; minimal changes, only refreshes guitar channels</div>
 </div>
 
 <h3>Validation</h3>
