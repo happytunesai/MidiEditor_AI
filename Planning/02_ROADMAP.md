@@ -298,7 +298,7 @@ All operations below are supported via the AI action system (edit/delete/info/er
 - ✅ Simple operations → cheaper model (gpt-4o-mini)
 - ✅ Complex generation → stronger model (gpt-4o, gpt-5, o4-mini, etc.)
 - ✅ Token count display in status bar
-- ❌ Local LLM support (Ollama, LM Studio) — SCRAPPED, not shipping with local endpoints
+- ✅ Local LLM support (Ollama, LM Studio) — via custom base URL (Phase 8.1)
 
 ---
 
@@ -788,6 +788,7 @@ Phase 4.6  Persistent history (SQLite)                  ⬜ TODO  (low priority)
 Phase 8    Multi-provider & free API access              ✅ DONE (8.1, 8.2, 8.5 — providers + tokens + model lists)
 Phase 9    Editable system prompts (JSON + dialog)       ✅ DONE (9.1-9.4)
 Phase 10   Independent repo & rebranding                 ✅ DONE (10.1-10.7)
+Phase 11   FFXIV Channel Fix (deterministic fixer + UI)   ✅ DONE (11.1-11.4)
 ```
 
 ### Bonus Features (not in original plan)
@@ -879,7 +880,8 @@ src/
 │   ├── EditorContext.h/cpp          # Editor state capture & serialization
 │   ├── MidiEventSerializer.h/cpp   # MIDI events ↔ JSON conversion
 │   ├── ToolDefinitions.h/cpp       # ✅ Phase 5.2 — Tool schemas + executor (wraps existing handlers)
-│   └── AgentRunner.h/cpp           # ✅ Phase 5.3 — Agent loop engine (tool-calling loop)
+│   ├── AgentRunner.h/cpp           # ✅ Phase 5.3 — Agent loop engine (tool-calling loop)
+│   └── FFXIVChannelFixer.h/cpp     # ✅ Phase 11.1 — Deterministic FFXIV channel fixer
 └── gui/
     ├── MidiPilotWidget.h/cpp        # ✅ Sidebar chat panel
     └── AiSettingsWidget.h/cpp       # ✅ Settings tab for AI config
@@ -1595,10 +1597,354 @@ Phase 9.4  App startup auto-loading                     ✅ DONE
 - ⬜ **Rate limit awareness** + auto-retry for free tiers (Phase 8.3) — *nice-to-have*
 
 ### Completed Since Last Update
+- ✅ **FFXIV Channel Fix** — deterministic `FFXIVChannelFixer` class, toolbar button (Fix X|V Channels), confirmation popup, QSettings bug fix (Phase 11.1-11.4)
+- ✅ **QSettings fix** — FFXIV tools were never sent to LLM due to constructor mismatch; both now use `QSettings("MidiEditor", "NONE")`
 - ✅ **Editable system prompts** via JSON + dialog (Phase 9.1-9.4)
 - ✅ **Manual / Wiki** — GitHub Pages with dark theme + MidiPilot page (Phase 10.6)
 - ✅ **Independent repo & rebranding** — all sub-phases complete (Phase 10.1-10.7)
-- ✅ **v1.0.0 released** on GitHub with automated CI/CD builds
+- ✅ **v1.0.0–v1.1.0 released** on GitHub with automated CI/CD builds
+
+---
+
+## Phase 11: FFXIV Channel Fix — Automated Channel & Program Management ✅
+
+> **Goal:** Remove channel/program_change complexity from the AI by providing a deterministic
+> tool that auto-fixes channel assignments and program_change events for FFXIV MIDI files.
+> Available both as a **one-click UI button** (no AI needed) and as an **AI tool call**.
+> This eliminates the #1 source of LLM errors in FFXIV mode: incorrect channel assignments
+> and missing/wrong program_change events.
+
+### Background & Problem
+
+The current `setup_channel_pattern` tool has several issues:
+1. It skips channel 9 for all tracks, but FFXIV percussion **should** use CH9
+2. It only sets `MidiTrack::assignChannel()` (metadata) — it does NOT move existing
+   note/CC/program_change events to the new channel
+3. Guitar channel reservation is overly complex (reserves a block after non-guitar tracks)
+4. LLMs frequently get channel assignments wrong despite detailed system prompts
+
+### Design: Simple, Deterministic Rules
+
+**Rule 1 — Track-to-Channel Mirror:**
+Each track maps to the channel matching its index: T0→CH0, T1→CH1, T2→CH2, etc.
+
+**Rule 2 — Percussion Exception:**
+If the track name is one of `Bass Drum`, `Snare Drum`, `Cymbal`, `Bongo`,
+all events stay on / move to CH9 (GM Drumkit channel).
+Exception: `Timpani` follows Rule 1 (it's a tonal instrument that can play melodic patterns).
+
+**Rule 3 — Guitar Tracks:**
+Guitar tracks (`ElectricGuitarClean`, `ElectricGuitarMuted`, `ElectricGuitarOverdriven`,
+`ElectricGuitarPowerChords`, `ElectricGuitarSpecial`) also follow Rule 1 — their track
+number determines their channel. This naturally gives each guitar variant its own channel
+without needing a reserved block.
+
+**General: Suffix Stripping (`[+-]\d+$`):**
+All instrument name matching strips a trailing `[+-]\d+` suffix before lookup.
+This applies to **every** track, not just guitars. Examples:
+- `Flute+1` → recognized as `Flute` (program 73)
+- `Piano+2` → recognized as `Piano` (program 0)
+- `ElectricGuitarClean+1` → recognized as `ElectricGuitarClean` (program 27)
+- `Snare Drum` → recognized as `Snare Drum` (percussion, CH9)
+
+This allows multiple tracks of the same instrument (e.g., two flutes) while still
+correctly identifying the instrument name and program number.
+
+**Guitar variants without their own track:** If any guitar track exists but not all 5 variants
+have a track, the missing variants get program_change events on free channels (first unused
+channels after all tracks are assigned). These program_changes are attached to the first
+guitar track as carrier.
+
+**Rule 4 — Program Changes:**
+After all channels are assigned, every track gets program_change events at tick 0 for
+**all** used channels (not just its own). This ensures MIDI players like MidiBard2 know the
+complete instrument→channel mapping.
+
+**Rule 5 — Event Migration:**
+All existing events (notes, CC, program_change, etc.) on each track are moved to the
+track's assigned channel. For percussion tracks, events move to CH9. For guitar tracks
+with switch notes on different channels, those notes move to the correct guitar variant channel.
+
+### Algorithm
+
+```
+1. ANALYZE — Scan all tracks:
+   - Classify each track: melodic / percussion / guitar
+   - Build trackIndex → targetChannel map using Rules 1-3
+
+2. CLEAN — Remove all existing program_change events at tick 0
+   (they'll be re-created correctly)
+
+3. MIGRATE — For each track:
+   a. Get all events on this track (across all channels)
+   b. If percussion: moveToChannel(9)
+   c. If melodic/guitar: moveToChannel(trackIndex)
+   d. Special: guitar switch notes — if the note was on a channel
+      that maps to a different guitar variant, keep it on that variant's channel
+
+4. PROGRAM — Insert program_change at tick 0:
+   - For each assigned channel, insert the correct program number
+   - Attach all program_changes to respective tracks
+   - For reserved guitar channels (no track), attach to first guitar track
+
+5. METADATA — Set track.assignChannel() for each track
+
+6. REPORT — Return channel map + changes made
+```
+
+### 11.1 — Core Logic: `FFXIVChannelFixer` Class ✅
+
+New utility class with pure logic (no UI dependency):
+
+```cpp
+// src/ai/FFXIVChannelFixer.h
+
+#pragma once
+#include <QJsonObject>
+#include <QJsonArray>
+
+class MidiFile;
+class MidiPilotWidget;
+
+class FFXIVChannelFixer {
+public:
+    // Static entry point — fixes all channels + program_changes
+    // Returns JSON report of changes made
+    static QJsonObject fixChannels(MidiFile *file, MidiPilotWidget *widget);
+
+    // Read-only analysis — returns proposed channel map without modifying anything
+    static QJsonObject analyzeChannels(MidiFile *file);
+
+private:
+    // Classification helpers
+    static bool isPercussion(const QString &trackName);  // Bass Drum, Snare Drum, Cymbal, Bongo
+    static bool isGuitar(const QString &trackName);       // starts with "ElectricGuitar"
+    static bool isTimpani(const QString &trackName);      // Timpani (tonal, NOT percussion)
+    static int programNumber(const QString &trackName);   // FFXIV GM program lookup
+
+    // Core steps
+    static QHash<int, int> buildChannelMap(MidiFile *file);
+    static void cleanProgramChanges(MidiFile *file);
+    static void migrateEvents(MidiFile *file, const QHash<int, int> &channelMap);
+    static void insertProgramChanges(MidiFile *file, MidiPilotWidget *widget,
+                                      const QHash<int, int> &channelMap);
+};
+```
+
+**Classification logic:**
+
+```cpp
+static bool isPercussion(const QString &name) {
+    // Strip [+-]\d+$ suffix
+    QString base = name;
+    base.remove(QRegularExpression("[+-]\\d+$"));
+    return base == "Bass Drum" || base == "Snare Drum"
+        || base == "Cymbal"    || base == "Bongo";
+}
+
+static bool isTimpani(const QString &name) {
+    QString base = name;
+    base.remove(QRegularExpression("[+-]\\d+$"));
+    return base == "Timpani";
+}
+
+static bool isGuitar(const QString &name) {
+    QString base = name;
+    base.remove(QRegularExpression("[+-]\\d+$"));
+    return base.startsWith("ElectricGuitar");
+}
+```
+
+**Channel map builder:**
+
+```cpp
+QHash<int, int> FFXIVChannelFixer::buildChannelMap(MidiFile *file) {
+    QHash<int, int> map; // trackIndex → channel
+
+    for (int t = 0; t < file->numTracks(); t++) {
+        QString name = file->track(t)->name();
+        if (isPercussion(name)) {
+            map[t] = 9;  // All percussion → CH9
+        } else {
+            map[t] = t;  // Track N → Channel N (melodic, guitar, timpani)
+        }
+    }
+    return map;
+}
+```
+
+**Event migration (key new functionality):**
+
+```cpp
+void FFXIVChannelFixer::migrateEvents(MidiFile *file,
+                                       const QHash<int, int> &channelMap) {
+    for (int t = 0; t < file->numTracks(); t++) {
+        int targetCh = channelMap.value(t, t);
+        MidiTrack *track = file->track(t);
+
+        // Collect all events belonging to this track across all channels
+        for (int ch = 0; ch < 16; ch++) {
+            QMultiMap<int, MidiEvent*> *events = file->channel(ch)->eventMap();
+            QList<MidiEvent*> toMove;
+
+            for (auto it = events->begin(); it != events->end(); ++it) {
+                if (it.value()->track() == track && ch != targetCh) {
+                    toMove.append(it.value());
+                }
+            }
+
+            for (MidiEvent *ev : toMove) {
+                ev->moveToChannel(targetCh);
+            }
+        }
+    }
+}
+```
+
+**Files:** New `src/ai/FFXIVChannelFixer.h`, `src/ai/FFXIVChannelFixer.cpp`
+**Estimated:** ~200 lines
+
+### 11.2 — Replace `setup_channel_pattern` AI Tool ✅
+
+Replace the current `setup_channel_pattern` implementation in `ToolDefinitions.cpp`
+with a call to `FFXIVChannelFixer::fixChannels()`.
+
+```cpp
+// ToolDefinitions.cpp — execSetupChannelPattern() becomes:
+QJsonObject ToolDefinitions::execSetupChannelPattern(MidiFile *file,
+                                                      MidiPilotWidget *widget) {
+    return FFXIVChannelFixer::fixChannels(file, widget);
+}
+```
+
+The tool schema stays the same (no parameters needed). The AI just calls
+`setup_channel_pattern` and the deterministic fixer handles everything.
+
+**Update tool description** in `toolSchemas()` to clarify what it does:
+```
+"Automatically fix all FFXIV channel assignments and program_change events.
+ Maps each track to its matching channel (T0→CH0, T1→CH1), percussion to CH9,
+ and inserts correct program_change events at tick 0 for all channels.
+ Moves all existing events to their correct channels.
+ Call this after creating/modifying tracks to ensure correct FFXIV channel setup."
+```
+
+**Files:** Modify `ToolDefinitions.cpp` (~5 lines changed)
+
+### 11.3 — UI Button: "Fix X|V Channels" ✅
+
+Add a menu item and optional toolbar button in `MainWindow.cpp`:
+
+```
+Tools menu:
+  ...existing items...
+  ─────────────
+  Fix FFXIV Channels    (Ctrl+Shift+F)
+```
+
+**Implementation in MainWindow:**
+
+```cpp
+// In MainWindow::setupActions():
+toolsMB->addSeparator();
+QAction *ffxivChannelFixAction = new QAction(tr("Fix FFXIV Channels"), this);
+ffxivChannelFixAction->setShortcut(
+    QKeySequence(QKeyCombination(Qt::CTRL | Qt::SHIFT, Qt::Key_F)));
+connect(ffxivChannelFixAction, &QAction::triggered, this, &MainWindow::fixFFXIVChannels);
+toolsMB->addAction(ffxivChannelFixAction);
+
+// New slot:
+void MainWindow::fixFFXIVChannels() {
+    MidiFile *file = this->file();
+    if (!file) return;
+
+    // Show confirmation dialog with preview
+    QJsonObject analysis = FFXIVChannelFixer::analyzeChannels(file);
+    // ... show dialog with proposed changes ...
+
+    file->protocol()->startNewAction("Fix FFXIV Channels");
+    QJsonObject result = FFXIVChannelFixer::fixChannels(file, _midiPilotWidget);
+    file->protocol()->endAction();
+
+    // Show summary
+    int tracksFixed = result["tracksModified"].toInt();
+    QMessageBox::information(this, tr("FFXIV Channel Fix"),
+        tr("Fixed %1 track(s). All channels and program changes updated.")
+            .arg(tracksFixed));
+
+    updateTrackMenu();
+    emit repaintAllRequested();
+}
+```
+
+**Key UX points:**
+- Works without AI / without API key — pure local operation
+- Wrapped in protocol action → fully undoable with Ctrl+Z
+- Confirmation dialog shows what will change before applying
+- Status message shows summary after completion
+
+**Files:** Modify `MainWindow.h` (~3 lines), `MainWindow.cpp` (~30 lines)
+
+### 11.4 — Simplify FFXIV System Prompts ✅
+
+With the channel fixer handling all channel logic, the FFXIV system prompts can be
+dramatically simplified. Remove all channel/program_change rules and replace with:
+
+```
+### Channels & Program Changes
+Do NOT worry about channel assignments or program_change events.
+After creating or modifying tracks, call the setup_channel_pattern tool.
+It will automatically:
+- Map each track to the correct channel (T0→CH0, T1→CH1, percussion→CH9)
+- Insert all required program_change events at tick 0
+- Move any misplaced events to the correct channel
+
+Just focus on creating the right tracks with correct instrument names and notes.
+```
+
+This removes ~40 lines of complex channel rules from both the full and compact FFXIV
+prompts, replacing them with ~5 lines. The AI only needs to:
+1. Create tracks with valid FFXIV instrument names
+2. Put notes in the correct range (C3-C6)
+3. Call `setup_channel_pattern` when done
+
+**Files:** Modify `EditorContext.cpp` (~40 lines removed, ~5 added)
+
+### Implementation Order
+
+```
+Phase 11.1  Core logic (FFXIVChannelFixer class)         ✅ DONE
+Phase 11.2  Replace setup_channel_pattern tool            ✅ DONE
+Phase 11.3  UI button (Fix X|V Channels)                  ✅ DONE — toolbar + menu + confirmation popup
+Phase 11.4  Simplify FFXIV system prompts                 ✅ DONE
+```
+
+### Estimated Complexity
+
+| Sub-phase | New Code | Modified Code | Risk |
+|-----------|----------|---------------|------|
+| 11.1 FFXIVChannelFixer class | ~200 lines | CMakeLists.txt (~1 line) | Medium — event migration |
+| 11.2 Replace setup_channel_pattern | ~5 lines | ToolDefinitions.cpp (~100 lines replaced) | Low |
+| 11.3 UI button | ~30 lines | MainWindow.h (~3), MainWindow.cpp (~30) | Low |
+| 11.4 Simplify prompts | ~5 lines | EditorContext.cpp (~40 lines removed) | Low |
+
+### Key Considerations
+
+- **Undoable:** The UI button wraps everything in `protocol()->startNewAction()` /
+  `endAction()`, so Ctrl+Z reverts all channel changes at once.
+- **Idempotent:** Running the fixer twice produces the same result. Safe to re-run.
+- **No AI dependency:** The UI button works without any API key or AI connection.
+  Users can manually create FFXIV tracks and fix channels with one click.
+- **Backward compatible:** The AI tool name `setup_channel_pattern` stays the same.
+  Existing custom prompts referencing it will still work.
+- **Track limit not enforced here:** The 8-track limit stays in the system prompt.
+  The channel fixer works with any number of tracks (up to 16 channels).
+  If there are more than 16 non-percussion tracks, channels wrap or clamp to 15.
+- **Existing events preserved:** Notes, CC, and other events are moved — not deleted
+  and re-created. Timing, velocity, duration all stay intact.
+- **Guitar switch notes:** If a guitar track has notes on multiple channels (for
+  switching between variants), those notes are kept on their respective variant
+  channels, not all moved to the track's primary channel.
 
 ---
 
