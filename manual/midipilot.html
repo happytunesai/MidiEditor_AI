@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MidiPilot — AI Copilot | MidiEditor AI Manual</title>
+<title>MidiPilot ï¿½ AI Copilot | MidiEditor AI Manual</title>
 <link rel="stylesheet" href="style.css">
 <style>
 .screenshot-row { display: flex; flex-wrap: wrap; gap: 1.5rem; justify-content: center; margin: 1.5rem 0; }
@@ -47,7 +47,7 @@
 </head>
 <body>
 <div class="nav-bar">
-<div class="nav-header"><span class="nav-icon">&#129302;</span><span class="nav-title">MidiEditor AI Manual</span><span class="nav-version">v1.0.2</span></div>
+<div class="nav-header"><span class="nav-icon">&#129302;</span><span class="nav-title">MidiEditor AI Manual</span><span class="nav-version">v1.1.0</span></div>
 <div class="nav-links">
 <a href="index.html">Index</a>
 <a href="introduction.html">Introduction</a>
@@ -262,6 +262,61 @@ When the <b>FFXIV</b> checkbox is enabled, MidiPilot appends additional constrai
 
 <p>
 See <a href="prompt-examples.html#ffxiv">FFXIV Prompt Examples</a> for tested prompts.
+</p>
+
+<hr>
+
+<h2 id="fix-xv-channels">Fix X|V Channels</h2>
+
+<p>
+The <b>Fix X|V Channels</b> button provides a <b>one-click, deterministic</b> channel fixer that sets up the complete MidiBard2 channel mapping without using any AI calls. Find it in the toolbar or via <b>Tools &rarr; Fix X|V Channels</b>.
+</p>
+
+<div class="screenshot-single">
+<img src="screenshots/midipilot-ffxiv-channelfix_popup.png" alt="Fix X|V Channels confirmation dialog" width="480">
+<div class="caption">Confirmation dialog before applying the channel fix</div>
+</div>
+
+<h3>What It Does</h3>
+
+<p>
+The fixer runs a 5-step algorithm on the current MIDI file:
+</p>
+
+<ol>
+<li><b>Analyze</b> &mdash; Scans all tracks and identifies instruments by track name</li>
+<li><b>Clean</b> &mdash; Removes all existing <code>program_change</code> events from every track</li>
+<li><b>Migrate</b> &mdash; Assigns each track a unique MIDI channel (guitars get 5 channels for variant switching)</li>
+<li><b>Program</b> &mdash; Inserts correct <code>program_change</code> events at tick 0 for each channel</li>
+<li><b>Report</b> &mdash; Displays a summary of all changes made</li>
+</ol>
+
+<h3>Before &amp; After</h3>
+
+<div class="screenshot-row">
+<img src="screenshots/midipilot-ffxiv-channelfix_before.png" alt="Before Fix X|V Channels" width="420">
+<img src="screenshots/midipilot-ffxiv-channelfix_fixed.png" alt="After Fix X|V Channels" width="420">
+</div>
+<div class="caption">Before &mdash; channels and programs unconfigured &nbsp;&bull;&nbsp; After &mdash; MidiBard2 mapping applied</div>
+
+<div class="screenshot-single">
+<img src="screenshots/ffxiv_channel_fix.gif" alt="Fix X|V Channels animation" width="700">
+<div class="caption">Full Fix X|V Channels workflow &mdash; one click from messy channels to clean MidiBard2 mapping</div>
+</div>
+
+<h3>Validation</h3>
+
+<p>
+After applying the fix, use <b>validate_ffxiv</b> (via MidiPilot Agent) to confirm FFXIV rule compliance:
+</p>
+
+<div class="screenshot-single">
+<img src="screenshots/midipilot-ffxiv-validate.png" alt="FFXIV validation after channel fix" width="600">
+<div class="caption">Validation confirms all tracks pass FFXIV Bard Performance rules</div>
+</div>
+
+<p>
+The entire operation is wrapped in a single undo action &mdash; press <b>Ctrl+Z</b> to revert all changes at once.
 </p>
 
 <hr>

@@ -5,6 +5,31 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 
 ---
 
+## [1.1.0] - 2026-03-25
+
+### Added
+* **Fix X|V Channels** — one-click deterministic FFXIV channel fixer (no AI call needed):
+  - Toolbar button + menu entry under Tools → Fix X|V Channels
+  - 5-step algorithm: Analyze → Clean all program_change → Migrate channels → Program mapping → Report
+  - Guitar tracks automatically get 5 channels for variant switching (Clean, Muted, Overdriven, PowerChords, Special)
+  - Confirmation popup before applying changes
+  - Entire operation wrapped in a single undo action
+* `FFXIVChannelFixer` class — static deterministic fixer delegated from `setup_channel_pattern` tool
+* Toolbar migration code ensures Fix X|V button appears for existing users
+
+### Fixed
+* **QSettings constructor mismatch** — FFXIV tools (`setup_channel_pattern`, `validate_ffxiv`, `convert_drums_ffxiv`) were never sent to the LLM because `ToolDefinitions` read from a different registry path than `MidiPilotWidget` wrote to. Both now use `QSettings("MidiEditor", "NONE")`
+
+### Changed
+* FFXIV system prompts simplified — removed verbose channel/program tables, now instructs the LLM to call `setup_channel_pattern` once
+* UI label renamed from "Fix FFXIV Channels" to "Fix X|V Channels" across all dialogs and menus
+* README: added Fix X|V Channels to Features table, FFXIV constraint table, and Tools reference
+* Manual: new Fix X|V Channels section in MidiPilot page with before/after screenshots and animated GIF
+* Manual: new Fix X|V Channels entry in Tools Menu page
+* Version bump to 1.1.0
+
+---
+
 ## [1.0.2] - 2026-03-24
 
 ### Changed

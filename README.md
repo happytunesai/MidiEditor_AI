@@ -16,7 +16,7 @@
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-0078D6?logo=windows)](https://github.com/happytunesai/MidiEditor_AI/releases)
 
-**Version:** 1.0.2
+**Version:** 1.1.0
 **Status:** Release
 
 📥 **[Download Latest Release](https://github.com/happytunesai/MidiEditor_AI/releases/latest)**
@@ -55,6 +55,7 @@ MidiPilot is the AI brain embedded directly in MidiEditor AI. Open the sidebar, 
 | 🎯 **Agent Mode** | Multi-step agentic loop — AI calls tools iteratively, inspecting results between steps |
 | 💬 **Simple Mode** | Single request/response for quick edits and small tasks |
 | 🎮 **FFXIV Bard Mode** | Enforces Final Fantasy XIV Performance constraints (8 tracks, monophonic, C3–C6) |
+| 🎸 **Fix X\|V Channels** | One-click deterministic channel fixer — sets up MidiBard2 mapping, guitar switches, and program changes |
 | 🔌 **Multi-Provider** | OpenAI, OpenRouter, Google Gemini, or any OpenAI-compatible endpoint |
 | 🧠 **Reasoning Support** | Configurable thinking/reasoning effort (None → Extra High) |
 | 📊 **Token Tracking** | Real-time token usage display per request and session |
@@ -114,6 +115,7 @@ When the **FFXIV** checkbox is enabled, MidiPilot enforces Final Fantasy XIV con
 | 🥁 **Drums** | No drum kit — separate tonal tracks (Bass Drum, Snare, Cymbal, etc.) |
 | 🎸 **Guitars** | 5 electric guitar variants via channel-based switching |
 | ⚡ **Auto-Setup** | Channel pattern tool configures MidiBard2 mapping automatically |
+| 🎸 **Fix X\|V Channels** | One-click toolbar button — deterministic channel fixer resets all program changes and maps the FFXIV channel pattern (no AI needed) |
 
 ## 🔌 Supported Providers
 
@@ -139,6 +141,8 @@ The AI has access to 13 tools for inspecting and modifying MIDI files:
 | `move_events_to_track` | Move events between tracks |
 | `set_tempo` / `set_time_signature` | Change tempo and meter |
 | `setup_channel_pattern` | Auto-configure MidiBard2 channel mapping *(FFXIV)* |
+
+> **Tip:** The **Fix X\|V Channels** toolbar button runs the same channel setup deterministically — no AI call needed. Find it in **Tools → Fix X\|V Channels** or on the toolbar.
 | `validate_ffxiv` | Check FFXIV rule compliance *(FFXIV)* |
 | `convert_drums_ffxiv` | Convert GM drums to FFXIV tonal percussion *(FFXIV)* |
 

@@ -92,6 +92,7 @@
 
 #include "../Terminal.h"
 #include "../protocol/Protocol.h"
+#include "../ai/FFXIVChannelFixer.h"
 
 #include "../MidiEvent/MidiEvent.h"
 #include "../MidiEvent/NoteOnEvent.h"
@@ -1667,6 +1668,38 @@ void MainWindow::strumNotes() {
     }
 }
 
+void MainWindow::fixFFXIVChannels() {
+    if (!file) {
+        QMessageBox::warning(this, tr("Fix X|V Channels"), tr("No file loaded."));
+        return;
+    }
+
+    // Confirmation dialog before executing
+    QMessageBox confirmBox(this);
+    confirmBox.setWindowTitle(tr("Fix X|V Channels"));
+    confirmBox.setText(tr("This action resets all Program Changes and maps the Final Fantasy X|V channel setup."));
+    confirmBox.setStandardButtons(QMessageBox::Yes | QMessageBox::No);
+    confirmBox.setDefaultButton(QMessageBox::No);
+    confirmBox.button(QMessageBox::Yes)->setText(tr("Yes, Continue"));
+    confirmBox.button(QMessageBox::No)->setText(tr("No, Abort"));
+    if (confirmBox.exec() != QMessageBox::Yes) {
+        return;
+    }
+
+    file->protocol()->startNewAction(tr("Fix X|V Channels"));
+    QJsonObject result = FFXIVChannelFixer::fixChannels(file);
+    file->protocol()->endAction();
+
+    if (result["success"].toBool()) {
+        updateAll();
+        QMessageBox::information(this, tr("Fix X|V Channels"),
+                                 result["summary"].toString());
+    } else {
+        QMessageBox::warning(this, tr("Fix X|V Channels"),
+                             result["error"].toString());
+    }
+}
+
 void MainWindow::deleteOverlaps() {
     if (!file) {
         return;
@@ -2289,9 +2322,9 @@ void MainWindow::convertPitchBendToNotes() {
     // Prompt user for pitch bend range
     bool ok;
     QStringList items;
-    items << tr("±2 semitones (General MIDI default)")
-          << tr("±12 semitones (Guitar/Bass VSTs)")
-          << tr("±24 semitones (Extreme pitch modulation)")
+    items << tr("Â±2 semitones (General MIDI default)")
+          << tr("Â±12 semitones (Guitar/Bass VSTs)")
+          << tr("Â±24 semitones (Extreme pitch modulation)")
           << tr("Custom...");
     
     QString item = QInputDialog::getItem(this, 
@@ -2314,7 +2347,7 @@ void MainWindow::convertPitchBendToNotes() {
     } else { // Custom
         bendRangeSemis = QInputDialog::getDouble(this,
                                                   tr("Custom Pitch Bend Range"),
-                                                  tr("Enter pitch bend range in semitones (±):"),
+                                                  tr("Enter pitch bend range in semitones (Â±):"),
                                                   2.0, 1.0, 96.0, 1, &ok);
         if (!ok) {
             return; // User cancelled
@@ -3333,6 +3366,14 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
 
     toolsMB->addSeparator();
 
+    QAction *fixFFXIVAction = new QAction(tr("Fix X|V Channels"), this);
+    Appearance::setActionIcon(fixFFXIVAction, ":/run_environment/graphics/tool/ffxiv_fix.png");
+    connect(fixFFXIVAction, SIGNAL(triggered()), this, SLOT(fixFFXIVChannels()));
+    toolsMB->addAction(fixFFXIVAction);
+    _actionMap["fix_ffxiv_channels"] = fixFFXIVAction;
+
+    toolsMB->addSeparator();
+
     QAction *quantizeAction = new QAction(tr("Quantify selection"), this);
     _activateWithSelections.append(quantizeAction);
     Appearance::setActionIcon(quantizeAction, ":/run_environment/graphics/tool/quantize.png");
@@ -4282,6 +4323,17 @@ QWidget *MainWindow::createCustomToolbar(QWidget *parent) {
         if (!enabledActions.contains("toggle_midipilot")) {
             enabledActions << "toggle_midipilot";
         }
+        // Migration: ensure fix_ffxiv_channels is present in saved custom settings
+        if (!actionOrder.contains("fix_ffxiv_channels")) {
+            int sep14Idx = actionOrder.indexOf("separator14");
+            if (sep14Idx >= 0)
+                actionOrder.insert(sep14Idx, "fix_ffxiv_channels");
+            else
+                actionOrder << "fix_ffxiv_channels";
+        }
+        if (!enabledActions.contains("fix_ffxiv_channels")) {
+            enabledActions << "fix_ffxiv_channels";
+        }
     }
 
     // Only prepend essential actions for single row mode
@@ -4660,6 +4712,17 @@ void MainWindow::updateToolbarContents(QWidget *toolbarWidget, QGridLayout *btnL
         }
         if (!enabledActions.contains("toggle_midipilot")) {
             enabledActions << "toggle_midipilot";
+        }
+        // Migration: ensure fix_ffxiv_channels is present in saved custom settings
+        if (!actionOrder.contains("fix_ffxiv_channels")) {
+            int sep14Idx = actionOrder.indexOf("separator14");
+            if (sep14Idx >= 0)
+                actionOrder.insert(sep14Idx, "fix_ffxiv_channels");
+            else
+                actionOrder << "fix_ffxiv_channels";
+        }
+        if (!enabledActions.contains("fix_ffxiv_channels")) {
+            enabledActions << "fix_ffxiv_channels";
         }
     }
 

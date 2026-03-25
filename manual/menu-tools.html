@@ -8,7 +8,7 @@
 </head>
 <body>
 <div class="nav-bar">
-<div class="nav-header"><span class="nav-icon">&#129302;</span><span class="nav-title">MidiEditor AI Manual</span><span class="nav-version">v1.0.2</span></div>
+<div class="nav-header"><span class="nav-icon">&#129302;</span><span class="nav-title">MidiEditor AI Manual</span><span class="nav-version">v1.1.0</span></div>
 <div class="nav-links">
   <a href="index.html">Index</a>
   <a href="introduction.html">Introduction</a>
@@ -257,6 +257,17 @@
 			<i>Add or remove measures</i><br>
 			Allows to add or remove measures.
                         <a href="editing-midi-files.html#measures">Click here for details</a>
+		</td>
+	</tr>
+	<tr>
+		<td valign="top"><img src="tools/ffxiv_fix.png" width="20px" height="20px"/></td>
+		<td>
+			<i>Fix X|V Channels</i><br>
+			One-click deterministic FFXIV channel fixer. Removes all existing program changes,
+			assigns unique channels per track (with 5 channels for guitar variant switching),
+			and inserts correct MidiBard2 program mappings at tick 0.
+			The entire operation is wrapped in a single undo action.
+			<a href="midipilot.html#fix-xv-channels">Click here for details</a>
 		</td>
 	</tr>
 

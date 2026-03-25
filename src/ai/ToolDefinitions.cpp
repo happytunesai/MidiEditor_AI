@@ -1,4 +1,5 @@
 #include "ToolDefinitions.h"
+#include "FFXIVChannelFixer.h"
 
 #include "../gui/MidiPilotWidget.h"
 #include "EditorContext.h"
@@ -311,7 +312,7 @@ QJsonArray ToolDefinitions::toolSchemas() {
     }
 
     // --- FFXIV tools (only when FFXIV mode is active) ---
-    if (QSettings().value("AI/ffxiv_mode", false).toBool()) {
+    if (QSettings("MidiEditor", "NONE").value("AI/ffxiv_mode", false).toBool()) {
 
         // validate_ffxiv (no parameters)
         {
@@ -339,10 +340,11 @@ QJsonArray ToolDefinitions::toolSchemas() {
         {
             tools.append(makeTool(
                 "setup_channel_pattern",
-                "Auto-configure MIDI channels and program_change events for all tracks. "
-                "Assigns each track a unique channel, inserts program_change at tick 0 for "
-                "each instrument, and pre-configures all 5 guitar switch channels when any "
-                "guitar track is present. Call after creating/renaming tracks.",
+                "Fix FFXIV channel assignments and program_change events for all tracks. "
+                "Moves events to the correct channel (track N → channel N, percussion → CH9), "
+                "removes old program_change at tick 0, inserts correct program_change for every "
+                "used channel on every track, and configures guitar switch channels. "
+                "Call once after all tracks are created/renamed.",
                 makeParams(QJsonObject(), QJsonArray())));
         }
     }
@@ -859,176 +861,9 @@ static int ffxivProgramNumber(const QString &instrumentName) {
 }
 
 // ---------------------------------------------------------------------------
-// setup_channel_pattern — auto-configure channels + program_change for all tracks
+// setup_channel_pattern — delegates to FFXIVChannelFixer
 // ---------------------------------------------------------------------------
 QJsonObject ToolDefinitions::execSetupChannelPattern(MidiFile *file,
-                                                      MidiPilotWidget *widget) {
-    QJsonObject result;
-    if (!file) {
-        result["success"] = false;
-        result["error"] = QString("No file loaded.");
-        return result;
-    }
-
-    int trackCount = file->numTracks();
-    if (trackCount == 0) {
-        result["success"] = false;
-        result["error"] = QString("No tracks in file.");
-        return result;
-    }
-
-    // Check if any guitar track exists
-    bool hasGuitar = false;
-    for (int t = 0; t < trackCount; t++) {
-        if (isGuitarInstrument(file->track(t)->name())) {
-            hasGuitar = true;
-            break;
-        }
-    }
-
-    // Guitar switch channels: always reserve 5 channels for guitar variants
-    // when any guitar is present
-    static const QStringList guitarVariants = {
-        "ElectricGuitarClean", "ElectricGuitarMuted",
-        "ElectricGuitarOverdriven", "ElectricGuitarPowerChords",
-        "ElectricGuitarSpecial"
-    };
-
-    // Build channel assignments:
-    // - Non-guitar tracks get unique channels starting from 0
-    // - All guitar variants share a block of 5 channels
-    // - Skip channel 9 (GM drum channel, some players choke on it)
-    QJsonArray channelMap;
-    int nextChannel = 0;
-    QHash<QString, int> guitarChannels; // variant name → channel
-    int guitarBlockStart = -1;
-
-    // First pass: assign guitar block if needed
-    if (hasGuitar) {
-        // Count non-guitar tracks to determine where guitar block starts
-        int nonGuitarCount = 0;
-        for (int t = 0; t < trackCount; t++) {
-            if (!isGuitarInstrument(file->track(t)->name()))
-                nonGuitarCount++;
-        }
-        // Place guitar block after non-guitar channels
-        guitarBlockStart = nonGuitarCount;
-        if (guitarBlockStart >= 9) guitarBlockStart++; // skip ch 9
-        for (int i = 0; i < guitarVariants.size(); i++) {
-            int ch = guitarBlockStart + i;
-            if (ch >= 9) ch++; // skip ch 9
-            if (ch > 15) ch = 15; // clamp
-            guitarChannels[guitarVariants[i]] = ch;
-        }
-    }
-
-    // Second pass: assign channels to tracks
-    for (int t = 0; t < trackCount; t++) {
-        MidiTrack *track = file->track(t);
-        QString name = track->name();
-        QString baseName = name;
-        QRegularExpression suffixRe("[+-]\\d+$");
-        baseName.remove(suffixRe);
-
-        int channel;
-        if (isGuitarInstrument(name)) {
-            // Use the guitar channel for this variant
-            channel = guitarChannels.value(baseName, guitarBlockStart);
-        } else {
-            channel = nextChannel;
-            if (channel == 9) channel = nextChannel + 1; // skip ch 9
-            nextChannel = channel + 1;
-        }
-
-        // Set the track's channel
-        {
-            QJsonObject setChAction;
-            setChAction["action"] = QString("set_channel");
-            setChAction["trackIndex"] = t;
-            setChAction["channel"] = channel;
-            setChAction["explanation"] = QString("FFXIV channel pattern: %1 → ch %2").arg(name).arg(channel);
-            widget->executeAction(setChAction);
-        }
-
-        // Insert program_change at tick 0 on this channel
-        int program = ffxivProgramNumber(name);
-        if (program >= 0) {
-            QJsonArray events;
-            QJsonObject pc;
-            pc["type"] = QString("program_change");
-            pc["tick"] = 0;
-            pc["program"] = program;
-            events.append(pc);
-
-            QJsonObject insertAction;
-            insertAction["action"] = QString("edit");
-            insertAction["events"] = events;
-            insertAction["track"] = t;
-            insertAction["channel"] = channel;
-            insertAction["explanation"] = QString("FFXIV program_change: %1 (program %2)").arg(name).arg(program);
-            widget->executeAction(insertAction);
-        }
-
-        QJsonObject entry;
-        entry["track"] = t;
-        entry["name"] = name;
-        entry["channel"] = channel;
-        entry["program"] = program;
-        channelMap.append(entry);
-    }
-
-    // If guitar is present, also insert program_change for unused guitar variants
-    if (hasGuitar) {
-        QSet<QString> usedGuitars;
-        for (int t = 0; t < trackCount; t++) {
-            QString baseName = file->track(t)->name();
-            QRegularExpression suffixRe("[+-]\\d+$");
-            baseName.remove(suffixRe);
-            if (baseName.startsWith("ElectricGuitar"))
-                usedGuitars.insert(baseName);
-        }
-
-        QJsonArray extraGuitarChannels;
-        for (const QString &variant : guitarVariants) {
-            if (usedGuitars.contains(variant)) continue;
-            // Insert program_change on the reserved channel (on track 0 as carrier)
-            int ch = guitarChannels.value(variant, -1);
-            if (ch < 0) continue;
-
-            int program = ffxivProgramNumber(variant);
-            QJsonArray events;
-            QJsonObject pc;
-            pc["type"] = QString("program_change");
-            pc["tick"] = 0;
-            pc["program"] = program;
-            events.append(pc);
-
-            QJsonObject insertAction;
-            insertAction["action"] = QString("edit");
-            insertAction["events"] = events;
-            insertAction["track"] = 0; // attach to first track
-            insertAction["channel"] = ch;
-            insertAction["explanation"] = QString("FFXIV guitar switch reserve: %1 (program %2, ch %3)")
-                                              .arg(variant).arg(program).arg(ch);
-            widget->executeAction(insertAction);
-
-            QJsonObject entry;
-            entry["variant"] = variant;
-            entry["channel"] = ch;
-            entry["program"] = program;
-            entry["reserved"] = true;
-            extraGuitarChannels.append(entry);
-        }
-        if (!extraGuitarChannels.isEmpty())
-            result["reservedGuitarChannels"] = extraGuitarChannels;
-    }
-
-    result["success"] = true;
-    result["channelMap"] = channelMap;
-    result["summary"] = QString("Configured %1 track channels with program_change events%2")
-                            .arg(trackCount)
-                            .arg(hasGuitar ? QString(", plus %1 reserved guitar switch channels")
-                                               .arg(5 - (int)channelMap.size()) // unused guitar count
-                                           : QString());
-    return result;
+                                                      MidiPilotWidget * /*widget*/) {
+    return FFXIVChannelFixer::fixChannels(file);
 }

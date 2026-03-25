@@ -539,6 +539,11 @@ public slots:
     void strumNotes();
 
     /**
+     * \brief Fixes FFXIV channel assignments and program_change events.
+     */
+    void fixFFXIVChannels();
+
+    /**
      * \brief Marks the file as edited (unsaved changes).
      */
     void markEdited();
