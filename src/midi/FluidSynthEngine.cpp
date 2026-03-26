@@ -134,6 +134,12 @@ void FluidSynthEngine::shutdown() {
     }
 
     if (_synth) {
+        // Preserve SoundFont paths so they reload on next initialize()
+        _pendingSoundFontPaths.clear();
+        for (int i = _loadedFonts.size() - 1; i >= 0; --i) {
+            _pendingSoundFontPaths.append(_loadedFonts[i].second);
+        }
+
         // Unload all SoundFonts
         for (const auto &pair : _loadedFonts) {
             fluid_synth_sfunload(_synth, pair.first, 1);

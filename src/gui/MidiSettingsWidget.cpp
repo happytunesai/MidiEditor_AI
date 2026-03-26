@@ -415,6 +415,9 @@ void MidiSettingsWidget::refreshColors() {
 void MidiSettingsWidget::updateFluidSynthSettingsEnabled() {
     bool enabled = MidiOutput::isFluidSynthOutput();
     _fluidSynthSettingsGroup->setEnabled(enabled);
+    if (enabled) {
+        refreshSoundFontList();
+    }
 }
 
 void MidiSettingsWidget::addSoundFont() {
