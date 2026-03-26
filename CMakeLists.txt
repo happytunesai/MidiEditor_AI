@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20 FATAL_ERROR)
 
-set(MIDIEDITOR_RELEASE_VERSION_STRING "1.1.1")
+set(MIDIEDITOR_RELEASE_VERSION_STRING "1.1.2")
 project(MidiEditorAI VERSION ${MIDIEDITOR_RELEASE_VERSION_STRING} LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -184,6 +184,63 @@ target_link_libraries(MidiEditorAI PRIVATE
 # Link system OpenGL library for cross-platform compatibility
 find_package(OpenGL REQUIRED)
 target_link_libraries(MidiEditorAI PRIVATE ${OPENGL_LIBRARIES})
+
+# Optional FluidSynth support for built-in synthesizer
+# Accept pre-built install dir via -DFLUIDSYNTH_DIR=... or FLUIDSYNTH_DIR env var
+if(NOT FLUIDSYNTH_DIR)
+    set(FLUIDSYNTH_DIR "$ENV{FLUIDSYNTH_DIR}")
+endif()
+
+if(FLUIDSYNTH_DIR)
+    # Pre-built path provided — search there first
+    find_library(FLUIDSYNTH_LIBRARY
+        NAMES fluidsynth libfluidsynth libfluidsynth-3
+        PATHS "${FLUIDSYNTH_DIR}/lib"
+        NO_DEFAULT_PATH
+    )
+    find_path(FLUIDSYNTH_INCLUDE_DIR
+        NAMES fluidsynth.h
+        PATHS "${FLUIDSYNTH_DIR}/include"
+        NO_DEFAULT_PATH
+    )
+    if(FLUIDSYNTH_LIBRARY AND FLUIDSYNTH_INCLUDE_DIR)
+        set(FLUIDSYNTH_FOUND TRUE)
+    else()
+        message(WARNING "FLUIDSYNTH_DIR set to '${FLUIDSYNTH_DIR}' but fluidsynth not found there")
+    endif()
+endif()
+
+if(NOT FLUIDSYNTH_FOUND)
+    # Fallback: pkg-config (Linux/macOS system install)
+    find_package(PkgConfig QUIET)
+    if(PkgConfig_FOUND)
+        pkg_check_modules(FLUIDSYNTH IMPORTED_TARGET fluidsynth)
+    endif()
+endif()
+
+if(NOT FLUIDSYNTH_FOUND)
+    # Last resort: generic system search
+    find_library(FLUIDSYNTH_LIBRARY NAMES fluidsynth libfluidsynth libfluidsynth-3)
+    find_path(FLUIDSYNTH_INCLUDE_DIR NAMES fluidsynth.h)
+    if(FLUIDSYNTH_LIBRARY AND FLUIDSYNTH_INCLUDE_DIR)
+        set(FLUIDSYNTH_FOUND TRUE)
+    endif()
+endif()
+
+if(FLUIDSYNTH_FOUND)
+    message(STATUS "FluidSynth found - enabling built-in synthesizer support")
+    target_compile_definitions(MidiEditorAI PRIVATE FLUIDSYNTH_SUPPORT)
+    # Pass define to MOC so it processes headers inside #ifdef FLUIDSYNTH_SUPPORT
+    set_property(TARGET MidiEditorAI APPEND PROPERTY AUTOMOC_MOC_OPTIONS "-DFLUIDSYNTH_SUPPORT")
+    if(TARGET PkgConfig::FLUIDSYNTH)
+        target_link_libraries(MidiEditorAI PRIVATE PkgConfig::FLUIDSYNTH)
+    else()
+        target_include_directories(MidiEditorAI PRIVATE ${FLUIDSYNTH_INCLUDE_DIR})
+        target_link_libraries(MidiEditorAI PRIVATE ${FLUIDSYNTH_LIBRARY})
+    endif()
+else()
+    message(STATUS "FluidSynth not found - built-in synthesizer disabled")
+endif()
 
 # Additional linking for MinGW compatibility
 if(WIN32 AND CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
@@ -379,6 +436,19 @@ if(WIN32)
                 $<TARGET_FILE_DIR:MidiEditorAI>/plugins/platforms/
             COMMENT "Ensuring Qt platform plugins are available"
         )
+
+        # Copy FluidSynth DLLs to build directory if found
+        if(FLUIDSYNTH_FOUND AND FLUIDSYNTH_DIR)
+            file(GLOB FLUIDSYNTH_DLLS "${FLUIDSYNTH_DIR}/bin/*.dll")
+            if(FLUIDSYNTH_DLLS)
+                add_custom_command(TARGET MidiEditorAI POST_BUILD
+                    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                        ${FLUIDSYNTH_DLLS}
+                        $<TARGET_FILE_DIR:MidiEditorAI>/
+                    COMMENT "Copying FluidSynth DLLs to build directory"
+                )
+            endif()
+        endif()
     else()
         message(WARNING "windeployqt not found - attempting manual Qt deployment")
 
@@ -430,6 +500,12 @@ if(PLAT_WINDOWS)
             foreach(FILE \${DSENGINE_FILES})
                 file(REMOVE \${FILE})
             endforeach()
+            if(NOT \"${FLUIDSYNTH_DIR}\" STREQUAL \"\")
+                file(GLOB FS_DLLS \"${FLUIDSYNTH_DIR}/bin/*.dll\")
+                if(FS_DLLS)
+                    file(COPY \${FS_DLLS} DESTINATION \${CMAKE_INSTALL_PREFIX}/${BIN_DIR})
+                endif()
+            endif()
         ")
     endif()
 endif()

@@ -116,6 +116,10 @@
 #include "../midi/PlayerThread.h"
 #include "../midi/InstrumentDefinitions.h"
 
+#ifdef FLUIDSYNTH_SUPPORT
+#include "../midi/FluidSynthEngine.h"
+#endif
+
 MainWindow::MainWindow(QString initFile)
     : QMainWindow()
       , _initFile(initFile) {
@@ -145,6 +149,21 @@ MainWindow::MainWindow(QString initFile)
     Metronome::setEnabled(_settings->value("metronome", false).toBool());
     bool loudnessOk;
     Metronome::setLoudness(_settings->value("metronome_loudness", 100).toInt(&loudnessOk));
+
+#ifdef FLUIDSYNTH_SUPPORT
+    FluidSynthEngine::instance()->loadSettings(_settings);
+    connect(FluidSynthEngine::instance(), &FluidSynthEngine::engineRestarted, this, [this]() {
+        if (this->file && MidiOutput::isConnected()) {
+            MidiOutput::resetChannelPrograms();
+            for (int ch = 0; ch < 16; ch++) {
+                int prog = this->file->channel(ch)->progAtTick(0);
+                if (prog >= 0) {
+                    MidiOutput::sendProgram(ch, prog);
+                }
+            }
+        }
+    });
+#endif
 
     _quantizationGrid = _settings->value("quantization", 3).toInt();
 
@@ -180,7 +199,7 @@ MainWindow::MainWindow(QString initFile)
 
     EditorTool::setMainWindow(this);
 
-    setWindowTitle(QApplication::applicationName() + " " + QApplication::applicationVersion());
+    setWindowTitle(QApplication::applicationName() + " v" + QApplication::applicationVersion());
     // Note: setWindowIcon doesn't use QAction, so we keep the direct approach
     setWindowIcon(Appearance::adjustIconForDarkMode(":/run_environment/graphics/icon.png"));
 
@@ -754,7 +773,7 @@ void MainWindow::setFile(MidiFile *newFile) {
     _midiPilotWidget->onFileChanged(newFile);
     this->file = newFile;
     connect(newFile, SIGNAL(trackChanged()), this, SLOT(updateTrackMenu()));
-    setWindowTitle(QApplication::applicationName() + " - " + newFile->path() + "[*]");
+    setWindowTitle(QApplication::applicationName() + " v" + QApplication::applicationVersion() + " - " + newFile->path() + "[*]");
     connect(newFile, SIGNAL(cursorPositionChanged()), channelWidget, SLOT(update()));
 
     // Connect recalcWidgetSize to the matrix widget container
@@ -1209,7 +1228,7 @@ void MainWindow::saveas() {
         }
 
         file->setPath(newPath);
-        setWindowTitle(QApplication::applicationName() + " - " + file->path() + "[*]");
+        setWindowTitle(QApplication::applicationName() + " v" + QApplication::applicationVersion() + " - " + file->path() + "[*]");
         updateRecentPathsList();
         setWindowModified(false);
     } else {
@@ -1405,6 +1424,10 @@ void MainWindow::closeEvent(QCloseEvent *event) {
     _settings->setValue("thru", MidiInput::thru());
     _settings->setValue("quantization", _quantizationGrid);
 
+#ifdef FLUIDSYNTH_SUPPORT
+    FluidSynthEngine::instance()->saveSettings(_settings);
+#endif
+
     Appearance::writeSettings(_settings);
 
     // Cleanup shared clipboard resources
@@ -1496,7 +1519,7 @@ void MainWindow::newFile() {
     setFile(f);
 
     editTrack(1);
-    setWindowTitle(QApplication::applicationName() + tr(" - Untitled Document[*]"));
+    setWindowTitle(QApplication::applicationName() + " v" + QApplication::applicationVersion() + tr(" - Untitled Document[*]"));
 }
 
 void MainWindow::panic() {
@@ -1726,6 +1749,7 @@ void MainWindow::fixFFXIVChannels() {
         int trackCount = result["trackCount"].toInt();
         int removedPCs = result["removedProgramChanges"].toInt();
         int switchPCs  = result["guitarSwitchProgramChanges"].toInt();
+        int velNorm    = result["velocityNormalized"].toInt();
         QJsonArray channelMap = result["channelMap"].toArray();
         QJsonArray renames    = result["trackRenames"].toArray();
 
@@ -1762,6 +1786,8 @@ void MainWindow::fixFFXIVChannels() {
         html += QString("&#x1F5D1; Removed <b>%1</b> old program change(s)").arg(removedPCs);
         if (switchPCs > 0)
             html += QString("<br>&#x1F3B8; Inserted <b>%1</b> mid-song guitar switch(es)").arg(switchPCs);
+        if (velNorm > 0)
+            html += QString("<br>&#x1F50A; Normalized <b>%1</b> note velocity(ies) to 127").arg(velNorm);
         if (!renames.isEmpty()) {
             html += QString("<br>&#x1F4DD; Renamed <b>%1</b> track(s):").arg(renames.size());
             for (const auto &r : renames) {

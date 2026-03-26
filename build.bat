@@ -8,10 +8,11 @@ call "C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools\VC\Auxiliar
 set CMAKE_EXE="C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe"
 set QT_DIR=C:\Qt\6.5.3\msvc2019_64
 set CMAKE_PREFIX_PATH=%QT_DIR%
+set FLUIDSYNTH_DIR=%~dp0fluidsynth\fluidsynth-v2.5.2-win10-x64-cpp11
 
 echo.
 echo === CMake Configure ===
-%CMAKE_EXE% -S . -B build -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=%QT_DIR%
+%CMAKE_EXE% -S . -B build -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=%QT_DIR% -DFLUIDSYNTH_DIR=%FLUIDSYNTH_DIR%
 if %ERRORLEVEL% neq 0 (
     echo CMake configuration FAILED!
     pause

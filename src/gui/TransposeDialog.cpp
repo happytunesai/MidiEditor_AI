@@ -53,8 +53,8 @@ TransposeDialog::TransposeDialog(QList<NoteOnEvent *> toTranspose, MidiFile *fil
     layout->addWidget(_valueBox, 0, 1, 1, 2);
     layout->addWidget(_up, 1, 0, 1, 1);
     layout->addWidget(_down, 1, 2, 1, 1);
-    layout->addWidget(acceptButton, 2, 0, 1, 1);
-    layout->addWidget(breakButton, 2, 2, 1, 1);
+    layout->addWidget(breakButton, 2, 0, 1, 1);
+    layout->addWidget(acceptButton, 2, 2, 1, 1);
     layout->setColumnStretch(1, 1);
 
     _valueBox->setFocus();

@@ -41,13 +41,14 @@
 </head>
 <body>
 <div class="nav-bar">
-<div class="nav-header"><span class="nav-icon">&#129302;</span><span class="nav-title">MidiEditor AI Manual</span><span class="nav-version">v1.1.0</span></div>
+<div class="nav-header"><span class="nav-icon">&#129302;</span><span class="nav-title">MidiEditor AI Manual</span><span class="nav-version">v1.1.2</span></div>
 <div class="nav-links">
 <a href="index.html">Index</a>
 <a href="introduction.html">Introduction</a>
 <a href="midipilot.html">MidiPilot</a>
 <a href="prompt-examples.html">Prompt Examples</a>
 <a href="ffxiv-channel-fixer.html" class="active">Fix X|V</a>
+<a href="soundfont.html">SoundFonts</a>
 <a href="midi-overview.html">MIDI Overview</a>
 <a href="editor-and-components.html">Editor</a>
 <a href="setup.html">Setup</a>
@@ -74,7 +75,7 @@ It requires <b>no AI calls</b>, no API key, and works fully offline.
 <h2 id="overview">How It Works</h2>
 
 <p>
-The fixer analyzes your MIDI file by track name, auto-detects the best mode, and applies a <b>5-step algorithm</b> to set up all channel assignments and program changes. The entire operation is wrapped in a single undo action.
+The fixer analyzes your MIDI file by track name, auto-detects the best mode, and applies a <b>6-step algorithm</b> to set up all channel assignments and program changes. The entire operation is wrapped in a single undo action.
 </p>
 
 <div class="step-grid">
@@ -124,6 +125,7 @@ When you click <b>Fix X|V Channels</b>, a confirmation dialog appears with two m
 <li>Removes <b>all</b> existing program changes</li>
 <li>Moves all events to the correct channel</li>
 <li>Inserts new program changes at tick 0</li>
+<li>Normalizes all note velocities to 127 (max)</li>
 </ul>
 </td>
 <td>New or unconfigured MIDI files, files exported from a DAW, files with scrambled channels</td>
@@ -136,6 +138,7 @@ When you click <b>Fix X|V Channels</b>, a confirmation dialog appears with two m
 <li>Non-guitar channels completely untouched</li>
 <li>Only refreshes guitar program changes (tick 0 + switch points)</li>
 <li>Auto-renames guitar tracks if first note differs from track name</li>
+<li>Normalizes all note velocities to 127 (max)</li>
 </ul>
 </td>
 <td>Already configured files needing a guitar touch-up, files that were partially fixed by MidiPilot AI</td>
@@ -168,6 +171,7 @@ After the fix completes, a structured result popup shows exactly what was change
 <li><b>Channel mapping table</b> &mdash; Track &rarr; Instrument &rarr; Channel &rarr; Program number</li>
 <li><b>Removed program changes</b> &mdash; how many old PCs were cleaned up</li>
 <li><b>Guitar switches</b> &mdash; how many mid-song variant switches were inserted</li>
+<li><b>Velocity normalization</b> &mdash; how many notes were set to maximum velocity</li>
 <li><b>Track renames</b> &mdash; any guitar tracks auto-renamed to match their actual variant</li>
 </ul>
 
@@ -299,5 +303,6 @@ The entire Fix X|V Channels operation is wrapped in a <b>single undo action</b>.
     });
 })();
 </script>
+<script src="lightbox.js"></script>
 </body>
 </html>

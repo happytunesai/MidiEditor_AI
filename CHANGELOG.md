@@ -5,6 +5,33 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 
 ---
 
+## [1.1.2] - 2026-03-26 — FluidSynth & FFXIV SoundFont Mode
+
+### Added
+* **Built-in FluidSynth synthesizer** (upstream merge from [Meowchestra/MidiEditor](https://github.com/Meowchestra/MidiEditor)) — no external softsynth needed. Select *FluidSynth (Built-in Synthesizer)* as MIDI output and load any SF2/SF3 SoundFont directly in Settings
+* **SoundFont stack management** (upstream) — load multiple SoundFonts with drag-and-drop priority ordering; highest-priority font is checked first for presets
+* **SoundFont download dialog** (upstream) — one-click download of recommended SoundFonts (General MIDI, FFXIV) from within the application
+* **FFXIV SoundFont Mode** — single toggle in FluidSynth settings that:
+  - Sets all 16 MIDI channels to melodic (bank 0) for FFXIV SoundFonts where percussion uses melodic presets
+  - Injects per-note program changes on CH9 based on track name, so each drum instrument (Snare Drum, Bass Drum, Cymbal, Bongo, Timpani) plays with the correct SoundFont preset — no MIDI file modification needed
+* **Velocity normalization** in Fix X|V Channels — Tier 2 (Rebuild) and Tier 3 (Preserve) now set all NoteOn velocities to 127 (max), since FFXIV performance has no dynamics
+* **Manual: SoundFont & FluidSynth page** — new documentation section covering built-in synth setup, SoundFont management, FFXIV SoundFont Mode, and audio settings
+* **Version in title bar** — application window title now shows `MidiEditor AI v1.1.2` (with version number) on startup, file open, save, and new document
+
+### Fixed
+* **Fix X|V Channels Rebuild mode: guitar notes stuck on wrong channel** — removed an incorrect guitar-channel exemption that prevented notes from being moved to their target channel when the source channel belonged to another guitar variant (e.g., Track 5 PowerChords notes stayed on CH1 instead of moving to CH5)
+* **Transpose dialog button order** — swapped Cancel/Accept buttons back to original MidiEditor layout (Cancel left, Accept right) to match muscle memory from the original editor
+
+### Changed
+* **Fix X|V Channels** — "All Channels Melodic (FFXIV)" checkbox renamed to **"FFXIV SoundFont Mode"** with updated tooltip explaining both melodic channels and drum program injection
+* **Fix X|V Channels result dialog** — now shows velocity normalization count (🔊 Normalized X note velocity(ies) to 127)
+* **Fix X|V Channels tier descriptions** — both Rebuild and Preserve modes now list velocity normalization as a bullet point
+* Manual: updated Fix X|V Channels page with new screenshots and velocity normalization info
+* README: added FluidSynth / SoundFont section and updated Features table
+* Version bump to 1.1.2
+
+---
+
 ## [1.1.1] - 2026-03-25 — Upstream merge
 
 ### Changed

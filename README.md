@@ -16,7 +16,7 @@
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-0078D6?logo=windows)](https://github.com/happytunesai/MidiEditor_AI/releases)
 
-**Version:** 1.1.1
+**Version:** 1.1.2
 **Status:** Release
 
 📥 **[Download Latest Release](https://github.com/happytunesai/MidiEditor_AI/releases/latest)**
@@ -55,7 +55,8 @@ MidiPilot is the AI brain embedded directly in MidiEditor AI. Open the sidebar, 
 | 🎯 **Agent Mode** | Multi-step agentic loop — AI calls tools iteratively, inspecting results between steps |
 | 💬 **Simple Mode** | Single request/response for quick edits and small tasks |
 | 🎮 **FFXIV Bard Mode** | Enforces Final Fantasy XIV Performance constraints (8 tracks, monophonic, C3–C6) |
-| 🎸 **Fix X\|V Channels** | One-click deterministic channel fixer — choose Rebuild or Preserve mode, see a rich result summary with channel mapping, program changes, and track renames |
+| 🎸 **Fix X\|V Channels** | One-click deterministic channel fixer — Rebuild or Preserve mode, velocity normalization, rich result summary |
+| 🔊 **Built-in FluidSynth** | Play MIDI without external softsynth — load SF2/SF3 SoundFonts, SoundFont stacking, FFXIV SoundFont Mode |
 | 🔌 **Multi-Provider** | OpenAI, OpenRouter, Google Gemini, or any OpenAI-compatible endpoint |
 | 🧠 **Reasoning Support** | Configurable thinking/reasoning effort (None → Extra High) |
 | 📊 **Token Tracking** | Real-time token usage display per request and session |
@@ -76,6 +77,7 @@ MidiEditor AI
 │   ├── ToolDefinitions   → 13 MIDI manipulation tools for AI
 │   └── SystemPrompts     → Customizable per-mode AI instructions
 ├── FFXIV Module         → Bard Performance validation & drum conversion
+├── FluidSynth Engine    → Built-in software synthesizer with SoundFont support
 ├── Multi-Provider       → OpenAI / OpenRouter / Gemini / Custom / Local
 ├── MIDI I/O             → RtMidi for real-time MIDI device communication
 └── Settings             → Provider, model, appearance, keybinds, layout
@@ -129,6 +131,27 @@ The **Fix X|V Channels** button provides a deterministic channel fixer for FFXIV
 </p>
 
 Find it in the toolbar or via **Tools → Fix X|V Channels**. The entire operation is a single undo action (Ctrl+Z).
+
+---
+
+## 🔊 Built-in FluidSynth Synthesizer
+
+MidiEditor AI includes a **built-in software synthesizer** powered by [FluidSynth](https://www.fluidsynth.org/). No external softsynth (like VirtualMIDISynth or CoolSoft) is needed — just select *FluidSynth (Built-in Synthesizer)* as your MIDI output.
+
+<p align="center">
+  <img src="manual/screenshots/midipilot-Soundfont_settings.png" alt="FluidSynth SoundFont settings" width="450"/>
+  <img src="manual/screenshots/midipilot-Soundfont_settings_download.png" alt="SoundFont download dialog" width="350"/>
+  <br/>
+  <i>SoundFont management &mdash; Download dialog for recommended SoundFonts</i>
+</p>
+
+**Key features:**
+- **SoundFont management** — load multiple SF2/SF3 files with priority-based stacking
+- **One-click download** — built-in download dialog for General MIDI and FFXIV SoundFonts
+- **FFXIV SoundFont Mode** — treats all 16 channels as melodic (bank 0) and auto-injects drum program changes based on track names, so FFXIV percussion plays correctly without modifying the MIDI file
+- **Audio settings** — configurable audio driver, gain, sample rate, reverb & chorus
+
+📖 **[FluidSynth Documentation →](https://happytunesai.github.io/MidiEditor_AI/soundfont.html)**
 
 ---
 

@@ -27,15 +27,24 @@
 
 #include "rtmidi/RtMidi.h"
 
+#ifdef FLUIDSYNTH_SUPPORT
+#include "FluidSynthEngine.h"
+#endif
+
 using namespace rt::midi;
 
 #include "../MidiEvent/NoteOnEvent.h"
 #include "../MidiEvent/OffEvent.h"
+#include "../midi/MidiTrack.h"
 
 RtMidiOut *MidiOutput::_midiOut = 0;
 QString MidiOutput::_outPort = "";
 QMap<int, QList<int> > MidiOutput::playedNotes = QMap<int, QList<int> >();
 bool MidiOutput::isAlternativePlayer = false;
+
+#ifdef FLUIDSYNTH_SUPPORT
+const QString MidiOutput::FLUIDSYNTH_PORT_NAME = QStringLiteral("FluidSynth (Built-in Synthesizer)");
+#endif
 
 int MidiOutput::_stdChannel = 0;
 
@@ -55,6 +64,28 @@ void MidiOutput::sendCommand(QByteArray array) {
 
 void MidiOutput::sendCommand(MidiEvent *e) {
     if (e->channel() >= 0 && e->channel() < 16 || e->line() == MidiEvent::SYSEX_LINE) {
+
+#ifdef FLUIDSYNTH_SUPPORT
+        // Per-note drum program injection for FluidSynth:
+        // When FFXIV SoundFont Mode is active, all drums share CH9.
+        // Before each NoteOn on CH9, send a Program Change matching the
+        // track's FFXIV percussion instrument so FluidSynth uses the
+        // correct SoundFont preset.
+        if (isFluidSynthOutput() && e->channel() == 9) {
+            NoteOnEvent *noteOn = dynamic_cast<NoteOnEvent *>(e);
+            if (noteOn && noteOn->velocity() > 0 && e->track()) {
+                int prog = FluidSynthEngine::instance()->drumProgramForTrackName(
+                    e->track()->name());
+                if (prog >= 0) {
+                    QByteArray pc;
+                    pc.append(static_cast<char>(0xC9)); // Program Change CH9
+                    pc.append(static_cast<char>(prog));
+                    sendEnqueuedCommand(pc);
+                }
+            }
+        }
+#endif
+
         sendEnqueuedCommand(e->save());
 
         if (isAlternativePlayer) {
@@ -89,10 +120,39 @@ QStringList MidiOutput::outputPorts() {
         }
     }
 
+#ifdef FLUIDSYNTH_SUPPORT
+    // Add FluidSynth as a virtual output port
+    ports.append(FLUIDSYNTH_PORT_NAME);
+#endif
+
     return ports;
 }
 
 bool MidiOutput::setOutputPort(QString name) {
+#ifdef FLUIDSYNTH_SUPPORT
+    // Handle FluidSynth virtual port
+    if (name == FLUIDSYNTH_PORT_NAME) {
+        // Close any RtMidi port
+        _midiOut->closePort();
+
+        // Initialize FluidSynth engine
+        FluidSynthEngine *engine = FluidSynthEngine::instance();
+        if (!engine->isInitialized()) {
+            if (!engine->initialize()) {
+                qWarning() << "Failed to initialize FluidSynth engine";
+                return false;
+            }
+        }
+        _outPort = name;
+        return true;
+    }
+
+    // If switching away from FluidSynth, shut it down
+    if (_outPort == FLUIDSYNTH_PORT_NAME) {
+        FluidSynthEngine::instance()->shutdown();
+    }
+#endif
+
     // try to find the port
     unsigned int nPorts = _midiOut->getPortCount();
 
@@ -120,6 +180,14 @@ QString MidiOutput::outputPort() {
 
 void MidiOutput::sendEnqueuedCommand(QByteArray array) {
     if (_outPort != "") {
+#ifdef FLUIDSYNTH_SUPPORT
+        // Route to FluidSynth if it's the active output
+        if (_outPort == FLUIDSYNTH_PORT_NAME) {
+            FluidSynthEngine::instance()->sendMidiData(array);
+            return;
+        }
+#endif
+
         // convert data to std::vector
         std::vector<unsigned char> message;
 
@@ -160,3 +228,9 @@ void MidiOutput::resetChannelPrograms()
 bool MidiOutput::isConnected() {
     return _outPort != "";
 }
+
+#ifdef FLUIDSYNTH_SUPPORT
+bool MidiOutput::isFluidSynthOutput() {
+    return _outPort == FLUIDSYNTH_PORT_NAME;
+}
+#endif

@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SoundFonts &amp; FluidSynth - MidiEditor AI Manual</title>
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="nav-bar">
+<div class="nav-header"><span class="nav-icon">&#129302;</span><span class="nav-title">MidiEditor AI Manual</span><span class="nav-version">v1.1.2</span></div>
+<div class="nav-links">
+<a href="index.html">Index</a>
+<a href="introduction.html">Introduction</a>
+<a href="midipilot.html">MidiPilot</a>
+<a href="prompt-examples.html">Prompt Examples</a>
+<a href="ffxiv-channel-fixer.html">Fix X|V</a>
+<a href="soundfont.html" class="active">SoundFonts</a>
+<a href="midi-overview.html">MIDI Overview</a>
+<a href="editor-and-components.html">Editor</a>
+<a href="setup.html">Setup</a>
+<a href="editing-midi-files.html">Editing</a>
+<a href="playback.html">Playback</a>
+<a href="record.html">Recording</a>
+</div>
+</div>
+
+<h2>SoundFonts &amp; FluidSynth</h2>
+
+<p>
+  MidiEditor AI includes a <b>built-in FluidSynth synthesizer</b> so you can play back MIDI files
+  without any external software. FluidSynth renders audio from <b>SoundFont</b> files (.sf2/.sf3)
+  which contain sampled instrument sounds. No drivers, no DAWs, no setup &mdash; just open a file
+  and press play.
+</p>
+
+<p class="note">
+  <b>Note:</b> The FluidSynth integration is based on upstream work from the
+  <a href="https://github.com/Meowchestra/MidiEditor" target="_blank">Meowchestra/MidiEditor</a>
+  project, extended with FFXIV-specific features in MidiEditor AI.
+</p>
+
+<!-- ───────── Settings overview ───────── -->
+<h3 id="settings">FluidSynth Settings</h3>
+
+<p>
+  Open <b>MIDI &rarr; Settings&hellip;</b> and select the <b>Midi I/O</b> card. When
+  FluidSynth is available you will see it listed as an output device
+  (<i>FluidSynth (Built-in Synthesizer)</i>) plus a dedicated <b>FluidSynth Settings</b> panel
+  below the I/O lists.
+</p>
+
+<img class="figure" src="screenshots/midipilot-Soundfont_settings.png" width="700"
+     alt="FluidSynth settings panel showing SoundFont list, audio driver, sample rate, reverb engine, gain, and FFXIV SoundFont Mode checkbox"/>
+
+<table>
+<tr><th>Setting</th><th>Description</th></tr>
+<tr><td><b>SoundFont list</b></td><td>Loaded SoundFonts in priority order (top = highest). Use <i>Add&hellip;</i>, <i>Remove</i>, <i>Up</i>, <i>Down</i> to manage.</td></tr>
+<tr><td><b>Driver</b></td><td>Audio output driver (DirectSound, WASAPI, etc.).</td></tr>
+<tr><td><b>Rate</b></td><td>Sample rate in Hz. Higher values sound better but use more CPU.</td></tr>
+<tr><td><b>Reverb Engine</b></td><td>Choose the reverb algorithm (FDN Reverb is recommended).</td></tr>
+<tr><td><b>Gain</b></td><td>Master volume (0.0 &ndash; 1.0). Click <i>Reset</i> to restore the default.</td></tr>
+<tr><td><b>Reverb / Chorus</b></td><td>Toggle built-in reverb and chorus effects.</td></tr>
+<tr><td><b>FFXIV SoundFont Mode</b></td><td>Special mode for FFXIV Bard SoundFonts &mdash; see <a href="#ffxiv-mode">below</a>.</td></tr>
+</table>
+
+<!-- ───────── Managing SoundFonts ───────── -->
+<h3 id="managing">Managing SoundFonts</h3>
+
+<p>
+  SoundFont files are stored in the <code>soundfont/</code> folder next to the MidiEditor executable.
+  You can add SoundFont files in three ways:
+</p>
+
+<ol>
+  <li><b>Add&hellip;</b> &mdash; Browse for any <code>.sf2</code> or <code>.sf3</code> file on your system. It will be copied into the <code>soundfont/</code> folder automatically.</li>
+  <li><b>Download Default&hellip;</b> &mdash; Opens a curated download dialog with popular SoundFonts ready to install with one click.</li>
+  <li><b>Manual</b> &mdash; Drop <code>.sf2</code>/<code>.sf3</code> files directly into the <code>soundfont/</code> folder, then restart MidiEditor or re-open settings.</li>
+</ol>
+
+<h4 id="download">Download Dialog</h4>
+
+<p>
+  Click <b>Download Default&hellip;</b> to open the built-in SoundFont downloader. It lists curated
+  SoundFonts with name, size, and format. Select one or more entries and click
+  <b>Download Selected</b>. Files are saved to the <code>soundfont/</code> folder and appear in the
+  SoundFont list immediately.
+</p>
+
+<img class="figure" src="screenshots/midipilot-Soundfont_settings_download.png" width="400"
+     alt="Download SoundFonts dialog showing FFXIV Bard, GeneralUser GS, and MS Basic v2.0 SoundFonts"/>
+
+<p>Available SoundFonts in the download dialog:</p>
+<table>
+<tr><th>#</th><th>Name</th><th>Size</th><th>Format</th><th>Description</th></tr>
+<tr><td>1</td><td>FFXIV Bard SoundFont (C3-C6 Fixed)</td><td>13.2 MB</td><td>SF2</td><td>FFXIV instrument samples with corrected octave range (C3&ndash;C6). Recommended for bard performance.</td></tr>
+<tr><td>2</td><td>FFXIV Bard SoundFont (Normal)</td><td>13.2 MB</td><td>SF2</td><td>FFXIV instrument samples with original range.</td></tr>
+<tr><td>3</td><td>GeneralUser GS</td><td>30.8 MB</td><td>SF2</td><td>High-quality General MIDI / GS SoundFont covering all 128 GM programs.</td></tr>
+<tr><td>4</td><td>MS Basic v2.0 (MuseScore 4)</td><td>38 MB</td><td>SF3</td><td>Large General MIDI SoundFont from MuseScore. Compressed SF3 format.</td></tr>
+</table>
+
+<p>
+  Check <b>Show Legacy SoundFonts</b> to reveal older or less common options. Click
+  <b>Find More Online&hellip;</b> to open a web search for additional SoundFonts.
+</p>
+
+<!-- ───────── Priority order ───────── -->
+<h3 id="priority">SoundFont Priority</h3>
+
+<p>
+  When multiple SoundFonts are loaded, FluidSynth resolves each program-change request
+  top-to-bottom. The <b>first SoundFont that contains the requested bank/program</b> wins.
+  Use the <i>Up</i> and <i>Down</i> buttons to reorder.
+</p>
+
+<p>
+  <b>Typical stack for FFXIV playback:</b>
+</p>
+<ol>
+  <li><code>FF14-c3c6-fixed.sf2</code> &mdash; FFXIV instruments (top priority)</li>
+  <li><code>GeneralUser-GS.sf2</code> &mdash; fallback for any programs not in the FFXIV font</li>
+</ol>
+
+<!-- ───────── FFXIV SoundFont Mode ───────── -->
+<h3 id="ffxiv-mode">FFXIV SoundFont Mode</h3>
+
+<p>
+  FFXIV Bard SoundFonts store all instruments in <b>Bank 0</b> with unique program numbers.
+  Standard MIDI files, however, typically spread instruments across different MIDI banks.
+  When <b>FFXIV SoundFont Mode</b> is enabled, MidiEditor AI:
+</p>
+
+<ul>
+  <li>Forces <b>Bank 0</b> on every channel so all program changes resolve against the FFXIV SoundFont.</li>
+  <li>Intercepts bank-select CC messages (CC&nbsp;0 and CC&nbsp;32) to prevent them from overriding Bank 0.</li>
+  <li>Maps <b>percussion tracks</b> (Channel 10) to their correct FFXIV program numbers based on the track name
+      (e.g., &ldquo;Snare Drum&rdquo; &rarr; Program 118, &ldquo;Timpani&rdquo; &rarr; Program 47).</li>
+</ul>
+
+<p>
+  This mode only takes effect when FluidSynth is the active output device. It has no effect on
+  external MIDI outputs or on the saved file.
+</p>
+
+<h4>Drum Mapping (Channel 10, Bank 0)</h4>
+<table>
+<tr><th>Track Name Contains</th><th>Program</th></tr>
+<tr><td>Timpani</td><td>47</td></tr>
+<tr><td>Bongo</td><td>116</td></tr>
+<tr><td>Bass Drum</td><td>117</td></tr>
+<tr><td>Snare Drum</td><td>118</td></tr>
+<tr><td>Cymbal</td><td>119</td></tr>
+</table>
+<p>
+  Tracks whose names do not match any of the above are left unchanged on Channel 10.
+</p>
+
+<!-- ───────── Tips ───────── -->
+<h3 id="tips">Tips</h3>
+
+<ul>
+  <li><b>No sound?</b> Make sure <i>FluidSynth (Built-in Synthesizer)</i> is checked in Midi output and at least one SoundFont is loaded.</li>
+  <li><b>Wrong instruments?</b> Reorder SoundFonts so the desired one is on top. Check if FFXIV SoundFont Mode should be enabled or disabled.</li>
+  <li><b>Crackling audio?</b> Lower the sample rate or switch the audio driver (e.g., DirectSound &rarr; WASAPI).</li>
+  <li><b>Too quiet / too loud?</b> Adjust the Gain slider. The default is ~0.52.</li>
+  <li><b>Combined with Fix X|V:</b> Use the <a href="ffxiv-channel-fixer.html">Fix X|V Channel Fixer</a> to set up correct program numbers and channels, then enable FFXIV SoundFont Mode for accurate playback preview.</li>
+</ul>
+
+<div class="footer">
+  <p>MidiEditor AI &mdash; <a href="https://github.com/happytunesai/MidiEditor_AI">GitHub</a> &middot; Created with &hearts; + AI</p>
+</div>
+<script src="lightbox.js"></script>
+</body>
+</html>

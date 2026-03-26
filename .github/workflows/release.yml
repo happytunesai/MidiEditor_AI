@@ -51,9 +51,17 @@ jobs:
         with:
           arch: x64
 
+      - name: Download FluidSynth
+        shell: pwsh
+        run: |
+          $url = "https://github.com/FluidSynth/fluidsynth/releases/download/v2.5.2/fluidsynth-2.5.2-win10-x64-cpp11.zip"
+          Invoke-WebRequest -Uri $url -OutFile fluidsynth.zip
+          Expand-Archive -Path fluidsynth.zip -DestinationPath fluidsynth
+          Remove-Item fluidsynth.zip
+
       - name: CMake Configure
         run: |
-          cmake -S . -B build -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release
+          cmake -S . -B build -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release -DFLUIDSYNTH_DIR=%CD%\fluidsynth\fluidsynth-2.5.2-win10-x64-cpp11
 
       - name: CMake Build
         run: |

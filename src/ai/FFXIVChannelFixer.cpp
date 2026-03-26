@@ -454,11 +454,8 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
                 }
             }
 
-            bool isGuitarTrack = isGuitar(baseNames[t]);
             for (const auto &info : trackEvents) {
                 if (info.currentCh == targetCh) continue;
-                if (isGuitarTrack && allGuitarChs.contains(info.currentCh))
-                    continue;
                 info.ev->moveToChannel(targetCh);
             }
 
@@ -623,7 +620,28 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
     }
 
     // -----------------------------------------------------------------------
-    // 5. REPORT â€” with debug info
+    // 5. VELOCITY â€" normalise all NoteOn velocities to 127 (max)
+    //    FFXIV performance has no dynamics; uniform velocity improves playback.
+    // -----------------------------------------------------------------------
+
+    reportProgress(95, QStringLiteral("Normalizing velocity..."));
+
+    int velocityChangedCount = 0;
+    for (int ch = 0; ch < 16; ch++) {
+        MidiChannel *channel = file->channel(ch);
+        if (!channel) continue;
+        QMultiMap<int, MidiEvent *> *map = channel->eventMap();
+        for (auto it = map->begin(); it != map->end(); ++it) {
+            NoteOnEvent *noteOn = dynamic_cast<NoteOnEvent *>(it.value());
+            if (noteOn && noteOn->velocity() > 0 && noteOn->velocity() != 127) {
+                noteOn->setVelocity(127);
+                velocityChangedCount++;
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // 6. REPORT â€" with debug info
     // -----------------------------------------------------------------------
 
     reportProgress(100, QStringLiteral("Done!"));
@@ -667,6 +685,7 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
     result["channelMap"] = channelMapArr;
     result["guitarSwitchProgramChanges"] = switchCount;
     result["removedProgramChanges"] = removedPcCount;
+    result["velocityNormalized"] = velocityChangedCount;
     result["trackCount"] = trackCount;
     return result;
 }

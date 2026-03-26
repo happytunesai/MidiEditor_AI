@@ -88,10 +88,11 @@ void FFXIVFixerDialog::setupUI(const QJsonObject &analysis) {
     tierLayout->addWidget(_tier3Radio);
     QString tier3Text = QString(
         tr("Minimal-invasive preservation:\n"
-           "• Keeps all existing channel assignments\n"
-           "• Non-guitar channels completely untouched\n"
-           "• Only refreshes guitar program changes (tick 0 + switch points)\n"
-           "• Auto-renames guitar tracks if first note differs from track name\n"
+           "\u2022 Keeps all existing channel assignments\n"
+           "\u2022 Non-guitar channels completely untouched\n"
+           "\u2022 Only refreshes guitar program changes (tick 0 + switch points)\n"
+           "\u2022 Auto-renames guitar tracks if first note differs from track name\n"
+           "\u2022 Normalizes all note velocities to 127 (max)\n"
            "Best for: Already configured files needing a guitar touch-up."));
     QLabel *tier3Desc = new QLabel(tier3Text, tierGroup);
     tier3Desc->setWordWrap(true);
