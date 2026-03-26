@@ -52,14 +52,17 @@ jobs:
           Remove-Item fluidsynth.zip
 
       - name: CMake Configure
+        shell: cmd
         run: |
-          cmake -S . -B build -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release -DFLUIDSYNTH_DIR=%CD%\fluidsynth\fluidsynth-v2.5.2-win10-x64-cpp11
+          cmake -S . -B build -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release -DFLUIDSYNTH_DIR=${{ github.workspace }}\fluidsynth\fluidsynth-v2.5.2-win10-x64-cpp11
 
       - name: CMake Build
+        shell: cmd
         run: |
           cmake --build build --config Release
 
       - name: Deploy Qt
+        shell: cmd
         run: |
           windeployqt build\bin\MidiEditorAI.exe --release --no-translations --no-system-d3d-compiler --no-opengl-sw
 
