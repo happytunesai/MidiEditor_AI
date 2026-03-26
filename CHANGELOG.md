@@ -5,6 +5,14 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 
 ---
 
+## [1.1.2.1] - 2026-03-26 — Hotfix: SoundFont Persistence & CI Fix
+
+### Fixed
+* **SoundFont stack lost when switching MIDI output** — switching from FluidSynth to another output (e.g. Microsoft GS Wavetable) and back no longer loses loaded SoundFonts; the engine now preserves font paths across shutdown/reinitialize cycles
+* **CI/Release workflow: FluidSynth download 404** — updated FluidSynth v2.5.2 asset URL to match upstream's renamed zip (`fluidsynth-v2.5.2-…` instead of `fluidsynth-2.5.2-…`)
+
+---
+
 ## [1.1.2] - 2026-03-26 — FluidSynth & FFXIV SoundFont Mode
 
 ### Added
