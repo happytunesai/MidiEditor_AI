@@ -1513,6 +1513,10 @@ void MainWindow::newFile() {
         }
     }
 
+    // Stop playback before replacing the file to prevent use-after-free
+    // (PlayerThread runs on a separate thread and accesses the MidiFile)
+    stop();
+
     // create new File
     MidiFile *f = new MidiFile();
 

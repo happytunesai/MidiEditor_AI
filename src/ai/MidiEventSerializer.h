@@ -41,13 +41,15 @@ public:
      * \param track The target MidiTrack for new events
      * \param channel The default MIDI channel (0-15)
      * \param createdEvents Output: list of created MidiEvent pointers
+     * \param skippedErrors Output: validation error messages for skipped events
      * \return true if deserialization was successful
      */
     static bool deserialize(const QJsonArray &eventsJson,
                             MidiFile *file,
                             MidiTrack *track,
                             int channel,
-                            QList<MidiEvent *> &createdEvents);
+                            QList<MidiEvent *> &createdEvents,
+                            QStringList *skippedErrors = nullptr);
 
     /**
      * \brief Validates a JSON event object has required fields.

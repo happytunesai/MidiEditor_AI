@@ -99,6 +99,7 @@ private slots:
     void onAgentError(const QString &error);
     void onAgentStepLimitReached(int currentStep, int maxSteps);
     void onModelComboChanged(int index);
+    void onProviderComboChanged(int index);
     void onEffortComboChanged(int index);
 
 private:
@@ -155,6 +156,7 @@ private:
     QTimer *_statusTimer;
     int _dotPhase;
     int _msgPhase;
+    QComboBox *_providerCombo;
     QComboBox *_modelCombo;
     QComboBox *_effortCombo;
     QCheckBox *_ffxivCheck;

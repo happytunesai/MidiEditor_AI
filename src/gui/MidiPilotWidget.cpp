@@ -527,6 +527,19 @@ void MidiPilotWidget::setupUi() {
 
     footerLayout->addStretch();
 
+    _providerCombo = new QComboBox(this);
+    _providerCombo->addItem("OpenAI", "openai");
+    _providerCombo->addItem("OpenRouter", "openrouter");
+    _providerCombo->addItem("Gemini", "gemini");
+    _providerCombo->addItem("Custom", "custom");
+    _providerCombo->setFixedHeight(20);
+    _providerCombo->setStyleSheet("font-size: 11px;");
+    int provIdx = _providerCombo->findData(_client->provider());
+    if (provIdx >= 0) _providerCombo->setCurrentIndex(provIdx);
+    connect(_providerCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &MidiPilotWidget::onProviderComboChanged);
+    footerLayout->addWidget(_providerCombo);
+
     _modelCombo = new QComboBox(this);
     populateFooterModels();
     _modelCombo->setEditable(true);
@@ -577,6 +590,11 @@ void MidiPilotWidget::setupSetupPrompt() {
 
     if (configured) {
         setStatus("Ready", "green");
+        // Sync provider combo with current settings
+        _providerCombo->blockSignals(true);
+        int provIdx = _providerCombo->findData(_client->provider());
+        if (provIdx >= 0) _providerCombo->setCurrentIndex(provIdx);
+        _providerCombo->blockSignals(false);
         // Re-populate model list for current provider (block signals to avoid
         // onModelComboChanged firing during clear/addItem and overwriting
         // the model the user just chose in Settings)
@@ -1021,6 +1039,49 @@ void MidiPilotWidget::onModelComboChanged(int index) {
     }
 }
 
+void MidiPilotWidget::onProviderComboChanged(int index) {
+    Q_UNUSED(index);
+    QString provider = _providerCombo->currentData().toString();
+    if (provider.isEmpty()) return;
+
+    // Save current API key for the old provider
+    QString oldProvider = _client->provider();
+    if (!oldProvider.isEmpty() && oldProvider != provider) {
+        QSettings settings("MidiEditor", "NONE");
+        QString currentKey = settings.value("AI/api_key").toString();
+        if (!currentKey.isEmpty())
+            settings.setValue(QString("AI/api_key/%1").arg(oldProvider), currentKey);
+    }
+
+    // Set new provider and its default base URL
+    _client->setProvider(provider);
+    static const QMap<QString, QString> defaultUrls = {
+        {"openai",     "https://api.openai.com/v1"},
+        {"openrouter", "https://openrouter.ai/api/v1"},
+        {"gemini",     "https://generativelanguage.googleapis.com/v1beta/openai"},
+    };
+    _client->setApiBaseUrl(defaultUrls.value(provider, "https://api.openai.com/v1"));
+
+    // Load API key for the new provider
+    QSettings settings("MidiEditor", "NONE");
+    QString newKey = settings.value(QString("AI/api_key/%1").arg(provider)).toString();
+    settings.setValue("AI/api_key", newKey);
+
+    // Repopulate model list and select first model
+    _modelCombo->blockSignals(true);
+    populateFooterModels();
+    if (_modelCombo->count() > 0) {
+        _modelCombo->setCurrentIndex(0);
+        QString model = _modelCombo->currentData().toString();
+        if (!model.isEmpty()) _client->setModel(model);
+    }
+    _modelCombo->blockSignals(false);
+    _effortCombo->setVisible(_client->isReasoningModel());
+
+    // Update setup prompt (checks if API key is present)
+    setupSetupPrompt();
+}
+
 void MidiPilotWidget::onEffortComboChanged(int index) {
     Q_UNUSED(index);
     QString effort = _effortCombo->currentData().toString();
@@ -1319,7 +1380,8 @@ QJsonObject MidiPilotWidget::applyAiEdits(const QJsonObject &response, bool show
 
     // Deserialize and insert new events
     QList<MidiEvent *> created;
-    bool ok = MidiEventSerializer::deserialize(events, _file, track, channel, created);
+    QStringList skippedErrors;
+    bool ok = MidiEventSerializer::deserialize(events, _file, track, channel, created, &skippedErrors);
 
     if (!ok) {
         if (showBubbles) {
@@ -1342,6 +1404,13 @@ QJsonObject MidiPilotWidget::applyAiEdits(const QJsonObject &response, bool show
 
     result["success"] = true;
     result["eventsCreated"] = created.size();
+    if (!skippedErrors.isEmpty()) {
+        result["skipped"] = skippedErrors.size();
+        QJsonArray errArr;
+        for (const QString &e : skippedErrors)
+            errArr.append(e);
+        result["skippedErrors"] = errArr;
+    }
     result["summary"] = buildMusicalSummary(created);
     return result;
 }
@@ -1757,7 +1826,8 @@ QJsonObject MidiPilotWidget::applySelectAndEdit(const QJsonObject &response, boo
     // Deserialize and insert new events
     Selection::instance()->clearSelection();
     QList<MidiEvent *> created;
-    MidiEventSerializer::deserialize(events, _file, targetTrack, channel, created);
+    QStringList skippedErrors;
+    MidiEventSerializer::deserialize(events, _file, targetTrack, channel, created, &skippedErrors);
 
     if (!created.isEmpty()) {
         Selection::instance()->setSelection(created);
@@ -1769,6 +1839,13 @@ QJsonObject MidiPilotWidget::applySelectAndEdit(const QJsonObject &response, boo
 
     result["success"] = true;
     result["eventsCreated"] = created.size();
+    if (!skippedErrors.isEmpty()) {
+        result["skipped"] = skippedErrors.size();
+        QJsonArray errArr;
+        for (const QString &e : skippedErrors)
+            errArr.append(e);
+        result["skippedErrors"] = errArr;
+    }
     result["summary"] = buildMusicalSummary(created);
     return result;
 }

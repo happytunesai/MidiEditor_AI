@@ -239,7 +239,8 @@ bool MidiEventSerializer::deserialize(const QJsonArray &eventsJson,
                                        MidiFile *file,
                                        MidiTrack *defaultTrack,
                                        int channel,
-                                       QList<MidiEvent *> &createdEvents)
+                                       QList<MidiEvent *> &createdEvents,
+                                       QStringList *skippedErrors)
 {
     if (!file || !defaultTrack) return false;
 
@@ -250,6 +251,8 @@ bool MidiEventSerializer::deserialize(const QJsonArray &eventsJson,
 
         QString errorMsg;
         if (!validateEventJson(obj, errorMsg)) {
+            if (skippedErrors)
+                skippedErrors->append(QStringLiteral("Event %1: %2").arg(i).arg(errorMsg));
             continue; // Skip invalid events
         }
 

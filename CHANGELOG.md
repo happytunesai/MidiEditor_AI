@@ -5,6 +5,26 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 
 ---
 
+## [1.1.3] - 2026-03-28 — Prompt Architecture v2, Crash Fix & Provider Selector
+
+### Added
+* **Provider selector in MidiPilot footer** — switch between OpenAI, OpenRouter, Gemini, and Custom directly in the chat panel without opening Settings. Automatically swaps API key, base URL, and model list per provider
+* **Prompt: Priority Rule (Phase 12.1)** — mode-specific prompts (e.g. FFXIV) now explicitly override general rules, eliminating the #1 source of FFXIV agent errors (inserting `program_change` when the mode says not to)
+* **Prompt: Final Validation Block (Phase 12.2)** — compact checklist appended to system prompts that the LLM reviews before responding (field requirements, value ranges, FFXIV constraints)
+* **Prompt: Timing Reference (Phase 12.3)** — explicit note duration formulas (quarter = ticksPerQuarter, eighth = ticksPerQuarter/2, etc.) so LLMs no longer miscalculate rhythms
+* **Prompt: Truncation Fallback (Phase 12.4)** — instruction to produce the smallest complete musically coherent version instead of truncated output when a request is too large
+* **Prompt: Schema unification (Phase 12.6)** — Simple mode prompt now always requires the `actions[]` array format, reducing ambiguity (parser still accepts single-action format for backward compat)
+* **Agent mode: Invalid event feedback (Phase 12.5)** — `deserialize()` now collects validation errors and returns them in the tool result (`skippedErrors` array), allowing the LLM to self-correct in subsequent tool calls instead of silently losing events
+
+### Fixed
+* **Crash: New File during playback** — `newFile()` now stops playback before replacing the MIDI file, and `MidiPlayer::stop()` waits for the player thread to finish (`wait()`), preventing a use-after-free crash when the old file was deleted while `PlayerThread` still accessed it on a separate thread
+
+### Changed
+* Removed unused `tsEvents` variable in `EditorContext::captureKeySignature()` (Phase 12.7)
+* Version bump to 1.1.3
+
+---
+
 ## [1.1.2.2] - 2026-03-28 — Manual Update: Prompt Examples & CI
 
 ### Added

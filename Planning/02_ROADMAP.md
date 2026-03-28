@@ -789,7 +789,8 @@ Phase 8    Multi-provider & free API access              ✅ DONE (8.1, 8.2, 8.5
 Phase 9    Editable system prompts (JSON + dialog)       ✅ DONE (9.1-9.4)
 Phase 10   Independent repo & rebranding                 ✅ DONE (10.1-10.7)
 Phase 11   FFXIV Channel Fix (deterministic fixer + UI)   ✅ DONE (11.1-11.4)
-Phase 11.5 FFXIV Channel Fix v2 — 3-Tier Detection       🔧 IN PROGRESS
+Phase 11.5 FFXIV Channel Fix v2 — 3-Tier Detection       ✅ DONE (v1.1.0 + v1.1.2)
+Phase 12   Prompt Architecture v2                         ⬜ TODO (12.1-12.7)
 ```
 
 #### Phase 11.5 — 3-Tier Smart Detection (Fix X|V v2)
@@ -1604,6 +1605,13 @@ Phase 9.4  App startup auto-loading                     ✅ DONE
 - ⬜ **Rate limit awareness** + auto-retry for free tiers (Phase 8.3) — *nice-to-have*
 
 ### Completed Since Last Update
+- ✅ **Prompt Architecture v2 (Phase 12.1-12.7)** — priority rule, validation block, timing reference, truncation fallback, event error feedback, schema unification, unused variable removal (v1.1.3)
+- ✅ **Provider selector in MidiPilot footer** — switch provider/model directly in chat panel (v1.1.3)
+- ✅ **Crash fix: New File during playback** — use-after-free in PlayerThread (v1.1.3)
+- ✅ **FFXIV Channel Fix v2** — 3-Tier Smart Detection shipped in v1.1.0 + v1.1.2 (Tier 1 Not-FFXIV, Tier 2 Rebuild, Tier 3 Preserve)
+- ✅ **Velocity normalization** — Tier 2 & 3 set all NoteOn velocities to 127 (v1.1.2)
+- ✅ **FluidSynth integration** — built-in synthesizer merged from upstream (v1.1.2)
+- ✅ **FFXIV SoundFont Mode** — per-note program changes on CH9 for drum instruments (v1.1.2)
 - ✅ **FFXIV Channel Fix** — deterministic `FFXIVChannelFixer` class, toolbar button (Fix X|V Channels), confirmation popup, QSettings bug fix (Phase 11.1-11.4)
 - ✅ **QSettings fix** — FFXIV tools were never sent to LLM due to constructor mismatch; both now use `QSettings("MidiEditor", "NONE")`
 - ✅ **Editable system prompts** via JSON + dialog (Phase 9.1-9.4)
@@ -2086,3 +2094,237 @@ Phase 10.7  README update for new repo                   ✅ DONE
 - [ ] Auto-suggest mode? (AI proactively offers suggestions?) — *deferred, not planned*
 - [ ] Keyboard shortcut for "apply last AI suggestion"? — *deferred*
 - [ ] Support for batch operations (multiple prompts queued)? — *deferred*
+
+---
+
+## Phase 12: Prompt Architecture v2 ✅ DONE (v1.1.3)
+
+> **Goal:** Improve the reliability and consistency of LLM responses by resolving prompt
+> conflicts, tightening the JSON schema, restructuring prompt priority, and adding both
+> prompt-level and code-level validation. Based on a systematic external review.
+>
+> **Source:** `MidiEditor_AI_Prompt_Review.md` (external review, March 2026)
+>
+> **Scope:** Changes to `EditorContext.cpp` (prompt text) + `MidiEventSerializer.cpp` /
+> `MidiPilotWidget.cpp` (validation code). No UI changes, no new features.
+
+### Background & Motivation
+
+The current prompt architecture is functional and above-average for an embedded AI assistant.
+However, several issues reduce reliability, especially in FFXIV mode and for complex
+multi-step compositions:
+
+1. **Conflicting rules** — `agentSystemPrompt()` says "ALWAYS insert program_change at tick 0"
+   but `ffxivContext()` says "Do NOT manually set channels or insert program_change".
+   LLMs don't reliably prioritize mode-specific rules over general ones.
+2. **No final validation block** — The system prompt describes rules throughout the text
+   but lacks a compact checklist the LLM reviews before responding.
+3. **Implicit timing** — Only "see ticksPerQuarter" is mentioned, no concrete tick values
+   for common note durations. LLMs frequently miscalculate rhythms.
+4. **No truncation prevention** — The prompt asks for complete output but gives no
+   instruction to gracefully degrade if the request is too large.
+5. **Silent event rejection** — Invalid events in `deserialize()` are skipped with `continue`.
+   In Agent mode, the LLM never learns that events were rejected.
+6. **Dual top-level schema** — Simple mode accepts both `{"action": ...}` and
+   `{"actions": [...]}`. This duality increases the chance of malformed responses.
+7. **Unused variable** — `tsEvents` in `captureKeySignature()` is fetched but never used.
+
+### What Was Verified As NOT A Problem
+
+- **Off-by-one in `captureSurroundingEvents()`:** Both `measure()` and `startTickOfMeasure()`
+  are 1-based. The `qMax(1, cursorMeasure - measures)` is correct.
+- **Missing event IDs:** The serializer already emits sequential `"id": 0, 1, 2, ...`
+  per event. `deleteIndices` works against these indices. No `sourceIndex` needed.
+- **`schemaVersion` in responses:** Not useful. Prompt defines the schema; versionizing
+  the response output adds token cost for no benefit.
+
+### 12.1 — Priority Rule for Mode Conflicts ✅ DONE (v1.1.3)
+
+Add a clear override rule at the very top of both `systemPrompt()` and `agentSystemPrompt()`:
+
+```text
+PRIORITY RULE:
+If a mode-specific prompt (e.g. FFXIV mode) conflicts with a general rule,
+the mode-specific rule ALWAYS overrides the general rule.
+```
+
+This is the single highest-impact change. Two lines of text that eliminate the #1 source
+of FFXIV agent errors (inserting `program_change` when the mode says not to).
+
+**Files:** `EditorContext.cpp` — `systemPrompt()`, `agentSystemPrompt()`
+**Effort:** 5 min
+
+### 12.2 — Final Validation Block ✅ DONE (v1.1.3)
+
+Append a compact validation checklist to `systemPrompt()` (last thing the LLM reads
+before responding):
+
+```text
+FINAL VALIDATION BEFORE RESPONDING:
+- Return raw JSON only — no markdown, no code fences
+- Every event must include all required fields (type, tick, note, velocity, duration, channel)
+- tick must be integer >= 0
+- duration must be integer > 0
+- note must be 0-127
+- velocity must be 1-127
+- channel must be 0-15
+- trackIndex must refer to an existing track or one created earlier in this response
+```
+
+For FFXIV mode, append additional rules:
+
+```text
+FFXIV VALIDATION:
+- Never exceed 8 total tracks
+- Notes must be MIDI 48-84 (C3-C6)
+- Track names must be exact valid instrument names
+- Do not insert pitch_bend events
+- Do not manually set channels or program_change — use setup_channel_pattern
+```
+
+**Files:** `EditorContext.cpp` — `systemPrompt()`, `ffxivContext()`
+**Effort:** 10 min
+
+### 12.3 — Timing Reference ✅ DONE (v1.1.3)
+
+Add an explicit timing helper block to `systemPrompt()` and `agentSystemPrompt()`:
+
+```text
+TIMING REFERENCE (at current ticksPerQuarter):
+quarter note = ticksPerQuarter
+eighth note  = ticksPerQuarter / 2
+sixteenth    = ticksPerQuarter / 4
+half note    = ticksPerQuarter * 2
+whole note   = ticksPerQuarter * 4
+dotted quarter = ticksPerQuarter * 3 / 2
+triplet quarter = ticksPerQuarter * 2 / 3
+```
+
+The concrete values (e.g., `quarter = 480`) are already available in the editor state JSON
+via `ticksPerQuarter`. This reference helps the LLM compute durations without mistakes.
+
+**Files:** `EditorContext.cpp` — `systemPrompt()`, `agentSystemPrompt()`
+**Effort:** 5 min
+
+### 12.4 — Truncation Fallback Rule ✅ DONE (v1.1.3)
+
+Add to both system prompts:
+
+```text
+IMPORTANT: If the requested output would be too large to complete in one response,
+produce the smallest complete musically coherent version that satisfies the request
+instead of returning a partial or truncated result.
+```
+
+This instrution reduces half-finished outputs, especially in Simple mode where there is no
+retry loop.
+
+**Files:** `EditorContext.cpp` — `systemPrompt()`, `agentSystemPrompt()`
+**Effort:** 2 min
+
+### 12.5 — Invalid Event Feedback in Agent Mode ✅ DONE (v1.1.3)
+
+Currently `MidiEventSerializer::deserialize()` silently skips invalid events (`continue`).
+In Agent mode, the LLM never learns that events failed validation.
+
+**Change:** Collect validation errors during deserialization and include them in the
+tool result returned to the LLM:
+
+```cpp
+// In deserialize() — instead of just `continue`:
+if (!validateEventJson(obj, errorMsg)) {
+    skippedErrors.append(QString("Event %1: %2").arg(i).arg(errorMsg));
+    continue;
+}
+```
+
+Then in the tool result:
+```json
+{"success": true, "inserted": 45, "skipped": 3,
+ "skippedErrors": ["Event 12: note must be 0-127", ...]}
+```
+
+This lets the LLM self-correct in subsequent tool calls.
+
+**Files:** `MidiEventSerializer.cpp` (deserialize), `MidiPilotWidget.cpp` (tool result builder)
+**Effort:** 30 min
+
+### 12.6 — Unify Simple Mode Schema to `actions[]` ✅ DONE (v1.1.3)
+
+Currently Simple mode accepts two top-level formats:
+- Single: `{"action": "edit", "events": [...]}`
+- Multi: `{"actions": [{"action": "edit", ...}, ...], "explanation": "..."}`
+
+To reduce ambiguity, always require the array format:
+
+```text
+RESPONSE FORMAT — respond with a raw JSON object:
+{
+  "actions": [
+    {"action": "edit", "events": [...], "explanation": "..."}
+  ],
+  "explanation": "Overall summary"
+}
+Always use the "actions" array, even for single operations.
+```
+
+The parser in `onResponseReceived` already handles the `actions` array path.
+Keep backward compat for the `action` path but stop documenting it in the prompt.
+
+**Risk:** Some models may still emit the single-action format from cached patterns.
+Keep parsing both but only teach the array format going forward.
+
+**Files:** `EditorContext.cpp` — `systemPrompt()`
+**Effort:** 1h (prompt rewrite + testing)
+
+### 12.7 — Remove Unused Variable ✅ DONE (v1.1.3)
+
+Remove the unused `tsEvents` in `captureKeySignature()`:
+
+```cpp
+// Line 168 — DELETE:
+QMap<int, MidiEvent *> *tsEvents = file->timeSignatureEvents();
+```
+
+**Files:** `EditorContext.cpp`
+**Effort:** 1 min
+
+### Implementation Order
+
+```
+Phase 12.1  Priority rule for mode conflicts              ✅ DONE (v1.1.3)
+Phase 12.2  Final validation block                        ✅ DONE (v1.1.3)
+Phase 12.3  Timing reference                              ✅ DONE (v1.1.3)
+Phase 12.4  Truncation fallback rule                      ✅ DONE (v1.1.3)
+Phase 12.5  Invalid event feedback (Agent mode)           ✅ DONE (v1.1.3)
+Phase 12.6  Unify Simple mode schema to actions[]         ✅ DONE (v1.1.3)
+Phase 12.7  Remove unused variable                        ✅ DONE (v1.1.3)
+```
+
+### Estimated Complexity
+
+| Sub-phase | New Code | Modified Code | Risk |
+|-----------|----------|---------------|------|
+| 12.1 Priority rule | 0 lines | EditorContext (~4 lines, prompt text) | None |
+| 12.2 Final validation block | 0 lines | EditorContext (~20 lines, prompt text) | None |
+| 12.3 Timing reference | 0 lines | EditorContext (~10 lines, prompt text) | None |
+| 12.4 Truncation fallback | 0 lines | EditorContext (~4 lines, prompt text) | None |
+| 12.5 Event error feedback | ~20 lines | MidiEventSerializer (~15), MidiPilotWidget (~10) | Low |
+| 12.6 Schema unification | 0 lines | EditorContext (~30 lines, prompt rewrite) | Low — backward compat |
+| 12.7 Unused variable | 0 lines | EditorContext (~1 line removed) | None |
+
+### Key Considerations
+
+- **12.1-12.4 are pure prompt text changes** — zero risk, no code logic changes,
+  immediately testable by sending a prompt to any model.
+- **12.5 is the only code change** that affects runtime behavior. It's backward-compatible:
+  the extra `skippedErrors` field in tool results is additive.
+- **12.6 is cosmetic for the prompt** — the parser already handles both formats.
+  The goal is to reduce LLM confusion, not break existing behavior.
+- **NOT implementing full per-mode prompt variants** (e.g., separate `agentSystemPromptFFXIV()`).
+  The priority rule (12.1) achieves 90% of the benefit at 10% of the maintenance cost.
+  Separate per-mode prompts can be added later if conflicts persist.
+- **NOT adding `schemaVersion` to responses** — versioning belongs in the prompt, not
+  in the LLM output. No benefit for token cost.
+- **Custom prompt users** (`system_prompts.json`) get the improvements automatically
+  only if they reset to defaults. Existing custom prompts are not affected.

@@ -69,6 +69,11 @@ void MidiPlayer::play(NoteOnEvent *event) {
 void MidiPlayer::stop() {
     playing = false;
     filePlayer->stop();
+    // Wait for the player thread to actually finish before returning.
+    // This prevents use-after-free when the caller deletes the MidiFile.
+    if (filePlayer->isRunning()) {
+        filePlayer->wait();
+    }
 }
 
 bool MidiPlayer::isPlaying() {
