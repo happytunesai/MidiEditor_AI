@@ -58,6 +58,11 @@
 .caption { text-align: center; color: var(--text-muted); font-style: italic; margin-top: 0.5rem; font-size: 0.9rem; }
 .tip { background: #1a2332; border-left: 4px solid var(--accent); padding: 0.75rem 1rem; border-radius: 0 8px 8px 0; margin: 1rem 0; color: var(--text-muted); font-size: 0.93em; }
 .tip b { color: var(--accent); }
+.audio-box { background: #1a2332; border: 1px solid var(--border); border-radius: 8px; padding: 0.75rem 1rem; margin: 1rem 0; }
+.audio-box .audio-label { color: var(--accent); font-weight: 700; font-size: 0.85em; margin-bottom: 0.4rem; }
+.audio-box audio { width: 100%; height: 36px; border-radius: 6px; margin: 0.3rem 0; }
+.audio-box .audio-links { font-size: 0.85em; color: var(--text-muted); margin-top: 0.3rem; }
+.audio-box .audio-links a { color: var(--accent); }
 .category-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem; margin: 1.5rem 0; }
 .category-card {
     background: var(--bg-card);
@@ -219,6 +224,12 @@ The AI executes multiple tool calls iteratively &mdash; creating tracks for each
 <div class="caption">Result: 4-bar C major melody at 120 BPM composed with Gemini 3.1 Pro</div>
 </div>
 
+<div class="audio-box">
+<div class="audio-label">&#x1F50A; Listen</div>
+<audio controls preload="none"><source src="wav/midieditor_ai_piano_piece.wav" type="audio/wav"></audio>
+<div class="audio-links"><a href="midi/midieditor_ai_piano_piece.mid">Download MIDI</a> &middot; <a href="wav/midieditor_ai_piano_piece.wav">Download WAV</a></div>
+</div>
+
 <div class="prompt-box">
 <span class="label">Multi-instrument</span>
 <blockquote>Create an 8-bar jazz waltz in Bb major with piano, upright bass, and brushed drums. Use a I-vi-ii-V progression.</blockquote>
@@ -234,8 +245,10 @@ The AI executes multiple tool calls iteratively &mdash; creating tracks for each
 <div class="caption">Result: 16-bar lo-fi beat with jazzy piano, bass, drums, and atmospheric pad</div>
 </div>
 
-<div class="tip">
-<b>Listen:</b> Download the <a href="midi/MidiEditro_AI-lo-fi.mid">MIDI file</a> or <a href="wav/MidiEditro_AI-lo-fi.wav">WAV audio</a> of this composition.
+<div class="audio-box">
+<div class="audio-label">&#x1F50A; Listen</div>
+<audio controls preload="none"><source src="wav/MidiEditro_AI-lo-fi.wav" type="audio/wav"></audio>
+<div class="audio-links"><a href="midi/MidiEditro_AI-lo-fi.mid">Download MIDI</a> &middot; <a href="wav/MidiEditro_AI-lo-fi.wav">Download WAV</a></div>
 </div>
 
 <div class="prompt-box">
@@ -275,8 +288,10 @@ The AI executes multiple tool calls iteratively &mdash; creating tracks for each
 <div class="caption">Result: Lead melody transposed up by a perfect fifth (+7 semitones)</div>
 </div>
 
-<div class="tip">
-<b>Download:</b> <a href="midi/8-bit-game-soundtrack_fith.mid">MIDI file</a> (after transpose)
+<div class="audio-box">
+<div class="audio-label">&#x1F50A; Listen (after transpose)</div>
+<audio controls preload="none"><source src="wav/8-bit-game-soundtrack_fith.wav" type="audio/wav"></audio>
+<div class="audio-links"><a href="midi/8-bit-game-soundtrack_fith.mid">Download MIDI</a> &middot; <a href="wav/8-bit-game-soundtrack_fith.wav">Download WAV</a></div>
 </div>
 
 <div class="prompt-box">
@@ -289,8 +304,10 @@ The AI executes multiple tool calls iteratively &mdash; creating tracks for each
 <div class="caption">Result: Drum velocities set to 100, hi-hats at 70</div>
 </div>
 
-<div class="tip">
-<b>Download:</b> <a href="midi/8-bit-game-soundtrack_velocities.mid">MIDI file</a> (after velocity edit)
+<div class="audio-box">
+<div class="audio-label">&#x1F50A; Listen (after velocity edit)</div>
+<audio controls preload="none"><source src="wav/8-bit-game-soundtrack_velocities.wav" type="audio/wav"></audio>
+<div class="audio-links"><a href="midi/8-bit-game-soundtrack_velocities.mid">Download MIDI</a> &middot; <a href="wav/8-bit-game-soundtrack_velocities.wav">Download WAV</a></div>
 </div>
 
 <div class="prompt-box">
@@ -303,8 +320,10 @@ The AI executes multiple tool calls iteratively &mdash; creating tracks for each
 <div class="caption">Result: Song restructured into AABB form &mdash; measures duplicated and rearranged</div>
 </div>
 
-<div class="tip">
-<b>Download:</b> <a href="midi/8-bit-game-soundtrack_measures.mid">MIDI file</a> (AABB form)
+<div class="audio-box">
+<div class="audio-label">&#x1F50A; Listen (AABB form)</div>
+<audio controls preload="none"><source src="wav/8-bit-game-soundtrack_measures.wav" type="audio/wav"></audio>
+<div class="audio-links"><a href="midi/8-bit-game-soundtrack_measures.mid">Download MIDI</a> &middot; <a href="wav/8-bit-game-soundtrack_measures.wav">Download WAV</a></div>
 </div>
 
 <div class="prompt-box">
@@ -331,8 +350,10 @@ The AI executes multiple tool calls iteratively &mdash; creating tracks for each
 <div class="caption">Result: Melody extended from 8 to 16 bars with rhythmic variation and passing tones</div>
 </div>
 
-<div class="tip">
-<b>Download:</b> <a href="midi/piano_extend.mid">MIDI file</a> (extended to 16 bars)
+<div class="audio-box">
+<div class="audio-label">&#x1F50A; Listen (extended to 16 bars)</div>
+<audio controls preload="none"><source src="wav/piano_extend.wav" type="audio/wav"></audio>
+<div class="audio-links"><a href="midi/piano_extend.mid">Download MIDI</a> &middot; <a href="wav/piano_extend.wav">Download WAV</a></div>
 </div>
 
 <hr>
@@ -363,8 +384,10 @@ The AI executes multiple tool calls iteratively &mdash; creating tracks for each
 <div class="caption">Result: Block chord accompaniment with smooth voice leading on a new Chords track</div>
 </div>
 
-<div class="tip">
-<b>Download:</b> <a href="midi/piano_add_chords.mid">MIDI file</a> (with added chords)
+<div class="audio-box">
+<div class="audio-label">&#x1F50A; Listen (with added chords)</div>
+<audio controls preload="none"><source src="wav/piano_add_chords.wav" type="audio/wav"></audio>
+<div class="audio-links"><a href="midi/piano_add_chords.mid">Download MIDI</a> &middot; <a href="wav/piano_add_chords.wav">Download WAV</a></div>
 </div>
 
 <div class="prompt-box">
@@ -377,8 +400,10 @@ The AI executes multiple tool calls iteratively &mdash; creating tracks for each
 <div class="caption">Result: Jazz reharmonization with tritone subs, secondary dominants, and chromatic approach chords</div>
 </div>
 
-<div class="tip">
-<b>Download:</b> <a href="midi/piano_Reharmonize.mid">MIDI file</a> (reharmonized)
+<div class="audio-box">
+<div class="audio-label">&#x1F50A; Listen (reharmonized)</div>
+<audio controls preload="none"><source src="wav/piano_Reharmonize.wav" type="audio/wav"></audio>
+<div class="audio-links"><a href="midi/piano_Reharmonize.mid">Download MIDI</a> &middot; <a href="wav/piano_Reharmonize.wav">Download WAV</a></div>
 </div>
 
 <div class="prompt-box">
@@ -391,8 +416,10 @@ The AI executes multiple tool calls iteratively &mdash; creating tracks for each
 <div class="caption">Result: Countermelody on a new track using contrary motion against the main melody</div>
 </div>
 
-<div class="tip">
-<b>Download:</b> <a href="midi/piano_Countermelody.mid">MIDI file</a> (with countermelody)
+<div class="audio-box">
+<div class="audio-label">&#x1F50A; Listen (with countermelody)</div>
+<audio controls preload="none"><source src="wav/piano_Countermelody.wav" type="audio/wav"></audio>
+<div class="audio-links"><a href="midi/piano_Countermelody.mid">Download MIDI</a> &middot; <a href="wav/piano_Countermelody.wav">Download WAV</a></div>
 </div>
 
 <hr>
@@ -413,8 +440,10 @@ The AI executes multiple tool calls iteratively &mdash; creating tracks for each
 <div class="caption">Result: Walking bass line following the chord progression on a new track</div>
 </div>
 
-<div class="tip">
-<b>Download:</b> <a href="midi/piano_accompaniment.mid">MIDI file</a> (with walking bass)
+<div class="audio-box">
+<div class="audio-label">&#x1F50A; Listen (with walking bass)</div>
+<audio controls preload="none"><source src="wav/piano_accompaniment.wav" type="audio/wav"></audio>
+<div class="audio-links"><a href="midi/piano_accompaniment.mid">Download MIDI</a> &middot; <a href="wav/piano_accompaniment.wav">Download WAV</a></div>
 </div>
 
 <div class="prompt-box">
@@ -427,8 +456,10 @@ The AI executes multiple tool calls iteratively &mdash; creating tracks for each
 <div class="caption">Result: Drum track with kick, snare, hi-hat pattern and crash accents</div>
 </div>
 
-<div class="tip">
-<b>Download:</b> <a href="midi/piano_drum.mid">MIDI file</a> (with drums)
+<div class="audio-box">
+<div class="audio-label">&#x1F50A; Listen (with drums)</div>
+<audio controls preload="none"><source src="wav/piano_drum.wav" type="audio/wav"></audio>
+<div class="audio-links"><a href="midi/piano_drum.mid">Download MIDI</a> &middot; <a href="wav/piano_drum.wav">Download WAV</a></div>
 </div>
 
 <div class="prompt-box">
