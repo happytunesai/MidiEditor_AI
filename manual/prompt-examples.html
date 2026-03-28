@@ -4,7 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Prompt Examples | MidiEditor AI Manual</title>
-<link rel="icon" type="image/png" href="favicon.png">`n<link rel="stylesheet" href="style.css">
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="stylesheet" href="style.css">
 <style>
 .prompt-box {
     background: var(--bg-card);
@@ -91,7 +92,7 @@
 </head>
 <body>
 <div class="nav-bar">
-<div class="nav-header"><span class="nav-icon">&#129302;</span><span class="nav-title">MidiEditor AI Manual</span><span class="nav-version">v1.1.2.1</span></div>
+<div class="nav-header"><span class="nav-icon">&#129302;</span><span class="nav-title">MidiEditor AI Manual</span><span class="nav-version">v1.1.2.2</span></div>
 <div class="nav-links">
 <a href="index.html">Index</a>
 <a href="introduction.html">Introduction</a>
@@ -234,7 +235,7 @@ The AI executes multiple tool calls iteratively &mdash; creating tracks for each
 </div>
 
 <div class="tip">
-<b>Listen:</b> Download the <a href="../examples/MidiEditro_AI-lo-fi.mid">MIDI file</a> or <a href="../examples/MidiEditro_AI-lo-fi.wav">WAV audio</a> of this composition.
+<b>Listen:</b> Download the <a href="midi/MidiEditro_AI-lo-fi.mid">MIDI file</a> or <a href="wav/MidiEditro_AI-lo-fi.wav">WAV audio</a> of this composition.
 </div>
 
 <div class="prompt-box">
@@ -245,6 +246,15 @@ The AI executes multiple tool calls iteratively &mdash; creating tracks for each
 <div class="prompt-box">
 <span class="label">Game music</span>
 <blockquote>Create a retro 8-bit game soundtrack: 16 bars at 140 BPM in E minor with a square-wave lead melody, arpeggiated chords, and a simple bass line. Use channels 0-2.</blockquote>
+</div>
+
+<div class="screenshot-single">
+<img src="screenshots/8-bit-game-soundtrack.png" alt="8-bit game soundtrack composed by MidiPilot" width="900">
+<div class="caption">Result: 16-bar retro game soundtrack with lead, arpeggiated chords, and bass line</div>
+</div>
+
+<div class="tip">
+<b>Download:</b> <a href="midi/8-bit-game-soundtrack.mid">MIDI file</a> &mdash; This file is also used in the editing examples below.
 </div>
 
 <hr>
@@ -260,9 +270,27 @@ The AI executes multiple tool calls iteratively &mdash; creating tracks for each
 <blockquote>Transpose all notes on Track 1 up by a perfect fifth</blockquote>
 </div>
 
+<div class="screenshot-single">
+<img src="screenshots/8-bit-game-soundtrack_fifth.png" alt="Transposed track up by a perfect fifth" width="900">
+<div class="caption">Result: Lead melody transposed up by a perfect fifth (+7 semitones)</div>
+</div>
+
+<div class="tip">
+<b>Download:</b> <a href="midi/8-bit-game-soundtrack_fith.mid">MIDI file</a> (after transpose)
+</div>
+
 <div class="prompt-box">
 <span class="label">Velocity</span>
 <blockquote>Set all note velocities on the drum track to 100, except hi-hats which should be 70</blockquote>
+</div>
+
+<div class="screenshot-single">
+<img src="screenshots/8-bit-game-soundtrack_velocities.png" alt="Drum velocities adjusted" width="900">
+<div class="caption">Result: Drum velocities set to 100, hi-hats at 70</div>
+</div>
+
+<div class="tip">
+<b>Download:</b> <a href="midi/8-bit-game-soundtrack_velocities.mid">MIDI file</a> (after velocity edit)
 </div>
 
 <div class="prompt-box">
@@ -270,14 +298,41 @@ The AI executes multiple tool calls iteratively &mdash; creating tracks for each
 <blockquote>Copy measures 1-4 and paste them at measure 9. Then copy measures 5-8 and paste at measure 13 to create an AABB form.</blockquote>
 </div>
 
+<div class="screenshot-single">
+<img src="screenshots/8-bit-game-soundtrack_measures.png" alt="AABB form restructured" width="900">
+<div class="caption">Result: Song restructured into AABB form &mdash; measures duplicated and rearranged</div>
+</div>
+
+<div class="tip">
+<b>Download:</b> <a href="midi/8-bit-game-soundtrack_measures.mid">MIDI file</a> (AABB form)
+</div>
+
 <div class="prompt-box">
 <span class="label">Humanize</span>
 <blockquote>Add slight timing and velocity variations to the piano part to make it sound more human. Keep it subtle &mdash; no more than &plusmn;10 ticks and &plusmn;15 velocity.</blockquote>
 </div>
 
+<div class="screenshot-single">
+<img src="screenshots/piano_velocity_variations.png" alt="Humanized piano with velocity variations" width="900">
+<div class="caption">Result: Subtle timing offsets and velocity variations applied to the piano part</div>
+</div>
+
+<div class="tip">
+<b>Download:</b> <a href="midi/piano_velocity_variations.mid">MIDI file</a> (humanized)
+</div>
+
 <div class="prompt-box">
 <span class="label">Extend</span>
 <blockquote>The melody on Track 1 is 8 bars. Extend it to 16 bars by developing the existing motifs &mdash; vary the rhythm and add passing tones in the second half.</blockquote>
+</div>
+
+<div class="screenshot-single">
+<img src="screenshots/piano_extend.png" alt="Extended melody from 8 to 16 bars" width="900">
+<div class="caption">Result: Melody extended from 8 to 16 bars with rhythmic variation and passing tones</div>
+</div>
+
+<div class="tip">
+<b>Download:</b> <a href="midi/piano_extend.mid">MIDI file</a> (extended to 16 bars)
 </div>
 
 <hr>
@@ -293,9 +348,23 @@ The AI executes multiple tool calls iteratively &mdash; creating tracks for each
 <blockquote>Analyze the chord progression on the piano track and tell me the roman numeral analysis in the key of G major</blockquote>
 </div>
 
+<div class="screenshot-single">
+<img src="screenshots/Chord_analysis.png" alt="Chord progression analysis by MidiPilot" width="900">
+<div class="caption">Result: Roman numeral analysis of the piano chord progression in G major</div>
+</div>
+
 <div class="prompt-box">
 <span class="label">Add chords</span>
 <blockquote>Add block chords to accompany the melody on Track 1. Use a new track called "Chords" on Channel 1. Follow standard voice leading.</blockquote>
+</div>
+
+<div class="screenshot-single">
+<img src="screenshots/piano_add_chords.png" alt="Block chords added to accompany melody" width="900">
+<div class="caption">Result: Block chord accompaniment with smooth voice leading on a new Chords track</div>
+</div>
+
+<div class="tip">
+<b>Download:</b> <a href="midi/piano_add_chords.mid">MIDI file</a> (with added chords)
 </div>
 
 <div class="prompt-box">
@@ -303,9 +372,27 @@ The AI executes multiple tool calls iteratively &mdash; creating tracks for each
 <blockquote>Reharmonize the melody using jazz substitutions &mdash; try tritone subs, chromatic approach chords, and secondary dominants where appropriate</blockquote>
 </div>
 
+<div class="screenshot-single">
+<img src="screenshots/piano_Reharmonize.png" alt="Reharmonized melody with jazz substitutions" width="900">
+<div class="caption">Result: Jazz reharmonization with tritone subs, secondary dominants, and chromatic approach chords</div>
+</div>
+
+<div class="tip">
+<b>Download:</b> <a href="midi/piano_Reharmonize.mid">MIDI file</a> (reharmonized)
+</div>
+
 <div class="prompt-box">
 <span class="label">Countermelody</span>
 <blockquote>Write a countermelody for the existing melody on Track 1. Put it on a new track, stay in the same key, and use contrary motion where possible.</blockquote>
+</div>
+
+<div class="screenshot-single">
+<img src="screenshots/piano_Countermelodys.png" alt="Countermelody with contrary motion" width="900">
+<div class="caption">Result: Countermelody on a new track using contrary motion against the main melody</div>
+</div>
+
+<div class="tip">
+<b>Download:</b> <a href="midi/piano_Countermelody.mid">MIDI file</a> (with countermelody)
 </div>
 
 <hr>
@@ -321,9 +408,27 @@ The AI executes multiple tool calls iteratively &mdash; creating tracks for each
 <blockquote>Add a walking bass line on a new track following the chord progression of the piano part. Use Channel 1 with acoustic bass (Program 32).</blockquote>
 </div>
 
+<div class="screenshot-single">
+<img src="screenshots/piano_accompaniment.png" alt="Walking bass line added" width="900">
+<div class="caption">Result: Walking bass line following the chord progression on a new track</div>
+</div>
+
+<div class="tip">
+<b>Download:</b> <a href="midi/piano_accompaniment.mid">MIDI file</a> (with walking bass)
+</div>
+
 <div class="prompt-box">
 <span class="label">Drum pattern</span>
 <blockquote>Create a drum track on Channel 9 with a standard rock beat: kick on 1 and 3, snare on 2 and 4, hi-hat eighths. Add a crash on beat 1 of every 4th measure.</blockquote>
+</div>
+
+<div class="screenshot-single">
+<img src="screenshots/piano_drum.png" alt="Drum track added with rock beat" width="900">
+<div class="caption">Result: Drum track with kick, snare, hi-hat pattern and crash accents</div>
+</div>
+
+<div class="tip">
+<b>Download:</b> <a href="midi/piano_drum.mid">MIDI file</a> (with drums)
 </div>
 
 <div class="prompt-box">

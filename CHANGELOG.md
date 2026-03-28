@@ -5,6 +5,23 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 
 ---
 
+## [1.1.2.2] - 2026-03-28 — Manual Update: Prompt Examples & CI
+
+### Added
+* **Prompt Examples: screenshots & MIDI downloads** — every prompt section (Composing, Editing, Harmony, Arrangement) now includes result screenshots and downloadable MIDI files
+* **New manual assets** — `manual/midi/` and `manual/wav/` directories for hosting example files locally on GitHub Pages
+
+### Fixed
+* **Broken download links** — MIDI/WAV links in Prompt Examples pointed to non-existent `../examples/` path (404); now link to `midi/` and `wav/` within the manual
+* **Stray `` `n `` artifact** in 15 HTML pages — a PowerShell newline literal was rendered as visible text in the navbar
+* **Navbar overflow** — reduced font size, gap, and disabled wrapping so all 12 links fit in a single row
+
+### Changed
+* README: documentation link now points to the manual index instead of directly to the MidiPilot page
+* CI: bumped GitHub Actions dependencies (checkout v6, upload-artifact v7, configure-pages v6, upload-pages-artifact v4, deploy-pages v5)
+
+---
+
 ## [1.1.2.1] - 2026-03-26 — Hotfix: SoundFont Persistence & CI Fix
 
 ### Fixed

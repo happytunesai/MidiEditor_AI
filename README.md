@@ -42,7 +42,7 @@ MidiPilot is the AI brain embedded directly in MidiEditor AI. Open the sidebar, 
   <i>Chat panel &mdash; AI Settings with connection test</i>
 </p>
 
-📖 **[Full MidiPilot Documentation →](https://happytunesai.github.io/MidiEditor_AI/midipilot.html)**
+📖 **[Full MidiPilot Documentation →](https://happytunesai.github.io/MidiEditor_AI/)**
 
 ---
 
