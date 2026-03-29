@@ -2531,3 +2531,235 @@ Phase 13.4  Status bar feedback                  ✅ DONE (v1.1.3.1)
   the file as "saved" — otherwise the close-event dialog won't warn about unsaved changes.
 - **NOT implementing full journaling/WAL** — overkill for a MIDI editor. Simple file-level
   backup is sufficient.
+
+---
+
+## Phase 14: Split Channels to Tracks ✅ (v1.1.4)
+
+> **Goal:** One-click conversion of MIDI Format 0 files (single track, multiple channels)
+> into Format 1 style (one track per channel). This is the most common layout for GM MIDI
+> files downloaded from the internet — all instruments live on one track, distinguished
+> only by MIDI channel. This makes editing painful because you can't hide/solo/recolor
+> individual instruments.
+>
+> **Motivation:** Users frequently work with GM MIDI files where all 16 channels are
+> crammed into a single track. To edit instrument parts individually (move, copy, delete,
+> mute), they need each channel on its own track. Currently this requires tedious manual
+> work: select all events from channel N → move to new track → repeat 15 times.
+
+### Background & Code Analysis
+
+**Current event storage model:**
+- Events are stored **per-channel** in `MidiChannel::eventMap()` (`QMultiMap<int, MidiEvent*>`)
+- Each event has a track pointer: `MidiEvent::track()` / `MidiEvent::setTrack()`
+- `setTrack()` only changes the track pointer — events stay in their channel's eventMap
+- This means splitting channels to tracks is a **track-pointer reassignment**, not a data move
+
+**Existing infrastructure we can reuse:**
+- `MidiFile::addTrack()` — creates a new track, appends to track list
+- `MidiTrack::setName(QString)` — set track name
+- `MidiTrack::assignChannel(int)` — assign display channel
+- `MidiEvent::setTrack(MidiTrack*, bool toProtocol)` — reassign track (with undo support)
+- `MidiFile::gmInstrumentName(int prog)` — full 128-entry GM instrument name table
+- `ProgChangeEvent::program()` — read program number for auto-naming
+- `Explode Chords to Tracks` — reference implementation for track creation + event moving
+- `FFXIVChannelFixer` — reference for channel analysis + progress callback pattern
+
+**Key insight:** Since events are stored by channel (not by track), splitting channels
+to tracks only requires calling `setTrack()` on each event. No `moveToChannel()` needed.
+The channel stays the same — we just give each channel its own track.
+
+### Design
+
+**Algorithm:**
+
+```
+1. Scan: For each channel 0-15, collect all events on the source track(s)
+2. Filter: Skip channels with 0 events (nothing to split)
+3. Create: For each active channel → new MidiTrack
+4. Name:   Read first ProgChangeEvent on that channel →
+           gmInstrumentName(prog) → track name
+           Channel 9 → "Drums" (unless user opts to skip drums)
+5. Move:   setTrack(newTrack) on all events of that channel
+6. Clean:  Remove empty source track(s) if requested
+```
+
+**Dialog options:**
+- Source: "All tracks" (default for Format 0) or "Selected track only"
+- Drums: ☐ "Keep Channel 9 (Drums) on original track" (default: unchecked)
+- Naming: Auto-name from Program Change (default: on)
+- Position: Insert new tracks after source / at end
+- Original: ☐ "Remove empty source track after split" (default: checked)
+- Preview: Shows table of Channel → Program → Track Name before executing
+
+### 14.1 — Channel Analysis & Split Engine ✅
+
+Core logic in a new method `MainWindow::splitChannelsToTracks()`:
+
+```cpp
+void MainWindow::splitChannelsToTracks() {
+    if (!file) return;
+
+    // Phase 1: Analyze — count events per channel per track
+    struct ChannelInfo {
+        int channel;
+        int eventCount;
+        int programNumber;    // from first ProgChangeEvent, or -1
+        QString instrumentName;
+        MidiTrack *sourceTrack;
+    };
+    QList<ChannelInfo> activeChannels;
+
+    for (int ch = 0; ch < 16; ++ch) {
+        QMultiMap<int, MidiEvent*> *emap = file->channel(ch)->eventMap();
+        int count = 0;
+        int prog = -1;
+        MidiTrack *srcTrack = nullptr;
+        for (auto it = emap->begin(); it != emap->end(); ++it) {
+            MidiEvent *ev = it.value();
+            // Only count events on source track(s)
+            if (!srcTrack) srcTrack = ev->track();
+            count++;
+            if (prog < 0) {
+                ProgChangeEvent *pc = dynamic_cast<ProgChangeEvent*>(ev);
+                if (pc) prog = pc->program();
+            }
+        }
+        if (count > 0) {
+            QString name = (ch == 9) ? tr("Drums")
+                         : (prog >= 0) ? MidiFile::gmInstrumentName(prog)
+                         : tr("Channel %1").arg(ch);
+            activeChannels.append({ch, count, prog, name, srcTrack});
+        }
+    }
+
+    // Phase 2: Show confirmation dialog (see 14.2)
+    // Phase 3: Create tracks and move events
+    file->protocol()->startNewAction(tr("Split channels to tracks"));
+
+    for (const auto &info : activeChannels) {
+        if (skipDrums && info.channel == 9) continue;
+
+        file->addTrack();
+        MidiTrack *dst = file->tracks()->last();
+        dst->setName(info.instrumentName);
+        dst->assignChannel(info.channel);
+
+        // Move all events on this channel to the new track
+        QMultiMap<int, MidiEvent*> *emap = file->channel(info.channel)->eventMap();
+        for (auto it = emap->begin(); it != emap->end(); ++it) {
+            MidiEvent *ev = it.value();
+            if (ev->track() == info.sourceTrack) {
+                ev->setTrack(dst);
+            }
+        }
+    }
+
+    file->protocol()->endAction();
+    updateAll();
+}
+```
+
+**Key points:**
+- Only moves events from the source track — events on other tracks are untouched
+- `setTrack()` with `toProtocol=true` (default) enables full undo with Ctrl+Z
+- OffEvents (`NoteOff`) inherit the track from `setTrack()` — no special handling needed
+  because `OffEvent` is also a `MidiEvent` and iterating the channel's eventMap picks
+  them up too
+- Performance: O(N) where N = total events. Even 100k events should complete in <100ms
+
+**Files:** `MainWindow.h`, `MainWindow.cpp`
+**Effort:** 2-3h
+
+### 14.2 — Split Channels Dialog ✅
+
+A dialog similar to `ExplodeChordsDialog` that shows a preview and options:
+
+```
+┌─────────────────────────────────────────────────────┐
+│  Split Channels to Tracks                            │
+├─────────────────────────────────────────────────────┤
+│                                                      │
+│  Source: Track 0 "Untitled track" (1 track, 12 ch)  │
+│                                                      │
+│  ┌──────┬────────┬──────────────────────┬──────┐    │
+│  │  CH  │  Prog  │  Track Name          │ Notes│    │
+│  ├──────┼────────┼──────────────────────┼──────┤    │
+│  │   0  │    0   │  Acoustic Grand Piano│  342 │    │
+│  │   1  │   25   │  Acoustic Guitar     │  128 │    │
+│  │   2  │   48   │  String Ensemble 1   │  256 │    │
+│  │   3  │   73   │  Flute               │   64 │    │
+│  │   9  │   —    │  Drums               │  512 │    │
+│  └──────┴────────┴──────────────────────┴──────┘    │
+│                                                      │
+│  ☐ Keep Channel 9 (Drums) on original track         │
+│  ☑ Auto-name tracks from GM program                  │
+│  ☑ Remove empty source track after split             │
+│  ○ Insert after source track                         │
+│  ○ Insert at end                                     │
+│                                                      │
+│              [ Cancel ]        [ Split ]              │
+└─────────────────────────────────────────────────────┘
+```
+
+**Files:** New `src/gui/SplitChannelsDialog.h/cpp`
+**Effort:** 1-2h
+
+### 14.3 — Menu & Toolbar Integration ✅
+
+- Menu entry: `Tools → Split Channels to Tracks` (shortcut: `Ctrl+Shift+E`)
+- Optional toolbar button (reuse existing toolbar migration pattern)
+- Disabled when file has only 1 channel with events (nothing to split)
+- Protocol action name: "Split channels to tracks"
+- Status bar feedback: "Split N channels into N tracks"
+
+**Files:** `MainWindow.cpp` (menu setup)
+**Effort:** 30min
+
+### 14.4 — Smart Detection & Auto-Prompt ✅
+
+Optional quality-of-life enhancement:
+
+- On file open, detect if the file is Format 0 (single track, multiple channels)
+- Show a non-modal info bar: "This file has N instruments on 1 track.
+  [Split to Tracks] [Dismiss]"
+- Only shows once per file (remember in QSettings by file hash or path)
+
+**Files:** `MainWindow.cpp` (in `openFile()`)
+**Effort:** 1h
+
+### Implementation Order
+
+```
+Phase 14.1  Channel analysis & split engine      ✅
+Phase 14.2  Split channels dialog (preview + options) ✅
+Phase 14.3  Menu & toolbar integration            ✅
+Phase 14.4  Smart detection & auto-prompt         ✅
+```
+
+### Estimated Complexity
+
+| Sub-phase | New Code | Modified Code | Risk |
+|-----------|----------|---------------|------|
+| 14.1 Split engine | ~80 lines | MainWindow (~5 lines) | Low — uses existing setTrack() |
+| 14.2 Dialog | ~150 lines (new widget) | — | Low — display only |
+| 14.3 Menu integration | ~15 lines | MainWindow (~10 lines) | None |
+| 14.4 Auto-detection | ~30 lines | MainWindow (~15 lines) | Low — non-modal, optional |
+
+### Key Considerations
+
+- **`setTrack()` is protocol-aware** — every event move is recorded for undo. A file
+  with 10,000 events creates 10,000 protocol entries. For very large files, consider
+  wrapping in a single `startNewAction()` / `endAction()` (already planned).
+- **OffEvents:** When iterating `channelEvents`, both NoteOn and OffEvent are present.
+  `setTrack()` on OffEvent works normally — no need for special pairing logic.
+  However, `OffEvent` shares the same channel as its `NoteOnEvent`, so iterating by
+  channel naturally picks up both.
+- **Program Changes at tick 0:** If a channel has a `ProgChangeEvent` at tick 0, it
+  stays with the new track (moved via `setTrack()`). This is the desired behavior — each
+  track gets its own program change.
+- **Meta events (tempo, time sig):** These are on channel 17 (special channel) and
+  track 0. They are NOT affected by the split because we only iterate channels 0-15.
+- **Multi-track source files:** If the file already has multiple tracks with events on
+  different channels, the dialog should handle this gracefully — either split per-track
+  or combine all events per-channel across tracks.

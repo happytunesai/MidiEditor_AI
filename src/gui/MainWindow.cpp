@@ -60,6 +60,7 @@
 #include "FileLengthDialog.h"
 #include "InstrumentChooser.h"
 #include "LayoutSettingsWidget.h"
+#include "SplitChannelsDialog.h"
 #include "MatrixWidget.h"
 #include "OpenGLMatrixWidget.h"
 #include "OpenGLMiscWidget.h"
@@ -110,6 +111,7 @@
 #include "../MidiEvent/TextEvent.h"
 #include "../MidiEvent/TimeSignatureEvent.h"
 #include "../MidiEvent/PitchBendEvent.h"
+#include "../MidiEvent/ProgChangeEvent.h"
 #include "../midi/Metronome.h"
 #include "../midi/MidiChannel.h"
 #include "../midi/MidiFile.h"
@@ -2805,6 +2807,163 @@ void MainWindow::explodeChordsToTracks() {
     updateAll();
 }
 
+void MainWindow::splitChannelsToTracks() {
+    if (!file) {
+        return;
+    }
+
+    // Determine source track: the current edit track
+    MidiTrack *sourceTrack = file->track(NewNoteTool::editTrack());
+    if (!sourceTrack) {
+        return;
+    }
+
+    // Phase 1: Analyze — collect channel info for events on the source track
+    QList<SplitChannelsDialog::ChannelInfo> activeChannels;
+
+    for (int ch = 0; ch < 16; ++ch) {
+        QMultiMap<int, MidiEvent *> *emap = file->channel(ch)->eventMap();
+        int eventCount = 0;
+        int noteCount = 0;
+        int prog = -1;
+
+        for (auto it = emap->begin(); it != emap->end(); ++it) {
+            MidiEvent *ev = it.value();
+            if (ev->track() != sourceTrack) {
+                continue;
+            }
+            eventCount++;
+            if (dynamic_cast<NoteOnEvent *>(ev)) {
+                noteCount++;
+            }
+            if (prog < 0) {
+                ProgChangeEvent *pc = dynamic_cast<ProgChangeEvent *>(ev);
+                if (pc) {
+                    prog = pc->program();
+                }
+            }
+        }
+
+        if (eventCount > 0) {
+            QString name;
+            if (ch == 9) {
+                name = tr("Drums");
+            } else if (prog >= 0) {
+                name = MidiFile::gmInstrumentName(prog);
+            } else {
+                name = tr("Channel %1").arg(ch);
+            }
+            activeChannels.append({ch, eventCount, noteCount, prog, name});
+        }
+    }
+
+    if (activeChannels.size() <= 1) {
+        QMessageBox::information(this, tr("Split Channels to Tracks"),
+            tr("This track only uses one channel — nothing to split."));
+        return;
+    }
+
+    // Phase 2: Show dialog
+    SplitChannelsDialog *dialog = new SplitChannelsDialog(file, sourceTrack, activeChannels, this);
+    if (dialog->exec() != QDialog::Accepted) {
+        delete dialog;
+        return;
+    }
+
+    bool skipDrums = dialog->keepDrumsOnSource();
+    bool removeSource = dialog->removeEmptySource();
+    bool insertAtEnd = dialog->insertAtEnd();
+    delete dialog;
+
+    // Phase 3: Create tracks and move events
+    file->protocol()->startNewAction(tr("Split channels to tracks"));
+
+    int sourceTrackIdx = file->tracks()->indexOf(sourceTrack);
+    QList<MidiTrack *> newTracks;
+    int movedEvents = 0;
+
+    for (const auto &info : activeChannels) {
+        if (skipDrums && info.channel == 9) {
+            continue;
+        }
+
+        file->addTrack();
+        MidiTrack *dst = file->tracks()->last();
+        dst->setName(info.instrumentName);
+        dst->assignChannel(info.channel);
+        newTracks.append(dst);
+
+        // Move all events on this channel from source track to new track
+        QMultiMap<int, MidiEvent *> *emap = file->channel(info.channel)->eventMap();
+        QList<MidiEvent *> toMove;
+        for (auto it = emap->begin(); it != emap->end(); ++it) {
+            if (it.value()->track() == sourceTrack) {
+                toMove.append(it.value());
+            }
+        }
+        for (MidiEvent *ev : toMove) {
+            ev->setTrack(dst);
+            movedEvents++;
+        }
+    }
+
+    // Reorder tracks if not inserting at end
+    if (!insertAtEnd && sourceTrackIdx >= 0) {
+        QList<MidiTrack *> *trackList = file->tracks();
+        for (MidiTrack *newTrack : newTracks) {
+            trackList->removeOne(newTrack);
+        }
+        int insertPos = sourceTrackIdx + 1;
+        for (MidiTrack *newTrack : newTracks) {
+            trackList->insert(insertPos++, newTrack);
+        }
+        int n = 0;
+        foreach (MidiTrack *track, *trackList) {
+            track->setNumber(n++);
+        }
+    }
+
+    // Remove empty source track if requested
+    if (removeSource) {
+        bool sourceEmpty = true;
+        for (int ch = 0; ch < 16; ++ch) {
+            QMultiMap<int, MidiEvent *> *emap = file->channel(ch)->eventMap();
+            for (auto it = emap->begin(); it != emap->end(); ++it) {
+                if (it.value()->track() == sourceTrack) {
+                    sourceEmpty = false;
+                    break;
+                }
+            }
+            if (!sourceEmpty) break;
+        }
+        // Also check meta channel (17) for tempo/time sig events
+        // Keep the source track if it has meta events
+        if (sourceEmpty) {
+            QMultiMap<int, MidiEvent *> *metaMap = file->channelEvents(17);
+            if (metaMap) {
+                for (auto it = metaMap->begin(); it != metaMap->end(); ++it) {
+                    if (it.value()->track() == sourceTrack) {
+                        sourceEmpty = false;
+                        break;
+                    }
+                }
+            }
+        }
+        if (sourceEmpty) {
+            file->removeTrack(sourceTrack);
+        }
+    }
+
+    file->protocol()->endAction();
+
+    statusBar()->showMessage(tr("Split %1 channels into %2 tracks (%3 events moved)")
+        .arg(activeChannels.size())
+        .arg(newTracks.size())
+        .arg(movedEvents), 5000);
+
+    updateAll();
+}
+
 void MainWindow::transposeNSemitones() {
     if (!file) {
         return;
@@ -3609,6 +3768,14 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
     connect(explodeChordsAction, SIGNAL(triggered()), this, SLOT(explodeChordsToTracks()));
     toolsMB->addAction(explodeChordsAction);
     _actionMap["explode_chords_to_tracks"] = explodeChordsAction;
+
+    QAction *splitChannelsAction = new QAction(tr("Split channels to tracks"), this);
+    Appearance::setActionIcon(splitChannelsAction, ":/run_environment/graphics/tool/channel_split_28.png");
+    splitChannelsAction->setShortcut(QKeySequence(QKeyCombination(Qt::CTRL | Qt::SHIFT, Qt::Key_E)));
+    _defaultShortcuts["split_channels_to_tracks"] = QList<QKeySequence>() << splitChannelsAction->shortcut();
+    connect(splitChannelsAction, SIGNAL(triggered()), this, SLOT(splitChannelsToTracks()));
+    toolsMB->addAction(splitChannelsAction);
+    _actionMap["split_channels_to_tracks"] = splitChannelsAction;
 
     QAction *strumAction = new QAction(tr("Strum selection"), this);
     strumAction->setShortcut(QKeySequence(QKeyCombination(Qt::CTRL | Qt::ALT, Qt::Key_S)));
@@ -4587,6 +4754,17 @@ QWidget *MainWindow::createCustomToolbar(QWidget *parent) {
         if (!enabledActions.contains("fix_ffxiv_channels")) {
             enabledActions << "fix_ffxiv_channels";
         }
+        // Migration: ensure split_channels_to_tracks is present in saved custom settings
+        if (!actionOrder.contains("split_channels_to_tracks")) {
+            int ffxivIdx = actionOrder.indexOf("fix_ffxiv_channels");
+            if (ffxivIdx >= 0)
+                actionOrder.insert(ffxivIdx, "split_channels_to_tracks");
+            else
+                actionOrder << "split_channels_to_tracks";
+        }
+        if (!enabledActions.contains("split_channels_to_tracks")) {
+            enabledActions << "split_channels_to_tracks";
+        }
     }
 
     // Only prepend essential actions for single row mode
@@ -4976,6 +5154,17 @@ void MainWindow::updateToolbarContents(QWidget *toolbarWidget, QGridLayout *btnL
         }
         if (!enabledActions.contains("fix_ffxiv_channels")) {
             enabledActions << "fix_ffxiv_channels";
+        }
+        // Migration: ensure split_channels_to_tracks is present in saved custom settings
+        if (!actionOrder.contains("split_channels_to_tracks")) {
+            int ffxivIdx = actionOrder.indexOf("fix_ffxiv_channels");
+            if (ffxivIdx >= 0)
+                actionOrder.insert(ffxivIdx, "split_channels_to_tracks");
+            else
+                actionOrder << "split_channels_to_tracks";
+        }
+        if (!enabledActions.contains("split_channels_to_tracks")) {
+            enabledActions << "split_channels_to_tracks";
         }
     }
 

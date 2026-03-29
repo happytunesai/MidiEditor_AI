@@ -9,7 +9,7 @@
 </head>
 <body>
 <div class="nav-bar">
-<div class="nav-header"><span class="nav-icon">&#129302;</span><span class="nav-title">MidiEditor AI Manual</span><span class="nav-version">v1.1.3.1</span></div>
+<div class="nav-header"><span class="nav-icon">&#129302;</span><span class="nav-title">MidiEditor AI Manual</span><span class="nav-version">v1.1.4</span></div>
 <div class="nav-links">
   <a href="index.html">Index</a>
   <a href="introduction.html">Introduction</a>
@@ -271,6 +271,17 @@
 			program change statistics, and track renames.
 			The entire operation is wrapped in a single undo action.
 			<a href="midipilot.html#fix-xv-channels">Click here for details</a>
+		</td>
+	</tr>
+	<tr>
+		<td valign="top"><img src="tools/channel_split_28.png" width="20px" height="20px"/></td>
+		<td>
+			<i>Split Channels to Tracks</i><br>
+			Splits a single-track multi-channel MIDI file into one track per channel.
+			Automatically names tracks from GM Program Change events (e.g. "Acoustic Piano", "Drums").
+			Configurable options for drum handling, source track removal, and track insertion position.
+			The entire operation is wrapped in a single undo action.
+			<a href="split-channels.html">Click here for details</a>
 		</td>
 	</tr>
 

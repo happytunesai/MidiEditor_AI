@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Split Channels to Tracks | MidiEditor AI Manual</title>
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="stylesheet" href="style.css">
+<style>
+.screenshot-row { display: flex; flex-wrap: wrap; gap: 1.5rem; justify-content: center; margin: 1.5rem 0; }
+.screenshot-row img { border: 1px solid var(--border); border-radius: 8px; }
+.screenshot-single { text-align: center; margin: 1.5rem 0; }
+.screenshot-single img { max-width: 100%; border: 1px solid var(--border); border-radius: 8px; }
+.caption { text-align: center; color: var(--text-muted); font-style: italic; margin-top: 0.5rem; font-size: 0.9rem; }
+.info-table { width: 100%; border-collapse: collapse; margin: 1rem 0 1.5rem; }
+.info-table th, .info-table td { padding: 0.6rem 0.8rem; border: 1px solid var(--border); text-align: left; }
+.info-table th { background: var(--bg-secondary); font-weight: 600; }
+.info-table tr:nth-child(even) td { background: var(--table-alt); }
+.step-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem; margin: 1.5rem 0; }
+.step-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.2rem;
+}
+.step-card h4 { margin-top: 0; border-bottom: none; }
+.step-card p { margin-bottom: 0; font-size: 0.92em; color: var(--text-muted); }
+.highlight-box {
+    background: var(--bg-card);
+    border-left: 4px solid var(--accent);
+    padding: 1rem 1.25rem;
+    margin: 1.5rem 0;
+    border-radius: 0 8px 8px 0;
+}
+.highlight-box p { margin: 0; }
+</style>
+</head>
+<body>
+<div class="nav-bar">
+<div class="nav-header"><span class="nav-icon">&#129302;</span><span class="nav-title">MidiEditor AI Manual</span><span class="nav-version">v1.1.4</span></div>
+<div class="nav-links">
+<a href="index.html">Index</a>
+<a href="introduction.html">Introduction</a>
+<a href="midipilot.html">MidiPilot</a>
+<a href="prompt-examples.html">Prompt Examples</a>
+<a href="ffxiv-channel-fixer.html">Fix X|V</a>
+<a href="split-channels.html" class="active">Split Channels</a>
+<a href="soundfont.html">SoundFonts</a>
+<a href="midi-overview.html">MIDI Overview</a>
+<a href="editor-and-components.html">Editor</a>
+<a href="setup.html">Setup</a>
+<a href="editing-midi-files.html">Editing</a>
+<a href="playback.html">Playback</a>
+<a href="record.html">Recording</a>
+</div>
+</div>
+
+<h1><img src="tools/channel_split_28.png" alt="Split Channels" style="height:1.1em;vertical-align:middle;"> Split Channels to Tracks</h1>
+
+<p>
+The <b>Split Channels to Tracks</b> tool converts a single-track multi-channel MIDI file (Format&nbsp;0) into
+one track per channel (Format&nbsp;1 style). This is essential for working with GM MIDI files downloaded from
+the internet, where all instruments are crammed into a single track &mdash; making it impossible to hide, solo,
+recolor, or edit individual instrument parts.
+</p>
+
+<div class="highlight-box">
+<p>&#x1F4A1; <b>Find it in:</b> Toolbar button <img src="tools/channel_split_28.png" alt="Split" style="height:1.1em;vertical-align:middle;"> or menu <b>Tools &rarr; Split Channels to Tracks</b> &nbsp;|&nbsp; Shortcut: <b>Ctrl+Shift+E</b></p>
+</div>
+
+<hr>
+
+<h2 id="overview">How It Works</h2>
+
+<p>
+Select the source track (the current edit track), then run the tool. It scans all 16 MIDI channels,
+identifies which channels have events on that track, and creates a separate track for each active channel.
+Track names are automatically derived from GM Program Change events.
+</p>
+
+<div class="step-grid">
+<div class="step-card">
+<h4>1&#xFE0F;&#x20E3; Analyze</h4>
+<p>Scans channels 0&ndash;15 for events on the source track. Counts notes and reads the first Program Change to identify the instrument.</p>
+</div>
+<div class="step-card">
+<h4>2&#xFE0F;&#x20E3; Preview</h4>
+<p>Shows a dialog with a table of all active channels, their program numbers, GM instrument names, and note counts.</p>
+</div>
+<div class="step-card">
+<h4>3&#xFE0F;&#x20E3; Split</h4>
+<p>Creates a new track for each channel and moves all events from the source track to their corresponding channel track.</p>
+</div>
+<div class="step-card">
+<h4>4&#xFE0F;&#x20E3; Clean up</h4>
+<p>Optionally removes the now-empty source track. The entire operation is a single undo action (Ctrl+Z).</p>
+</div>
+</div>
+
+<hr>
+
+<h2 id="dialog">The Split Dialog</h2>
+
+<div class="screenshot-single">
+<a href="screenshots/channel_splitting.png" class="lightbox-link"><img src="screenshots/channel_splitting.png" alt="Split Channels to Tracks dialog" style="max-width:560px;"></a>
+<p class="caption">The Split Channels dialog showing a preview of all active channels with instrument names</p>
+</div>
+
+<p>The dialog shows:</p>
+<ul>
+<li><b>Channel</b> &mdash; MIDI channel number (0&ndash;15)</li>
+<li><b>Program</b> &mdash; GM program number, or "Drums" for channel 9</li>
+<li><b>Track Name</b> &mdash; Auto-detected instrument name from the GM program table</li>
+<li><b>Notes</b> &mdash; Number of note events on that channel</li>
+</ul>
+
+<h3 id="options">Options</h3>
+
+<table class="info-table">
+<tr>
+<th>Option</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+<tr>
+<td><b>Keep Channel 9 (Drums) on original track</b></td>
+<td>Unchecked</td>
+<td>When checked, drum events stay on the source track instead of getting their own track. Useful if you want to keep drums with meta events.</td>
+</tr>
+<tr>
+<td><b>Remove empty source track after split</b></td>
+<td>Checked</td>
+<td>Deletes the original track if no events remain on it after the split. Source tracks with meta events (tempo, time signature) are preserved automatically.</td>
+</tr>
+<tr>
+<td><b>Insert after source track</b></td>
+<td>Selected</td>
+<td>New tracks are inserted immediately after the source track in the track list.</td>
+</tr>
+<tr>
+<td><b>Insert at end of track list</b></td>
+<td>&mdash;</td>
+<td>New tracks are appended at the bottom of the track list.</td>
+</tr>
+</table>
+
+<hr>
+
+<h2 id="result">Result</h2>
+
+<div class="screenshot-single">
+<a href="screenshots/channel_splitting.gif" class="lightbox-link"><img src="screenshots/channel_splitting.gif" alt="Split Channels in action" style="max-width:700px;"></a>
+<p class="caption">Splitting a single-track GM file into separate instrument tracks</p>
+</div>
+
+<p>
+After splitting, each instrument gets its own track with a descriptive name (e.g., "Synth Bass 1", "Vibraphone", "Drums").
+You can now hide, solo, mute, recolor, and edit each instrument independently.
+</p>
+
+<hr>
+
+<h2 id="naming">Automatic Track Naming</h2>
+
+<p>Track names are determined automatically based on:</p>
+
+<table class="info-table">
+<tr>
+<th>Channel</th>
+<th>Naming Strategy</th>
+</tr>
+<tr>
+<td>Channel 9</td>
+<td>Always named <b>"Drums"</b></td>
+</tr>
+<tr>
+<td>Channels with Program Change</td>
+<td>Named using the <b>GM instrument table</b> (e.g., program 38 &rarr; "Synth Bass 1")</td>
+</tr>
+<tr>
+<td>Channels without Program Change</td>
+<td>Named <b>"Channel N"</b> (fallback)</td>
+</tr>
+</table>
+
+<hr>
+
+<h2 id="tips">Tips</h2>
+
+<ul>
+<li><b>Undo:</b> The entire split is a single undo action &mdash; press <b>Ctrl+Z</b> to revert everything.</li>
+<li><b>Source track selection:</b> The tool operates on the <b>current edit track</b> (shown in the "Add new events to..." dropdown at the bottom of the editor).</li>
+<li><b>Multiple tracks:</b> If your file already has multiple tracks, run the tool on each one separately.</li>
+<li><b>Meta events:</b> Tempo and time signature events live on the meta channel &mdash; the source track is preserved if it still contains meta events, even with "Remove empty source track" checked.</li>
+<li><b>Works great with Fix X|V:</b> After splitting, you can use <a href="ffxiv-channel-fixer.html">Fix X|V Channels</a> to set up the FFXIV channel mapping for each track.</li>
+</ul>
+
+<div class="footer">
+<p>MidiEditor AI &mdash; <a href="https://github.com/happytunesai/MidiEditor_AI">GitHub</a> &middot; Created with &hearts; + AI</p>
+</div>
+<script src="lightbox.js"></script>
+</body>
+</html>

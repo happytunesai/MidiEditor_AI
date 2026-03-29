@@ -238,7 +238,7 @@
 .agent-step.pending { color: #CC7700; }
 .agent-step.active { color: #0066CC; font-weight: bold; }
 .agent-step.done { color: #2D8C3C; }
-/* Status bar � matches app's ? ? ? animation */
+/* Status bar ï¿½ matches app's ? ? ? animation */
 .chat-status-bar {
     display: flex;
     align-items: center;
@@ -325,7 +325,7 @@
 .chat-demo-input .send-btn.active {
     opacity: 1;
 }
-/* Footer bar � FFXIV checkbox, model, reasoning */
+/* Footer bar ï¿½ FFXIV checkbox, model, reasoning */
 .chat-demo-footer {
     border-top: 1px solid #eee;
     padding: 4px 0.75rem;
@@ -374,13 +374,14 @@
 </head>
 <body>
 <div class="nav-bar">
-<div class="nav-header"><span class="nav-icon">&#129302;</span><span class="nav-title">MidiEditor AI Manual</span><span class="nav-version">v1.1.3.1</span></div>
+<div class="nav-header"><span class="nav-icon">&#129302;</span><span class="nav-title">MidiEditor AI Manual</span><span class="nav-version">v1.1.4</span></div>
 <div class="nav-links">
 <a href="index.html" class="active">Index</a>
 <a href="introduction.html">Introduction</a>
 <a href="midipilot.html">MidiPilot</a>
 <a href="prompt-examples.html">Prompt Examples</a>
 <a href="ffxiv-channel-fixer.html">Fix X|V</a>
+<a href="split-channels.html">Split Channels</a>
 <a href="soundfont.html">SoundFonts</a>
 <a href="midi-overview.html">MIDI Overview</a>
 <a href="editor-and-components.html">Editor</a>
@@ -395,7 +396,7 @@
 <div class="hero">
 <pre id="ascii-logo" aria-label="MidiEditor AI"></pre>
 <p class="tagline" id="hero-tagline" style="opacity:0">Your complete guide to the AI-powered MIDI editor</p>
-<span class="version-badge" id="hero-badge" style="opacity:0">v1.1.3.1 &middot; Manual</span>
+<span class="version-badge" id="hero-badge" style="opacity:0">v1.1.4 &middot; Manual</span>
 
 <!-- Fake Chat Demo -->
 <div class="chat-demo" id="chat-demo">
@@ -501,6 +502,19 @@
 <li><a href="soundfont.html#priority">&#x1F4CA; SoundFont Priority</a></li>
 <li><a href="soundfont.html#ffxiv-mode">&#x1F3AE; FFXIV SoundFont Mode</a></li>
 <li><a href="soundfont.html#tips">&#x1F4A1; Tips</a></li>
+</ul>
+</div>
+
+<div class="section-card">
+<h3><span class="icon"><img src="tools/channel_split_28.png" alt="Split" style="height:1.1em;vertical-align:middle;"></span> Split Channels to Tracks</h3>
+<p class="card-desc">Convert single-track multi-channel GM MIDI files into one track per instrument. Auto-names tracks from GM Program Change events.</p>
+<ul>
+<li><a href="split-channels.html#overview">&#x2699;&#xFE0F; How It Works</a></li>
+<li><a href="split-channels.html#dialog">&#x1F4CB; The Split Dialog</a></li>
+<li><a href="split-channels.html#options">&#x1F527; Options</a></li>
+<li><a href="split-channels.html#result">&#x2705; Result</a></li>
+<li><a href="split-channels.html#naming">&#x1F3B5; Automatic Track Naming</a></li>
+<li><a href="split-channels.html#tips">&#x1F4A1; Tips</a></li>
 </ul>
 </div>
 

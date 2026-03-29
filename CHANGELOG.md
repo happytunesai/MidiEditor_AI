@@ -5,6 +5,25 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 
 ---
 
+## [1.1.4] - 2026-03-29 — Split Channels to Tracks
+
+### Added
+* **Split Channels to Tracks** — convert single-track multi-channel GM MIDI files into one track per instrument:
+  - Toolbar button + menu entry under Tools → Split Channels to Tracks (Ctrl+Shift+E)
+  - Preview dialog showing all active channels with GM instrument names and note counts
+  - Auto-names tracks from GM Program Change events (e.g. "Synth Bass 1", "Vibraphone", "Drums")
+  - Option to keep Channel 9 (Drums) on the original track
+  - Option to remove empty source track after split (preserves meta events automatically)
+  - Configurable track insertion position (after source or at end)
+  - Entire operation wrapped in a single undo action
+  - Toolbar migration code ensures button appears for existing users with saved toolbar settings
+* **Manual: Split Channels to Tracks page** added with screenshots and animated GIF
+
+### Changed
+* Version bump to 1.1.4
+
+---
+
 ## [1.1.3.1] - 2026-03-29 — Auto-Save
 
 ### Added

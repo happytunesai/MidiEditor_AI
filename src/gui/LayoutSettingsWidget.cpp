@@ -739,7 +739,8 @@ QList<ToolbarActionInfo> LayoutSettingsWidget::getDefaultActions() {
     actions << ToolbarActionInfo{"transpose_up", "Transpose Up", ":/run_environment/graphics/tool/transpose_up.png", nullptr, false, false, "Tools"};
     actions << ToolbarActionInfo{"transpose_down", "Transpose Down", ":/run_environment/graphics/tool/transpose_down.png", nullptr, false, false, "Tools"};
 
-    // FFXIV tools
+    // Channel/FFXIV tools
+    actions << ToolbarActionInfo{"split_channels_to_tracks", "Split Channels to Tracks", ":/run_environment/graphics/tool/channel_split_28.png", nullptr, false, false, "Tools"};
     actions << ToolbarActionInfo{"fix_ffxiv_channels", "Fix X|V Channels", ":/run_environment/graphics/tool/ffxiv_fix.png", nullptr, false, false, "Tools"};
 
     // MidiPilot toggle
@@ -818,7 +819,7 @@ QStringList LayoutSettingsWidget::getComprehensiveActionOrder() {
             << "quantize" << "magnet" << "separator11"
             << "thru" << "panic" << "separator12"
             << "measure" << "time_signature" << "tempo"
-            << "fix_ffxiv_channels"
+            << "split_channels_to_tracks" << "fix_ffxiv_channels"
             << "separator14" << "toggle_midipilot";
     return order;
 }
@@ -841,7 +842,7 @@ QStringList LayoutSettingsWidget::getDefaultEnabledActions() {
             // thru and panic disabled by default
             // << "thru" << "panic" << "separator12"
             << "measure" << "time_signature" << "tempo"
-            << "fix_ffxiv_channels"
+            << "split_channels_to_tracks" << "fix_ffxiv_channels"
             << "separator14" << "toggle_midipilot";
     return enabled;
 }
@@ -860,7 +861,7 @@ void LayoutSettingsWidget::getDefaultRowDistribution(QStringList &row1Actions, Q
             << "align_left" << "equalize" << "align_right" << "separator8"
             << "quantize" << "magnet" << "separator9"
             << "measure" << "time_signature" << "tempo"
-            << "fix_ffxiv_channels"
+            << "split_channels_to_tracks" << "fix_ffxiv_channels"
             << "separator14" << "toggle_midipilot";
 
     // Row 2: Playback and view actions
@@ -911,7 +912,7 @@ QStringList LayoutSettingsWidget::getDefaultToolbarOrder() {
             << "zoom_hor_in" << "zoom_hor_out" << "zoom_ver_in" << "zoom_ver_out"
             << "lock" << "separator8" << "quantize" << "magnet" << "separator9"
             << "measure" << "time_signature" << "tempo"
-            << "fix_ffxiv_channels"
+            << "split_channels_to_tracks" << "fix_ffxiv_channels"
             << "separator10" << "toggle_midipilot";
     return order;
 }
@@ -947,7 +948,7 @@ void LayoutSettingsWidget::getDefaultToolbarRowDistribution(QStringList &row1Act
             << "align_left" << "equalize" << "align_right" << "separator8"
             << "quantize" << "magnet" << "separator9"
             << "measure" << "time_signature" << "tempo"
-            << "fix_ffxiv_channels";
+            << "split_channels_to_tracks" << "fix_ffxiv_channels";
 
     // Row 2: Playback and view
     row2Actions << "back_to_begin" << "back_marker" << "back" << "play" << "pause"

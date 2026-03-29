@@ -16,7 +16,7 @@
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-0078D6?logo=windows)](https://github.com/happytunesai/MidiEditor_AI/releases)
 
-**Version:** 1.1.3.1
+**Version:** 1.1.4
 **Status:** Release
 
 📥 **[Download Latest Release](https://github.com/happytunesai/MidiEditor_AI/releases/latest)**
@@ -56,7 +56,8 @@ MidiPilot is the AI brain embedded directly in MidiEditor AI. Open the sidebar, 
 | 💬 **Simple Mode** | Single request/response for quick edits and small tasks |
 | 🎮 **FFXIV Bard Mode** | Enforces Final Fantasy XIV Performance constraints (8 tracks, monophonic, C3–C6) |
 | 🎸 **Fix X\|V Channels** | One-click deterministic channel fixer — Rebuild or Preserve mode, velocity normalization, rich result summary |
-| 🔊 **Built-in FluidSynth** | Play MIDI without external softsynth — load SF2/SF3 SoundFonts, SoundFont stacking, FFXIV SoundFont Mode |
+| � **Split Channels to Tracks** | Convert single-track multi-channel GM MIDI files into one track per instrument with auto-naming |
+| �🔊 **Built-in FluidSynth** | Play MIDI without external softsynth — load SF2/SF3 SoundFonts, SoundFont stacking, FFXIV SoundFont Mode |
 | 🔌 **Multi-Provider** | OpenAI, OpenRouter, Google Gemini, or any OpenAI-compatible endpoint |
 | 🧠 **Reasoning Support** | Configurable thinking/reasoning effort (None → Extra High) |
 | 📊 **Token Tracking** | Real-time token usage display per request and session |
@@ -134,7 +135,30 @@ Find it in the toolbar or via **Tools → Fix X|V Channels**. The entire operati
 
 ---
 
-## 🔊 Built-in FluidSynth Synthesizer
+## � Split Channels to Tracks
+
+The **Split Channels to Tracks** tool converts single-track multi-channel GM MIDI files into one track per instrument. Perfect for files downloaded from the internet where all channels are on one track.
+
+<p align="center">
+  <img src="manual/screenshots/channel_splitting.png" alt="Split Channels to Tracks dialog" width="500"/>
+  <br/>
+  <i>Preview dialog showing detected channels, GM instrument names, and note counts</i>
+</p>
+
+**Features:**
+- **Auto-naming** — tracks are named from GM Program Change events (e.g. "Synth Bass 1", "Vibraphone", "Drums")
+- **Channel 9 handling** — optionally keep drums on the original track
+- **Flexible positioning** — insert new tracks after source or at end
+- **Clean up** — optionally remove the empty source track
+- **Full undo** — the entire split is a single undo action (Ctrl+Z)
+
+Find it in the toolbar or via **Tools → Split Channels to Tracks** (Ctrl+Shift+E).
+
+📖 **[Split Channels Documentation →](https://happytunesai.github.io/MidiEditor_AI/split-channels.html)**
+
+---
+
+## �🔊 Built-in FluidSynth Synthesizer
 
 MidiEditor AI includes a **built-in software synthesizer** powered by [FluidSynth](https://www.fluidsynth.org/). No external softsynth (like VirtualMIDISynth or CoolSoft) is needed — just select *FluidSynth (Built-in Synthesizer)* as your MIDI output.
 
