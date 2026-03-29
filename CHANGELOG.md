@@ -5,6 +5,27 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 
 ---
 
+## [1.1.3.1] - 2026-03-29 — Auto-Save
+
+### Added
+* **Auto-Save** — automatic backup saves to prevent data loss during editing:
+  - Saves a sidecar backup (`.autosave`) alongside your file after a configurable idle period
+  - Untitled (never-saved) documents are backed up to `AppData/MidiEditor AI/autosave/`
+  - Original file is never overwritten — the backup is a separate `.autosave` file
+  - On next open, if a newer autosave backup exists, offers to recover it
+  - On startup, checks for orphaned untitled backups from crashes and offers recovery
+  - Backup is automatically deleted on normal save or clean exit
+  - Auto-save events appear in the Protocol (undo history) panel as "Auto-saved" markers
+* **Auto-Save settings** in Settings → System & Performance:
+  - Enable/disable auto-save (default: enabled)
+  - Configurable idle interval from 30 to 600 seconds (default: 120 sec)
+* **Manual: Auto-Save section** added to MidiPilot documentation page with screenshot
+
+### Changed
+* Version bump to 1.1.3.1
+
+---
+
 ## [1.1.3] - 2026-03-28 — Prompt Architecture v2, Crash Fix & Provider Selector
 
 ### Added

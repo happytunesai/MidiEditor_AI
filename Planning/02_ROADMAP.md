@@ -2328,3 +2328,206 @@ Phase 12.7  Remove unused variable                        ✅ DONE (v1.1.3)
   in the LLM output. No benefit for token cost.
 - **Custom prompt users** (`system_prompts.json`) get the improvements automatically
   only if they reset to defaults. Existing custom prompts are not affected.
+
+---
+
+## Phase 13: Auto-Save ✅ DONE (v1.1.3.1)
+
+> **Goal:** Prevent data loss by automatically saving the MIDI file at regular intervals
+> and providing crash recovery for unsaved work. Currently there is zero backup/recovery
+> infrastructure — if the app crashes, all unsaved edits are gone.
+>
+> **Motivation:** Users often edit for hours without saving. A single crash loses everything.
+
+### Background & Code Analysis
+
+**Current save path:**
+- `MainWindow::save()` → `MidiFile::save(path)` — **synchronous**, writes raw MIDI binary
+  to disk on the GUI thread. Fast for typical files (<100ms), but blocks the UI.
+- `MidiFile::_saved` (bool) — set `false` by `Protocol::endAction()`, set `true` by `save()`.
+- `MidiFile::_path` — empty string for untitled (never-saved) documents.
+- No temp files, no backup directory, no crash recovery exists.
+
+**Edit detection signals:**
+- `Protocol::actionFinished()` → connected to `MainWindow::markEdited()` — emitted after
+  every undo-able action. This is the ideal trigger to reset an auto-save countdown timer.
+
+**Timer infrastructure:**
+- `MainWindow` currently has no QTimers. Clean slate for adding one.
+
+**Settings dialog:**
+- 9 tabbed panels in `SettingsDialog`, added via `addSetting()`. Auto-save settings can
+  go into a new "General" panel or be appended to `PerformanceSettingsWidget`.
+
+### Design
+
+**Two-tier approach:**
+
+1. **Tier A — In-place auto-save** (for files that already have a path on disk):
+   - Silently calls `file->save(file->path())` after N seconds of inactivity.
+   - Only triggers if the file is dirty (`!file->saved()`).
+   - Resets the timer on every edit (debounce pattern — saves after a quiet period,
+     not mid-typing).
+
+2. **Tier B — Backup auto-save** (for ALL files, including untitled):
+   - Saves to a sidecar file: `<filepath>.autosave.mid` (or `<appdata>/autosave/<hash>.mid`
+     for untitled documents).
+   - The sidecar file is deleted on clean exit or manual save.
+   - On startup, check for leftover `.autosave.mid` files → offer recovery dialog.
+
+**Recommended approach: Start with Tier B only.** Tier B is safer because it never
+overwrites the user's original file. Tier A can be added later as an opt-in preference.
+
+### 13.1 — Auto-Save Timer & Backup File ✅
+
+Add to `MainWindow`:
+
+```cpp
+// Header
+QTimer *_autoSaveTimer;
+void performAutoSave();
+
+// Constructor
+_autoSaveTimer = new QTimer(this);
+_autoSaveTimer->setSingleShot(true);
+connect(_autoSaveTimer, &QTimer::timeout, this, &MainWindow::performAutoSave);
+
+// In markEdited() — reset the debounce timer
+void MainWindow::markEdited() {
+    setWindowModified(true);
+    if (_settings->value("autosave_enabled", true).toBool()) {
+        int intervalSec = _settings->value("autosave_interval", 120).toInt();
+        _autoSaveTimer->start(intervalSec * 1000);
+    }
+}
+```
+
+Auto-save slot:
+
+```cpp
+void MainWindow::performAutoSave() {
+    if (!file || file->saved()) return;
+
+    QString backupPath;
+    if (!file->path().isEmpty()) {
+        // Named file → sidecar: "MySong.mid" → "MySong.mid.autosave"
+        backupPath = file->path() + ".autosave";
+    } else {
+        // Untitled → AppData temp dir
+        QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+                    + "/autosave";
+        QDir().mkpath(dir);
+        backupPath = dir + "/untitled_autosave.mid";
+    }
+
+    if (file->save(backupPath)) {
+        // Don't mark as saved — the *real* file is still dirty
+        file->setSaved(false);
+        setStatus("Auto-saved", "gray");   // brief status bar feedback
+    }
+}
+```
+
+**On clean exit / manual save:** Delete the `.autosave` sidecar:
+
+```cpp
+// After successful save():
+QFile::remove(file->path() + ".autosave");
+
+// In closeEvent() after user confirms discard:
+QFile::remove(file->path() + ".autosave");
+```
+
+**Files:** `MainWindow.h`, `MainWindow.cpp`
+**Effort:** 1-2h
+
+### 13.2 — Crash Recovery Dialog ✅
+
+On startup, before loading the initial file:
+
+```cpp
+void MainWindow::checkAutoSaveRecovery() {
+    // Check 1: sidecar for the file being opened
+    if (QFile::exists(filePath + ".autosave")) {
+        // Ask user: "A backup from a previous session was found. Recover?"
+    }
+
+    // Check 2: untitled backups in AppData
+    QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+                + "/autosave";
+    QDir autoDir(dir);
+    QStringList backups = autoDir.entryList({"*.mid"}, QDir::Files);
+    // Offer to recover each one
+}
+```
+
+Show a simple `QMessageBox::question`:
+- **Recover** → load the `.autosave` file, mark as dirty (user can then Save As)
+- **Discard** → delete the `.autosave` file, continue normally
+
+**Files:** `MainWindow.cpp`
+**Effort:** 1h
+
+### 13.3 — Settings UI ✅
+
+Add auto-save options to settings. Either a new "General" tab or extend `PerformanceSettingsWidget`:
+
+- **Enable auto-save** — checkbox (default: ON)
+- **Auto-save interval** — spin box, 30-600 seconds (default: 120 = 2 minutes)
+- **Save to backup file** — radio: "Backup file only" (safe default) / "Overwrite original"
+
+QSettings keys:
+- `autosave_enabled` (bool, default `true`)
+- `autosave_interval` (int seconds, default `120`)
+- `autosave_overwrite` (bool, default `false` — Tier A opt-in)
+
+**Files:** New `AutoSaveSettingsWidget.cpp/.h` or extend `PerformanceSettingsWidget`
+**Effort:** 30min
+
+### 13.4 — Status Bar Feedback ✅
+
+Brief non-intrusive feedback when auto-save fires:
+
+- Show "Auto-saved" in the MidiPilot status bar or the main window status bar for 3 seconds
+- Use the existing `setStatus()` pattern or add a temporary label
+
+**Files:** `MainWindow.cpp`
+**Effort:** 15min
+
+### Implementation Order
+
+```
+Phase 13.1  Auto-save timer & backup file       ✅ DONE (v1.1.3.1)
+Phase 13.2  Crash recovery dialog                ✅ DONE (v1.1.3.1)
+Phase 13.3  Settings UI                          ✅ DONE (v1.1.3.1)
+Phase 13.4  Status bar feedback                  ✅ DONE (v1.1.3.1)
+```
+
+### Estimated Complexity
+
+| Sub-phase | New Code | Modified Code | Risk |
+|-----------|----------|---------------|------|
+| 13.1 Timer & backup | ~50 lines | MainWindow (~20 lines) | Low — writes to separate file |
+| 13.2 Recovery dialog | ~40 lines | MainWindow (~10 lines) | Low — only on startup |
+| 13.3 Settings UI | ~80 lines (new widget) | SettingsDialog (~2 lines) | None |
+| 13.4 Status feedback | ~10 lines | MainWindow (~5 lines) | None |
+
+### Key Considerations
+
+- **Tier B (backup sidecar) is the safe default.** It never overwrites the user's file.
+  The user explicitly saves when they want to commit changes. The `.autosave` sidecar
+  is only a crash recovery net.
+- **Tier A (overwrite original) is opt-in.** Some users want true auto-save (like VS Code).
+  This requires the file to already have a path (not untitled). Risky if the user wants
+  to revert — but undo history is in memory anyway, so losing the on-disk original is
+  recoverable as long as the app doesn't crash.
+- **Performance:** `MidiFile::save()` is synchronous and fast (<100ms for typical files).
+  For very large files (100k+ events), consider `QTimer::singleShot` + worker thread
+  in a future optimization. Not needed for v1.
+- **Debounce, not interval:** The timer resets on every edit. If the user is actively
+  editing, auto-save waits until they pause. This avoids saving mid-operation and
+  prevents performance hiccups during rapid editing.
+- **`file->setSaved(false)` after backup save:** Critical. The backup save must NOT mark
+  the file as "saved" — otherwise the close-event dialog won't warn about unsaved changes.
+- **NOT implementing full journaling/WAL** — overkill for a MIDI editor. Simple file-level
+  backup is sufficient.

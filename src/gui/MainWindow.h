@@ -1017,6 +1017,23 @@ private:
 
     /** \brief Whether the current update check should be silent (no UI if no update) */
     bool _silentUpdateCheck;
+
+    // === Auto-Save ===
+
+    /** \brief Debounce timer for auto-save — resets on every edit */
+    QTimer *_autoSaveTimer = nullptr;
+
+    /** \brief Performs auto-save to a sidecar backup file */
+    void performAutoSave();
+
+    /** \brief Returns the auto-save backup path for the current file */
+    QString autoSavePath() const;
+
+    /** \brief Removes auto-save sidecar files and stops the timer */
+    void cleanupAutoSave();
+
+    /** \brief Checks for leftover auto-save files on startup and offers recovery */
+    void checkAutoSaveRecovery();
 };
 
 #endif // MAINWINDOW_H_

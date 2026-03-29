@@ -48,7 +48,7 @@
 </head>
 <body>
 <div class="nav-bar">
-<div class="nav-header"><span class="nav-icon">&#129302;</span><span class="nav-title">MidiEditor AI Manual</span><span class="nav-version">v1.1.2.2</span></div>
+<div class="nav-header"><span class="nav-icon">&#129302;</span><span class="nav-title">MidiEditor AI Manual</span><span class="nav-version">v1.1.3.1</span></div>
 <div class="nav-links">
 <a href="index.html">Index</a>
 <a href="introduction.html">Introduction</a>
@@ -380,6 +380,49 @@ Click <b>Edit System Prompts&hellip;</b> in settings to open the built-in editor
 <p>
 Prompts are saved as <code>system_prompts.json</code> in the application directory. If no custom file exists, MidiPilot uses the hardcoded defaults.
 </p>
+
+<hr>
+
+<h2 id="auto-save">Auto-Save</h2>
+
+<p>
+MidiEditor AI automatically saves a backup copy of your work at regular intervals, so you never lose progress to a crash or accidental close. Your original file is <b>never overwritten</b> &mdash; the backup is stored as a separate <code>.autosave</code> sidecar file alongside your MIDI file.
+</p>
+
+<h3>How It Works</h3>
+
+<ul>
+<li><b>Debounce timer</b> &mdash; after each edit, a countdown resets. The backup is only written once you pause editing for the configured interval (default: 120 seconds).</li>
+<li><b>Named files</b> &mdash; saved as <code>YourSong.mid.autosave</code> next to the original file.</li>
+<li><b>Untitled documents</b> &mdash; saved to <code>AppData/MidiEditor AI/autosave/untitled.autosave.mid</code>.</li>
+<li><b>Cleanup</b> &mdash; the <code>.autosave</code> backup is automatically deleted when you save normally or exit cleanly.</li>
+<li><b>Protocol entry</b> &mdash; each auto-save appears as an &ldquo;Auto-saved&rdquo; marker in the undo history panel.</li>
+</ul>
+
+<h3>Crash Recovery</h3>
+
+<ul>
+<li>When opening a file, if a newer <code>.autosave</code> backup exists, MidiEditor AI offers to recover it.</li>
+<li>On startup, orphaned untitled backups from previous crashes are detected and a recovery dialog is shown.</li>
+<li>Recovered files open as unsaved &mdash; use <b>Save As</b> to give them a permanent name.</li>
+</ul>
+
+<h3>Settings</h3>
+
+<p>
+Auto-save options are in <b>Settings &rarr; System &amp; Performance</b>:
+</p>
+
+<div class="screenshot-single">
+<img src="screenshots/autosave_settings.png" alt="Auto-Save settings in System &amp; Performance" width="550">
+<div class="caption">Auto-Save settings with enable toggle and interval configuration</div>
+</div>
+
+<table>
+<tr><th>Setting</th><th>Description</th></tr>
+<tr><td><b>Enable auto-save</b></td><td>Toggle automatic backups on or off (default: on)</td></tr>
+<tr><td><b>Save after idle (seconds)</b></td><td>Seconds of inactivity before a backup is written (30&ndash;600, default: 120)</td></tr>
+</table>
 
 <hr>
 

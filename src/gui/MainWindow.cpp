@@ -40,6 +40,10 @@
 #include <QDesktopServices>
 #include <QKeyEvent>
 #include <QTimer>
+#include <QStandardPaths>
+#include <QDir>
+#include <QStatusBar>
+#include <QLocale>
 
 #include <cmath>
 #include <algorithm>
@@ -631,6 +635,11 @@ MainWindow::MainWindow(QString initFile)
     // Initialize shared clipboard immediately
     initializeSharedClipboard();
 
+    // Initialize auto-save debounce timer
+    _autoSaveTimer = new QTimer(this);
+    _autoSaveTimer->setSingleShot(true);
+    connect(_autoSaveTimer, &QTimer::timeout, this, &MainWindow::performAutoSave);
+
     // Apply widget size constraints based on settings
     applyWidgetSizeConstraints();
 
@@ -721,6 +730,9 @@ void MainWindow::updatePasteActionState() {
 }
 
 void MainWindow::loadInitFile() {
+    // Check for untitled auto-save recovery before loading
+    checkAutoSaveRecovery();
+
     if (_initFile != "")
         loadFile(_initFile);
     else
@@ -1181,6 +1193,7 @@ void MainWindow::save() {
             QMessageBox::warning(this, tr("Error"), QString(tr("The file could not be saved. Please make sure that the destination directory exists and that you have the correct access rights to write into this directory.")));
         } else {
             setWindowModified(false);
+            cleanupAutoSave();
         }
     } else {
         saveas();
@@ -1231,6 +1244,7 @@ void MainWindow::saveas() {
         setWindowTitle(QApplication::applicationName() + " v" + QApplication::applicationVersion() + " - " + file->path() + "[*]");
         updateRecentPathsList();
         setWindowModified(false);
+        cleanupAutoSave();
     } else {
         QMessageBox::warning(this, tr("Error"), QString(tr("The file could not be saved. Please make sure that the destination directory exists and that you have the correct access rights to write into this directory.")));
     }
@@ -1282,11 +1296,43 @@ void MainWindow::openFile(QString filePath) {
 
     startDirectory = QFileInfo(nf).absoluteDir().path() + "/";
 
-    MidiFile *mf = new MidiFile(filePath, &ok);
+    // Check for auto-save recovery sidecar
+    QString autoPath = filePath + ".autosave";
+    bool useAutoSave = false;
+    if (QFile::exists(autoPath)) {
+        QFileInfo autoInfo(autoPath);
+        QFileInfo origInfo(filePath);
+        if (autoInfo.lastModified() > origInfo.lastModified()) {
+            auto result = QMessageBox::question(this, tr("Auto-Save Recovery"),
+                tr("A more recent auto-saved backup was found for:\n%1\n\n"
+                   "Backup from: %2\nOriginal from: %3\n\n"
+                   "Would you like to recover the backup?")
+                    .arg(filePath)
+                    .arg(QLocale().toString(autoInfo.lastModified(), QLocale::ShortFormat))
+                    .arg(QLocale().toString(origInfo.lastModified(), QLocale::ShortFormat)),
+                QMessageBox::Yes | QMessageBox::No);
+            useAutoSave = (result == QMessageBox::Yes);
+            if (!useAutoSave) {
+                QFile::remove(autoPath);
+            }
+        } else {
+            QFile::remove(autoPath);  // Stale auto-save, clean up
+        }
+    }
+
+    MidiFile *mf = new MidiFile(useAutoSave ? autoPath : filePath, &ok);
 
     if (ok) {
         stop();
+        if (useAutoSave) {
+            mf->setPath(filePath);   // Point to original file path
+            mf->setSaved(false);     // Mark as dirty — user should save explicitly
+        }
         setFile(mf);
+        if (useAutoSave) {
+            setWindowModified(true);
+            statusBar()->showMessage(tr("Recovered from auto-save backup"), 5000);
+        }
         updateRecentPathsList();
     } else {
         QMessageBox::warning(this, tr("Error"), QString(tr("The file is damaged and cannot be opened. ")));
@@ -1392,6 +1438,7 @@ void MainWindow::closeEvent(QCloseEvent *event) {
 
     // Only perform early cleanup if we're actually closing
     if (shouldClose) {
+        cleanupAutoSave();
         performEarlyCleanup();
     }
 
@@ -2790,6 +2837,96 @@ void MainWindow::paste() {
 
 void MainWindow::markEdited() {
     setWindowModified(true);
+
+    // Reset auto-save debounce timer (saves after a quiet period, not mid-editing)
+    if (_autoSaveTimer && _settings->value("autosave_enabled", true).toBool()) {
+        int intervalSec = _settings->value("autosave_interval", 120).toInt();
+        _autoSaveTimer->start(intervalSec * 1000);
+    }
+}
+
+QString MainWindow::autoSavePath() const {
+    if (!file) return QString();
+
+    if (!file->path().isEmpty() && QFile::exists(file->path())) {
+        // Named file → sidecar: "MySong.mid" → "MySong.mid.autosave"
+        return file->path() + ".autosave";
+    } else {
+        // Untitled → stable path in AppData
+        QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+                    + "/autosave";
+        QDir().mkpath(dir);
+        return dir + "/untitled.autosave.mid";
+    }
+}
+
+void MainWindow::performAutoSave() {
+    if (!file || file->saved()) return;
+
+    QString backupPath = autoSavePath();
+    if (backupPath.isEmpty()) return;
+
+    if (file->save(backupPath)) {
+        // CRITICAL: backup save must NOT mark the file as saved
+        file->setSaved(false);
+        file->protocol()->addEmptyAction(tr("Auto-saved"));
+        statusBar()->showMessage(tr("Auto-saved"), 3000);
+    }
+}
+
+void MainWindow::cleanupAutoSave() {
+    if (_autoSaveTimer) {
+        _autoSaveTimer->stop();
+    }
+
+    if (!file) return;
+
+    // Remove sidecar for named file
+    if (!file->path().isEmpty()) {
+        QFile::remove(file->path() + ".autosave");
+    }
+
+    // Remove untitled backup
+    QString untitledPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+                         + "/autosave/untitled.autosave.mid";
+    QFile::remove(untitledPath);
+}
+
+void MainWindow::checkAutoSaveRecovery() {
+    // Check for untitled auto-save backup in AppData
+    QString untitledPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+                         + "/autosave/untitled.autosave.mid";
+
+    if (!QFile::exists(untitledPath)) return;
+
+    QFileInfo info(untitledPath);
+    auto result = QMessageBox::question(this, tr("Auto-Save Recovery"),
+        tr("An auto-saved backup of an untitled document was found.\n"
+           "Last modified: %1\n\n"
+           "Would you like to recover it?")
+            .arg(QLocale().toString(info.lastModified(), QLocale::ShortFormat)),
+        QMessageBox::Yes | QMessageBox::No);
+
+    if (result == QMessageBox::Yes) {
+        bool ok = true;
+        MidiFile *mf = new MidiFile(untitledPath, &ok);
+        if (ok) {
+            stop();
+            setFile(mf);
+            mf->setPath(QString());   // Clear path — this is an untitled recovered doc
+            mf->setSaved(false);
+            setWindowTitle(QApplication::applicationName() + " v" +
+                QApplication::applicationVersion() + tr(" - Recovered Document[*]"));
+            setWindowModified(true);
+            statusBar()->showMessage(tr("Recovered from auto-save backup"), 5000);
+            QFile::remove(untitledPath);
+            _initFile = "";  // Prevent loadInitFile from loading another file
+            return;
+        }
+    }
+
+    // Declined or failed — delete the stale backup
+    QFile::remove(untitledPath);
 }
 
 void MainWindow::colorsByChannel() {

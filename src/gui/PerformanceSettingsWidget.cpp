@@ -26,6 +26,7 @@
 #include <QGridLayout>
 #include <QVBoxLayout>
 #include <QPushButton>
+#include <QSpinBox>
 #include <QApplication>
 
 PerformanceSettingsWidget::PerformanceSettingsWidget(QSettings *settings, QWidget *parent)
@@ -164,6 +165,42 @@ void PerformanceSettingsWidget::setupUI() {
 
     mainLayout->addWidget(_hardwareAccelerationGroup);
 
+    // Auto-Save Group
+    QGroupBox *autoSaveGroup = new QGroupBox(tr("Auto-Save"), this);
+    QGridLayout *autoSaveLayout = new QGridLayout(autoSaveGroup);
+
+    _enableAutoSave = new QCheckBox(tr("Enable auto-save"), this);
+    _enableAutoSave->setToolTip(tr("Automatically save a backup copy after a period of inactivity."));
+    connect(_enableAutoSave, &QCheckBox::toggled, this, [this](bool enabled) {
+        if (!_isLoading) {
+            _settings->setValue("autosave_enabled", enabled);
+            _autoSaveIntervalSpin->setEnabled(enabled);
+        }
+    });
+    autoSaveLayout->addWidget(_enableAutoSave, 0, 0, 1, 2);
+
+    QLabel *autoSaveDesc = new QLabel(tr("Saves a backup copy (.autosave) alongside your file.\n"
+        "Your original file is never overwritten. The backup is deleted on normal save/exit."), this);
+    autoSaveDesc->setWordWrap(true);
+    autoSaveDesc->setStyleSheet("color: gray; font-size: 11px; margin-left: 10px;");
+    autoSaveLayout->addWidget(autoSaveDesc, 1, 0, 1, 2);
+
+    QLabel *intervalLabel = new QLabel(tr("Save after idle (seconds):"), this);
+    autoSaveLayout->addWidget(intervalLabel, 2, 0);
+
+    _autoSaveIntervalSpin = new QSpinBox(this);
+    _autoSaveIntervalSpin->setRange(30, 600);
+    _autoSaveIntervalSpin->setSuffix(tr(" sec"));
+    _autoSaveIntervalSpin->setToolTip(tr("Auto-save triggers after this many seconds of no editing activity."));
+    connect(_autoSaveIntervalSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int val) {
+        if (!_isLoading) {
+            _settings->setValue("autosave_interval", val);
+        }
+    });
+    autoSaveLayout->addWidget(_autoSaveIntervalSpin, 2, 1);
+
+    mainLayout->addWidget(autoSaveGroup);
+
     // Reset button
     QPushButton *resetButton = new QPushButton(tr("Reset to Default"), this);
     connect(resetButton, &QPushButton::clicked, this, &PerformanceSettingsWidget::resetToDefaults);
@@ -204,6 +241,11 @@ void PerformanceSettingsWidget::loadSettings() {
     // Apply the enable/disable logic for all options
     enableHardwareAccelerationChanged(_enableHardwareAcceleration->isChecked());
 
+    // Load auto-save settings
+    _enableAutoSave->setChecked(_settings->value("autosave_enabled", true).toBool());
+    _autoSaveIntervalSpin->setValue(_settings->value("autosave_interval", 120).toInt());
+    _autoSaveIntervalSpin->setEnabled(_enableAutoSave->isChecked());
+
     // Clear loading flag - change events can now be processed normally
     _isLoading = false;
 }
@@ -225,6 +267,10 @@ bool PerformanceSettingsWidget::accept() {
     // Save multisampling setting
     int msaaSamples = _multisamplingCombo->currentData().toInt();
     _settings->setValue("rendering/msaa_samples", msaaSamples);
+
+    // Save auto-save settings
+    _settings->setValue("autosave_enabled", _enableAutoSave->isChecked());
+    _settings->setValue("autosave_interval", _autoSaveIntervalSpin->value());
 
     return true;
 }
@@ -391,4 +437,9 @@ void PerformanceSettingsWidget::resetToDefaults() {
     _ignoreSystemFontScaling->setChecked(false);
     _useRoundedScaling->setChecked(false);
     _unlockWidgetSizes->setChecked(false);
+
+    // Auto-save defaults
+    _enableAutoSave->setChecked(true);
+    _autoSaveIntervalSpin->setValue(120);
+    _autoSaveIntervalSpin->setEnabled(true);
 }

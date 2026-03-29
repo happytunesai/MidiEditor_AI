@@ -232,6 +232,14 @@ private:
 
     /** \brief Checkbox for unlocking widget minimum sizes */
     QCheckBox *_unlockWidgetSizes;
+
+    // === Auto-Save Controls ===
+
+    /** \brief Checkbox for enabling auto-save */
+    QCheckBox *_enableAutoSave;
+
+    /** \brief Spin box for auto-save interval in seconds */
+    QSpinBox *_autoSaveIntervalSpin;
 };
 
 #endif // PERFORMANCESETTINGSWIDGET_H_
