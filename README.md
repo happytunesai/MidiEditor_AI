@@ -56,8 +56,8 @@ MidiPilot is the AI brain embedded directly in MidiEditor AI. Open the sidebar, 
 | 💬 **Simple Mode** | Single request/response for quick edits and small tasks |
 | 🎮 **FFXIV Bard Mode** | Enforces Final Fantasy XIV Performance constraints (8 tracks, monophonic, C3–C6) |
 | 🎸 **Fix X\|V Channels** | One-click deterministic channel fixer — Rebuild or Preserve mode, velocity normalization, rich result summary |
-| � **Split Channels to Tracks** | Convert single-track multi-channel GM MIDI files into one track per instrument with auto-naming |
-| �🔊 **Built-in FluidSynth** | Play MIDI without external softsynth — load SF2/SF3 SoundFonts, SoundFont stacking, FFXIV SoundFont Mode |
+| 🔀 **Split Channels to Tracks** | Convert single-track multi-channel GM MIDI files into one track per instrument with auto-naming |
+| 🎵🔊 **Built-in FluidSynth** | Play MIDI without external softsynth — load SF2/SF3 SoundFonts, SoundFont stacking, FFXIV SoundFont Mode |
 | 🔌 **Multi-Provider** | OpenAI, OpenRouter, Google Gemini, or any OpenAI-compatible endpoint |
 | 🧠 **Reasoning Support** | Configurable thinking/reasoning effort (None → Extra High) |
 | 📊 **Token Tracking** | Real-time token usage display per request and session |
@@ -135,7 +135,7 @@ Find it in the toolbar or via **Tools → Fix X|V Channels**. The entire operati
 
 ---
 
-## � Split Channels to Tracks
+## 🔀 Split Channels to Tracks
 
 The **Split Channels to Tracks** tool converts single-track multi-channel GM MIDI files into one track per instrument. Perfect for files downloaded from the internet where all channels are on one track.
 
@@ -158,7 +158,7 @@ Find it in the toolbar or via **Tools → Split Channels to Tracks** (Ctrl+Shift
 
 ---
 
-## �🔊 Built-in FluidSynth Synthesizer
+## 🎵🔊 Built-in FluidSynth Synthesizer
 
 MidiEditor AI includes a **built-in software synthesizer** powered by [FluidSynth](https://www.fluidsynth.org/). No external softsynth (like VirtualMIDISynth or CoolSoft) is needed — just select *FluidSynth (Built-in Synthesizer)* as your MIDI output.
 
@@ -179,7 +179,7 @@ MidiEditor AI includes a **built-in software synthesizer** powered by [FluidSynt
 
 ---
 
-## � Auto-Updater
+## 🔄 Auto-Updater
 
 MidiEditor AI checks for new versions on GitHub at every startup. When an update is available, you get four options:
 
@@ -201,7 +201,7 @@ MidiEditor AI checks for new versions on GitHub at every startup. When an update
 
 ---
 
-## �🔌 Supported Providers
+## 🌐🔌 Supported Providers
 
 | Provider | Base URL | API Key | Free Tier |
 |----------|----------|---------|-----------|
