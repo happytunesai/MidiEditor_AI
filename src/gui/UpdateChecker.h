@@ -13,7 +13,7 @@ public:
     void checkForUpdates();
 
 signals:
-    void updateAvailable(QString version, QString url);
+    void updateAvailable(QString version, QString releaseUrl, QString zipDownloadUrl, qint64 zipSize);
     void noUpdateAvailable();
     void errorOccurred(QString error);
 

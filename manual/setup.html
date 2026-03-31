@@ -9,7 +9,7 @@
 </head>
 <body>
 <div class="nav-bar">
-<div class="nav-header"><span class="nav-icon">&#129302;</span><span class="nav-title">MidiEditor AI Manual</span><span class="nav-version">v1.1.4</span></div>
+<div class="nav-header"><span class="nav-icon">&#129302;</span><span class="nav-title">MidiEditor AI Manual</span><span class="nav-version">v1.1.5</span></div>
 <div class="nav-links">
   <a href="index.html">Index</a>
   <a href="introduction.html">Introduction</a>
@@ -82,12 +82,40 @@
 <h3 id="updates">Automatic Updates</h3>
 
 <p>
-  MidiEditor connects to internet at each startup in order to check whether a new version of MidiEditor is available. If so, you will be notified and
-  asked to download the new version.
+  MidiEditor AI checks for new versions on GitHub at each startup. When a newer version is available, you will see the <b>Update Available</b> dialog:
 </p>
+
+<img class="figure" src="screenshots/update_available.png" alt="Update Available dialog showing version comparison and four action buttons"/>
+
+<p>You have four options:</p>
+
+<table>
+<tr><th>Button</th><th>Action</th></tr>
+<tr><td><b>Update Now</b></td><td>Downloads the update, saves your open file, replaces the application in-place, and restarts automatically. Your MIDI file will be reopened after restart.</td></tr>
+<tr><td><b>After Exit</b></td><td>Downloads the update in the background. The update will be applied when you close the application.</td></tr>
+<tr><td><b>Download Manual</b></td><td>Opens the GitHub release page in your browser for manual download.</td></tr>
+<tr><td><b>Skip</b></td><td>Dismisses the notification. You will be reminded again at next startup.</td></tr>
+</table>
+
 <p>
-  In order to make sure, that MidiEditor can connect to the internet configure your firewall accordingly. To disable the automatic update checker, please
-  open the settings dialog, chose the card &quot;Updates&quot; and deselect the checkbox.
+  When you choose <b>Update Now</b> or <b>After Exit</b>, a progress dialog shows the download status:
+</p>
+
+<img class="figure" src="screenshots/auto-update.png" alt="Download progress dialog showing percentage and file size"/>
+
+<p>
+  If you chose <b>After Exit</b>, a confirmation message appears:
+</p>
+
+<img class="figure" src="screenshots/update_scheduled.png" alt="Update Scheduled confirmation dialog"/>
+
+<p class="note">
+  <b>How it works:</b> The updater renames the running EXE to <code>.bak</code>, extracts the new version from the downloaded ZIP, and launches the new EXE. Old <code>.bak</code> files are automatically cleaned up on the next startup. No external installer or batch file is needed.
+</p>
+
+<p>
+  To disable the automatic update check at startup, open the Settings dialog and deselect the update checkbox.
+  Make sure your firewall allows MidiEditor AI to connect to <code>api.github.com</code>.
 </p>
 
 <h3 id="old">Support for older Midi Devices</h3>

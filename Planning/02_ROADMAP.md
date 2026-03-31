@@ -784,13 +784,16 @@ Phase 5.6  Protocol integration (single undo)           ✅ DONE
 Phase 5.7  Handler refactoring (return results)         ✅ DONE
 Phase 6    Post-launch hardening & polish               ✅ DONE (6.1-6.9)
 Phase 7    FFXIV Bard Performance Mode                   ✅ DONE (7.1-7.5)
-Phase 4.6  Persistent history (SQLite)                  ⬜ TODO  (low priority)
 Phase 8    Multi-provider & free API access              ✅ DONE (8.1, 8.2, 8.5 — providers + tokens + model lists)
 Phase 9    Editable system prompts (JSON + dialog)       ✅ DONE (9.1-9.4)
 Phase 10   Independent repo & rebranding                 ✅ DONE (10.1-10.7)
 Phase 11   FFXIV Channel Fix (deterministic fixer + UI)   ✅ DONE (11.1-11.4)
 Phase 11.5 FFXIV Channel Fix v2 — 3-Tier Detection       ✅ DONE (v1.1.0 + v1.1.2)
-Phase 12   Prompt Architecture v2                         ⬜ TODO (12.1-12.7)
+Phase 12   Prompt Architecture v2                         ✅ DONE (12.1-12.7, v1.1.3)
+Phase 13   Auto-Save & Crash Recovery                     ✅ DONE (13.1-13.4, v1.1.3.1)
+Phase 14   Split Channels to Tracks                       ✅ DONE (14.1-14.4, v1.1.4)
+Phase 15   Auto-Updater                                   ⬜ TODO (15.1-15.6)
+Phase 4.6  Persistent history (SQLite)                    ⬜ TODO (low priority)
 ```
 
 #### Phase 11.5 — 3-Tier Smart Detection (Fix X|V v2)
@@ -2763,3 +2766,342 @@ Phase 14.4  Smart detection & auto-prompt         ✅
 - **Multi-track source files:** If the file already has multiple tracks with events on
   different channels, the dialog should handle this gracefully — either split per-track
   or combine all events per-channel across tracks.
+
+---
+
+## Phase 15: Auto-Updater ⬜ TODO
+
+> **Goal:** Replace the current "open browser to download" update flow with a fully
+> integrated in-app auto-updater that downloads, extracts, and installs new versions
+> automatically — without requiring user intervention beyond a single confirmation click.
+>
+> **Motivation:** The current `UpdateChecker` detects new releases via GitHub API and
+> shows a dialog, but clicking "Yes" merely opens the browser to the release page. The
+> user must then manually download the ZIP, close the app, extract over the old folder,
+> and restart. This friction discourages frequent updates. A seamless auto-updater keeps
+> users on the latest version with zero effort.
+>
+> **Constraint:** MidiEditor AI is a **portable app** (no installer, no admin rights,
+> no registry entries). The app lives in a self-contained folder. The updater must work
+> within these constraints — no MSI, no elevated permissions, no external update
+> frameworks. The running EXE cannot overwrite itself, so file replacement must happen
+> via an external batch/PowerShell script after the app exits.
+
+### Background & Code Analysis
+
+**Current update infrastructure (`UpdateChecker.h/cpp`):**
+- `checkForUpdates()` → GitHub API `GET /repos/happytunesai/MidiEditor_AI/releases/latest`
+- Parses `tag_name` → `QVersionNumber::fromString()` → compares with `applicationVersion()`
+- Emits `updateAvailable(version, url)` → `MainWindow` shows QMessageBox → `QDesktopServices::openUrl()`
+- Already has error handling and silent mode (startup check = silent, Help menu = verbose)
+- Runs on startup with 2-second delay: `QTimer::singleShot(2000, ...)`
+
+**Existing download infrastructure (`DownloadSoundFontDialog`):**
+- Full HTTP download with `QNetworkAccessManager` + redirect policy
+- `QProgressDialog` with cancel support
+- Streaming write via `readyRead` → `QFile::write()`
+- ZIP extraction using `tar -xf` (system command, Win10+)
+- Error handling, partial file cleanup, success notification
+- **This pattern can be reused almost 1:1 for the update download.**
+
+**Release packaging (`release.bat`):**
+- Produces `MidiEditorAI-v{VERSION}-win64.zip` containing flat app directory
+- Contents: `MidiEditorAI.exe`, Qt DLLs, `metronome/`, `graphics/`, `midieditor.ico`, etc.
+- ZIP built with PowerShell `Compress-Archive`
+
+**GitHub API release assets:**
+- `GET /repos/happytunesai/MidiEditor_AI/releases/latest` returns JSON with `assets[]`
+- Each asset has `name` (e.g. `MidiEditorAI-v1.2.0-win64.zip`) and `browser_download_url`
+- We can find the ZIP asset by matching pattern `MidiEditorAI-v*-win64.zip`
+
+**Self-update constraint:**
+- A running Windows EXE cannot be deleted or overwritten
+- Solution: Launch external `updater.bat` that waits for app exit, then replaces files
+- PowerShell `Expand-Archive` extracts ZIP contents
+- Batch script restarts the app after replacement
+
+**Save & restore state:**
+- `MainWindow::closeEvent()` already handles save-before-close via `saveBeforeClose()`
+- Currently loaded file path: `file->path()` (can pass as command-line arg on restart)
+- `QSettings` stores all preferences, survives app restart
+
+### Design
+
+**User flow — "Update Now":**
+
+```
+1. UpdateChecker detects new version → emits updateAvailable(version, downloadUrl)
+2. Dialog: "Version X.Y.Z available. Update now or after exit?"
+   [Update Now]  [After Exit]  [Skip]
+3. User clicks [Update Now]
+4. Download ZIP with progress bar (reuse DownloadSoundFontDialog pattern)
+5. Download complete → Confirmation: "Update ready. The app will save your work,
+   restart, and reopen your current file. Continue?"  [OK] [Cancel]
+6. Auto-save current file if modified (file->save())
+7. Remember current file path → write to temp marker file or QSettings
+8. Launch updater.bat with args: zipPath, appDir, exePath, midiFilePath
+9. App exits (QApplication::quit())
+10. updater.bat:
+    a. Wait for MidiEditorAI.exe to exit (tasklist loop)
+    b. Backup current exe → MidiEditorAI.exe.bak
+    c. Extract ZIP over app directory (overwrite)
+    d. Delete ZIP and backup
+    e. Restart MidiEditorAI.exe with --open <midiFilePath> arg
+```
+
+**User flow — "After Exit":**
+
+```
+1. Same download as above (steps 1-4)
+2. Store update info: zipPath saved in QSettings ("pending_update_zip")
+3. User continues working normally
+4. On MainWindow::closeEvent():
+   a. Normal save-before-close flow
+   b. If pending_update_zip exists in QSettings:
+      - Remember current file path
+      - Launch updater.bat with args
+      - Clear QSettings key
+5. updater.bat runs after exit (same as steps 10a-10e above)
+```
+
+**updater.bat pseudo-code:**
+
+```batch
+@echo off
+REM === MidiEditor AI Auto-Updater ===
+REM Args: %1=zipPath  %2=appDir  %3=exeName  %4=midiFilePath (optional)
+
+:wait_loop
+tasklist /FI "IMAGENAME eq %3" 2>NUL | find /I "%3" >NUL
+if %ERRORLEVEL%==0 (
+    timeout /t 1 /nobreak >NUL
+    goto wait_loop
+)
+
+REM Backup current exe
+if exist "%2\%3" rename "%2\%3" "%3.bak"
+
+REM Extract update (overwrites existing files)
+powershell -Command "Expand-Archive -Path '%1' -DestinationPath '%2' -Force"
+
+REM The ZIP may contain a subfolder — move contents up if needed
+for /d %%D in ("%2\MidiEditorAI-*") do (
+    xcopy /s /e /y "%%D\*" "%2\" >NUL
+    rmdir /s /q "%%D"
+)
+
+REM Cleanup
+if exist "%1" del "%1"
+if exist "%2\%3.bak" del "%2\%3.bak"
+
+REM Restart app
+if "%4"=="" (
+    start "" "%2\%3"
+) else (
+    start "" "%2\%3" --open "%4"
+)
+```
+
+### 15.1 — Extend UpdateChecker to Provide Download URL ⬜
+
+**Changes to `UpdateChecker.h/cpp`:**
+
+- Parse `assets` array from GitHub API response
+- Find asset matching `MidiEditorAI-v*-win64.zip`
+- Emit new signal: `updateAvailable(QString version, QString releaseUrl, QString zipDownloadUrl)`
+- Store asset `size` for progress dialog
+
+**New fields in signal:**
+```cpp
+signals:
+    void updateAvailable(QString version, QString releaseUrl, QString zipDownloadUrl, qint64 zipSize);
+```
+
+**Estimated:** ~20 lines changed in `UpdateChecker.cpp`
+
+### 15.2 — AutoUpdater Class (Download + Extract) ⬜
+
+**New files: `src/gui/AutoUpdater.h` + `src/gui/AutoUpdater.cpp`**
+
+Core class handling download and update orchestration:
+
+```cpp
+class AutoUpdater : public QObject {
+    Q_OBJECT
+public:
+    explicit AutoUpdater(QWidget *parent = nullptr);
+
+    // Start downloading the update ZIP
+    void downloadUpdate(const QString &zipUrl, qint64 expectedSize);
+
+    // Schedule update for after app exit (stores in QSettings)
+    void scheduleUpdateOnExit();
+
+    // Execute update now (saves file, launches updater, quits app)
+    void executeUpdateNow(const QString &currentMidiPath);
+
+    // Check if a pending update exists (called in closeEvent)
+    bool hasPendingUpdate() const;
+
+    // Launch the updater script for pending update (called in closeEvent)
+    void launchPendingUpdate(const QString &currentMidiPath);
+
+    // Cancel and clean up a pending download
+    void cancelDownload();
+
+signals:
+    void downloadProgress(qint64 bytesReceived, qint64 bytesTotal);
+    void downloadComplete(const QString &zipPath);
+    void downloadFailed(const QString &error);
+    void updateReady();  // ZIP downloaded, ready to apply
+
+private:
+    QNetworkAccessManager *_networkManager;
+    QNetworkReply *_downloadReply;
+    QFile *_downloadFile;
+    QProgressDialog *_progressDialog;
+    QString _downloadedZipPath;
+    QString _newVersion;
+};
+```
+
+**Key implementation details:**
+- Download target: `QDir::temp()` / `MidiEditorAI-update.zip` (temp directory, not app dir)
+- Progress dialog: Modal `QProgressDialog` with cancel
+- `executeUpdateNow()`:
+  1. Writes `updater.bat` to app directory (from embedded resource or generates at runtime)
+  2. Calls `QProcess::startDetached("cmd.exe", {"/c", updaterPath, zipPath, appDir, exeName, midiPath})`
+  3. Calls `QApplication::quit()`
+- `scheduleUpdateOnExit()`: Stores zipPath in `QSettings("pending_update_zip")`
+- `launchPendingUpdate()`: Same as executeUpdateNow but called from closeEvent
+
+**Estimated:** ~200 lines (AutoUpdater.h ~50, AutoUpdater.cpp ~150)
+
+### 15.3 — Update Decision Dialog ⬜
+
+**New dialog shown when update is available:**
+
+Three-button dialog replacing the current simple QMessageBox:
+
+```
+┌──────────────────────────────────────────────────────────┐
+│  🔄 Update Available                                     │
+│                                                          │
+│  Version 1.2.0 is available!                             │
+│  Current: 1.1.4.1                                        │
+│                                                          │
+│  📋 Changelog   📖 Manual                                │
+│                                                          │
+│  ┌───────────┐ ┌──────────┐ ┌───────────────┐ ┌────────┐│
+│  │Update Now │ │After Exit│ │Download Manual│ │ Skip   ││
+│  └───────────┘ └──────────┘ └───────────────┘ └────────┘│
+│                                                          │
+│  ℹ️ The app will save your work and                      │
+│    restart automatically.                                │
+└──────────────────────────────────────────────────────────┘
+```
+
+- **📋 Changelog:** Clickable link → opens `https://github.com/happytunesai/MidiEditor_AI/blob/main/CHANGELOG.md` in browser
+- **📖 Manual:** Clickable link → opens `https://happytunesai.github.io/MidiEditor_AI/` in browser
+- **Update Now:** Downloads → shows progress → confirmation ("App will restart and save. Continue?") → executes
+- **After Exit:** Downloads in background → stores pending → applies on close
+- **Download Manual:** Opens the GitHub release page in the browser (old behavior via `QDesktopServices::openUrl()`)
+- **Skip:** Dismisses dialog, does nothing (same as current "No")
+
+Both links are `QLabel` with `setOpenExternalLinks(true)` using `<a href="...">` — zero extra code, Qt handles the click.
+
+**Estimated:** ~45 lines (can be inline in MainWindow or a small helper)
+
+### 15.4 — MainWindow Integration ⬜
+
+**Changes to `MainWindow.h/cpp`:**
+
+1. Replace current `updateAvailable` lambda with new flow:
+   - Show 3-button dialog (15.3)
+   - On "Update Now": `autoUpdater->downloadUpdate()` → on complete → save + quit
+   - On "After Exit": `autoUpdater->downloadUpdate()` → on complete → `scheduleUpdateOnExit()`
+
+2. Modify `closeEvent()`:
+   - After existing save logic, check `autoUpdater->hasPendingUpdate()`
+   - If yes: `autoUpdater->launchPendingUpdate(file ? file->path() : "")`
+
+3. Handle `--open` command-line argument on startup:
+   - In `main.cpp` or `MainWindow` constructor, check for `--open <path>`
+   - Call `loadFile(path)` if present
+
+**Estimated:** ~60 lines changed in MainWindow + ~10 lines in main.cpp
+
+### 15.5 — updater.bat Script ⬜
+
+**File: `run_environment/updater.bat`** (shipped with the app)
+
+The batch script that runs after the app exits:
+
+- Waits for `MidiEditorAI.exe` to terminate (polling `tasklist`)
+- Creates backup of current EXE (`.bak`)
+- Extracts ZIP using PowerShell `Expand-Archive -Force`
+- Handles nested folder in ZIP (release.bat creates `MidiEditorAI-v{ver}-win64/` subfolder)
+- Cleans up: deletes ZIP, backup, and temp extraction artifacts
+- Restarts the app, optionally with `--open <midi_path>`
+- Includes error handling: if extraction fails, restores backup
+
+**Estimated:** ~40 lines
+
+### 15.6 — Testing & Edge Cases ⬜
+
+**Test scenarios:**
+1. ✅ Update Now with no file open → download, extract, restart (no --open arg)
+2. ✅ Update Now with unsaved file → auto-save, restart with --open
+3. ✅ Update Now with saved file → restart with --open
+4. ✅ After Exit with pending update → close app → updater runs → restart
+5. ✅ Cancel during download → cleanup partial files
+6. ✅ Network error during download → error dialog, no state corruption
+7. ✅ User clicks Skip → no action
+8. ✅ No assets in release (source-only release) → graceful fallback
+9. ✅ ZIP has nested subfolder → updater handles flattening
+10. ✅ App crash before updater finishes → .bak files remain, manual recovery
+
+**Edge cases handled:**
+- GitHub rate limit (403) → error dialog with retry suggestion
+- Download interrupted → partial ZIP deleted
+- Updater.bat fails → backup EXE restored
+- `--open` with non-existent file → app starts normally, ignores bad path
+- Multiple instances → updater waits for all instances of MidiEditorAI.exe
+
+### Implementation Order
+
+```
+Phase 15.1  Extend UpdateChecker (ZIP URL parsing)    ⬜
+Phase 15.2  AutoUpdater class (download + orchestrate) ⬜
+Phase 15.3  Update decision dialog (3-button)          ⬜
+Phase 15.4  MainWindow integration (closeEvent, --open) ⬜
+Phase 15.5  updater.bat script                         ⬜
+Phase 15.6  Testing & edge cases                       ⬜
+```
+
+### Estimated Complexity
+
+| Sub-phase | New Code | Modified Code | Risk |
+|-----------|----------|---------------|------|
+| 15.1 UpdateChecker extension | ~20 lines | UpdateChecker.h/cpp | Low — additive change |
+| 15.2 AutoUpdater class | ~200 lines (new) | CMakeLists.txt (~2 lines) | Medium — download + process mgmt |
+| 15.3 Update dialog | ~30 lines | — | None — UI only |
+| 15.4 MainWindow integration | — | MainWindow.h/cpp (~60 lines), main.cpp (~10 lines) | Low — replaces existing lambda |
+| 15.5 updater.bat | ~40 lines (new) | release.bat (~1 line to copy) | Medium — OS-level file ops |
+| 15.6 Testing | — | — | — |
+| **Total** | **~290 lines new** | **~90 lines modified** | **Medium overall** |
+
+### Key Considerations
+
+- **No new dependencies:** Uses only Qt's existing `QNetworkAccessManager`, `QProcess`,
+  `QProgressDialog`. ZIP extraction via PowerShell `Expand-Archive` (built into Windows 10+).
+- **Portable app safe:** No registry, no admin rights, no service. Just file copy + restart.
+- **Rollback:** `.bak` file allows manual recovery if updater.bat fails mid-extraction.
+- **GitHub API:** Same endpoint already used by UpdateChecker. Asset URL uses
+  `browser_download_url` which follows redirects automatically.
+- **Security:** ZIP comes from the project's own GitHub releases. The `browser_download_url`
+  is HTTPS and authenticated by GitHub's CDN. No code execution from ZIP — only file extraction.
+- **`run_environment/updater.bat`**: Shipped alongside the app in release builds. Added to
+  `release.bat` asset copy section.
+
+

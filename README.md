@@ -16,7 +16,7 @@
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-0078D6?logo=windows)](https://github.com/happytunesai/MidiEditor_AI/releases)
 
-**Version:** 1.1.4
+**Version:** 1.1.5
 **Status:** Release
 
 📥 **[Download Latest Release](https://github.com/happytunesai/MidiEditor_AI/releases/latest)**
@@ -62,7 +62,7 @@ MidiPilot is the AI brain embedded directly in MidiEditor AI. Open the sidebar, 
 | 🧠 **Reasoning Support** | Configurable thinking/reasoning effort (None → Extra High) |
 | 📊 **Token Tracking** | Real-time token usage display per request and session |
 | ✏️ **Custom System Prompts** | Edit AI behavior via JSON — no recompiling needed |
-| 🔄 **Auto-Update Checker** | Built-in update notifications from GitHub Releases |
+| 🔄 **Auto-Updater** | In-app updates from GitHub Releases — Update Now, After Exit, or Download Manual |
 | 🎵 **Quantization** | Event quantization and control change visualization |
 | 🎤 **MIDI Recording** | Record from connected MIDI devices (keyboards, digital pianos) |
 
@@ -179,7 +179,29 @@ MidiEditor AI includes a **built-in software synthesizer** powered by [FluidSynt
 
 ---
 
-## 🔌 Supported Providers
+## � Auto-Updater
+
+MidiEditor AI checks for new versions on GitHub at every startup. When an update is available, you get four options:
+
+| Button | Action |
+|--------|--------|
+| **Update Now** | Downloads, saves your work, replaces in-place, restarts automatically |
+| **After Exit** | Downloads in background, applies when you close the app |
+| **Download Manual** | Opens the release page in your browser |
+| **Skip** | Dismiss — reminded again next startup |
+
+<p align="center">
+  <img src="manual/screenshots/update_available.png" alt="Update Available dialog" width="400"/>
+  <img src="manual/screenshots/auto-update.png" alt="Download progress" width="250"/>
+  <br/>
+  <i>Update dialog &mdash; Download progress</i>
+</p>
+
+📖 **[Auto-Update Documentation →](https://happytunesai.github.io/MidiEditor_AI/setup.html#updates)**
+
+---
+
+## �🔌 Supported Providers
 
 | Provider | Base URL | API Key | Free Tier |
 |----------|----------|---------|-----------|

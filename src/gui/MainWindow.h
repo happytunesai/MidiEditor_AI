@@ -52,6 +52,7 @@ class Update;
 class SelectionNavigator;
 class TweakTarget;
 class UpdateChecker;
+class AutoUpdater;
 class MidiPilotWidget;
 class QDockWidget;
 
@@ -1010,6 +1011,12 @@ private:
 
     /** \brief Update checker instance */
     UpdateChecker *_updateChecker;
+
+    /** \brief Auto-updater for downloading and applying updates */
+    AutoUpdater *_autoUpdater = nullptr;
+
+    /** \brief When true, closeEvent skips all save dialogs (auto-update in progress) */
+    bool _forceCloseForUpdate = false;
 
     /** \brief MidiPilot AI sidebar widget */
     MidiPilotWidget *_midiPilotWidget = nullptr;

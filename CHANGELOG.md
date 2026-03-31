@@ -5,6 +5,40 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 
 ---
 
+## [1.1.5] - 2026-03-31 — Auto-Updater
+
+### Added
+* **Auto-Updater** — seamless in-app update directly from GitHub Releases:
+  - **Update Now**: downloads ZIP, saves your work, replaces the EXE in-place, and restarts automatically — your open MIDI file is reopened after restart
+  - **After Exit**: downloads ZIP in the background, applies the update when you close the application
+  - **Download Manual**: opens the GitHub release page in your browser for manual download
+  - **Skip**: dismisses the update notification
+  - Progress dialog with download size and percentage
+  - Self-update approach: renames running EXE to `.bak`, extracts new files, launches new EXE — no external batch file or installer needed
+  - Old `.bak` files are automatically cleaned up on next startup
+* **Manual: Auto-Update section** updated with screenshots (Update dialog, Progress bar, Scheduled confirmation)
+
+### Fixed
+* **MidiPilot chat: Ctrl+C copy** — selected text in chat bubbles can now be copied with Ctrl+C (previously only right-click → Copy worked)
+* **MidiPilot chat: context menu** — replaced the unstyled default system context menu with a compact dark-themed menu (Copy / Select All) that matches the application style
+
+### Changed
+* Feature table: "Auto-Update Checker" renamed to "Auto-Updater" reflecting the new in-app update capability
+* Version bump to 1.1.5
+
+---
+
+## [1.1.4.1] - 2026-03-30 — Chat UX Fix
+
+### Fixed
+* **MidiPilot chat: Ctrl+C copy** — selected text in chat bubbles can now be copied with Ctrl+C (previously only right-click → Copy worked)
+* **MidiPilot chat: context menu** — replaced the unstyled default system context menu with a compact dark-themed menu (Copy / Select All) that matches the application style
+
+### Changed
+* Version bump to 1.1.4.1
+
+---
+
 ## [1.1.4] - 2026-03-29 — Split Channels to Tracks
 
 ### Added

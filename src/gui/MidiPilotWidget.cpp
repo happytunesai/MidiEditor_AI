@@ -21,6 +21,8 @@
 #include <QRandomGenerator>
 #include <QCheckBox>
 #include <QMessageBox>
+#include <QMenu>
+#include <QClipboard>
 
 #include <cmath>
 #include <algorithm>
@@ -1221,8 +1223,32 @@ void MidiPilotWidget::addChatBubble(const QString &role, const QString &text) {
 
     QLabel *bubble = new QLabel(displayText, _chatContainer);
     bubble->setWordWrap(true);
-    bubble->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    bubble->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
     bubble->setContentsMargins(10, 6, 10, 6);
+
+    // Custom styled context menu (Copy / Select All)
+    bubble->setContextMenuPolicy(Qt::CustomContextMenu);
+    connect(bubble, &QLabel::customContextMenuRequested, this, [bubble](const QPoint &pos) {
+        QMenu menu(bubble);
+        menu.setStyleSheet(
+            "QMenu { background-color: #2D2D30; border: 1px solid #3F3F46; "
+            "        padding: 0px; margin: 0px; font-size: 12px; }"
+            "QMenu::item { color: #E0E0E0; padding: 3px 14px; margin: 0px; }"
+            "QMenu::item:selected { background-color: #094771; }"
+            "QMenu::separator { height: 1px; background: #3F3F46; margin: 0px 6px; }");
+        QAction *copyAct = menu.addAction("Copy");
+        copyAct->setShortcut(QKeySequence::Copy);
+        copyAct->setEnabled(bubble->hasSelectedText());
+        QAction *selectAllAct = menu.addAction("Select All");
+        QAction *chosen = menu.exec(bubble->mapToGlobal(pos));
+        if (chosen == copyAct) {
+            QApplication::clipboard()->setText(bubble->selectedText());
+        } else if (chosen == selectAllAct) {
+            // Select the full bubble text — QLabel doesn't have selectAll(),
+            // so we copy the entire text directly to clipboard
+            QApplication::clipboard()->setText(bubble->text());
+        }
+    });
 
     if (role == "user") {
         bubble->setStyleSheet(

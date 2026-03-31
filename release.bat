@@ -74,6 +74,7 @@ if exist "run_environment\metronome" xcopy /s /e /y "run_environment\metronome" 
 if exist "run_environment\graphics" xcopy /s /e /y "run_environment\graphics" "%RELEASE_DIR%\graphics\" >nul
 if exist "run_environment\midieditor.ico" copy /y "run_environment\midieditor.ico" "%RELEASE_DIR%\" >nul
 if exist "run_environment\mozart_turkish_march.mid" copy /y "run_environment\mozart_turkish_march.mid" "%RELEASE_DIR%\" >nul
+if exist "run_environment\updater.bat" copy /y "run_environment\updater.bat" "%RELEASE_DIR%\" >nul
 
 REM --- Create zip ---
 echo [6/6] Creating %RELEASE_ZIP%...

@@ -24,6 +24,7 @@
 
 #include "gui/MainWindow.h"
 #include "gui/Appearance.h"
+#include "gui/AutoUpdater.h"
 #include "midi/MidiInput.h"
 #include "midi/MidiOutput.h"
 #include "ai/EditorContext.h"
@@ -214,6 +215,9 @@ int main(int argc, char *argv[]) {
     MidiOutput::init();
     MidiInput::init();
 
+    // Clean up .bak files from a previous self-update
+    AutoUpdater::cleanupOldBackups();
+
     // Load custom system prompts if present
     QString promptsPath = QCoreApplication::applicationDirPath() + "/system_prompts.json";
     if (QFile::exists(promptsPath)) {
@@ -222,9 +226,22 @@ int main(int argc, char *argv[]) {
         }
     }
 
+    // Parse command-line arguments
+    // Supports: MidiEditorAI.exe [file.mid]
+    //           MidiEditorAI.exe --open <file.mid>  (used by auto-updater)
+    QString openFilePath;
+    for (int i = 1; i < argc; ++i) {
+        QString arg = QString::fromLocal8Bit(argv[i]);
+        if (arg == "--open" && i + 1 < argc) {
+            openFilePath = QString::fromLocal8Bit(argv[++i]);
+        } else if (!arg.startsWith("-")) {
+            openFilePath = arg;
+        }
+    }
+
     MainWindow *w;
-    if (argc == 2)
-        w = new MainWindow(argv[1]);
+    if (!openFilePath.isEmpty())
+        w = new MainWindow(openFilePath.toLocal8Bit().data());
     else
         w = new MainWindow();
     w->showMaximized();

@@ -1,6 +1,7 @@
 #include "UpdateChecker.h"
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QJsonArray>
 #include <QCoreApplication>
 #include <QVersionNumber>
 #include <QUrl>
@@ -49,7 +50,20 @@ void UpdateChecker::onResult(QNetworkReply *reply)
     QVersionNumber latestVersion = QVersionNumber::fromString(tagName);
 
     if (latestVersion > currentVersion) {
-        emit updateAvailable(tagName, obj["html_url"].toString());
+        // Parse assets array to find the ZIP download URL
+        QString zipDownloadUrl;
+        qint64 zipSize = 0;
+        QJsonArray assets = obj["assets"].toArray();
+        for (const QJsonValue &assetVal : assets) {
+            QJsonObject asset = assetVal.toObject();
+            QString name = asset["name"].toString();
+            if (name.contains("win64") && name.endsWith(".zip")) {
+                zipDownloadUrl = asset["browser_download_url"].toString();
+                zipSize = asset["size"].toVariant().toLongLong();
+                break;
+            }
+        }
+        emit updateAvailable(tagName, obj["html_url"].toString(), zipDownloadUrl, zipSize);
     } else {
         emit noUpdateAvailable();
     }

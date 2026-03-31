@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20 FATAL_ERROR)
 
-set(MIDIEDITOR_RELEASE_VERSION_STRING "1.1.4")
+set(MIDIEDITOR_RELEASE_VERSION_STRING "1.1.5")
 project(MidiEditorAI VERSION ${MIDIEDITOR_RELEASE_VERSION_STRING} LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -475,6 +475,16 @@ if(WIN32)
                 ${QT_PLUGINS_DIR}/platforms/qwindows$<$<CONFIG:Debug>:d>.dll
                 $<TARGET_FILE_DIR:MidiEditorAI>/plugins/platforms/
             COMMENT "Manually copying Qt platform plugins"
+        )
+    endif()
+
+    # Copy updater.bat to build directory
+    if(EXISTS "${CMAKE_SOURCE_DIR}/run_environment/updater.bat")
+        add_custom_command(TARGET MidiEditorAI POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                ${CMAKE_SOURCE_DIR}/run_environment/updater.bat
+                $<TARGET_FILE_DIR:MidiEditorAI>/
+            COMMENT "Copying updater.bat"
         )
     endif()
 endif()

@@ -76,6 +76,7 @@
 #include "TransposeDialog.h"
 #include "TweakTarget.h"
 #include "UpdateChecker.h"
+#include "AutoUpdater.h"
 #include "MidiPilotWidget.h"
 
 #include <QDockWidget>
@@ -1424,7 +1425,11 @@ void MainWindow::allChannelsInvisible() {
 void MainWindow::closeEvent(QCloseEvent *event) {
     bool shouldClose = false;
 
-    if (!file || file->saved()) {
+    // Auto-update in progress: skip save dialogs, just close
+    if (_forceCloseForUpdate) {
+        shouldClose = true;
+        event->accept();
+    } else if (!file || file->saved()) {
         shouldClose = true;
         event->accept();
     } else {
@@ -1481,6 +1486,12 @@ void MainWindow::closeEvent(QCloseEvent *event) {
 
     // Cleanup shared clipboard resources
     SharedClipboard::instance()->cleanup();
+
+    // Launch pending auto-update if scheduled
+    if (shouldClose && _autoUpdater && _autoUpdater->hasPendingUpdate()) {
+        QString midiPath = file ? file->path() : QString();
+        _autoUpdater->launchPendingUpdate(midiPath);
+    }
 }
 
 void MainWindow::about() {
@@ -4564,14 +4575,81 @@ void MainWindow::checkForUpdates(bool silent) {
     _silentUpdateCheck = silent;
     if (!_updateChecker) {
         _updateChecker = new UpdateChecker(this);
-        connect(_updateChecker, &UpdateChecker::updateAvailable, this, [this](QString version, QString url){
+        connect(_updateChecker, &UpdateChecker::updateAvailable, this,
+            [this](QString version, QString releaseUrl, QString zipDownloadUrl, qint64 zipSize){
+
+            // Build 4-button update dialog
             QMessageBox msgBox(this);
             msgBox.setWindowTitle(tr("Update Available"));
-            msgBox.setText(tr("A new version %1 is available. Do you want to download it?").arg(version));
-            msgBox.setStandardButtons(QMessageBox::Yes | QMessageBox::No);
-            if (msgBox.exec() == QMessageBox::Yes) {
-                QDesktopServices::openUrl(QUrl(url));
+            msgBox.setIcon(QMessageBox::Information);
+            msgBox.setText(tr("Version %1 is available!\nCurrent: %2")
+                .arg(version, QCoreApplication::applicationVersion()));
+
+            // Add clickable links for Changelog and Manual
+            msgBox.setInformativeText(
+                tr("<a href='https://github.com/happytunesai/MidiEditor_AI/blob/main/CHANGELOG.md'>Changelog</a>"
+                   " &nbsp; | &nbsp; "
+                   "<a href='https://happytunesai.github.io/MidiEditor_AI/'>Manual</a>"
+                   "<br><br>The app will save your work and restart automatically."));
+
+            QPushButton *updateNowBtn = msgBox.addButton(tr("Update Now"), QMessageBox::AcceptRole);
+            QPushButton *afterExitBtn = msgBox.addButton(tr("After Exit"), QMessageBox::ActionRole);
+            QPushButton *manualBtn = msgBox.addButton(tr("Download Manual"), QMessageBox::ActionRole);
+            QPushButton *skipBtn = msgBox.addButton(tr("Skip"), QMessageBox::RejectRole);
+            msgBox.setDefaultButton(updateNowBtn);
+
+            msgBox.exec();
+            QAbstractButton *clicked = msgBox.clickedButton();
+
+            if (clicked == manualBtn) {
+                // Old behavior — open release page in browser
+                QDesktopServices::openUrl(QUrl(releaseUrl));
             }
+            else if (clicked == updateNowBtn || clicked == afterExitBtn) {
+                bool updateNow = (clicked == updateNowBtn);
+
+                if (zipDownloadUrl.isEmpty()) {
+                    // No ZIP asset found — fallback to browser
+                    QMessageBox::information(this, tr("Auto-Update"),
+                        tr("No downloadable ZIP found in this release.\nOpening the release page instead."));
+                    QDesktopServices::openUrl(QUrl(releaseUrl));
+                    return;
+                }
+
+                if (!_autoUpdater) {
+                    _autoUpdater = new AutoUpdater(this, _settings, this);
+                }
+
+                connect(_autoUpdater, &AutoUpdater::downloadComplete, this,
+                    [this, updateNow](const QString &zipPath) {
+                    if (updateNow) {
+                        // Save current file if dirty, then launch updater and quit
+                        QString midiPath;
+                        if (file) {
+                            midiPath = file->path();
+                            if (!file->saved() && !midiPath.isEmpty()) {
+                                file->save(midiPath);
+                            }
+                        }
+                        // Skip save dialogs in closeEvent — we've already saved above
+                        _forceCloseForUpdate = true;
+                        _autoUpdater->executeUpdateNow(midiPath);
+                    } else {
+                        // Schedule for exit
+                        _autoUpdater->scheduleUpdateOnExit();
+                        QMessageBox::information(this, tr("Update Scheduled"),
+                            tr("The update will be applied when you close the application."));
+                    }
+                }, Qt::SingleShotConnection);
+
+                connect(_autoUpdater, &AutoUpdater::downloadFailed, this,
+                    [this](const QString &error) {
+                    QMessageBox::warning(this, tr("Download Failed"), error);
+                }, Qt::SingleShotConnection);
+
+                _autoUpdater->downloadUpdate(zipDownloadUrl, zipSize);
+            }
+            // else: Skip — do nothing
         });
         connect(_updateChecker, &UpdateChecker::noUpdateAvailable, this, [this](){
             if (!_silentUpdateCheck) {
