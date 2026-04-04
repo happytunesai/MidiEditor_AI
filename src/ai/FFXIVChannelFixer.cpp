@@ -281,6 +281,7 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
     QVector<int> channelFor(trackCount, -1);
     QSet<int> usedChannels;
     QHash<QString, int> guitarChannelMap;
+    QSet<int> dupGuitarTracks;  // tracks that are duplicate guitar variants
 
     if (isPreserveMode) {
         // TIER 3 â€” minimal-invasive: notes are ground truth for channel mapping
@@ -288,6 +289,15 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
             // A) For each guitar track, find primary channel from NOTES
             for (int t = 0; t < trackCount; t++) {
                 if (!isGuitar(baseNames[t])) continue;
+
+                // Duplicate variant: reuse first occurrence's channel
+                if (guitarChannelMap.contains(baseNames[t])) {
+                    channelFor[t] = guitarChannelMap[baseNames[t]];
+                    usedChannels.insert(channelFor[t]);
+                    dupGuitarTracks.insert(t);
+                    continue;
+                }
+
                 MidiTrack *track = file->track(t);
                 QHash<int, int> chCount;
                 for (int ch = 0; ch < 16; ch++) {
@@ -352,22 +362,23 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
         }
     } else {
         // TIER 2 â€” assign channels by track index (fresh start)
+        // Duplicate guitar variants share the channel of the first occurrence.
         for (int t = 0; t < trackCount; t++) {
             if (isPercussion(baseNames[t])) {
                 channelFor[t] = 9;
+            } else if (hasGuitar && isGuitar(baseNames[t])
+                       && guitarChannelMap.contains(baseNames[t])) {
+                // Duplicate guitar variant: reuse first occurrence's channel
+                channelFor[t] = guitarChannelMap[baseNames[t]];
             } else {
                 int ch = t;
                 if (ch > 15) ch = 15;
                 channelFor[t] = ch;
+                // Register first-seen guitar variant
+                if (hasGuitar && isGuitar(baseNames[t]))
+                    guitarChannelMap[baseNames[t]] = ch;
             }
             usedChannels.insert(channelFor[t]);
-        }
-
-        if (hasGuitar) {
-            for (int t = 0; t < trackCount; t++) {
-                if (isGuitar(baseNames[t]))
-                    guitarChannelMap[baseNames[t]] = channelFor[t];
-            }
         }
     }
 
@@ -462,8 +473,37 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
             track->assignChannel(targetCh);
         }
     } else {
-        // Tier 3: preserve â€” NO note movement
-        // Only rename guitar tracks if tick-0 note is on a different variant
+        // Tier 3: preserve with minimal note movement
+        // Migrate duplicate guitar tracks to their shared channel, then
+        // rename guitar tracks if tick-0 note is on a different variant
+        // Migrate duplicate guitar tracks to their shared channel
+        for (int t : dupGuitarTracks) {
+            int targetCh = channelFor[t];
+            MidiTrack *track = file->track(t);
+
+            struct EventInfo { MidiEvent *ev; int currentCh; };
+            QList<EventInfo> trackEvents;
+
+            for (int ch = 0; ch < 16; ch++) {
+                if (ch == targetCh) continue;
+                MidiChannel *channel = file->channel(ch);
+                if (!channel) continue;
+                QMultiMap<int, MidiEvent *> *map = channel->eventMap();
+                for (auto it = map->begin(); it != map->end(); ++it) {
+                    MidiEvent *ev = it.value();
+                    if (ev->track() != track) continue;
+                    if (dynamic_cast<ProgChangeEvent *>(ev)) continue;
+                    if (dynamic_cast<OffEvent *>(ev)) continue;
+                    trackEvents.append({ev, ch});
+                }
+            }
+
+            for (const auto &info : trackEvents)
+                info.ev->moveToChannel(targetCh);
+
+            track->assignChannel(targetCh);
+        }
+
         QHash<int, QString> chToVariant;
         for (auto it = guitarChannelMap.begin(); it != guitarChannelMap.end(); ++it)
             chToVariant[it.value()] = it.key();

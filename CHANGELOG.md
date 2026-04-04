@@ -5,6 +5,17 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 
 ---
 
+## [1.1.6.1] - 2026-04-04 — Bugfix: Duplicate Guitar Track Channels
+
+### Fixed
+* **Fix X|V Channels: duplicate guitar variants mapped to wrong channel** — when two or more tracks shared the same guitar variant name (e.g. two "ElectricGuitarPowerChords" tracks), the second track was assigned its own channel instead of sharing the first occurrence's channel. This caused the duplicate track to receive a wrong program (e.g. Piano on CH3 instead of Distortion Guitar). Now all tracks with the same guitar variant name share a single channel with the correct program change, in both Rebuild (Tier 2) and Preserve (Tier 3) modes
+* **Fix X|V Channels Tier 3: duplicate guitar notes not migrated** — in Preserve mode, duplicate guitar tracks had their notes stranded on the original channel. Added note migration for duplicate guitar tracks to move events to the shared target channel
+
+### Changed
+* Version bump to 1.1.6.1
+
+---
+
 ## [1.1.6] - 2026-04-04 — Guitar Pro Import (GP1–GP8)
 
 ### Added
