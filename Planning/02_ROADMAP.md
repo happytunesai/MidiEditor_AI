@@ -793,6 +793,7 @@ Phase 12   Prompt Architecture v2                         ✅ DONE (12.1-12.7, v
 Phase 13   Auto-Save & Crash Recovery                     ✅ DONE (13.1-13.4, v1.1.3.1)
 Phase 14   Split Channels to Tracks                       ✅ DONE (14.1-14.4, v1.1.4)
 Phase 15   Auto-Updater                                   ⬜ TODO (15.1-15.6)
+Phase 16   Guitar Pro Import (.gp3-.gp7)                  ✅ DONE (16.1-16.5)
 Phase 4.6  Persistent history (SQLite)                    ⬜ TODO (low priority)
 ```
 
@@ -818,6 +819,7 @@ Phase 4.6  Persistent history (SQLite)                    ⬜ TODO (low priority
 - ✅ Transfer timeout 600s for reasoning models
 - ✅ Strict mode on all 12 tool schemas- ✅ Tempo & time signature modification actions (`set_tempo`, `set_time_signature`)
 - ✅ Range-based autonomous editing (`select_and_edit`, `select_and_delete`)
+- ✅ Guitar Pro import support (GP3, GP4, GP5, GP6/GPX, GP7/GP8 — all formats)
 - ✅ Fixed time signature display (actual denominator instead of MIDI power-of-2)
 - ✅ Multi-provider support (OpenAI, OpenRouter, Google Gemini, Custom URL)
 - ✅ Google Gemini native API integration (not just via OpenRouter)
@@ -3103,5 +3105,280 @@ Phase 15.6  Testing & edge cases                       ⬜
   is HTTPS and authenticated by GitHub's CDN. No code execution from ZIP — only file extraction.
 - **`run_environment/updater.bat`**: Shipped alongside the app in release builds. Added to
   `release.bat` asset copy section.
+
+---
+
+## Phase 16: Guitar Pro Import (.gp3 through .gp7/.gp8) ✅ DONE
+
+> **Goal:** Add native Guitar Pro file import to MidiEditor AI, supporting all major
+> Guitar Pro formats: GP3, GP4, GP5 (binary), GP6/GPX (BCFZ compressed XML), and
+> GP7/GP8 (ZIP-packaged XML). Guitar Pro is the most popular guitar tablature format
+> with millions of files available online. Importing these directly gives users instant
+> access to a huge library of songs.
+>
+> **Motivation:** Guitar Pro files (.gp3, .gp4, .gp5, .gpx, .gp) are extremely common
+> in the guitar/music community. Users previously had to convert these to MIDI using
+> external tools before opening them in MidiEditor. Native import eliminates this friction.
+>
+> **Origin:** The Meowchestra/MidiEditor upstream fork contained an **unfinished Guitar Pro
+> parser** (`src/midi/GuitarPro/`) with a basic structure for GP3-GP7 reading, but it was
+> non-functional — binary parsers had field-ordering bugs and missing overrides, BCFZ
+> decompression used the wrong algorithm (zlib instead of custom LZ77), ZIP extraction
+> failed on files with data descriptors, and XML node lookups returned wrong elements.
+> We took this unfinished upstream code as a starting point and fixed all the bugs to
+> make every format actually work with real-world files.
+
+### Background & Format Overview
+
+Guitar Pro files come in two families:
+
+**Binary formats (GP3, GP4, GP5):**
+- Sequential binary data: header → global info → tracks → measures → beats → notes
+- Version identified by magic string: `FICHIER GUITAR PRO vX.YY`
+- GP3 (v3.00): basic tabs, no effects
+- GP4 (v4.00-4.06): added lyrics, RSE, key signatures
+- GP5 (v5.00-5.10): added RSE2, extended note effects, alternate endings
+- Each version adds fields — parsers must skip/read the correct number of bytes
+
+**XML formats (GP6, GP7/GP8):**
+- GP6 (.gpx): BCFZ-compressed GPIF XML (custom bit-level LZ77 compression)
+- GP7/GP8 (.gp): Standard ZIP archive containing `score.gpif` XML file
+- Both share the same GPIF XML schema: Score, MasterTrack, Tracks, MasterBars,
+  Bars, Voices, Beats, Notes, Rhythms
+- Conversion: GPIF XML → synthetic GP5 in-memory structure → MIDI
+
+### Architecture
+
+```
+GpImporter (entry point)
+├── Gp345Parser (binary formats)
+│   ├── Gp3Parser : Gp345Parser   → .gp3 files
+│   ├── Gp4Parser : Gp3Parser     → .gp4 files
+│   └── Gp5Parser : Gp4Parser     → .gp5 files
+└── Gp678Parser (XML formats)
+    ├── Gp6Parser : Gp678Parser   → .gpx files (BCFZ)
+    └── Gp7Parser : Gp678Parser   → .gp files (ZIP)
+
+GpUnzip  — ZIP extraction for .gp files (central directory parser)
+GpBitStream — bit-level reader for BCFZ decompression
+```
+
+**GpImporter** detects format from file header:
+- `FICHIER GUITAR PRO v3` → Gp3Parser
+- `FICHIER GUITAR PRO v4` → Gp4Parser
+- `FICHIER GUITAR PRO v5` → Gp5Parser
+- `BCFZ` header (0x42434653) → Gp6Parser (BCFZ decompression → GPIF XML)
+- `PK` header (0x504B) → Gp7Parser (ZIP extraction → GPIF XML)
+
+### 16.1 — GP3/GP4/GP5 Binary Parser Fixes ✅
+
+The upstream Meowchestra code had a basic `Gp345Parser` skeleton but it failed on
+every real-world GP3/GP4/GP5 file due to several critical bugs:
+
+**Fixes applied to `Gp345Parser.cpp`:**
+- **readNoteEffects override (GP5):** GP5 files have extended note effects with
+  additional bytes. Added `Gp5Parser::readNoteEffects()` override that reads the
+  GP5-specific effect flags and associated data blocks
+- **readNote field order:** Fixed incorrect field ordering — `accentuatedNote` and
+  `ghostNote` flags must be read in the specific order defined by each GP version
+- **EOF guard:** Added boundary checking to prevent reads past end of data buffer,
+  gracefully stopping parse instead of crashing on truncated files
+- **Removed stray brace and unused includes** after debug cleanup
+
+**Test results:**
+- GP3: U2 - Lemon.gp3 → 9 tracks, 199 measures ✅
+- GP4: Sakuran - Sakuran.gp4 → 5 tracks, 137 measures ✅
+- GP5: Float - Flogging-Molly.gp5 → 5 tracks, 74 measures ✅
+
+**Files:** `src/midi/GuitarPro/Gp345Parser.cpp`, `src/midi/GuitarPro/Gp345Parser.h`
+
+### 16.2 — GP6 (.gpx) BCFZ Decompression ✅
+
+GP6 files use a custom bit-level LZ77 compression called **BCFZ** (not zlib!).
+The upstream Meowchestra code incorrectly attempted zlib `inflate()` on BCFZ data,
+causing hangs and crashes. The decompression was completely rewritten.
+
+**BCFZ algorithm (ported from C# BardMusicPlayer/LightAmp):**
+```
+Input: raw BCFZ data (after 4-byte "BCFZ" magic + 4-byte uncompressed size)
+Output: decompressed byte array containing GPIF XML
+
+Loop until input exhausted:
+  1. Read 1 bit (compressed flag)
+  2. If compressed (bit = 1):
+     a. Read 4 bits big-endian → wordSize (minimum 2)
+     b. Read wordSize bits little-endian → offset
+     c. Read wordSize bits little-endian → length
+     d. Back-reference copy: copy (length) bytes from output at (output.size - offset)
+  3. If literal (bit = 0):
+     a. Read 2 bits little-endian → byteCount (add 1, so 1-4 bytes)
+     b. Read (byteCount) raw bytes from input
+     c. Append bytes to output
+
+After decompression:
+  - Search output for "<GPIF" or "<?xml" marker
+  - Extract from marker to "</GPIF>" closing tag
+  - Return as XML string for GPIF parsing
+```
+
+**Key classes used:**
+- `GpBitStream`: Provides `getBit()`, `getBitsBE(n)`, `getBitsLE(n)`, `getByte()`
+  for reading individual bits from the compressed data stream
+
+**Test results:**
+- GP6: Guns N' Roses - Sweet Child O Mine.gpx → 6 tracks, 180 measures, 67692 bytes MIDI ✅
+
+**Files:** `src/midi/GuitarPro/Gp678Parser.cpp` (`decompressGPX()` completely rewritten)
+
+### 16.3 — GP7/GP8 (.gp) ZIP Extraction ✅
+
+GP7/GP8 files are standard ZIP archives containing a `score.gpif` XML file
+(plus optional binary resources for RSE sounds, images, etc.).
+
+**ZIP parsing approach (central directory):**
+- The upstream `GpUnzip` used local file headers, which have unreliable sizes
+  when data descriptors are present (common in GP7 files)
+- Solution: Rewrote to parse the **ZIP central directory** from the end of the file:
+  1. Scan backwards for EOCD signature (`0x06054b50`)
+  2. Read central directory offset and count from EOCD
+  3. Parse central directory entries — each has correct compressed/uncompressed sizes
+  4. Use these sizes to extract the correct file data from local entries
+- `inflateData()` uses Qt6::ZlibPrivate for zlib decompression of DEFLATE entries
+
+**Extraction flow:**
+```
+.gp file → GpUnzip::parseEntries() (central directory)
+         → Find "score.gpif" entry
+         → GpUnzip::inflateData() (zlib decompress)
+         → GPIF XML string
+         → Gp7Parser::readSong() (shared GPIF parser)
+```
+
+**Build integration:**
+- `CMakeLists.txt`: Added `Qt6::ZlibPrivate` as fallback when system ZLIB not found
+- `GP678_ENABLED` CMake variable controls inclusion of GP678 source files
+
+**Test results:**
+- GP7: The Mirror.gp → 6 tracks, 147 measures, 52939 bytes MIDI ✅
+
+**Files:** `src/midi/GuitarPro/GpUnzip.h`, `src/midi/GuitarPro/GpUnzip.cpp`,
+`CMakeLists.txt`
+
+### 16.4 — GPIF XML → GP5 Conversion ✅
+
+Both GP6 and GP7/GP8 share the same GPIF XML format. The parser converts GPIF
+nodes into a synthetic GP5 in-memory structure, which then converts to MIDI:
+
+**GPIF XML structure:**
+```xml
+<GPIF>
+  <Score>           → title, subtitle, artist, album
+  <MasterTrack>     → track IDs, automations
+  <Tracks>          → track definitions (name, instrument, channel, tuning)
+  <MasterBars>      → measure structures (time signature, key, repeats)
+  <Bars>            → bar content per track
+  <Voices>          → voice content within bars
+  <Beats>           → beat durations and note references
+  <Notes>           → individual note properties (fret, string, effects)
+  <Rhythms>         → rhythm definitions (note value, dots, tuplets)
+</GPIF>
+```
+
+**Critical fix — `directOnly` node lookup:**
+The upstream code used `getSubnodeByName()` without depth restriction.
+All top-level GPIF node lookups (`Score`, `MasterTrack`, `Tracks`, `MasterBars`,
+`Bars`, `Voices`, `Beats`, `Notes`, `Rhythms`) now use `directOnly=true` parameter.
+Without this, `getSubnodeByName("Bars")` could find a nested `<Bars>` element
+inside a `<MasterBar>` node (with 0 subnodes) before finding the top-level
+`<Bars>` collection (with 882 subnodes), causing silent data loss.
+
+**Conversion pipeline:**
+```
+GPIF XML → parse nodes → build GP5 tracks/measures/beats/notes
+         → Gp678Parser::readSong() populates self
+         → GpImporter transfers to MidiFile
+```
+
+**Files:** `src/midi/GuitarPro/Gp678Parser.cpp` (`gp6NodeToGP5File()`),
+`src/midi/GuitarPro/Gp678Parser.h`
+
+### 16.5 — Debug Logging Cleanup ✅
+
+During development, file-based debug logging (`gpLog()`) was added to diagnose
+parser issues (Qt's `qWarning`/`qDebug` doesn't output to stderr on Windows GUI
+apps). All debug logging was removed after all formats were verified working:
+
+- Removed `gpLog()` function definition and all call sites from `GpImporter.cpp`
+- Removed `gpParserLog()` function and all call sites from `Gp345Parser.cpp`
+- Removed `#include <cstdio>` and `#include <fstream>` debug includes
+- Removed hit/miss counters and debug-only variables from `Gp678Parser.cpp`
+- Production code uses only `qWarning` for genuine error conditions
+
+**Files:** `src/midi/GuitarPro/GpImporter.cpp`, `src/midi/GuitarPro/Gp345Parser.cpp`,
+`src/midi/GuitarPro/Gp678Parser.cpp`
+
+### 16.6 — GP1/GP2 (.gtp) Legacy Format Support ✅
+
+Added support for the oldest Guitar Pro formats (v1.0–v2.21, `.gtp` extension).
+These files were created by the original DOS-era Guitar Pro and use a simple
+binary layout with no compression.
+
+**Implementation:**
+- **Gp1Parser** — reads GP v1.0–v1.04 files (identified by French header "GUITARE").
+  Parses title, artist, tempo, measures, tracks with note/duration/string data.
+  Duration decoding uses a lookup table (whole → 64th note).
+- **Gp2Parser** — extends `Gp1Parser` for GP v2.20–v2.21. Adds triplet-feel flag,
+  per-measure repeat markers, and per-track capo/string-count fields.
+- **Header-based detection** in `GpImporter`: first bytes checked for "GUITARE"
+  (→ GP1) or "FICHIER GUITAR PRO" (→ GP2). Falls back to GP2 for any `.gtp`
+  file with an unrecognized header.
+- Ported from TuxGuitar's `GP1InputStream.java` / `GP2InputStream.java` reference
+  implementation, adapted to the existing C++ parser architecture.
+
+**Files:** `src/midi/GuitarPro/Gp12Parser.h`, `src/midi/GuitarPro/Gp12Parser.cpp`,
+`src/midi/GuitarPro/GpImporter.cpp`
+
+### Implementation Order
+
+```
+Phase 16.1  GP3/GP4/GP5 binary parser fixes             ✅ DONE
+Phase 16.2  GP6 (.gpx) BCFZ decompression               ✅ DONE
+Phase 16.3  GP7/GP8 (.gp) ZIP extraction                ✅ DONE
+Phase 16.4  GPIF XML → GP5 conversion + node lookup fix  ✅ DONE
+Phase 16.5  Debug logging cleanup                        ✅ DONE
+Phase 16.6  GP1/GP2 (.gtp) legacy format support         ✅ DONE
+```
+
+### Regression Test Results
+
+| Format | File | Tracks | Measures | Status |
+|--------|------|--------|----------|--------|
+| GP1 | You've Got Something There.gtp | 8 | 12 | ✅ |
+| GP3 | U2 - Lemon.gp3 | 9 | 199 | ✅ |
+| GP4 | Sakuran - Sakuran.gp4 | 5 | 137 | ✅ |
+| GP5 | Float - Flogging-Molly.gp5 | 5 | 74 | ✅ |
+| GP6 | Guns N' Roses - Sweet Child O Mine.gpx | 6 | 180 | ✅ |
+| GP7 | The Mirror.gp | 6 | 147 | ✅ |
+
+### Key Considerations
+
+- **BCFZ ≠ zlib:** This was the #1 bug. GP6's BCFZ compression is a custom bit-level
+  LZ77 algorithm, NOT zlib/DEFLATE. The original code used `inflate()` which hung/crashed.
+  Algorithm was reverse-engineered from the C# BardMusicPlayer/LightAmp source code.
+- **Central directory for ZIP:** GP7 ZIP files use data descriptors after local entries,
+  making local file header sizes unreliable. Parsing the central directory (from the end
+  of the file) provides correct sizes for every entry.
+- **Node lookup depth matters:** GPIF XML has nested elements with the same name as
+  top-level collections (e.g., `<Bars>` inside `<MasterBar>`). Using `directOnly=true`
+  ensures we find the correct top-level collection nodes.
+- **Qt6::ZlibPrivate:** Qt6 bundles zlib internally. Using `Qt6::ZlibPrivate` as a
+  CMake fallback avoids requiring a separate zlib installation on the build system.
+- **File detection is header-based:** Format detected from first bytes, not file extension.
+  This handles misnamed files correctly.
+- **All parsers share common base:** GP3→GP4→GP5 use C++ inheritance chain.
+  GP6/GP7 share `Gp678Parser` base with format-specific decompression/extraction.
+- **GP1/GP2 are the oldest formats:** Simple binary layout, no compression. GP1 uses
+  French header "GUITARE", GP2 uses "FICHIER GUITAR PRO". Gp2Parser extends Gp1Parser
+  via inheritance, matching the GP3→GP4→GP5 pattern.
 
 

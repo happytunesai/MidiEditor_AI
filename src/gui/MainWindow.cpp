@@ -104,6 +104,7 @@
 #include "../protocol/Protocol.h"
 #include "../ai/FFXIVChannelFixer.h"
 #include "FFXIVFixerDialog.h"
+#include "../converter/GuitarPro/GpImporter.h"
 
 #include "../MidiEvent/MidiEvent.h"
 #include "../MidiEvent/NoteOnEvent.h"
@@ -1267,7 +1268,20 @@ void MainWindow::load() {
     if (f->exists()) {
         QFileInfo(*f).dir().path();
     }
-    QString newPath = QFileDialog::getOpenFileName(this, tr("Open file"), dir, tr("MIDI Files(*.mid *.midi);;All Files(*)"));
+    QString midi = "*.mid *.midi";
+#ifdef GP678_SUPPORT
+    QString gp   = "*.gtp *.gp3 *.gp4 *.gp5 *.gp6 *.gp7 *.gp8 *.gpx *.gp";
+#else
+    QString gp   = "*.gtp *.gp3 *.gp4 *.gp5";
+#endif
+    QString filter = QString(
+        "Music Files (%1 %2);;"
+        "MIDI Files (%1);;"
+        "Guitar Pro Files (%2);;"
+        "All Files (*)")
+        .arg(midi, gp);
+
+    QString newPath = QFileDialog::getOpenFileName(this, tr("Open file"), dir, filter);
 
     if (!newPath.isEmpty()) {
         openFile(newPath);
@@ -1323,9 +1337,21 @@ void MainWindow::openFile(QString filePath) {
         }
     }
 
-    MidiFile *mf = new MidiFile(useAutoSave ? autoPath : filePath, &ok);
+    MidiFile *mf = nullptr;
+    QString lowerPath = filePath.toLower();
 
-    if (ok) {
+    // Detect Guitar Pro formats
+    if (lowerPath.endsWith(".gtp") || lowerPath.endsWith(".gp3") ||
+        lowerPath.endsWith(".gp4") || lowerPath.endsWith(".gp5") ||
+        lowerPath.endsWith(".gp6") || lowerPath.endsWith(".gp7") ||
+        lowerPath.endsWith(".gp8") || lowerPath.endsWith(".gpx") ||
+        lowerPath.endsWith(".gp")) {
+        mf = GpImporter::loadFile(filePath, &ok);
+    } else {
+        mf = new MidiFile(useAutoSave ? autoPath : filePath, &ok);
+    }
+
+    if (ok && mf) {
         stop();
         if (useAutoSave) {
             mf->setPath(filePath);   // Point to original file path
@@ -3774,6 +3800,7 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
     _actionMap["convert_pitch_bend_to_notes"] = convertPitchBendAction;
 
     QAction *explodeChordsAction = new QAction(tr("Explode chords to tracks"), this);
+    Appearance::setActionIcon(explodeChordsAction, ":/run_environment/graphics/tool/explode_chords_to_tracks.png");
     explodeChordsAction->setShortcut(QKeySequence(QKeyCombination(Qt::CTRL, Qt::Key_E)));
     _defaultShortcuts["explode_chords_to_tracks"] = QList<QKeySequence>() << explodeChordsAction->shortcut();
     connect(explodeChordsAction, SIGNAL(triggered()), this, SLOT(explodeChordsToTracks()));
@@ -4832,6 +4859,17 @@ QWidget *MainWindow::createCustomToolbar(QWidget *parent) {
         if (!enabledActions.contains("fix_ffxiv_channels")) {
             enabledActions << "fix_ffxiv_channels";
         }
+        // Migration: ensure explode_chords_to_tracks is present in saved custom settings
+        if (!actionOrder.contains("explode_chords_to_tracks")) {
+            int splitIdx = actionOrder.indexOf("split_channels_to_tracks");
+            if (splitIdx >= 0)
+                actionOrder.insert(splitIdx, "explode_chords_to_tracks");
+            else
+                actionOrder << "explode_chords_to_tracks";
+        }
+        if (!enabledActions.contains("explode_chords_to_tracks")) {
+            enabledActions << "explode_chords_to_tracks";
+        }
         // Migration: ensure split_channels_to_tracks is present in saved custom settings
         if (!actionOrder.contains("split_channels_to_tracks")) {
             int ffxivIdx = actionOrder.indexOf("fix_ffxiv_channels");
@@ -5232,6 +5270,17 @@ void MainWindow::updateToolbarContents(QWidget *toolbarWidget, QGridLayout *btnL
         }
         if (!enabledActions.contains("fix_ffxiv_channels")) {
             enabledActions << "fix_ffxiv_channels";
+        }
+        // Migration: ensure explode_chords_to_tracks is present in saved custom settings
+        if (!actionOrder.contains("explode_chords_to_tracks")) {
+            int splitIdx = actionOrder.indexOf("split_channels_to_tracks");
+            if (splitIdx >= 0)
+                actionOrder.insert(splitIdx, "explode_chords_to_tracks");
+            else
+                actionOrder << "explode_chords_to_tracks";
+        }
+        if (!enabledActions.contains("explode_chords_to_tracks")) {
+            enabledActions << "explode_chords_to_tracks";
         }
         // Migration: ensure split_channels_to_tracks is present in saved custom settings
         if (!actionOrder.contains("split_channels_to_tracks")) {

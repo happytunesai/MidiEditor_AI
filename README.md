@@ -16,7 +16,7 @@
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-0078D6?logo=windows)](https://github.com/happytunesai/MidiEditor_AI/releases)
 
-**Version:** 1.1.5
+**Version:** 1.1.6
 **Status:** Release
 
 📥 **[Download Latest Release](https://github.com/happytunesai/MidiEditor_AI/releases/latest)**
@@ -57,7 +57,9 @@ MidiPilot is the AI brain embedded directly in MidiEditor AI. Open the sidebar, 
 | 🎮 **FFXIV Bard Mode** | Enforces Final Fantasy XIV Performance constraints (8 tracks, monophonic, C3–C6) |
 | 🎸 **Fix X\|V Channels** | One-click deterministic channel fixer — Rebuild or Preserve mode, velocity normalization, rich result summary |
 | 🔀 **Split Channels to Tracks** | Convert single-track multi-channel GM MIDI files into one track per instrument with auto-naming |
-| 🎵🔊 **Built-in FluidSynth** | Play MIDI without external softsynth — load SF2/SF3 SoundFonts, SoundFont stacking, FFXIV SoundFont Mode |
+| � **Explode Chords to Tracks** | Split polyphonic chords into separate monophonic tracks — one note per track, ideal for FFXIV ensemble prep |
+| 🎼 **Guitar Pro Import** | Open GP1–GP8 files (.gp, .gp3, .gp4, .gp5, .gpx, .gtp) directly — header-based format detection, tempo/time-sig/key extraction |
+| �🎵🔊 **Built-in FluidSynth** | Play MIDI without external softsynth — load SF2/SF3 SoundFonts, SoundFont stacking, FFXIV SoundFont Mode |
 | 🔌 **Multi-Provider** | OpenAI, OpenRouter, Google Gemini, or any OpenAI-compatible endpoint |
 | 🧠 **Reasoning Support** | Configurable thinking/reasoning effort (None → Extra High) |
 | 📊 **Token Tracking** | Real-time token usage display per request and session |
@@ -155,6 +157,36 @@ The **Split Channels to Tracks** tool converts single-track multi-channel GM MID
 Find it in the toolbar or via **Tools → Split Channels to Tracks** (Ctrl+Shift+E).
 
 📖 **[Split Channels Documentation →](https://happytunesai.github.io/MidiEditor_AI/split-channels.html)**
+
+---
+
+## 🎸 Explode Chords to Tracks
+
+The **Explode Chords to Tracks** tool takes polyphonic chords and splits them into separate monophonic tracks — one note per voice. Ideal for preparing FFXIV ensemble arrangements where each instrument must be monophonic.
+
+Find it in the toolbar or via **Tools → Explode Chords to Tracks**.
+
+> **Note:** This tool was inherited from [Meowchestra/MidiEditor](https://github.com/Meowchestra/MidiEditor). MidiEditor AI added a toolbar icon for quick access.
+
+---
+
+## 🎼 Guitar Pro Import
+
+MidiEditor AI can open **Guitar Pro** files directly — all versions from GP1 through GP8 are supported. Files are converted to MIDI on-the-fly with tempo, time signature, key signature, and instrument mapping preserved.
+
+**Supported formats:**
+
+| Format | Extensions | Parser |
+|--------|-----------|--------|
+| GP1 / GP2 | `.gtp` | Gp12Parser |
+| GP3 / GP4 / GP5 | `.gp3`, `.gp4`, `.gp5` | Gp345Parser |
+| GP6 / GP7 / GP8 | `.gpx`, `.gp` | Gp678Parser (ZIP+XML) |
+
+**Features:**
+- **Header-based detection** — file format is identified by magic bytes, not file extension
+- **Full metadata** — tempo, time signature, key signature, tuning, and track names are extracted
+- **Instrument mapping** — Guitar Pro instruments are mapped to General MIDI program numbers
+- **Effects** — bends, slides, hammer-on/pull-off, vibrato, and harmonics are converted where possible
 
 ---
 
@@ -313,6 +345,8 @@ MidiEditor_AI/
 │   │   ├── MidiFile.*         # MIDI file read/write
 │   │   ├── MidiInput.*        # Real-time MIDI input (RtMidi)
 │   │   └── ...
+│   ├── converter/             # File format converters
+│   │   └── GuitarPro/         # GP1–GP8 import (Gp12, Gp345, Gp678 parsers)
 │   ├── MidiEvent/             # MIDI event types
 │   ├── protocol/              # Undo/redo protocol
 │   └── tool/                  # Editor tools (select, draw, etc.)

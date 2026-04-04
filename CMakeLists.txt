@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20 FATAL_ERROR)
 
-set(MIDIEDITOR_RELEASE_VERSION_STRING "1.1.5")
+set(MIDIEDITOR_RELEASE_VERSION_STRING "1.1.6")
 project(MidiEditorAI VERSION ${MIDIEDITOR_RELEASE_VERSION_STRING} LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -256,8 +256,31 @@ target_include_directories(MidiEditorAI PRIVATE
     src/protocol
     src/tool
     src/ai
+    src/converter
+    src/converter/GuitarPro
 )
 message(STATUS "Added project include directories")
+
+# Optional zlib for Guitar Pro 6/7/8 support (ZIP-based formats)
+set(GP678_ENABLED OFF)
+find_package(ZLIB QUIET)
+if(ZLIB_FOUND)
+    message(STATUS "zlib found (system) - enabling GP6/7/8 Guitar Pro import")
+    target_compile_definitions(MidiEditorAI PRIVATE GP678_SUPPORT)
+    target_link_libraries(MidiEditorAI PRIVATE ZLIB::ZLIB)
+    set(GP678_ENABLED ON)
+else()
+    # Fallback: use Qt6's bundled zlib (shipped with Qt6::Core)
+    find_package(Qt6 COMPONENTS ZlibPrivate QUIET)
+    if(TARGET Qt6::ZlibPrivate)
+        message(STATUS "Using Qt6 bundled zlib - enabling GP6/7/8 Guitar Pro import")
+        target_compile_definitions(MidiEditorAI PRIVATE GP678_SUPPORT)
+        target_link_libraries(MidiEditorAI PRIVATE Qt6::ZlibPrivate)
+        set(GP678_ENABLED ON)
+    else()
+        message(STATUS "zlib not found - GP6/7/8 disabled, GP3/4/5 still available")
+    endif()
+endif()
 
 # Source files - be more specific to avoid test/doc/example files
 file(GLOB SOURCES_MAIN "src/*.cpp")
@@ -266,6 +289,13 @@ file(GLOB SOURCES_GUI "src/gui/*.cpp")
 file(GLOB SOURCES_PROTOCOL "src/protocol/*.cpp")
 file(GLOB SOURCES_TOOL "src/tool/*.cpp")
 file(GLOB SOURCES_AI "src/ai/*.cpp")
+file(GLOB SOURCES_CONVERTER "src/converter/GuitarPro/*.cpp")
+
+# If GP678_SUPPORT is not available, exclude GP6/7/8 parser files that need zlib
+if(NOT GP678_ENABLED)
+    list(FILTER SOURCES_CONVERTER EXCLUDE REGEX "Gp678Parser\\.cpp")
+    list(FILTER SOURCES_CONVERTER EXCLUDE REGEX "GpUnzip\\.cpp")
+endif()
 
 # For midi directory, be selective to avoid test files
 file(GLOB SOURCES_MIDI "src/midi/*.cpp")
@@ -279,6 +309,7 @@ set(SOURCES
     ${SOURCES_PROTOCOL}
     ${SOURCES_TOOL}
     ${SOURCES_AI}
+    ${SOURCES_CONVERTER}
 )
 
 # Add only main rtmidi files if they exist (not tests/docs/examples)
@@ -309,6 +340,7 @@ file(GLOB HEADERS_GUI "src/gui/*.h")
 file(GLOB HEADERS_PROTOCOL "src/protocol/*.h")
 file(GLOB HEADERS_TOOL "src/tool/*.h")
 file(GLOB HEADERS_AI "src/ai/*.h")
+file(GLOB HEADERS_CONVERTER "src/converter/GuitarPro/*.h")
 
 # For midi directory, be selective to avoid test files
 file(GLOB HEADERS_MIDI "src/midi/*.h")
@@ -322,6 +354,7 @@ set(HEADERS
     ${HEADERS_PROTOCOL}
     ${HEADERS_TOOL}
     ${HEADERS_AI}
+    ${HEADERS_CONVERTER}
 )
 
 if(EXISTS "${CMAKE_SOURCE_DIR}/src/midi/rtmidi/RtMidi.h")

@@ -5,6 +5,38 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 
 ---
 
+## [1.1.6] - 2026-04-04 — Guitar Pro Import (GP1–GP8)
+
+### Added
+* **Native Guitar Pro import** — all Guitar Pro formats from 1990s DOS to 2024 are now supported:
+  - **GP3 (.gp3)** — Guitar Pro 3 binary format (v3.00)
+  - **GP4 (.gp4)** — Guitar Pro 4 binary format (v4.00–v4.06), adds lyrics, RSE, key signatures
+  - **GP5 (.gp5)** — Guitar Pro 5 binary format (v5.00–v5.10), adds RSE2, extended note effects
+  - **GP6/GPX (.gpx)** — Guitar Pro 6 BCFZ-compressed GPIF XML
+  - **GP7/GP8 (.gp)** — Guitar Pro 7/8 ZIP-packaged GPIF XML
+  - **GP1 (.gtp)** — Guitar Pro 1 legacy DOS format (v1.0–v1.04, French header "GUITARE")
+  - **GP2 (.gtp)** — Guitar Pro 2 legacy DOS format (v2.20–v2.21), adds triplet feel, repeat markers, capo
+  - Header-based format detection — works even with misnamed file extensions
+* **GP3/GP4/GP5 binary parser fixes** (Phase 16.1) — the upstream Meowchestra fork contained an unfinished Guitar Pro parser skeleton that failed on every real-world file. Fixed:
+  - Added missing `Gp5Parser::readNoteEffects()` override for GP5-specific effect flags
+  - Fixed field ordering in `readNote()` (`accentuatedNote`/`ghostNote` flags)
+  - Added EOF boundary checking to prevent crashes on truncated files
+* **GP6 BCFZ decompression rewrite** (Phase 16.2) — upstream used zlib `inflate()` on BCFZ data which is completely wrong (BCFZ is a custom bit-level LZ77 algorithm, not zlib/DEFLATE). Rewrote `decompressGPX()` with the correct algorithm, ported from C# BardMusicPlayer/LightAmp source code
+* **GP7/GP8 ZIP extraction rewrite** (Phase 16.3) — upstream parsed local file headers which have unreliable sizes when ZIP data descriptors are present. Rewrote to parse the **central directory** from the end of the file for correct entry sizes
+* **GPIF XML node lookup fix** (Phase 16.4) — `getSubnodeByName()` could find nested elements (e.g. `<Bars>` inside `<MasterBar>`) before the top-level collection, causing silent data loss. All lookups now use `directOnly=true`
+* **GP1/GP2 legacy parser** (Phase 16.6) — new `Gp12Parser` classes ported from TuxGuitar's `GP1InputStream.java` / `GP2InputStream.java` reference implementation
+* **Explode Chords to Tracks icon** — toolbar icon added for the Explode Chords tool
+
+### Changed
+* Version bump to 1.1.6
+
+### Technical Notes
+* **Origin:** Meowchestra/MidiEditor upstream contained a non-functional Guitar Pro parser (`src/converter/GuitarPro/`) with basic structure for GP3–GP7. Binary parsers had field-ordering bugs, BCFZ used the wrong algorithm, ZIP extraction failed on data descriptors, XML lookups returned wrong elements. All bugs were fixed, GP1/GP2 support was added from scratch.
+* **Architecture:** Three parser families — binary (`Gp345Parser` inheritance chain), XML (`Gp678Parser` with BCFZ/ZIP decompression), and legacy (`Gp12Parser` inheritance chain). All share `GpImporter` as entry point with header-based detection.
+* **Tested formats:** GP1 (You've Got Something There.gtp, 8 tracks/12 measures), GP3 (U2 - Lemon.gp3, 9/199), GP4 (Sakuran.gp4, 5/137), GP5 (Flogging-Molly.gp5, 5/74), GP6 (Sweet Child O Mine.gpx, 6/180), GP7 (The Mirror.gp, 6/147)
+
+---
+
 ## [1.1.5] - 2026-03-31 — Auto-Updater
 
 ### Added
