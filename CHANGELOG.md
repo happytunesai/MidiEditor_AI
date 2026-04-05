@@ -5,6 +5,54 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 
 ---
 
+## [1.1.7] - 2026-04-05 — The Totally Unnecessary Glow Up
+
+> *Adding Dark/Light Mode and a totally useless but cool MIDI Visualizer.*
+
+### Added
+* **Dark & Light QSS Themes** — full application theming with seven modes:
+  - **Dark** — deep blue-black palette (`#0d1117` bg, `#58a6ff` accent) for late-night editing sessions
+  - **Light** — clean white palette (`#ffffff` bg, `#0969da` accent) for daytime use
+  - **Sakura** — light cherry blossom theme (`#fff5f8` bg, `#db7093` accents) with slightly pink piano keys
+  - **AMOLED** — pure black `#000000` backgrounds with orange `#e67e22` accents, optimized for OLED screens
+  - **Material Dark** — charcoal `#1e1d23` backgrounds with teal `#04b97f` accents, Material Design aesthetic
+  - **System** — auto-detects your OS dark/light preference
+  - **Classic** — original system-native look, unchanged
+  - Theme selector in Settings → Appearance
+  - All standard Qt widgets styled: toolbars, lists, scrollbars, checkboxes, dialogs, menus
+  - Custom-painted widgets (piano roll, velocity, misc) auto-adapt via `Appearance` color methods
+* **Dark Title Bar (Windows)** — native Windows dark title bar using DWM API (`DWMWA_USE_IMMERSIVE_DARK_MODE`), applies to all windows and dialogs automatically
+* **Theme Change Restart** — changing themes triggers app restart with confirmation dialog; reopens Settings → Appearance tab automatically via `--open-settings` CLI flag
+* **MIDI Visualizer** — real-time 16-channel equalizer bars in the toolbar:
+  - One bar per MIDI channel, green-to-blue color interpolation based on velocity
+  - Smooth decay animation at ~30fps
+  - Thread-safe: reads atomic `channelActivity` values written by the player thread
+  - Polls `MidiPlayer::isPlaying()` directly — resilient to signal connection breaks
+  - Togglable via Customize Toolbar settings
+  - Custom `midi_visualizer.png` icon with dark mode auto-inversion
+* **Note Bar Color Presets** — 10 one-click channel color schemes in Settings → Appearance:
+  - Default, Rainbow, Neon, Fire, Ocean, Pastel, Sakura, AMOLED, Emerald, Punk
+  - Preset selection persisted across sessions
+* **Sakura piano keys** — white keys tinted lavender blush (`#FFF0F5`), black keys dark rose (`#502837`), with matching hover/selected/highlight states
+* **Toolbar icon dark mode adjustment** — black toolbar icons automatically recolored to light gray in dark themes for visibility (colored icons like FFXIV Fix, Explode Chords, MidiPilot preserved as-is)
+* **Checkbox visibility in dark mode** — brighter borders for checkboxes in dark theme
+
+### Fixed
+* **Color preset combo always showing "Default"** — added `_colorPreset` persistence to QSettings; combo now correctly shows the saved preset when re-entering Settings
+* **Piano key note labels unreadable in dark mode** — C1/C2/C3 octave labels on the piano bar changed from hardcoded `Qt::gray` to light gray (`QColor(200,200,200)`) in dark themes for readability
+
+### Changed
+* Toolbar inline styles refactored to use centralized `Appearance` helper methods for theme consistency
+* Version bump to 1.1.7
+
+### Technical Notes
+* **New files:** `src/gui/themes/dark.qss`, `src/gui/themes/light.qss`, `src/gui/themes/pink.qss`, `src/gui/themes/amoled.qss`, `src/gui/themes/materialdark.qss`, `src/gui/MidiVisualizerWidget.h/cpp`, `run_environment/graphics/tool/midi_visualizer.png`
+* **Core modifications:** `Appearance.h/cpp` (theme management, 7 themes, 10 color presets, piano key overrides, DWM dark title bar, icon adjustment), `AppearanceSettingsWidget.h/cpp` (theme selector + preset combo UI), `MainWindow.h/cpp` (toolbar theming, visualizer lifecycle, restart mechanism), `SettingsDialog.h/cpp` (`setCurrentTab()`), `main.cpp` (`--open-settings` CLI arg), `LayoutSettingsWidget.cpp` (visualizer in customize toolbar)
+* **Visualizer lifecycle:** Widget created fresh on each toolbar rebuild via `toolbar->addWidget()` — avoids Qt `QWidgetAction` ownership bugs where `setDefaultWidget()` transfers ownership to the toolbar which destroys the widget on rebuild
+* **AMOLED/Material themes inspired by:** [GTRONICK/QSS](https://github.com/GTRONICK/QSS) (MIT License) — color palettes adapted into our QSS structure
+
+---
+
 ## [1.1.6.1] - 2026-04-04 — Bugfix: Duplicate Guitar Track Channels
 
 ### Fixed

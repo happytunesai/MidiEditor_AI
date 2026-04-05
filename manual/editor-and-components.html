@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -6,24 +6,33 @@
   <title>The Editor and its Components - MidiEditor AI Manual</title>
   <link rel="icon" type="image/png" href="favicon.png">
 <link rel="stylesheet" href="style.css">
+<style>
+.menu-table { width: 100%; border-collapse: collapse; margin: 1rem 0 2rem; }
+.menu-table td { padding: 0.5rem 0.7rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+.menu-table td:first-child { width: 30px; text-align: center; }
+.menu-table td i { font-style: normal; font-weight: 600; color: var(--text); }
+</style>
 </head>
 <body>
 <div class="nav-bar">
-<div class="nav-header"><span class="nav-icon">&#129302;</span><span class="nav-title">MidiEditor AI Manual</span><span class="nav-version">v1.1.5</span></div>
+<div class="nav-header"><span class="nav-icon">&#129302;</span><span class="nav-title">MidiEditor AI Manual</span><span class="nav-version">v1.1.7</span></div>
 <div class="nav-links">
-  <a href="index.html">Index</a>
-  <a href="introduction.html">Introduction</a>
-  <a href="midipilot.html">MidiPilot</a>
-  <a href="prompt-examples.html">Prompt Examples</a>
-  <a href="ffxiv-channel-fixer.html">Fix X|V</a>
-<a href="split-channels.html">Split Channels</a>
+<a href="index.html">Index</a>
+<a href="midipilot.html">MidiPilot</a>
+<a href="prompt-examples.html">Prompts</a>
+<span class="nav-sep">&middot;</span>
+<a href="ffxiv-channel-fixer.html">Fix X|V</a>
+<a href="split-channels.html">Split</a>
+<a href="themes.html">Themes</a>
 <a href="soundfont.html">SoundFonts</a>
-  <a href="midi-overview.html">MIDI Overview</a>
-  <a href="editor-and-components.html">Editor</a>
-  <a href="setup.html">Setup</a>
-  <a href="editing-midi-files.html">Editing</a>
-  <a href="playback.html">Playback</a>
-  <a href="record.html">Recording</a>
+<a href="guitar-pro.html">Guitar&nbsp;Pro</a>
+<span class="nav-sep">&middot;</span>
+<a href="midi-overview.html">MIDI</a>
+<a href="editor-and-components.html" class="active">Editor</a>
+<a href="setup.html">Setup</a>
+<a href="editing-midi-files.html">Editing</a>
+<span class="nav-sep">&middot;</span>
+<a href="playback.html">Playback</a>
 </div>
 </div>
 <h2>The Editor and its Components</h2>
@@ -55,46 +64,128 @@
 
 <h3 id="menu">Menubar</h3>
 
-  <p>Most actions which can be performed by the user are accessible using the menubar. The actions are
-   structured within the following submenues:</p>
-<table border="0" cellspacing="0" cellpadding="2">
-	<tr>
-		<td width="70" valign="top">File</td>
-		<td>
-			The <a href="menu-file.html">file menu</a> provides the usual actions to load, create, and save files.
-		</td>
-	</tr>
-	<tr>
-		<td>Edit</td>
-		<td valign="top">
-			The <a href="menu-edit.html">edit menu</a> provides actions to select events, to copy and paste events, and to
-	    undo / redo actions.
-		</td>
-	</tr>
-	<tr>
-		<td valign="top">Tools</td>
-		<td>
-			The <a href="menu-tools.html">tools menu</a> provides actions to edit the current file's content.
-		</td>
-	</tr>
-	<tr>
-		<td valign="top">View</td>
-		<td>
-			The <a href="menu-view.html">view menu</a> provides actions to customize the view settings. This includes items to zoom in or out and the raster settings.
-		</td>
-	</tr>
-	<tr>
-		<td valign="top">Playback</td>
-		<td>
-			The <a href="menu-playback.html">playback menu</a> contains all actions which control the playback, the recording, or the metronome.
-		</td>
-	</tr>
-	<tr>
-		<td valign="top">Midi</td>
-		<td>
-			The <a href="menu-midi.html">Midi menu</a> provides actions which let the user set the Midi preferences.
-		</td>
-	</tr>
+<p>Most actions which can be performed by the user are accessible using the menubar. The actions are
+structured within the following submenus. For the <b>Tools</b> menu, see the
+<a href="menu-tools.html">dedicated Tools Menu page</a>.</p>
+
+<h4 id="file">&#x1F4C2; File Menu</h4>
+<table class="menu-table">
+<tr>
+<td><img src="tools/new.png" width="20" height="20"></td>
+<td><i>New</i><br>Creates a new, empty MIDI file.</td>
+</tr>
+<tr>
+<td><img src="tools/load.png" width="20" height="20"></td>
+<td><i>Open&hellip;</i><br>Open an existing MIDI file. Also supports <b>Guitar Pro</b> files (GP1&ndash;GP8): <code>.gp</code>, <code>.gp3</code>, <code>.gp4</code>, <code>.gp5</code>, <code>.gpx</code>, <code>.gtp</code> &mdash; files are automatically converted to MIDI on open. See <a href="guitar-pro.html">Guitar Pro Import</a>.</td>
+</tr>
+<tr>
+<td></td>
+<td><i>Open recent&hellip;</i><br>Open a recently opened file from the history list.</td>
+</tr>
+<tr>
+<td><img src="tools/save.png" width="20" height="20"></td>
+<td><i>Save</i><br>Save the current MIDI file.</td>
+</tr>
+<tr>
+<td><img src="tools/saveas.png" width="20" height="20"></td>
+<td><i>Save as&hellip;</i><br>Save the current MIDI file at a given path.</td>
+</tr>
+<tr>
+<td></td>
+<td><i>Quit</i><br>Close MidiEditor AI.</td>
+</tr>
+</table>
+
+<h4 id="edit">&#x270F;&#xFE0F; Edit Menu</h4>
+<table class="menu-table">
+<tr>
+<td><img src="tools/undo.png" width="20" height="20"></td>
+<td><i>Undo</i><br>Undo the last action.</td>
+</tr>
+<tr>
+<td><img src="tools/redo.png" width="20" height="20"></td>
+<td><i>Redo</i><br>Redo the last undone action.</td>
+</tr>
+<tr>
+<td></td>
+<td><i>Select all</i><br>Select all currently visible events.</td>
+</tr>
+<tr>
+<td></td>
+<td><i>Select all events from channel&hellip;</i><br>Select all events assigned to a given channel.</td>
+</tr>
+<tr>
+<td></td>
+<td><i>Select all events from track&hellip;</i><br>Select all events assigned to a given track.</td>
+</tr>
+<tr>
+<td><img src="tools/copy.png" width="20" height="20"></td>
+<td><i>Copy events</i><br>Copy all selected events to the clipboard.</td>
+</tr>
+<tr>
+<td><img src="tools/paste.png" width="20" height="20"></td>
+<td><i>Paste events</i><br>Paste copied events from the clipboard. The first event starts at the cursor position. Use <b>Paste options</b> to control target track and channel.</td>
+</tr>
+<tr>
+<td></td>
+<td><i>Paste options&hellip;</i><br>Choose whether pasted events keep their original track/channel or get assigned to a fixed track/channel.</td>
+</tr>
+<tr>
+<td><img src="tools/config.png" width="20" height="20"></td>
+<td><i>Settings&hellip;</i><br>Opens the <a href="setup.html">Settings dialog</a>.</td>
+</tr>
+</table>
+
+<h4 id="view">&#x1F441;&#xFE0F; View Menu</h4>
+<table class="menu-table">
+<tr>
+<td></td>
+<td><i>Zoom&hellip;</i><br>Zoom in/out horizontally and vertically, or restore default zoom settings.</td>
+</tr>
+<tr>
+<td><img src="tools/all_visible.png" width="20" height="20"></td>
+<td><i>Show all channels</i><br>Sets all channels to visible.</td>
+</tr>
+<tr>
+<td><img src="tools/all_invisible.png" width="20" height="20"></td>
+<td><i>Hide all channels</i><br>Hides all channels. Events from hidden channels are not displayed.</td>
+</tr>
+<tr>
+<td><img src="tools/all_visible.png" width="20" height="20"></td>
+<td><i>Show all tracks</i><br>Sets all tracks to visible.</td>
+</tr>
+<tr>
+<td><img src="tools/all_invisible.png" width="20" height="20"></td>
+<td><i>Hide all tracks</i><br>Hides all tracks. Events from hidden tracks are not displayed.</td>
+</tr>
+<tr>
+<td></td>
+<td><i>Colors&hellip;</i><br>Choose whether event colors represent channels or tracks. See also <a href="themes.html">Themes &amp; Appearance</a>.</td>
+</tr>
+<tr>
+<td></td>
+<td><i>Raster</i><br>Customize the grid raster in the event view. Set to quarter notes, 8ths, 16ths, etc. See <a href="editing-midi-files.html#magnet">Magnet &amp; Raster</a>.</td>
+</tr>
+</table>
+
+<h4 id="playback-menu">&#x25B6;&#xFE0F; Playback Menu</h4>
+<p>Controls playback, <a href="playback.html#recording">recording</a>, and the <a href="playback.html#metronome">metronome</a>.
+See the <a href="playback.html">Playback &amp; Recording</a> page for full details.</p>
+
+<h4 id="midi">&#x1F3B9; MIDI Menu</h4>
+<table class="menu-table">
+<tr>
+<td><img src="tools/config.png" width="20" height="20"></td>
+<td><i>Settings&hellip;</i><br>Opens the <a href="setup.html">Settings dialog</a> for MIDI I/O configuration.</td>
+</tr>
+<tr>
+<td><img src="tools/connection.png" width="20" height="20"></td>
+<td><i>Connect MIDI In/Out</i><br>Routes the <a href="setup.html#io">input device</a> to the output so played notes are audible. See <a href="setup.html#connect">details</a>.</td>
+</tr>
+<tr>
+<td></td>
+<td><i>MIDI Panic</i><br>Sends an all-notes-off signal to the <a href="setup.html#io">output device</a>. Silences stuck notes.</td>
+</tr>
 </table>
 
 <h3 id="tools">Toolbar</h3>

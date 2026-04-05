@@ -67,6 +67,7 @@
         <file>run_environment/graphics/tool/zoom_ver_in.png</file>
         <file>run_environment/graphics/tool/zoom_ver_out.png</file>
         <file>run_environment/graphics/tool/midipilot.png</file>
+        <file>run_environment/graphics/tool/midi_visualizer.png</file>
         <file>run_environment/graphics/tool/new_chat.png</file>
         <file>run_environment/graphics/channelwidget/loud.png</file>
         <file>run_environment/graphics/channelwidget/instrument.png</file>
@@ -79,5 +80,10 @@
         <file>run_environment/graphics/icon.png</file>
         <file>run_environment/graphics/midieditor.png</file>
         <file>CONTRIBUTORS</file>
+        <file>src/gui/themes/dark.qss</file>
+        <file>src/gui/themes/light.qss</file>
+        <file>src/gui/themes/pink.qss</file>
+        <file>src/gui/themes/amoled.qss</file>
+        <file>src/gui/themes/materialdark.qss</file>
     </qresource>
 </RCC>

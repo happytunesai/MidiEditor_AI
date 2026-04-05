@@ -197,7 +197,7 @@ void ChannelListItem::onBeforeUpdate() {
 ChannelListWidget::ChannelListWidget(QWidget *parent)
     : QListWidget(parent) {
     setSelectionMode(QAbstractItemView::NoSelection);
-    setStyleSheet("QListWidget::item { border-bottom: 1px solid lightGray; }");
+    setStyleSheet(Appearance::listBorderStyle());
 
     for (int channel = 0; channel < 17; channel++) {
         ChannelListItem *widget = new ChannelListItem(channel, this);

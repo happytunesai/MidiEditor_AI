@@ -73,6 +73,12 @@ public:
     void addSetting(SettingsWidget *settingsWidget);
 
     /**
+     * \brief Sets the initially selected tab by index.
+     * \param index The 0-based tab index to select
+     */
+    void setCurrentTab(int index);
+
+    /**
      * \brief Returns the main window associated with this dialog.
      */
     MainWindow *mainWindow() const { return _mainWindow; }

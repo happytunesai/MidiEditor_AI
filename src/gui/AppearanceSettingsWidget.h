@@ -165,6 +165,12 @@ public slots:
      */
     void styleChanged(const QString &style);
 
+    /**
+     * \brief Handles theme changes.
+     * \param index The new theme index
+     */
+    void themeChanged(int index);
+
 private:
     /** \brief List of channel color items */
     QList<NamedColorWidgetItem *> *_channelItems;

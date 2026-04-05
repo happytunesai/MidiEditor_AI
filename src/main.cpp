@@ -21,6 +21,7 @@
 #include <QFileInfo>
 #include <QSurfaceFormat>
 #include <QOpenGLContext>
+#include <QTimer>
 
 #include "gui/MainWindow.h"
 #include "gui/Appearance.h"
@@ -229,11 +230,15 @@ int main(int argc, char *argv[]) {
     // Parse command-line arguments
     // Supports: MidiEditorAI.exe [file.mid]
     //           MidiEditorAI.exe --open <file.mid>  (used by auto-updater)
+    //           MidiEditorAI.exe --open-settings     (reopen settings on Appearance tab after theme restart)
     QString openFilePath;
+    bool openSettings = false;
     for (int i = 1; i < argc; ++i) {
         QString arg = QString::fromLocal8Bit(argv[i]);
         if (arg == "--open" && i + 1 < argc) {
             openFilePath = QString::fromLocal8Bit(argv[++i]);
+        } else if (arg == "--open-settings") {
+            openSettings = true;
         } else if (!arg.startsWith("-")) {
             openFilePath = arg;
         }
@@ -245,6 +250,12 @@ int main(int argc, char *argv[]) {
     else
         w = new MainWindow();
     w->showMaximized();
+
+    // After startup, reopen settings dialog on Appearance tab if requested
+    if (openSettings) {
+        QTimer::singleShot(300, w, &MainWindow::openConfigOnAppearanceTab);
+    }
+
     int result = a.exec();
     return result;
 }

@@ -23,6 +23,8 @@
 #include <QMap>
 #include <QObject>
 
+#include <atomic>
+
 // Forward declarations
 class MidiEvent;
 inline namespace rt { inline namespace midi { class RtMidiIn; class RtMidiOut; } }
@@ -154,6 +156,12 @@ public:
 
     /** \brief Map tracking currently playing notes by channel */
     static QMap<int, QList<int> > playedNotes;
+
+    /** \brief Per-channel note velocity for visualizer (thread-safe atomic reads) */
+    static std::atomic<int> channelActivity[16];
+
+    /** \brief Resets all channelActivity values to 0 */
+    static void resetChannelActivity();
 
 private:
     /** \brief Name of the current output port */

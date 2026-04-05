@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -9,24 +9,27 @@
 </head>
 <body>
 <div class="nav-bar">
-<div class="nav-header"><span class="nav-icon">&#129302;</span><span class="nav-title">MidiEditor AI Manual</span><span class="nav-version">v1.1.5</span></div>
+<div class="nav-header"><span class="nav-icon">&#129302;</span><span class="nav-title">MidiEditor AI Manual</span><span class="nav-version">v1.1.7</span></div>
 <div class="nav-links">
-  <a href="index.html">Index</a>
-  <a href="introduction.html">Introduction</a>
-  <a href="midipilot.html">MidiPilot</a>
-  <a href="prompt-examples.html">Prompt Examples</a>
-  <a href="ffxiv-channel-fixer.html">Fix X|V</a>
-<a href="split-channels.html">Split Channels</a>
+<a href="index.html">Index</a>
+<a href="midipilot.html">MidiPilot</a>
+<a href="prompt-examples.html">Prompts</a>
+<span class="nav-sep">&middot;</span>
+<a href="ffxiv-channel-fixer.html">Fix X|V</a>
+<a href="split-channels.html">Split</a>
+<a href="themes.html">Themes</a>
 <a href="soundfont.html">SoundFonts</a>
-  <a href="midi-overview.html">MIDI Overview</a>
-  <a href="editor-and-components.html">Editor</a>
-  <a href="setup.html">Setup</a>
-  <a href="editing-midi-files.html">Editing</a>
-  <a href="playback.html">Playback</a>
-  <a href="record.html">Recording</a>
+<a href="guitar-pro.html">Guitar&nbsp;Pro</a>
+<span class="nav-sep">&middot;</span>
+<a href="midi-overview.html">MIDI</a>
+<a href="editor-and-components.html">Editor</a>
+<a href="setup.html">Setup</a>
+<a href="editing-midi-files.html">Editing</a>
+<span class="nav-sep">&middot;</span>
+<a href="playback.html" class="active">Playback</a>
 </div>
 </div>
-<h2>Playback</h2>
+<h2>Playback &amp; Recording</h2>
 
 <p>
   MidiEditor allows you to play the song when you have selected an
@@ -34,10 +37,13 @@
 </p>
 
 <p>
-  You can find buttons for the playback in the <a href="menu-playback.html">playback menu</a> or in the toolbar. There are buttons
-  which allow you to start a playback (or a recording, please read <a href="record.html">Recording Midi data</a> for more details), to
-  stop and pause the playback, and to control the	<a href="#cursor">cursor</a>. Moreover, individual tracks and channels can be
-  muted and the <a href="#metronome">metronome</a> can be controlled from within the <a href="menu-playback.html">playback menu</a>.
+  You can find buttons for the playback in the toolbar: start playback
+  (<img src="tools/play.png" width="12" height="12">),
+  pause (<img src="tools/pause.png" width="12" height="12">),
+  stop (<img src="tools/stop.png" width="12" height="12">),
+  and record (<img src="tools/record.png" width="12" height="12">).
+  Individual tracks and channels can be <a href="#muting-tracks-channels">muted</a>,
+  the <a href="#metronome">metronome</a> toggled, and MIDI data <a href="#recording">recorded</a> from an input device.
 </p>
 
 <h3 id="muting-tracks-channels">Muting Tracks and Channels</h3>
@@ -52,8 +58,9 @@
    Click again in order to make the channel or track audible again.
 </p>
 <p>
-  Moreover, there are actions which allow you to mute or make audible all tracks or channels at once. These buttons can be found in the
-  <a href="menu-playback.html">playback menu</a> as well as in the
+  Moreover, there are actions which allow you to mute or make audible all tracks or channels at once. These buttons
+  (<img src="tools/all_audible.png" width="12" height="12"> / <img src="tools/all_mute.png" width="12" height="12">)
+  can be found in the toolbar as well as in the
   <a href="editor-and-components.html#track_editor">track editor</a> or the <a href="editor-and-components.html#channel_editor">channel editor</a>.
 </p>
 <p>
@@ -71,8 +78,7 @@
 	into the time line above the <a href="editor-and-components.html#event-view">event view</a>.
 </p>
 <p>
-  In the <a href="menu-playback.html">playback menu</a> there
-	are additional actions which can move the cursor to the next or previous measure (<img src="tools/back.png" width="12px" height="12px"/>
+  The toolbar also provides actions to move the cursor to the next or previous measure (<img src="tools/back.png" width="12px" height="12px"/>
 	and <img src="tools/forward.png" width="12px" height="12px"/>), the next or previous marker
 	(<img src="tools/back_marker.png" width="12px" height="12px"/> and
 	<img src="tools/forward_marker.png" width="12px" height="12px"/>), or reset the cursor to start the playback at the beginning of the file
@@ -81,8 +87,7 @@
 
 <h3 id="speed">Speed</h3>
 <p>
-  Sometimes it will be useful to slow done the playback speed (or to speed it up). This can be done by setting the playback speed in the
-  <a href="menu-playback.html">playback menu</a>. Setting the playback speed to 1 (default) will play at normal speed, while setting it to 2 will result in
+  Sometimes it will be useful to slow down the playback speed (or to speed it up). This can be done by setting the playback speed in the toolbar. Setting the playback speed to 1 (default) will play at normal speed, while setting it to 2 will result in
   a two times faster playback speed. Playback speeds lower than 1 will slow down the playback.
 </p>
 
@@ -90,7 +95,7 @@
 <h3 id="metronome">Metronome</h3>
 <img src="tools/metronome.png" align="right" width="40" height="40" hspace="10" vspace="10"/>
 <p>
-  The metronome can be enabled or disabled in the <a href="menu-playback.html">playback menu</a> or in the toolbar. Enabling the metronome will result in a
+  The metronome can be enabled or disabled in the toolbar. Enabling the metronome will result in a
   metronome sound at each beat during the playback.
 </p>
  
@@ -98,9 +103,41 @@
 <h3 id="lock">Locking the Screen</h3>
 <p>
 	When you play a song and there must not be any delays while playing you
-	may have to lock the screen by enabling  <img src="tools/screen_locked.png" width="12px" height="12px"/> in the <a href="menu-playback.html">playback menu</a>. This mean
+	may have to lock the screen by enabling  <img src="tools/screen_locked.png" width="12px" height="12px"/> in the toolbar. This means
 	that the <a href="editor-and-components.html#event-view">	event view</a> does not follow the cursor while playing, because the
 	repainting of the window can cause a short delay on slower machines.
+</p>
+
+<h3 id="recording">Recording MIDI Data</h3>
+
+<p>
+  MidiEditor can record MIDI data from an <a href="setup.html#io">input device</a>, e.g. a digital piano.
+</p>
+
+<p>
+  To start a recording, press the record button (<img src="tools/record.png" width="12" height="12">) in the toolbar.
+  MidiEditor will start a playback (which will allow you to hear any previously entered events) and listen to the
+  <a href="setup.html#io">input device</a> at the same time. Notes and other events played via the input device are
+  added to the currently loaded MIDI file at the time they were played.
+</p>
+
+<img class="figure" src="screenshots/record_window.png" align="right" hspace="10" vspace="10" />
+
+<p>
+  After a recording has been finished, click the stop button (<img src="tools/stop.png" width="12" height="12">) in the toolbar.
+  If any events have been recorded, a dialog will pop up which allows you to specify how to handle the recorded events.
+</p>
+
+<p>
+  You can ignore some event types. All events with that type will not be
+  added to the file, while all other events will be added at the time they have
+  been played. You can also specify the track and the channel of the recorded
+  events in the dialog. Press &quot;Ok&quot; to add the events to the file.
+</p>
+
+<p>
+  After the events have been added, you may want to edit them &mdash; correcting wrong notes or adjusting the timing. The
+  <a href="editing-midi-files.html#quantization">quantization function</a> is especially useful in this context.
 </p>
 
 <div class="footer">

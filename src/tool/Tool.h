@@ -85,6 +85,12 @@ public:
     QImage *image();
 
     /**
+     * \brief Returns the original image resource path for this tool.
+     * \return Resource path used by setImage()
+     */
+    QString iconPath() const;
+
+    /**
      * \brief Sets the tool's tooltip text.
      * \param text The tooltip text to display
      */
@@ -174,6 +180,11 @@ protected:
      * Used in the protocol list and on the buttons.
      */
     QImage *_image;
+
+    /**
+     * \brief The original resource path for the tool icon.
+     */
+    QString _imagePath;
 
     /**
      * \brief The tooltip text the button should display.

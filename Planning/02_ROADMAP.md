@@ -792,8 +792,9 @@ Phase 11.5 FFXIV Channel Fix v2 — 3-Tier Detection       ✅ DONE (v1.1.0 + v1
 Phase 12   Prompt Architecture v2                         ✅ DONE (12.1-12.7, v1.1.3)
 Phase 13   Auto-Save & Crash Recovery                     ✅ DONE (13.1-13.4, v1.1.3.1)
 Phase 14   Split Channels to Tracks                       ✅ DONE (14.1-14.4, v1.1.4)
-Phase 15   Auto-Updater                                   ⬜ TODO (15.1-15.6)
+Phase 15   Auto-Updater                                   ✅ DONE (15.1-15.6, v1.1.5)
 Phase 16   Guitar Pro Import (.gp3-.gp7)                  ✅ DONE (16.1-16.5)
+Phase 17   Modern UI Facelift (Dark/Light QSS Themes)     ✅ DONE (17.1-17.13)
 Phase 4.6  Persistent history (SQLite)                    ⬜ TODO (low priority)
 ```
 
@@ -2771,7 +2772,7 @@ Phase 14.4  Smart detection & auto-prompt         ✅
 
 ---
 
-## Phase 15: Auto-Updater ⬜ TODO
+## Phase 15: Auto-Updater ✅ DONE (v1.1.5)
 
 > **Goal:** Replace the current "open browser to download" update flow with a fully
 > integrated in-app auto-updater that downloads, extracts, and installs new versions
@@ -3073,12 +3074,12 @@ The batch script that runs after the app exits:
 ### Implementation Order
 
 ```
-Phase 15.1  Extend UpdateChecker (ZIP URL parsing)    ⬜
-Phase 15.2  AutoUpdater class (download + orchestrate) ⬜
-Phase 15.3  Update decision dialog (3-button)          ⬜
-Phase 15.4  MainWindow integration (closeEvent, --open) ⬜
-Phase 15.5  updater.bat script                         ⬜
-Phase 15.6  Testing & edge cases                       ⬜
+Phase 15.1  Extend UpdateChecker (ZIP URL parsing)    ✅ DONE (v1.1.5)
+Phase 15.2  AutoUpdater class (download + orchestrate) ✅ DONE (v1.1.5)
+Phase 15.3  Update decision dialog (3-button)          ✅ DONE (v1.1.5)
+Phase 15.4  MainWindow integration (closeEvent, --open) ✅ DONE (v1.1.5)
+Phase 15.5  updater.bat script                         ✅ DONE (v1.1.5)
+Phase 15.6  Testing & edge cases                       ✅ DONE (v1.1.5)
 ```
 
 ### Estimated Complexity
@@ -3381,4 +3382,342 @@ Phase 16.6  GP1/GP2 (.gtp) legacy format support         ✅ DONE
   French header "GUITARE", GP2 uses "FICHIER GUITAR PRO". Gp2Parser extends Gp1Parser
   via inheritance, matching the GP3→GP4→GP5 pattern.
 
+---
 
+## Phase 17: Modern UI Facelift (Dark/Light QSS Themes) ✅ DONE
+
+> **Goal:** Give MidiEditor AI a polished, modern look with proper Dark and Light themes
+> using Qt Style Sheets (QSS), inspired by the project's manual website CSS colour
+> palette. Additionally preserve the original system-native appearance as "Classic" theme.
+>
+> **Motivation:** The original MidiEditor has a purely system-native look with no theming
+> support. Modern DAWs and music production tools universally offer dark themes for
+> reduced eye strain during long editing sessions. A cohesive visual design with rounded
+> corners, subtle borders, and accent colors makes the app feel professional and current.
+>
+> **Key constraint:** Every theme must keep the editing surface (piano roll, velocity,
+> misc widgets) fully readable and fluid. The custom-painted widgets (MatrixWidget,
+> MiscWidget, ClickButton, etc.) get their colors from `Appearance::*Color()` methods,
+> so they automatically adapt when `shouldUseDarkMode()` returns the correct value.
+
+### Background & Code Analysis
+
+**UI framework:** Qt6 QWidgets (NOT QML). All standard widgets are QSS-styleable.
+Custom-painted widgets (~10) use `Appearance` color methods and `QPainter` directly.
+
+**Existing infrastructure (pre-Phase 17):**
+- `Appearance` class: Static singleton managing all colors, styles, dark mode detection
+- `shouldUseDarkMode()`: System dark mode detection via `QPlatformTheme` / style name
+- `adjustIconForDarkMode()`: Recolors black PNG icons to light gray via `CompositionMode_SourceAtop`
+- `refreshAllIcons()` / `forceColorRefresh()`: Propagates theme changes to all widgets
+- Inline `setStyleSheet()` calls on toolbars and list widgets (hardcoded colors)
+
+**Color palette (from manual website CSS):**
+
+| Token | Dark | Light |
+|-------|------|-------|
+| Background | `#0d1117` | `#ffffff` |
+| Secondary bg | `#161b22` | `#f6f8fa` |
+| Card bg | `#1c2129` | `#ffffff` |
+| Text | `#e6edf3` | `#1f2328` |
+| Muted text | `#8b949e` | `#656d76` |
+| Accent | `#58a6ff` | `#0969da` |
+| Border | `#30363d` | `#d0d7de` |
+
+### Sub-phases
+
+#### Phase 17.1 — QSS Theme Files & Infrastructure ✅ DONE
+
+Create the core QSS stylesheets and wire them into the `Appearance` class.
+
+**Files created:**
+- `src/gui/themes/dark.qss` (~580 lines) — Complete dark theme
+- `src/gui/themes/light.qss` (~570 lines) — Complete light theme
+
+**Files modified:**
+- `resources.qrc` — Added both QSS files as Qt resources
+- `Appearance.h` — Added `Theme` enum (`ThemeSystem`, `ThemeDark`, `ThemeLight`, `ThemeNone`),
+  `theme()`, `setTheme()` methods, `_theme` static member
+- `Appearance.cpp`:
+  - `init()` loads theme from QSettings
+  - `writeSettings()` persists theme
+  - `applyStyle()` loads QSS from `:/src/gui/themes/*.qss` based on active theme
+  - `shouldUseDarkMode()` respects Theme enum before falling back to legacy detection
+  - `setTheme()` with 500ms debounce + queued `forceColorRefresh()`
+
+**QSS coverage:** QMainWindow, QMenuBar, QMenu, QToolBar, QToolButton, QTabWidget,
+QTabBar, QDockWidget, QPushButton, QLineEdit, QSpinBox, QDoubleSpinBox, QComboBox,
+QCheckBox, QRadioButton, QSlider, QProgressBar, QScrollBar, QScrollArea, QGroupBox,
+QSplitter, QStatusBar, QDialog, QToolTip, QListWidget, QTreeWidget, QTableWidget,
+QHeaderView, QLabel, QFrame, QTextEdit, QPlainTextEdit
+
+#### Phase 17.2 — Settings UI & Theme Selector ✅ DONE
+
+Add the Theme dropdown to the Appearance settings page.
+
+**Files modified:**
+- `AppearanceSettingsWidget.h` — Added `themeChanged(int)` slot
+- `AppearanceSettingsWidget.cpp`:
+  - Theme QComboBox at row 8: "System (Auto)", "Dark", "Light", "Classic"
+  - Application Style combo disabled (grayed out) when theme ≠ Classic
+  - Lambda connection toggles style combo enabled state on theme change
+  - `themeChanged()` calls `Appearance::setTheme()` + `refreshColors()`
+
+#### Phase 17.3 — Inline Style Fixes ✅ DONE
+
+Fix hardcoded inline `setStyleSheet()` calls that broke QSS cascade.
+
+**Problem:** 9× `setStyleSheet("QToolBar { border: 0px }")` in MainWindow.cpp
+overrode the app-level QSS for those toolbars, making button text black-on-dark.
+Similarly, Track/Channel list widgets had hardcoded `lightGray` borders.
+
+**Solution:** Added three helper methods to `Appearance`:
+- `toolbarInlineStyle()` — Returns theme-aware toolbar + button QSS string
+- `listBorderStyle()` — Returns theme-aware list item border QSS string
+- Updated `toolbarBackgroundColor()` — Returns theme-matching colors for mini-toolbars
+
+**Files modified:**
+- `Appearance.h` / `Appearance.cpp` — Added helper methods
+- `MainWindow.cpp` — All 9 inline toolbar styles → `Appearance::toolbarInlineStyle()`
+- `TrackListWidget.cpp` — List border → `Appearance::listBorderStyle()`
+- `ChannelListWidget.cpp` — List border → `Appearance::listBorderStyle()`
+- `AppearanceSettingsWidget.cpp` — Color picker list borders → theme-aware
+
+#### Phase 17.4 — Custom-Painted Widget Polish ✅ DONE
+
+Fine-tune the ~10 custom-painted widgets that bypass QSS.
+
+**Target widgets:**
+- `MatrixWidget` / `OpenGLMatrixWidget` — Piano roll grid colors, selection highlight
+- `MiscWidget` / `OpenGLMiscWidget` — Velocity/controller editor backgrounds
+- `ClickButton` — Custom tool buttons (currently hardcoded colors)
+- `ColoredWidget` — Track/channel color swatches (border color)
+- `EventWidget` — Event property display
+- Piano key column (left side of matrix)
+
+**Approach:** All these widgets already call `Appearance::backgroundColor()`,
+`foregroundColor()`, etc. Verify each one renders correctly in both themes.
+Fix any remaining hardcoded `QColor(...)` literals that don't adapt.
+
+#### Phase 17.5 — Icon Refinement ✅ DONE
+
+Improve icon rendering for themed modes.
+
+**Current state:** `adjustIconForDarkMode()` recolors black icons to `QColor(180,180,180)`.
+Skip list: `load`, `new`, `redo`, `undo`, `save`, `saveas`, `stop_record`, `icon`, `midieditor`.
+
+**Potential improvements:**
+- Provide dedicated dark-mode icon variants (SVG or higher-quality PNGs)
+- Adjust accent-colored icons for light theme (currently optimized for dark)
+- Review skip list — some "colorful" icons may still be too dark on dark bg
+- Consider SVG icons with CSS-driven fill colors for future-proofing
+
+#### Phase 17.6 — Testing & Polish ✅ DONE
+
+Final visual QA pass and edge case fixes.
+
+**Test matrix:**
+- All 4 themes: System, Dark, Light, Classic
+- All 3 Application Styles: Windows, windowsvista, Fusion
+- Key scenarios: Settings dialog, Track/Channel panels, About dialog,
+  Instrument selector, MIDI setup wizard, MidiPilot panel, Protocol list
+- Theme switching: Verify no crash/hang on rapid theme changes (debounce)
+- Startup: Theme persisted correctly across sessions
+- High-DPI: Verify icons and borders scale correctly at 125%/150%/200%
+
+#### Phase 17.7 — Dark Title Bar (Windows DWM) ✅ DONE
+
+Native Windows dark title bar using the DWM API.
+
+**Completed steps:**
+- ✅ `DwmSetWindowAttribute` with `DWMWA_USE_IMMERSIVE_DARK_MODE = 20` for dark title bar
+- ✅ `DarkTitleBarFilter` event filter installed on `qApp` — catches all new windows (dialogs, popups)
+- ✅ Applies to MainWindow and every child dialog automatically
+- ✅ Respects theme: only active when `Appearance::shouldUseDarkMode()` returns true
+
+**Files modified:** `Appearance.cpp`, `Appearance.h`
+
+#### Phase 17.8 — MIDI Visualizer Widget ✅ DONE
+
+Real-time 16-channel MIDI activity equalizer bars in the toolbar.
+
+**Completed steps:**
+- ✅ Created `MidiVisualizerWidget` — 16 vertical bars, one per MIDI channel
+- ✅ Reads `MidiOutput::channelActivity[16]` atomic ints (written by player thread)
+- ✅ Thread-safe via `atomic::exchange(0)` — read-and-clear in one operation
+- ✅ Green-to-blue color interpolation based on velocity (dark & light themes)
+- ✅ Smooth decay animation (DECAY_RATE=0.82, ~30fps refresh)
+- ✅ Polls `MidiPlayer::isPlaying()` directly — resilient to broken signal connections
+- ✅ Timer runs while widget is visible (`showEvent` starts, `hideEvent` stops)
+- ✅ Right-aligned in toolbar via expanding spacer
+- ✅ Appears in Customize Toolbar settings with checkbox toggle
+- ✅ Custom `midi_visualizer.png` icon (black, auto-grayed for dark mode)
+- ✅ Works in both single-row and double-row toolbar layouts
+- ✅ Widget created fresh on each toolbar rebuild — avoids Qt ownership/destruction bugs
+- ✅ Migration: auto-added for existing users who don't have it in saved settings
+
+**Key design decision:** Does NOT use `QWidgetAction` (which transfers widget ownership
+to the toolbar, causing destruction on toolbar rebuild). Instead, widget is created
+directly via `toolbar->addWidget()` each time the toolbar is rebuilt.
+
+**Files created:** `src/gui/MidiVisualizerWidget.h`, `src/gui/MidiVisualizerWidget.cpp`,
+`run_environment/graphics/tool/midi_visualizer.png`
+
+**Files modified:** `MainWindow.cpp` (4 toolbar build loops), `MainWindow.h`,
+`LayoutSettingsWidget.cpp` (action catalog + all order lists), `Appearance.cpp`
+(icon dark-mode adjustment), `resources.qrc`, `CMakeLists.txt`
+
+#### Phase 17.9 — Note Bar Color Presets ✅ DONE
+
+One-click color presets for Channel Colors and Track Colors in the editor.
+
+**Completed steps:**
+- ✅ Added `ColorPreset` enum: Default, Rainbow, Neon, Fire, Ocean, Pastel, Sakura, AMOLED, Emerald, Punk
+- ✅ Rainbow: HSV color wheel, evenly spaced hues for all 17 channels
+- ✅ Neon: Bright saturated neon colors (hot pink, electric blue, lime, etc.)
+- ✅ Fire: Warm reds, oranges, yellows
+- ✅ Ocean: Cool blues, teals, aquas
+- ✅ Pastel: Soft low-saturation colors
+- ✅ Sakura: Cherry blossom pinks, soft rose tones
+- ✅ AMOLED: Warm orange/amber tones matching the AMOLED theme
+- ✅ Emerald: Teal/green tones matching the Material Dark theme
+- ✅ Punk: Hot pinks, electric purples, acid greens, neon yellow
+- ✅ Dark-mode aware: presets auto-darken slightly for dark themes
+- ✅ Settings UI: "Color Preset" combo in Appearance panel
+- ✅ Preset selection persisted to QSettings (`_colorPreset` member + `color_preset` key)
+- ✅ Combo box correctly shows saved preset when re-entering Settings
+- ✅ Applies to both Channel Colors and Track Colors instantly
+
+**Also fixed in this round:**
+- ✅ Piano white keys brighter in dark mode (`QColor(170,170,170)` vs old 120)
+- ✅ Icons now properly refresh on runtime Light→Dark theme switch
+- ✅ `Appearance::refreshAllIcons()` called after every toolbar rebuild
+
+**Files modified:** `Appearance.h`, `Appearance.cpp`,
+`AppearanceSettingsWidget.cpp`, `MidiVisualizerWidget.h`, `MidiVisualizerWidget.cpp`,
+`MainWindow.cpp`
+
+#### Phase 17.10 — Sakura Theme ✅ DONE
+
+Light cherry blossom theme with soft pink accents.
+
+**Completed steps:**
+- ✅ Rewrote `pink.qss` as a **light** Sakura theme (`#fff5f8` bg, `#db7093` accents, `#f0c0d0` borders)
+- ✅ `ThemePink = 4` — `shouldUseDarkMode()` returns **false** (light theme)
+- ✅ Renamed "Pink" → "Sakura" in Settings UI
+- ✅ Sakura-specific editor colors: light pink strips, rose borders, pink toolbar inline style
+- ✅ Piano keys slightly pink in Sakura theme (`#FFF0F5` lavender blush white keys, `#502837` dark rose black keys)
+- ✅ Pink hover/selected states for piano keys
+- ✅ Pink key line highlight (`#DB7093` pale violet red with alpha)
+
+**Files created:** `src/gui/themes/pink.qss` (rewritten)
+
+**Files modified:** `Appearance.h`, `Appearance.cpp`, `AppearanceSettingsWidget.cpp`,
+`resources.qrc`
+
+#### Phase 17.11 — AMOLED & Material Dark Themes ✅ DONE
+
+Two additional dark themes inspired by GTRONICK/QSS (MIT License).
+
+**Completed steps:**
+- ✅ **AMOLED theme** (`ThemeAmoled = 5`) — pure black `#000000` backgrounds with orange `#e67e22` accents, ideal for OLED screens
+- ✅ **Material Dark theme** (`ThemeMaterial = 6`) — dark charcoal `#1e1d23` backgrounds with teal `#04b97f` accents, Material Design aesthetic
+- ✅ Created `amoled.qss` and `materialdark.qss` — full QSS files matching our dark.qss structure
+- ✅ Theme-specific toolbar inline styles (matching accent colors)
+- ✅ Theme-specific list border styles
+- ✅ Both use `shouldUseDarkMode() == true` — all dark-mode color methods apply
+- ✅ Dark title bar enabled for both themes
+- ✅ Added to Settings → Appearance theme selector
+
+**Files created:** `src/gui/themes/amoled.qss`, `src/gui/themes/materialdark.qss`
+
+**Files modified:** `Appearance.h`, `Appearance.cpp`, `AppearanceSettingsWidget.cpp`,
+`resources.qrc`
+
+#### Phase 17.12 — Theme Change Restart Mechanism ✅ DONE
+
+App restart on theme change to solve Qt icon cache issues (runtime icon refresh never fully solved).
+
+**Completed steps:**
+- ✅ `restartForThemeChange()` in MainWindow — saves current file, launches new process with `--open-settings` flag, terminates via `ExitProcess(0)`
+- ✅ `--open-settings` CLI arg parsing in `main.cpp` — reopens Settings on Appearance tab after restart (300ms delay via QTimer)
+- ✅ `setThemeValue()` in Appearance — saves theme to QSettings without applying style (for pre-restart persistence)
+- ✅ `setCurrentTab()` in SettingsDialog — allows opening on a specific tab
+- ✅ Confirmation dialog before restart: QMessageBox with "Restart" / "Cancel" buttons
+- ✅ Cancel reverts combo box to current theme via `blockSignals()` pattern
+
+**Files modified:** `main.cpp`, `Appearance.h`, `Appearance.cpp`,
+`AppearanceSettingsWidget.cpp`, `MainWindow.h`, `MainWindow.cpp`,
+`SettingsDialog.h`, `SettingsDialog.cpp`
+
+#### Phase 17.13 — Color Preset Persistence Fix ✅ DONE
+
+Bug fix: Color Preset combo always showed "Default" when re-entering settings.
+
+**Completed steps:**
+- ✅ Added `_colorPreset` static member to Appearance class
+- ✅ Persisted via QSettings (`color_preset` key) in `init()` / `writeSettings()`
+- ✅ Added `colorPreset()` getter
+- ✅ Combo box calls `setCurrentIndex(Appearance::colorPreset())` on construction
+- ✅ `applyColorPreset()` now updates `_colorPreset` member before applying colors
+
+**Files modified:** `Appearance.h`, `Appearance.cpp`, `AppearanceSettingsWidget.cpp`
+
+### Affected Files
+
+**New files:**
+- `src/gui/themes/dark.qss`
+- `src/gui/themes/light.qss`
+- `src/gui/themes/pink.qss`
+- `src/gui/themes/amoled.qss`
+- `src/gui/themes/materialdark.qss`
+
+**Core modifications:**
+- `src/gui/Appearance.h` / `Appearance.cpp`
+- `src/gui/AppearanceSettingsWidget.h` / `AppearanceSettingsWidget.cpp`
+- `src/gui/MainWindow.h` / `MainWindow.cpp`
+- `src/gui/SettingsDialog.h` / `SettingsDialog.cpp`
+- `src/main.cpp`
+- `resources.qrc`
+
+**Inline style fixes:**
+- `src/gui/MainWindow.cpp` (9 toolbar inline styles)
+- `src/gui/TrackListWidget.cpp`
+- `src/gui/ChannelListWidget.cpp`
+
+### Implementation Order
+
+```
+Phase 17.1  QSS theme files & Appearance infrastructure  ✅ DONE
+Phase 17.2  Settings UI & theme selector                 ✅ DONE
+Phase 17.3  Inline style fixes (toolbar/list readability) ✅ DONE
+Phase 17.4  Custom-painted widget polish                  ✅ DONE (via Appearance color methods)
+Phase 17.5  Icon refinement                               ✅ DONE (dark mode icon adjustment)
+Phase 17.6  Testing & polish                              ✅ DONE
+Phase 17.7  Dark title bar (Windows DWM)                  ✅ DONE
+Phase 17.8  MIDI Visualizer widget                        ✅ DONE
+Phase 17.9  Note bar color presets (10 presets)           ✅ DONE
+Phase 17.10 Sakura theme (light cherry blossom)           ✅ DONE
+Phase 17.11 AMOLED & Material Dark themes                 ✅ DONE
+Phase 17.12 Theme change restart mechanism                ✅ DONE
+Phase 17.13 Color preset persistence fix                  ✅ DONE
+```
+
+### Key Considerations
+
+- **QSS has no `box-shadow`:** Unlike CSS, Qt Style Sheets don't support shadows.
+  Depth is approximated with subtle border colors and background gradients.
+- **Inline styles break cascade:** Qt's `widget->setStyleSheet()` overrides the
+  app-level stylesheet for that widget's entire selector chain. Every inline style
+  must re-declare colors/borders to stay theme-consistent. The helper methods
+  `toolbarInlineStyle()` and `listBorderStyle()` centralize this.
+- **Application Style vs Theme:** The base QStyle (Windows/Vista/Fusion) controls
+  widget structure (how checkboxes, scrollbars, etc. are drawn). QSS paints over it.
+  In themed mode, the style choice has minimal visual impact because QSS covers
+  nearly everything — so the style combo is disabled for Dark/Light/System themes.
+- **ThemeNone = Classic:** Preserves exact legacy behavior for users who prefer the
+  original system-native look. No QSS loaded, style selector fully functional.
+- **`shouldUseDarkMode()` priority chain:** ThemeDark/ThemeAmoled/ThemeMaterial→true, ThemeLight/ThemePink→false,
+  ThemeSystem→`isDarkModeEnabled()`, ThemeNone→falls through to style-name-based
+  legacy detection. This ensures all `Appearance::*Color()` methods return correct
+  values regardless of which theme path is active.

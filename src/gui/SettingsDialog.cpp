@@ -126,6 +126,13 @@ void SettingsDialog::addSetting(SettingsWidget *settingWidget) {
     }
 }
 
+void SettingsDialog::setCurrentTab(int index) {
+    if (index >= 0 && index < _settingsWidgets->count()) {
+        _listWidget->setCurrentRow(index);
+        _container->setCurrentIndex(index);
+    }
+}
+
 void SettingsDialog::rowChanged(int row) {
     int oldIndex = _container->currentIndex();
     if (_settingsWidgets->at(oldIndex)) {

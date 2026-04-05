@@ -25,6 +25,8 @@
 
 #include <vector>
 
+#include <atomic>
+
 #include "rtmidi/RtMidi.h"
 
 #ifdef FLUIDSYNTH_SUPPORT
@@ -41,6 +43,13 @@ RtMidiOut *MidiOutput::_midiOut = 0;
 QString MidiOutput::_outPort = "";
 QMap<int, QList<int> > MidiOutput::playedNotes = QMap<int, QList<int> >();
 bool MidiOutput::isAlternativePlayer = false;
+std::atomic<int> MidiOutput::channelActivity[16] = {};
+
+void MidiOutput::resetChannelActivity() {
+    for (int i = 0; i < 16; i++) {
+        channelActivity[i].store(0, std::memory_order_relaxed);
+    }
+}
 
 #ifdef FLUIDSYNTH_SUPPORT
 const QString MidiOutput::FLUIDSYNTH_PORT_NAME = QStringLiteral("FluidSynth (Built-in Synthesizer)");
@@ -87,6 +96,14 @@ void MidiOutput::sendCommand(MidiEvent *e) {
 #endif
 
         sendEnqueuedCommand(e->save());
+
+        // Update visualizer activity (thread-safe, works for all player modes)
+        {
+            NoteOnEvent *noteOn = dynamic_cast<NoteOnEvent *>(e);
+            if (noteOn && noteOn->velocity() > 0) {
+                channelActivity[e->channel()].store(noteOn->velocity(), std::memory_order_relaxed);
+            }
+        }
 
         if (isAlternativePlayer) {
             NoteOnEvent *n = dynamic_cast<NoteOnEvent *>(e);

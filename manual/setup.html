@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -9,21 +9,24 @@
 </head>
 <body>
 <div class="nav-bar">
-<div class="nav-header"><span class="nav-icon">&#129302;</span><span class="nav-title">MidiEditor AI Manual</span><span class="nav-version">v1.1.5</span></div>
+<div class="nav-header"><span class="nav-icon">&#129302;</span><span class="nav-title">MidiEditor AI Manual</span><span class="nav-version">v1.1.7</span></div>
 <div class="nav-links">
-  <a href="index.html">Index</a>
-  <a href="introduction.html">Introduction</a>
-  <a href="midipilot.html">MidiPilot</a>
-  <a href="prompt-examples.html">Prompt Examples</a>
-  <a href="ffxiv-channel-fixer.html">Fix X|V</a>
-<a href="split-channels.html">Split Channels</a>
+<a href="index.html">Index</a>
+<a href="midipilot.html">MidiPilot</a>
+<a href="prompt-examples.html">Prompts</a>
+<span class="nav-sep">&middot;</span>
+<a href="ffxiv-channel-fixer.html">Fix X|V</a>
+<a href="split-channels.html">Split</a>
+<a href="themes.html">Themes</a>
 <a href="soundfont.html">SoundFonts</a>
-  <a href="midi-overview.html">MIDI Overview</a>
-  <a href="editor-and-components.html">Editor</a>
-  <a href="setup.html">Setup</a>
-  <a href="editing-midi-files.html">Editing</a>
-  <a href="playback.html">Playback</a>
-  <a href="record.html">Recording</a>
+<a href="guitar-pro.html">Guitar&nbsp;Pro</a>
+<span class="nav-sep">&middot;</span>
+<a href="midi-overview.html">MIDI</a>
+<a href="editor-and-components.html">Editor</a>
+<a href="setup.html" class="active">Setup</a>
+<a href="editing-midi-files.html">Editing</a>
+<span class="nav-sep">&middot;</span>
+<a href="playback.html">Playback</a>
 </div>
 </div>
 <h2>Setting up MidiEditor</h2>
@@ -32,15 +35,17 @@
 <p>
   MidiEditor has to be correctly configured in order to be able to send data to a
   Midi device which is connected to the computer and (if required) to receive any data in order to
-  allow <a href="record.html">recording</a>. If not correctly configured, MidiEditor
+  allow <a href="playback.html#recording">recording</a>. If not correctly configured, MidiEditor
   can be used to edit Midi files; however, you won't be able to listen to the music.
+  MidiEditor AI includes a built-in <a href="soundfont.html">FluidSynth SoundFont player</a> &mdash;
+  if you don't have an external MIDI device, the SoundFont output works out of the box.
 </p>
 
 <img class="figure" src="screenshots/setup-io.png" width="600"/>
 
 <p>
 	To select the input or output device click &quot;Settings..&quot; in the
-	<a href="menu-midi.html">midi menu in the menubar</a>. In the list on the left-hand side of the
+	<a href="editor-and-components.html#midi">MIDI menu in the menubar</a>. In the list on the left-hand side of the
 	upcoming dialog, please select the card &quot;Midi I/O&quot;. This will show
 	two lists which show all available input/output devices.
 </p>
@@ -60,7 +65,7 @@
 <p>
   A lot of Midi devices which allow you to input Midi data are not audible but need a connected computer to generate sounds (similar to MidiEditor).
   When having chosen a valid output device, you can pass all notes played at the input device to the output device which makes the played notes audible.
-  Select the option &quot;Connect Midi In/Out&quot; in the <a href="menu-midi.html">midi menu in the menubar</a> or in the toolbar.
+  Select the option &quot;Connect Midi In/Out&quot; in the <a href="editor-and-components.html#midi">MIDI menu in the menubar</a> or in the toolbar.
 </p>
 
 <h3 id="external">Starting Synthesizers along with MidiEditor</h3>
@@ -74,7 +79,7 @@
 	To start a software each time when MidiEditor is started, you can set a start-command which is executed
 	at each startup of the editor.
   To enter this command, click the menu entry &quot;Settings...&quot; in the
-	<a href="menu-midi.html">midi menu in the menubar</a>. Select the card &quot;Additional Midi Settings&quot;
+	<a href="editor-and-components.html#midi">MIDI menu in the menubar</a>. Select the card &quot;Additional Midi Settings&quot;
 	and enter your start command in the according field. The output of the started component
 	will be visible (after the next startup) in the text area below this field.
 </p>

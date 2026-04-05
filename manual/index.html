@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -374,21 +374,24 @@
 </head>
 <body>
 <div class="nav-bar">
-<div class="nav-header"><span class="nav-icon">&#129302;</span><span class="nav-title">MidiEditor AI Manual</span><span class="nav-version">v1.1.5</span></div>
+<div class="nav-header"><span class="nav-icon">&#129302;</span><span class="nav-title">MidiEditor AI Manual</span><span class="nav-version">v1.1.7</span></div>
 <div class="nav-links">
 <a href="index.html" class="active">Index</a>
-<a href="introduction.html">Introduction</a>
 <a href="midipilot.html">MidiPilot</a>
-<a href="prompt-examples.html">Prompt Examples</a>
+<a href="prompt-examples.html">Prompts</a>
+<span class="nav-sep">&middot;</span>
 <a href="ffxiv-channel-fixer.html">Fix X|V</a>
-<a href="split-channels.html">Split Channels</a>
+<a href="split-channels.html">Split</a>
+<a href="themes.html">Themes</a>
 <a href="soundfont.html">SoundFonts</a>
-<a href="midi-overview.html">MIDI Overview</a>
+<a href="guitar-pro.html">Guitar&nbsp;Pro</a>
+<span class="nav-sep">&middot;</span>
+<a href="midi-overview.html">MIDI</a>
 <a href="editor-and-components.html">Editor</a>
 <a href="setup.html">Setup</a>
 <a href="editing-midi-files.html">Editing</a>
+<span class="nav-sep">&middot;</span>
 <a href="playback.html">Playback</a>
-<a href="record.html">Recording</a>
 </div>
 </div>
 
@@ -429,7 +432,7 @@
 <span class="qs-icon">&#x1F680;</span>
 <div class="qs-text">
 <h3>New to MidiEditor AI?</h3>
-<p>Start with the <a href="introduction.html">Introduction</a>, then jump to <a href="midipilot.html">MidiPilot</a> to learn how the AI copilot works. Check out the <a href="prompt-examples.html">Prompt Examples</a> for real-world use cases.</p>
+<p>Start with the <a href="editor-and-components.html">Editor Overview</a>, then jump to <a href="midipilot.html">MidiPilot</a> to learn how the AI copilot works. Check out the <a href="prompt-examples.html">Prompt Examples</a> for real-world use cases.</p>
 </div>
 </div>
 
@@ -518,6 +521,33 @@
 </ul>
 </div>
 
+<div class="section-card">
+<h3><span class="icon">&#x1F3A8;</span> Themes &amp; Appearance</h3>
+<p class="card-desc">Seven built-in themes (Dark, Light, Sakura, AMOLED, Material Dark, System, Classic), 10 color presets, and a real-time MIDI Visualizer.</p>
+<ul>
+<li><a href="themes.html#settings">&#x2699;&#xFE0F; Appearance Settings</a></li>
+<li><a href="themes.html#themes">&#x1F3A8; Theme Gallery &amp; Palettes</a></li>
+<li><a href="themes.html#presets">&#x1F308; Note Bar Color Presets (10)</a></li>
+<li><a href="themes.html#visualizer">&#x1F3B5; MIDI Visualizer</a></li>
+<li><a href="themes.html#switching">&#x1F504; How Theme Switching Works</a></li>
+<li><a href="themes.html#tips">&#x1F4A1; Tips</a></li>
+</ul>
+</div>
+
+<div class="section-card">
+<h3><span class="icon">&#x1F3B8;</span> Guitar Pro Import</h3>
+<p class="card-desc">Open GP1&ndash;GP8 files directly &mdash; all formats from 1993 DOS-era to 2024 are supported with header-based detection.</p>
+<ul>
+<li><a href="guitar-pro.html#formats">&#x1F4CB; Supported Formats (GP1&ndash;GP8)</a></li>
+<li><a href="guitar-pro.html#history">&#x1F4C5; History of Guitar Pro</a></li>
+<li><a href="guitar-pro.html#detection">&#x1F50D; Header-Based Detection</a></li>
+<li><a href="guitar-pro.html#conversion">&#x1F3B5; What Gets Converted</a></li>
+<li><a href="guitar-pro.html#architecture">&#x2699;&#xFE0F; Parser Architecture</a></li>
+<li><a href="guitar-pro.html#workflow">&#x1F3AE; GP to FFXIV Workflow</a></li>
+<li><a href="guitar-pro.html#tips">&#x1F4A1; Tips</a></li>
+</ul>
+</div>
+
 </div>
 
 <!-- Getting Started -->
@@ -526,9 +556,9 @@
 <div class="section-grid">
 
 <div class="section-card">
-<h3><span class="icon">&#x1F44B;</span> Introduction</h3>
-<p class="card-desc">Overview of MidiEditor AI, what it can do, and how it differs from the original MidiEditor.</p>
-<a href="introduction.html" class="card-link">Read Introduction &rarr;</a>
+<h3><span class="icon">&#x1F44B;</span> Editor &amp; Components</h3>
+<p class="card-desc">Overview of MidiEditor AI&rsquo;s main window, toolbars, event view, track/channel editors, and menubar.</p>
+<a href="editor-and-components.html" class="card-link">Read Overview &rarr;</a>
 </div>
 
 <div class="section-card">
@@ -565,8 +595,12 @@
 <h3><span class="icon">&#x1F5A5;&#xFE0F;</span> Editor &amp; Components</h3>
 <p class="card-desc">The main window, menus, toolbar, event view, and side panels explained.</p>
 <ul>
-<li><a href="editor-and-components.html#menu">&#x1F4CB; Menubar</a></li>
-<li><a href="editor-and-components.html#tools">&#x1F6E0;&#xFE0F; Toolbar</a></li>
+<li><a href="editor-and-components.html#menu">&#x1F4CB; Menubar &amp; Menus</a></li>
+<li><a href="editor-and-components.html#file">&#x1F4C2; File Menu</a></li>
+<li><a href="editor-and-components.html#edit">&#x270F;&#xFE0F; Edit Menu</a></li>
+<li><a href="editor-and-components.html#view">&#x1F441;&#xFE0F; View Menu</a></li>
+<li><a href="editor-and-components.html#midi">&#x1F3B9; MIDI Menu</a></li>
+<li><a href="menu-tools.html">&#x1F6E0;&#xFE0F; Tools Menu</a></li>
 <li><a href="editor-and-components.html#event-view">&#x1F4CA; Event View</a></li>
 <li><a href="editor-and-components.html#track_editor">&#x1F3B5; Track Editor</a></li>
 <li><a href="editor-and-components.html#channel_editor">&#x1F39B;&#xFE0F; Channel Editor</a></li>
@@ -607,28 +641,10 @@
 <li><a href="playback.html#speed">&#x23E9; Playback Speed</a></li>
 <li><a href="playback.html#metronome">&#x1F941; Metronome</a></li>
 <li><a href="playback.html#lock">&#x1F512; Locking the Screen</a></li>
-<li><a href="record.html">&#x1F534; Recording MIDI Data</a></li>
+<li><a href="playback.html#recording">&#x1F534; Recording MIDI Data</a></li>
 </ul>
 </div>
 
-</div>
-
-<!-- Menu Reference -->
-<h2>&#x1F4CB; Menu Reference</h2>
-
-<div class="section-grid">
-<div class="section-card">
-<h3><span class="icon">&#x1F4C1;</span> Menus</h3>
-<p class="card-desc">Detailed reference for every menu action in MidiEditor AI.</p>
-<ul>
-<li><a href="menu-file.html">&#x1F4C2; File Menu</a></li>
-<li><a href="menu-edit.html">&#x270F;&#xFE0F; Edit Menu</a></li>
-<li><a href="menu-view.html">&#x1F441;&#xFE0F; View Menu</a></li>
-<li><a href="menu-midi.html">&#x1F3B9; MIDI Menu</a></li>
-<li><a href="menu-playback.html">&#x25B6;&#xFE0F; Playback Menu</a></li>
-<li><a href="menu-tools.html">&#x1F6E0;&#xFE0F; Tools Menu</a></li>
-</ul>
-</div>
 </div>
 
 <div class="footer">

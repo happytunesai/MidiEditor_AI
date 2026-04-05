@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20 FATAL_ERROR)
 
-set(MIDIEDITOR_RELEASE_VERSION_STRING "1.1.6.1")
+set(MIDIEDITOR_RELEASE_VERSION_STRING "1.1.7")
 project(MidiEditorAI VERSION ${MIDIEDITOR_RELEASE_VERSION_STRING} LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -415,7 +415,7 @@ if(PLAT_LINUX)
     target_link_libraries(MidiEditorAI PRIVATE asound)
 elseif(PLAT_WINDOWS)
     target_compile_definitions(MidiEditorAI PRIVATE __WINDOWS_MM__)
-    target_link_libraries(MidiEditorAI PRIVATE winmm)
+    target_link_libraries(MidiEditorAI PRIVATE winmm dwmapi)
 
     # Add Windows resource file if it exists
     if(EXISTS "${CMAKE_SOURCE_DIR}/midieditor.rc")

@@ -27,6 +27,7 @@ MidiFile *Tool::_currentFile = 0;
 
 Tool::Tool() {
     _image = 0;
+    _imagePath = "";
     _button = 0;
     _toolTip = "";
     _standardTool = 0;
@@ -34,6 +35,7 @@ Tool::Tool() {
 
 Tool::Tool(Tool &other) {
     _image = other._image;
+    _imagePath = other._imagePath;
     _button = other._button;
     _toolTip = other._toolTip;
     _standardTool = other._standardTool;
@@ -44,11 +46,16 @@ void Tool::buttonClick() {
 }
 
 void Tool::setImage(QString name) {
+    _imagePath = name;
     _image = new QImage(name);
 }
 
 QImage *Tool::image() {
     return _image;
+}
+
+QString Tool::iconPath() const {
+    return _imagePath;
 }
 
 void Tool::setToolTipText(QString text) {
@@ -74,6 +81,7 @@ void Tool::reloadState(ProtocolEntry *entry) {
         return;
     }
     _image = other->_image;
+    _imagePath = other->_imagePath;
     _button = other->_button;
     _toolTip = other->_toolTip;
     _standardTool = other->_standardTool;

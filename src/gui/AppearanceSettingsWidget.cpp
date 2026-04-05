@@ -11,8 +11,13 @@
 #include <QSlider>
 #include <QComboBox>
 #include <QCheckBox>
+#include <QMainWindow>
+#include <QApplication>
+#include <QMessageBox>
 
 #include "Appearance.h"
+#include "SettingsDialog.h"
+#include "MainWindow.h"
 
 AppearanceSettingsWidget::AppearanceSettingsWidget(QWidget *parent)
     : SettingsWidget("Appearance", parent) {
@@ -27,7 +32,7 @@ AppearanceSettingsWidget::AppearanceSettingsWidget(QWidget *parent)
     layout->addWidget(new QLabel("Channel Colors"), 0, 0, 1, 2);
     QListWidget *channelList = new QListWidget(this);
     channelList->setSelectionMode(QAbstractItemView::NoSelection);
-    channelList->setStyleSheet("QListWidget::item { border-bottom: 1px solid lightGray; }");
+    channelList->setStyleSheet(Appearance::listBorderStyle());
     layout->addWidget(channelList, 1, 0, 1, 2);
     for (int i = 0; i < 17; i++) {
         QString name = "Channel " + QString::number(i);
@@ -51,7 +56,7 @@ AppearanceSettingsWidget::AppearanceSettingsWidget(QWidget *parent)
     layout->addWidget(new QLabel("Track Colors"), 2, 0, 1, 2);
     QListWidget *trackList = new QListWidget(this);
     trackList->setSelectionMode(QAbstractItemView::NoSelection);
-    trackList->setStyleSheet("QListWidget::item { border-bottom: 1px solid lightGray; }");
+    trackList->setStyleSheet(Appearance::listBorderStyle());
     layout->addWidget(trackList, 3, 0, 1, 2);
     for (int i = 0; i < 16; i++) {
         QColor *trackColor = Appearance::trackColor(i);
@@ -91,8 +96,25 @@ AppearanceSettingsWidget::AppearanceSettingsWidget(QWidget *parent)
     connect(strip, SIGNAL(currentIndexChanged(int)), this, SLOT(stripStyleChanged(int)));
     layout->addWidget(strip, 7, 1, 1, 1);
 
-    // UI Styling options
-    layout->addWidget(new QLabel("Application Style"), 8, 0, 1, 1);
+    // Theme selection
+    layout->addWidget(new QLabel("Theme"), 8, 0, 1, 1);
+    QComboBox *themeCombo = new QComboBox(this);
+    themeCombo->addItems({
+        "System (Auto)",
+        "Dark",
+        "Light",
+        "Classic",
+        "Sakura",
+        "AMOLED",
+        "Material Dark"
+    });
+    themeCombo->setCurrentIndex(static_cast<int>(Appearance::theme()));
+    connect(themeCombo, SIGNAL(currentIndexChanged(int)), this, SLOT(themeChanged(int)));
+    layout->addWidget(themeCombo, 8, 1, 1, 1);
+
+    // UI Styling options (only visually distinct in Classic theme)
+    QLabel *styleLabel = new QLabel("Application Style", this);
+    layout->addWidget(styleLabel, 9, 0, 1, 1);
     QComboBox *styleCombo = new QComboBox(this);
     QStringList availableStyles = Appearance::availableStyles();
     styleCombo->addItems(availableStyles);
@@ -101,13 +123,39 @@ AppearanceSettingsWidget::AppearanceSettingsWidget(QWidget *parent)
         styleCombo->setCurrentIndex(currentIndex);
     }
     connect(styleCombo, SIGNAL(currentTextChanged(QString)), this, SLOT(styleChanged(QString)));
-    layout->addWidget(styleCombo, 8, 1, 1, 1);
+    layout->addWidget(styleCombo, 9, 1, 1, 1);
 
-    layout->addWidget(new QLabel("Show C3/C6 Range Lines"), 9, 0, 1, 1);
+    // Disable style selector when a QSS theme is active (it has no visible effect)
+    bool isClassic = (Appearance::theme() == Appearance::ThemeNone);
+    styleCombo->setEnabled(isClassic);
+    styleLabel->setEnabled(isClassic);
+    connect(themeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+        [styleCombo, styleLabel](int index) {
+            bool classic = (index == static_cast<int>(Appearance::ThemeNone));
+            styleCombo->setEnabled(classic);
+            styleLabel->setEnabled(classic);
+        });
+
+    layout->addWidget(new QLabel("Show C3/C6 Range Lines"), 10, 0, 1, 1);
     QCheckBox *rangeLines = new QCheckBox(this);
     rangeLines->setChecked(Appearance::showRangeLines());
     connect(rangeLines, SIGNAL(toggled(bool)), this, SLOT(rangeLinesChanged(bool)));
-    layout->addWidget(rangeLines, 9, 1, 1, 1);
+    layout->addWidget(rangeLines, 10, 1, 1, 1);
+
+    // Color preset for channel/track note bars
+    layout->addWidget(new QLabel("Color Preset"), 11, 0, 1, 1);
+    QComboBox *presetCombo = new QComboBox(this);
+    for (int i = 0; i < Appearance::PresetCount; i++) {
+        presetCombo->addItem(Appearance::colorPresetName(
+            static_cast<Appearance::ColorPreset>(i)));
+    }
+    presetCombo->setCurrentIndex(static_cast<int>(Appearance::colorPreset()));
+    connect(presetCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+        [this](int index) {
+            Appearance::applyColorPreset(static_cast<Appearance::ColorPreset>(index));
+            refreshColors();
+        });
+    layout->addWidget(presetCombo, 11, 1, 1, 1);
 }
 
 void AppearanceSettingsWidget::channelColorChanged(int channel, QColor c) {
@@ -169,6 +217,44 @@ void AppearanceSettingsWidget::styleChanged(const QString &style) {
     Appearance::forceColorRefresh();
     refreshColors(); // Also refresh this widget's colors immediately
     update();
+}
+
+void AppearanceSettingsWidget::themeChanged(int index) {
+    Appearance::Theme newTheme = static_cast<Appearance::Theme>(index);
+    if (newTheme == Appearance::theme()) {
+        return; // No change
+    }
+
+    // Ask the user before restarting
+    QMessageBox msgBox(this);
+    msgBox.setWindowTitle(tr("Theme Change"));
+    msgBox.setText(tr("Changing the theme requires restarting the application.\n"
+                      "Your current file will be saved and reopened automatically."));
+    msgBox.setStandardButtons(QMessageBox::Yes | QMessageBox::Cancel);
+    msgBox.setDefaultButton(QMessageBox::Yes);
+    msgBox.button(QMessageBox::Yes)->setText(tr("Restart"));
+    msgBox.button(QMessageBox::Cancel)->setText(tr("Cancel"));
+    msgBox.setIcon(QMessageBox::Information);
+
+    if (msgBox.exec() != QMessageBox::Yes) {
+        // Revert the combo box to the current theme
+        QComboBox *combo = qobject_cast<QComboBox*>(sender());
+        if (combo) {
+            combo->blockSignals(true);
+            combo->setCurrentIndex(static_cast<int>(Appearance::theme()));
+            combo->blockSignals(false);
+        }
+        return;
+    }
+
+    // Save the new theme to settings immediately (without applying style)
+    Appearance::setThemeValue(newTheme);
+
+    // Find the MainWindow via the SettingsDialog parent chain and restart
+    SettingsDialog *dlg = qobject_cast<SettingsDialog*>(window());
+    if (dlg && dlg->mainWindow()) {
+        dlg->mainWindow()->restartForThemeChange();
+    }
 }
 
 

@@ -147,7 +147,7 @@ void TrackListItem::onBeforeUpdate() {
 TrackListWidget::TrackListWidget(QWidget *parent)
     : QListWidget(parent) {
     setSelectionMode(QAbstractItemView::SingleSelection);
-    setStyleSheet("QListWidget::item { border-bottom: 1px solid lightGray; }");
+    setStyleSheet(Appearance::listBorderStyle());
     file = 0;
     connect(this, SIGNAL(itemClicked(QListWidgetItem*)), this, SLOT(chooseTrack(QListWidgetItem*)));
     

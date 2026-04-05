@@ -4,6 +4,10 @@
 #include <QTimer>
 #include <QDateTime>
 #include <QFile>
+#include <QEvent>
+#include <QToolBar>
+#include <QToolButton>
+#include <QWindow>
 #include "../tool/ToolButton.h"
 #include "ProtocolWidget.h"
 #include "MatrixWidget.h"
@@ -13,6 +17,35 @@
 #include "PerformanceSettingsWidget.h"
 #include "TrackListWidget.h"
 #include "ChannelListWidget.h"
+
+#ifdef Q_OS_WIN
+#include <windows.h>
+#include <dwmapi.h>
+#endif
+
+// Helper: event filter that applies dark title bar to newly shown windows
+#ifdef Q_OS_WIN
+class DarkTitleBarFilter : public QObject {
+public:
+    explicit DarkTitleBarFilter(QObject *parent = nullptr) : QObject(parent) {}
+    bool dark = false;
+
+protected:
+    bool eventFilter(QObject *obj, QEvent *event) override {
+        if (event->type() == QEvent::Show) {
+            QWidget *w = qobject_cast<QWidget *>(obj);
+            if (w && w->isWindow() && w->windowHandle()) {
+                const DWORD attr = 20; // DWMWA_USE_IMMERSIVE_DARK_MODE
+                BOOL value = dark ? TRUE : FALSE;
+                HWND hwnd = reinterpret_cast<HWND>(w->winId());
+                DwmSetWindowAttribute(hwnd, attr, &value, sizeof(value));
+            }
+        }
+        return false;
+    }
+};
+static DarkTitleBarFilter *s_darkTitleBarFilter = nullptr;
+#endif
 
 // Prevent rapid successive theme changes
 static QDateTime lastThemeChange;
@@ -33,9 +66,12 @@ QSet<int> Appearance::customChannelColors = QSet<int>();
 QSet<int> Appearance::customTrackColors = QSet<int>();
 QMap<QAction *, QString> Appearance::registeredIconActions = QMap<QAction *, QString>();
 int Appearance::_opacity = 100;
+Appearance::ColorPreset Appearance::_colorPreset = Appearance::PresetDefault;
 Appearance::stripStyle Appearance::_strip = Appearance::onSharp;
 bool Appearance::_showRangeLines = false;
+bool Appearance::_showVisualizer = true;
 QString Appearance::_applicationStyle = "windowsvista";
+Appearance::Theme Appearance::_theme = Appearance::ThemeSystem;
 int Appearance::_toolbarIconSize = 20;
 bool Appearance::_ignoreSystemScaling = false;
 bool Appearance::_ignoreFontScaling = false;
@@ -53,8 +89,10 @@ bool Appearance::_startupComplete = false;
 void Appearance::init(QSettings *settings) {
     // CRITICAL: Load application style FIRST before creating any colors
     _opacity = settings->value("appearance_opacity", 100).toInt();
+    _colorPreset = static_cast<ColorPreset>(settings->value("color_preset", PresetDefault).toInt());
     _strip = static_cast<Appearance::stripStyle>(settings->value("strip_style", Appearance::onSharp).toInt());
     _showRangeLines = settings->value("show_range_lines", false).toBool();
+    _showVisualizer = settings->value("show_visualizer", true).toBool();
 
     // Set default style with fallback
     QString defaultStyle = "windowsvista";
@@ -70,6 +108,7 @@ void Appearance::init(QSettings *settings) {
         }
     }
     _applicationStyle = settings->value("application_style", defaultStyle).toString();
+    _theme = static_cast<Theme>(settings->value("theme", ThemeSystem).toInt());
     _toolbarIconSize = settings->value("toolbar_icon_size", 20).toInt();
     _ignoreSystemScaling = settings->value("ignore_system_scaling", false).toBool();
     _ignoreFontScaling = settings->value("ignore_font_scaling", false).toBool();
@@ -226,9 +265,12 @@ void Appearance::writeSettings(QSettings *settings) {
         }
     }
     settings->setValue("appearance_opacity", _opacity);
+    settings->setValue("color_preset", static_cast<int>(_colorPreset));
     settings->setValue("strip_style", _strip);
     settings->setValue("show_range_lines", _showRangeLines);
+    settings->setValue("show_visualizer", _showVisualizer);
     settings->setValue("application_style", _applicationStyle);
+    settings->setValue("theme", static_cast<int>(_theme));
     settings->setValue("toolbar_icon_size", _toolbarIconSize);
     settings->setValue("ignore_system_scaling", _ignoreSystemScaling);
     settings->setValue("ignore_font_scaling", _ignoreFontScaling);
@@ -596,6 +638,182 @@ void Appearance::forceResetAllColors() {
     }
 }
 
+QString Appearance::colorPresetName(ColorPreset preset) {
+    switch (preset) {
+    case PresetDefault:  return "Default";
+    case PresetRainbow:  return "Rainbow";
+    case PresetNeon:     return "Neon";
+    case PresetFire:     return "Fire";
+    case PresetOcean:    return "Ocean";
+    case PresetPastel:   return "Pastel";
+    case PresetSakura:   return "Sakura";
+    case PresetAmoled:   return "AMOLED";
+    case PresetMaterial: return "Emerald";
+    case PresetPunk:     return "Punk";
+    default:             return "Unknown";
+    }
+}
+
+Appearance::ColorPreset Appearance::colorPreset() {
+    return _colorPreset;
+}
+
+void Appearance::applyColorPreset(ColorPreset preset) {
+    _colorPreset = preset;
+
+    if (preset == PresetDefault) {
+        forceResetAllColors();
+        return;
+    }
+
+    QColor colors[17];
+    bool dark = shouldUseDarkMode();
+    float vScale = dark ? 0.75f : 1.0f;  // slightly muted for dark mode
+
+    switch (preset) {
+    case PresetRainbow:
+        for (int i = 0; i < 17; i++)
+            colors[i] = QColor::fromHsvF(i / 17.0f, 0.85f, 0.85f * vScale);
+        break;
+    case PresetNeon:
+    {
+        static const int neon[][3] = {
+            {255,0,110}, {0,255,200}, {180,0,255}, {0,200,255},
+            {255,240,0}, {255,0,220}, {0,255,100}, {140,0,255},
+            {0,255,255}, {255,100,0}, {200,255,0}, {255,0,150},
+            {0,150,255}, {255,50,50}, {100,255,0}, {0,220,180},
+            {220,0,220}
+        };
+        for (int i = 0; i < 17; i++)
+            colors[i] = QColor(neon[i][0], neon[i][1], neon[i][2]);
+        if (dark) for (int i = 0; i < 17; i++)
+            colors[i] = colors[i].darker(120);
+        break;
+    }
+    case PresetFire:
+    {
+        static const int fire[][3] = {
+            {200,0,0}, {220,50,0}, {240,80,0}, {255,120,0},
+            {255,150,0}, {255,180,0}, {255,200,0}, {255,220,30},
+            {255,240,60}, {180,30,0}, {160,0,0}, {200,60,0},
+            {230,100,0}, {255,160,20}, {140,20,0}, {120,10,0},
+            {190,40,0}
+        };
+        for (int i = 0; i < 17; i++)
+            colors[i] = QColor(fire[i][0], fire[i][1], fire[i][2]);
+        if (dark) for (int i = 0; i < 17; i++)
+            colors[i] = colors[i].darker(115);
+        break;
+    }
+    case PresetOcean:
+    {
+        static const int ocean[][3] = {
+            {0,60,180}, {0,120,200}, {0,150,220}, {0,180,200},
+            {0,180,160}, {0,200,180}, {0,160,200}, {30,100,220},
+            {50,80,200}, {0,130,160}, {20,80,140}, {0,200,220},
+            {60,140,200}, {0,160,130}, {0,100,180}, {40,120,160},
+            {0,90,200}
+        };
+        for (int i = 0; i < 17; i++)
+            colors[i] = QColor(ocean[i][0], ocean[i][1], ocean[i][2]);
+        if (dark) for (int i = 0; i < 17; i++)
+            colors[i] = colors[i].darker(110);
+        break;
+    }
+    case PresetPastel:
+    {
+        static const int pastel[][3] = {
+            {255,150,150}, {200,240,150}, {150,230,180}, {150,220,240},
+            {180,160,240}, {240,170,210}, {190,230,190}, {230,210,180},
+            {240,220,150}, {180,180,180}, {220,160,190}, {150,190,240},
+            {190,210,160}, {240,190,150}, {200,160,200}, {160,210,210},
+            {170,180,230}
+        };
+        for (int i = 0; i < 17; i++)
+            colors[i] = QColor(pastel[i][0], pastel[i][1], pastel[i][2]);
+        if (dark) for (int i = 0; i < 17; i++)
+            colors[i] = colors[i].darker(130);
+        break;
+    }
+    case PresetSakura:
+    {
+        // Cherry blossom pinks and soft rose tones
+        static const int sakura[][3] = {
+            {219,112,147}, {255,182,193}, {255,105,180}, {238,130,168},
+            {255,160,180}, {205,92,92},   {255,192,203}, {240,128,128},
+            {255,140,160}, {218,112,214}, {199,21,133},  {255,174,185},
+            {255,110,150}, {220,150,170}, {188,143,143}, {255,130,170},
+            {210,105,145}
+        };
+        for (int i = 0; i < 17; i++)
+            colors[i] = QColor(sakura[i][0], sakura[i][1], sakura[i][2]);
+        if (dark) for (int i = 0; i < 17; i++)
+            colors[i] = colors[i].darker(120);
+        break;
+    }
+    case PresetAmoled:
+    {
+        // Warm orange/amber tones matching AMOLED theme accents
+        static const int amoled[][3] = {
+            {230,126,34},  {243,156,18},  {211,84,0},    {245,176,65},
+            {255,195,0},   {220,118,51},  {186,74,0},    {248,196,113},
+            {235,152,78},  {214,137,16},  {176,58,0},    {255,165,0},
+            {200,100,20},  {250,180,60},  {190,90,10},   {240,140,40},
+            {210,110,30}
+        };
+        for (int i = 0; i < 17; i++)
+            colors[i] = QColor(amoled[i][0], amoled[i][1], amoled[i][2]);
+        if (dark) for (int i = 0; i < 17; i++)
+            colors[i] = colors[i].darker(110);
+        break;
+    }
+    case PresetMaterial:
+    {
+        // Teal/green material tones matching Material Dark theme
+        static const int material[][3] = {
+            {4,185,127},   {38,166,154},  {0,150,136},   {77,208,170},
+            {0,188,212},   {38,198,157},  {129,199,132}, {0,230,118},
+            {100,221,173}, {0,172,193},   {38,150,136},  {76,175,80},
+            {0,200,83},    {102,187,106}, {56,142,60},   {0,191,165},
+            {85,200,150}
+        };
+        for (int i = 0; i < 17; i++)
+            colors[i] = QColor(material[i][0], material[i][1], material[i][2]);
+        if (dark) for (int i = 0; i < 17; i++)
+            colors[i] = colors[i].darker(110);
+        break;
+    }
+    case PresetPunk:
+    {
+        // Aggressive punk: hot pinks, electric purples, acid greens
+        static const int punk[][3] = {
+            {255,0,110},   {190,0,255},   {0,255,65},    {255,0,200},
+            {255,255,0},   {130,0,220},   {0,255,180},   {255,50,50},
+            {180,255,0},   {255,0,150},   {100,0,200},   {0,200,255},
+            {255,100,0},   {200,0,180},   {0,255,120},   {255,50,200},
+            {160,0,255}
+        };
+        for (int i = 0; i < 17; i++)
+            colors[i] = QColor(punk[i][0], punk[i][1], punk[i][2]);
+        if (dark) for (int i = 0; i < 17; i++)
+            colors[i] = colors[i].darker(115);
+        break;
+    }
+    default:
+        forceResetAllColors();
+        return;
+    }
+
+    int alpha = _opacity * 255 / 100;
+    for (int i = 0; i < 17; i++) {
+        colors[i].setAlpha(alpha);
+        setChannelColor(i, colors[i]);
+    }
+    for (int i = 0; i < 16; i++) {
+        setTrackColor(i, colors[i]);
+    }
+}
+
 int Appearance::opacity() {
     return _opacity;
 }
@@ -635,6 +853,14 @@ bool Appearance::showRangeLines() {
 
 void Appearance::setShowRangeLines(bool enabled) {
     _showRangeLines = enabled;
+}
+
+bool Appearance::showVisualizer() {
+    return _showVisualizer;
+}
+
+void Appearance::setShowVisualizer(bool enabled) {
+    _showVisualizer = enabled;
 }
 
 QString Appearance::applicationStyle() {
@@ -796,28 +1022,125 @@ void Appearance::applyStyle() {
     QApplication *app = qobject_cast<QApplication *>(QApplication::instance());
     if (!app) return;
 
-    // Apply QWidget style first
-    if (QStyleFactory::keys().contains(_applicationStyle)) {
-        app->setStyle(_applicationStyle);
+    // Apply QWidget base style first — use the user's chosen style
+    QString baseStyle = _applicationStyle;
+    if (QStyleFactory::keys().contains(baseStyle, Qt::CaseInsensitive)) {
+        app->setStyle(baseStyle);
     }
 
-    // Apply dark mode specific styling if needed
-    if (shouldUseDarkMode()) {
-        QString darkStyleSheet =
-                "QToolButton:checked { "
-                "    background-color: rgba(80, 80, 80, 150); "
-                "    border: 1px solid rgba(120, 120, 120, 150); "
-                "} "
-                "QToolBar::separator { "
-                "    background-color: rgba(120, 120, 120, 150); "
-                "    width: 1px; "
-                "    height: 1px; "
-                "    margin: 2px; "
-                "}";
-        app->setStyleSheet(darkStyleSheet);
+    // Determine which QSS to load
+    bool wantDark = false;
+    QString qssPath;
+    if (_theme == ThemeDark) {
+        wantDark = true;
+        qssPath = ":/src/gui/themes/dark.qss";
+    } else if (_theme == ThemeAmoled) {
+        wantDark = true;
+        qssPath = ":/src/gui/themes/amoled.qss";
+    } else if (_theme == ThemeMaterial) {
+        wantDark = true;
+        qssPath = ":/src/gui/themes/materialdark.qss";
+    } else if (_theme == ThemePink) {
+        wantDark = false;
+        qssPath = ":/src/gui/themes/pink.qss";
+    } else if (_theme == ThemeLight) {
+        wantDark = false;
+        qssPath = ":/src/gui/themes/light.qss";
+    } else if (_theme == ThemeSystem) {
+        wantDark = isDarkModeEnabled();
+        qssPath = wantDark ? ":/src/gui/themes/dark.qss" : ":/src/gui/themes/light.qss";
     } else {
-        app->setStyleSheet(""); // Clear custom styling for light mode
+        // ThemeNone — legacy behaviour, apply only the minimal inline QSS
+        if (shouldUseDarkMode()) {
+            QString darkStyleSheet =
+                    "QToolButton:checked { "
+                    "    background-color: rgba(80, 80, 80, 150); "
+                    "    border: 1px solid rgba(120, 120, 120, 150); "
+                    "} "
+                    "QToolBar::separator { "
+                    "    background-color: rgba(120, 120, 120, 150); "
+                    "    width: 1px; "
+                    "    height: 1px; "
+                    "    margin: 2px; "
+                    "}";
+            app->setStyleSheet(darkStyleSheet);
+        } else {
+            app->setStyleSheet("");
+        }
+        applyDarkTitleBar(shouldUseDarkMode());
+        return;
     }
+
+    // Load the QSS resource (qssPath was set during theme detection above)
+    QFile qssFile(qssPath);
+    if (qssFile.open(QFile::ReadOnly | QFile::Text)) {
+        app->setStyleSheet(QString::fromUtf8(qssFile.readAll()));
+        qssFile.close();
+    } else {
+        qWarning("Appearance: failed to load %s", qPrintable(qssPath));
+        app->setStyleSheet("");
+    }
+
+    applyDarkTitleBar(wantDark);
+}
+
+void Appearance::applyDarkTitleBar(bool dark) {
+#ifdef Q_OS_WIN
+    // DWMWA_USE_IMMERSIVE_DARK_MODE = 20 (Windows 10 build 18985+)
+    const DWORD attr = 20;
+    BOOL value = dark ? TRUE : FALSE;
+
+    // Apply to all existing top-level windows
+    for (QWidget *w : QApplication::topLevelWidgets()) {
+        if (w->isWindow()) {
+            HWND hwnd = reinterpret_cast<HWND>(w->winId());
+            DwmSetWindowAttribute(hwnd, attr, &value, sizeof(value));
+        }
+    }
+
+    // Install/update event filter so future dialogs also get dark title bars
+    if (!s_darkTitleBarFilter) {
+        s_darkTitleBarFilter = new DarkTitleBarFilter(qApp);
+        qApp->installEventFilter(s_darkTitleBarFilter);
+    }
+    s_darkTitleBarFilter->dark = dark;
+#else
+    Q_UNUSED(dark);
+#endif
+}
+
+Appearance::Theme Appearance::theme() {
+    return _theme;
+}
+
+void Appearance::setTheme(Theme t) {
+    // Prevent rapid successive theme changes
+    QDateTime now = QDateTime::currentDateTime();
+    if (lastThemeChange.isValid() && lastThemeChange.msecsTo(now) < 500) {
+        return;
+    }
+    lastThemeChange = now;
+
+    _theme = t;
+
+    // Invalidate caches
+    cachedStyle = "";
+
+    applyStyle();
+
+    // Defer a forced full refresh to the next event-loop iteration so the
+    // stylesheet is fully processed before we rebuild toolbar widgets and
+    // re-apply dark-mode icon adjustments.  Using singleShot(0) ensures
+    // minimal delay while still letting Qt finish style propagation.
+    if (_startupComplete) {
+        QTimer::singleShot(0, []() {
+            Appearance::forceColorRefresh();
+        });
+    }
+}
+
+void Appearance::setThemeValue(Theme t) {
+    _theme = t;
 }
 
 void Appearance::notifyIconSizeChanged() {
@@ -848,6 +1171,25 @@ bool Appearance::isDarkModeEnabled() {
 }
 
 bool Appearance::shouldUseDarkMode() {
+    // If using the new theme system, consult theme directly
+    if (_theme == ThemeDark || _theme == ThemeAmoled || _theme == ThemeMaterial) {
+        darkModeResult = true;
+        cachedStyle = _applicationStyle.toLower();
+        return true;
+    }
+    if (_theme == ThemeLight || _theme == ThemePink) {
+        darkModeResult = false;
+        cachedStyle = _applicationStyle.toLower();
+        return false;
+    }
+    if (_theme == ThemeSystem) {
+        bool sys = isDarkModeEnabled();
+        darkModeResult = sys;
+        cachedStyle = _applicationStyle.toLower();
+        return sys;
+    }
+
+    // ThemeNone — legacy logic based on application style
     QString style = _applicationStyle.toLower();
 
     // Simple cache check - no expensive DateTime operations
@@ -875,6 +1217,7 @@ bool Appearance::shouldUseDarkMode() {
 
 // Color scheme methods
 QColor Appearance::backgroundColor() {
+    if (_theme == ThemePink) return QColor(160, 130, 140);
     if (shouldUseDarkMode()) {
         return QColor(45, 45, 45); // Dark gray
     }
@@ -882,6 +1225,7 @@ QColor Appearance::backgroundColor() {
 }
 
 QColor Appearance::backgroundShade() {
+    if (_theme == ThemePink) return QColor(200, 180, 190);
     if (shouldUseDarkMode()) {
         return QColor(60, 60, 60); // Dark gray shade
     }
@@ -917,13 +1261,15 @@ QColor Appearance::grayColor() {
 }
 
 QColor Appearance::pianoWhiteKeyColor() {
+    if (_theme == ThemePink) return QColor(255, 240, 245); // Lavender blush - slightly pink
     if (shouldUseDarkMode()) {
-        return QColor(120, 120, 120); // Darker gray for dark mode
+        return QColor(170, 170, 170); // Lighter gray for dark mode piano keys
     }
     return Qt::white;
 }
 
 QColor Appearance::pianoBlackKeyColor() {
+    if (_theme == ThemePink) return QColor(80, 40, 55); // Dark rose for Sakura
     if (shouldUseDarkMode()) {
         return Qt::black; // Keep black keys black in dark mode
     }
@@ -931,6 +1277,7 @@ QColor Appearance::pianoBlackKeyColor() {
 }
 
 QColor Appearance::pianoWhiteKeyHoverColor() {
+    if (_theme == ThemePink) return QColor(240, 180, 200); // Pink hover
     if (shouldUseDarkMode()) {
         return QColor(100, 100, 100); // Dark gray for hover in dark mode
     }
@@ -938,6 +1285,7 @@ QColor Appearance::pianoWhiteKeyHoverColor() {
 }
 
 QColor Appearance::pianoBlackKeyHoverColor() {
+    if (_theme == ThemePink) return QColor(180, 120, 150); // Rose hover
     if (shouldUseDarkMode()) {
         return QColor(150, 150, 150); // Light gray for hover in dark mode
     }
@@ -945,6 +1293,7 @@ QColor Appearance::pianoBlackKeyHoverColor() {
 }
 
 QColor Appearance::pianoWhiteKeySelectedColor() {
+    if (_theme == ThemePink) return QColor(245, 200, 215); // Pink selected
     if (shouldUseDarkMode()) {
         return QColor(150, 150, 150); // Light gray for selected in dark mode
     }
@@ -952,6 +1301,7 @@ QColor Appearance::pianoWhiteKeySelectedColor() {
 }
 
 QColor Appearance::pianoBlackKeySelectedColor() {
+    if (_theme == ThemePink) return QColor(160, 100, 130); // Rose selected
     if (shouldUseDarkMode()) {
         return QColor(100, 100, 100); // Dark gray for selected in dark mode
     }
@@ -959,6 +1309,7 @@ QColor Appearance::pianoBlackKeySelectedColor() {
 }
 
 QColor Appearance::stripHighlightColor() {
+    if (_theme == ThemePink) return QColor(255, 230, 240);
     if (shouldUseDarkMode()) {
         return QColor(70, 70, 70); // Dark gray
     }
@@ -966,6 +1317,7 @@ QColor Appearance::stripHighlightColor() {
 }
 
 QColor Appearance::stripNormalColor() {
+    if (_theme == ThemePink) return QColor(255, 210, 225);
     if (shouldUseDarkMode()) {
         return QColor(55, 55, 55); // Darker gray
     }
@@ -1022,10 +1374,74 @@ QColor Appearance::infoBoxTextColor() {
 }
 
 QColor Appearance::toolbarBackgroundColor() {
+    if (_theme == ThemeDark || (_theme == ThemeSystem && isDarkModeEnabled())) {
+        return QColor(22, 27, 34); // #161b22 matches dark.qss
+    } else if (_theme == ThemeLight || (_theme == ThemeSystem && !isDarkModeEnabled())) {
+        return QColor(246, 248, 250); // #f6f8fa matches light.qss
+    }
+    // ThemeNone / legacy
     if (shouldUseDarkMode()) {
-        return QColor(70, 70, 70); // Dark gray
+        return QColor(70, 70, 70);
     }
     return Qt::white;
+}
+
+QString Appearance::toolbarInlineStyle() {
+    if (_theme == ThemeNone) {
+        return "QToolBar { border: 0px }";
+    }
+    if (_theme == ThemePink) {
+        return "QToolBar { border: 0px; background-color: #fff0f5; } "
+               "QToolButton { color: #4a2040; background: transparent; border: 1px solid transparent; border-radius: 6px; padding: 3px; } "
+               "QToolButton:hover { background-color: #ffe0eb; border: 1px solid #f0b0c8; } "
+               "QToolButton:pressed { background-color: #f0b0c8; } "
+               "QToolButton:checked { background-color: rgba(219, 112, 147, 0.15); border: 1px solid #db7093; }";
+    }
+    if (_theme == ThemeAmoled) {
+        return "QToolBar { border: 0px; background-color: #000000; } "
+               "QToolButton { color: #e6edf3; background: transparent; border: 1px solid transparent; border-radius: 6px; padding: 3px; } "
+               "QToolButton:hover { background-color: #111111; border: 1px solid #1a1a1a; } "
+               "QToolButton:pressed { background-color: #5a3510; } "
+               "QToolButton:checked { background-color: rgba(230, 126, 34, 0.15); border: 1px solid #e67e22; }";
+    }
+    if (_theme == ThemeMaterial) {
+        return "QToolBar { border: 0px; background-color: #252430; } "
+               "QToolButton { color: #e6edf3; background: transparent; border: 1px solid transparent; border-radius: 6px; padding: 3px; } "
+               "QToolButton:hover { background-color: #2a2935; border: 1px solid #35343d; } "
+               "QToolButton:pressed { background-color: #0d5e42; } "
+               "QToolButton:checked { background-color: rgba(4, 185, 127, 0.15); border: 1px solid #04b97f; }";
+    }
+    if (shouldUseDarkMode()) {
+        return "QToolBar { border: 0px; background-color: #161b22; } "
+               "QToolButton { color: #e6edf3; background: transparent; border: 1px solid transparent; border-radius: 6px; padding: 3px; } "
+               "QToolButton:hover { background-color: #1c2129; border: 1px solid #30363d; } "
+               "QToolButton:pressed { background-color: #264f78; } "
+               "QToolButton:checked { background-color: rgba(88, 166, 255, 0.15); border: 1px solid #58a6ff; }";
+    }
+    return "QToolBar { border: 0px; background-color: #f6f8fa; } "
+           "QToolButton { color: #1f2328; background: transparent; border: 1px solid transparent; border-radius: 6px; padding: 3px; } "
+           "QToolButton:hover { background-color: #eaeef2; border: 1px solid #d0d7de; } "
+           "QToolButton:pressed { background-color: #d0d7de; } "
+           "QToolButton:checked { background-color: rgba(9, 105, 218, 0.12); border: 1px solid #0969da; }";
+}
+
+QString Appearance::listBorderStyle() {
+    if (_theme == ThemeNone) {
+        return "QListWidget::item { border-bottom: 1px solid lightGray; }";
+    }
+    if (_theme == ThemePink) {
+        return "QListWidget::item { border-bottom: 1px solid #f0c0d0; }";
+    }
+    if (_theme == ThemeAmoled) {
+        return "QListWidget::item { border-bottom: 1px solid #1a1a1a; }";
+    }
+    if (_theme == ThemeMaterial) {
+        return "QListWidget::item { border-bottom: 1px solid #35343d; }";
+    }
+    if (shouldUseDarkMode()) {
+        return "QListWidget::item { border-bottom: 1px solid #30363d; }";
+    }
+    return "QListWidget::item { border-bottom: 1px solid #d0d7de; }";
 }
 
 QColor Appearance::borderColor() {
@@ -1092,6 +1508,7 @@ QColor Appearance::timeSignatureToolHighlightColor() {
 }
 
 QColor Appearance::pianoKeyLineHighlightColor() {
+    if (_theme == ThemePink) return QColor(219, 112, 147, 60); // Pale violet red highlight for Sakura
     if (shouldUseDarkMode()) {
         return QColor(80, 120, 160, 80); // Much brighter blue with higher opacity for dark mode
     }
@@ -1170,11 +1587,12 @@ QPixmap Appearance::adjustIconForDarkMode(const QPixmap &original, const QString
     }
 
     if (!shouldUseDarkMode()) {
-        return original;
+        return original.copy();
     }
 
-    // List of icons that don't need color adjustment (they're not black)
-    QStringList skipIcons = {"load", "new", "redo", "undo", "save", "saveas", "stop_record", "icon", "midieditor"};
+    // List of icons that don't need color adjustment (they're not black or are intentionally colored)
+    QStringList skipIcons = {"load", "new", "redo", "undo", "save", "saveas", "stop_record", "icon", "midieditor",
+                             "explode_chords_to_tracks", "channel_split_28", "ffxiv_fix", "midipilot"};
 
     // Extract just the filename from the path for comparison
     QString fileName = iconName;
@@ -1187,11 +1605,11 @@ QPixmap Appearance::adjustIconForDarkMode(const QPixmap &original, const QString
 
     // Skip adjustment for non-black icons
     if (skipIcons.contains(fileName)) {
-        return original;
+        return original.copy();
     }
 
-    // Create adjusted icon for dark mode
-    QPixmap adjusted = original;
+    // Force a deep detach copy with copy() to defeat any internal shared cache pollution
+    QPixmap adjusted = original.copy();
     QPainter painter(&adjusted);
     painter.setCompositionMode(QPainter::CompositionMode_SourceAtop);
     painter.fillRect(adjusted.rect(), QColor(180, 180, 180)); // Light gray for dark mode
@@ -1205,12 +1623,14 @@ QIcon Appearance::adjustIconForDarkMode(const QString &iconPath) {
         return QIcon(); // Return empty icon to avoid crashes
     }
 
-    QPixmap original(iconPath);
-
-    // Check if the pixmap loaded successfully
-    if (original.isNull()) {
+    // Bypass QPixmapCache to ensure we get pristine, unmodified icon files.
+    // Qt caches QPixmap loads by filename, which can poison dynamic colors on theme flips.
+    QImage img;
+    if (!img.load(iconPath)) {
         return QIcon(); // Return empty icon instead of crashing
     }
+
+    QPixmap original = QPixmap::fromImage(img);
 
     // Extract filename from path for icon name detection
     QString fileName = iconPath;
@@ -1237,6 +1657,8 @@ void Appearance::refreshAllIcons() {
         const QString &iconPath = it.value();
 
         if (action) {
+            // Defeat QIcon/QToolButton internal caching by explicitly setting a null icon first
+            action->setIcon(QIcon());
             // Update the icon immediately
             QIcon newIcon = adjustIconForDarkMode(iconPath);
             action->setIcon(newIcon);
@@ -1320,8 +1742,8 @@ void Appearance::setActionIcon(QAction *action, const QString &iconPath) {
     }
 }
 
-void Appearance::refreshColors() {
-    qDebug() << "[STARTUP] refreshColors() called";
+void Appearance::refreshColors(bool force) {
+    qDebug() << "[STARTUP] refreshColors() called  force=" << force;
 
     // Skip heavy refresh during initial construction — the toolbar and widgets
     // are not yet fully built, so iterating them here can cause reentrancy or
@@ -1340,8 +1762,8 @@ void Appearance::refreshColors() {
         return; // Already refreshing, prevent recursion
     }
 
-    // Debounce rapid refresh calls
-    if (lastRefresh.isValid() && lastRefresh.msecsTo(now) < 200) {
+    // Debounce rapid refresh calls — skipped when force==true (theme switch)
+    if (!force && lastRefresh.isValid() && lastRefresh.msecsTo(now) < 200) {
         return; // Too soon since last refresh
     }
 
@@ -1463,11 +1885,38 @@ void Appearance::refreshColors() {
         }
     }
 
-    // Refresh all icons after widget updates
+    // ── Icon & Toolbar refresh ──────────────────────────────────────────
+    // Order matters!  We must:
+    //   1) Rebuild the toolbar (creates fresh QToolButton widgets)
+    //   2) THEN refresh icons on the QActions (so the new buttons pick them up)
+    //   3) THEN poke every QToolButton to re-read its action's icon
+    // Doing it in any other order means stale pixmaps survive the rebuild.
+
+    // Step 1 — Rebuild the toolbar synchronously so new widgets exist.
+    if ((schemeChanged || force) && _startupComplete) {
+        foreach(QWidget* widget, app->topLevelWidgets()) {
+            if (widget->objectName() == "MainWindow" || widget->inherits("MainWindow")) {
+                QMetaObject::invokeMethod(widget, "rebuildToolbarFromSettings", Qt::DirectConnection);
+                break;
+            }
+        }
+    }
+
+    // Step 2 — Refresh every registered QAction icon (loads fresh from disk
+    //          using QImage to bypass QPixmapCache).
     refreshAllIcons();
 
-    // Reapply styling for theme changes
-    applyStyle();
+    // Step 3 — Force every visible QToolButton to re-read its QAction icon.
+    //          This defeats Qt's internal icon-render cache.
+    foreach(QWidget* widget, app->topLevelWidgets()) {
+        QList<QToolButton *> toolButtons = widget->findChildren<QToolButton *>();
+        foreach(QToolButton *toolButton, toolButtons) {
+            if (QAction *action = toolButton->defaultAction()) {
+                toolButton->setIcon(action->icon());
+            }
+            toolButton->update();
+        }
+    }
 
     // Update MatrixWidgets efficiently
     foreach(QWidget* widget, app->topLevelWidgets()) {
@@ -1493,8 +1942,9 @@ void Appearance::refreshColors() {
 }
 
 void Appearance::forceColorRefresh() {
-    // Public method that can be called from settings dialogs or other places
-    refreshColors();
+    // Public method – always bypasses the debounce guard so that a theme
+    // change is guaranteed to trigger a full icon / toolbar refresh.
+    refreshColors(/*force=*/true);
 }
 
 void Appearance::connectToSystemThemeChanges() {

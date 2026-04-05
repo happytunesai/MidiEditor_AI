@@ -1,4 +1,4 @@
-# MidiEditor AI
+﻿# MidiEditor AI
 
 ```
 ███╗   ███╗██╗██████╗ ██╗███████╗██████╗ ██╗████████╗ ██████╗ ██████╗      █████╗ ██╗
@@ -16,7 +16,7 @@
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-0078D6?logo=windows)](https://github.com/happytunesai/MidiEditor_AI/releases)
 
-**Version:** 1.1.6
+**Version:** 1.1.7
 **Status:** Release
 
 📥 **[Download Latest Release](https://github.com/happytunesai/MidiEditor_AI/releases/latest)**
@@ -51,15 +51,17 @@ MidiPilot is the AI brain embedded directly in MidiEditor AI. Open the sidebar, 
 | Feature | Description |
 |---------|-------------|
 | 🤖 **MidiPilot AI Copilot** | Compose, edit, and transform MIDI via natural language chat |
+| 🎨 **Dark & Light Themes** | 7 QSS themes (Dark, Light, Sakura, AMOLED, Material Dark, System, Classic) with 10 color presets |
 | 🎹 **Full MIDI Editor** | Edit, record, and play MIDI files with track/channel/event editing |
 | 🎯 **Agent Mode** | Multi-step agentic loop — AI calls tools iteratively, inspecting results between steps |
 | 💬 **Simple Mode** | Single request/response for quick edits and small tasks |
 | 🎮 **FFXIV Bard Mode** | Enforces Final Fantasy XIV Performance constraints (8 tracks, monophonic, C3–C6) |
 | 🎸 **Fix X\|V Channels** | One-click deterministic channel fixer — Rebuild or Preserve mode, velocity normalization, rich result summary |
 | 🔀 **Split Channels to Tracks** | Convert single-track multi-channel GM MIDI files into one track per instrument with auto-naming |
-| � **Explode Chords to Tracks** | Split polyphonic chords into separate monophonic tracks — one note per track, ideal for FFXIV ensemble prep |
+| 💥 **Explode Chords to Tracks** | Split polyphonic chords into separate monophonic tracks — one note per track, ideal for FFXIV ensemble prep |
 | 🎼 **Guitar Pro Import** | Open GP1–GP8 files (.gp, .gp3, .gp4, .gp5, .gpx, .gtp) directly — header-based format detection, tempo/time-sig/key extraction |
-| �🎵🔊 **Built-in FluidSynth** | Play MIDI without external softsynth — load SF2/SF3 SoundFonts, SoundFont stacking, FFXIV SoundFont Mode |
+| 🔊 **Built-in FluidSynth** | Play MIDI without external softsynth — load SF2/SF3 SoundFonts, SoundFont stacking, FFXIV SoundFont Mode |
+| 📊 **MIDI Visualizer** | Real-time 16-channel equalizer bars in the toolbar with velocity-based color and smooth decay animation |
 | 🔌 **Multi-Provider** | OpenAI, OpenRouter, Google Gemini, or any OpenAI-compatible endpoint |
 | 🧠 **Reasoning Support** | Configurable thinking/reasoning effort (None → Extra High) |
 | 📊 **Token Tracking** | Real-time token usage display per request and session |
@@ -79,6 +81,8 @@ MidiEditor AI
 │   ├── EditorContext     → Musical context extraction for AI
 │   ├── ToolDefinitions   → 13 MIDI manipulation tools for AI
 │   └── SystemPrompts     → Customizable per-mode AI instructions
+├── Appearance           → 7 QSS themes, 10 color presets, dark title bar, icon adaptation
+├── MIDI Visualizer      → Real-time 16-channel equalizer widget in toolbar
 ├── FFXIV Module         → Bard Performance validation & drum conversion
 ├── FluidSynth Engine    → Built-in software synthesizer with SoundFont support
 ├── Multi-Provider       → OpenAI / OpenRouter / Gemini / Custom / Local
@@ -190,7 +194,38 @@ MidiEditor AI can open **Guitar Pro** files directly — all versions from GP1 t
 
 ---
 
-## 🎵🔊 Built-in FluidSynth Synthesizer
+## 🎨 Themes & Appearance
+
+MidiEditor AI ships with **7 application themes** and **10 note bar color presets** — switch instantly via **Settings → Appearance**.
+
+| Theme | Style |
+|-------|-------|
+| **Dark** | Deep blue-black (`#0d1117` bg, `#58a6ff` accent) — default |
+| **Light** | Clean white for daytime use |
+| **Sakura** | Cherry blossom pink with rose accents and tinted piano keys |
+| **AMOLED** | Pure black with orange accents — optimized for OLED screens |
+| **Material Dark** | Charcoal with teal accents, Material Design aesthetic |
+| **System** | Auto-detects your OS dark/light preference |
+| **Classic** | Original system-native look, unchanged |
+
+<p align="center">
+  <img src="manual/screenshots/miditheme.png" alt="Theme gallery" width="700"/>
+  <br/>
+  <i>All 7 themes side by side</i>
+</p>
+
+**Additional features:**
+- **10 color presets** for note bars — Default, Rainbow, Neon, Fire, Ocean, Pastel, Sakura, AMOLED, Emerald, Punk
+- **MIDI Visualizer** — real-time 16-channel equalizer bars in the toolbar with velocity-based green-to-blue color interpolation and smooth decay animation
+- **Dark title bar** on Windows via DWM API
+- **Automatic icon adaptation** — toolbar icons recolor for visibility in dark themes
+- Theme changes trigger an automatic restart with confirmation dialog
+
+📖 **[Themes Documentation →](https://happytunesai.github.io/MidiEditor_AI/themes.html)**
+
+---
+
+## 🔊 Built-in FluidSynth Synthesizer
 
 MidiEditor AI includes a **built-in software synthesizer** powered by [FluidSynth](https://www.fluidsynth.org/). No external softsynth (like VirtualMIDISynth or CoolSoft) is needed — just select *FluidSynth (Built-in Synthesizer)* as your MIDI output.
 
@@ -338,8 +373,11 @@ MidiEditor_AI/
 │   │   ├── MainWindow.*       # Main application window
 │   │   ├── MidiPilotWidget.*  # AI copilot sidebar
 │   │   ├── AiSettingsWidget.* # AI provider/model settings
+│   │   ├── Appearance.*       # Theme management, color presets, DWM dark title bar
+│   │   ├── MidiVisualizerWidget.* # Real-time 16-channel equalizer bars
 │   │   ├── MatrixWidget.*     # Piano roll editor
 │   │   ├── AboutDialog.*      # Credits & version info
+│   │   ├── themes/            # QSS theme files (dark, light, sakura, amoled, materialdark)
 │   │   └── ...                # 40+ GUI components
 │   ├── midi/                  # MIDI file I/O & devices
 │   │   ├── MidiFile.*         # MIDI file read/write

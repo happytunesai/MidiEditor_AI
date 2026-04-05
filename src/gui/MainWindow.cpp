@@ -44,6 +44,11 @@
 #include <QDir>
 #include <QStatusBar>
 #include <QLocale>
+#include <QProcess>
+
+#ifdef Q_OS_WIN
+#include <windows.h>
+#endif
 
 #include <cmath>
 #include <algorithm>
@@ -78,6 +83,7 @@
 #include "UpdateChecker.h"
 #include "AutoUpdater.h"
 #include "MidiPilotWidget.h"
+#include "MidiVisualizerWidget.h"
 
 #include <QDockWidget>
 
@@ -193,6 +199,16 @@ MainWindow::MainWindow(QString initFile)
     connect(MidiPlayer::playerThread(), SIGNAL(meterChanged(int, int)), Metronome::instance(), SLOT(meterChanged(int, int)));
     connect(MidiPlayer::playerThread(), SIGNAL(playerStopped()), Metronome::instance(), SLOT(playbackStopped()));
     connect(MidiPlayer::playerThread(), SIGNAL(playerStarted()), Metronome::instance(), SLOT(playbackStarted()));
+
+    // MIDI visualizer — register a plain QAction for the toolbar customize list.
+    // The actual widget is created fresh in each toolbar build (see createCustomToolbar/
+    // updateToolbarContents) because QWidgetAction::setDefaultWidget() reparents the
+    // widget to the toolbar, causing it to be destroyed on toolbar rebuild.
+    _visualizer = nullptr;  // Created on-demand in toolbar build
+    QAction *visualizerAction = new QAction(this);
+    visualizerAction->setText(tr("MIDI Visualizer"));
+    visualizerAction->setToolTip(tr("MIDI activity visualizer — shows per-channel velocity during playback"));
+    _actionMap["midi_visualizer"] = visualizerAction;
 
     startDirectory = QDir::homePath();
 
@@ -4130,7 +4146,7 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
     // MidiPilot toggle
     _toggleMidiPilotAction = _midiPilotDock->toggleViewAction();
     _toggleMidiPilotAction->setText(tr("MidiPilot"));
-    _toggleMidiPilotAction->setIcon(QIcon(QStringLiteral(":/run_environment/graphics/tool/midipilot.png")));
+    Appearance::setActionIcon(_toggleMidiPilotAction, ":/run_environment/graphics/tool/midipilot.png");
     _toggleMidiPilotAction->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_I));
     _defaultShortcuts["toggle_midipilot"] = QList<QKeySequence>() << _toggleMidiPilotAction->shortcut();
     _toggleMidiPilotAction->setToolTip(tr("Toggle MidiPilot AI assistant panel (Ctrl+I)"));
@@ -4535,7 +4551,7 @@ QWidget *MainWindow::createSimpleCustomToolbar(QWidget *parent) {
     toolBar->layout()->setSpacing(3);
     int iconSize = Appearance::toolbarIconSize();
     toolBar->setIconSize(QSize(iconSize, iconSize));
-    toolBar->setStyleSheet("QToolBar { border: 0px }");
+    toolBar->setStyleSheet(Appearance::toolbarInlineStyle());
 
     // Add actions manually to ensure proper layout and functionality
     // This replicates the essential parts of the original toolbar
@@ -4716,6 +4732,58 @@ void MainWindow::openConfig() {
     d->show();
 }
 
+void MainWindow::restartForThemeChange() {
+    // Save current file if modified
+    if (file && !file->saved()) {
+        if (!saveBeforeClose()) {
+            return; // User cancelled — abort restart
+        }
+    }
+
+    // Persist all settings to disk
+    Appearance::writeSettings(_settings);
+    _settings->sync();
+
+    // Build command-line arguments for the restarted instance
+    QStringList args;
+    if (file && QFile::exists(file->path())) {
+        args << "--open" << file->path();
+    }
+    args << "--open-settings";
+
+    QString exePath = QCoreApplication::applicationFilePath();
+    QString appDir = QCoreApplication::applicationDirPath();
+
+    qDebug() << "Restarting for theme change:" << exePath << args;
+    bool launched = QProcess::startDetached(exePath, args, appDir);
+
+    if (launched) {
+#ifdef Q_OS_WIN
+        ExitProcess(0);
+#else
+        _exit(0);
+#endif
+    }
+}
+
+void MainWindow::openConfigOnAppearanceTab() {
+    SettingsDialog *d = new SettingsDialog(tr("Settings"), _settings, this);
+    connect(d, SIGNAL(settingsChanged()), this, SLOT(updateAll()));
+    if (_midiPilotWidget) {
+        connect(d, SIGNAL(settingsChanged()), _midiPilotWidget, SLOT(onSettingsChanged()));
+    }
+
+    QList<PerformanceSettingsWidget*> perfWidgets = d->findChildren<PerformanceSettingsWidget*>();
+    if (!perfWidgets.isEmpty()) {
+        connect(perfWidgets.first(), &PerformanceSettingsWidget::renderingModeChanged,
+                this, &MainWindow::updateRenderingMode);
+    }
+
+    // Navigate to the Appearance tab (index 4)
+    d->setCurrentTab(4);
+    d->show();
+}
+
 void MainWindow::enableMetronome(bool enable) {
     Metronome::setEnabled(enable);
 }
@@ -4841,45 +4909,49 @@ QWidget *MainWindow::createCustomToolbar(QWidget *parent) {
         // Use default toolbar enabled actions (all actions in default toolbar are enabled)
         enabledActions = LayoutSettingsWidget::getDefaultToolbarEnabledActions();
     } else {
-        // Migration: ensure toggle_midipilot is present in saved custom settings
+        // Migration: add new actions to saved custom settings.
+        // Only enable by default when the action is genuinely new (not yet in actionOrder).
+        // If it's already in actionOrder but not in enabledActions, the user disabled it.
         if (!actionOrder.contains("toggle_midipilot")) {
             actionOrder << "separator14" << "toggle_midipilot";
+            if (!enabledActions.contains("toggle_midipilot"))
+                enabledActions << "toggle_midipilot";
         }
-        if (!enabledActions.contains("toggle_midipilot")) {
-            enabledActions << "toggle_midipilot";
-        }
-        // Migration: ensure fix_ffxiv_channels is present in saved custom settings
         if (!actionOrder.contains("fix_ffxiv_channels")) {
             int sep14Idx = actionOrder.indexOf("separator14");
             if (sep14Idx >= 0)
                 actionOrder.insert(sep14Idx, "fix_ffxiv_channels");
             else
                 actionOrder << "fix_ffxiv_channels";
+            if (!enabledActions.contains("fix_ffxiv_channels"))
+                enabledActions << "fix_ffxiv_channels";
         }
-        if (!enabledActions.contains("fix_ffxiv_channels")) {
-            enabledActions << "fix_ffxiv_channels";
-        }
-        // Migration: ensure explode_chords_to_tracks is present in saved custom settings
         if (!actionOrder.contains("explode_chords_to_tracks")) {
             int splitIdx = actionOrder.indexOf("split_channels_to_tracks");
             if (splitIdx >= 0)
                 actionOrder.insert(splitIdx, "explode_chords_to_tracks");
             else
                 actionOrder << "explode_chords_to_tracks";
+            if (!enabledActions.contains("explode_chords_to_tracks"))
+                enabledActions << "explode_chords_to_tracks";
         }
-        if (!enabledActions.contains("explode_chords_to_tracks")) {
-            enabledActions << "explode_chords_to_tracks";
-        }
-        // Migration: ensure split_channels_to_tracks is present in saved custom settings
         if (!actionOrder.contains("split_channels_to_tracks")) {
             int ffxivIdx = actionOrder.indexOf("fix_ffxiv_channels");
             if (ffxivIdx >= 0)
                 actionOrder.insert(ffxivIdx, "split_channels_to_tracks");
             else
                 actionOrder << "split_channels_to_tracks";
+            if (!enabledActions.contains("split_channels_to_tracks"))
+                enabledActions << "split_channels_to_tracks";
         }
-        if (!enabledActions.contains("split_channels_to_tracks")) {
-            enabledActions << "split_channels_to_tracks";
+        if (!actionOrder.contains("midi_visualizer")) {
+            int sep14Idx = actionOrder.indexOf("separator14");
+            if (sep14Idx >= 0)
+                actionOrder.insert(sep14Idx, "midi_visualizer");
+            else
+                actionOrder << "midi_visualizer";
+            if (!enabledActions.contains("midi_visualizer"))
+                enabledActions << "midi_visualizer";
         }
     }
 
@@ -4960,7 +5032,7 @@ QWidget *MainWindow::createCustomToolbar(QWidget *parent) {
                 // Special handling for open action to add recent files menu
                 if (actionId == "open") {
                     QAction *openWithRecentAction = new QAction(action->text(), essentialToolBar);
-                    openWithRecentAction->setIcon(action->icon());
+                    Appearance::setActionIcon(openWithRecentAction, ":/run_environment/graphics/tool/load.png");
                     openWithRecentAction->setShortcut(action->shortcut());
                     openWithRecentAction->setToolTip(action->toolTip());
                     connect(openWithRecentAction, SIGNAL(triggered()), this, SLOT(load()));
@@ -5017,7 +5089,7 @@ QWidget *MainWindow::createCustomToolbar(QWidget *parent) {
             if (actionId == "open" && action) {
                 // Create a new action with the recent files menu for the toolbar
                 QAction *openWithRecentAction = new QAction(action->text(), currentToolBar);
-                openWithRecentAction->setIcon(action->icon());
+                Appearance::setActionIcon(openWithRecentAction, ":/run_environment/graphics/tool/load.png");
                 openWithRecentAction->setShortcut(action->shortcut());
                 openWithRecentAction->setToolTip(action->toolTip());
                 connect(openWithRecentAction, SIGNAL(triggered()), this, SLOT(load()));
@@ -5069,6 +5141,14 @@ QWidget *MainWindow::createCustomToolbar(QWidget *parent) {
 
             if (action) {
                 try {
+                    // Special handling for midi_visualizer: create widget directly
+                    if (actionId == "midi_visualizer") {
+                        _visualizer = new MidiVisualizerWidget(currentToolBar);
+                        connect(MidiPlayer::playerThread(), SIGNAL(playerStarted()), _visualizer, SLOT(playbackStarted()));
+                        connect(MidiPlayer::playerThread(), SIGNAL(playerStopped()), _visualizer, SLOT(playbackStopped()));
+                        currentToolBar->addWidget(_visualizer);
+                        continue;
+                    }
                     currentToolBar->addAction(action);
                 } catch (...) {
                     // If adding action fails, skip it
@@ -5121,7 +5201,7 @@ QWidget *MainWindow::createCustomToolbar(QWidget *parent) {
             if (actionId == "open" && action) {
                 // Create a new action with the recent files menu for the toolbar
                 QAction *openWithRecentAction = new QAction(action->text(), toolBar);
-                openWithRecentAction->setIcon(action->icon());
+                Appearance::setActionIcon(openWithRecentAction, ":/run_environment/graphics/tool/load.png");
                 openWithRecentAction->setShortcut(action->shortcut());
                 openWithRecentAction->setToolTip(action->toolTip());
                 connect(openWithRecentAction, SIGNAL(triggered()), this, SLOT(load()));
@@ -5169,6 +5249,15 @@ QWidget *MainWindow::createCustomToolbar(QWidget *parent) {
                         // If icon setting fails, just continue without icon
                     }
                 }
+            }
+
+            // Special handling for midi_visualizer: create widget directly
+            if (actionId == "midi_visualizer") {
+                _visualizer = new MidiVisualizerWidget(toolBar);
+                connect(MidiPlayer::playerThread(), SIGNAL(playerStarted()), _visualizer, SLOT(playbackStarted()));
+                connect(MidiPlayer::playerThread(), SIGNAL(playerStopped()), _visualizer, SLOT(playbackStopped()));
+                toolBar->addWidget(_visualizer);
+                continue;
             }
 
             if (action) {
@@ -5253,45 +5342,49 @@ void MainWindow::updateToolbarContents(QWidget *toolbarWidget, QGridLayout *btnL
         // Use default toolbar enabled actions (all actions in default toolbar are enabled)
         enabledActions = LayoutSettingsWidget::getDefaultToolbarEnabledActions();
     } else {
-        // Migration: ensure toggle_midipilot is present in saved custom settings
+        // Migration: add new actions to saved custom settings.
+        // Only enable by default when the action is genuinely new (not yet in actionOrder).
+        // If it's already in actionOrder but not in enabledActions, the user disabled it.
         if (!actionOrder.contains("toggle_midipilot")) {
             actionOrder << "separator14" << "toggle_midipilot";
+            if (!enabledActions.contains("toggle_midipilot"))
+                enabledActions << "toggle_midipilot";
         }
-        if (!enabledActions.contains("toggle_midipilot")) {
-            enabledActions << "toggle_midipilot";
-        }
-        // Migration: ensure fix_ffxiv_channels is present in saved custom settings
         if (!actionOrder.contains("fix_ffxiv_channels")) {
             int sep14Idx = actionOrder.indexOf("separator14");
             if (sep14Idx >= 0)
                 actionOrder.insert(sep14Idx, "fix_ffxiv_channels");
             else
                 actionOrder << "fix_ffxiv_channels";
+            if (!enabledActions.contains("fix_ffxiv_channels"))
+                enabledActions << "fix_ffxiv_channels";
         }
-        if (!enabledActions.contains("fix_ffxiv_channels")) {
-            enabledActions << "fix_ffxiv_channels";
-        }
-        // Migration: ensure explode_chords_to_tracks is present in saved custom settings
         if (!actionOrder.contains("explode_chords_to_tracks")) {
             int splitIdx = actionOrder.indexOf("split_channels_to_tracks");
             if (splitIdx >= 0)
                 actionOrder.insert(splitIdx, "explode_chords_to_tracks");
             else
                 actionOrder << "explode_chords_to_tracks";
+            if (!enabledActions.contains("explode_chords_to_tracks"))
+                enabledActions << "explode_chords_to_tracks";
         }
-        if (!enabledActions.contains("explode_chords_to_tracks")) {
-            enabledActions << "explode_chords_to_tracks";
-        }
-        // Migration: ensure split_channels_to_tracks is present in saved custom settings
         if (!actionOrder.contains("split_channels_to_tracks")) {
             int ffxivIdx = actionOrder.indexOf("fix_ffxiv_channels");
             if (ffxivIdx >= 0)
                 actionOrder.insert(ffxivIdx, "split_channels_to_tracks");
             else
                 actionOrder << "split_channels_to_tracks";
+            if (!enabledActions.contains("split_channels_to_tracks"))
+                enabledActions << "split_channels_to_tracks";
         }
-        if (!enabledActions.contains("split_channels_to_tracks")) {
-            enabledActions << "split_channels_to_tracks";
+        if (!actionOrder.contains("midi_visualizer")) {
+            int sep14Idx = actionOrder.indexOf("separator14");
+            if (sep14Idx >= 0)
+                actionOrder.insert(sep14Idx, "midi_visualizer");
+            else
+                actionOrder << "midi_visualizer";
+            if (!enabledActions.contains("midi_visualizer"))
+                enabledActions << "midi_visualizer";
         }
     }
 
@@ -5335,7 +5428,7 @@ void MainWindow::updateToolbarContents(QWidget *toolbarWidget, QGridLayout *btnL
         essentialToolBar->setContentsMargins(0, 0, 0, 0);
         essentialToolBar->layout()->setSpacing(3);
         essentialToolBar->setIconSize(QSize(essentialIconSize, essentialIconSize));
-        essentialToolBar->setStyleSheet("QToolBar { border: 0px }");
+        essentialToolBar->setStyleSheet(Appearance::toolbarInlineStyle());
         essentialToolBar->setToolButtonStyle(Qt::ToolButtonIconOnly);
 
         // Top toolbar setup
@@ -5343,7 +5436,7 @@ void MainWindow::updateToolbarContents(QWidget *toolbarWidget, QGridLayout *btnL
         topToolBar->setContentsMargins(0, 0, 0, 0);
         topToolBar->layout()->setSpacing(3);
         topToolBar->setIconSize(QSize(iconSize, iconSize));
-        topToolBar->setStyleSheet("QToolBar { border: 0px }");
+        topToolBar->setStyleSheet(Appearance::toolbarInlineStyle());
         topToolBar->setToolButtonStyle(Qt::ToolButtonIconOnly);
         topToolBar->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
 
@@ -5352,7 +5445,7 @@ void MainWindow::updateToolbarContents(QWidget *toolbarWidget, QGridLayout *btnL
         bottomToolBar->setContentsMargins(0, 0, 0, 0);
         bottomToolBar->layout()->setSpacing(3);
         bottomToolBar->setIconSize(QSize(iconSize, iconSize));
-        bottomToolBar->setStyleSheet("QToolBar { border: 0px }");
+        bottomToolBar->setStyleSheet(Appearance::toolbarInlineStyle());
         bottomToolBar->setToolButtonStyle(Qt::ToolButtonIconOnly);
         bottomToolBar->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
 
@@ -5372,7 +5465,7 @@ void MainWindow::updateToolbarContents(QWidget *toolbarWidget, QGridLayout *btnL
                 // Special handling for open action to add recent files menu
                 if (actionId == "open") {
                     QAction *openWithRecentAction = new QAction(action->text(), essentialToolBar);
-                    openWithRecentAction->setIcon(action->icon());
+                    Appearance::setActionIcon(openWithRecentAction, ":/run_environment/graphics/tool/load.png");
                     openWithRecentAction->setShortcut(action->shortcut());
                     openWithRecentAction->setToolTip(action->toolTip());
                     connect(openWithRecentAction, SIGNAL(triggered()), this, SLOT(load()));
@@ -5429,7 +5522,7 @@ void MainWindow::updateToolbarContents(QWidget *toolbarWidget, QGridLayout *btnL
             if (actionId == "open" && action) {
                 // Create a new action with the recent files menu for the toolbar
                 QAction *openWithRecentAction = new QAction(action->text(), currentToolBar);
-                openWithRecentAction->setIcon(action->icon());
+                Appearance::setActionIcon(openWithRecentAction, ":/run_environment/graphics/tool/load.png");
                 openWithRecentAction->setShortcut(action->shortcut());
                 openWithRecentAction->setToolTip(action->toolTip());
                 connect(openWithRecentAction, SIGNAL(triggered()), this, SLOT(load()));
@@ -5455,6 +5548,15 @@ void MainWindow::updateToolbarContents(QWidget *toolbarWidget, QGridLayout *btnL
                     Appearance::setActionIcon(action, ":/run_environment/graphics/tool/paste.png");
                     connect(action, SIGNAL(triggered()), this, SLOT(paste()));
                 }
+            }
+
+            // Special handling for midi_visualizer: create widget directly
+            if (actionId == "midi_visualizer") {
+                _visualizer = new MidiVisualizerWidget(currentToolBar);
+                connect(MidiPlayer::playerThread(), SIGNAL(playerStarted()), _visualizer, SLOT(playbackStarted()));
+                connect(MidiPlayer::playerThread(), SIGNAL(playerStopped()), _visualizer, SLOT(playbackStopped()));
+                currentToolBar->addWidget(_visualizer);
+                continue;
             }
 
             if (action) {
@@ -5483,7 +5585,7 @@ void MainWindow::updateToolbarContents(QWidget *toolbarWidget, QGridLayout *btnL
         toolBar->setContentsMargins(0, 0, 0, 0);
         toolBar->layout()->setSpacing(3);
         toolBar->setIconSize(QSize(iconSize, iconSize));
-        toolBar->setStyleSheet("QToolBar { border: 0px }");
+        toolBar->setStyleSheet(Appearance::toolbarInlineStyle());
 
         // Add actions to toolbar based on order and enabled state
         for (const QString &actionId: actionOrder) {
@@ -5511,7 +5613,7 @@ void MainWindow::updateToolbarContents(QWidget *toolbarWidget, QGridLayout *btnL
             if (actionId == "open" && action) {
                 // Create a new action with the recent files menu for the toolbar
                 QAction *openWithRecentAction = new QAction(action->text(), toolBar);
-                openWithRecentAction->setIcon(action->icon());
+                Appearance::setActionIcon(openWithRecentAction, ":/run_environment/graphics/tool/load.png");
                 openWithRecentAction->setShortcut(action->shortcut());
                 openWithRecentAction->setToolTip(action->toolTip());
                 connect(openWithRecentAction, SIGNAL(triggered()), this, SLOT(load()));
@@ -5537,6 +5639,15 @@ void MainWindow::updateToolbarContents(QWidget *toolbarWidget, QGridLayout *btnL
                     Appearance::setActionIcon(action, ":/run_environment/graphics/tool/paste.png");
                     connect(action, SIGNAL(triggered()), this, SLOT(paste()));
                 }
+            }
+
+            // Special handling for midi_visualizer: create widget directly
+            if (actionId == "midi_visualizer") {
+                _visualizer = new MidiVisualizerWidget(toolBar);
+                connect(MidiPlayer::playerThread(), SIGNAL(playerStarted()), _visualizer, SLOT(playbackStarted()));
+                connect(MidiPlayer::playerThread(), SIGNAL(playerStopped()), _visualizer, SLOT(playbackStopped()));
+                toolBar->addWidget(_visualizer);
+                continue;
             }
 
             if (action) {
@@ -5845,28 +5956,15 @@ void MainWindow::updateRenderingMode() {
 
 void MainWindow::rebuildToolbarFromSettings() {
     // Dedicated method for rebuilding toolbar when settings change
-    // Prevent rapid successive rebuilds
+    // Reentrancy guard only — no time-based debounce, because
+    // refreshColors() needs this to run synchronously on every theme switch.
     static bool isRebuilding = false;
-    static QDateTime lastRebuild;
-    QDateTime now = QDateTime::currentDateTime();
-
-    // Check if we're in the middle of a style change
-    static bool isStyleChanging = false;
-    if (isStyleChanging) {
-        return;
-    }
 
     if (isRebuilding) {
         return;
     }
 
-    // Debounce rapid rebuilds (prevent rebuilds within 100ms)
-    if (lastRebuild.isValid() && lastRebuild.msecsTo(now) < 100) {
-        return;
-    }
-
     isRebuilding = true;
-    lastRebuild = now;
 
     if (_toolbarWidget) {
         try {
@@ -5877,6 +5975,11 @@ void MainWindow::rebuildToolbarFromSettings() {
 
                 // Find and immediately delete all child toolbars
                 QList<QToolBar *> childToolbars = _toolbarWidget->findChildren<QToolBar *>();
+
+                // The visualizer widget is a child of one of these toolbars.
+                // It will be destroyed when the toolbar is deleted > null the pointer.
+                _visualizer = nullptr;
+
                 for (QToolBar *toolbar: childToolbars) {
                     toolbar->setParent(nullptr); // Remove from parent immediately
                     delete toolbar; // Delete immediately instead of deleteLater()
@@ -5894,6 +5997,11 @@ void MainWindow::rebuildToolbarFromSettings() {
                 _toolbarWidget->setMinimumSize(0, 0);
                 _toolbarWidget->setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
 
+                // Force-refresh all registered action icons BEFORE rebuilding toolbar
+                // so that dynamically created actions (like "Open with recent")
+                // inherit the correct updated icon.
+                Appearance::refreshAllIcons();
+
                 // Now rebuild the toolbar contents directly in the existing widget
                 updateToolbarContents(_toolbarWidget, toolbarLayout);
 
@@ -5908,16 +6016,17 @@ void MainWindow::rebuildToolbarFromSettings() {
                     }
                 });
 
-                // Refresh icons
                 refreshToolbarIcons();
             } else {
                 // If no layout found, fall back to complete rebuild
                 rebuildToolbar();
+                Appearance::refreshAllIcons();
                 refreshToolbarIcons();
             }
         } catch (...) {
             // If update fails, fall back to complete rebuild
             rebuildToolbar();
+            Appearance::refreshAllIcons();
             refreshToolbarIcons();
         }
     }

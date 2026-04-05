@@ -258,39 +258,59 @@ hr {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 0.5rem;
-    flex-wrap: nowrap;
+    gap: 0.35rem 0.55rem;
+    flex-wrap: wrap;
 }
 
 .nav-bar a {
     color: var(--text-muted);
-    font-size: 0.82em;
+    font-size: 0.78em;
     font-weight: 500;
     white-space: nowrap;
     transition: color 0.2s, transform 0.15s;
     display: inline-block;
+    padding: 0.15em 0.35em;
+    border-radius: 4px;
 }
 
 .nav-bar a:hover {
     color: var(--accent);
     text-decoration: none;
     transform: translateY(-1px);
+    background: rgba(88, 166, 255, 0.08);
+}
+
+.nav-bar a.active {
+    color: var(--accent);
+    background: rgba(88, 166, 255, 0.12);
+}
+
+.nav-links .nav-sep {
+    color: var(--border);
+    font-size: 0.7em;
+    user-select: none;
 }
 
 .nav-links a {
     animation: linkFadeIn 0.5s ease-out both;
 }
 
-.nav-links a:nth-child(1)  { animation-delay: 0.05s; }
-.nav-links a:nth-child(2)  { animation-delay: 0.08s; }
-.nav-links a:nth-child(3)  { animation-delay: 0.11s; }
-.nav-links a:nth-child(4)  { animation-delay: 0.14s; }
-.nav-links a:nth-child(5)  { animation-delay: 0.17s; }
-.nav-links a:nth-child(6)  { animation-delay: 0.20s; }
-.nav-links a:nth-child(7)  { animation-delay: 0.23s; }
-.nav-links a:nth-child(8)  { animation-delay: 0.26s; }
-.nav-links a:nth-child(9)  { animation-delay: 0.29s; }
-.nav-links a:nth-child(10) { animation-delay: 0.32s; }
+.nav-links a:nth-child(1)  { animation-delay: 0.03s; }
+.nav-links a:nth-child(2)  { animation-delay: 0.05s; }
+.nav-links a:nth-child(3)  { animation-delay: 0.07s; }
+.nav-links a:nth-child(4)  { animation-delay: 0.09s; }
+.nav-links a:nth-child(5)  { animation-delay: 0.11s; }
+.nav-links a:nth-child(6)  { animation-delay: 0.13s; }
+.nav-links a:nth-child(7)  { animation-delay: 0.15s; }
+.nav-links a:nth-child(8)  { animation-delay: 0.17s; }
+.nav-links a:nth-child(9)  { animation-delay: 0.19s; }
+.nav-links a:nth-child(10) { animation-delay: 0.21s; }
+.nav-links a:nth-child(11) { animation-delay: 0.23s; }
+.nav-links a:nth-child(12) { animation-delay: 0.25s; }
+.nav-links a:nth-child(13) { animation-delay: 0.27s; }
+.nav-links a:nth-child(14) { animation-delay: 0.29s; }
+.nav-links a:nth-child(15) { animation-delay: 0.31s; }
+.nav-links a:nth-child(16) { animation-delay: 0.33s; }
 
 @keyframes linkFadeIn {
     from { opacity: 0; transform: translateY(6px); }

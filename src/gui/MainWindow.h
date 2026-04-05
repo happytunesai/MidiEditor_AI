@@ -54,6 +54,7 @@ class TweakTarget;
 class UpdateChecker;
 class AutoUpdater;
 class MidiPilotWidget;
+class MidiVisualizerWidget;
 class QDockWidget;
 
 /**
@@ -804,6 +805,21 @@ public slots:
     void refreshToolbarIcons();
 
     /**
+     * \brief Restarts the application to apply a theme change cleanly.
+     *
+     * Saves the current file (prompting if needed), persists all settings,
+     * then relaunches the executable with --open and --open-settings flags.
+     */
+    void restartForThemeChange();
+
+    /**
+     * \brief Opens the settings dialog and navigates to the Appearance tab.
+     *
+     * Called after a theme-change restart to return the user to where they were.
+     */
+    void openConfigOnAppearanceTab();
+
+    /**
      * \brief Applies widget size constraints at startup based on settings.
      */
     void applyWidgetSizeConstraints();
@@ -1020,6 +1036,9 @@ private:
 
     /** \brief MidiPilot AI sidebar widget */
     MidiPilotWidget *_midiPilotWidget = nullptr;
+
+    /** \brief MIDI visualizer in status bar */
+    MidiVisualizerWidget *_visualizer = nullptr;
 
     /** \brief Dock widget containing MidiPilot */
     QDockWidget *_midiPilotDock = nullptr;

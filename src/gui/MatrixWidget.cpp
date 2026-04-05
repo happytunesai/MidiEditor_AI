@@ -944,7 +944,7 @@ void MatrixWidget::paintPianoKey(QPainter *painter, int number, int x, int y,
         painter->drawPolygon(keyPolygon, Qt::OddEvenFill);
 
         if (name != "") {
-            painter->setPen(Qt::gray); // Original color for both modes
+            painter->setPen(_cachedShouldUseDarkMode ? QColor(200, 200, 200) : Qt::gray);
             QFontMetrics fm(painter->font());
             int textlength = fm.horizontalAdvance(name);
 

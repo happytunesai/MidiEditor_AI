@@ -119,6 +119,24 @@ public:
      */
     static void forceResetAllColors();
 
+    // === Color Presets ===
+    enum ColorPreset {
+        PresetDefault = 0,
+        PresetRainbow,
+        PresetNeon,
+        PresetFire,
+        PresetOcean,
+        PresetPastel,
+        PresetSakura,
+        PresetAmoled,
+        PresetMaterial,
+        PresetPunk,
+        PresetCount
+    };
+    static void applyColorPreset(ColorPreset preset);
+    static QString colorPresetName(ColorPreset preset);
+    static ColorPreset colorPreset();
+
     // === Visual Effects ===
 
     /**
@@ -132,6 +150,40 @@ public:
      * \param opacity Opacity value (0-100)
      */
     static void setOpacity(int opacity);
+
+    /**
+     * \brief Theme selection enumeration.
+     */
+    enum Theme {
+        ThemeSystem   = 0,  ///< Follow OS dark/light setting
+        ThemeDark     = 1,  ///< Always dark
+        ThemeLight    = 2,  ///< Always light
+        ThemeNone     = 3,  ///< No custom QSS (legacy system style)
+        ThemePink     = 4,  ///< Light theme with cherry blossom accents
+        ThemeAmoled   = 5,  ///< Pure black OLED theme with orange accents
+        ThemeMaterial = 6,  ///< Material Design dark with teal accents
+    };
+
+    /**
+     * \brief Gets the current theme.
+     * \return Current Theme enum value
+     */
+    static Theme theme();
+
+    /**
+     * \brief Sets the theme and applies the corresponding QSS stylesheet.
+     * \param t The Theme to apply
+     */
+    static void setTheme(Theme t);
+
+    /**
+     * \brief Sets the theme value without applying style changes.
+     *
+     * Used before an app restart so the new theme is persisted via
+     * writeSettings() but no runtime style application is attempted.
+     * \param t The Theme to store
+     */
+    static void setThemeValue(Theme t);
 
     /**
      * \brief Strip style enumeration for piano roll background.
@@ -165,6 +217,16 @@ public:
      * \param enabled True to show range lines, false to hide them
      */
     static void setShowRangeLines(bool enabled);
+
+    /**
+     * \brief Gets whether the MIDI visualizer is shown in the status bar.
+     */
+    static bool showVisualizer();
+
+    /**
+     * \brief Sets whether to show the MIDI visualizer.
+     */
+    static void setShowVisualizer(bool enabled);
 
     // === UI Styling Options ===
 
@@ -324,6 +386,11 @@ public:
     static void applyStyle();
 
     /**
+     * \brief Sets the Windows title bar to dark or light mode via DWM API.
+     */
+    static void applyDarkTitleBar(bool dark);
+
+    /**
      * \brief Notifies components that icon size has changed.
      */
     static void notifyIconSizeChanged();
@@ -349,8 +416,9 @@ public:
 
     /**
      * \brief Refreshes all UI colors when theme changes.
+     * \param force  When true, bypasses the 200 ms debounce guard.
      */
-    static void refreshColors();
+    static void refreshColors(bool force = false);
 
     /**
      * \brief Connects to system theme change signals.
@@ -490,6 +558,18 @@ public:
      * \return QColor for toolbar backgrounds
      */
     static QColor toolbarBackgroundColor();
+
+    /**
+     * \brief Gets inline stylesheet for sub-toolbars (borderless, theme-aware).
+     * \return QString with QSS rules for toolbar and its buttons
+     */
+    static QString toolbarInlineStyle();
+
+    /**
+     * \brief Gets inline stylesheet for list widgets with theme-aware borders.
+     * \return QString with QSS rules for list item borders
+     */
+    static QString listBorderStyle();
 
     /**
      * \brief Gets the border color for the current theme.
@@ -691,11 +771,20 @@ private:
     /** \brief Current opacity setting */
     static int _opacity;
 
+    /** \brief Current color preset */
+    static ColorPreset _colorPreset;
+
     /** \brief Current strip style */
     static stripStyle _strip;
 
     /** \brief Whether to show range lines */
     static bool _showRangeLines;
+
+    /** \brief Whether to show the MIDI visualizer in the status bar */
+    static bool _showVisualizer;
+
+    /** \brief Current theme selection */
+    static Theme _theme;
 
     /** \brief Current application style name */
     static QString _applicationStyle;

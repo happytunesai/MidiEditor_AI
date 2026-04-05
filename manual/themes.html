@@ -1,0 +1,524 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Themes &amp; Appearance | MidiEditor AI Manual</title>
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="stylesheet" href="style.css">
+<style>
+.screenshot-single { text-align: center; margin: 1.5rem 0; }
+.screenshot-single img { max-width: 100%; border: 1px solid var(--border); border-radius: 8px; }
+.caption { text-align: center; color: var(--text-muted); font-style: italic; margin-top: 0.5rem; font-size: 0.9rem; }
+
+/* Color palette swatches */
+.palette-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 1.25rem;
+    margin: 1.5rem 0;
+}
+.palette-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.2rem;
+    transition: border-color 0.2s, transform 0.2s;
+}
+.palette-card:hover {
+    border-color: var(--accent);
+    transform: translateY(-2px);
+}
+.palette-card h4 {
+    margin: 0 0 0.8rem;
+    border-bottom: none;
+    font-size: 1.05em;
+}
+.palette-card .swatch-row {
+    display: flex;
+    gap: 0;
+    border-radius: 8px;
+    overflow: hidden;
+    height: 48px;
+    margin-bottom: 0.6rem;
+    border: 1px solid var(--border);
+}
+.palette-card .swatch {
+    flex: 1;
+    position: relative;
+    transition: flex 0.2s;
+}
+.palette-card .swatch:hover {
+    flex: 1.8;
+}
+.palette-card .swatch-label {
+    position: absolute;
+    bottom: 2px;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-size: 0.6rem;
+    font-family: 'Consolas', 'Courier New', monospace;
+    opacity: 0;
+    transition: opacity 0.2s;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.7);
+    color: #fff;
+}
+.palette-card .swatch:hover .swatch-label {
+    opacity: 1;
+}
+.palette-card .palette-desc {
+    color: var(--text-muted);
+    font-size: 0.88em;
+    line-height: 1.5;
+    margin: 0;
+}
+.palette-card .palette-type {
+    display: inline-block;
+    font-size: 0.72em;
+    padding: 0.15em 0.5em;
+    border-radius: 4px;
+    margin-left: 0.4em;
+    vertical-align: middle;
+    font-weight: 600;
+}
+.palette-type.dark { background: #1c2129; color: #8b949e; border: 1px solid #30363d; }
+.palette-type.light { background: #f0f0f0; color: #555; border: 1px solid #ccc; }
+
+/* Preset color chips */
+.preset-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 0.8rem;
+    margin: 1.25rem 0;
+}
+.preset-chip {
+    text-align: center;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.6rem 0.5rem;
+    font-size: 0.88em;
+}
+.preset-chip .chip-row {
+    display: flex;
+    gap: 2px;
+    justify-content: center;
+    margin-bottom: 0.4rem;
+    height: 18px;
+    border-radius: 4px;
+    overflow: hidden;
+}
+.preset-chip .chip-row span {
+    flex: 1;
+    display: block;
+}
+.preset-chip .chip-name {
+    font-weight: 600;
+    font-size: 0.85em;
+}
+
+/* Highlight box */
+.highlight-box {
+    background: var(--bg-card);
+    border-left: 4px solid var(--accent);
+    padding: 1rem 1.25rem;
+    margin: 1.5rem 0;
+    border-radius: 0 8px 8px 0;
+}
+.highlight-box p { margin: 0; }
+
+/* Info table */
+.info-table { width: 100%; border-collapse: collapse; margin: 1rem 0 1.5rem; }
+.info-table th, .info-table td { padding: 0.6rem 0.8rem; border: 1px solid var(--border); text-align: left; }
+.info-table th { background: var(--bg-secondary); font-weight: 600; }
+.info-table tr:nth-child(even) td { background: var(--table-alt); }
+
+/* Visualizer section */
+.visualizer-demo { text-align: center; margin: 1.5rem 0; }
+.visualizer-demo img { max-width: 100%; border: 1px solid var(--border); border-radius: 8px; }
+</style>
+</head>
+<body>
+<div class="nav-bar">
+<div class="nav-header"><span class="nav-icon">&#129302;</span><span class="nav-title">MidiEditor AI Manual</span><span class="nav-version">v1.1.7</span></div>
+<div class="nav-links">
+<a href="index.html">Index</a>
+<a href="midipilot.html">MidiPilot</a>
+<a href="prompt-examples.html">Prompts</a>
+<span class="nav-sep">&middot;</span>
+<a href="ffxiv-channel-fixer.html">Fix X|V</a>
+<a href="split-channels.html">Split</a>
+<a href="themes.html" class="active">Themes</a>
+<a href="soundfont.html">SoundFonts</a>
+<a href="guitar-pro.html">Guitar&nbsp;Pro</a>
+<span class="nav-sep">&middot;</span>
+<a href="midi-overview.html">MIDI</a>
+<a href="editor-and-components.html">Editor</a>
+<a href="setup.html">Setup</a>
+<a href="editing-midi-files.html">Editing</a>
+<span class="nav-sep">&middot;</span>
+<a href="playback.html">Playback</a>
+</div>
+</div>
+
+<h1>&#127912; Themes &amp; Appearance</h1>
+
+<p>
+MidiEditor&nbsp;AI ships with <b>seven built-in themes</b> that restyle the entire application
+&mdash; toolbars, lists, scroll&shy;bars, dialogs, the piano roll, velocity editor, and
+every custom-painted widget. Pick the look that suits your workflow and time of day.
+</p>
+
+<div class="screenshot-single">
+<img src="screenshots/miditheme.png" width="900" alt="MidiEditor AI theme overview showing Dark, AMOLED, Sakura, Light and Material Dark themes side by side">
+<p class="caption">All themes applied to the same MIDI file &mdash; pick your vibe.</p>
+</div>
+
+<!-- ─── Where to find it ─── -->
+<h2 id="settings">&#x2699;&#xFE0F; Appearance Settings</h2>
+
+<p>
+Open <b>Edit &rarr; Settings&hellip;</b> (or press <kbd>Ctrl</kbd>+<kbd>,</kbd>) and switch
+to the <b>Appearance</b> tab. Here you can change the theme, choose a note-bar color preset,
+and tweak channel/track colors.
+</p>
+
+<div class="screenshot-single">
+<img src="screenshots/appearance_settings.png" width="700" alt="Appearance settings panel showing theme selector, color preset, and channel color pickers">
+<p class="caption">Settings &rarr; Appearance &mdash; Theme selector and color options.</p>
+</div>
+
+<div class="highlight-box">
+<p>
+&#x1F504; <b>Theme changes require a restart.</b> When you select a new theme from the
+dropdown, a confirmation dialog appears. Click <b>Restart</b> to apply immediately
+&mdash; the app saves your work, restarts, and re-opens the Appearance settings
+so you&rsquo;re right back where you left off.
+</p>
+</div>
+
+<div class="screenshot-single">
+<img src="screenshots/theme_change_popup.png" width="420" alt="Theme change restart confirmation dialog">
+<p class="caption">The restart confirmation popup &mdash; Cancel keeps your current theme.</p>
+</div>
+
+<!-- ─── Theme Palette Gallery ─── -->
+<h2 id="themes">&#127912; Theme Gallery</h2>
+
+<p>
+Each theme defines a complete colour palette &mdash; backgrounds, accents, borders,
+text, and all custom-painted editor areas. Hover over the swatches below to see the
+hex values.
+</p>
+
+<div class="palette-grid">
+
+<!-- Dark -->
+<div class="palette-card">
+<h4>&#x1F319; Dark <span class="palette-type dark">dark</span></h4>
+<div class="swatch-row">
+  <div class="swatch" style="background:#0d1117"><span class="swatch-label">#0d1117</span></div>
+  <div class="swatch" style="background:#161b22"><span class="swatch-label">#161b22</span></div>
+  <div class="swatch" style="background:#1c2129"><span class="swatch-label">#1c2129</span></div>
+  <div class="swatch" style="background:#58a6ff"><span class="swatch-label">#58a6ff</span></div>
+  <div class="swatch" style="background:#79c0ff"><span class="swatch-label">#79c0ff</span></div>
+  <div class="swatch" style="background:#30363d"><span class="swatch-label">#30363d</span></div>
+</div>
+<p class="palette-desc">Deep blue-black inspired by GitHub&rsquo;s dark mode. Easy on the eyes for late-night editing sessions.</p>
+</div>
+
+<!-- Light -->
+<div class="palette-card">
+<h4>&#x2600;&#xFE0F; Light <span class="palette-type light">light</span></h4>
+<div class="swatch-row">
+  <div class="swatch" style="background:#ffffff"><span class="swatch-label">#ffffff</span></div>
+  <div class="swatch" style="background:#f6f8fa"><span class="swatch-label">#f6f8fa</span></div>
+  <div class="swatch" style="background:#e8eaed"><span class="swatch-label">#e8eaed</span></div>
+  <div class="swatch" style="background:#0969da"><span class="swatch-label">#0969da</span></div>
+  <div class="swatch" style="background:#0550ae"><span class="swatch-label">#0550ae</span></div>
+  <div class="swatch" style="background:#d0d7de"><span class="swatch-label">#d0d7de</span></div>
+</div>
+<p class="palette-desc">Clean white palette for well-lit environments. High contrast, classic look.</p>
+</div>
+
+<!-- Sakura -->
+<div class="palette-card">
+<h4>&#x1F338; Sakura <span class="palette-type light">light</span></h4>
+<div class="swatch-row">
+  <div class="swatch" style="background:#fff5f8"><span class="swatch-label">#fff5f8</span></div>
+  <div class="swatch" style="background:#ffe8ef"><span class="swatch-label">#ffe8ef</span></div>
+  <div class="swatch" style="background:#f0c0d0"><span class="swatch-label">#f0c0d0</span></div>
+  <div class="swatch" style="background:#db7093"><span class="swatch-label">#db7093</span></div>
+  <div class="swatch" style="background:#c9506b"><span class="swatch-label">#c9506b</span></div>
+  <div class="swatch" style="background:#f5d0dc"><span class="swatch-label">#f5d0dc</span></div>
+</div>
+<p class="palette-desc">Light cherry blossom aesthetic with soft pink accents. Piano keys are tinted lavender blush.</p>
+</div>
+
+<!-- AMOLED -->
+<div class="palette-card">
+<h4>&#x1F311; AMOLED <span class="palette-type dark">dark</span></h4>
+<div class="swatch-row">
+  <div class="swatch" style="background:#000000"><span class="swatch-label">#000000</span></div>
+  <div class="swatch" style="background:#0a0a0a"><span class="swatch-label">#0a0a0a</span></div>
+  <div class="swatch" style="background:#111111"><span class="swatch-label">#111111</span></div>
+  <div class="swatch" style="background:#e67e22"><span class="swatch-label">#e67e22</span></div>
+  <div class="swatch" style="background:#f39c12"><span class="swatch-label">#f39c12</span></div>
+  <div class="swatch" style="background:#1a1a1a"><span class="swatch-label">#1a1a1a</span></div>
+</div>
+<p class="palette-desc">Pure black backgrounds with warm orange accents. Maximum contrast, ideal for OLED screens.</p>
+</div>
+
+<!-- Material Dark -->
+<div class="palette-card">
+<h4>&#x1F48E; Material Dark <span class="palette-type dark">dark</span></h4>
+<div class="swatch-row">
+  <div class="swatch" style="background:#1e1d23"><span class="swatch-label">#1e1d23</span></div>
+  <div class="swatch" style="background:#252430"><span class="swatch-label">#252430</span></div>
+  <div class="swatch" style="background:#2a2935"><span class="swatch-label">#2a2935</span></div>
+  <div class="swatch" style="background:#04b97f"><span class="swatch-label">#04b97f</span></div>
+  <div class="swatch" style="background:#37efba"><span class="swatch-label">#37efba</span></div>
+  <div class="swatch" style="background:#35343d"><span class="swatch-label">#35343d</span></div>
+</div>
+<p class="palette-desc">Charcoal purple-gray base with teal accents. Inspired by Material Design dark themes.</p>
+</div>
+
+<!-- System -->
+<div class="palette-card">
+<h4>&#x1F5A5;&#xFE0F; System (Auto)</h4>
+<div class="swatch-row">
+  <div class="swatch" style="background:#0d1117"><span class="swatch-label">Dark</span></div>
+  <div class="swatch" style="background:#333"><span class="swatch-label">or</span></div>
+  <div class="swatch" style="background:#f6f8fa"><span class="swatch-label">Light</span></div>
+  <div class="swatch" style="background:#ccc"><span class="swatch-label">auto</span></div>
+  <div class="swatch" style="background:#fff"><span class="swatch-label">detect</span></div>
+  <div class="swatch" style="background:#58a6ff"><span class="swatch-label">OS</span></div>
+</div>
+<p class="palette-desc">Follows your Windows dark/light mode setting. Switches automatically between Dark and Light.</p>
+</div>
+
+<!-- Classic -->
+<div class="palette-card">
+<h4>&#x1F3DB;&#xFE0F; Classic</h4>
+<div class="swatch-row">
+  <div class="swatch" style="background:#f0f0f0"><span class="swatch-label">native</span></div>
+  <div class="swatch" style="background:#e0e0e0"><span class="swatch-label">system</span></div>
+  <div class="swatch" style="background:#c0c0c0"><span class="swatch-label">widget</span></div>
+  <div class="swatch" style="background:#0078d4"><span class="swatch-label">accent</span></div>
+  <div class="swatch" style="background:#fff"><span class="swatch-label">window</span></div>
+  <div class="swatch" style="background:#a0a0a0"><span class="swatch-label">border</span></div>
+</div>
+<p class="palette-desc">Original system-native MidiEditor look. No QSS applied &mdash; uses your OS window style.</p>
+</div>
+
+</div>
+
+<!-- ─── Theme comparison table ─── -->
+<h3 id="comparison">Theme Comparison</h3>
+
+<table class="info-table">
+<tr>
+  <th>Theme</th><th>Background</th><th>Accent</th><th>Type</th><th>Title Bar</th><th>Best For</th>
+</tr>
+<tr>
+  <td><b>Dark</b></td><td><code>#0d1117</code></td><td><code>#58a6ff</code> blue</td>
+  <td>Dark</td><td>Dark</td><td>Late-night editing</td>
+</tr>
+<tr>
+  <td><b>Light</b></td><td><code>#ffffff</code></td><td><code>#0969da</code> blue</td>
+  <td>Light</td><td>Light</td><td>Daytime / well-lit rooms</td>
+</tr>
+<tr>
+  <td><b>Sakura</b></td><td><code>#fff5f8</code></td><td><code>#db7093</code> pink</td>
+  <td>Light</td><td>Light</td><td>Cherry blossom vibes</td>
+</tr>
+<tr>
+  <td><b>AMOLED</b></td><td><code>#000000</code></td><td><code>#e67e22</code> orange</td>
+  <td>Dark</td><td>Dark</td><td>OLED screens / max contrast</td>
+</tr>
+<tr>
+  <td><b>Material Dark</b></td><td><code>#1e1d23</code></td><td><code>#04b97f</code> teal</td>
+  <td>Dark</td><td>Dark</td><td>Material Design fans</td>
+</tr>
+<tr>
+  <td><b>System</b></td><td colspan="2"><i>Follows OS setting</i></td>
+  <td>Auto</td><td>Auto</td><td>Set it and forget it</td>
+</tr>
+<tr>
+  <td><b>Classic</b></td><td colspan="2"><i>Native OS widgets</i></td>
+  <td>Native</td><td>Native</td><td>Original MidiEditor look</td>
+</tr>
+</table>
+
+<!-- ─── Color Presets ─── -->
+<h2 id="presets">&#127912; Note Bar Color Presets</h2>
+
+<p>
+In the same Appearance panel you can choose from <b>10&nbsp;color presets</b> that instantly
+restyle the channel and track colors in the piano roll. The selected preset is remembered
+across sessions.
+</p>
+
+<div class="preset-grid">
+
+<div class="preset-chip">
+<div class="chip-row">
+  <span style="background:#00d2ff"></span><span style="background:#2eff9a"></span>
+  <span style="background:#ff3c7d"></span><span style="background:#ffcc00"></span>
+  <span style="background:#00a8ff"></span>
+</div>
+<span class="chip-name">Default</span>
+</div>
+
+<div class="preset-chip">
+<div class="chip-row">
+  <span style="background:#ff0000"></span><span style="background:#ff8800"></span>
+  <span style="background:#ffff00"></span><span style="background:#00ff00"></span>
+  <span style="background:#0000ff"></span>
+</div>
+<span class="chip-name">Rainbow</span>
+</div>
+
+<div class="preset-chip">
+<div class="chip-row">
+  <span style="background:#ff00ff"></span><span style="background:#00ffff"></span>
+  <span style="background:#39ff14"></span><span style="background:#ff3131"></span>
+  <span style="background:#ff6ec7"></span>
+</div>
+<span class="chip-name">Neon</span>
+</div>
+
+<div class="preset-chip">
+<div class="chip-row">
+  <span style="background:#ff1a1a"></span><span style="background:#ff4d00"></span>
+  <span style="background:#ff8c00"></span><span style="background:#ffb700"></span>
+  <span style="background:#ffe066"></span>
+</div>
+<span class="chip-name">Fire</span>
+</div>
+
+<div class="preset-chip">
+<div class="chip-row">
+  <span style="background:#003366"></span><span style="background:#006699"></span>
+  <span style="background:#0099cc"></span><span style="background:#00cccc"></span>
+  <span style="background:#66e0e0"></span>
+</div>
+<span class="chip-name">Ocean</span>
+</div>
+
+<div class="preset-chip">
+<div class="chip-row">
+  <span style="background:#ffb3ba"></span><span style="background:#baffc9"></span>
+  <span style="background:#bae1ff"></span><span style="background:#ffffba"></span>
+  <span style="background:#e8baff"></span>
+</div>
+<span class="chip-name">Pastel</span>
+</div>
+
+<div class="preset-chip">
+<div class="chip-row">
+  <span style="background:#ff69b4"></span><span style="background:#ffb6c1"></span>
+  <span style="background:#db7093"></span><span style="background:#ff1493"></span>
+  <span style="background:#c71585"></span>
+</div>
+<span class="chip-name">Sakura</span>
+</div>
+
+<div class="preset-chip">
+<div class="chip-row">
+  <span style="background:#e67e22"></span><span style="background:#f39c12"></span>
+  <span style="background:#d35400"></span><span style="background:#e74c3c"></span>
+  <span style="background:#f1c40f"></span>
+</div>
+<span class="chip-name">AMOLED</span>
+</div>
+
+<div class="preset-chip">
+<div class="chip-row">
+  <span style="background:#04b97f"></span><span style="background:#37efba"></span>
+  <span style="background:#00875a"></span><span style="background:#2ecc71"></span>
+  <span style="background:#1abc9c"></span>
+</div>
+<span class="chip-name">Emerald</span>
+</div>
+
+<div class="preset-chip">
+<div class="chip-row">
+  <span style="background:#ff1493"></span><span style="background:#8b00ff"></span>
+  <span style="background:#39ff14"></span><span style="background:#ffff00"></span>
+  <span style="background:#ff4500"></span>
+</div>
+<span class="chip-name">Punk</span>
+</div>
+
+</div>
+
+<!-- ─── MIDI Visualizer ─── -->
+<h2 id="visualizer">&#x1F3B5; MIDI Visualizer</h2>
+
+<p>
+The <b>MIDI Visualizer</b> is a real-time 16-channel equalizer bar display embedded in
+the toolbar. Each bar represents one MIDI channel and animates based on note velocity
+during playback &mdash; green-to-blue colour interpolation with smooth decay.
+</p>
+
+<div class="visualizer-demo">
+<img src="screenshots/midi_visualizer.gif" width="900" alt="Animated GIF showing the MIDI Visualizer bars bouncing during playback">
+<p class="caption">The MIDI Visualizer in action &mdash; one bar per channel, animated at ~30&thinsp;fps.</p>
+</div>
+
+<table class="info-table">
+<tr><th>Feature</th><th>Details</th></tr>
+<tr><td><b>Channels</b></td><td>16 bars (one per MIDI channel), only active channels show activity</td></tr>
+<tr><td><b>Colors</b></td><td>Green (low velocity) &rarr; Blue (high velocity) interpolation</td></tr>
+<tr><td><b>Animation</b></td><td>Smooth decay at ~30&thinsp;fps, thread-safe atomic reads</td></tr>
+<tr><td><b>Toggle</b></td><td>Enable/disable in <b>Settings &rarr; Layout &rarr; Customize Toolbar</b></td></tr>
+<tr><td><b>Dark mode</b></td><td>Icon auto-inverts for dark themes</td></tr>
+</table>
+
+<!-- ─── How theme switching works ─── -->
+<h2 id="switching">&#x1F504; How Theme Switching Works</h2>
+
+<p>When you change the theme:</p>
+<ol>
+<li>A <b>confirmation dialog</b> asks if you want to restart now or cancel.</li>
+<li>If you confirm, the app <b>saves your current file</b> and records the new theme choice.</li>
+<li>A new MidiEditor&nbsp;AI process launches with the <code>--open-settings</code> flag.</li>
+<li>The old process exits cleanly.</li>
+<li>The new instance starts with the updated theme and <b>re-opens the Appearance tab</b>
+    so you can continue customizing.</li>
+</ol>
+
+<div class="highlight-box">
+<p>
+&#x1F4A1; <b>Why restart?</b> Qt caches icons and some widget metrics at startup.
+A full restart ensures every icon, toolbar, and custom-painted widget reflects the new
+theme perfectly &mdash; no stale colours or mismatched icons.
+</p>
+</div>
+
+<!-- ─── Tips ─── -->
+<h2 id="tips">&#x1F4A1; Tips</h2>
+
+<ul>
+<li><b>System theme</b> follows your Windows dark/light mode &mdash; flip the OS toggle and
+    restart MidiEditor&nbsp;AI to match.</li>
+<li><b>Color presets</b> are independent of themes &mdash; you can use the Punk preset on
+    any theme, or match Sakura preset with Sakura theme for full cherry blossom immersion.</li>
+<li>The <b>Sakura theme</b> tints the piano keys slightly pink (lavender blush white keys,
+    dark rose black keys) for extra aesthetic points.</li>
+<li>The <b>AMOLED</b> and <b>Material Dark</b> themes were inspired by colour palettes from
+    <a href="https://github.com/GTRONICK/QSS" target="_blank">GTRONICK/QSS</a> (MIT&nbsp;License),
+    adapted to our QSS structure.</li>
+<li>All dark themes automatically get a <b>native Windows dark title bar</b> via the DWM&nbsp;API.</li>
+<li>Toolbar icons automatically <b>recolour to light gray</b> in dark themes &mdash; coloured
+    tool icons (FFXIV Fix, Explode Chords, MidiPilot) keep their original colours.</li>
+</ul>
+
+<div class="footer">
+<p>MidiEditor AI &mdash; <a href="https://github.com/happytunesai/MidiEditor_AI">GitHub</a> &middot; Created with &hearts; + AI</p>
+</div>
+
+</body>
+</html>

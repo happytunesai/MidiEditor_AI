@@ -26,11 +26,15 @@ ToolButton::ToolButton(Tool *tool, QKeySequence sequence, QWidget *parent)
     button_tool = tool;
     tool->setButton(this);
     setText(button_tool->toolTip());
-    QImage image = *(button_tool->image());
-    QPixmap pixmap = QPixmap::fromImage(image);
-    // Apply dark mode adjustment if needed
-    pixmap = Appearance::adjustIconForDarkMode(pixmap, button_tool->toolTip());
-    setIcon(QIcon(pixmap));
+    const QString iconPath = button_tool->iconPath();
+    if (!iconPath.isEmpty()) {
+        Appearance::setActionIcon(this, iconPath);
+    } else {
+        QImage image = *(button_tool->image());
+        QPixmap pixmap = QPixmap::fromImage(image);
+        pixmap = Appearance::adjustIconForDarkMode(pixmap, button_tool->toolTip());
+        setIcon(QIcon(pixmap));
+    }
     connect(this, SIGNAL(triggered()), this, SLOT(buttonClick()));
     setCheckable(true);
     setShortcut(sequence);
@@ -51,9 +55,17 @@ void ToolButton::refreshIcon() {
         return; // Don't create QPixmap during shutdown
     }
 
+    const QString iconPath = button_tool->iconPath();
+    if (!iconPath.isEmpty()) {
+        Appearance::setActionIcon(this, iconPath);
+        return;
+    }
+
     QImage image = *(button_tool->image());
     QPixmap pixmap = QPixmap::fromImage(image);
     // Apply dark mode adjustment if needed
     pixmap = Appearance::adjustIconForDarkMode(pixmap, button_tool->toolTip());
+    // Defeat QIcon/QToolButton internal caching
+    setIcon(QIcon());
     setIcon(QIcon(pixmap));
 }
