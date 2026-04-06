@@ -110,6 +110,27 @@ SplitChannelsDialog::SplitChannelsDialog(MidiFile *file, MidiTrack *sourceTrack,
 
     mainLayout->addWidget(positionGroup);
 
+    // Drum kit preset (only if channel 9 is present)
+    _hasDrumChannel = false;
+    for (const auto &ch : channels) {
+        if (ch.channel == 9) { _hasDrumChannel = true; break; }
+    }
+    _drumPresetCombo = new QComboBox(this);
+    _drumPresetCombo->addItem(tr("None (single drum track)"));
+    for (const auto &preset : DrumKitPreset::presets()) {
+        _drumPresetCombo->addItem(preset.name);
+    }
+    if (_hasDrumChannel) {
+        QGroupBox *drumGroup = new QGroupBox(tr("Drum Kit Preset"), this);
+        QVBoxLayout *drumLayout = new QVBoxLayout(drumGroup);
+        QLabel *drumInfo = new QLabel(
+            tr("Split Channel 9 (Drums) into separate tracks by instrument group:"), this);
+        drumInfo->setWordWrap(true);
+        drumLayout->addWidget(drumInfo);
+        drumLayout->addWidget(_drumPresetCombo);
+        mainLayout->addWidget(drumGroup);
+    }
+
     // Buttons
     QDialogButtonBox *buttonBox = new QDialogButtonBox(
         QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
@@ -132,4 +153,15 @@ bool SplitChannelsDialog::removeEmptySource() const {
 
 bool SplitChannelsDialog::insertAtEnd() const {
     return _insertAtEndRadio->isChecked();
+}
+
+DrumKitPreset SplitChannelsDialog::selectedDrumPreset() const {
+    int idx = _drumPresetCombo->currentIndex() - 1; // 0 = "None"
+    QList<DrumKitPreset> all = DrumKitPreset::presets();
+    if (idx >= 0 && idx < all.size()) return all[idx];
+    return DrumKitPreset();
+}
+
+bool SplitChannelsDialog::hasDrumPreset() const {
+    return _hasDrumChannel && _drumPresetCombo->currentIndex() > 0;
 }

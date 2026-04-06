@@ -30,6 +30,7 @@ class MidiFile;
 class QLabel;
 class ChannelListWidget;
 class ColoredWidget;
+class QToolBar;
 
 /**
  * \class ChannelListItem
@@ -55,6 +56,9 @@ public:
      * \brief Called before the item is updated.
      */
     void onBeforeUpdate();
+
+    /** \brief Refreshes toolbar palette colors for theme changes */
+    void refreshColors();
 
 signals:
     /**
@@ -107,6 +111,9 @@ private:
 
     /** \brief Actions for channel control */
     QAction *visibleAction, *loudAction, *soloAction;
+
+    /** \brief Toolbar widget for refreshing palette */
+    QToolBar *_toolBar;
 };
 
 /**
@@ -166,6 +173,9 @@ public slots:
      * \brief Updates the channel list display.
      */
     void update();
+
+    /** \brief Refreshes colors for theme changes */
+    void refreshColors();
 
 private:
     /** \brief The associated MIDI file */

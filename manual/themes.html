@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -141,7 +141,7 @@
 </head>
 <body>
 <div class="nav-bar">
-<div class="nav-header"><span class="nav-icon">&#129302;</span><span class="nav-title">MidiEditor AI Manual</span><span class="nav-version">v1.1.7</span></div>
+<div class="nav-header"><span class="nav-icon">&#129302;</span><span class="nav-title">MidiEditor AI Manual</span><span class="nav-version">v1.1.8</span></div>
 <div class="nav-links">
 <a href="index.html">Index</a>
 <a href="midipilot.html">MidiPilot</a>
@@ -175,18 +175,28 @@ every custom-painted widget. Pick the look that suits your workflow and time of 
 <p class="caption">All themes applied to the same MIDI file &mdash; pick your vibe.</p>
 </div>
 
-<!-- ─── Where to find it ─── -->
+<!-- --- Where to find it --- -->
 <h2 id="settings">&#x2699;&#xFE0F; Appearance Settings</h2>
 
 <p>
 Open <b>Edit &rarr; Settings&hellip;</b> (or press <kbd>Ctrl</kbd>+<kbd>,</kbd>) and switch
-to the <b>Appearance</b> tab. Here you can change the theme, choose a note-bar color preset,
-and tweak channel/track colors.
+to the <b>Appearance</b> tab. The panel is wrapped in a <b>scroll area</b> so all settings
+are reachable at any window size. From top to bottom you can:
 </p>
 
+<ul>
+<li><b>Theme</b> &mdash; pick one of the seven built-in themes (requires restart)</li>
+<li><b>Color Preset</b> &mdash; choose from 10 one-click channel color schemes</li>
+<li><b>Smooth Playback Scrolling</b> &mdash; toggle smooth viewport following during playback</li>
+<li><b>Timeline Markers</b> &mdash; toggle visibility of Program&nbsp;Change, Control&nbsp;Change, and Text/Marker event indicators on the timeline</li>
+<li><b>Color by Track / Channel</b> &mdash; choose how marker colors are derived</li>
+<li><b>Channel Colors</b> / <b>Track Colors</b> &mdash; collapsible sections (click the <b>&#x25B6;/&#x25BC;</b> arrow) to individually tweak each channel or track color</li>
+<li><b>Reset Colors</b> &mdash; revert to the current preset&rsquo;s defaults</li>
+</ul>
+
 <div class="screenshot-single">
-<img src="screenshots/appearance_settings.png" width="700" alt="Appearance settings panel showing theme selector, color preset, and channel color pickers">
-<p class="caption">Settings &rarr; Appearance &mdash; Theme selector and color options.</p>
+<a href="screenshots/appearance_settings.png" class="lightbox-link"><img src="screenshots/appearance_settings.png" width="700" alt="Appearance settings panel showing theme selector, color preset, marker toggles, and collapsible channel/track color sections"></a>
+<p class="caption">Settings &rarr; Appearance &mdash; Theme, color preset, timeline marker toggles, and collapsible color pickers.</p>
 </div>
 
 <div class="highlight-box">
@@ -203,7 +213,7 @@ so you&rsquo;re right back where you left off.
 <p class="caption">The restart confirmation popup &mdash; Cancel keeps your current theme.</p>
 </div>
 
-<!-- ─── Theme Palette Gallery ─── -->
+<!-- --- Theme Palette Gallery --- -->
 <h2 id="themes">&#127912; Theme Gallery</h2>
 
 <p>
@@ -314,7 +324,7 @@ hex values.
 
 </div>
 
-<!-- ─── Theme comparison table ─── -->
+<!-- --- Theme comparison table --- -->
 <h3 id="comparison">Theme Comparison</h3>
 
 <table class="info-table">
@@ -351,7 +361,7 @@ hex values.
 </tr>
 </table>
 
-<!-- ─── Color Presets ─── -->
+<!-- --- Color Presets --- -->
 <h2 id="presets">&#127912; Note Bar Color Presets</h2>
 
 <p>
@@ -454,7 +464,39 @@ across sessions.
 
 </div>
 
-<!-- ─── MIDI Visualizer ─── -->
+<!-- --- Timeline Markers --- -->
+<h2 id="markers">&#x1F4CD; Timeline Markers</h2>
+
+<p>
+The <b>Timeline Markers</b> feature overlays visual indicators for <b>Program&nbsp;Change</b>,
+<b>Control&nbsp;Change</b>, and <b>Text/Marker</b> events directly on the piano roll.
+Each marker type can be toggled independently in <b>Settings&nbsp;&rarr; Appearance</b>.
+</p>
+
+<ul>
+<li><b>Dashed vertical lines</b> extend through the note area, coloured by track or channel</li>
+<li>A dedicated <b>16&thinsp;px marker row</b> below the ruler displays labelled badges
+    (e.g.&nbsp;<code>PC0</code>, <code>CC7</code>, lyric text)</li>
+<li>Toggle each type on/off: <b>Show Program&nbsp;Change</b>, <b>Show Control&nbsp;Change</b>,
+    <b>Show Text/Marker Events</b></li>
+<li>Choose <b>Color by Track</b> or <b>Color by Channel</b> for the marker colours</li>
+</ul>
+
+<div class="screenshot-single">
+<a href="screenshots/show_program_control_change.png" class="lightbox-link"><img src="screenshots/show_program_control_change.png" width="900" alt="Piano roll with timeline markers showing Program Change and Control Change events as dashed lines and labelled badges"></a>
+<p class="caption">Timeline markers in action &mdash; Program&nbsp;Change and Control&nbsp;Change events displayed as dashed lines and badges below the ruler.</p>
+</div>
+
+<div class="highlight-box">
+<p>
+&#x1F4A1; <b>Tip:</b> Timeline markers make it easy to spot instrument switches and volume/pan
+automation at a glance. Combine with <b>Color by Track</b> to match the note colours.
+</p>
+</div>
+
+<hr>
+
+<!-- --- MIDI Visualizer --- -->
 <h2 id="visualizer">&#x1F3B5; MIDI Visualizer</h2>
 
 <p>
@@ -477,7 +519,7 @@ during playback &mdash; green-to-blue colour interpolation with smooth decay.
 <tr><td><b>Dark mode</b></td><td>Icon auto-inverts for dark themes</td></tr>
 </table>
 
-<!-- ─── How theme switching works ─── -->
+<!-- --- How theme switching works --- -->
 <h2 id="switching">&#x1F504; How Theme Switching Works</h2>
 
 <p>When you change the theme:</p>
@@ -498,7 +540,7 @@ theme perfectly &mdash; no stale colours or mismatched icons.
 </p>
 </div>
 
-<!-- ─── Tips ─── -->
+<!-- --- Tips --- -->
 <h2 id="tips">&#x1F4A1; Tips</h2>
 
 <ul>

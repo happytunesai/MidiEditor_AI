@@ -97,6 +97,9 @@ private:
     /** \brief Alternative player mode checkbox */
     QCheckBox *_alternativePlayerModeBox;
 
+    /** \brief Smooth playback scrolling checkbox */
+    QCheckBox *_smoothScrollBox;
+
     /** \brief Settings storage */
     QSettings *_settings;
 

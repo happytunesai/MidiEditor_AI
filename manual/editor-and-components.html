@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -15,7 +15,7 @@
 </head>
 <body>
 <div class="nav-bar">
-<div class="nav-header"><span class="nav-icon">&#129302;</span><span class="nav-title">MidiEditor AI Manual</span><span class="nav-version">v1.1.7</span></div>
+<div class="nav-header"><span class="nav-icon">&#129302;</span><span class="nav-title">MidiEditor AI Manual</span><span class="nav-version">v1.1.8</span></div>
 <div class="nav-links">
 <a href="index.html">Index</a>
 <a href="midipilot.html">MidiPilot</a>
@@ -264,6 +264,29 @@ See the <a href="playback.html">Playback &amp; Recording</a> page for full detai
 </p>
 <p>
   In the case of multiple selected events, the editor will only show the values which are equal for all selected events. Assigning new values to those initially empty values will set the value for all selected events.
+</p>
+
+<h3 id="status_bar">Status Bar &amp; Chord Detection</h3>
+
+<p>
+  At the bottom of the editor window, the <b>Status Bar</b> displays contextual information about your
+  current selection and position:
+</p>
+
+<ul>
+<li><b>Selected note info</b> &mdash; note name, octave, MIDI number, velocity, and duration</li>
+<li><b>Chord analysis</b> &mdash; automatically detects chords from selected notes (major, minor, 7th, dim, aug, sus, and more)</li>
+<li><b>Tick position</b> &mdash; current cursor position in ticks</li>
+<li><b>Event count</b> &mdash; number of selected events</li>
+</ul>
+
+<div style="text-align:center; margin:1.5rem 0;">
+<a href="screenshots/statusbar_chord_detection.png" class="lightbox-link"><img src="screenshots/statusbar_chord_detection.png" style="max-width:900px; border:1px solid var(--border); border-radius:8px;" alt="Status bar showing chord detection, note info, tick position, and event count"></a>
+<p style="text-align:center; color:var(--text-muted); font-style:italic; margin-top:0.5rem; font-size:0.9rem;">The status bar with chord detection &mdash; selecting notes shows the detected chord name.</p>
+</div>
+
+<p>
+  Toggle the status bar in <b>Settings &rarr; System &amp; Performance</b>.
 </p>
 
 <div class="footer">

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20 FATAL_ERROR)
 
-set(MIDIEDITOR_RELEASE_VERSION_STRING "1.1.7")
+set(MIDIEDITOR_RELEASE_VERSION_STRING "1.1.8")
 project(MidiEditorAI VERSION ${MIDIEDITOR_RELEASE_VERSION_STRING} LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -258,6 +258,7 @@ target_include_directories(MidiEditorAI PRIVATE
     src/ai
     src/converter
     src/converter/GuitarPro
+    src/converter/MML
 )
 message(STATUS "Added project include directories")
 
@@ -290,6 +291,7 @@ file(GLOB SOURCES_PROTOCOL "src/protocol/*.cpp")
 file(GLOB SOURCES_TOOL "src/tool/*.cpp")
 file(GLOB SOURCES_AI "src/ai/*.cpp")
 file(GLOB SOURCES_CONVERTER "src/converter/GuitarPro/*.cpp")
+file(GLOB SOURCES_CONVERTER_MML "src/converter/MML/*.cpp")
 
 # If GP678_SUPPORT is not available, exclude GP6/7/8 parser files that need zlib
 if(NOT GP678_ENABLED)
@@ -310,6 +312,7 @@ set(SOURCES
     ${SOURCES_TOOL}
     ${SOURCES_AI}
     ${SOURCES_CONVERTER}
+    ${SOURCES_CONVERTER_MML}
 )
 
 # Add only main rtmidi files if they exist (not tests/docs/examples)

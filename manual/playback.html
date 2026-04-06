@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -9,7 +9,7 @@
 </head>
 <body>
 <div class="nav-bar">
-<div class="nav-header"><span class="nav-icon">&#129302;</span><span class="nav-title">MidiEditor AI Manual</span><span class="nav-version">v1.1.7</span></div>
+<div class="nav-header"><span class="nav-icon">&#129302;</span><span class="nav-title">MidiEditor AI Manual</span><span class="nav-version">v1.1.8</span></div>
 <div class="nav-links">
 <a href="index.html">Index</a>
 <a href="midipilot.html">MidiPilot</a>
@@ -89,6 +89,25 @@
 <p>
   Sometimes it will be useful to slow down the playback speed (or to speed it up). This can be done by setting the playback speed in the toolbar. Setting the playback speed to 1 (default) will play at normal speed, while setting it to 2 will result in
   a two times faster playback speed. Playback speeds lower than 1 will slow down the playback.
+</p>
+
+<h3 id="smooth-scroll">Smooth Playback Scrolling</h3>
+
+<p>
+  By default the event view jumps by a full screen width when the playback cursor reaches the
+  edge. With <b>Smooth Playback Scrolling</b> enabled, the viewport <i>follows</i> the cursor
+  in real time, keeping it roughly centred so you never lose sight of what&rsquo;s playing.
+</p>
+
+<div style="text-align:center; margin:1.5rem 0;">
+<a href="screenshots/smooth_playback_scrolling.gif" class="lightbox-link"><img src="screenshots/smooth_playback_scrolling.gif" style="max-width:800px; border:1px solid var(--border); border-radius:8px;" alt="Animated GIF showing the viewport smoothly following the playback cursor"></a>
+<p style="text-align:center; color:var(--text-muted); font-style:italic; margin-top:0.5rem; font-size:0.9rem;">Smooth scrolling keeps the playback cursor in view at all times.</p>
+</div>
+
+<p>
+  Toggle the feature in <b>Settings &rarr; Appearance</b> or in
+  <b>Settings &rarr; Additional Midi Settings</b>. When disabled, the classic
+  page-jump behaviour is used.
 </p>
 
 

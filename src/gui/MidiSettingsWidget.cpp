@@ -77,24 +77,33 @@ AdditionalMidiSettingsWidget::AdditionalMidiSettingsWidget(QSettings *settings, 
 
     layout->addWidget(separator(), 5, 0, 1, 6);
 
-    layout->addWidget(new QLabel(tr("Metronome loudness:"), this), 6, 0, 1, 2);
+    _smoothScrollBox = new QCheckBox(tr("Smooth playback scrolling"), this);
+    _smoothScrollBox->setChecked(Appearance::smoothPlaybackScrolling());
+    connect(_smoothScrollBox, &QCheckBox::toggled, this, [](bool checked) {
+        Appearance::setSmoothPlaybackScrolling(checked);
+    });
+    layout->addWidget(_smoothScrollBox, 6, 0, 1, 6);
+
+    layout->addWidget(separator(), 7, 0, 1, 6);
+
+    layout->addWidget(new QLabel(tr("Metronome loudness:"), this), 8, 0, 1, 2);
     _metronomeLoudnessBox = new QSpinBox(this);
     _metronomeLoudnessBox->setMinimum(10);
     _metronomeLoudnessBox->setMaximum(100);
     _metronomeLoudnessBox->setValue(Metronome::loudness());
     connect(_metronomeLoudnessBox, SIGNAL(valueChanged(int)), this, SLOT(setMetronomeLoudness(int)));
-    layout->addWidget(_metronomeLoudnessBox, 6, 2, 1, 4);
+    layout->addWidget(_metronomeLoudnessBox, 8, 2, 1, 4);
 
-    layout->addWidget(separator(), 7, 0, 1, 6);
+    layout->addWidget(separator(), 9, 0, 1, 6);
 
-    layout->addWidget(new QLabel(tr("Start command:"), this), 8, 0, 1, 2);
+    layout->addWidget(new QLabel(tr("Start command:"), this), 10, 0, 1, 2);
     startCmd = new QLineEdit(this);
-    layout->addWidget(startCmd, 8, 2, 1, 4);
+    layout->addWidget(startCmd, 10, 2, 1, 4);
 
     _startCmdInfoBox = createInfoBox(tr("The start command can be used to start additional software components (e.g. Midi synthesizers) each time, MidiEditor is started. You can see the output of the started software / script in the field below."));
-    layout->addWidget(_startCmdInfoBox, 9, 0, 1, 6);
+    layout->addWidget(_startCmdInfoBox, 11, 0, 1, 6);
 
-    layout->addWidget(Terminal::terminal()->console(), 10, 0, 1, 6);
+    layout->addWidget(Terminal::terminal()->console(), 12, 0, 1, 6);
 
     startCmd->setText(_settings->value("start_cmd", "").toString());
     layout->setRowStretch(3, 1);
@@ -425,7 +434,7 @@ void MidiSettingsWidget::addSoundFont() {
         this,
         tr("Select SoundFont Files"),
         QString(),
-        tr("SoundFont Files (*.sf2 *.sf3 *.SF2 *.SF3);;All Files (*)")
+        tr("SoundFont Files (*.sf2 *.sf3 *.dls *.SF2 *.SF3 *.DLS);;All Files (*)")
     );
 
     FluidSynthEngine *engine = FluidSynthEngine::instance();

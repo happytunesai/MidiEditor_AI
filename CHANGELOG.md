@@ -5,9 +5,68 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 
 ---
 
+## [1.1.8] - 2026-04-06 — Mewo Feature Sync
+
+> *Cherry-picking the best upstream features: context menus, note presets, timeline markers, chord detection, MML import, drum presets, and a whole lotta polish.*
+
+* Right-click context menu, note duration presets, smooth playback scrolling
+* Timeline markers (CC/PC/Text), status bar with chord detection
+* MML importer (.mml/.3mle), drum kit presets, DLS SoundFont support
+* 7 bug fixes · 3 UI changes · Cherry-picked 16 features from Mewo upstream
+
+<details>
+<summary>Full Changelog</summary>
+
+### Added
+* **Right-Click Context Menu** — right-click on selected events in the piano roll for quick access to Quantize, Copy, Delete, Transpose, Move to Track/Channel, Scale, and Legato operations. Plain right-click opens the menu; Ctrl+Right-Click still creates notes
+* **Note Duration Presets** — when the pencil tool is active, select a fixed note duration (whole, half, quarter, 8th, 16th, 32nd) from the toolbar with keyboard shortcuts (1-6). Shows a semi-transparent ghost preview on hover before clicking
+* **Smooth Playback Scrolling** — playback cursor now smoothly scrolls the viewport instead of jumping by screen-widths. Toggle in Settings → Appearance or Additional Midi Settings
+* **Timeline Markers** — visual CC, Program Change, and Text/Marker event indicators on the timeline:
+  - Dashed vertical lines through the note area with event-colored markers
+  - Dedicated 16px marker row below the ruler with labeled badges (PC0, CC7, lyrics, etc.)
+  - Toggleable per type in Settings → Appearance
+  - Color by Track or by Channel mode
+* **Status Bar with Chord Detection** — bottom status bar showing selected note info, chord analysis (major/minor/7th/dim/aug/sus), tick position, and event count. Togglable in Settings → System & Performance
+* **MML Importer** — import Music Macro Language (.mml/.3mle) text files as MIDI. Supports 3MLE format used by FFXIV bard performers with multi-track channels, tempo, octave, note length, volume, and program change commands
+* **DrumKit Preset Mapping** — Split Channels dialog now includes a "Drum Kit Preset" dropdown for channel 9 with 17 standard GM drum kits (Standard, Room, Power, Electronic, etc.) that auto-insert the correct Program Change event
+* **DLS SoundFont Support** — file dialog now accepts `.dls` (Downloadable Sound) files alongside `.sf2`/`.sf3`
+
+### Fixed
+* **Null-byte text event truncation** — MIDI text events containing `\0` null bytes no longer truncate or show `[]` boxes in the UI
+* **SizeChangeTool improvements** — resize handle behavior refined for more precise note length editing
+* **Measure numbers shifting with markers** — measure numbers now use a fixed Y position (`textY = 41`) so they don't jump when the timeline marker bar appears/disappears
+* **TrackList/ChannelList stale toolbar colors** — added `refreshColors()` methods that properly update toolbar palettes on theme change, instead of just repainting
+* **FFXIVChannelFixer memory leak** — Program Change events removed during channel fixing are now properly `delete`d after removal from the channel
+* **FFXIVChannelFixer bulk operation performance** — `moveToChannel()` and `removeEvent()` now accept a `toProtocol` parameter; Channel Fixer passes `false` to skip hundreds of individual undo entries during batch operations
+* **Appearance Settings UI** — collapsible Channel/Track Colors sections now use clickable arrow buttons (▶/▼) instead of checkboxes, readable in all themes. Settings panel wrapped in QScrollArea
+
+### Changed
+* **Timeline layout** — separate `MarkerArea` rect for the 16px marker row below the 50px ruler; cleaner hit-testing separation
+* **Full-height vertical divider** — the divider between piano/header area and the note area now extends from top to bottom of the widget
+* **Removed bottom/right border lines** — cleaner look without redundant edge borders on the piano roll
+* Version bump to 1.1.8
+
+### Technical Notes
+* **Mewo upstream sync:** Cherry-picked 16 features/fixes from Meowchestra/MidiEditor commits `28eb14c..5080ff3` (62 commits after fork-point `25ebba3`)
+* **New files:** `src/gui/ChordDetector.h`, `src/gui/StatusBarSettingsWidget.h/cpp`, `src/gui/SplitChannelsDialog.h/cpp`, `src/midi/DrumKitPreset.h/cpp`, `src/converter/MML/ThreeMleParser.h/cpp`, `src/converter/MML/MmlConverter.h/cpp`
+* **Core modifications:** `MatrixWidget.h/cpp` (context menu, smooth scroll, marker bar, MarkerArea), `MainWindow.h/cpp` (status bar, duration presets, MML import), `Appearance.h/cpp` (marker settings, refreshColors), `MidiEvent.h/cpp` + `OnEvent.h/cpp` + `MidiChannel.h/cpp` (`toProtocol` parameter), `FFXIVChannelFixer.cpp` (leak fix + toProtocol), `TrackListWidget.h/cpp` + `ChannelListWidget.h/cpp` (refreshColors), `AppearanceSettingsWidget.cpp` (collapsible arrows, scrollable layout)
+
+</details>
+
+---
+
 ## [1.1.7] - 2026-04-05 — The Totally Unnecessary Glow Up
 
 > *Adding Dark/Light Mode and a totally useless but cool MIDI Visualizer.*
+
+* 7 dark/light QSS themes (Dark, Light, Sakura, AMOLED, Material Dark, System, Classic)
+* Real-time 16-channel MIDI Visualizer in the toolbar
+* 10 note bar color presets, Sakura piano keys, dark title bar (Windows)
+* Dark mode icon adjustment, checkbox visibility fix
+* 2 bug fixes · Theme restart mechanism
+
+<details>
+<summary>Full Changelog</summary>
 
 ### Added
 * **Dark & Light QSS Themes** — full application theming with seven modes:
@@ -51,9 +110,17 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 * **Visualizer lifecycle:** Widget created fresh on each toolbar rebuild via `toolbar->addWidget()` — avoids Qt `QWidgetAction` ownership bugs where `setDefaultWidget()` transfers ownership to the toolbar which destroys the widget on rebuild
 * **AMOLED/Material themes inspired by:** [GTRONICK/QSS](https://github.com/GTRONICK/QSS) (MIT License) — color palettes adapted into our QSS structure
 
+</details>
+
 ---
 
 ## [1.1.6.1] - 2026-04-04 — Bugfix: Duplicate Guitar Track Channels
+
+* Fixed duplicate guitar variants mapped to wrong channel in Fix X|V
+* Fixed Tier 3 duplicate guitar notes not migrated to shared channel
+
+<details>
+<summary>Full Changelog</summary>
 
 ### Fixed
 * **Fix X|V Channels: duplicate guitar variants mapped to wrong channel** — when two or more tracks shared the same guitar variant name (e.g. two "ElectricGuitarPowerChords" tracks), the second track was assigned its own channel instead of sharing the first occurrence's channel. This caused the duplicate track to receive a wrong program (e.g. Piano on CH3 instead of Distortion Guitar). Now all tracks with the same guitar variant name share a single channel with the correct program change, in both Rebuild (Tier 2) and Preserve (Tier 3) modes
@@ -62,9 +129,19 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 ### Changed
 * Version bump to 1.1.6.1
 
+</details>
+
 ---
 
 ## [1.1.6] - 2026-04-04 — Guitar Pro Import (GP1–GP8)
+
+* Native Guitar Pro import: GP1–GP8 (.gtp, .gp3, .gp4, .gp5, .gpx, .gp)
+* Fixed GP3/GP4/GP5 binary parser bugs, GP6 BCFZ decompression, GP7/GP8 ZIP extraction
+* GP1/GP2 legacy parser ported from TuxGuitar reference
+* Explode Chords toolbar icon
+
+<details>
+<summary>Full Changelog</summary>
 
 ### Added
 * **Native Guitar Pro import** — all Guitar Pro formats from 1990s DOS to 2024 are now supported:
@@ -94,9 +171,18 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 * **Architecture:** Three parser families — binary (`Gp345Parser` inheritance chain), XML (`Gp678Parser` with BCFZ/ZIP decompression), and legacy (`Gp12Parser` inheritance chain). All share `GpImporter` as entry point with header-based detection.
 * **Tested formats:** GP1 (You've Got Something There.gtp, 8 tracks/12 measures), GP3 (U2 - Lemon.gp3, 9/199), GP4 (Sakuran.gp4, 5/137), GP5 (Flogging-Molly.gp5, 5/74), GP6 (Sweet Child O Mine.gpx, 6/180), GP7 (The Mirror.gp, 6/147)
 
+</details>
+
 ---
 
 ## [1.1.5] - 2026-03-31 — Auto-Updater
+
+* Seamless in-app auto-updater from GitHub Releases (Update Now / After Exit / Download / Skip)
+* Self-update: renames running EXE, extracts new, restarts — no installer needed
+* Fixed MidiPilot chat Ctrl+C copy and context menu styling
+
+<details>
+<summary>Full Changelog</summary>
 
 ### Added
 * **Auto-Updater** — seamless in-app update directly from GitHub Releases:
@@ -117,9 +203,16 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 * Feature table: "Auto-Update Checker" renamed to "Auto-Updater" reflecting the new in-app update capability
 * Version bump to 1.1.5
 
+</details>
+
 ---
 
 ## [1.1.4.1] - 2026-03-30 — Chat UX Fix
+
+* Fixed MidiPilot chat Ctrl+C copy and styled context menu
+
+<details>
+<summary>Full Changelog</summary>
 
 ### Fixed
 * **MidiPilot chat: Ctrl+C copy** — selected text in chat bubbles can now be copied with Ctrl+C (previously only right-click → Copy worked)
@@ -128,9 +221,18 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 ### Changed
 * Version bump to 1.1.4.1
 
+</details>
+
 ---
 
 ## [1.1.4] - 2026-03-29 — Split Channels to Tracks
+
+* Split single-track multi-channel MIDI into one track per instrument
+* Preview dialog with GM instrument names, auto-naming, drum track option
+* Single undo action, toolbar migration for existing users
+
+<details>
+<summary>Full Changelog</summary>
 
 ### Added
 * **Split Channels to Tracks** — convert single-track multi-channel GM MIDI files into one track per instrument:
@@ -147,9 +249,18 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 ### Changed
 * Version bump to 1.1.4
 
+</details>
+
 ---
 
 ## [1.1.3.1] - 2026-03-29 — Auto-Save
+
+* Auto-save with sidecar `.autosave` backups after configurable idle period
+* Crash recovery for untitled documents, orphaned backup detection
+* Configurable interval (30–600s), toggle in Settings → System & Performance
+
+<details>
+<summary>Full Changelog</summary>
 
 ### Added
 * **Auto-Save** — automatic backup saves to prevent data loss during editing:
@@ -168,9 +279,18 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 ### Changed
 * Version bump to 1.1.3.1
 
+</details>
+
 ---
 
 ## [1.1.3] - 2026-03-28 — Prompt Architecture v2, Crash Fix & Provider Selector
+
+* Provider selector in MidiPilot footer (OpenAI / OpenRouter / Gemini / Custom)
+* Prompt v2: priority rules, validation block, timing reference, truncation fallback
+* Fixed crash on New File during playback (use-after-free)
+
+<details>
+<summary>Full Changelog</summary>
 
 ### Added
 * **Provider selector in MidiPilot footer** — switch between OpenAI, OpenRouter, Gemini, and Custom directly in the chat panel without opening Settings. Automatically swaps API key, base URL, and model list per provider
@@ -188,9 +308,18 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 * Removed unused `tsEvents` variable in `EditorContext::captureKeySignature()` (Phase 12.7)
 * Version bump to 1.1.3
 
+</details>
+
 ---
 
 ## [1.1.2.2] - 2026-03-28 — Manual Update: Prompt Examples & CI
+
+* Prompt Examples with screenshots and downloadable MIDI files
+* Fixed broken download links, stray `n` artifact, navbar overflow
+* CI dependency bumps (GitHub Actions v6/v7)
+
+<details>
+<summary>Full Changelog</summary>
 
 ### Added
 * **Prompt Examples: screenshots & MIDI downloads** — every prompt section (Composing, Editing, Harmony, Arrangement) now includes result screenshots and downloadable MIDI files
@@ -205,17 +334,36 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 * README: documentation link now points to the manual index instead of directly to the MidiPilot page
 * CI: bumped GitHub Actions dependencies (checkout v6, upload-artifact v7, configure-pages v6, upload-pages-artifact v4, deploy-pages v5)
 
+</details>
+
 ---
 
 ## [1.1.2.1] - 2026-03-26 — Hotfix: SoundFont Persistence & CI Fix
+
+* Fixed SoundFont stack lost when switching MIDI output
+* Fixed CI/Release FluidSynth download 404
+
+<details>
+<summary>Full Changelog</summary>
 
 ### Fixed
 * **SoundFont stack lost when switching MIDI output** — switching from FluidSynth to another output (e.g. Microsoft GS Wavetable) and back no longer loses loaded SoundFonts; the engine now preserves font paths across shutdown/reinitialize cycles
 * **CI/Release workflow: FluidSynth download 404** — updated FluidSynth v2.5.2 asset URL to match upstream's renamed zip (`fluidsynth-v2.5.2-…` instead of `fluidsynth-2.5.2-…`)
 
+</details>
+
 ---
 
 ## [1.1.2] - 2026-03-26 — FluidSynth & FFXIV SoundFont Mode
+
+* Built-in FluidSynth synthesizer with SoundFont stack management
+* FFXIV SoundFont Mode: melodic channels + per-note drum program injection
+* Velocity normalization in Fix X|V Channels (all notes → 127)
+* Version in title bar, DLS support, SoundFont download dialog
+* 2 bug fixes (guitar channel migration, transpose dialog)
+
+<details>
+<summary>Full Changelog</summary>
 
 ### Added
 * **Built-in FluidSynth synthesizer** (upstream merge from [Meowchestra/MidiEditor](https://github.com/Meowchestra/MidiEditor)) — no external softsynth needed. Select *FluidSynth (Built-in Synthesizer)* as MIDI output and load any SF2/SF3 SoundFont directly in Settings
@@ -240,9 +388,18 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 * README: added FluidSynth / SoundFont section and updated Features table
 * Version bump to 1.1.2
 
+</details>
+
 ---
 
 ## [1.1.1] - 2026-03-25 — Upstream merge
+
+* Metronome rewrite: GM drum notes instead of WAV files
+* Removed Qt6::Multimedia and Qt6::Xml dependencies
+* Plugin path fix, rtmidi updated
+
+<details>
+<summary>Full Changelog</summary>
 
 ### Changed
 * **Metronome rewrite** — replaced `QSoundEffect` audio playback with General MIDI drum notes on Channel 10 (High/Low Wood Block). No more WAV file dependency, works through the connected MIDI output device. Downbeats and regular beats now use distinct drum sounds
@@ -256,9 +413,19 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 * Metronome WAV/MP3 audio files (no longer needed — metronome clicks via MIDI)
 * Qt6::Xml and Qt6::Multimedia from build dependencies
 
+</details>
+
 ---
 
 ## [1.1.0] - 2026-03-25
+
+* Fix X|V Channels: one-click deterministic FFXIV channel fixer
+* 5-step algorithm with Rebuild/Preserve modes, guitar variant channels
+* Rich result summary, progress dialog, single undo action
+* Fixed QSettings mismatch, stale channel menus
+
+<details>
+<summary>Full Changelog</summary>
 
 ### Added
 * **Fix X|V Channels** — one-click deterministic FFXIV channel fixer (no AI call needed):
@@ -288,9 +455,16 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 * **Version single source of truth** — `setApplicationVersion()` now reads from CMake define `MIDIEDITOR_RELEASE_VERSION_STRING_DEF` instead of a hardcoded string. Only update version in `CMakeLists.txt` line 3
 * Version bump to 1.1.0
 
+</details>
+
 ---
 
 ## [1.0.2] - 2026-03-24
+
+* FFXIV Bard Mode system prompts rewritten for better LLM compliance
+
+<details>
+<summary>Full Changelog</summary>
 
 ### Changed
 * FFXIV Bard Mode system prompts rewritten for better LLM compliance:
@@ -303,9 +477,18 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
   - Drum tracks ordered at end (highest track indices)
 * Version bump to 1.0.2
 
+</details>
+
 ---
 
 ## [1.0.1] - 2026-03-24
+
+* Manual: Prompt Examples page with screenshots, MIDI downloads, demo videos
+* New Chat button redesign + confirmation dialog
+* FFXIV example prompts improved
+
+<details>
+<summary>Full Changelog</summary>
 
 ### Changed
 * New Chat button: replaced ambiguous ➕ icon with a dedicated "message-plus" icon for clarity
@@ -319,9 +502,20 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 * YouTube demo videos embedded on Prompt Examples page (4 videos: full agent run, audio preview, guitar solo, harmony)
 * Version bump to 1.0.1
 
+</details>
+
 ---
 
 ## [1.0.0] - 2026-03-20
+
+* **MidiPilot AI Assistant** — integrated chat panel with Agent Mode (13 tools), Simple Mode, FFXIV Bard Mode
+* Multi-provider support (OpenAI, Gemini, OpenRouter, Ollama, etc.), token tracking, editable system prompts
+* FFXIV Validation tool, GM Drum Conversion tool, API logging, reasoning display
+* Rebranded to MidiEditor AI with CI/CD, GitHub Pages manual
+* Based on Meowchestra/MidiEditor v4.3.1 (all upstream features included)
+
+<details>
+<summary>Full Changelog</summary>
 
 ### MidiPilot AI Assistant (New)
 * **MidiPilot** — integrated AI chat panel for composing, editing, and transforming MIDI

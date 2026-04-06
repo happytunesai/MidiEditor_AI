@@ -43,6 +43,7 @@
 #include <QStandardPaths>
 #include <QDir>
 #include <QStatusBar>
+#include <QLabel>
 #include <QLocale>
 #include <QProcess>
 
@@ -66,6 +67,7 @@
 #include "InstrumentChooser.h"
 #include "LayoutSettingsWidget.h"
 #include "SplitChannelsDialog.h"
+#include "DrumKitPreset.h"
 #include "MatrixWidget.h"
 #include "OpenGLMatrixWidget.h"
 #include "OpenGLMiscWidget.h"
@@ -111,6 +113,7 @@
 #include "../ai/FFXIVChannelFixer.h"
 #include "FFXIVFixerDialog.h"
 #include "../converter/GuitarPro/GpImporter.h"
+#include "../converter/MML/MmlImporter.h"
 
 #include "../MidiEvent/MidiEvent.h"
 #include "../MidiEvent/NoteOnEvent.h"
@@ -118,6 +121,7 @@
 #include "../MidiEvent/OnEvent.h"
 #include "../MidiEvent/TextEvent.h"
 #include "../MidiEvent/TimeSignatureEvent.h"
+#include "../midi/ChordDetector.h"
 #include "../MidiEvent/PitchBendEvent.h"
 #include "../MidiEvent/ProgChangeEvent.h"
 #include "../midi/Metronome.h"
@@ -663,6 +667,17 @@ MainWindow::MainWindow(QString initFile)
     // Apply widget size constraints based on settings
     applyWidgetSizeConstraints();
 
+    // Status bar: persistent cursor/selection/chord labels
+    _statusCursorLabel = new QLabel(this);
+    _statusSelectionLabel = new QLabel(this);
+    _statusChordLabel = new QLabel(this);
+    _statusCursorLabel->setMinimumWidth(140);
+    _statusSelectionLabel->setMinimumWidth(100);
+    _statusChordLabel->setMinimumWidth(100);
+    statusBar()->addPermanentWidget(_statusCursorLabel);
+    statusBar()->addPermanentWidget(_statusSelectionLabel);
+    statusBar()->addPermanentWidget(_statusChordLabel);
+
     // Load initial file immediately - no need for artificial delay
     loadInitFile();
 
@@ -813,6 +828,8 @@ void MainWindow::setFile(MidiFile *newFile) {
     connect(newFile->protocol(), SIGNAL(actionFinished()), this, SLOT(markEdited()));
     connect(newFile->protocol(), SIGNAL(actionFinished()), eventWidget(), SLOT(reload()));
     connect(newFile->protocol(), SIGNAL(actionFinished()), this, SLOT(checkEnableActionsForSelection()));
+    connect(newFile->protocol(), SIGNAL(actionFinished()), this, SLOT(updateStatusBar()));
+    connect(newFile, SIGNAL(cursorPositionChanged()), this, SLOT(updateStatusBar()));
     // Set file on the appropriate widget based on rendering mode
     if (OpenGLMatrixWidget *openglMatrix = qobject_cast<OpenGLMatrixWidget*>(_matrixWidgetContainer)) {
         // Using OpenGL acceleration - set file on OpenGL widget (which delegates to internal widget)
@@ -1290,12 +1307,14 @@ void MainWindow::load() {
 #else
     QString gp   = "*.gtp *.gp3 *.gp4 *.gp5";
 #endif
+    QString mml  = "*.mml *.3mle";
     QString filter = QString(
-        "Music Files (%1 %2);;"
+        "Music Files (%1 %2 %3);;"
         "MIDI Files (%1);;"
         "Guitar Pro Files (%2);;"
+        "MML Files (%3);;"
         "All Files (*)")
-        .arg(midi, gp);
+        .arg(midi, gp, mml);
 
     QString newPath = QFileDialog::getOpenFileName(this, tr("Open file"), dir, filter);
 
@@ -1363,6 +1382,8 @@ void MainWindow::openFile(QString filePath) {
         lowerPath.endsWith(".gp8") || lowerPath.endsWith(".gpx") ||
         lowerPath.endsWith(".gp")) {
         mf = GpImporter::loadFile(filePath, &ok);
+    } else if (lowerPath.endsWith(".mml") || lowerPath.endsWith(".3mle")) {
+        mf = MmlImporter::loadFile(filePath, &ok);
     } else {
         mf = new MidiFile(useAutoSave ? autoPath : filePath, &ok);
     }
@@ -2926,6 +2947,9 @@ void MainWindow::splitChannelsToTracks() {
     bool skipDrums = dialog->keepDrumsOnSource();
     bool removeSource = dialog->removeEmptySource();
     bool insertAtEnd = dialog->insertAtEnd();
+    bool useDrumPreset = dialog->hasDrumPreset();
+    DrumKitPreset drumPreset;
+    if (useDrumPreset) drumPreset = dialog->selectedDrumPreset();
     delete dialog;
 
     // Phase 3: Create tracks and move events
@@ -2937,6 +2961,60 @@ void MainWindow::splitChannelsToTracks() {
 
     for (const auto &info : activeChannels) {
         if (skipDrums && info.channel == 9) {
+            continue;
+        }
+
+        // Drum preset: split channel 9 into multiple group-based tracks
+        if (info.channel == 9 && useDrumPreset) {
+            QMultiMap<int, MidiEvent *> *emap = file->channel(9)->eventMap();
+
+            // Create a track for each drum group
+            for (const DrumGroup &group : drumPreset.groups) {
+                QSet<int> noteSet(group.noteNumbers.begin(), group.noteNumbers.end());
+                QList<MidiEvent *> toMove;
+
+                for (auto it = emap->begin(); it != emap->end(); ++it) {
+                    MidiEvent *ev = it.value();
+                    if (ev->track() != sourceTrack) continue;
+                    NoteOnEvent *noteOn = dynamic_cast<NoteOnEvent *>(ev);
+                    if (noteOn && noteSet.contains(noteOn->note())) {
+                        toMove.append(ev);
+                        // Also move paired off-event
+                        if (noteOn->offEvent()) toMove.append(noteOn->offEvent());
+                    }
+                }
+                if (toMove.isEmpty()) continue;
+
+                file->addTrack();
+                MidiTrack *dst = file->tracks()->last();
+                dst->setName(group.name);
+                dst->assignChannel(9);
+                newTracks.append(dst);
+
+                for (MidiEvent *ev : toMove) {
+                    ev->setTrack(dst);
+                    movedEvents++;
+                }
+            }
+
+            // Move remaining ch9 events (non-note or unmatched notes)
+            QList<MidiEvent *> remaining;
+            for (auto it = emap->begin(); it != emap->end(); ++it) {
+                if (it.value()->track() == sourceTrack) {
+                    remaining.append(it.value());
+                }
+            }
+            if (!remaining.isEmpty()) {
+                file->addTrack();
+                MidiTrack *dst = file->tracks()->last();
+                dst->setName(tr("Drums (Other)"));
+                dst->assignChannel(9);
+                newTracks.append(dst);
+                for (MidiEvent *ev : remaining) {
+                    ev->setTrack(dst);
+                    movedEvents++;
+                }
+            }
             continue;
         }
 
@@ -3732,6 +3810,85 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
     _actionMap["tweak_large_increase"] = tweakLargeIncreaseAction;
 
     toolsMB->addMenu(tweakMenu);
+
+    // Note Duration Presets
+    QMenu *noteDurationMB = new QMenu(tr("Note Duration..."), toolsMB);
+    QActionGroup *noteDurationGroup = new QActionGroup(this);
+    connect(noteDurationGroup, &QActionGroup::triggered, this, &MainWindow::noteDurationSelected);
+
+    QAction *dragModeAction = new QAction(tr("Drag Mode"), this);
+    dragModeAction->setShortcut(QKeySequence(QKeyCombination(Qt::ALT, Qt::Key_QuoteLeft)));
+    dragModeAction->setData(0);
+    dragModeAction->setCheckable(true);
+    dragModeAction->setChecked(true);
+    _defaultShortcuts["duration_drag"] = QList<QKeySequence>() << dragModeAction->shortcut();
+    noteDurationMB->addAction(dragModeAction);
+    noteDurationGroup->addAction(dragModeAction);
+    _actionMap["duration_drag"] = dragModeAction;
+
+    noteDurationMB->addSeparator();
+
+    QList<QString> stdNames = {
+        tr("Whole Note (1/1)"), tr("Half Note (1/2)"), tr("Quarter Note (1/4)"),
+        tr("8th Note (1/8)"), tr("16th Note (1/16)"), tr("32nd Note (1/32)"), tr("64th Note (1/64)")
+    };
+    QList<int> stdDivs = {1, 2, 4, 8, 16, 32, 64};
+    QList<QKeySequence> stdShortcuts = {
+        QKeySequence(QKeyCombination(Qt::ALT, Qt::Key_1)),
+        QKeySequence(QKeyCombination(Qt::ALT, Qt::Key_2)),
+        QKeySequence(QKeyCombination(Qt::ALT, Qt::Key_3)),
+        QKeySequence(QKeyCombination(Qt::ALT, Qt::Key_4)),
+        QKeySequence(QKeyCombination(Qt::ALT, Qt::Key_5)),
+        QKeySequence(QKeyCombination(Qt::ALT, Qt::Key_6)),
+        QKeySequence(QKeyCombination(Qt::ALT, Qt::Key_7))
+    };
+
+    for (int i = 0; i < stdNames.size(); ++i) {
+        int divisor = stdDivs[i];
+        QAction *durationAction = new QAction(stdNames[i], this);
+        durationAction->setShortcut(stdShortcuts[i]);
+        durationAction->setData(divisor);
+        durationAction->setCheckable(true);
+        QString actionId = QString("duration_") + QString::number(divisor);
+        _defaultShortcuts[actionId] = QList<QKeySequence>() << durationAction->shortcut();
+        noteDurationMB->addAction(durationAction);
+        noteDurationGroup->addAction(durationAction);
+        _actionMap[actionId] = durationAction;
+    }
+
+    noteDurationMB->addSeparator();
+
+    QList<QString> tupNames = {
+        tr("Triplet (1/3)"), tr("Quintuplet (1/5)"), tr("Sextuplet (1/6)"),
+        tr("Septuplet (1/7)"), tr("Nonuplet (1/9)"), tr("8th Triplet (1/12)"),
+        tr("16th Triplet (1/24)"), tr("32nd Triplet (1/48)")
+    };
+    QList<int> tupDivs = {3, 5, 6, 7, 9, 12, 24, 48};
+    QList<QKeySequence> tupShortcuts = {
+        QKeySequence(QKeyCombination(Qt::ALT | Qt::SHIFT, Qt::Key_1)),
+        QKeySequence(QKeyCombination(Qt::ALT | Qt::SHIFT, Qt::Key_2)),
+        QKeySequence(QKeyCombination(Qt::ALT | Qt::SHIFT, Qt::Key_3)),
+        QKeySequence(QKeyCombination(Qt::ALT | Qt::SHIFT, Qt::Key_4)),
+        QKeySequence(QKeyCombination(Qt::ALT | Qt::SHIFT, Qt::Key_5)),
+        QKeySequence(QKeyCombination(Qt::ALT | Qt::SHIFT, Qt::Key_6)),
+        QKeySequence(QKeyCombination(Qt::ALT | Qt::SHIFT, Qt::Key_7)),
+        QKeySequence(QKeyCombination(Qt::ALT | Qt::SHIFT, Qt::Key_8))
+    };
+
+    for (int i = 0; i < tupNames.size(); ++i) {
+        int divisor = tupDivs[i];
+        QAction *durationAction = new QAction(tupNames[i], this);
+        durationAction->setShortcut(tupShortcuts[i]);
+        durationAction->setData(divisor);
+        durationAction->setCheckable(true);
+        QString actionId = QString("duration_") + QString::number(divisor);
+        _defaultShortcuts[actionId] = QList<QKeySequence>() << durationAction->shortcut();
+        noteDurationMB->addAction(durationAction);
+        noteDurationGroup->addAction(durationAction);
+        _actionMap[actionId] = durationAction;
+    }
+
+    toolsMB->addMenu(noteDurationMB);
 
     QAction *deleteAction = new QAction(tr("Remove events"), this);
     _activateWithSelections.append(deleteAction);
@@ -5909,6 +6066,48 @@ void MainWindow::toolChanged() {
     checkEnableActionsForSelection();
     _miscWidgetContainer->update();
     _matrixWidgetContainer->update();
+}
+
+void MainWindow::updateStatusBar() {
+    if (!file) return;
+
+    // Cursor position: measure and tick
+    int tick = file->cursorTick();
+    int startOfMeasure = 0, endOfMeasure = 0;
+    int measureNum = file->measure(tick, &startOfMeasure, &endOfMeasure);
+    int ticksInMeasure = (endOfMeasure > startOfMeasure) ? (endOfMeasure - startOfMeasure) : 1;
+    int tickInMeasure = tick - startOfMeasure;
+    int beat = (tickInMeasure * 4 / ticksInMeasure) + 1;
+    _statusCursorLabel->setText(QString("M:%1 B:%2 | T:%3").arg(measureNum).arg(beat).arg(tick));
+
+    // Selection info + chord detection
+    const QList<MidiEvent *> &sel = Selection::instance()->selectedEvents();
+    QList<int> notes;
+    for (MidiEvent *ev : sel) {
+        NoteOnEvent *on = dynamic_cast<NoteOnEvent *>(ev);
+        if (on) notes.append(on->note());
+    }
+    _statusSelectionLabel->setText(QString("%1 events").arg(sel.size()));
+
+    if (!notes.isEmpty()) {
+        QString chord = ChordDetector::detectChord(notes);
+        _statusChordLabel->setText(chord.isEmpty() ? "" : chord);
+    } else {
+        _statusChordLabel->setText("");
+    }
+}
+
+void MainWindow::noteDurationSelected(QAction *action) {
+    if (!action) return;
+
+    int divisor = action->data().toInt();
+    NewNoteTool::setDurationDivisor(divisor);
+
+    if (divisor > 0) {
+        if (_actionMap.contains("new_note")) {
+            _actionMap["new_note"]->trigger();
+        }
+    }
 }
 
 void MainWindow::copiedEventsChanged() {

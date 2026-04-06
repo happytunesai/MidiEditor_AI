@@ -39,6 +39,7 @@
 
 int NewNoteTool::_channel = 0;
 int NewNoteTool::_track = 0;
+int NewNoteTool::_durationDivisor = 0;
 
 NewNoteTool::NewNoteTool()
     : EventTool() {
@@ -70,21 +71,58 @@ void NewNoteTool::reloadState(ProtocolEntry *entry) {
 
 void NewNoteTool::draw(QPainter *painter) {
     int currentX = rasteredX(mouseX);
+    int drawLine = -1;
+    int drawX = 0;
+    int drawCurrentX = 0;
+    bool doDrawNote = false;
+
     if (inDrag) {
-        if (line <= 127) {
-            int y = matrixWidget->yPosOfLine(line);
-            painter->fillRect(xPos, y, currentX - xPos, matrixWidget->lineHeight(), Qt::black);
+        drawLine = line;
+        drawX = xPos;
+        drawCurrentX = currentX;
+
+        if (effectiveDurationDivisor() > 0 && line <= 127) {
+            int startTick;
+            rasteredX(xPos, &startTick);
+            int durationTicks = (file()->ticksPerQuarter() * 4) / effectiveDurationDivisor();
+            int endMs = file()->msOfTick(startTick + durationTicks);
+            drawCurrentX = matrixWidget->xPosOfMs(endMs);
+        }
+        doDrawNote = true;
+    } else if (effectiveDurationDivisor() > 0 && mouseY >= 0) {
+        drawLine = matrixWidget->lineAtY(mouseY);
+        if (drawLine >= 0 && drawLine <= 127) {
+            doDrawNote = true;
+            drawX = currentX;
+            int startTick;
+            rasteredX(drawX, &startTick);
+            int durationTicks = (file()->ticksPerQuarter() * 4) / effectiveDurationDivisor();
+            int endMs = file()->msOfTick(startTick + durationTicks);
+            drawCurrentX = matrixWidget->xPosOfMs(endMs);
+        }
+    }
+
+    if (doDrawNote) {
+        if (!inDrag) {
+            painter->setOpacity(0.3);
+        }
+        if (drawLine <= 127) {
+            int y = matrixWidget->yPosOfLine(drawLine);
+            painter->fillRect(drawX, y, drawCurrentX - drawX, matrixWidget->lineHeight(), Qt::black);
             painter->setPen(Qt::gray);
-            painter->drawLine(xPos, 0, xPos, matrixWidget->height());
-            painter->drawLine(currentX, 0, currentX, matrixWidget->height());
+            painter->drawLine(drawX, 0, drawX, matrixWidget->height());
+            painter->drawLine(drawCurrentX, 0, drawCurrentX, matrixWidget->height());
             painter->setPen(Qt::black);
         } else {
-            int y = matrixWidget->yPosOfLine(line);
-            painter->fillRect(currentX, y, 15, matrixWidget->lineHeight(), Qt::black);
+            int y = matrixWidget->yPosOfLine(drawLine);
+            painter->fillRect(drawCurrentX, y, 15, matrixWidget->lineHeight(), Qt::black);
             painter->setPen(Qt::gray);
-            painter->drawLine(currentX, 0, currentX, matrixWidget->height());
-            painter->drawLine(currentX + 15, 0, currentX + 15, matrixWidget->height());
+            painter->drawLine(drawCurrentX, 0, drawCurrentX, matrixWidget->height());
+            painter->drawLine(drawCurrentX + 15, 0, drawCurrentX + 15, matrixWidget->height());
             painter->setPen(Qt::black);
+        }
+        if (!inDrag) {
+            painter->setOpacity(1.0);
         }
     }
 }
@@ -110,6 +148,13 @@ bool NewNoteTool::release() {
     // get start/end tick if magnet
     rasteredX(currentX, &endTick);
     rasteredX(xPos, &startTick);
+
+    // Preset duration override
+    if (line <= 127 && effectiveDurationDivisor() > 0) {
+        int durationTicks = (file()->ticksPerQuarter() * 4) / effectiveDurationDivisor();
+        endTick = startTick + durationTicks;
+        currentX = matrixWidget->xPosOfMs(file()->msOfTick(endTick));
+    }
 
     MidiTrack *track = file()->track(_track);
     if (currentX - xPos > 2 || line > 127) {
@@ -257,6 +302,10 @@ bool NewNoteTool::release() {
 
 bool NewNoteTool::move(int mouseX, int mouseY) {
     EventTool::move(mouseX, mouseY);
+    if (!inDrag && effectiveDurationDivisor() > 0) {
+        matrixWidget->update();
+        return true;
+    }
     return inDrag;
 }
 
@@ -280,4 +329,16 @@ void NewNoteTool::setEditTrack(int i) {
 
 void NewNoteTool::setEditChannel(int i) {
     _channel = i;
+}
+
+int NewNoteTool::durationDivisor() {
+    return _durationDivisor;
+}
+
+void NewNoteTool::setDurationDivisor(int div) {
+    _durationDivisor = div;
+}
+
+int NewNoteTool::effectiveDurationDivisor() const {
+    return _standardTool ? 0 : _durationDivisor;
 }

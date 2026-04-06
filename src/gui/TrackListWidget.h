@@ -31,6 +31,7 @@ class QLabel;
 class MidiTrack;
 class TrackListWidget;
 class ColoredWidget;
+class QToolBar;
 
 /**
  * \class TrackListItem
@@ -48,6 +49,9 @@ public:
     TrackListItem(MidiTrack *track, TrackListWidget *parent);
 
     void onBeforeUpdate();
+
+    /** \brief Refreshes toolbar palette colors for theme changes */
+    void refreshColors();
 
 signals:
     void trackRenameClicked(int tracknumber);
@@ -92,6 +96,9 @@ private:
 
     /** \brief Actions for track control */
     QAction *visibleAction, *loudAction;
+
+    /** \brief Toolbar widget for refreshing palette */
+    QToolBar *_toolBar;
 };
 
 class TrackListWidget : public QListWidget {
@@ -145,6 +152,9 @@ public slots:
      * \brief Updates the track list display.
      */
     void update();
+
+    /** \brief Refreshes colors for theme changes */
+    void refreshColors();
 
     /**
      * \brief Handles track selection from list items.

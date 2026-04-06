@@ -423,6 +423,16 @@ protected:
     void paintEvent(QPaintEvent *event);
 
     /**
+     * \brief Paints timeline markers (CC/PC/Text) as dashed vertical lines.
+     */
+    void paintTimelineMarkers(QPainter *painter);
+
+    /**
+     * \brief Paints the dedicated marker bar above the timeline with label badges.
+     */
+    void paintMarkerBar(QPainter *painter);
+
+    /**
      * \brief Handles mouse move events.
      * \param event The mouse move event
      */
@@ -481,6 +491,12 @@ protected:
      * \param event The wheel event
      */
     void wheelEvent(QWheelEvent *event);
+
+    /**
+     * \brief Shows a context menu with common operations on right-click.
+     * \param event The context menu event
+     */
+    void contextMenuEvent(QContextMenuEvent *event) override;
 
 private:
     // === Helper Methods ===
@@ -575,6 +591,12 @@ private:
     // Cached theme state to avoid expensive shouldUseDarkMode() calls
     bool _cachedShouldUseDarkMode;
 
+    // Cached timeline marker settings
+    bool _cachedShowPCMarkers;
+    bool _cachedShowCCMarkers;
+    bool _cachedShowTextMarkers;
+    Appearance::MarkerColorMode _cachedMarkerColorMode;
+
     // === View State ===
 
     /** \brief Viewport boundaries in MIDI ticks */
@@ -589,6 +611,9 @@ private:
     /** \brief Height of the timeline area in pixels */
     int timeHeight;
 
+    /** \brief Height of the marker bar above the timeline (0 if no markers enabled) */
+    int markerBarHeight;
+
     /** \brief Time of first event in current event list */
     int msOfFirstEventInList;
 
@@ -597,6 +622,12 @@ private:
 
     /** \brief Screen lock state to prevent auto-scrolling */
     bool screen_locked;
+
+    /** \brief Whether playback was active on last timeMsChanged call */
+    bool _wasPlaying = false;
+
+    /** \brief Offset in ms from cursor to viewport left edge at playback start */
+    int _dynamicOffsetMs = 0;
 
     // === Data References ===
 
@@ -613,6 +644,9 @@ private:
 
     /** \brief Timeline display area */
     QRectF TimeLineArea;
+
+    /** \brief Marker display area (below ruler, above matrix) */
+    QRectF MarkerArea;
 
     // === Rendering Cache ===
 

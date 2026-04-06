@@ -56,6 +56,7 @@ class AutoUpdater;
 class MidiPilotWidget;
 class MidiVisualizerWidget;
 class QDockWidget;
+class QLabel;
 
 /**
  * \class MainWindow
@@ -704,6 +705,11 @@ public slots:
     void toolChanged();
 
     /**
+     * \brief Handles note duration preset selection.
+     */
+    void noteDurationSelected(QAction *action);
+
+    /**
      * \brief Handles changes to copied events.
      */
     void copiedEventsChanged();
@@ -818,6 +824,11 @@ public slots:
      * Called after a theme-change restart to return the user to where they were.
      */
     void openConfigOnAppearanceTab();
+
+    /**
+     * \\brief Updates the status bar with cursor position, selection, and chord info.
+     */
+    void updateStatusBar();
 
     /**
      * \brief Applies widget size constraints at startup based on settings.
@@ -1039,6 +1050,11 @@ private:
 
     /** \brief MIDI visualizer in status bar */
     MidiVisualizerWidget *_visualizer = nullptr;
+
+    /** \brief Status bar labels for cursor/selection/chord info */
+    QLabel *_statusCursorLabel = nullptr;
+    QLabel *_statusSelectionLabel = nullptr;
+    QLabel *_statusChordLabel = nullptr;
 
     /** \brief Dock widget containing MidiPilot */
     QDockWidget *_midiPilotDock = nullptr;

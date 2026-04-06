@@ -21,6 +21,7 @@
 #include "../MidiEvent/MidiEvent.h"
 #include "../MidiEvent/OffEvent.h"
 #include "../MidiEvent/OnEvent.h"
+#include "../gui/Appearance.h"
 #include "../gui/MatrixWidget.h"
 #include "../midi/MidiFile.h"
 #include "../protocol/Protocol.h"
@@ -57,20 +58,55 @@ void SizeChangeTool::reloadState(ProtocolEntry *entry) {
 void SizeChangeTool::draw(QPainter *painter) {
     int currentX = rasteredX(mouseX);
 
-    // Set cursor on OpenGL container if available, otherwise on matrix widget
-    if (_openglContainer) {
-        _openglContainer->setCursor(Qt::ArrowCursor);
-    } else {
-        matrixWidget->setCursor(Qt::ArrowCursor);
-    }
+    // Helper lambda to set cursor on the correct widget
+    auto setCursorOnWidget = [this](Qt::CursorShape shape) {
+        if (_openglContainer) {
+            _openglContainer->setCursor(shape);
+        } else {
+            matrixWidget->setCursor(shape);
+        }
+    };
+
+    setCursorOnWidget(Qt::ArrowCursor);
+
+    // Ghost note colors (DAW-style semi-transparent)
+    bool darkMode = Appearance::shouldUseDarkMode();
+    QColor ghostFill = darkMode ? QColor(255, 255, 255, 60) : QColor(0, 0, 0, 40);
+    QColor ghostBorder = darkMode ? QColor(255, 255, 255, 120) : QColor(0, 0, 0, 80);
+
     if (!inDrag) {
         paintSelectedEvents(painter);
+
+        // Show split cursor when hovering over note edges (even before clicking)
+        foreach (MidiEvent *event, Selection::instance()->selectedEvents()) {
+            bool show = event->shown();
+            if (!show) {
+                OnEvent *ev = dynamic_cast<OnEvent *>(event);
+                if (ev) {
+                    show = ev->offEvent() && ev->offEvent()->shown();
+                }
+            }
+            if (show) {
+                if (pointInRect(mouseX, mouseY, event->x() + event->width() - 2, event->y(),
+                                event->x() + event->width() + 2, event->y() + event->height())) {
+                    setCursorOnWidget(Qt::SplitHCursor);
+                    break;
+                }
+                if (pointInRect(mouseX, mouseY, event->x() - 2, event->y(),
+                                event->x() + 2, event->y() + event->height())) {
+                    setCursorOnWidget(Qt::SplitHCursor);
+                    break;
+                }
+            }
+        }
         return;
-    } else {
-        painter->setPen(Qt::gray);
-        painter->drawLine(currentX, 0, currentX, matrixWidget->height());
-        painter->setPen(Qt::black);
     }
+
+    // During drag: show guide line and ghost notes
+    setCursorOnWidget(Qt::SplitHCursor);
+    painter->setPen(QPen(Qt::gray, 1, Qt::DashLine));
+    painter->drawLine(currentX, 0, currentX, matrixWidget->height());
+
     int endEventShift = 0;
     int startEventShift = 0;
     if (dragsOnEvent) {
@@ -78,7 +114,8 @@ void SizeChangeTool::draw(QPainter *painter) {
     } else {
         endEventShift = currentX - xPos;
     }
-    foreach(MidiEvent* event, Selection::instance()->selectedEvents()) {
+
+    foreach (MidiEvent *event, Selection::instance()->selectedEvents()) {
         bool show = event->shown();
         if (!show) {
             OnEvent *ev = dynamic_cast<OnEvent *>(event);
@@ -87,43 +124,68 @@ void SizeChangeTool::draw(QPainter *painter) {
             }
         }
         if (show) {
-            painter->fillRect(event->x() + startEventShift, event->y(), event->width() - startEventShift + endEventShift, event->height(), Qt::black);
-            if (pointInRect(mouseX, mouseY, event->x() + event->width() - 2 + endEventShift, event->y(), event->x() + event->width() + 2 + endEventShift, event->y() + event->height())) {
-                // Set cursor on OpenGL container if available, otherwise on matrix widget
-                if (_openglContainer) {
-                    _openglContainer->setCursor(Qt::SplitHCursor);
-                } else {
-                    matrixWidget->setCursor(Qt::SplitHCursor);
-                }
+            // Calculate ghost note position using pixel-accurate coordinates
+            int ghostX = event->x() + startEventShift;
+            int ghostW = event->width() - startEventShift + endEventShift;
+
+            // Use raw tick-based coordinates for better accuracy when available
+            OnEvent *onEvent = dynamic_cast<OnEvent *>(event);
+            if (onEvent && onEvent->offEvent()) {
+                int rawX = matrixWidget->xPosOfMs(file()->msOfTick(onEvent->midiTime()));
+                int rawEndX = matrixWidget->xPosOfMs(file()->msOfTick(onEvent->offEvent()->midiTime()));
+                ghostX = rawX + startEventShift;
+                ghostW = (rawEndX - rawX) - startEventShift + endEventShift;
             }
-            if (pointInRect(mouseX, mouseY, event->x() - 2 + startEventShift, event->y(), event->x() + 2 + startEventShift, event->y() + event->height())) {
-                // Set cursor on OpenGL container if available, otherwise on matrix widget
-                if (_openglContainer) {
-                    _openglContainer->setCursor(Qt::SplitHCursor);
-                } else {
-                    matrixWidget->setCursor(Qt::SplitHCursor);
-                }
+
+            if (ghostW > 0) {
+                QRect ghostRect(ghostX, event->y(), ghostW, event->height());
+                painter->setBrush(ghostFill);
+                painter->setPen(QPen(ghostBorder, 1, Qt::SolidLine));
+                painter->drawRoundedRect(ghostRect, 1, 1);
             }
         }
     }
 }
 
 bool SizeChangeTool::press(bool leftClick) {
-    Q_UNUSED(leftClick);
-
     inDrag = false;
+
+    if (Selection::instance()->selectedEvents().isEmpty()) {
+        return false;
+    }
+
     xPos = mouseX;
-    foreach(MidiEvent* event, Selection::instance()->selectedEvents()) {
+
+    // First try to detect edge clicks
+    foreach (MidiEvent *event, Selection::instance()->selectedEvents()) {
+        // Check left edge (start of note)
         if (pointInRect(mouseX, mouseY, event->x() - 2, event->y(), event->x() + 2, event->y() + event->height())) {
             dragsOnEvent = true;
             xPos = event->x();
             inDrag = true;
             return true;
         }
+        // Check right edge (end of note)
         if (pointInRect(mouseX, mouseY, event->x() + event->width() - 2, event->y(), event->x() + event->width() + 2, event->y() + event->height())) {
             dragsOnEvent = false;
-            inDrag = true;
             xPos = event->x() + event->width();
+            inDrag = true;
+            return true;
+        }
+    }
+
+    // No edge found: left click = drag start edge, right click = drag end edge
+    foreach (MidiEvent *event, Selection::instance()->selectedEvents()) {
+        if (pointInRect(mouseX, mouseY, event->x(), event->y(),
+                        event->x() + event->width(), event->y() + event->height())) {
+            if (leftClick) {
+                dragsOnEvent = true;
+                xPos = event->x();
+            } else {
+                dragsOnEvent = false;
+                xPos = event->x() + event->width();
+            }
+            inDrag = true;
             return true;
         }
     }
@@ -144,7 +206,7 @@ bool SizeChangeTool::release() {
     }
     xPos = 0;
     if (Selection::instance()->selectedEvents().count() > 0) {
-        currentProtocol()->startNewAction(QObject::tr("Change event duration"), image());
+        currentProtocol()->startNewAction(QObject::tr("Change Event Duration"), image());
         foreach(MidiEvent* event, Selection::instance()->selectedEvents()) {
             OnEvent *on = dynamic_cast<OnEvent *>(event);
             OffEvent *off = dynamic_cast<OffEvent *>(event);
@@ -184,32 +246,27 @@ bool SizeChangeTool::release() {
 
 bool SizeChangeTool::move(int mouseX, int mouseY) {
     EventTool::move(mouseX, mouseY);
-    foreach(MidiEvent* event, Selection::instance()->selectedEvents()) {
+
+    // Helper lambda to set cursor on the correct widget
+    auto setCursorOnWidget = [this](Qt::CursorShape shape) {
+        if (_openglContainer) {
+            _openglContainer->setCursor(shape);
+        } else {
+            matrixWidget->setCursor(shape);
+        }
+    };
+
+    foreach (MidiEvent *event, Selection::instance()->selectedEvents()) {
         if (pointInRect(mouseX, mouseY, event->x() - 2, event->y(), event->x() + 2, event->y() + event->height())) {
-            // Set cursor on OpenGL container if available, otherwise on matrix widget
-            if (_openglContainer) {
-                _openglContainer->setCursor(Qt::SplitHCursor);
-            } else {
-                matrixWidget->setCursor(Qt::SplitHCursor);
-            }
+            setCursorOnWidget(Qt::SplitHCursor);
             return inDrag;
         }
         if (pointInRect(mouseX, mouseY, event->x() + event->width() - 2, event->y(), event->x() + event->width() + 2, event->y() + event->height())) {
-            // Set cursor on OpenGL container if available, otherwise on matrix widget
-            if (_openglContainer) {
-                _openglContainer->setCursor(Qt::SplitHCursor);
-            } else {
-                matrixWidget->setCursor(Qt::SplitHCursor);
-            }
+            setCursorOnWidget(Qt::SplitHCursor);
             return inDrag;
         }
     }
-    // Set cursor on OpenGL container if available, otherwise on matrix widget
-    if (_openglContainer) {
-        _openglContainer->setCursor(Qt::ArrowCursor);
-    } else {
-        matrixWidget->setCursor(Qt::ArrowCursor);
-    }
+    setCursorOnWidget(inDrag ? Qt::SplitHCursor : Qt::ArrowCursor);
     return inDrag;
 }
 

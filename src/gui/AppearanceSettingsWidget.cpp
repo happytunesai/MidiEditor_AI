@@ -14,6 +14,8 @@
 #include <QMainWindow>
 #include <QApplication>
 #include <QMessageBox>
+#include <QScrollArea>
+#include <QVBoxLayout>
 
 #include "Appearance.h"
 #include "SettingsDialog.h"
@@ -21,84 +23,31 @@
 
 AppearanceSettingsWidget::AppearanceSettingsWidget(QWidget *parent)
     : SettingsWidget("Appearance", parent) {
-    QGridLayout *layout = new QGridLayout(this);
-    setLayout(layout);
 
-    // Set minimum size to prevent overlapping elements
-    setMinimumSize(400, 650);
+    // Outer layout: a single QScrollArea filling the whole widget
+    QVBoxLayout *outerLayout = new QVBoxLayout(this);
+    outerLayout->setContentsMargins(0, 0, 0, 0);
+    setLayout(outerLayout);
+
+    QScrollArea *scrollArea = new QScrollArea(this);
+    scrollArea->setWidgetResizable(true);
+    scrollArea->setFrameShape(QFrame::NoFrame);
+    outerLayout->addWidget(scrollArea);
+
+    QWidget *content = new QWidget(scrollArea);
+    QGridLayout *layout = new QGridLayout(content);
+    content->setLayout(layout);
+    scrollArea->setWidget(content);
 
     _channelItems = new QList<NamedColorWidgetItem *>();
     _trackItems = new QList<NamedColorWidgetItem *>();
-    layout->addWidget(new QLabel("Channel Colors"), 0, 0, 1, 2);
-    QListWidget *channelList = new QListWidget(this);
-    channelList->setSelectionMode(QAbstractItemView::NoSelection);
-    channelList->setStyleSheet(Appearance::listBorderStyle());
-    layout->addWidget(channelList, 1, 0, 1, 2);
-    for (int i = 0; i < 17; i++) {
-        QString name = "Channel " + QString::number(i);
-        if (i == 16) {
-            name = "General Events (affecting all channels)";
-        }
-        QColor *channelColor = Appearance::channelColor(i);
-        QColor safeColor = channelColor ? *channelColor : QColor(100, 100, 100);
-        NamedColorWidgetItem *channelItem = new NamedColorWidgetItem(i, name,
-                                                                     safeColor, this);
-        QListWidgetItem *item = new QListWidgetItem();
-        item->setSizeHint(QSize(0, ROW_HEIGHT));
-        channelList->addItem(item);
-        channelList->setItemWidget(item, channelItem);
-        _channelItems->append(channelItem);
-        connect(channelItem, SIGNAL(colorChanged(int,QColor)), this, SLOT(channelColorChanged(int,QColor)));
-    }
-    channelList->setFixedHeight(ROW_HEIGHT * 5);
-    channelList->setMinimumHeight(ROW_HEIGHT * 5); // Prevent shrinking below this size
 
-    layout->addWidget(new QLabel("Track Colors"), 2, 0, 1, 2);
-    QListWidget *trackList = new QListWidget(this);
-    trackList->setSelectionMode(QAbstractItemView::NoSelection);
-    trackList->setStyleSheet(Appearance::listBorderStyle());
-    layout->addWidget(trackList, 3, 0, 1, 2);
-    for (int i = 0; i < 16; i++) {
-        QColor *trackColor = Appearance::trackColor(i);
-        QColor safeColor = trackColor ? *trackColor : QColor(100, 100, 100);
-        NamedColorWidgetItem *trackItem = new NamedColorWidgetItem(i, "Track " + QString::number(i),
-                                                                   safeColor, this);
-        QListWidgetItem *item = new QListWidgetItem();
-        item->setSizeHint(QSize(0, ROW_HEIGHT));
-        trackList->addItem(item);
-        trackList->setItemWidget(item, trackItem);
-        _trackItems->append(trackItem);
-        connect(trackItem, SIGNAL(colorChanged(int,QColor)), this, SLOT(trackColorChanged(int,QColor)));
-    }
-    trackList->setFixedHeight(ROW_HEIGHT * 5);
-    trackList->setMinimumHeight(ROW_HEIGHT * 5); // Prevent shrinking below this size
-    QPushButton *resetButton = new QPushButton("Reset Colors", this);
-    connect(resetButton, SIGNAL(clicked()), this, SLOT(resetColors()));
-    layout->addWidget(resetButton, 4, 1, 1, 1);
-
-
-    layout->addWidget(new QLabel("Event Opacity"), 6, 0, 1, 1);
-    QSlider *opacity = new QSlider(Qt::Horizontal, this);
-    opacity->setMaximum(0);
-    opacity->setMaximum(100);
-    opacity->setValue(Appearance::opacity());
-    connect(opacity, SIGNAL(valueChanged(int)), this, SLOT(opacityChanged(int)));
-    layout->addWidget(opacity, 6, 1, 1, 1);
-
-    layout->addWidget(new QLabel("Strip Style"), 7, 0, 1, 1);
-    QComboBox *strip = new QComboBox(this);
-    strip->addItems({
-        "Highlight between octaves",
-        "Highlight notes by keys",
-        "Highlight alternatively"
-    });
-    strip->setCurrentIndex(Appearance::strip());
-    connect(strip, SIGNAL(currentIndexChanged(int)), this, SLOT(stripStyleChanged(int)));
-    layout->addWidget(strip, 7, 1, 1, 1);
+    // === Settings first (most used) ===
+    int row = 0;
 
     // Theme selection
-    layout->addWidget(new QLabel("Theme"), 8, 0, 1, 1);
-    QComboBox *themeCombo = new QComboBox(this);
+    layout->addWidget(new QLabel("Theme"), row, 0, 1, 1);
+    QComboBox *themeCombo = new QComboBox(content);
     themeCombo->addItems({
         "System (Auto)",
         "Dark",
@@ -110,12 +59,13 @@ AppearanceSettingsWidget::AppearanceSettingsWidget(QWidget *parent)
     });
     themeCombo->setCurrentIndex(static_cast<int>(Appearance::theme()));
     connect(themeCombo, SIGNAL(currentIndexChanged(int)), this, SLOT(themeChanged(int)));
-    layout->addWidget(themeCombo, 8, 1, 1, 1);
+    layout->addWidget(themeCombo, row, 1, 1, 1);
+    row++;
 
     // UI Styling options (only visually distinct in Classic theme)
-    QLabel *styleLabel = new QLabel("Application Style", this);
-    layout->addWidget(styleLabel, 9, 0, 1, 1);
-    QComboBox *styleCombo = new QComboBox(this);
+    QLabel *styleLabel = new QLabel("Application Style", content);
+    layout->addWidget(styleLabel, row, 0, 1, 1);
+    QComboBox *styleCombo = new QComboBox(content);
     QStringList availableStyles = Appearance::availableStyles();
     styleCombo->addItems(availableStyles);
     int currentIndex = availableStyles.indexOf(Appearance::applicationStyle());
@@ -123,9 +73,8 @@ AppearanceSettingsWidget::AppearanceSettingsWidget(QWidget *parent)
         styleCombo->setCurrentIndex(currentIndex);
     }
     connect(styleCombo, SIGNAL(currentTextChanged(QString)), this, SLOT(styleChanged(QString)));
-    layout->addWidget(styleCombo, 9, 1, 1, 1);
+    layout->addWidget(styleCombo, row, 1, 1, 1);
 
-    // Disable style selector when a QSS theme is active (it has no visible effect)
     bool isClassic = (Appearance::theme() == Appearance::ThemeNone);
     styleCombo->setEnabled(isClassic);
     styleLabel->setEnabled(isClassic);
@@ -135,16 +84,11 @@ AppearanceSettingsWidget::AppearanceSettingsWidget(QWidget *parent)
             styleCombo->setEnabled(classic);
             styleLabel->setEnabled(classic);
         });
+    row++;
 
-    layout->addWidget(new QLabel("Show C3/C6 Range Lines"), 10, 0, 1, 1);
-    QCheckBox *rangeLines = new QCheckBox(this);
-    rangeLines->setChecked(Appearance::showRangeLines());
-    connect(rangeLines, SIGNAL(toggled(bool)), this, SLOT(rangeLinesChanged(bool)));
-    layout->addWidget(rangeLines, 10, 1, 1, 1);
-
-    // Color preset for channel/track note bars
-    layout->addWidget(new QLabel("Color Preset"), 11, 0, 1, 1);
-    QComboBox *presetCombo = new QComboBox(this);
+    // Color preset
+    layout->addWidget(new QLabel("Color Preset"), row, 0, 1, 1);
+    QComboBox *presetCombo = new QComboBox(content);
     for (int i = 0; i < Appearance::PresetCount; i++) {
         presetCombo->addItem(Appearance::colorPresetName(
             static_cast<Appearance::ColorPreset>(i)));
@@ -155,7 +99,155 @@ AppearanceSettingsWidget::AppearanceSettingsWidget(QWidget *parent)
             Appearance::applyColorPreset(static_cast<Appearance::ColorPreset>(index));
             refreshColors();
         });
-    layout->addWidget(presetCombo, 11, 1, 1, 1);
+    layout->addWidget(presetCombo, row, 1, 1, 1);
+    row++;
+
+    layout->addWidget(new QLabel("Strip Style"), row, 0, 1, 1);
+    QComboBox *strip = new QComboBox(content);
+    strip->addItems({
+        "Highlight between octaves",
+        "Highlight notes by keys",
+        "Highlight alternatively"
+    });
+    strip->setCurrentIndex(Appearance::strip());
+    connect(strip, SIGNAL(currentIndexChanged(int)), this, SLOT(stripStyleChanged(int)));
+    layout->addWidget(strip, row, 1, 1, 1);
+    row++;
+
+    layout->addWidget(new QLabel("Event Opacity"), row, 0, 1, 1);
+    QSlider *opacity = new QSlider(Qt::Horizontal, content);
+    opacity->setMaximum(100);
+    opacity->setValue(Appearance::opacity());
+    connect(opacity, SIGNAL(valueChanged(int)), this, SLOT(opacityChanged(int)));
+    layout->addWidget(opacity, row, 1, 1, 1);
+    row++;
+
+    layout->addWidget(new QLabel("Show C3/C6 Range Lines"), row, 0, 1, 1);
+    QCheckBox *rangeLines = new QCheckBox(content);
+    rangeLines->setChecked(Appearance::showRangeLines());
+    connect(rangeLines, SIGNAL(toggled(bool)), this, SLOT(rangeLinesChanged(bool)));
+    layout->addWidget(rangeLines, row, 1, 1, 1);
+    row++;
+
+    layout->addWidget(new QLabel("Smooth Playback Scrolling"), row, 0, 1, 1);
+    QCheckBox *smoothScroll = new QCheckBox(content);
+    smoothScroll->setChecked(Appearance::smoothPlaybackScrolling());
+    connect(smoothScroll, &QCheckBox::toggled, [](bool on) { Appearance::setSmoothPlaybackScrolling(on); });
+    layout->addWidget(smoothScroll, row, 1, 1, 1);
+    row++;
+
+    // --- Timeline Marker Settings ---
+    layout->addWidget(new QLabel("Show Program Change Markers"), row, 0, 1, 1);
+    QCheckBox *pcMarkers = new QCheckBox(content);
+    pcMarkers->setChecked(Appearance::showProgramChangeMarkers());
+    connect(pcMarkers, &QCheckBox::toggled, [](bool on) { Appearance::setShowProgramChangeMarkers(on); });
+    layout->addWidget(pcMarkers, row, 1, 1, 1);
+    row++;
+
+    layout->addWidget(new QLabel("Show Control Change Markers"), row, 0, 1, 1);
+    QCheckBox *ccMarkers = new QCheckBox(content);
+    ccMarkers->setChecked(Appearance::showControlChangeMarkers());
+    connect(ccMarkers, &QCheckBox::toggled, [](bool on) { Appearance::setShowControlChangeMarkers(on); });
+    layout->addWidget(ccMarkers, row, 1, 1, 1);
+    row++;
+
+    layout->addWidget(new QLabel("Show Text/Marker Events"), row, 0, 1, 1);
+    QCheckBox *textMarkers = new QCheckBox(content);
+    textMarkers->setChecked(Appearance::showTextEventMarkers());
+    connect(textMarkers, &QCheckBox::toggled, [](bool on) { Appearance::setShowTextEventMarkers(on); });
+    layout->addWidget(textMarkers, row, 1, 1, 1);
+    row++;
+
+    layout->addWidget(new QLabel("Marker Color Mode"), row, 0, 1, 1);
+    QComboBox *markerColorCombo = new QComboBox(content);
+    markerColorCombo->addItem("By Track");
+    markerColorCombo->addItem("By Channel");
+    markerColorCombo->setCurrentIndex(static_cast<int>(Appearance::markerColorMode()));
+    connect(markerColorCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+        [](int index) { Appearance::setMarkerColorMode(static_cast<Appearance::MarkerColorMode>(index)); });
+    layout->addWidget(markerColorCombo, row, 1, 1, 1);
+    row++;
+
+    // === Collapsible Channel Colors section ===
+    QPushButton *channelToggle = new QPushButton(QString::fromUtf8("\u25B6  Channel Colors"), content);
+    channelToggle->setFlat(true);
+    channelToggle->setCursor(Qt::PointingHandCursor);
+    channelToggle->setStyleSheet("QPushButton { text-align: left; padding: 6px 4px; font-weight: bold; }");
+    layout->addWidget(channelToggle, row, 0, 1, 2);
+    row++;
+
+    QListWidget *channelList = new QListWidget(content);
+    channelList->setSelectionMode(QAbstractItemView::NoSelection);
+    channelList->setStyleSheet(Appearance::listBorderStyle());
+    for (int i = 0; i < 17; i++) {
+        QString name = "Channel " + QString::number(i);
+        if (i == 16) {
+            name = "General Events (affecting all channels)";
+        }
+        QColor *channelColor = Appearance::channelColor(i);
+        QColor safeColor = channelColor ? *channelColor : QColor(100, 100, 100);
+        NamedColorWidgetItem *channelItem = new NamedColorWidgetItem(i, name,
+                                                                     safeColor, content);
+        QListWidgetItem *item = new QListWidgetItem();
+        item->setSizeHint(QSize(0, ROW_HEIGHT));
+        channelList->addItem(item);
+        channelList->setItemWidget(item, channelItem);
+        _channelItems->append(channelItem);
+        connect(channelItem, SIGNAL(colorChanged(int,QColor)), this, SLOT(channelColorChanged(int,QColor)));
+    }
+    channelList->setFixedHeight(ROW_HEIGHT * 5);
+    channelList->setVisible(false); // start collapsed
+    connect(channelToggle, &QPushButton::clicked, [channelToggle, channelList]() {
+        bool show = !channelList->isVisible();
+        channelList->setVisible(show);
+        channelToggle->setText(show ? QString::fromUtf8("\u25BC  Channel Colors")
+                                    : QString::fromUtf8("\u25B6  Channel Colors"));
+    });
+    layout->addWidget(channelList, row, 0, 1, 2);
+    row++;
+
+    // === Collapsible Track Colors section ===
+    QPushButton *trackToggle = new QPushButton(QString::fromUtf8("\u25B6  Track Colors"), content);
+    trackToggle->setFlat(true);
+    trackToggle->setCursor(Qt::PointingHandCursor);
+    trackToggle->setStyleSheet("QPushButton { text-align: left; padding: 6px 4px; font-weight: bold; }");
+    layout->addWidget(trackToggle, row, 0, 1, 2);
+    row++;
+
+    QListWidget *trackList = new QListWidget(content);
+    trackList->setSelectionMode(QAbstractItemView::NoSelection);
+    trackList->setStyleSheet(Appearance::listBorderStyle());
+    for (int i = 0; i < 16; i++) {
+        QColor *trackColor = Appearance::trackColor(i);
+        QColor safeColor = trackColor ? *trackColor : QColor(100, 100, 100);
+        NamedColorWidgetItem *trackItem = new NamedColorWidgetItem(i, "Track " + QString::number(i),
+                                                                   safeColor, content);
+        QListWidgetItem *item = new QListWidgetItem();
+        item->setSizeHint(QSize(0, ROW_HEIGHT));
+        trackList->addItem(item);
+        trackList->setItemWidget(item, trackItem);
+        _trackItems->append(trackItem);
+        connect(trackItem, SIGNAL(colorChanged(int,QColor)), this, SLOT(trackColorChanged(int,QColor)));
+    }
+    trackList->setFixedHeight(ROW_HEIGHT * 5);
+    trackList->setVisible(false); // start collapsed
+    connect(trackToggle, &QPushButton::clicked, [trackToggle, trackList]() {
+        bool show = !trackList->isVisible();
+        trackList->setVisible(show);
+        trackToggle->setText(show ? QString::fromUtf8("\u25BC  Track Colors")
+                                  : QString::fromUtf8("\u25B6  Track Colors"));
+    });
+    layout->addWidget(trackList, row, 0, 1, 2);
+    row++;
+
+    // Reset Colors button
+    QPushButton *resetButton = new QPushButton("Reset Colors", content);
+    connect(resetButton, SIGNAL(clicked()), this, SLOT(resetColors()));
+    layout->addWidget(resetButton, row, 1, 1, 1);
+    row++;
+
+    // Stretch at bottom
+    layout->setRowStretch(row, 1);
 }
 
 void AppearanceSettingsWidget::channelColorChanged(int channel, QColor c) {

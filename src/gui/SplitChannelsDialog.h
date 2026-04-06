@@ -23,6 +23,9 @@
 #include <QCheckBox>
 #include <QRadioButton>
 #include <QTableWidget>
+#include <QComboBox>
+
+#include "DrumKitPreset.h"
 
 class MidiFile;
 class MidiTrack;
@@ -45,6 +48,8 @@ public:
     bool keepDrumsOnSource() const;
     bool removeEmptySource() const;
     bool insertAtEnd() const;
+    DrumKitPreset selectedDrumPreset() const;
+    bool hasDrumPreset() const;
 
 private:
     QCheckBox *_keepDrumsCheck;
@@ -52,6 +57,8 @@ private:
     QRadioButton *_insertAfterRadio;
     QRadioButton *_insertAtEndRadio;
     QTableWidget *_channelTable;
+    QComboBox *_drumPresetCombo;
+    bool _hasDrumChannel;
 };
 
 #endif // SPLITCHANNELSDIALOG_H_

@@ -228,6 +228,29 @@ public:
      */
     static void setShowVisualizer(bool enabled);
 
+    /**
+     * \brief Gets whether smooth playback scrolling is enabled.
+     */
+    static bool smoothPlaybackScrolling();
+
+    /**
+     * \brief Sets whether smooth playback scrolling is enabled.
+     */
+    static void setSmoothPlaybackScrolling(bool enabled);
+
+    // === Timeline Marker Settings ===
+
+    enum MarkerColorMode { ColorByTrack, ColorByChannel };
+
+    static bool showProgramChangeMarkers();
+    static void setShowProgramChangeMarkers(bool enabled);
+    static bool showControlChangeMarkers();
+    static void setShowControlChangeMarkers(bool enabled);
+    static bool showTextEventMarkers();
+    static void setShowTextEventMarkers(bool enabled);
+    static MarkerColorMode markerColorMode();
+    static void setMarkerColorMode(MarkerColorMode mode);
+
     // === UI Styling Options ===
 
     /**
@@ -821,6 +844,15 @@ private:
 
     /** \brief Hardware acceleration setting loaded early */
     static bool _useHardwareAcceleration;
+
+    /** \brief Smooth playback scrolling enabled */
+    static bool _smoothPlaybackScrolling;
+
+    /** \brief Timeline marker visibility flags */
+    static bool _showProgramChangeMarkers;
+    static bool _showControlChangeMarkers;
+    static bool _showTextEventMarkers;
+    static MarkerColorMode _markerColorMode;
 
     /** \brief Flag to prevent QPixmap creation during application shutdown */
     static bool _shuttingDown;

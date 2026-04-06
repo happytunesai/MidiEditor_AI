@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -9,7 +9,7 @@
 </head>
 <body>
 <div class="nav-bar">
-<div class="nav-header"><span class="nav-icon">&#129302;</span><span class="nav-title">MidiEditor AI Manual</span><span class="nav-version">v1.1.7</span></div>
+<div class="nav-header"><span class="nav-icon">&#129302;</span><span class="nav-title">MidiEditor AI Manual</span><span class="nav-version">v1.1.8</span></div>
 <div class="nav-links">
 <a href="index.html">Index</a>
 <a href="midipilot.html">MidiPilot</a>
@@ -152,7 +152,38 @@
 	the event and dragging the mouse. Clicking at the left or right border
 	of an event and dragging the mouse afterwards will change the duration
 	and the starting time of the event. All actions will be applied to all selected events.
-	Clicking the right mouse key will create new events.
+	<b>Ctrl+Right-Click</b> creates new notes; a plain <b>Right-Click</b> on selected events
+	opens the <a href="#context_menu">context menu</a>.
+</p>
+
+<h3 id="context_menu">Right-Click Context Menu</h3>
+
+<p>
+  Right-clicking on one or more selected events opens a <b>context menu</b> with quick
+  access to the most common editing operations &mdash; no need to dig through the
+  menubar or remember keyboard shortcuts.
+</p>
+
+<div style="text-align:center; margin:1.5rem 0;">
+<a href="screenshots/context_menu.png" class="lightbox-link"><img src="screenshots/context_menu.png" style="max-width:400px; border:1px solid var(--border); border-radius:8px;" alt="Right-click context menu on selected notes showing Quantize, Copy, Delete, Transpose, and other actions"></a>
+<p style="text-align:center; color:var(--text-muted); font-style:italic; margin-top:0.5rem; font-size:0.9rem;">Right-click on selected events to access quick editing actions.</p>
+</div>
+
+<p>The context menu includes:</p>
+<ul>
+<li><b>Quantize</b> &mdash; snap selected events to the current grid</li>
+<li><b>Copy / Paste</b> &mdash; clipboard operations on the selection</li>
+<li><b>Delete</b> &mdash; remove selected events</li>
+<li><b>Transpose&hellip;</b> &mdash; shift notes up or down by semitones or octaves</li>
+<li><b>Move to Track&hellip;</b> &mdash; reassign selected events to a different track</li>
+<li><b>Move to Channel&hellip;</b> &mdash; reassign selected events to a different MIDI channel</li>
+<li><b>Scale Velocity&hellip;</b> &mdash; adjust note velocities by percentage</li>
+<li><b>Legato</b> &mdash; extend notes to fill gaps between consecutive notes</li>
+</ul>
+
+<p>
+  <b>Note:</b> Plain right-click opens the menu. To <i>create a new note</i> with the standard tool,
+  hold <kbd>Ctrl</kbd> while right-clicking.
 </p>
 
 <h3 id="magnet">Magnet and Raster</h3>

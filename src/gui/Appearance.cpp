@@ -83,6 +83,11 @@ bool Appearance::_toolbarTwoRowMode = false;
 bool Appearance::_toolbarCustomizeEnabled = false;
 QStringList Appearance::_toolbarActionOrder = QStringList();
 QStringList Appearance::_toolbarEnabledActions = QStringList();
+bool Appearance::_smoothPlaybackScrolling = false;
+bool Appearance::_showProgramChangeMarkers = false;
+bool Appearance::_showControlChangeMarkers = false;
+bool Appearance::_showTextEventMarkers = true;
+Appearance::MarkerColorMode Appearance::_markerColorMode = Appearance::ColorByTrack;
 bool Appearance::_shuttingDown = false;
 bool Appearance::_startupComplete = false;
 
@@ -93,6 +98,11 @@ void Appearance::init(QSettings *settings) {
     _strip = static_cast<Appearance::stripStyle>(settings->value("strip_style", Appearance::onSharp).toInt());
     _showRangeLines = settings->value("show_range_lines", false).toBool();
     _showVisualizer = settings->value("show_visualizer", true).toBool();
+    _smoothPlaybackScrolling = settings->value("rendering/smooth_playback_scroll", false).toBool();
+    _showProgramChangeMarkers = settings->value("appearance/show_pc_markers", false).toBool();
+    _showControlChangeMarkers = settings->value("appearance/show_cc_markers", false).toBool();
+    _showTextEventMarkers = settings->value("appearance/show_text_markers", true).toBool();
+    _markerColorMode = static_cast<MarkerColorMode>(settings->value("appearance/marker_color_mode", 0).toInt());
 
     // Set default style with fallback
     QString defaultStyle = "windowsvista";
@@ -269,6 +279,11 @@ void Appearance::writeSettings(QSettings *settings) {
     settings->setValue("strip_style", _strip);
     settings->setValue("show_range_lines", _showRangeLines);
     settings->setValue("show_visualizer", _showVisualizer);
+    settings->setValue("rendering/smooth_playback_scroll", _smoothPlaybackScrolling);
+    settings->setValue("appearance/show_pc_markers", _showProgramChangeMarkers);
+    settings->setValue("appearance/show_cc_markers", _showControlChangeMarkers);
+    settings->setValue("appearance/show_text_markers", _showTextEventMarkers);
+    settings->setValue("appearance/marker_color_mode", static_cast<int>(_markerColorMode));
     settings->setValue("application_style", _applicationStyle);
     settings->setValue("theme", static_cast<int>(_theme));
     settings->setValue("toolbar_icon_size", _toolbarIconSize);
@@ -862,6 +877,23 @@ bool Appearance::showVisualizer() {
 void Appearance::setShowVisualizer(bool enabled) {
     _showVisualizer = enabled;
 }
+
+bool Appearance::smoothPlaybackScrolling() {
+    return _smoothPlaybackScrolling;
+}
+
+void Appearance::setSmoothPlaybackScrolling(bool enabled) {
+    _smoothPlaybackScrolling = enabled;
+}
+
+bool Appearance::showProgramChangeMarkers() { return _showProgramChangeMarkers; }
+void Appearance::setShowProgramChangeMarkers(bool enabled) { _showProgramChangeMarkers = enabled; }
+bool Appearance::showControlChangeMarkers() { return _showControlChangeMarkers; }
+void Appearance::setShowControlChangeMarkers(bool enabled) { _showControlChangeMarkers = enabled; }
+bool Appearance::showTextEventMarkers() { return _showTextEventMarkers; }
+void Appearance::setShowTextEventMarkers(bool enabled) { _showTextEventMarkers = enabled; }
+Appearance::MarkerColorMode Appearance::markerColorMode() { return _markerColorMode; }
+void Appearance::setMarkerColorMode(MarkerColorMode mode) { _markerColorMode = mode; }
 
 QString Appearance::applicationStyle() {
     return _applicationStyle;
@@ -1855,13 +1887,13 @@ void Appearance::refreshColors(bool force) {
             // Refresh all TrackListWidget colors for theme changes
             QList<TrackListWidget *> trackListWidgets = widget->findChildren<TrackListWidget *>();
             foreach(TrackListWidget* trackListWidget, trackListWidgets) {
-                trackListWidget->update();
+                trackListWidget->refreshColors();
             }
 
             // Refresh all ChannelListWidget colors for theme changes
             QList<ChannelListWidget *> channelListWidgets = widget->findChildren<ChannelListWidget *>();
             foreach(ChannelListWidget* channelListWidget, channelListWidgets) {
-                channelListWidget->update();
+                channelListWidget->refreshColors();
             }
 
             // Refresh all LayoutSettingsWidget icons for theme changes

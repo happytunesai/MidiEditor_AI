@@ -795,6 +795,7 @@ Phase 14   Split Channels to Tracks                       ✅ DONE (14.1-14.4, v
 Phase 15   Auto-Updater                                   ✅ DONE (15.1-15.6, v1.1.5)
 Phase 16   Guitar Pro Import (.gp3-.gp7)                  ✅ DONE (16.1-16.5)
 Phase 17   Modern UI Facelift (Dark/Light QSS Themes)     ✅ DONE (17.1-17.13)
+Phase 18   Mewo Upstream Feature Sync                     ⬜ TODO (18.1-18.10)
 Phase 4.6  Persistent history (SQLite)                    ⬜ TODO (low priority)
 ```
 
@@ -3002,7 +3003,6 @@ Three-button dialog replacing the current simple QMessageBox:
 │  ℹ️ The app will save your work and                      │
 │    restart automatically.                                │
 └──────────────────────────────────────────────────────────┘
-```
 
 - **📋 Changelog:** Clickable link → opens `https://github.com/happytunesai/MidiEditor_AI/blob/main/CHANGELOG.md` in browser
 - **📖 Manual:** Clickable link → opens `https://happytunesai.github.io/MidiEditor_AI/` in browser
@@ -3721,3 +3721,996 @@ Phase 17.13 Color preset persistence fix                  ✅ DONE
   ThemeSystem→`isDarkModeEnabled()`, ThemeNone→falls through to style-name-based
   legacy detection. This ensures all `Appearance::*Color()` methods return correct
   values regardless of which theme path is active.
+
+---
+
+## Phase 18: Mewo Upstream Feature Sync ✅ DONE
+
+> **Goal:** Cherry-pick valuable features from the Meowchestra/MidiEditor upstream fork
+> (commits after our fork point `25ebba3` / tag 4.3.1) that improve the editor experience.
+> Mewo added **62 new commits** after our fork-point, covering UI improvements, new tools,
+> and bug fixes. Features already ported (FluidSynth, GuitarPro) are excluded from this phase.
+>
+> **Motivation:** Mewo has active development with useful features we don't need to
+> reinvent — context menus, note duration presets, smooth scrolling, timeline markers,
+> status bar with chord detection, MML import, drum presets, and resize-tool improvements.
+> Selectively porting these gives our users a better experience with minimal effort.
+>
+> **Source reference:** Meowchestra/MidiEditor.git — commits `28eb14c..8ec534f` (after fork-point `25ebba3`)
+
+### Implementation Order
+
+```
+Phase 18.1   Null-Byte Terminator Fix (TextEvents)           ✅ DONE  (~6 lines)
+Phase 18.2   Context Menu on MatrixWidget                     ✅ DONE  (~260 lines)
+Phase 18.3   Note Duration Presets                            ✅ DONE  (~200 lines)
+Phase 18.4   Smooth Playback Scrolling                        ✅ DONE  (~60 lines)
+Phase 18.5   Timeline Markers (visual CC/PC/Text markers)     ✅ DONE  (~300 lines)
+Phase 18.6   Status Bar with Chord Detection                  ✅ DONE  (~250 lines)
+Phase 18.7   MML Importer (Music Macro Language)              ✅ DONE  (~600 lines)
+Phase 18.8   DrumKit Preset Mapping                           ✅ DONE  (~350 lines)
+Phase 18.9   SizeChangeTool Improvements                      ✅ DONE  (~120 lines)
+Phase 18.10  DLS SoundFont Support                            ✅ DONE  (~5 lines)
+Phase 18.11  Fixed Measure Number Position                    ✅ DONE  (~2 lines)
+Phase 18.12  Separate MarkerArea + Pixel Hit-Testing          ✅ DONE  (~40 lines)
+Phase 18.13  Full-Height Divider & Border Cleanup             ✅ DONE  (~6 lines)
+Phase 18.14  TrackList/ChannelList refreshColors()            ✅ DONE  (~50 lines)
+Phase 18.15  moveToChannel/removeEvent toProtocol Param       ✅ DONE  (~40 lines)
+Phase 18.16  FFXIVChannelFixer Memory Leak Fix                ✅ DONE  (~4 lines)
+```
+
+### Estimated Complexity
+
+| Sub-phase | New Code | Modified Code | Risk |
+|-----------|----------|---------------|------|
+| 18.1 Null-byte fix | ~0 | MidiEvent.cpp (~6 lines) | None |
+| 18.2 Context menu | ~245 lines (in MatrixWidget) | MainWindow.h/cpp (~15 lines) | Low |
+| 18.3 Note duration presets | ~140 lines (NewNoteTool) | MainWindow.cpp (~60 lines) | Low-Medium |
+| 18.4 Smooth scrolling | ~40 lines (MatrixWidget) | MidiSettingsWidget (~20 lines) | Low |
+| 18.5 Timeline markers | ~200 lines (MatrixWidget) | Appearance.h/cpp (~50 lines), AppearanceSettingsWidget (~50 lines) | Medium |
+| 18.6 Status bar + chords | ~100 lines (ChordDetector) | MainWindow.cpp (~80 lines), StatusBarSettingsWidget (~70 lines) | Medium |
+| 18.7 MML importer | ~600 lines (new dir) | MainWindow.cpp (~15 lines), CMakeLists.txt (~5 lines) | Medium |
+| 18.8 DrumKit presets | ~350 lines (DrumKitPreset) | SplitChannelsDialog (~50 lines) | Low-Medium |
+| 18.9 SizeChangeTool | ~0 | SizeChangeTool.cpp (~120 lines) | Low |
+| 18.10 DLS support | ~0 | MidiSettingsWidget.cpp (~1 line), FluidSynthEngine.h (~1 line) | None |
+| 18.11 Fixed measure numbers | ~0 | MatrixWidget.cpp (~2 lines) | None |
+| 18.12 MarkerArea hit-testing | ~10 lines (MatrixWidget.h) | MatrixWidget.cpp (~30 lines) | Low |
+| 18.13 Divider & border cleanup | ~0 | MatrixWidget.cpp (~6 lines) | None |
+| 18.14 List refreshColors | ~40 lines (Track/ChannelListWidget) | Appearance.cpp (~4 lines) | Low |
+| 18.15 toProtocol param | ~0 | MidiEvent.h/cpp, OnEvent.h/cpp, MidiChannel.h/cpp (~40 lines) | Low |
+| 18.16 ChannelFixer leak fix | ~0 | FFXIVChannelFixer.cpp (~4 lines) | None |
+| **Total** | **~1635 lines new** | **~560 lines modified** | **Low-Medium** |
+
+---
+
+### 18.1 — Null-Byte Terminator Fix (TextEvents) ✅
+
+> **Mewo commit:** `01e7455` — "Remove terminator null bytes & SizeChangeTool Cleanup"
+
+**Problem:** Some MIDI files contain `\0` null bytes in text event data (track names,
+lyrics, markers). These null bytes cause text truncation and render as `[]` boxes in
+Windows UI. Qt's `QString::fromUtf8()` does not strip them automatically.
+
+**Fix (6 lines in MidiEvent.cpp):**
+
+**File:** `src/MidiEvent/MidiEvent.cpp` — Lines 327-331
+
+**Current code:**
+```cpp
+textData.append((char) tempByte);
+}
+
+// QString::fromUtf8() safely handles malformed UTF-8 by replacing
+// invalid sequences with Unicode replacement characters (U+FFFD)
+textEvent->setText(QString::fromUtf8(textData));
+```
+
+**Change to:**
+```cpp
+textData.append((char) tempByte);
+}
+
+// Remove any terminator null bytes which cause truncation
+// and "[]" characters in Windows UI
+int nullIdx = textData.indexOf('\0');
+if (nullIdx != -1) {
+    textData.truncate(nullIdx);
+}
+
+// QString::fromUtf8() safely handles malformed UTF-8 by replacing
+// invalid sequences with Unicode replacement characters (U+FFFD)
+textEvent->setText(QString::fromUtf8(textData).remove(QChar(0)).trimmed());
+```
+
+**Dependencies:** None
+**Risk:** None — only removes garbage bytes from text events
+
+---
+
+### 18.2 — Context Menu on MatrixWidget ✅
+
+> **Mewo commit:** `e98935f` — "Context Menu"
+
+**Goal:** Right-click on selected events in the piano roll opens a context menu with
+common operations: quantize, copy, delete, transpose, move to track/channel, scale, legato.
+
+**Files to modify:**
+| File | Change |
+|------|--------|
+| `src/gui/MatrixWidget.h` | Add `contextMenuEvent()` override declaration (after `wheelEvent`, ~line 490) |
+| `src/gui/MatrixWidget.cpp` | Add `contextMenuEvent()` implementation (~245 lines, after `keyReleaseEvent`) |
+| `src/gui/MainWindow.h` | Add `moveSelectedEventsToChannel(int channel)` and `moveSelectedEventsToTrack(int trackIdx)` int-based overloads (~2 lines, near existing QAction versions at line 444) |
+| `src/gui/MainWindow.cpp` | Add int-based overloads (~20 lines each) delegating to existing QAction-based methods |
+
+**Implementation details:**
+
+1. **MatrixWidget.h** — Add in protected section (after `wheelEvent` at ~line 490):
+   ```cpp
+   void contextMenuEvent(QContextMenuEvent *event) override;
+   ```
+
+2. **MatrixWidget.cpp includes** — Add at top:
+   ```cpp
+   #include <QContextMenuEvent>
+   #include <QMenu>
+   #include <QInputDialog>
+   #include "TransposeDialog.h"
+   ```
+
+3. **contextMenuEvent() implementation** — Guard conditions:
+   - `Selection::instance()->selectedEvents().isEmpty()` → return (no menu on empty selection)
+   - `!file` → return
+   - `inDrag` → return (don't show menu while drawing/dragging)
+
+4. **Menu structure:**
+   ```
+   ┌──────────────────────────────────┐
+   │ Quantize Selection               │
+   │ ──────────────────────────────── │
+   │ Copy                             │
+   │ Delete                           │
+   │ ──────────────────────────────── │
+   │ Transpose Selection...           │
+   │ Transpose Octave Up              │
+   │ Transpose Octave Down            │
+   │ ──────────────────────────────── │
+   │ Move to Track       ▸  Track 0   │
+   │                        Track 1   │
+   │                        Track 2   │
+   │ Move to Channel     ▸  Ch 1      │
+   │                        Ch 2      │
+   │                        ...       │
+   │ ──────────────────────────────── │
+   │ Scale Events...                  │
+   │ ──────────────────────────────── │
+   │ Stretch to Fill Neighbors        │
+   │ Snap Start to Previous End       │
+   │ Extend End to Next (Legato)      │
+   └──────────────────────────────────┘
+   ```
+
+5. **Action routing** — All actions delegate to existing MainWindow slots:
+   - `quantizeSelection()` — already exists (MainWindow.h line 678)
+   - `copy()` — already exists (MainWindow.h line 515)
+   - `deleteSelectedEvents()` — already exists (MainWindow.h line 432)
+   - `transposeNSemitones()` — already exists (MainWindow.h line 523)
+   - `transposeSelectedNotesOctaveUp()` / `...Down()` — already exist (line 6123/6149)
+   - `moveSelectedEventsToTrack(QAction*)` — already exists (line 450)
+   - `moveSelectedEventsToChannel(QAction*)` — already exists (line 444)
+   - `scaleSelection()` — already exists (line 1639)
+
+6. **Move to Track/Channel submenus** — Dynamically generate at menu-show time:
+   ```cpp
+   QMenu* moveToTrackMenu = contextMenu.addMenu(tr("Move to Track"));
+   for (int i = 0; i < file->tracks()->size(); i++) {
+       QAction* action = moveToTrackMenu->addAction(
+           tr("Track %1").arg(i));
+       action->setData(i);
+   }
+   ```
+   Then connect selected action to MainWindow via `EditorTool::mainWindow()`.
+
+7. **Legato actions** (Stretch to Fill, Snap Start, Extend End):
+   These may need new MainWindow slots if not already present. Check for:
+   - `fitBetweenNeighbors()` / `snapStartToPreviousEnd()` / `extendEndToNext()`
+   - If missing: implement as Protocol-wrapped note duration adjustments.
+   - **Alternative:** Skip legato actions initially, add in future iteration.
+
+**Existing infrastructure verified:**
+- `EditorTool::mainWindow()` returns the `MainWindow*` — accessible from MatrixWidget
+- `TransposeDialog.h` exists at `src/gui/TransposeDialog.h`
+- All 6 core actions (quantize, copy, delete, transpose, move-track, move-channel) have working slots
+
+**Dependencies:** None — all required slots exist
+**Risk:** Low — purely additive, doesn't modify existing mouse handling
+
+---
+
+### 18.3 — Note Duration Presets ✅
+
+> **Mewo commits:** `e5ba56a` — "Note Durations", `ca8d70e` — "Note Duration Improvements"
+
+**Goal:** When the pencil (NewNoteTool) is active, allow selecting a fixed note duration
+(whole, half, quarter, 8th, 16th, 32nd) instead of always drag-to-size. Shows a
+semi-transparent ghost preview on hover before clicking.
+
+**Files to modify:**
+| File | Change |
+|------|--------|
+| `src/tool/NewNoteTool.h` | Add `static int _durationDivisor`, getter/setter, duration methods |
+| `src/tool/NewNoteTool.cpp` | Rewrite `draw()`, modify `press()` and `release()` for preset durations |
+| `src/gui/MainWindow.h` | Add duration action slots (6 presets + "Free draw") |
+| `src/gui/MainWindow.cpp` | Add duration actions in `setupActions()`, connect to NewNoteTool |
+
+**Implementation details:**
+
+1. **NewNoteTool.h** — Add static member + methods:
+   ```cpp
+   private:
+       static int _durationDivisor;  // 0=free draw, 1=whole, 2=half, 4=quarter, 8=eighth, 16=16th, 32=32nd
+
+   public:
+       static int durationDivisor();
+       static void setDurationDivisor(int divisor);
+   ```
+
+2. **NewNoteTool.cpp** — Initialize:
+   ```cpp
+   int NewNoteTool::_durationDivisor = 0;  // default: free draw (current behavior)
+   ```
+
+3. **draw() rewrite** — Two modes:
+   - `_durationDivisor == 0` (free draw): Existing behavior (drag rectangle)
+   - `_durationDivisor > 0` (preset): Calculate `durationTicks = (file()->ticksPerQuarter() * 4) / _durationDivisor`
+     - **On hover (not inDrag):** Draw semi-transparent ghost note at snap position
+       ```cpp
+       painter->setOpacity(0.3);
+       int startTick; rasteredX(mouseX, &startTick);
+       int endMs = file()->msOfTick(startTick + durationTicks);
+       int endX = matrixWidget->xPosOfMs(endMs);
+       painter->fillRect(snapX, y, endX - snapX, lineHeight, Qt::black);
+       painter->setOpacity(1.0);
+       ```
+     - **On drag:** Draw solid note (same duration calculation)
+
+4. **release() modification** — Preset duration overrides drag end:
+   ```cpp
+   if (line <= 127 && _durationDivisor > 0) {
+       int durationTicks = (file()->ticksPerQuarter() * 4) / _durationDivisor;
+       endTick = startTick + durationTicks;
+   }
+   ```
+
+5. **MainWindow.cpp setupActions()** — Add duration actions after pencil tool:
+   ```cpp
+   // Note Duration Presets (under Tools menu, after pencil)
+   QMenu* durationMenu = toolsMB->addMenu(tr("Note Duration"));
+   QActionGroup* durationGroup = new QActionGroup(this);
+   durationGroup->setExclusive(true);
+
+   struct { QString name; int divisor; QString shortcut; } durations[] = {
+       {"Free Draw",  0,  ""},
+       {"Whole Note",    1,  "Ctrl+1"},
+       {"Half Note",     2,  "Ctrl+2"},
+       {"Quarter Note",  4,  "Ctrl+3"},
+       {"8th Note",      8,  "Ctrl+4"},
+       {"16th Note",    16,  "Ctrl+5"},
+       {"32nd Note",    32,  "Ctrl+6"},
+   };
+   ```
+   Each action calls `NewNoteTool::setDurationDivisor(divisor)` and is checkable
+   (QActionGroup ensures only one is active).
+
+6. **Keyboard shortcut consideration:** Verify no conflict with existing Ctrl+1..6 binds.
+   Check `_defaultShortcuts` map. If conflicts exist, use Alt+1..6 or numpad.
+
+**Key tick-to-pixel conversion:**
+```cpp
+int durationTicks = (file()->ticksPerQuarter() * 4) / _durationDivisor;
+// file()->ticksPerQuarter() is typically 480 → quarter = 480 ticks, whole = 1920 ticks
+int endMs = file()->msOfTick(startTick + durationTicks);
+int endX = matrixWidget->xPosOfMs(endMs);
+```
+
+**Dependencies:** None — NewNoteTool and MainWindow are self-contained
+**Risk:** Low-Medium — modifies draw() and release() paths, but free-draw (divisor=0) preserves old behavior
+
+---
+
+### 18.4 — Smooth Playback Scrolling ✅
+
+> **Mewo commit:** `4baf047` — "Smooth Playback Scrolling"
+
+**Goal:** Optional smooth scrolling during playback — the cursor stays anchored at its
+click-start position instead of the view "page-turning" when the cursor hits the edge.
+Toggled via Settings → MIDI → "Smooth Playback Scroll".
+
+**Files to modify:**
+| File | Change |
+|------|--------|
+| `src/gui/MatrixWidget.h` | Add `bool _wasPlaying`, `int _dynamicOffsetMs` private members |
+| `src/gui/MatrixWidget.cpp` | Modify `timeMsChanged()` to add smooth scroll branch |
+| `src/gui/MidiSettingsWidget.h` | Add checkbox member |
+| `src/gui/MidiSettingsWidget.cpp` | Add "Smooth Playback Scroll" checkbox, save to QSettings |
+
+**Implementation details:**
+
+1. **MatrixWidget.h** — Add private members (near `screen_locked`, ~line 595):
+   ```cpp
+   bool _wasPlaying = false;
+   int _dynamicOffsetMs = 0;
+   ```
+
+2. **MatrixWidget.cpp** — Modify `timeMsChanged()` (currently at line 100):
+
+   **Current code (page-turn mode):**
+   ```cpp
+   void MatrixWidget::timeMsChanged(int ms, bool ignoreLocked) {
+       if (!file) return;
+       int x = xPosOfMs(ms);
+       if ((!screen_locked || ignoreLocked) && (x < lineNameWidth || ms < startTimeX || ms > endTimeX || x > width() - 100)) {
+           if (file->maxTime() <= endTimeX && ms >= startTimeX) { update(); return; }
+           emit scrollChanged(ms, ...);
+       } else {
+           update();
+       }
+   }
+   ```
+
+   **New code (adds smooth scroll branch):**
+   ```cpp
+   void MatrixWidget::timeMsChanged(int ms, bool ignoreLocked) {
+       if (!file) return;
+       int x = xPosOfMs(ms);
+       bool smoothScroll = _settings->value("rendering/smooth_playback_scroll", false).toBool();
+       bool isPlaying = MidiPlayer::isPlaying();
+
+       // Capture dynamic offset when playback starts
+       if (isPlaying && !_wasPlaying) {
+           _dynamicOffsetMs = ms - startTimeX;
+           // Clamp to 25%-75% of visible width
+           int visibleMs = (width() - lineNameWidth) * 1000 / (PIXEL_PER_S * scaleX);
+           _dynamicOffsetMs = qBound(visibleMs / 4, _dynamicOffsetMs, visibleMs * 3 / 4);
+       }
+       _wasPlaying = isPlaying;
+
+       if (!screen_locked || ignoreLocked) {
+           if (smoothScroll && isPlaying) {
+               // Smooth: keep cursor anchored at its start position
+               int desiredStartTime = qMax(0, ms - _dynamicOffsetMs);
+               if (file->maxTime() <= endTimeX && desiredStartTime >= startTimeX) {
+                   update(); return;
+               }
+               emit scrollChanged(desiredStartTime, ...);
+               return;
+           } else if (x < lineNameWidth || ms < startTimeX || ms > endTimeX || x > width() - 100) {
+               // Standard page-turn mode (original behavior)
+               if (file->maxTime() <= endTimeX && ms >= startTimeX) { update(); return; }
+               emit scrollChanged(ms, ...);
+               return;
+           }
+       }
+       update();
+   }
+   ```
+
+3. **MidiSettingsWidget.cpp** — Add checkbox in the rendering/playback section:
+   ```cpp
+   QCheckBox *smoothScrollBox = new QCheckBox(tr("Smooth Playback Scrolling"));
+   smoothScrollBox->setChecked(_settings->value("rendering/smooth_playback_scroll", false).toBool());
+   connect(smoothScrollBox, &QCheckBox::toggled, [this](bool checked) {
+       _settings->setValue("rendering/smooth_playback_scroll", checked);
+   });
+   ```
+
+**Key formula:**
+- `_dynamicOffsetMs` = cursor offset from viewport left edge at playback start
+- During playback: `viewportStart = cursorMs - _dynamicOffsetMs`
+- Clamped to 25%-75% of viewport width to prevent edge-of-screen anchoring
+
+**Dependencies:** `MidiPlayer::isPlaying()` — already available via `#include "../midi/MidiPlayer.h"`
+**Risk:** Low — gracefully falls back to page-turn mode when smooth scroll disabled
+
+---
+
+### 18.5 — Timeline Markers (Visual CC/PC/Text markers) ✅
+
+> **Mewo commit:** `8ec534f` — "Timeline Markers, Settings Redesign, More UI Improvements"
+
+**Goal:** Display dashed vertical lines through the piano roll at positions where CC events,
+Program Change events, or Text (Marker) events occur. Labels at the top show event type
+(CC, PC, M). Markers are draggable to reposition. Colored by track or channel.
+
+**Files to modify/create:**
+| File | Change |
+|------|--------|
+| `src/gui/MatrixWidget.h` | Add `paintTimelineMarkers()`, `findTimelineMarkerNear()`, `_draggedMarker` member |
+| `src/gui/MatrixWidget.cpp` | Add `paintTimelineMarkers()` (~120 lines), `findTimelineMarkerNear()` (~40 lines), modify `mousePressEvent/mouseMoveEvent/mouseReleaseEvent` for drag, modify `paintEvent` to call markers |
+| `src/gui/Appearance.h` | Add `MarkerColorMode` enum, `showProgramChangeMarkers()`, `showControlChangeMarkers()`, `showTextEventMarkers()`, `markerColorMode()` static methods + members |
+| `src/gui/Appearance.cpp` | Implement marker settings (load/save from QSettings), ~50 lines |
+| `src/gui/AppearanceSettingsWidget.h` | Add marker setting widgets |
+| `src/gui/AppearanceSettingsWidget.cpp` | Add marker toggle checkboxes + color mode combo, ~50 lines |
+
+**Implementation details:**
+
+1. **Appearance.h** — Add marker configuration:
+   ```cpp
+   enum MarkerColorMode { ColorByTrack, ColorByChannel };
+
+   static bool showProgramChangeMarkers();
+   static void setShowProgramChangeMarkers(bool enabled);
+   static bool showControlChangeMarkers();
+   static void setShowControlChangeMarkers(bool enabled);
+   static bool showTextEventMarkers();
+   static void setShowTextEventMarkers(bool enabled);
+   static MarkerColorMode markerColorMode();
+   static void setMarkerColorMode(MarkerColorMode mode);
+
+   // Private
+   static bool _showProgramChangeMarkers;
+   static bool _showControlChangeMarkers;
+   static bool _showTextEventMarkers;
+   static MarkerColorMode _markerColorMode;
+   ```
+
+2. **Appearance.cpp** — Load/save:
+   ```cpp
+   _showProgramChangeMarkers = settings.value("appearance/show_pc_markers", false).toBool();
+   _showControlChangeMarkers = settings.value("appearance/show_cc_markers", false).toBool();
+   _showTextEventMarkers = settings.value("appearance/show_text_markers", true).toBool();
+   _markerColorMode = (MarkerColorMode)settings.value("appearance/marker_color_mode", 0).toInt();
+   ```
+
+3. **MatrixWidget.h** — Add members and methods:
+   ```cpp
+   private:
+       MidiEvent *_draggedMarker = nullptr;
+       void paintTimelineMarkers(QPainter *painter);
+       MidiEvent *findTimelineMarkerNear(int ms);
+   ```
+
+4. **paintTimelineMarkers()** algorithm:
+   ```
+   for each channel (0-16):
+       for each event in visible tick range:
+           if event matches enabled type (CC/PC/Text) AND track not hidden:
+               group by tick → QMap<int, QList<MidiEvent*>>
+
+   for each tick group:
+       draw dashed vertical line from timeHeight to widget bottom
+       stack labels (CC, PC, M) at timeline bottom, offset upwards
+       color by track or channel per markerColorMode()
+   ```
+
+5. **paintEvent integration** — After existing event painting, before cursor:
+   ```cpp
+   // In paintEvent(), inside the pixmap painting block:
+   pixpainter->setClipping(true);
+   pixpainter->setClipRect(lineNameWidth, 0, width() - lineNameWidth, height());
+   paintTimelineMarkers(pixpainter);
+   pixpainter->setClipping(false);
+   ```
+
+6. **Marker dragging** — In `mousePressEvent`:
+   ```cpp
+   if (mouseInRect(TimeLineArea) && event->button() == Qt::LeftButton) {
+       _draggedMarker = findTimelineMarkerNear(msOfXPos(event->pos().x()));
+       if (_draggedMarker) {
+           file->protocol()->startNewAction(tr("Move Marker"));
+           return; // consume event
+       }
+   }
+   ```
+   In `mouseMoveEvent`: update `_draggedMarker->setMidiTime(file->tick(newMs))`
+   In `mouseReleaseEvent`: `file->protocol()->endAction(); _draggedMarker = nullptr;`
+
+7. **findTimelineMarkerNear()** — Tolerance-based search:
+   ```cpp
+   int thresholdMs = timeMsOfWidth(7); // 7 pixels
+   // Search channels 0-16 for matching events near the click point
+   // Return the closest match within threshold, or nullptr
+   ```
+
+8. **AppearanceSettingsWidget** — Add in the Appearance section:
+   ```
+   ☐ Show Program Change Markers
+   ☐ Show Control Change Markers
+   ☑ Show Text Event (Marker) Markers
+   Color Mode: [Track ▾] / [Channel ▾]
+   ```
+
+**Dependencies:** `ControlChangeEvent`, `ProgChangeEvent`, `TextEvent` — all exist in `src/MidiEvent/`
+**Risk:** Medium — modifies paintEvent pipeline and mouse handlers. Keep marker rendering behind feature flags (all off by default) so it's safe to ship incrementally.
+
+---
+
+### 18.6 — Status Bar with Chord Detection ✅
+
+> **Mewo commit:** `4716fc5` — "Status Bar"
+
+**Goal:** Persistent status bar at the bottom of the main window showing:
+- Cursor position (measure:beat, tick, ms)
+- Selected note names (e.g., "C4, E4, G4")
+- Detected chord name (e.g., "Cmaj", "Am7", "Fdim")
+- Number of selected events
+
+**Files to create:**
+| File | Description |
+|------|-------------|
+| `src/midi/ChordDetector.h` | Static class with `detectChord(QList<int> notes)` → `QString` |
+| `src/midi/ChordDetector.cpp` | Chord detection algorithm (~95 lines) |
+| `src/gui/StatusBarSettingsWidget.h` | Settings page for status bar options |
+| `src/gui/StatusBarSettingsWidget.cpp` | Checkboxes for which sections to show |
+
+**Files to modify:**
+| File | Change |
+|------|--------|
+| `src/gui/MainWindow.h` | Add `QLabel *_statusCursorLabel, *_statusSelectionLabel, *_statusChordLabel` members |
+| `src/gui/MainWindow.cpp` | Create labels in constructor, add `updateStatusBar()` slot, connect to selection/cursor signals |
+| `src/gui/SettingsDialog.cpp` | Register StatusBarSettingsWidget tab |
+| `CMakeLists.txt` | Add new source files |
+
+**Implementation details:**
+
+1. **ChordDetector** — interval-based chord recognition:
+   ```cpp
+   class ChordDetector {
+   public:
+       static QString detectChord(QList<int> midiNotes);
+       static QString getNoteName(int note, bool includeOctave = false);
+   private:
+       static QString identifyChordType(int root, const QList<int>& intervals);
+   };
+   ```
+
+   **Algorithm:**
+   - Extract pitch classes: `note % 12` for each note, remove duplicates
+   - If 1 unique pitch class → return single note name
+   - For each possible root (try each pitch class as root):
+     - Compute intervals relative to root
+     - Match against known chord patterns:
+       - **Triads (2 intervals):** major (4,7), minor (3,7), dim (3,6), aug (4,8), sus2 (2,7), sus4 (5,7)
+       - **Sevenths (3 intervals):** maj7 (4,7,11), m7 (3,7,10), dom7 (4,7,10), m7b5 (3,6,10), dim7 (3,6,9)
+       - **Extended (4 intervals):** 9th (2,4,7,10), maj9 (2,4,7,11)
+     - If match found → return `rootName + chordType`
+   - If no match → return empty string
+
+2. **MainWindow constructor** — Create status bar labels:
+   ```cpp
+   _statusCursorLabel = new QLabel(this);
+   _statusSelectionLabel = new QLabel(this);
+   _statusChordLabel = new QLabel(this);
+   statusBar()->addPermanentWidget(_statusCursorLabel);
+   statusBar()->addPermanentWidget(_statusSelectionLabel);
+   statusBar()->addPermanentWidget(_statusChordLabel);
+   ```
+
+3. **updateStatusBar() slot** — Connected to:
+   - `Selection::instance()` selection changed signal (if available) or called from `selectionChangedFromOutside()`
+   - `matrixWidget->objectListChanged()` signal
+   - Cursor tick change
+
+   ```cpp
+   void MainWindow::updateStatusBar() {
+       if (!file) return;
+
+       // Cursor info
+       int tick = file->cursorTick();
+       int measure, beat;
+       file->measure(tick, &measure, &beat); // get measure/beat
+       _statusCursorLabel->setText(QString("M:%1 B:%2 | T:%3").arg(measure).arg(beat).arg(tick));
+
+       // Selection info + chord detection
+       QList<MidiEvent*> sel = Selection::instance()->selectedEvents();
+       QList<int> notes;
+       foreach (MidiEvent *ev, sel) {
+           OnEvent *on = dynamic_cast<OnEvent*>(ev);
+           if (on) notes.append(on->line());
+       }
+       _statusSelectionLabel->setText(QString("%1 events").arg(sel.size()));
+
+       if (!notes.isEmpty()) {
+           QString chord = ChordDetector::detectChord(notes);
+           _statusChordLabel->setText(chord.isEmpty() ? "" : QString("Chord: %1").arg(chord));
+       } else {
+           _statusChordLabel->setText("");
+       }
+   }
+   ```
+
+**Note:** `statusBar()` is already used in MainWindow (line 1379, 3012, 3085) for
+temporary messages. The `addPermanentWidget()` labels will coexist with `showMessage()`. 
+
+**Dependencies:** Selection change notification — verify whether a signal exists or if polling is needed
+**Risk:** Medium — need to find the right signal for selection updates
+
+---
+
+### 18.7 — MML Importer (Music Macro Language) ✅
+
+> **Mewo commits:** `5bdd694` — "GuitarPro / MML -> MIDI Converters", `d34718c` — "Refactor Converters"
+
+**Goal:** Import MML (Music Macro Language) text files as MIDI. MML is used by FFXIV
+bard performers (via 3MLE tool) and retro game music communities.
+
+**MML syntax basics:**
+- `cdefgab` — notes (C through B)
+- `+` / `-` — sharp / flat
+- Number after note — duration (4=quarter, 8=eighth, etc.)
+- `o4` — set octave, `>` / `<` — octave up/down
+- `t120` — tempo 120 BPM
+- `r8` — rest (8th note)
+- `l4` — default length (quarter)
+- `v15` — volume (0-15)
+- `&` — tie notes
+- Tracks separated by `;` or `,` (format-dependent)
+
+**Files to create:**
+| File | Description |
+|------|-------------|
+| `src/converter/MML/MmlImporter.h` | Entry point: `static MidiFile* import(QString path)` |
+| `src/converter/MML/MmlImporter.cpp` | File reading, encoding detection, orchestration |
+| `src/converter/MML/MmlLexer.h` | Tokenizer: MML text → token list |
+| `src/converter/MML/MmlLexer.cpp` | Lexer implementation (~170 lines) |
+| `src/converter/MML/MmlParser.h` | Parser: tokens → note/event commands |
+| `src/converter/MML/MmlParser.cpp` | Parser implementation (~215 lines) |
+| `src/converter/MML/MmlModels.h` | Data structures: MmlNote, MmlTrack, MmlSong |
+| `src/converter/MML/MmlConverter.h` | MML song → MIDI file conversion |
+| `src/converter/MML/MmlConverter.cpp` | Conversion (~55 lines) |
+| `src/converter/MML/MmlMidiWriter.h` | Write MIDI events from MML data |
+| `src/converter/MML/MmlMidiWriter.cpp` | MIDI writing (~90 lines) |
+| `src/converter/MML/ThreeMleParser.h` | 3MLE format-specific parser |
+| `src/converter/MML/ThreeMleParser.cpp` | 3MLE parsing (~335 lines) |
+
+**Files to modify:**
+| File | Change |
+|------|--------|
+| `src/gui/MainWindow.cpp` | Add `*.mml *.3mle` to file open filter (~line 1287), add import call in load() |
+| `CMakeLists.txt` | Add `src/converter/MML/*.cpp` to sources |
+
+**Implementation approach:**
+1. Follow the existing `GpImporter` pattern: static method returns temporary MIDI file
+2. Detect format from content/extension: `.mml` → standard MML, `.3mle` → 3MLE format
+3. **3MLE format:** Has `[Settings]` and `[Channel*]` INI-style sections
+4. **Standard MML:** Track data separated by `;`
+5. Pipeline: `file → text → lexer → tokens → parser → commands → converter → MidiFile`
+
+**File dialog filter update** (MainWindow.cpp ~line 1287):
+```cpp
+// Current:
+"All Supported Files (*.mid *.midi *.gp *.gp3 *.gp4 *.gp5 *.gpx *.gtp)"
+// Change to:
+"All Supported Files (*.mid *.midi *.gp *.gp3 *.gp4 *.gp5 *.gpx *.gtp *.mml *.3mle)"
+```
+Add separate filter: `"MML Files (*.mml *.3mle)"`
+
+**Dependencies:** None — new directory, new files
+**Risk:** Medium — complex parser, but isolated from existing code. All new files.
+
+---
+
+### 18.8 — DrumKit Preset Mapping ✅
+
+> **Mewo commit:** `c95a9ce` — "Split Channels Tool & DrumKit Preset Mapping"
+
+**Goal:** When splitting Channel 9 (drums) into separate tracks, offer preset
+mappings for common drum kits (GM, Rock, Jazz, Electronic) that pre-assign
+note ranges to named tracks (e.g., "Kick", "Snare", "Hi-Hat", "Crash").
+
+**Files to create:**
+| File | Description |
+|------|-------------|
+| `src/gui/DrumKitPreset.h` | Preset data structures and static preset definitions |
+| `src/gui/DrumKitPreset.cpp` | Preset database: GM drum map + custom kits (~325 lines) |
+
+**Files to modify:**
+| File | Change |
+|------|--------|
+| `src/gui/SplitChannelsDialog.h` | Add `DrumKitPreset *_selectedPreset`, preset combo |
+| `src/gui/SplitChannelsDialog.cpp` | Integrate preset selection into dialog UI (~40 lines) |
+| `CMakeLists.txt` | Add new source files |
+
+**Implementation details:**
+
+1. **DrumKitPreset.h** — Data structures:
+   ```cpp
+   struct DrumGroup {
+       QString name;          // e.g., "Kick", "Snare"
+       QList<int> noteNumbers; // e.g., {35, 36} for bass drums
+   };
+
+   class DrumKitPreset {
+   public:
+       QString name;                    // e.g., "General MIDI"
+       QList<DrumGroup> groups;
+
+       static QList<DrumKitPreset> presets();
+       static DrumKitPreset gmPreset();
+   };
+   ```
+
+2. **GM Drum Map** (the core database):
+   ```
+   35-36: Bass Drum
+   37-40: Snare / Side Stick / Claps
+   41-43: Low Tom
+   44-46: Hi-Hat (closed, pedal, open)
+   47-48: Mid Tom
+   49, 57: Crash Cymbal
+   50-53: High Tom
+   51, 59: Ride Cymbal
+   54-56: Tambourine, Splash, Cowbell
+   ...
+   ```
+
+3. **SplitChannelsDialog integration:**
+   - Add QComboBox at top: "Drum Kit Preset: [None] [General MIDI] [Rock] [Jazz]"
+   - When "General MIDI" selected: auto-group channel 9 notes by preset
+   - Each group becomes a separate track with the preset name
+   - Pass `DrumKitPreset` to the split function that creates tracks
+
+**Dependencies:** SplitChannelsDialog must exist (verified ✅)
+**Risk:** Low-Medium — extends existing dialog
+
+---
+
+### 18.9 — SizeChangeTool Improvements ✅
+
+> **Mewo commits:** `e38b178` — "Improve SizeChangeTool Behavior", `01e7455` — "SizeChangeTool Cleanup"
+
+**Goal:** Improve the resize tool with better visual feedback (ghost notes during drag),
+improved edge detection, proper cursor management, and grid-snapped resize.
+
+**Files to modify:**
+| File | Change |
+|------|--------|
+| `src/tool/SizeChangeTool.cpp` | Rewrite `draw()`, `press()`, `move()` methods (~120 lines changed) |
+
+**Key improvements from Mewo:**
+
+1. **Ghost note preview during drag** — Instead of plain black rectangle, draw a
+   semi-transparent ghost with rounded corners:
+   ```cpp
+   // Ghost Note Colors (DAW Standards)
+   bool darkMode = Appearance::shouldUseDarkMode();
+   QColor ghostFill = darkMode ? QColor(255, 255, 255, 60) : QColor(0, 0, 0, 40);
+   QColor ghostBorder = darkMode ? QColor(255, 255, 255, 120) : QColor(0, 0, 0, 80);
+
+   painter->setBrush(ghostFill);
+   painter->setPen(QPen(ghostBorder, 1, Qt::SolidLine));
+   painter->drawRoundedRect(ghostRect, 1, 1);
+   ```
+
+2. **Pixel-accurate raw coordinate calculation** — Use `matrixWidget->xPosOfMs(msOfTick(tick))`
+   instead of `event->x()` / `event->width()` for accurate ghost positioning:
+   ```cpp
+   OnEvent *onEvent = dynamic_cast<OnEvent *>(event);
+   if (onEvent && onEvent->offEvent()) {
+       int rawX = matrixWidget->xPosOfMs(matrixWidget->msOfTick(onEvent->midiTime()));
+       int rawEndX = matrixWidget->xPosOfMs(matrixWidget->msOfTick(onEvent->offEvent()->midiTime()));
+   }
+   ```
+
+3. **Edge cursor on hover (without drag)** — Show split cursor when hovering over
+   note edges even before clicking:
+   ```cpp
+   // In draw(), when !inDrag:
+   foreach (MidiEvent* event, Selection::instance()->selectedEvents()) {
+       if (pointInRect(mouseX, mouseY, event->x() + event->width() - 2, ...))
+           setCursor(Qt::SplitHCursor);  // right edge
+       if (pointInRect(mouseX, mouseY, event->x() - 2, ...))
+           setCursor(Qt::SplitHCursor);  // left edge
+   }
+   ```
+
+4. **Improved press() logic:**
+   - Check for left/right edge click first
+   - If no edge found: left click = drag note start, right click = drag note end
+   - Grid-snap via `rasteredX(mouseX)` from start
+   - Return `false` for empty selection instead of entering drag state
+
+5. **TitleCase protocol text:** "Change event duration" → "Change Event Duration"
+
+**Dependencies:** `Appearance::shouldUseDarkMode()` — already exists
+**Risk:** Low — improves existing tool, no new files
+
+---
+
+### 18.10 — DLS SoundFont Support ✅
+
+> **Mewo commit:** `7a0945d` — "Support DLS SoundFonts"
+
+**Goal:** Allow loading `.dls` (Downloadable Sound) files in addition to `.sf2`/`.sf3`.
+FluidSynth has built-in DLS support — we just need to update the file dialog filter.
+
+**Files to modify:**
+| File | Change |
+|------|--------|
+| `src/gui/MidiSettingsWidget.cpp` | Line 428: Add `*.dls *.DLS` to file filter |
+| `src/midi/FluidSynthEngine.h` | Line 84: Update doc comment to mention DLS |
+
+**Current filter (line 428):**
+```cpp
+tr("SoundFont Files (*.sf2 *.sf3 *.SF2 *.SF3);;All Files (*)")
+```
+
+**New filter:**
+```cpp
+tr("SoundFont Files (*.sf2 *.sf3 *.dls *.SF2 *.SF3 *.DLS);;All Files (*)")
+```
+
+**Dependencies:** FluidSynth library must support DLS (it does since FluidSynth 2.x)
+**Risk:** None — purely cosmetic file filter change
+
+---
+
+### 18.11 — Fixed Measure Number Position ✅
+
+> **Mewo commit:** `5080ff3` — "More UI & Fixes"
+
+**Problem:** When timeline markers are enabled, the `timeHeight` increases from 50 to
+66+ pixels. The measure number text Y position was computed as `timeHeight - 9`, causing
+numbers to shift downward when markers appear. This makes the timeline ruler look unstable.
+
+**Fix:** Use a constant `textY = 41` instead of `timeHeight - 9` so measure numbers
+stay anchored at the same vertical position regardless of marker bar visibility.
+
+**File:** `src/gui/MatrixWidget.cpp` — `paintEvent()`, measure number drawing
+
+**Change:**
+```cpp
+// Before:
+int textY = timeHeight - 9;
+
+// After:
+int textY = 41;
+```
+
+**Dependencies:** None
+**Risk:** None — purely visual positioning fix
+
+---
+
+### 18.12 — Separate MarkerArea + Pixel-Based Hit-Testing ✅
+
+> **Mewo commit:** `5080ff3` — "More UI & Fixes"
+
+**Problem:** Marker interaction (hover cursor, click-to-drag) uses `TimeLineArea` for
+bounds checking and millisecond-based distance for hit detection. This means:
+1. Hovering over the ruler area (where measure numbers are) triggers marker cursor
+2. Clicking on the ruler can accidentally grab a nearby marker
+3. Hit detection is imprecise — uses ms distance rather than pixel bounds of the 22px box
+
+**Fix:**
+- Add `QRectF MarkerArea` and `int _markerRowHeight` members to `MatrixWidget.h`
+- In `calcSizes()`: compute `MarkerArea` as the 16px row below the 50px ruler
+- `mouseMoveEvent()`: Show `SplitHCursor` only when hovering in `MarkerArea`, not `TimeLineArea`
+- `mousePressEvent()`: Only start marker drag when clicking in `MarkerArea`
+- `findTimelineMarkerNear(int x, int y)`: Change from ms-based to pixel-based hit testing —
+  check `mouseInRect(MarkerArea)` first, then test if `x` falls within `evX..evX+24` range
+
+**Files to modify:**
+| File | Change |
+|------|--------|
+| `src/gui/MatrixWidget.h` | Add `QRectF MarkerArea`, `int _markerRowHeight`, `bool _hasVisibleMarkers`; change `findTimelineMarkerNear` signature to `(int x, int y)` |
+| `src/gui/MatrixWidget.cpp` | Update `calcSizes()`, `mouseMoveEvent()`, `mousePressEvent()`, `findTimelineMarkerNear()`, `paintTimelineMarkers()` |
+
+**Dependencies:** None
+**Risk:** Low — improves existing marker interaction
+
+---
+
+### 18.13 — Full-Height Divider & Border Cleanup ✅
+
+> **Mewo commit:** `5080ff3` — "More UI & Fixes"
+
+**Problem:** 
+1. The vertical divider between the piano/header area and the play area only starts at
+   `timeHeight`, leaving the top header area without a divider
+2. A bottom-right border (`drawLine` for bottom edge and right edge) adds unnecessary
+   visual clutter
+
+**Fix:**
+- Change vertical divider line from `drawLine(lineNameWidth, timeHeight, ...)` to
+  `drawLine(lineNameWidth, 0, lineNameWidth, height())` — full height
+- Remove the two bottom/right border lines (replaced with comment)
+
+**File:** `src/gui/MatrixWidget.cpp` — `paintEvent()`
+
+**Dependencies:** None
+**Risk:** None — purely visual cleanup
+
+---
+
+### 18.14 — TrackListWidget / ChannelListWidget refreshColors() ✅
+
+> **Mewo commit:** `5080ff3` — "More UI & Fixes"
+
+**Problem:** When themes change at runtime, `Appearance::refreshColors()` calls
+`trackListWidget->update()` and `channelListWidget->update()`, but this only triggers
+a repaint — it doesn't update the cached toolbar background palette. The mini-toolbars
+inside each track/channel list item retain stale colors from the previous theme.
+
+**Fix:** Add proper `refreshColors()` methods that update toolbar palettes:
+
+**New methods:**
+- `TrackListItem::refreshColors()` — updates `_toolBar` palette with `Appearance::toolbarBackgroundColor()`
+- `TrackListWidget::refreshColors()` — iterates all items, calls `refreshColors()`, then `QListWidget::update()`
+- `ChannelListItem::refreshColors()` — same pattern
+- `ChannelListWidget::refreshColors()` — same pattern
+
+Store `QToolBar *_toolBar` pointer in each list item for palette refresh.
+
+Update `Appearance::refreshColors()` to call `refreshColors()` instead of `update()`.
+
+**Files to modify:**
+| File | Change |
+|------|--------|
+| `src/gui/TrackListWidget.h` | Add `_toolBar` member, `refreshColors()` methods |
+| `src/gui/TrackListWidget.cpp` | Store toolbar pointer, implement `refreshColors()` |
+| `src/gui/ChannelListWidget.h` | Add `_toolBar` member, `refreshColors()` methods |
+| `src/gui/ChannelListWidget.cpp` | Store toolbar pointer, implement `refreshColors()` |
+| `src/gui/Appearance.cpp` | Change `->update()` to `->refreshColors()` calls |
+
+**Dependencies:** None
+**Risk:** Low — additive change, no behavior change for existing code paths
+
+---
+
+### 18.15 — moveToChannel / removeEvent toProtocol Parameter ✅
+
+> **Mewo commit:** `5080ff3` — "More UI & Fixes"
+
+**Problem:** `MidiEvent::moveToChannel()` and `MidiChannel::removeEvent()` always
+record undo/redo protocol entries. During bulk operations like the FFXIV Channel Fixer
+(which moves hundreds of events), this creates massive undo history, is slow, and wastes
+memory. Individual protocol entries for each event in a batch operation are pointless
+since the operation should be atomic.
+
+**Fix:** Add `bool toProtocol = true` parameter to both methods. Default preserves
+existing behavior. Channel Fixer passes `false` to skip protocol recording.
+
+**Files to modify:**
+| File | Change |
+|------|--------|
+| `src/MidiEvent/MidiEvent.h` | `moveToChannel(int channel, bool toProtocol = true)` |
+| `src/MidiEvent/MidiEvent.cpp` | Guard `copy()` + `protocol()` with `if (toProtocol)` |
+| `src/MidiEvent/OnEvent.h` | Override signature update |
+| `src/MidiEvent/OnEvent.cpp` | Pass `toProtocol` to base + off event |
+| `src/midi/MidiChannel.h` | `removeEvent(MidiEvent*, bool toProtocol = true)` |
+| `src/midi/MidiChannel.cpp` | Guard `copy()` + `protocol()` with `if (toProtocol)` |
+| `src/support/FFXIVChannelFixer.cpp` | Pass `false` for `moveToChannel` and `removeEvent` calls |
+
+**Dependencies:** None
+**Risk:** Low — default parameter preserves all existing call sites unchanged
+
+---
+
+### 18.16 — FFXIVChannelFixer Memory Leak Fix ✅
+
+> **Mewo commit:** `5080ff3` — "More UI & Fixes"
+
+**Problem:** In `FFXIVChannelFixer::fixChannels()`, when removing Program Change events
+from channels, the events are removed from the channel's event map but never `delete`d.
+This leaks the `ProgChangeEvent` objects on the heap.
+
+**Fix:** Add `delete ev;` after `channel->removeEvent(ev, false);` in the PC cleanup loop.
+
+**File:** `src/support/FFXIVChannelFixer.cpp`
+
+**Current code:**
+```cpp
+for (MidiEvent *ev : toRemove)
+    channel->removeEvent(ev);
+```
+
+**New code:**
+```cpp
+for (MidiEvent *ev : toRemove) {
+    channel->removeEvent(ev, false);
+    delete ev;
+}
+```
+
+**Dependencies:** 18.15 (toProtocol parameter)
+**Risk:** None — events are already removed from all containers before deletion

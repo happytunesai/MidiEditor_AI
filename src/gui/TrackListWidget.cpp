@@ -58,6 +58,7 @@ TrackListItem::TrackListItem(MidiTrack *track, TrackListWidget *parent)
     layout->addWidget(trackNameLabel, 1, 1, 1, 1);
 
     QToolBar *toolBar = new QToolBar(this);
+    _toolBar = toolBar;
     toolBar->setIconSize(QSize(12, 12));
     QPalette palette = toolBar->palette();
     palette.setColor(QPalette::Window, Appearance::toolbarBackgroundColor());
@@ -314,4 +315,19 @@ void TrackListWidget::reorderTracks(int fromIndex, int toIndex) {
     
     // Emit signal to notify other components
     emit trackOrderChanged();
+}
+
+void TrackListItem::refreshColors() {
+    if (_toolBar) {
+        QPalette palette = _toolBar->palette();
+        palette.setColor(QPalette::Window, Appearance::toolbarBackgroundColor());
+        _toolBar->setPalette(palette);
+    }
+}
+
+void TrackListWidget::refreshColors() {
+    foreach(TrackListItem* item, items.values()) {
+        item->refreshColors();
+    }
+    QListWidget::update();
 }

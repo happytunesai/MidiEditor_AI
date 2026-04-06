@@ -23,6 +23,9 @@
 #include "../MidiEvent/OffEvent.h"
 #include "../MidiEvent/TempoChangeEvent.h"
 #include "../MidiEvent/TimeSignatureEvent.h"
+#include "../MidiEvent/ControlChangeEvent.h"
+#include "../MidiEvent/ProgChangeEvent.h"
+#include "../MidiEvent/TextEvent.h"
 #include "../midi/MidiChannel.h"
 #include "../midi/MidiFile.h"
 #include "../midi/MidiInput.h"
@@ -39,7 +42,11 @@
 
 #include <QList>
 #include <QSettings>
+#include <QMenu>
+#include <QContextMenuEvent>
 #include <cmath>
+
+#include "MainWindow.h"
 
 #define NUM_LINES 139
 #define PIXEL_PER_S 100
@@ -59,6 +66,7 @@ MatrixWidget::MatrixWidget(QSettings *settings, QWidget *parent)
     scaleY = 1;
     lineNameWidth = 110;
     timeHeight = 50;
+    markerBarHeight = 0;
     currentTempoEvents = new QList<MidiEvent *>;
     currentTimeSignatureEvents = new QList<TimeSignatureEvent *>;
     msOfFirstEventInList = 0;
@@ -102,21 +110,42 @@ void MatrixWidget::timeMsChanged(int ms, bool ignoreLocked) {
         return;
 
     int x = xPosOfMs(ms);
+    bool smoothScroll = Appearance::smoothPlaybackScrolling();
+    bool isPlaying = MidiPlayer::isPlaying();
 
-    if ((!screen_locked || ignoreLocked) && (x < lineNameWidth || ms < startTimeX || ms > endTimeX || x > width() -
-                                             100)) {
-        // return if the last tick is already shown
-        if (file->maxTime() <= endTimeX && ms >= startTimeX) {
-            update();
+    // Capture dynamic offset when playback starts
+    if (isPlaying && !_wasPlaying) {
+        _dynamicOffsetMs = ms - startTimeX;
+        if (_dynamicOffsetMs < 0) _dynamicOffsetMs = 0;
+    }
+    _wasPlaying = isPlaying;
+
+    if (!screen_locked || ignoreLocked) {
+        if (smoothScroll && isPlaying) {
+            int desiredStartTime = ms - _dynamicOffsetMs;
+            if (desiredStartTime < 0) desiredStartTime = 0;
+
+            if (file->maxTime() <= endTimeX && desiredStartTime >= startTimeX) {
+                update();
+                return;
+            }
+
+            emit scrollChanged(desiredStartTime, (file->maxTime() - endTimeX + startTimeX), startLineY,
+                               NUM_LINES - (endLineY - startLineY));
+            return;
+        } else if (x < lineNameWidth || ms < startTimeX || ms > endTimeX || x > width() - 100) {
+            if (file->maxTime() <= endTimeX && ms >= startTimeX) {
+                update();
+                return;
+            }
+
+            emit scrollChanged(ms, (file->maxTime() - endTimeX + startTimeX), startLineY,
+                               NUM_LINES - (endLineY - startLineY));
             return;
         }
-
-        // sets the new position and repaints
-        emit scrollChanged(ms, (file->maxTime() - endTimeX + startTimeX), startLineY,
-                           NUM_LINES - (endLineY - startLineY));
-    } else {
-        update();
     }
+
+    update();
 }
 
 void MatrixWidget::scrollXChanged(int scrollPositionX) {
@@ -301,6 +330,12 @@ void MatrixWidget::paintEvent(QPaintEvent *event) {
         // paint measures and timeline background
         pixpainter->fillRect(0, 0, width(), timeHeight, _cachedSystemWindowColor);
 
+        // Draw subtle separator between marker bar and timeline
+        if (markerBarHeight > 0) {
+            pixpainter->setPen(_cachedDarkGrayColor);
+            pixpainter->drawLine(lineNameWidth, markerBarHeight, width(), markerBarHeight);
+        }
+
         pixpainter->setClipping(true);
         pixpainter->setClipRect(lineNameWidth, 0, width() - lineNameWidth - 2,
                                 height());
@@ -413,7 +448,8 @@ void MatrixWidget::paintEvent(QPaintEvent *event) {
                 // Align text to pixel boundaries for sharper rendering
                 int pos = (xfrom + xto) / 2;
                 int textX = static_cast<int>(std::round(pos - textlength / 2.0));
-                int textY = timeHeight - 9;
+                // Use constant Y so measure numbers don't shift when marker bar appears
+                int textY = 41;
 
                 pixpainter->setPen(_cachedMeasureTextColor);
                 pixpainter->drawText(textX, textY, text);
@@ -482,8 +518,11 @@ void MatrixWidget::paintEvent(QPaintEvent *event) {
 
         // line between time texts and matrixarea
         pixpainter->setPen(_cachedBorderColor);
+        // Horizontal line between headers and matrix area
         pixpainter->drawLine(0, timeHeight, width(), timeHeight);
-        pixpainter->drawLine(lineNameWidth, timeHeight, lineNameWidth, height());
+
+        // Full-height vertical divider between headers and play area
+        pixpainter->drawLine(lineNameWidth, 0, lineNameWidth, height());
 
         pixpainter->setPen(_cachedForegroundColor);
 
@@ -581,6 +620,10 @@ void MatrixWidget::paintEvent(QPaintEvent *event) {
         painter->setClipping(false);
     }
 
+    // Paint timeline markers (CC/PC/Text) before cursor
+    paintTimelineMarkers(painter);
+    paintMarkerBar(painter);
+
     if (enabled && mouseInRect(TimeLineArea)) {
         painter->setPen(_cachedPlaybackCursorColor);
         painter->drawLine(mouseX, 0, mouseX, height());
@@ -628,10 +671,7 @@ void MatrixWidget::paintEvent(QPaintEvent *event) {
         painter->drawPolygon(points, 3);
     }
 
-    // border
-    painter->setPen(_cachedBorderColor);
-    painter->drawLine(width() - 1, height() - 1, lineNameWidth, height() - 1);
-    painter->drawLine(width() - 1, height() - 1, width() - 1, 2);
+    /* border removed — cleaner without bottom/right edge lines */
 
     // if the recorder is recording, show red circle
     if (MidiInput::recording()) {
@@ -768,6 +808,162 @@ void MatrixWidget::paintChannel(QPainter *painter, int channel) {
             }
         }
     }
+}
+
+void MatrixWidget::paintTimelineMarkers(QPainter *painter) {
+    if (!file) return;
+    if (!_cachedShowPCMarkers && !_cachedShowCCMarkers && !_cachedShowTextMarkers) return;
+
+    int rulerHeight = timeHeight - markerBarHeight;
+
+    painter->save();
+    painter->setClipping(true);
+    painter->setClipRect(lineNameWidth, rulerHeight, width() - lineNameWidth, height() - rulerHeight);
+
+    // Collect marker ticks with their colors
+    QMap<int, QColor> markerTickColors;
+
+    for (int ch = 0; ch < 17; ch++) {
+        if (ch < 16 && !ChannelVisibilityManager::instance().isChannelVisible(ch)) continue;
+
+        QMultiMap<int, MidiEvent *> *map = file->channelEvents(ch);
+        if (!map) continue;
+
+        auto itStart = map->lowerBound(startTick);
+        auto itEnd = map->upperBound(endTick);
+
+        for (auto it = itStart; it != itEnd; ++it) {
+            MidiEvent *ev = it.value();
+            if (!ev) continue;
+
+            bool match = false;
+            if (_cachedShowPCMarkers && dynamic_cast<ProgChangeEvent *>(ev)) match = true;
+            if (!match && _cachedShowCCMarkers && dynamic_cast<ControlChangeEvent *>(ev)) match = true;
+            if (!match && _cachedShowTextMarkers && dynamic_cast<TextEvent *>(ev)) match = true;
+            if (!match) continue;
+
+            QColor color;
+            if (_cachedMarkerColorMode == Appearance::ColorByTrack) {
+                color = ev->track() ? *Appearance::trackColor(ev->track()->number()) : _cachedForegroundColor;
+            } else {
+                color = *Appearance::channelColor(ev->channel());
+            }
+            markerTickColors.insert(it.key(), color);
+        }
+    }
+
+    // Draw dashed vertical lines through the timeline and note area
+    QPen dashPen;
+    dashPen.setStyle(Qt::DashLine);
+    dashPen.setWidth(1);
+
+    for (auto it = markerTickColors.constBegin(); it != markerTickColors.constEnd(); ++it) {
+        int x = xPosOfMs(msOfTick(it.key()));
+        if (x < lineNameWidth || x > width()) continue;
+
+        QColor lineColor = it.value();
+        lineColor.setAlpha(100);
+        dashPen.setColor(lineColor);
+        painter->setPen(dashPen);
+        painter->drawLine(x, rulerHeight, x, height());
+    }
+
+    painter->setClipping(false);
+    painter->restore();
+}
+
+void MatrixWidget::paintMarkerBar(QPainter *painter) {
+    if (!file || markerBarHeight <= 0) return;
+    if (!_cachedShowPCMarkers && !_cachedShowCCMarkers && !_cachedShowTextMarkers) return;
+
+    int rulerHeight = timeHeight - markerBarHeight;
+
+    painter->save();
+    painter->setClipping(true);
+    painter->setClipRect(lineNameWidth, rulerHeight, width() - lineNameWidth, markerBarHeight);
+
+    // Collect marker events grouped by tick
+    QMap<int, QList<QPair<QString, QColor>>> markersByTick;
+
+    for (int ch = 0; ch < 17; ch++) {
+        if (ch < 16 && !ChannelVisibilityManager::instance().isChannelVisible(ch)) continue;
+
+        QMultiMap<int, MidiEvent *> *map = file->channelEvents(ch);
+        if (!map) continue;
+
+        auto itStart = map->lowerBound(startTick);
+        auto itEnd = map->upperBound(endTick);
+
+        for (auto it = itStart; it != itEnd; ++it) {
+            MidiEvent *ev = it.value();
+            if (!ev) continue;
+
+            QString label;
+            if (_cachedShowPCMarkers) {
+                ProgChangeEvent *pc = dynamic_cast<ProgChangeEvent *>(ev);
+                if (pc) {
+                    label = QString("PC%1").arg(pc->program());
+                }
+            }
+            if (label.isEmpty() && _cachedShowCCMarkers) {
+                ControlChangeEvent *cc = dynamic_cast<ControlChangeEvent *>(ev);
+                if (cc) {
+                    label = QString("CC%1").arg(cc->control());
+                }
+            }
+            if (label.isEmpty() && _cachedShowTextMarkers) {
+                TextEvent *te = dynamic_cast<TextEvent *>(ev);
+                if (te) {
+                    QString txt = te->text();
+                    if (txt.length() > 12) txt = txt.left(10) + "..";
+                    label = txt.isEmpty() ? "M" : txt;
+                }
+            }
+            if (label.isEmpty()) continue;
+
+            QColor color;
+            if (_cachedMarkerColorMode == Appearance::ColorByTrack) {
+                color = ev->track() ? *Appearance::trackColor(ev->track()->number()) : _cachedForegroundColor;
+            } else {
+                color = *Appearance::channelColor(ev->channel());
+            }
+            markersByTick[it.key()].append(qMakePair(label, color));
+        }
+    }
+
+    // Draw label badges in the marker bar
+    QFont markerFont = painter->font();
+    markerFont.setPointSize(7);
+    QFontMetrics fm(markerFont);
+    painter->setFont(markerFont);
+
+    for (auto it = markersByTick.constBegin(); it != markersByTick.constEnd(); ++it) {
+        int x = xPosOfMs(msOfTick(it.key()));
+        if (x < lineNameWidth || x > width()) continue;
+
+        const auto &entries = it.value();
+        int labelX = x + 2;
+        for (const auto &entry : entries) {
+            QColor bgColor = entry.second;
+            bgColor.setAlpha(210);
+            int tw = fm.horizontalAdvance(entry.first);
+            int pad = 2;
+            QRect bgRect(labelX, rulerHeight + 1, tw + pad * 2, markerBarHeight - 2);
+
+            painter->setPen(Qt::NoPen);
+            painter->setBrush(bgColor);
+            painter->drawRoundedRect(bgRect, 2, 2);
+
+            painter->setPen(bgColor.lightness() > 128 ? Qt::black : Qt::white);
+            painter->drawText(bgRect, Qt::AlignCenter, entry.first);
+
+            labelX += tw + pad * 2 + 2;
+            if (labelX > width() - 10) break;
+        }
+    }
+
+    painter->setClipping(false);
+    painter->restore();
 }
 
 void MatrixWidget::paintPianoKey(QPainter *painter, int number, int x, int y,
@@ -1009,10 +1205,17 @@ void MatrixWidget::calcSizes() {
     int time = file->maxTime();
     int timeInWidget = ((width() - lineNameWidth) * 1000) / (PIXEL_PER_S * scaleX);
 
+    // Timeline ruler is always 50px; marker row adds 16px when markers are visible
+    int rulerHeight = 50;
+    bool anyMarkers = _cachedShowPCMarkers || _cachedShowCCMarkers || _cachedShowTextMarkers;
+    markerBarHeight = anyMarkers ? 16 : 0;
+    timeHeight = rulerHeight + markerBarHeight;
+
+    TimeLineArea = QRectF(lineNameWidth, 0, width() - lineNameWidth, rulerHeight);
+    MarkerArea = QRectF(lineNameWidth, rulerHeight, width() - lineNameWidth, markerBarHeight);
+    PianoArea = QRectF(0, timeHeight, lineNameWidth, height() - timeHeight);
     ToolArea = QRectF(lineNameWidth, timeHeight, width() - lineNameWidth,
                       height() - timeHeight);
-    PianoArea = QRectF(0, timeHeight, lineNameWidth, height() - timeHeight);
-    TimeLineArea = QRectF(lineNameWidth, 0, width() - lineNameWidth, timeHeight);
 
     // Call scroll methods with suppression to prevent cascading repaints
     _suppressScrollRepaints = true;
@@ -1088,7 +1291,12 @@ void MatrixWidget::leaveEvent(QEvent *event) {
 
 void MatrixWidget::mousePressEvent(QMouseEvent *event) {
     PaintWidget::mousePressEvent(event);
-    if (!MidiPlayer::isPlaying() && Tool::currentTool() && mouseInRect(ToolArea)) {
+    // Right-click without Ctrl opens context menu (handled by contextMenuEvent).
+    // Only forward to tool on left-click or Ctrl+right-click.
+    bool isRightClick = (event->buttons() & Qt::RightButton);
+    bool ctrlHeld = (event->modifiers() & Qt::ControlModifier);
+    if (!MidiPlayer::isPlaying() && Tool::currentTool() && mouseInRect(ToolArea)
+        && (!isRightClick || ctrlHeld)) {
         if (Tool::currentTool()->press(event->buttons() == Qt::LeftButton)) {
             if (enabled) {
                 update();
@@ -1107,7 +1315,11 @@ void MatrixWidget::mousePressEvent(QMouseEvent *event) {
 
 void MatrixWidget::mouseReleaseEvent(QMouseEvent *event) {
     PaintWidget::mouseReleaseEvent(event);
-    if (!MidiPlayer::isPlaying() && Tool::currentTool() && mouseInRect(ToolArea)) {
+    // Skip tool release for plain right-click (context menu) — only process if Ctrl held
+    bool isRightRelease = (event->button() == Qt::RightButton);
+    bool ctrlHeld = (event->modifiers() & Qt::ControlModifier);
+    if (!MidiPlayer::isPlaying() && Tool::currentTool() && mouseInRect(ToolArea)
+        && (!isRightRelease || ctrlHeld)) {
         if (Tool::currentTool()->release()) {
             if (enabled) {
                 update();
@@ -1191,6 +1403,15 @@ void MatrixWidget::updateCachedAppearanceColors() {
 
     // Cache theme state to avoid expensive shouldUseDarkMode() calls
     _cachedShouldUseDarkMode = Appearance::shouldUseDarkMode();
+
+    // Cache timeline marker settings
+    _cachedShowPCMarkers = Appearance::showProgramChangeMarkers();
+    _cachedShowCCMarkers = Appearance::showControlChangeMarkers();
+    _cachedShowTextMarkers = Appearance::showTextEventMarkers();
+    _cachedMarkerColorMode = Appearance::markerColorMode();
+
+    // Recalculate sizes in case marker bar visibility changed
+    calcSizes();
 }
 
 void MatrixWidget::pianoEmulator(QKeyEvent *event) {
@@ -1498,6 +1719,83 @@ void MatrixWidget::keyPressEvent(QKeyEvent *event) {
 
 void MatrixWidget::keyReleaseEvent(QKeyEvent *event) {
     takeKeyReleaseEvent(event);
+}
+
+void MatrixWidget::contextMenuEvent(QContextMenuEvent *event) {
+    if (!file || Selection::instance()->selectedEvents().isEmpty()) {
+        QWidget::contextMenuEvent(event);
+        return;
+    }
+
+    MainWindow *mw = qobject_cast<MainWindow *>(window());
+    if (!mw) {
+        QWidget::contextMenuEvent(event);
+        return;
+    }
+
+    QMenu menu(this);
+
+    // Quantize
+    QAction *quantizeAct = menu.addAction(tr("Quantize Selection"));
+    connect(quantizeAct, &QAction::triggered, mw, &MainWindow::quantizeSelection);
+
+    menu.addSeparator();
+
+    // Copy / Delete
+    QAction *copyAct = menu.addAction(tr("Copy"));
+    connect(copyAct, &QAction::triggered, mw, &MainWindow::copy);
+
+    QAction *deleteAct = menu.addAction(tr("Delete"));
+    connect(deleteAct, &QAction::triggered, mw, &MainWindow::deleteSelectedEvents);
+
+    menu.addSeparator();
+
+    // Transpose
+    QAction *transposeAct = menu.addAction(tr("Transpose..."));
+    connect(transposeAct, &QAction::triggered, mw, &MainWindow::transposeNSemitones);
+
+    QAction *octUpAct = menu.addAction(tr("Transpose Octave Up"));
+    connect(octUpAct, &QAction::triggered, mw, &MainWindow::transposeSelectedNotesOctaveUp);
+
+    QAction *octDownAct = menu.addAction(tr("Transpose Octave Down"));
+    connect(octDownAct, &QAction::triggered, mw, &MainWindow::transposeSelectedNotesOctaveDown);
+
+    menu.addSeparator();
+
+    // Move to Track submenu
+    QMenu *trackMenu = menu.addMenu(tr("Move to Track"));
+    int numTracks = file->numTracks();
+    for (int i = 0; i < numTracks; i++) {
+        MidiTrack *trk = file->track(i);
+        QString label = QString::number(i) + ": " + trk->name();
+        QAction *a = trackMenu->addAction(label);
+        a->setData(i);
+        connect(a, &QAction::triggered, this, [mw, a]() {
+            mw->moveSelectedEventsToTrack(a);
+        });
+    }
+
+    // Move to Channel submenu
+    QMenu *channelMenu = menu.addMenu(tr("Move to Channel"));
+    for (int i = 0; i < 16; i++) {
+        QString label = QString::number(i);
+        if (i == 9) {
+            label += " (Drums)";
+        }
+        QAction *a = channelMenu->addAction(label);
+        a->setData(i);
+        connect(a, &QAction::triggered, this, [mw, a]() {
+            mw->moveSelectedEventsToChannel(a);
+        });
+    }
+
+    menu.addSeparator();
+
+    // Scale
+    QAction *scaleAct = menu.addAction(tr("Scale Selection..."));
+    connect(scaleAct, &QAction::triggered, mw, &MainWindow::scaleSelection);
+
+    menu.exec(event->globalPos());
 }
 
 void MatrixWidget::setColorsByChannel() {

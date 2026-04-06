@@ -60,6 +60,7 @@ ChannelListItem::ChannelListItem(int ch, ChannelListWidget *parent)
     layout->addWidget(instrumentLabel, 1, 1, 1, 1);
 
     QToolBar *toolBar = new QToolBar(this);
+    _toolBar = toolBar;
     toolBar->setIconSize(QSize(12, 12));
     QPalette palette = toolBar->palette();
     palette.setColor(QPalette::Window, Appearance::toolbarBackgroundColor());
@@ -230,4 +231,19 @@ void ChannelListWidget::update() {
 
 MidiFile *ChannelListWidget::midiFile() {
     return file;
+}
+
+void ChannelListItem::refreshColors() {
+    if (_toolBar) {
+        QPalette palette = _toolBar->palette();
+        palette.setColor(QPalette::Window, Appearance::toolbarBackgroundColor());
+        _toolBar->setPalette(palette);
+    }
+}
+
+void ChannelListWidget::refreshColors() {
+    foreach(ChannelListItem* item, items) {
+        item->refreshColors();
+    }
+    QListWidget::update();
 }

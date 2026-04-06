@@ -326,9 +326,16 @@ MidiEvent *MidiEvent::loadMidiEvent(QDataStream *content, bool *ok, bool *endEve
                                     textData.append((char) tempByte);
                                 }
 
+                                // Remove terminator null bytes which cause text truncation
+                                // and render as "[]" boxes in Windows UI
+                                int nullIdx = textData.indexOf('\0');
+                                if (nullIdx != -1) {
+                                    textData.truncate(nullIdx);
+                                }
+
                                 // QString::fromUtf8() safely handles malformed UTF-8 by replacing
                                 // invalid sequences with Unicode replacement characters (U+FFFD)
-                                textEvent->setText(QString::fromUtf8(textData));
+                                textEvent->setText(QString::fromUtf8(textData).remove(QChar(0)).trimmed());
                                 *ok = true;
                                 return textEvent;
                             } else {
@@ -537,7 +544,7 @@ int MidiEvent::temporaryRecordID() {
     return _tempID;
 }
 
-void MidiEvent::moveToChannel(int ch) {
+void MidiEvent::moveToChannel(int ch, bool toProtocol) {
     int oldChannel = channel();
 
     if (oldChannel > 15) {
@@ -548,13 +555,18 @@ void MidiEvent::moveToChannel(int ch) {
         return;
     }
 
-    midiFile->channel(oldChannel)->removeEvent(this);
+    midiFile->channel(oldChannel)->removeEvent(this, toProtocol);
 
-    ProtocolEntry *toCopy = copy();
+    ProtocolEntry *toCopy = nullptr;
+    if (toProtocol) {
+        toCopy = copy();
+    }
 
     numChannel = ch;
 
-    protocol(toCopy, this);
+    if (toProtocol) {
+        protocol(toCopy, this);
+    }
 
-    midiFile->channel(ch)->insertEvent(this, midiTime());
+    midiFile->channel(ch)->insertEvent(this, midiTime(), toProtocol);
 }
