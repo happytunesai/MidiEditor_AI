@@ -5,6 +5,35 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 
 ---
 
+## [1.1.8.1] - 2026-04-06 — Bugfix: FFXIV Channel Fixer
+
+* Fixed undo crash when reverting Channel Fixer operations
+* Restored Tier 3 guitar track renaming with reliable data source
+* Added Tier 2 event cleanup (remove CC, PitchBend, etc.; keep Text/lyrics)
+* Context menu "Move to Channel" now shows instrument names
+* 4 bug fixes from v1.1.8 regression + 2 improvements
+
+<details>
+<summary>Full Changelog</summary>
+
+### Fixed
+* **Undo crash after Channel Fixer** — v1.1.8 introduced `toProtocol=false` as a performance optimization for bulk operations, but this caused the Protocol undo system to record an empty step (discarded by `endAction`). Undoing past the Channel Fixer operation crashed because no undo entry existed and deleted events left dangling pointers. Reverted to `toProtocol=true` (default) so all changes are properly recorded; removed `delete ev` on removed Program Changes since the Protocol system keeps events alive for undo
+* **Tier 3 guitar track renaming restored** — v1.1.8.0 removed all Tier 3 renaming as a workaround for unreliable `chToVariant` data. Now that `guitarChannelMap` is built from `assignedChannel()` (the v1.1.8.0 fix), the reverse-map is reliable again. Tier 3 now detects when a guitar track's first note is on a different variant's channel and renames accordingly (e.g. Overdriven track with first note on Distortion channel → renamed to PowerChords)
+* **Tier 3 crash / wrong channel on first run after Tier 2** — (carried forward from v1.1.8.0) Uses `track->assignedChannel()` as sole source of truth
+* **Free channel reservation Tier 2 only** — (carried forward from v1.1.8.0)
+
+### Added
+* **Tier 2 event cleanup** — Tier 2 (Rebuild) now removes non-essential MIDI events (ControlChange, PitchBend, ChannelPressure, KeyPressure, SysEx, etc.) from all channels. FFXIV performance mode doesn't use these events. Text events (lyrics) and notes are preserved
+* **Context menu channel names** — Right-click "Move to Channel" submenu now shows instrument names (e.g. `0: Piano`, `1: ElectricGuitarOverdriven`) matching the toolbar channel menus, instead of bare channel numbers
+
+### Technical Notes
+* **Undo root cause:** `toProtocol=false` prevents `MidiChannel::removeEvent`/`MidiEvent::moveToChannel` from calling `protocol(copy, this)`, so `startNewAction/endAction` recorded 0 items and silently discarded the step
+* **Files modified:** `src/ai/FFXIVChannelFixer.cpp` (undo fix, rename restoration, event cleanup), `src/gui/MatrixWidget.cpp` (channel names in context menu)
+
+</details>
+
+---
+
 ## [1.1.8] - 2026-04-06 — Mewo Feature Sync
 
 > *Cherry-picking the best upstream features: context menus, note presets, timeline markers, chord detection, MML import, drum presets, and a whole lotta polish.*

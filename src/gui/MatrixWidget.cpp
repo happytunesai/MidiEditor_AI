@@ -1779,9 +1779,13 @@ void MatrixWidget::contextMenuEvent(QContextMenuEvent *event) {
     QMenu *channelMenu = menu.addMenu(tr("Move to Channel"));
     for (int i = 0; i < 16; i++) {
         QString label = QString::number(i);
-        if (i == 9) {
-            label += " (Drums)";
+        if (file) {
+            QString instr = MidiFile::instrumentName(file->channel(i)->progAtTick(0));
+            if (!instr.isEmpty())
+                label += ": " + instr;
         }
+        if (i == 9 && !label.contains("("))
+            label += " (Drums)";
         QAction *a = channelMenu->addAction(label);
         a->setData(i);
         connect(a, &QAction::triggered, this, [mw, a]() {

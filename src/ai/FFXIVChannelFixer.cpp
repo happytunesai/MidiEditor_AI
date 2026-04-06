@@ -7,6 +7,7 @@
 #include "../MidiEvent/NoteOnEvent.h"
 #include "../MidiEvent/OffEvent.h"
 #include "../MidiEvent/ProgChangeEvent.h"
+#include "../MidiEvent/TextEvent.h"
 
 #include <QRegularExpression>
 #include <QSet>
@@ -284,9 +285,10 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
     QSet<int> dupGuitarTracks;  // tracks that are duplicate guitar variants
 
     if (isPreserveMode) {
-        // TIER 3 â€” minimal-invasive: notes are ground truth for channel mapping
+        // TIER 3 -- minimal-invasive: assignedChannel() is the ONLY source of truth
+        // (Note distribution is unreliable after Tier 2 inserts tick-0 PCs for all
+        //  instruments on all tracks, making guitarChToProgram random.)
         if (hasGuitar) {
-            // A) For each guitar track, find primary channel from NOTES
             for (int t = 0; t < trackCount; t++) {
                 if (!isGuitar(baseNames[t])) continue;
 
@@ -299,41 +301,18 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
                 }
 
                 MidiTrack *track = file->track(t);
-                QHash<int, int> chCount;
-                for (int ch = 0; ch < 16; ch++) {
-                    MidiChannel *channel = file->channel(ch);
-                    if (!channel) continue;
-                    QMultiMap<int, MidiEvent *> *map = channel->eventMap();
-                    for (auto it = map->begin(); it != map->end(); ++it) {
-                        if (it.value()->track() != track) continue;
-                        if (dynamic_cast<NoteOnEvent *>(it.value()))
-                            chCount[ch]++;
-                    }
-                }
-                int bestCh = t, bestCount = 0;
-                for (auto it = chCount.begin(); it != chCount.end(); ++it) {
-                    if (it.value() > bestCount) { bestCount = it.value(); bestCh = it.key(); }
-                }
-                channelFor[t] = bestCh;
-                guitarChannelMap[baseNames[t]] = bestCh;
-                usedChannels.insert(bestCh);
+                int aCh = track->assignedChannel();
+                if (aCh < 0 || aCh > 15) aCh = qMin(t, 15);
+                channelFor[t] = aCh;
+                guitarChannelMap[baseNames[t]] = aCh;
+                usedChannels.insert(aCh);
             }
-
-            // B) For missing variants (no track), fill from program_changes
-            for (auto it = guitarChToProgram.begin(); it != guitarChToProgram.end(); ++it) {
-                int ch = it.key();
-                int prog = it.value();
-                for (const QString &v : allGuitarVariants) {
-                    if (programNumber(v) == prog && !guitarChannelMap.contains(v)) {
-                        guitarChannelMap[v] = ch;
-                        usedChannels.insert(ch);
-                        break;
-                    }
-                }
-            }
+            // Do NOT fill missing variants from guitarChToProgram in Tier 3 --
+            // after a previous Tier 2 run, every channel has PCs for every
+            // instrument, making guitarChToProgram unreliable.
         }
 
-        // C) channelFor for non-guitar tracks: note distribution
+        // channelFor for non-guitar tracks: use assignedChannel()
         for (int t = 0; t < trackCount; t++) {
             if (isGuitar(baseNames[t])) continue;
             if (isPercussion(baseNames[t])) {
@@ -342,23 +321,10 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
                 continue;
             }
             MidiTrack *track = file->track(t);
-            QHash<int, int> chCount;
-            for (int ch = 0; ch < 16; ch++) {
-                MidiChannel *channel = file->channel(ch);
-                if (!channel) continue;
-                QMultiMap<int, MidiEvent *> *map = channel->eventMap();
-                for (auto it = map->begin(); it != map->end(); ++it) {
-                    if (it.value()->track() != track) continue;
-                    if (dynamic_cast<NoteOnEvent *>(it.value()))
-                        chCount[ch]++;
-                }
-            }
-            int bestCh = t, bestCount = 0;
-            for (auto it = chCount.begin(); it != chCount.end(); ++it) {
-                if (it.value() > bestCount) { bestCount = it.value(); bestCh = it.key(); }
-            }
-            channelFor[t] = bestCh;
-            usedChannels.insert(bestCh);
+            int aCh = track->assignedChannel();
+            if (aCh < 0 || aCh > 15) aCh = qMin(t, 15);
+            channelFor[t] = aCh;
+            usedChannels.insert(aCh);
         }
     } else {
         // TIER 2 â€” assign channels by track index (fresh start)
@@ -382,8 +348,9 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
         }
     }
 
-    // Reserve free channels for missing guitar variants
-    if (hasGuitar) {
+    // Reserve free channels for missing guitar variants (Tier 2 only)
+    // Tier 3 must NOT allocate new channels — preserve existing assignments.
+    if (hasGuitar && !isPreserveMode) {
         auto nextFreeChannel = [&]() -> int {
             for (int ch = 0; ch <= 15; ch++) {
                 if (!usedChannels.contains(ch))
@@ -430,10 +397,35 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
                 toRemove.append(it.value());
         }
         for (MidiEvent *ev : toRemove) {
-            channel->removeEvent(ev, false);
-            delete ev;
+            channel->removeEvent(ev);
         }
         removedPcCount += toRemove.size();
+    }
+
+    // -----------------------------------------------------------------------
+    // 2b. CLEAN — remove non-essential events (Tier 2 only)
+    //     FFXIV doesn't use CC, PitchBend, etc.  Keep Text (lyrics) and notes.
+    // -----------------------------------------------------------------------
+
+    int removedExtraCount = 0;
+    if (!isPreserveMode) {
+        for (int ch = 0; ch < 16; ch++) {
+            MidiChannel *channel = file->channel(ch);
+            if (!channel) continue;
+            QMultiMap<int, MidiEvent *> *map = channel->eventMap();
+            QList<MidiEvent *> toRemoveExtra;
+            for (auto it = map->begin(); it != map->end(); ++it) {
+                MidiEvent *ev = it.value();
+                if (dynamic_cast<NoteOnEvent *>(ev))     continue;
+                if (dynamic_cast<OffEvent *>(ev))        continue;
+                if (dynamic_cast<TextEvent *>(ev))       continue;
+                if (dynamic_cast<ProgChangeEvent *>(ev)) continue;
+                toRemoveExtra.append(ev);
+            }
+            for (MidiEvent *ev : toRemoveExtra)
+                channel->removeEvent(ev);
+            removedExtraCount += toRemoveExtra.size();
+        }
     }
 
     // -----------------------------------------------------------------------
@@ -469,7 +461,7 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
 
             for (const auto &info : trackEvents) {
                 if (info.currentCh == targetCh) continue;
-                info.ev->moveToChannel(targetCh, false);
+                info.ev->moveToChannel(targetCh);
             }
 
             track->assignChannel(targetCh);
@@ -501,71 +493,57 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
             }
 
             for (const auto &info : trackEvents)
-                info.ev->moveToChannel(targetCh, false);
+                info.ev->moveToChannel(targetCh);
 
             track->assignChannel(targetCh);
         }
 
-        QHash<int, QString> chToVariant;
-        for (auto it = guitarChannelMap.begin(); it != guitarChannelMap.end(); ++it)
-            chToVariant[it.value()] = it.key();
+        // Tier 3: rename guitar tracks if the first note sits on a
+        // different variant's channel (e.g. user moved notes from
+        // Overdriven to Distortion → track should become PowerChords).
+        // guitarChannelMap is built from assignedChannel(), so the
+        // chToVariant reverse-map is now reliable.
+        {
+            QHash<int, QString> chToVariant;
+            for (auto it = guitarChannelMap.begin(); it != guitarChannelMap.end(); ++it)
+                chToVariant[it.value()] = it.key();
 
-        for (int t = 0; t < trackCount; t++) {
-            if (!isGuitar(baseNames[t])) {
-                file->track(t)->assignChannel(channelFor[t]);
-                continue;
-            }
-            MidiTrack *track = file->track(t);
+            for (int t = 0; t < trackCount; t++) {
+                MidiTrack *track = file->track(t);
+                track->assignChannel(channelFor[t]);
 
-            // Find the first NoteOnEvent (lowest tick) across all guitar channels
-            int firstTick = INT_MAX;
-            int firstCh = -1;
-            for (int ch : allGuitarChs) {
-                MidiChannel *channel = file->channel(ch);
-                if (!channel) continue;
-                QMultiMap<int, MidiEvent *> *map = channel->eventMap();
-                for (auto it = map->begin(); it != map->end(); ++it) {
-                    if (it.value()->track() != track) continue;
-                    if (!dynamic_cast<NoteOnEvent *>(it.value())) continue;
-                    if (it.key() < firstTick) {
-                        firstTick = it.key();
-                        firstCh = ch;
+                if (!isGuitar(baseNames[t])) continue;
+
+                // Find first NoteOnEvent across all guitar channels
+                int firstTick = INT_MAX;
+                int firstCh   = -1;
+                for (int ch : allGuitarChs) {
+                    MidiChannel *channel = file->channel(ch);
+                    if (!channel) continue;
+                    QMultiMap<int, MidiEvent *> *map = channel->eventMap();
+                    for (auto eit = map->begin(); eit != map->end(); ++eit) {
+                        if (eit.key() >= firstTick) break;   // sorted – no need to continue
+                        if (eit.value()->track() != track)   continue;
+                        if (!dynamic_cast<NoteOnEvent *>(eit.value())) continue;
+                        firstTick = eit.key();
+                        firstCh   = ch;
+                        break;
                     }
-                    break; // map is sorted, first match per channel is enough
+                }
+
+                if (firstCh >= 0 && chToVariant.contains(firstCh)) {
+                    QString newVariant = chToVariant[firstCh];
+                    if (newVariant != baseNames[t]) {
+                        QJsonObject entry;
+                        entry["track"]   = t;
+                        entry["oldName"] = track->name();
+                        entry["newName"] = newVariant;
+                        renameLog.append(entry);
+                        track->setName(newVariant);
+                        baseNames[t] = newVariant;
+                    }
                 }
             }
-
-            if (firstCh >= 0) {
-                QString tick0Variant = chToVariant.value(firstCh);
-                if (!tick0Variant.isEmpty() && tick0Variant != baseNames[t]) {
-                    QString oldName = file->track(t)->name();
-                    QString suffix;
-                    static const QRegularExpression suffixRe(QStringLiteral("([+-]\\d+)$"));
-                    QRegularExpressionMatch m = suffixRe.match(oldName);
-                    if (m.hasMatch())
-                        suffix = m.captured(1);
-
-                    QString newName = tick0Variant + suffix;
-                    track->setName(newName);
-
-                    guitarVariantsPresent.remove(baseNames[t]);
-                    guitarVariantsPresent.insert(tick0Variant);
-                    baseNames[t] = tick0Variant;
-
-                    if (guitarChannelMap.contains(tick0Variant))
-                        channelFor[t] = guitarChannelMap[tick0Variant];
-
-                    QJsonObject logEntry;
-                    logEntry["track"] = t;
-                    logEntry["oldName"] = oldName;
-                    logEntry["newName"] = newName;
-                    logEntry["reason"] = QString("First note (tick %1) is on CH%2 (%3)")
-                        .arg(firstTick).arg(firstCh).arg(tick0Variant);
-                    renameLog.append(logEntry);
-                }
-            }
-
-            track->assignChannel(channelFor[t]);
         }
     }
 
@@ -727,6 +705,7 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
     result["channelMap"] = channelMapArr;
     result["guitarSwitchProgramChanges"] = switchCount;
     result["removedProgramChanges"] = removedPcCount;
+    result["removedExtraEvents"]   = removedExtraCount;
     result["velocityNormalized"] = velocityChangedCount;
     result["trackCount"] = trackCount;
     return result;
