@@ -5,6 +5,117 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 
 ---
 
+## [1.1.9] - 2026-04-07 — MidiPilot AI Improvements + GUI Bug Sweep
+
+* Granular agent undo — each tool call gets its own Ctrl+Z step instead of one compound action
+* Token counting fix — OpenAI Responses API, Anthropic, and Gemini usage fields now correctly normalized
+* Persistent conversation history — conversations auto-saved as JSON, loadable from history menu
+* Context window management — sliding-window truncation prevents exceeding model context limits
+* Token label now shows context window size and warns at 80% usage
+* Agent progress steps now theme-aware (dark/light mode colors)
+* Response streaming (SSE) for Simple mode — text appears incrementally
+* Per-file AI presets — save/load model, provider, mode, FFXIV, effort, and custom instructions per MIDI file
+* 4 runtime bugfixes from Phase 19 testing — stop button crash, streaming JSON dump, vanishing prompt bubble, preset save on unsaved files
+* MidiPilot Send/Stop buttons now use proper themed icons instead of Unicode emoji (consistent with toolbar style)
+* **45 bug fixes** across 18 GUI source files — memory leaks, crash-causing null derefs, undo/redo corruption, data loss, division-by-zero, deprecated Qt6 API usage, and more
+
+<details>
+<summary>Full Changelog</summary>
+
+### Phase 19 — MidiPilot AI Improvements
+
+#### Fixed
+* **Granular agent undo (19.1)** — Previously, all tool calls from one Agent request were wrapped in a single `startNewAction/endAction` pair, so Ctrl+Z reverted everything at once. Now each tool call (e.g. transpose, edit, rename) creates its own protocol step. Undo reverts one action at a time.
+* **Token counting for non-OpenAI providers (19.3)** — `normalizeResponsesApiResponse()` was not copying the `usage` field from OpenAI Responses API responses (`input_tokens`/`output_tokens`). Also added normalization for Anthropic (`input_tokens`/`output_tokens`) and Gemini (`usageMetadata.promptTokenCount`/`candidatesTokenCount`) formats. All downstream code uses canonical `prompt_tokens`/`completion_tokens` field names.
+* **Stop button crash** — Clicking Stop during an API request could crash because `cancel()` called `cancelRequest()` first, which triggered a synchronous `abort()` → `onReplyFinished` → `errorOccurred` double-fire. Fixed by reordering: `cleanup()` runs before `cancelRequest()`.
+* **Simple mode JSON dump** — Streaming in Simple mode displayed raw JSON `{"actions":[...]}` in chat instead of executing it. Added `_streamIsJson` flag to suppress the streaming bubble for JSON action responses; `onStreamFinished` now delegates to `onResponseReceived` for proper action dispatch.
+* **User prompt bubble disappearing** — `onResponseReceived` and `onErrorOccurred` blindly removed the last chat widget (intended for the "Thinking..." indicator), which sometimes deleted the user's own prompt bubble. Now checks for "Thinking" text via `qobject_cast<QLabel*>` before removing.
+* **Preset save on unsaved file** — Saving an AI preset when the MIDI file had never been saved showed an error. Replaced with a `QFileDialog::getSaveFileName` fallback so the user can pick a file path first.
+
+#### Added
+* **Persistent conversation history (19.2)** — New `ConversationStore` class saves conversations as JSON files in `AppData/MidiPilotHistory/`. Auto-saves after every assistant response (debounced 2s). History button in toolbar shows past conversations sorted by date. Click to load and resume any previous conversation.
+* **Context window management (19.5)** — Before each API request, conversation history is estimated for token count (~4 chars/token). If exceeding 70% of the model's context window, a sliding window keeps the first 2 messages + most recent messages that fit, inserting a truncation marker. Token label now shows `session / contextWindow` and turns yellow at 80% usage.
+* **Model context window lookup** — `AiClient::contextWindowForModel()` returns known context windows for GPT-5/4o/4.1, Claude 3/4, Gemini 1.5/2.0/2.5, o-series models.
+* **Agent progress polish (19.4)** — `AgentStepsWidget` step labels now use theme-aware colors via `Appearance::isDarkModeEnabled()`. Dark and light mode each have distinct pending/active/success/retry/failed colors.
+* **Response streaming (19.6)** — Simple mode now uses SSE streaming (`"stream": true`). Text appears incrementally in a streaming bubble. On completion, the bubble is replaced with a proper styled chat bubble. Handles `[DONE]` sentinel, captures usage from final chunk. Agent mode remains non-streaming.
+* **Per-file AI presets (19.7)** — Gear button now opens a menu with "Open AI Settings" and "Save AI preset for this file". Presets are stored as `<filename>.midipilot.json` sidecar files. Saves provider, model, mode, FFXIV, effort, and custom instructions. Auto-loaded when a file is opened via `onFileChanged()`. Custom instructions are appended to both Agent and Simple mode system prompts.
+
+### GUI Bug Sweep — 45 fixes across 18 files
+
+Automated bug-hunter scan of all 98 GUI source files identified 47 potential issues; 45 confirmed, 2 false positives. All fixes applied and verified.
+
+#### Data Loss Prevention (3 fixes)
+* **CORE-006/007/014** — `newFile()`, `loadFile()`, and `load()` now check the return value of `saveBeforeClose()`. Previously, clicking Cancel in the save prompt was ignored and unsaved work was silently discarded.
+
+#### Undo/Redo Protocol Corruption (3 fixes)
+* **CORE-005** — `equalize()` called `endAction()` without a matching `startNewAction()` when ≤1 notes were selected, corrupting the undo stack. Moved `endAction()` inside the guard.
+* **WIDGET-001** — `EventWidget::setModelData()` left the protocol in a dangling state on validation error returns. Added `endAction()` before early returns.
+* **WIDGET-002** — `MiscWidget::mouseReleaseEvent()` left the protocol open when track was null. Added `endAction()` before early returns.
+
+#### Crash Fixes — Null Derefs & Out-of-Bounds (5 fixes)
+* **CORE-009** — `MatrixWidget::mouseDoubleClickEvent()` null dereference when no file loaded. Added null check.
+* **CORE-013** — `MainWindow::editChannel()` null dereference when `file` is null. Wrapped in `if (file)`.
+* **MISC-004** — `TweakTarget::getTimeOneDivEarlier/Later()` crashed on single-element divs list (out-of-bounds access). Added `if (divs.size() < 2) return time` guard.
+* **MISC-005** — `NoteTweakTarget` and `ValueTweakTarget` missing upper-bound checks — arrow keys could push note/velocity/CC past 127, pitch bend past 16383. Added `qBound()` clamping.
+* **WIDGET-005** — `MiscWidget` `trackIndex` could go out-of-bounds if undo changed data between mouse press and release. Added bounds check.
+
+#### Memory Leaks (14 fixes)
+* **CORE-001/002** — `forward()` and `back()` leaked heap-allocated `QList` on every call. Changed to stack allocation.
+* **CORE-003/004** — `saveas()` and `load()` leaked heap `QFile` and discarded directory result. Changed to stack `QFile`, assigned `dir` properly.
+* **CORE-008** — `MatrixWidget::paintEvent()` leaked `QPainter` on two early-return paths. Added `delete painter` before returns.
+* **CORE-012** — Multiple dialog functions leaked heap-allocated dialogs. Added `WA_DeleteOnClose` for `show()` dialogs, `delete` after `exec()` dialogs.
+* **DLG-001** — `AboutDialog::loadContributors()` returned heap `QList*` that was never freed. Changed to return by value.
+* **DLG-002/003** — `RecordDialog::enter()` leaked filtered-out MidiEvent objects; no destructor to clean up `_data`. Added destructor and cleanup loop.
+* **DLG-005** — `TransposeDialog` leaked parentless `QButtonGroup`. Added `this` as parent.
+* **DLG-006** — `SettingsDialog` leaked heap-allocated `_settingsWidgets` QList. Changed to stack allocation.
+* **MISC-001** — `Appearance::decode()` leaked `defaultColor` parameter on success path. Added `delete defaultColor` before returning new color.
+* **MISC-002** — `ClickButton::setImageName()` leaked previous `QImage` on reassignment. Added `delete image` before `new`, initialized to `nullptr`.
+* **MISC-010** — `AppearanceSettingsWidget` leaked heap-allocated `_channelItems`/`_trackItems` QLists. Changed to stack allocation.
+
+#### Division by Zero (2 fixes)
+* **CORE-010** — `MatrixWidget::xPosOfMs()`, `msOfXPos()`, `timeMsOfWidth()` could divide by zero with zero-length files or very narrow widget. Added zero-checks.
+* **WIDGET-006** — `MiscWidget::value()` divided by `height()` without checking for zero. Added `if (h <= 0) return 0` guard.
+
+#### Signal & Resource Management (2 fixes)
+* **CORE-011** — `play()` and `record()` accumulated `timeMsChanged` signal connections on each play/stop cycle, causing N+1 repaints per tick. Added `disconnect()` before `connect()`.
+* **MISC-008** — `Appearance::processNextQueuedIcon()` used try/catch on potentially dangling `QAction*` pointer (undefined behavior). Changed `iconUpdateQueue` to use `QPointer<QAction>` for safe null detection.
+
+#### Logic & Correctness (4 fixes)
+* **WIDGET-003** — `EventWidget::setEditorData()` called `setMaximum()` instead of `setMinimum()` in 7 places (copy-paste error). Time signature allowed numerator 0. Fixed to `setMinimum()`.
+* **WIDGET-008** — `InstrumentChooser::accept()` called `hide()` instead of `QDialog::accept()`, leaving result code as Rejected. Fixed to call base class.
+* **DLG-004** — `TransposeDialog` constructor didn't pass `parent` to `QDialog` base class. Added `: QDialog(parent)` initializer.
+* **DLG-009** — `TempoDialog::accept()` integer overflow in smooth tempo interpolation for long ramps. Changed to `qint64` arithmetic.
+
+#### Download Robustness (2 fixes)
+* **DLG-007** — `DownloadSoundFontDialog` didn't flush remaining network buffer before closing file. Added `readAll()` flush in finished handler.
+* **DLG-008** — Download write errors silently ignored (disk full → corrupt SoundFont). Added return value check on `write()`, abort on failure.
+
+#### Deprecated/Wrong Qt6 API (2 fixes)
+* **WIDGET-009** — `TrackListWidget::dropEvent()` used deprecated `QDropEvent::pos()`. Changed to `position().toPoint()`.
+* **MISC-011** — `PaintWidget::enterEvent(QEvent*)` didn't match Qt6 signature `enterEvent(QEnterEvent*)`. Fixed signature.
+
+#### Initialization & Hardening (5 fixes)
+* **MISC-003** — `GraphicObject::shownInWidget` never initialized (undefined behavior on read). Initialized to `false`.
+* **MISC-009** — `MidiSettingsWidget::_inputPorts/_outputPorts` pointer members uninitialized. Set to `nullptr`.
+* **WIDGET-010** — `ChannelListItem::loudAction/soloAction` uninitialized for channel ≥ 16. Set to `nullptr`.
+* **WIDGET-011** — `ChannelListItem::toggleVisibility()` silent catch-all exception handler. Added `qWarning()` logging.
+* **MISC-006** — `OpenGLPaintWidget::paintGL()` used `static QSize lastSize` shared across all instances, causing unnecessary GPU reallocations. Changed to member `_lastPaintSize`.
+
+#### UI & Cosmetic (3 fixes)
+* **DLG-010** — `DeleteOverlapsDialog::paintEvent()` called `update()` on child widget, creating redundant repaint cycles. Removed override.
+* **DLG-011** — `DeleteOverlapsDialog::resizeEvent()` didn't call base class `QDialog::resizeEvent()`. Fixed.
+* **MISC-007** — `AutoUpdater::applyUpdate()` PowerShell command injection via single-quote in paths. Added `'` → `''` escaping.
+
+### Technical Notes
+* **Phase 19 files created:** `src/ai/ConversationStore.h/.cpp`
+* **Phase 19 files modified:** `src/gui/MidiPilotWidget.h/.cpp`, `src/ai/AiClient.h/.cpp`
+* **Bug sweep files modified (18):** `MainWindow.cpp`, `MatrixWidget.cpp`, `EventWidget.cpp`, `MiscWidget.cpp`, `RecordDialog.cpp/.h`, `TransposeDialog.cpp`, `SettingsDialog.cpp/.h`, `AboutDialog.cpp/.h`, `DownloadSoundFontDialog.cpp`, `TempoDialog.cpp`, `DeleteOverlapsDialog.cpp`, `GraphicObject.cpp`, `ClickButton.cpp`, `Appearance.cpp`, `TweakTarget.cpp`, `InstrumentChooser.cpp`, `TrackListWidget.cpp`, `ChannelListWidget.cpp`, `OpenGLPaintWidget.cpp/.h`, `PaintWidget.h`, `MidiSettingsWidget.h`, `AppearanceSettingsWidget.cpp/.h`, `AutoUpdater.cpp`
+* **Bug report:** `Planning/03_bugs.md` — full scan results with verification status
+
+</details>
+
+---
+
 ## [1.1.8.1] - 2026-04-06 — Bugfix: FFXIV Channel Fixer
 
 * Fixed undo crash when reverting Channel Fixer operations

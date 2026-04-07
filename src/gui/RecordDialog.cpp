@@ -108,6 +108,13 @@ RecordDialog::RecordDialog(MidiFile *file, QMultiMap<int, MidiEvent *> data, QSe
     connect(ok, SIGNAL(clicked()), this, SLOT(enter()));
 }
 
+RecordDialog::~RecordDialog() {
+    foreach (MidiEvent *event, _data) {
+        delete event;
+    }
+    _data.clear();
+}
+
 void RecordDialog::enter() {
     int channel = _channelBox->currentIndex();
     bool ownChannel = false;
@@ -205,11 +212,14 @@ void RecordDialog::enter() {
                 toAdd->setChannel(currentChannel, false);
                 toAdd->setTrack(track, false);
                 _file->channel(toAdd->channel())->insertEvent(toAdd, _file->tick(it.key()));
+            } else {
+                delete it.value();
             }
             it++;
         }
         _file->protocol()->endAction();
     }
+    _data.clear();
     hide();
 }
 
@@ -229,6 +239,7 @@ void RecordDialog::cancel() {
         foreach(MidiEvent* event, _data) {
             delete event;
         }
+        _data.clear();
         hide();
     }
 }

@@ -173,10 +173,10 @@ public slots:
 
 private:
     /** \brief List of channel color items */
-    QList<NamedColorWidgetItem *> *_channelItems;
+    QList<NamedColorWidgetItem *> _channelItems;
 
     /** \brief List of track color items */
-    QList<NamedColorWidgetItem *> *_trackItems;
+    QList<NamedColorWidgetItem *> _trackItems;
 };
 
 #endif // APPEARANCESETTINGSWIDGET_H_

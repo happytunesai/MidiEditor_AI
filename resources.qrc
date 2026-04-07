@@ -69,6 +69,7 @@
         <file>run_environment/graphics/tool/midipilot.png</file>
         <file>run_environment/graphics/tool/midi_visualizer.png</file>
         <file>run_environment/graphics/tool/new_chat.png</file>
+        <file>run_environment/graphics/tool/history.png</file>
         <file>run_environment/graphics/channelwidget/loud.png</file>
         <file>run_environment/graphics/channelwidget/instrument.png</file>
         <file>run_environment/graphics/channelwidget/solo.png</file>

@@ -30,7 +30,8 @@ AiClient::AiClient(QObject *parent)
       _reasoningEffort(QStringLiteral("medium")),
       _maxTokensEnabled(false),
       _maxTokensLimit(16384),
-      _hasToolsInRequest(false)
+      _hasToolsInRequest(false),
+      _isStreaming(false)
 {
     _model = _settings.value(SETTINGS_KEY_MODEL, DEFAULT_MODEL).toString();
     _thinkingEnabled = _settings.value(SETTINGS_KEY_THINKING, true).toBool();
@@ -191,6 +192,26 @@ void AiClient::cancelRequest()
         _currentReply->abort();
         _currentReply = nullptr;
     }
+}
+
+int AiClient::contextWindowForModel(const QString &model) const
+{
+    QString m = (model.isEmpty() ? _model : model).toLower();
+
+    // Match by prefix — handles version variants like gpt-4o-2024-08-06
+    if (m.startsWith(QStringLiteral("gpt-5")))       return 1000000;
+    if (m.startsWith(QStringLiteral("gpt-4o")))      return 128000;
+    if (m.startsWith(QStringLiteral("gpt-4.1")))     return 1000000;
+    if (m.startsWith(QStringLiteral("o4-mini")))      return 200000;
+    if (m.startsWith(QStringLiteral("o3")))           return 200000;
+    if (m.startsWith(QStringLiteral("o1")))           return 200000;
+    if (m.startsWith(QStringLiteral("claude-4")))     return 200000;
+    if (m.startsWith(QStringLiteral("claude-3")))     return 200000;
+    if (m.startsWith(QStringLiteral("gemini-2.5")))   return 1000000;
+    if (m.startsWith(QStringLiteral("gemini-2.0")))   return 1000000;
+    if (m.startsWith(QStringLiteral("gemini-1.5")))   return 1000000;
+
+    return 128000; // safe default
 }
 
 void AiClient::sendRequest(const QString &systemPrompt,
@@ -482,11 +503,29 @@ static QJsonObject normalizeResponsesApiResponse(const QJsonObject &respObj)
 
     QJsonObject normalized;
     normalized[QStringLiteral("choices")] = choices;
+
+    // Copy and remap Responses API usage field
+    // Responses API uses "input_tokens"/"output_tokens" instead of "prompt_tokens"/"completion_tokens"
+    if (respObj.contains(QStringLiteral("usage"))) {
+        QJsonObject rawUsage = respObj[QStringLiteral("usage")].toObject();
+        QJsonObject usage;
+        usage[QStringLiteral("prompt_tokens")] = rawUsage[QStringLiteral("input_tokens")];
+        usage[QStringLiteral("completion_tokens")] = rawUsage[QStringLiteral("output_tokens")];
+        usage[QStringLiteral("total_tokens")] = rawUsage[QStringLiteral("total_tokens")];
+        normalized[QStringLiteral("usage")] = usage;
+    }
+
     return normalized;
 }
 
 void AiClient::onReplyFinished(QNetworkReply *reply)
 {
+    // Streaming requests handle their own finish — skip the normal handler
+    if (_isStreaming) {
+        reply->deleteLater();
+        return;
+    }
+
     _currentReply = nullptr;
 
     if (reply->error() == QNetworkReply::OperationCanceledError) {
@@ -556,6 +595,40 @@ void AiClient::onReplyFinished(QNetworkReply *reply)
         responseObj = normalizeResponsesApiResponse(responseObj);
     }
 
+    // Normalize provider-specific usage fields to canonical OpenAI format
+    // (prompt_tokens, completion_tokens, total_tokens)
+    if (!responseObj.contains(QStringLiteral("usage"))
+        || responseObj[QStringLiteral("usage")].toObject().isEmpty()
+        || !responseObj[QStringLiteral("usage")].toObject().contains(QStringLiteral("prompt_tokens"))) {
+
+        QJsonObject usage;
+        bool found = false;
+
+        // Check for existing usage with non-standard field names (Anthropic: input_tokens/output_tokens)
+        QJsonObject rawUsage = responseObj[QStringLiteral("usage")].toObject();
+        if (rawUsage.contains(QStringLiteral("input_tokens"))) {
+            usage[QStringLiteral("prompt_tokens")] = rawUsage[QStringLiteral("input_tokens")];
+            usage[QStringLiteral("completion_tokens")] = rawUsage[QStringLiteral("output_tokens")];
+            int total = rawUsage[QStringLiteral("input_tokens")].toInt()
+                      + rawUsage[QStringLiteral("output_tokens")].toInt();
+            usage[QStringLiteral("total_tokens")] = total;
+            found = true;
+        }
+
+        // Check for Gemini usageMetadata format
+        if (!found && responseObj.contains(QStringLiteral("usageMetadata"))) {
+            QJsonObject meta = responseObj[QStringLiteral("usageMetadata")].toObject();
+            usage[QStringLiteral("prompt_tokens")] = meta[QStringLiteral("promptTokenCount")];
+            usage[QStringLiteral("completion_tokens")] = meta[QStringLiteral("candidatesTokenCount")];
+            usage[QStringLiteral("total_tokens")] = meta[QStringLiteral("totalTokenCount")];
+            found = true;
+        }
+
+        if (found) {
+            responseObj[QStringLiteral("usage")] = usage;
+        }
+    }
+
     // Extract assistant message content
     QJsonArray choices = responseObj[QStringLiteral("choices")].toArray();
     if (choices.isEmpty()) {
@@ -586,4 +659,176 @@ void AiClient::onReplyFinished(QNetworkReply *reply)
 
     emit responseReceived(content, responseObj);
     reply->deleteLater();
+}
+
+// === Streaming (SSE) support — Simple mode only ===
+
+void AiClient::sendStreamingRequest(const QString &systemPrompt,
+                                     const QJsonArray &conversationHistory,
+                                     const QString &userMessage)
+{
+    if (!isConfigured()) {
+        emit errorOccurred(tr("No API key configured. Please set your API key in Settings."));
+        return;
+    }
+    if (_currentReply) {
+        emit errorOccurred(tr("A request is already in progress."));
+        return;
+    }
+
+    _isTestRequest = false;
+    _isStreaming = true;
+    _streamBuffer.clear();
+    _streamContent.clear();
+    _hasToolsInRequest = false;
+    _useResponsesApi = false;
+
+    bool reasoning = isReasoningModel();
+    bool geminiThinking = isGeminiThinkingModel();
+
+    // Build messages array
+    QJsonArray messages;
+    QJsonObject systemMsg;
+    systemMsg[QStringLiteral("role")] = (reasoning && _provider != QStringLiteral("gemini"))
+        ? QStringLiteral("developer")
+        : QStringLiteral("system");
+    systemMsg[QStringLiteral("content")] = systemPrompt;
+    messages.append(systemMsg);
+    for (const QJsonValue &msg : conversationHistory)
+        messages.append(msg);
+    QJsonObject userMsg;
+    userMsg[QStringLiteral("role")] = QStringLiteral("user");
+    userMsg[QStringLiteral("content")] = userMessage;
+    messages.append(userMsg);
+
+    QJsonObject body;
+    body[QStringLiteral("model")] = _model;
+    body[QStringLiteral("messages")] = messages;
+    body[QStringLiteral("stream")] = true;
+
+    // Request usage in the final streaming chunk (OpenAI)
+    QJsonObject streamOpts;
+    streamOpts[QStringLiteral("include_usage")] = true;
+    body[QStringLiteral("stream_options")] = streamOpts;
+
+    if (reasoning) {
+        body[QStringLiteral("reasoning_effort")] = _thinkingEnabled ? _reasoningEffort : QStringLiteral("low");
+    } else if (geminiThinking) {
+        body[QStringLiteral("reasoning_effort")] = _thinkingEnabled ? _reasoningEffort : QStringLiteral("low");
+    } else {
+        body[QStringLiteral("temperature")] = 0.3;
+    }
+
+    if (_maxTokensEnabled && _maxTokensLimit > 0)
+        body[QStringLiteral("max_tokens")] = _maxTokensLimit;
+
+    QByteArray data = QJsonDocument(body).toJson(QJsonDocument::Compact);
+
+    QString url = _apiBaseUrl + QStringLiteral("/chat/completions");
+    QNetworkRequest request{QUrl(url)};
+    request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
+    request.setRawHeader("Authorization", QStringLiteral("Bearer %1").arg(apiKey()).toUtf8());
+    request.setTransferTimeout((reasoning || geminiThinking) ? 600000 : 180000);
+
+    logApi(QStringLiteral("[STREAM-REQ] model=%1 body=%2").arg(_model, QString::fromUtf8(data.left(2000))));
+
+    _currentReply = _manager->post(request, data);
+    // Don't use finished signal for streaming — use readyRead instead
+    disconnect(_manager, &QNetworkAccessManager::finished, this, &AiClient::onReplyFinished);
+    connect(_currentReply, &QNetworkReply::readyRead, this, &AiClient::onStreamDataAvailable);
+    connect(_currentReply, &QNetworkReply::finished, this, [this]() {
+        // Process any remaining buffer
+        if (!_streamBuffer.isEmpty()) {
+            onStreamDataAvailable();
+        }
+        QNetworkReply *reply = _currentReply;
+        _currentReply = nullptr;
+        _isStreaming = false;
+
+        // Re-connect the normal finished handler
+        connect(_manager, &QNetworkAccessManager::finished, this, &AiClient::onReplyFinished);
+
+        if (reply->error() == QNetworkReply::OperationCanceledError) {
+            logApi(QStringLiteral("[STREAM-CANCEL]"));
+            reply->deleteLater();
+            return;
+        }
+
+        if (reply->error() != QNetworkReply::NoError) {
+            int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            emit errorOccurred(tr("Streaming error (HTTP %1): %2").arg(statusCode).arg(reply->errorString()));
+            reply->deleteLater();
+            return;
+        }
+
+        // Build a synthetic response object for token tracking
+        QJsonObject responseObj;
+        QJsonObject choice;
+        QJsonObject message;
+        message[QStringLiteral("role")] = QStringLiteral("assistant");
+        message[QStringLiteral("content")] = _streamContent;
+        choice[QStringLiteral("message")] = message;
+        choice[QStringLiteral("finish_reason")] = QStringLiteral("stop");
+        QJsonArray choices;
+        choices.append(choice);
+        responseObj[QStringLiteral("choices")] = choices;
+
+        // Usage was captured from the final SSE chunk if available
+        logApi(QStringLiteral("[STREAM-DONE] chars=%1").arg(_streamContent.size()));
+
+        emit streamFinished(_streamContent, responseObj);
+        reply->deleteLater();
+    });
+}
+
+void AiClient::onStreamDataAvailable()
+{
+    if (!_currentReply) return;
+
+    _streamBuffer += _currentReply->readAll();
+
+    // Process complete SSE events (separated by \n\n)
+    while (true) {
+        int idx = _streamBuffer.indexOf("\n\n");
+        if (idx < 0) break;
+
+        QByteArray chunk = _streamBuffer.left(idx);
+        _streamBuffer.remove(0, idx + 2);
+
+        // Parse SSE lines — may have multiple "data:" lines per event
+        for (const QByteArray &line : chunk.split('\n')) {
+            QByteArray trimmed = line.trimmed();
+            if (!trimmed.startsWith("data: ")) continue;
+
+            QByteArray payload = trimmed.mid(6);
+            if (payload == "[DONE]") {
+                // Stream complete — finished handler will fire
+                continue;
+            }
+
+            QJsonDocument doc = QJsonDocument::fromJson(payload);
+            if (!doc.isObject()) continue;
+
+            QJsonObject obj = doc.object();
+
+            // Extract content delta
+            QJsonArray choices = obj[QStringLiteral("choices")].toArray();
+            if (!choices.isEmpty()) {
+                QJsonObject delta = choices[0].toObject()[QStringLiteral("delta")].toObject();
+                QString text = delta[QStringLiteral("content")].toString();
+                if (!text.isEmpty()) {
+                    _streamContent += text;
+                    emit streamDelta(text);
+                }
+            }
+
+            // Capture usage from the final chunk (OpenAI sends it with stream_options)
+            if (obj.contains(QStringLiteral("usage"))) {
+                // Store usage in _streamBuffer-adjacent member isn't practical,
+                // so we re-parse in the finished handler. Just log it.
+                logApi(QStringLiteral("[STREAM-USAGE] %1")
+                    .arg(QString::fromUtf8(QJsonDocument(obj[QStringLiteral("usage")].toObject()).toJson(QJsonDocument::Compact))));
+            }
+        }
+    }
 }

@@ -150,7 +150,7 @@ void TempoDialog::accept() {
         int endBeats = _endBeats->value();
 
         for (int tick = _startTick; tick < _endTick; tick += 5) {
-            int beats = startBeats + (endBeats - startBeats) * (tick - _startTick) / (_endTick - _startTick);
+            int beats = startBeats + static_cast<int>((static_cast<qint64>(endBeats - startBeats) * static_cast<qint64>(tick - _startTick)) / static_cast<qint64>(_endTick - _startTick));
             _file->channel(17)->insertEvent(new TempoChangeEvent(17, 60000000 / beats, generalTrack), tick);
         }
         _file->channel(17)->insertEvent(new TempoChangeEvent(17, 60000000 / endBeats, generalTrack), _endTick);

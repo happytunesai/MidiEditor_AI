@@ -157,9 +157,27 @@ public:
     void cancelRequest();
 
     /**
+     * \brief Returns the context window size for the current or given model.
+     * \param model Model name (uses current model if empty)
+     * \return Context window in tokens, or 128000 as default
+     */
+    int contextWindowForModel(const QString &model = QString()) const;
+
+    /**
      * \brief Returns whether a request is currently in progress.
      */
     bool isBusy() const;
+
+    /**
+     * \brief Sends a streaming chat completion request. Content arrives incrementally
+     *        via the streamDelta signal. Only for Simple mode text responses (no tools).
+     * \param systemPrompt The system prompt
+     * \param conversationHistory Previous messages
+     * \param userMessage Current user message
+     */
+    void sendStreamingRequest(const QString &systemPrompt,
+                              const QJsonArray &conversationHistory,
+                              const QString &userMessage);
 
 signals:
     /**
@@ -182,8 +200,22 @@ signals:
      */
     void connectionTestResult(bool success, const QString &message);
 
+    /**
+     * \brief Emitted when a streaming text delta arrives.
+     * \param text The incremental text chunk
+     */
+    void streamDelta(const QString &text);
+
+    /**
+     * \brief Emitted when streaming is complete.
+     * \param fullContent The accumulated full response text
+     * \param fullResponse A synthetic response object with usage info
+     */
+    void streamFinished(const QString &fullContent, const QJsonObject &fullResponse);
+
 private slots:
     void onReplyFinished(QNetworkReply *reply);
+    void onStreamDataAvailable();
 
 private:
     QNetworkAccessManager *_manager;
@@ -199,6 +231,9 @@ private:
     bool _maxTokensEnabled;
     int _maxTokensLimit;
     bool _hasToolsInRequest;
+    bool _isStreaming;
+    QByteArray _streamBuffer;
+    QString _streamContent;
 
     static const QString API_URL;
     static const QString RESPONSES_API_URL;

@@ -251,11 +251,13 @@ void MatrixWidget::paintEvent(QPaintEvent *event) {
         if (!ev) {
             pixpainter->fillRect(0, 0, width(), height(), _cachedErrorColor);
             delete pixpainter;
+            delete painter;
             return;
         }
         int numLines = endLineY - startLineY;
         if (numLines == 0) {
             delete pixpainter;
+            delete painter;
             return;
         }
 
@@ -1256,7 +1258,9 @@ void MatrixWidget::resizeEvent(QResizeEvent *event) {
 }
 
 int MatrixWidget::xPosOfMs(int ms) {
-    return lineNameWidth + (ms - startTimeX) * (width() - lineNameWidth) / (endTimeX - startTimeX);
+    int range = endTimeX - startTimeX;
+    if (range == 0) return lineNameWidth;
+    return lineNameWidth + (ms - startTimeX) * (width() - lineNameWidth) / range;
 }
 
 int MatrixWidget::yPosOfLine(int line) {
@@ -1458,7 +1462,9 @@ QList<MidiEvent *> *MatrixWidget::velocityEvents() {
 }
 
 int MatrixWidget::msOfXPos(int x) {
-    return startTimeX + ((x - lineNameWidth) * (endTimeX - startTimeX)) / (width() - lineNameWidth);
+    int pixelRange = width() - lineNameWidth;
+    if (pixelRange == 0) return startTimeX;
+    return startTimeX + ((x - lineNameWidth) * (endTimeX - startTimeX)) / pixelRange;
 }
 
 int MatrixWidget::msOfTick(int tick) {
@@ -1466,7 +1472,9 @@ int MatrixWidget::msOfTick(int tick) {
 }
 
 int MatrixWidget::timeMsOfWidth(int w) {
-    return (w * (endTimeX - startTimeX)) / (width() - lineNameWidth);
+    int pixelRange = width() - lineNameWidth;
+    if (pixelRange == 0) return 0;
+    return (w * (endTimeX - startTimeX)) / pixelRange;
 }
 
 bool MatrixWidget::eventInWidget(MidiEvent *event) {
@@ -1586,6 +1594,7 @@ void MatrixWidget::zoomVerOut() {
 }
 
 void MatrixWidget::mouseDoubleClickEvent(QMouseEvent *event) {
+    if (!file) return;
     if (mouseInRect(TimeLineArea)) {
         int tick = file->tick(msOfXPos(mouseX));
         file->setCursorTick(tick);

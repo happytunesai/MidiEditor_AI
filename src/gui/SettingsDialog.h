@@ -116,7 +116,7 @@ protected:
     QListWidget *_listWidget;
 
     /** \brief List of all settings widgets */
-    QList<SettingsWidget *> *_settingsWidgets;
+    QList<SettingsWidget *> _settingsWidgets;
 
     /** \brief Stacked widget container for settings panels */
     QStackedWidget *_container;

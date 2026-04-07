@@ -64,7 +64,7 @@ void PaintWidget::mouseMoveEvent(QMouseEvent *event) {
     }
 }
 
-void PaintWidget::enterEvent(QEvent *event) {
+void PaintWidget::enterEvent(QEnterEvent *event) {
     this->mouseOver = true;
 
     if (!enabled) {

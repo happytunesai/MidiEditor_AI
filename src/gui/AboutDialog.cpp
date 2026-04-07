@@ -64,7 +64,7 @@ AboutDialog::AboutDialog(QWidget *parent)
     QScrollArea *a = new QScrollArea(this);
     QString contributors = "<p>";
     QString delim = "";
-    foreach(QString contributor, *loadContributors()) {
+    foreach(QString contributor, loadContributors()) {
         contributors = contributors + delim + contributor;
         delim = "<br/>";
     }
@@ -138,8 +138,8 @@ AboutDialog::AboutDialog(QWidget *parent)
     connect(close, SIGNAL(clicked()), this, SLOT(hide()));
 }
 
-QList<QString> *AboutDialog::loadContributors() {
-    QList<QString> *list = new QList<QString>();
+QList<QString> AboutDialog::loadContributors() {
+    QList<QString> list;
 
     QFile file(":/CONTRIBUTORS");
     if (!file.open(QFile::ReadOnly | QFile::Text))
@@ -147,7 +147,7 @@ QList<QString> *AboutDialog::loadContributors() {
 
     QTextStream in(&file);
     while (!in.atEnd()) {
-        list->append(in.readLine());
+        list.append(in.readLine());
     }
 
     return list;

@@ -42,6 +42,7 @@ static int getDivNumberForTime(QList<QPair<int, int> > divs, int time) {
 }
 
 static int getTimeOneDivEarlier(QList<QPair<int, int> > divs, int time) {
+    if (divs.size() < 2) return time;
     int divNumber = getDivNumberForTime(divs, time);
     int divStartTime = divs.at(divNumber).second;
     int previousDivStartTime;
@@ -57,6 +58,7 @@ static int getTimeOneDivEarlier(QList<QPair<int, int> > divs, int time) {
 }
 
 static int getTimeOneDivLater(QList<QPair<int, int> > divs, int time) {
+    if (divs.size() < 2) return time;
     int divNumber = getDivNumberForTime(divs, time);
     int divStartTime = divs.at(divNumber).second;
     int nextDivStartTime;
@@ -395,7 +397,7 @@ void NoteTweakTarget::offset(int amount) {
                 NoteOnEvent *noteOnEvent = dynamic_cast<NoteOnEvent *>(e);
                 if (noteOnEvent) {
                     int newNote = noteOnEvent->note() + amount;
-                    if (newNote >= 0) noteOnEvent->setNote(newNote);
+                    if (newNote >= 0 && newNote <= 127) noteOnEvent->setNote(newNote);
                 }
             }
 
@@ -447,37 +449,42 @@ void ValueTweakTarget::offset(int amount, int pitchBendAmount, int tempoAmount) 
                 NoteOnEvent *noteOnEvent = dynamic_cast<NoteOnEvent *>(e);
                 if (noteOnEvent) {
                     int newVelocity = noteOnEvent->velocity() + amount;
-                    if (newVelocity >= 0) noteOnEvent->setVelocity(newVelocity);
+                    newVelocity = qBound(0, newVelocity, 127);
+                    noteOnEvent->setVelocity(newVelocity);
                 }
 
                 ControlChangeEvent *controlChangeEvent = dynamic_cast<ControlChangeEvent *>(e);
                 if (controlChangeEvent) {
                     int newValue = controlChangeEvent->value() + amount;
-                    if (newValue >= 0) controlChangeEvent->setValue(newValue);
+                    newValue = qBound(0, newValue, 127);
+                    controlChangeEvent->setValue(newValue);
                 }
 
                 PitchBendEvent *pitchBendEvent = dynamic_cast<PitchBendEvent *>(e);
                 if (pitchBendEvent) {
                     int newValue = pitchBendEvent->value() + pitchBendAmount;
-                    if (newValue >= 0) pitchBendEvent->setValue(newValue);
+                    newValue = qBound(0, newValue, 16383);
+                    pitchBendEvent->setValue(newValue);
                 }
 
                 KeyPressureEvent *keyPressureEvent = dynamic_cast<KeyPressureEvent *>(e);
                 if (keyPressureEvent) {
                     int newValue = keyPressureEvent->value() + amount;
-                    if (newValue >= 0) keyPressureEvent->setValue(newValue);
+                    newValue = qBound(0, newValue, 127);
+                    keyPressureEvent->setValue(newValue);
                 }
 
                 ChannelPressureEvent *channelPressureEvent = dynamic_cast<ChannelPressureEvent *>(e);
                 if (channelPressureEvent) {
                     int newValue = channelPressureEvent->value() + amount;
-                    if (newValue >= 0) channelPressureEvent->setValue(newValue);
+                    newValue = qBound(0, newValue, 127);
+                    channelPressureEvent->setValue(newValue);
                 }
 
                 TempoChangeEvent *tempoChangeEvent = dynamic_cast<TempoChangeEvent *>(e);
                 if (tempoChangeEvent) {
                     int newBeatsPerQuarter = tempoChangeEvent->beatsPerQuarter() + tempoAmount;
-                    if (newBeatsPerQuarter >= 0) tempoChangeEvent->setBeats(newBeatsPerQuarter);
+                    if (newBeatsPerQuarter >= 1) tempoChangeEvent->setBeats(newBeatsPerQuarter);
                 }
             }
 

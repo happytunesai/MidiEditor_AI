@@ -56,7 +56,7 @@ private:
      * \brief Loads the list of contributors from resources.
      * \return Pointer to QList containing contributor names
      */
-    QList<QString> *loadContributors();
+    QList<QString> loadContributors();
 };
 
 #endif // ABOUTDIALOG_H_

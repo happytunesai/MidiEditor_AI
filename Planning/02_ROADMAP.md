@@ -4714,3 +4714,752 @@ for (MidiEvent *ev : toRemove) {
 
 **Dependencies:** 18.15 (toProtocol parameter)
 **Risk:** None — events are already removed from all containers before deletion
+
+---
+
+## Phase 19: MidiPilot AI Improvements ✅
+
+> **Goal:** Polish, fix, and extend the MidiPilot AI assistant — the core feature that
+> makes MidiEditor AI unique. Focus on undo granularity, persistent history, token
+> counting accuracy, and quality-of-life improvements for daily AI-assisted workflows.
+>
+> **Motivation:** After 18 phases of editor features, the AI assistant itself needs
+> refinement. Users have reported that Agent mode lumps all changes into one undo step,
+> that conversation history is lost on restart, and that token counters show 0 for some
+> providers. This phase addresses all of those plus new ideas.
+>
+> **Status:** All 7 sub-phases implemented (v1.1.9, 2026-04-07). Tested and bugfixed.
+>
+> **Bugfixes during testing:**
+> - Stop button crash: `cancel()` reordered to `cleanup()` before `cancelRequest()` to
+>   prevent double-fire of `errorOccurred` from synchronous `abort()` → `onReplyFinished`
+> - Simple mode JSON dump: streaming showed raw JSON in chat instead of dispatching actions.
+>   Added `_streamIsJson` flag to suppress streaming bubble for JSON responses, and
+>   `onStreamFinished` now delegates to `onResponseReceived` (handles `{"actions":[...]}`)
+> - User prompt bubble deleted: `onResponseReceived` and `onErrorOccurred` blindly removed
+>   the last chat widget (meant for "Thinking..." indicator). Now checks for "Thinking"
+>   text via `qobject_cast<QLabel*>` before removing.
+> - Preset save on unsaved file: replaced error dialog with `QFileDialog::getSaveFileName`
+>   fallback so user can pick a MIDI file path.
+
+### Implementation Order
+
+```
+Phase 19.1   Granular Agent Undo (per-tool protocol steps)    ✅  done 2026-04-06
+Phase 19.2   Persistent Conversation History                  ✅  done 2026-04-06
+Phase 19.3   Token Counting Fix + Estimation Fallback         ✅  done 2026-04-06
+Phase 19.4   Agent Mode Progress & Action Log                 ✅  done 2026-04-07
+Phase 19.5   Conversation Context Window Management           ✅  done 2026-04-06
+Phase 19.6   Response Streaming (SSE)                         ✅  done 2026-04-07
+Phase 19.7   Per-File AI Presets                              ✅  done 2026-04-07
+```
+
+### Estimated Complexity
+
+| Sub-phase | New Code | Modified Code | Risk |
+|-----------|----------|---------------|------|
+| 19.1 Granular agent undo | ~60 lines | MidiPilotWidget.cpp (~40 lines), AgentRunner.cpp (~20 lines) | Medium |
+| 19.2 Persistent history | ~300 lines (new class) | MidiPilotWidget.cpp (~100 lines) | Low-Medium |
+| 19.3 Token counting fix | ~120 lines | AiClient.cpp (~40 lines), AgentRunner.cpp (~20 lines), MidiPilotWidget.cpp (~20 lines) | Low |
+| 19.4 Agent progress log | ~100 lines | MidiPilotWidget.cpp (~50 lines) | Low |
+| 19.5 Context window mgmt | ~80 lines | MidiPilotWidget.cpp (~20 lines) | Low |
+| 19.6 Response streaming | ~200 lines | AiClient.cpp (~50 lines) | Medium |
+| 19.7 Per-file AI presets | ~80 lines | MidiPilotWidget.cpp (~40 lines) | Low |
+| **Total** | **~940 lines new** | **~380 lines modified** | **Low-Medium** |
+
+---
+
+### 19.1 — Granular Agent Undo (Per-Tool Protocol Steps) ✅
+
+**Problem:** In Agent mode, all tool calls from one user request are wrapped in a single
+`startNewAction("MidiPilot Agent: ...")` / `endAction()` pair. Ctrl+Z undoes EVERYTHING
+the agent did — if it edited 5 tracks across 3 channels, you lose all of it or keep all
+of it. No selective undo.
+
+**Current behavior:**
+```
+User: "Transpose track 1 up an octave and set track 2 velocity to 100"
+→ Agent calls: transpose_notes (track 1) + edit_notes (track 2)
+→ Protocol: one undo step "MidiPilot Agent: Transpose track 1..."
+→ Ctrl+Z: reverts BOTH changes
+```
+
+**Desired behavior:**
+```
+→ Protocol: step 1 "MidiPilot: Transpose notes on track 1"
+→ Protocol: step 2 "MidiPilot: Set velocity on track 2"
+→ Ctrl+Z: reverts step 2 only
+→ Ctrl+Z again: reverts step 1
+```
+
+**Approach:**
+- Remove the outer `startNewAction/endAction` wrapper in `onSendMessage()` for agent mode
+- Each `dispatchAction(actionObj, false)` call should now wrap itself in its own protocol step
+- Change the `showBubbles` parameter semantics: rename to a `ProtocolMode` enum
+  (`PerAction`, `Compound`, `None`) for clarity
+- Agent mode uses `PerAction` — each tool call gets its own named undo step
+- The action name comes from the tool call's explanation/description field
+- Add a "Revert last AI action" button in the chat that undoes just the most recent step
+
+**Considerations:**
+- If agent makes 10 tool calls, user gets 10 undo steps — this is intentional and desired
+- The chat log should show which undo steps correspond to which actions
+- If user undoes mid-agent-run (somehow), that's already impossible since UI is locked during agent execution
+
+**Implementation Notes (from codebase analysis):**
+
+```
+FILES TO MODIFY:
+  src/gui/MidiPilotWidget.h    — change showBubbles bool → ProtocolMode enum
+  src/gui/MidiPilotWidget.cpp  — agent protocol wrapping + all action handlers
+  src/ai/AgentRunner.cpp       — no changes needed (protocol is in widget, not runner)
+
+CURRENT PROTOCOL FLOW (Agent mode):
+  MidiPilotWidget.cpp:825  — _file->protocol()->startNewAction("MidiPilot Agent: " + text)
+  MidiPilotWidget.cpp:1138 — _file->protocol()->endAction()  [onAgentFinished]
+  MidiPilotWidget.cpp:1177 — _file->protocol()->endAction()  [onAgentError]
+
+  Agent tool calls go: AgentRunner::processToolCalls() → ToolDefinitions::executeTool()
+    → widget->executeAction(actionObj) → dispatchAction(actionObj, false)
+    → e.g. applyAiEdits(response, false)  [showBubbles=false → skips protocol]
+
+ACTION HANDLERS WITH PROTOCOL (all use "if (showBubbles)" guard):
+  applyAiEdits()           — line 1394: startNewAction / line 1414,1426: endAction
+  applyAiDeletes()         — line 1486: startNewAction / line 1504: endAction
+  applyTrackAction()       — line 1530: startNewAction / line 1537: endAction
+  applyTempoAction()       — line 1553: startNewAction / line ~1565: endAction
+  applyTimeSignatureAction() — similar pattern
+  applySelectAndEdit()     — similar pattern
+  applySelectAndDelete()   — similar pattern
+  applyMoveToTrack()       — similar pattern
+
+STEP-BY-STEP IMPLEMENTATION:
+  1. Define enum in MidiPilotWidget.h:
+       enum class ProtocolMode { PerAction, Compound, None };
+
+  2. Change all handler signatures from:
+       QJsonObject applyAiEdits(const QJsonObject &, bool showBubbles = true);
+     to:
+       QJsonObject applyAiEdits(const QJsonObject &, ProtocolMode proto = ProtocolMode::PerAction);
+
+  3. In each handler, replace:
+       if (showBubbles) _file->protocol()->startNewAction(...)
+     with:
+       if (proto == ProtocolMode::PerAction) _file->protocol()->startNewAction(...)
+     (PerAction = always wrap, Compound = skip individual wrapping, None = no protocol at all)
+
+  4. In onSendMessage() agent branch (line ~825):
+     REMOVE: _file->protocol()->startNewAction("MidiPilot Agent: " + text);
+     KEEP:   the AgentRunner::run() call
+
+  5. In onAgentFinished() (line ~1138):
+     REMOVE: _file->protocol()->endAction();
+     Same in onAgentError() (line ~1177)
+
+  6. Change executeAction() (line ~1020):
+     FROM: return dispatchAction(actionObj, false);
+     TO:   return dispatchAction(actionObj, ProtocolMode::PerAction);
+     Now each tool call wraps itself in its own protocol step
+
+  7. Simple mode multi-action loop (line ~900):
+     Already works — each dispatchAction(obj, true) creates its own step
+     Just change true → ProtocolMode::PerAction
+
+  8. The step label for each protocol action comes from the tool's "explanation" field
+     (already present in action JSON from the AI), falling back to buildStepLabel()
+
+EDGE CASES:
+  - read-only tools (get_editor_state, query_events) don't call dispatchAction
+    → no protocol step created → correct behavior
+  - info/error actions in dispatchAction → no protocol step → correct
+  - If agent errors mid-run, partial steps remain individually undoable → better than current
+```
+
+---
+
+### 19.2 — Persistent Conversation History ✅
+
+**Problem:** All conversation history is lost when the app closes, when the user starts
+a new chat, or when switching modes. There's no way to review past conversations or
+continue a previous session.
+
+**Current state:** Two in-memory structures (`_conversationHistory` QJsonArray for API,
+`_entries` QList for UI) — both cleared on new chat, mode change, or app exit.
+
+**Approach — JSON file storage** (no new dependency):
+- Storage format: one JSON file per conversation in a dedicated directory
+- Location: `<app_data>/MidiPilotHistory/` (use `QStandardPaths::AppDataLocation`)
+- File naming: `<timestamp>_<midi_filename_hash>.json`
+- Each conversation file contains:
+  ```json
+  {
+    "id": "uuid",
+    "created": "2026-04-06T15:30:00Z",
+    "updated": "2026-04-06T15:45:00Z",
+    "midiFile": "path/to/Sweet Child O Mine.mid",
+    "midiFileHash": "sha256_first8",
+    "model": "gpt-4o-mini",
+    "provider": "openai",
+    "title": "Transpose and fix guitar channels",
+    "tokenUsage": { "prompt": 12400, "completion": 3200 },
+    "messages": [ ... ]
+  }
+  ```
+- Auto-save: write after every assistant response (debounced 2s)
+- No SQLite — plain JSON files via `QJsonDocument`. Fast enough for conversation-sized
+  data (typically <100 messages), no new dependency, human-readable, easy to export
+- Conversation title: auto-generated from first user message (first 60 chars), editable
+
+**UI additions:**
+- History button (📜) in MidiPilot toolbar → opens history panel/dropdown
+- List shows: title, date, associated MIDI file, message count
+- Filter by MIDI file ("show conversations for this file")
+- Search across all conversations (simple substring match on messages)
+- Click to load a past conversation (read-only or resumable)
+- Export single conversation as `.json` or `.txt`
+- "Clear all history" with confirmation dialog
+- Auto-associate conversation with current MIDI file path + content hash
+
+**Implementation Notes (from codebase analysis):**
+
+```
+FILES TO CREATE:
+  src/ai/ConversationStore.h/.cpp  — new class for JSON file I/O
+
+FILES TO MODIFY:
+  src/gui/MidiPilotWidget.h   — add ConversationStore*, history UI members
+  src/gui/MidiPilotWidget.cpp — save/load/list conversations
+  CMakeLists.txt              — add ConversationStore.cpp to build
+
+CURRENT IN-MEMORY STATE:
+  MidiPilotWidget.h:
+    QJsonArray _conversationHistory;     — API messages (role + content), sent to LLM
+    QList<ConversationEntry> _entries;   — richer struct (timestamp, context, role, message)
+    int _totalPromptTokens, _totalCompletionTokens; — session counters
+
+  ConversationEntry struct (MidiPilotWidget.h:107):
+    QString role, message;
+    QJsonObject context;
+    QDateTime timestamp;
+
+SAVE/LOAD POINTS:
+  - SAVE triggers:
+    - After onResponseReceived() (Simple mode) — line ~870 area
+    - After onAgentFinished() — line ~1138 area
+    - After every addChatBubble() call (debounced via QTimer::singleShot)
+  - LOAD triggers:
+    - History panel click → repopulate _conversationHistory + _entries + chat bubbles
+    - App startup → optionally auto-resume last conversation for current file
+  - CLEAR triggers:
+    - onNewChat() (line ~710) → mark old conversation as "ended", start fresh file
+    - onModeChanged() → same as new chat
+
+DIRECTORY STRUCTURE:
+  QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+    → C:\Users\<user>\AppData\Local\MidiEditorAI\MidiPilotHistory\
+  One .json file per conversation: "2026-04-06T1530_abcd1234.json"
+  Index file NOT needed — just glob *.json and parse headers
+
+ConversationStore CLASS DESIGN:
+  class ConversationStore {
+  public:
+    struct ConversationMeta {
+        QString id, title, midiFile, midiFileHash, model, provider;
+        QDateTime created, updated;
+        int messageCount, promptTokens, completionTokens;
+    };
+
+    static QString storageDir();  // creates dir if needed
+    static QList<ConversationMeta> listConversations();  // scan dir, parse headers
+    static QList<ConversationMeta> findByMidiFile(const QString &path);
+    static QJsonObject loadConversation(const QString &id);
+    static void saveConversation(const QString &id, const QJsonObject &data);
+    static void deleteConversation(const QString &id);
+    static void deleteAll();
+  };
+
+UI ADDITIONS:
+  - MidiPilot toolbar already has: New Chat, Settings, Mode combo, Model combo
+  - Add: History button (📜) between New Chat and Settings
+  - History click → show dropdown/popup with QListWidget
+  - Each row: [title] [date] [model] [msg count]
+  - Double-click → load conversation, populating _conversationHistory and rebuilding chat bubbles
+  - Right-click → Export as .txt / Delete
+
+CONVERSATION RESUME:
+  When loading a saved conversation:
+  1. Clear current chat (same as onNewChat but no confirmation)
+  2. Set _conversationHistory from saved messages
+  3. Rebuild _entries from saved messages
+  4. For each entry, call addChatBubble() to rebuild the visual chat
+  5. Restore token counters from saved totals
+  6. Resume is possible — user can type new messages, they append to same conversation file
+
+MIDI FILE ASSOCIATION:
+  - When saving, record:
+    - _file->path() (full path)
+    - First 8 chars of SHA-256 of file content (or just filename if path changes)
+  - When opening a file, check if any conversations match → show "Resume?" prompt
+  - Filter button in history: "Show only conversations for this file"
+```
+
+**Why JSON over SQLite:**
+- Qt already has `QJsonDocument` — zero new dependencies
+- Conversations are small — no need for indexed queries
+- Files are human-readable and trivially portable
+- Export/import is just file copy
+- No schema migrations needed
+- For the expected volume (<1000 conversations), file-based listing is fast enough
+
+---
+
+### 19.3 — Token Counting Fix + Estimation Fallback ✅
+
+**Problem:** Token counters show 0 for some providers because the code only parses
+the OpenAI Chat Completions `usage` format (`prompt_tokens`, `completion_tokens`,
+`total_tokens`). Issues:
+
+1. **OpenAI Responses API** (`/v1/responses`): `normalizeResponsesApiResponse()` doesn't
+   normalize the `usage` field — it may use a different structure
+2. **Anthropic** (via direct API): Returns `usage.input_tokens` / `usage.output_tokens`
+   instead of `prompt_tokens` / `completion_tokens`
+3. **Google Gemini**: Returns `usageMetadata.promptTokenCount` / `candidatesTokenCount`
+4. **Some OpenRouter models**: May not return usage at all
+
+**Approach — multi-layer token counting:**
+
+1. **Normalize provider-specific usage fields** in `AiClient::onReplyFinished()`:
+   - Detect response format and map to canonical `{prompt_tokens, completion_tokens}`
+   - Handle: OpenAI Chat Completions, OpenAI Responses API, Anthropic native, Gemini native
+   - All downstream code already uses the canonical format
+
+2. **Client-side estimation fallback** when API returns no usage:
+   - Use the tiktoken approximation: `~4 chars per token` for English/code
+   - Count characters in the request messages and response, divide by 4
+   - Display with a `~` prefix to indicate estimate: `~2.4k` vs `2.4k`
+   - Configurable in settings: "Token counting: API | Estimate | Both"
+
+3. **Per-model context window display:**
+   - Store known context limits in a simple lookup table (gpt-4o: 128k, claude-3.5: 200k, etc.)
+   - Show usage bar: `12.4k / 128k tokens` in the token label
+   - Warn when approaching limit (>80%): yellow indicator
+
+**Why not a real tokenizer:**
+- tiktoken (Python) or equivalent C++ port would add a large dependency
+- The `~4 chars/token` heuristic is within 20% for most content
+- API-reported tokens are always preferred when available
+- The estimation is mainly for providers that don't report usage
+
+**Implementation Notes (from codebase analysis):**
+
+```
+FILES TO MODIFY:
+  src/ai/AiClient.cpp         — normalize usage in onReplyFinished() + normalizeResponsesApiResponse()
+  src/ai/AiClient.h           — add static normalizeUsage() helper, context window lookup
+  src/ai/AgentRunner.cpp      — already reads usage at line 118, just needs normalization
+  src/gui/MidiPilotWidget.cpp — estimation fallback, context bar display
+
+CURRENT TOKEN FLOW:
+  1. AiClient::onReplyFinished() → emits responseReceived(content, fullResponse)
+     fullResponse includes raw "usage" object as-is from API
+  2. MidiPilotWidget::onResponseReceived() (line ~852):
+     usage = fullResponse["usage"].toObject()
+     _lastPromptTokens = usage["prompt_tokens"].toInt()   ← OpenAI format only!
+     _lastCompletionTokens = usage["completion_tokens"].toInt()
+  3. AgentRunner::onApiResponse() (line ~118):
+     Same pattern — reads usage["prompt_tokens"] etc.
+     Emits tokenUsageUpdated(pt, ct, tt) → MidiPilotWidget accumulates
+
+PROBLEM ANALYSIS:
+  A) normalizeResponsesApiResponse() (AiClient.cpp:430) builds normalized["choices"]
+     but does NOT copy/normalize the "usage" field from the Responses API response.
+     OpenAI Responses API returns: { "usage": { "input_tokens": N, "output_tokens": N, "total_tokens": N } }
+     Note: "input_tokens" not "prompt_tokens" — different field names!
+     FIX: Add to normalizeResponsesApiResponse():
+       if (respObj.contains("usage")) {
+           QJsonObject rawUsage = respObj["usage"].toObject();
+           QJsonObject usage;
+           usage["prompt_tokens"] = rawUsage["input_tokens"];
+           usage["completion_tokens"] = rawUsage["output_tokens"];
+           usage["total_tokens"] = rawUsage["total_tokens"];
+           normalized["usage"] = usage;
+       }
+
+  B) Anthropic native API returns:
+     { "usage": { "input_tokens": N, "output_tokens": N } }
+     When accessed via OpenRouter (OpenAI-compatible), usually remapped.
+     When direct Anthropic API: need normalization.
+     FIX: Add normalizeUsage() static helper in AiClient that detects format:
+       - Has "prompt_tokens" → already normalized (OpenAI Chat Completions)
+       - Has "input_tokens" → Anthropic/Responses API → remap
+       - Has "promptTokenCount" → Gemini → remap from usageMetadata
+       - None of the above → return empty (will trigger estimation)
+
+  C) Gemini native API returns:
+     { "usageMetadata": { "promptTokenCount": N, "candidatesTokenCount": N, "totalTokenCount": N } }
+     FIX: Check for usageMetadata in addition to usage.
+
+ESTIMATION FALLBACK:
+  When normalizeUsage() returns empty (no API-reported tokens):
+  - Count chars in the sent messages (system prompt + conversation + user msg)
+  - Count chars in the response content
+  - Divide by 4 (rough tiktoken approximation)
+  - Set a flag _isEstimated = true
+  - updateTokenLabel() shows "~2.4k" instead of "2.4k"
+
+CONTEXT WINDOW LOOKUP TABLE (in AiClient.h or separate):
+  static QHash<QString, int> contextWindows = {
+      {"gpt-4o", 128000}, {"gpt-4o-mini", 128000},
+      {"gpt-5", 1000000}, {"gpt-5.4", 1000000},
+      {"o4-mini", 200000}, {"o3", 200000},
+      {"claude-3.5-sonnet", 200000}, {"claude-3-haiku", 200000},
+      {"claude-4-sonnet", 200000},
+      {"gemini-2.5-pro", 1000000}, {"gemini-2.5-flash", 1000000},
+  };
+  Lookup by prefix match (model.startsWith) to handle version variants.
+  Returns 0 for unknown models → context bar hidden.
+
+DISPLAY UPDATE:
+  updateTokenLabel() (MidiPilotWidget.cpp:996):
+  Currently: "2450 | 12.3k🔥 [16.0k ✂]"
+  New:       "2450 | 12.3k🔥 / 128k [16.0k ✂]"
+  Or estimated: "~2450 | ~12.3k🔥 / 128k"
+  Add yellow color when sessionTotal > 0.8 * contextWindow
+```
+
+---
+
+### 19.4 — Agent Mode Progress & Action Log ✅
+
+**Problem:** During Agent mode execution, the user sees "Thinking..." with a spinner
+but has no visibility into what the agent is doing. After completion, they get one
+chat bubble with the final response. The intermediate tool calls are invisible.
+
+**Approach:**
+- Show a collapsible "Agent Activity" panel during and after agent execution
+- Each tool call gets a one-line entry: `🔧 transpose_notes → Track 1, +12 semitones`
+- Entries appear in real-time as the agent works (signals from AgentRunner)
+- After completion, the log persists as a collapsible section above the final response
+- Each entry links to its undo step (from 19.1) — click to see what changed
+- Show step count: `Step 3/50` with the configured limit
+- Show per-step token usage if available
+
+**Implementation:**
+- New signal: `AgentRunner::toolCallExecuted(QString toolName, QJsonObject args, QJsonObject result)`
+- `MidiPilotWidget` receives signal → appends to activity log widget
+- Activity log is a `QListWidget` with custom styled items
+- Collapsible via a toggle button ("▼ 5 actions" / "▶ 5 actions")
+
+**Implementation Notes (from codebase analysis):**
+
+```
+KEY FINDING: AgentStepsWidget ALREADY EXISTS!
+  MidiPilotWidget.cpp:101-220 — local class AgentStepsWidget inside the .cpp file
+  Already has: planSteps(), addStep(), markActive(), completeStep(), setFinished()
+  Already has: collapsible header, step counter, emoji status indicators
+  Already receives signals: onAgentStepStarted, onAgentStepCompleted, onAgentStepsPlanned
+
+WHAT'S ALREADY DONE (no work needed):
+  ✅ Collapsible step display with header "▶/▼ Steps (3/5)"
+  ✅ Real-time step updates (⏳ pending → 🔄 active → ✅ done / ❌ failed / ⚠ retrying)
+  ✅ Descriptive step labels via buildStepLabel() (AgentRunner.cpp:222)
+      e.g. "Insert events — Track 1 (12 events)", "Rename track — Track 0 → Piano"
+  ✅ Steps planned upfront via stepsPlanned signal (batch display before execution)
+  ✅ Widget inserted into chat flow, persists after completion
+
+WHAT'S MISSING (actual work for 19.4):
+  1. Per-step token usage display
+     - AgentRunner already emits tokenUsageUpdated per API round-trip
+     - But round-trips can contain MULTIPLE tool calls (batched)
+     - Need to split token count across steps in a batch, or show per-round-trip
+     - Simplest: show token count on the step label: "✅ Insert events (1.2k tokens)"
+
+  2. Link steps to undo entries (depends on 19.1)
+     - After 19.1, each tool call = one protocol step
+     - Store the protocol step index alongside the step label
+     - On click → highlight that protocol entry in the Protocol tab
+     - Or: right-click step → "Undo this step" → protocol()->undo() N times
+
+  3. Re-style AgentStepsWidget for dark themes
+     - Current: hardcoded background "#F5F5F0", hardcoded colors
+     - Should use Appearance::* helpers for theme-aware colors
+     - Low effort, just change the setStyleSheet calls
+
+  4. Show tool arguments summary in expandable detail
+     - Currently only shows buildStepLabel() one-liner
+     - Could add a tooltip or expandable detail with the full args JSON
+     - Nice-to-have, not critical
+
+FILES TO MODIFY:
+  src/gui/MidiPilotWidget.cpp — AgentStepsWidget class (lines 101-220)
+  src/ai/AgentRunner.cpp      — token usage per-step tracking
+  src/gui/MidiPilotWidget.cpp — onAgentStepCompleted handler (line 1120)
+
+ESTIMATED EFFORT: ~60 lines (much less than originally planned since widget exists)
+```
+
+---
+
+### 19.5 — Conversation Context Window Management ✅
+
+**Problem:** No truncation strategy when conversations get long. The full
+`_conversationHistory` is sent with every request. If a conversation runs for 50+
+messages, the context can exceed the model's limit, causing API errors or silently
+dropped context.
+
+**Approach:**
+- Track cumulative token estimate for `_conversationHistory`
+- When approaching the model's context limit (from 19.3 lookup table), apply a
+  sliding window: keep system prompt + first 2 messages + last N messages
+- Summarization option: before truncating, ask the model to summarize the dropped
+  messages into a single "conversation summary" message
+- Show a visual indicator when context is being truncated
+- User can manually "compact" conversation via a button
+
+**Implementation Notes (from codebase analysis):**
+
+```
+CURRENT CONVERSATION FLOW:
+  Simple mode — AiClient::sendRequest() (line 196):
+    messages = [system_prompt] + [_conversationHistory] + [user_message]
+    Entire _conversationHistory sent every time — no size limit!
+
+  Agent mode — AgentRunner::run() (line ~50):
+    _messages = [system_prompt] + [conversationHistory + user_msg]
+    Then during tool loop, _messages grows with assistant + tool messages
+    By final round-trip, _messages can be HUGE (system + history + N tool calls)
+
+RISK ANALYSIS:
+  - System prompt (EditorContext::agentSystemPrompt): ~2-4k tokens
+  - Each user message with context: ~1-3k tokens (includes editorState JSON)
+  - Each assistant response: ~0.5-2k tokens
+  - Agent tool loop: each round-trip adds ~2-5k tokens (assistant + tool results)
+  - 10-step agent run ≈ 30-50k tokens in _messages
+  - 20-message conversation ≈ 20-40k tokens in _conversationHistory
+  - gpt-4o-mini has 128k context → safe for most sessions
+  - But long conversations + agent mode can hit limits
+
+IMPLEMENTATION APPROACH:
+  1. Before each sendRequest/sendMessages, estimate total tokens:
+     - Sum chars of all messages / 4 (reuse estimation from 19.3)
+     - Compare to model's context window (from 19.3 lookup table)
+
+  2. If estimated tokens > 80% of context window:
+     - Sliding window: keep system prompt + first 2 messages (task context)
+       + last N messages that fit in ~60% of context
+     - Drop middle messages
+     - Insert a "[Context truncated — older messages removed]" marker
+
+  3. Summarization (optional, advanced):
+     - Before truncating, send dropped messages to model with:
+       "Summarize this conversation so far in 200 words"
+     - Replace dropped messages with single summary message
+     - Expensive (extra API call) → make it opt-in in settings
+
+  4. Visual indicator in MidiPilot:
+     - When truncation happens, show yellow bar: "⚠ Context truncated (15 of 42 messages)"
+     - "Compact" button → manually trigger summarization
+
+FILES TO MODIFY:
+  src/gui/MidiPilotWidget.cpp — add truncation logic before sendRequest calls
+    onSendMessage() line ~830 (agent) and ~840 (simple)
+    New method: QJsonArray truncateHistory(const QJsonArray &history, int maxTokens)
+  src/ai/AiClient.h — expose contextWindowForModel(model) from 19.3 lookup table
+
+DEPENDS ON: 19.3 (context window lookup table + token estimation)
+```
+
+---
+
+### 19.6 — Response Streaming (SSE) ✅
+
+**Problem:** Currently waits for the complete API response before showing anything.
+For long responses (especially in Agent mode analysis), the user stares at "Thinking..."
+for 10-30 seconds with no feedback.
+
+**Approach:**
+- Use Server-Sent Events (SSE) streaming: `"stream": true` in API request
+- `AiClient` reads chunks via `QNetworkReply::readyRead` signal
+- Parse SSE `data:` lines, extract content deltas
+- Emit `streamDelta(QString chunk)` signal for incremental display
+- `MidiPilotWidget` builds up the response bubble character-by-character
+- For JSON action responses: buffer until complete, then parse and execute
+- Agent mode: stream the final text response only (tool calls remain non-streamed
+  since they need complete JSON to execute)
+- Graceful fallback: if streaming fails, fall back to non-streaming request
+
+**Considerations:**
+- Anthropic uses a different streaming format than OpenAI — need provider-specific parsing
+- Token usage is reported in the final `[DONE]` chunk for OpenAI
+- Reduces perceived latency significantly for conversational responses
+
+**Implementation Notes (from codebase analysis):**
+
+```
+CURRENT REQUEST FLOW:
+  AiClient::sendMessages() (line 227):
+    - Builds QJsonObject body with model, messages, tools, etc.
+    - Sends via _manager->post(request, QJsonDocument(body).toJson())
+    - connect(_manager, &QNetworkAccessManager::finished, this, &AiClient::onReplyFinished)
+    - onReplyFinished reads ALL data at once: reply->readAll()
+    - Parses complete JSON, extracts choices[0].message.content
+
+  For streaming, need to:
+    1. Add "stream": true to the request body
+    2. Instead of waiting for finished, connect to readyRead signal
+    3. Parse SSE chunks incrementally
+
+STREAMING FORMAT (OpenAI Chat Completions):
+  Each chunk: "data: {"choices":[{"delta":{"content":"Hello"}}]}\n\n"
+  Final:      "data: [DONE]\n\n"
+  Token usage only in final chunk (stream_options: {"include_usage": true})
+
+STREAMING FORMAT (Anthropic):
+  event: content_block_delta
+  data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"Hello"}}
+  Final: event: message_stop
+
+IMPLEMENTATION PLAN:
+  1. Add sendStreamingRequest() method to AiClient:
+     - Same body as sendMessages() but with "stream": true
+     - If OpenAI: add "stream_options": {"include_usage": true}
+     - Connect to QNetworkReply::readyRead instead of finished
+     - Parse SSE lines incrementally via QByteArray buffer
+
+  2. New signals:
+     - streamDelta(const QString &text) — partial content
+     - streamFinished(const QString &fullContent, const QJsonObject &usage) — done
+     - streamError(const QString &error) — error during streaming
+
+  3. SSE parser helper (in AiClient):
+     QByteArray _streamBuffer;
+     void onStreamDataAvailable() {
+         _streamBuffer += _currentReply->readAll();
+         while (_streamBuffer.contains("\n\n")) {
+             int idx = _streamBuffer.indexOf("\n\n");
+             QByteArray chunk = _streamBuffer.left(idx);
+             _streamBuffer.remove(0, idx + 2);
+             if (chunk.startsWith("data: ")) {
+                 QByteArray json = chunk.mid(6);
+                 if (json == "[DONE]") { emit streamFinished(...); return; }
+                 // parse delta, emit streamDelta(deltaContent);
+             }
+         }
+     }
+
+  4. MidiPilotWidget integration:
+     - For Simple mode text responses: show streaming bubble that grows
+     - For JSON actions: buffer until complete, then parse (no streaming display)
+     - For Agent mode: only stream the FINAL text response
+       AgentRunner tool calls stay non-streamed (need complete JSON to execute)
+
+  5. Smart detection — when to stream:
+     - Always stream in Simple mode for text responses
+     - Don't stream when tools are provided (Agent mode API calls)
+     - Stream the final agent response only (after all tool calls done)
+
+FILES TO MODIFY:
+  src/ai/AiClient.h           — add streaming methods + signals + _streamBuffer
+  src/ai/AiClient.cpp         — new sendStreamingRequest(), onStreamDataAvailable(), SSE parser
+  src/gui/MidiPilotWidget.cpp — connect to stream signals, build incremental bubble
+  src/ai/AgentRunner.cpp      — optionally stream final response
+
+RISK: Medium — SSE parsing needs robust buffering (chunks can split mid-JSON).
+  Provider differences in streaming format add complexity.
+  Fallback to non-streaming should be seamless.
+
+DEPENDS ON: Nothing (independent feature)
+```
+
+---
+
+### 19.7 — Per-File AI Presets ✅
+
+**Problem:** Different MIDI files need different AI context. A 16-track orchestral
+arrangement needs different system prompt guidance than a 3-track FFXIV bard song.
+Currently the system prompt is global.
+
+**Approach:**
+- Allow saving a "preset" per MIDI file: custom system prompt additions, preferred model,
+  preferred mode (Simple/Agent)
+- Store as JSON sidecar: `<midi_filename>.midipilot.json` next to the MIDI file
+- Auto-load when opening a MIDI file
+- UI: "Save AI preset for this file" button in MidiPilot settings dropdown
+- Presets are optional — global defaults still apply when no preset exists
+- Include: custom instructions, temperature, max tokens, mode preference
+
+**Implementation Notes (from codebase analysis):**
+
+```
+CURRENT SYSTEM PROMPT FLOW:
+  MidiPilotWidget.cpp onSendMessage():
+    Agent:  agentPrompt = EditorContext::agentSystemPrompt()
+            if (ffxivMode()) agentPrompt += EditorContext::ffxivContext()
+    Simple: simplePrompt = EditorContext::systemPrompt()
+            if (ffxivMode()) simplePrompt += EditorContext::ffxivContext()
+
+  EditorContext is fully static — no per-file state.
+
+  Custom system prompt: SystemPromptDialog (src/gui/SystemPromptDialog.cpp)
+    - Loads from QSettings("AI/custom_system_prompt")
+    - Appended to the base system prompt
+    - Global, not per-file
+
+CURRENT MODEL/PROVIDER SETTINGS:
+  All in QSettings:
+    AI/provider, AI/api_base_url, AI/model, AI/reasoning_effort
+    AI/api_key_<provider>
+    AI/max_tokens_enabled, AI/max_tokens_limit
+    AI/agent_max_steps
+
+  MidiPilotWidget footer has: provider combo, model combo, effort combo, FFXIV checkbox
+  These are global and change QSettings directly.
+
+SIDECAR FILE DESIGN:
+  File: <midi_filename>.midipilot.json (next to the .mid file)
+  e.g.: "Sweet Child O Mine.mid" → "Sweet Child O Mine.mid.midipilot.json"
+
+  Content:
+  {
+    "version": 1,
+    "customInstructions": "This is an 8-track FFXIV bard arrangement...",
+    "preferredModel": "gpt-4o",
+    "preferredProvider": "openai",
+    "preferredMode": "agent",
+    "ffxivMode": true,
+    "reasoningEffort": "medium",
+    "maxTokensLimit": 8000
+  }
+
+  All fields optional — unset fields use global defaults.
+
+IMPLEMENTATION:
+  1. New method: MidiPilotWidget::loadPresetForFile(const QString &midiPath)
+     - Check if <midiPath>.midipilot.json exists
+     - Parse JSON, apply settings to UI combos (model, provider, effort, mode, ffxiv)
+     - Append customInstructions to system prompt
+     - Called from onFileChanged()
+
+  2. New method: MidiPilotWidget::savePresetForFile()
+     - Serialize current UI state to JSON
+     - Write to <_file->path()>.midipilot.json
+     - Prompt user for customInstructions text
+
+  3. UI: "Save AI preset for this file" in the settings dropdown (⚙ button)
+     - Opens a small dialog with:
+       - Text area: "Custom instructions for this file"
+       - Checkboxes: which settings to save (model, mode, ffxiv, etc.)
+       - Save / Cancel
+
+  4. Auto-load: in onFileChanged() (already called when file loads)
+     - After setting _file, call loadPresetForFile(_file->path())
+     - Show a subtle notification: "Loaded AI preset for this file"
+
+FILES TO MODIFY:
+  src/gui/MidiPilotWidget.h   — add loadPresetForFile(), savePresetForFile()
+  src/gui/MidiPilotWidget.cpp — implement load/save, integrate into onFileChanged()
+  src/gui/MidiPilotWidget.cpp — add menu item in settings dropdown
+
+DEPENDS ON: Nothing (independent feature)
+RISK: Low — simple JSON file I/O, no complex logic
+```

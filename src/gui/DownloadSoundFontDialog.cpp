@@ -283,7 +283,10 @@ void DownloadSoundFontDialog::onDownloadButtonClicked() {
     connect(_downloadReply, SIGNAL(finished()), this, SLOT(soundFontDownloadFinished()));
     connect(_downloadReply, &QNetworkReply::readyRead, this, [this]() {
         if (_downloadFile && _downloadReply) {
-            _downloadFile->write(_downloadReply->readAll());
+            QByteArray data = _downloadReply->readAll();
+            if (_downloadFile->write(data) != data.size()) {
+                _downloadReply->abort();
+            }
         }
     });
 
@@ -313,6 +316,10 @@ void DownloadSoundFontDialog::soundFontDownloadFinished() {
         return;
     }
 
+    // Flush any remaining buffered data
+    if (_downloadReply->bytesAvailable() > 0) {
+        _downloadFile->write(_downloadReply->readAll());
+    }
     _downloadFile->close();
     QString destPath = _downloadFile->fileName();
 

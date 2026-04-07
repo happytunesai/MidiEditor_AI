@@ -21,7 +21,7 @@
 #include <QPainter>
 
 ClickButton::ClickButton(QString imageName, QWidget *parent)
-    : QPushButton(parent) {
+    : QPushButton(parent), image(nullptr) {
     setFixedSize(40, 40);
     button_mouseInButton = false;
     button_mouseClicked = false;
@@ -61,6 +61,7 @@ void ClickButton::buttonClick() {
 }
 
 void ClickButton::setImageName(QString imageName) {
+    delete image;
     image = new QImage(":/run_environment/graphics/tool/" + imageName);
     update();
 }

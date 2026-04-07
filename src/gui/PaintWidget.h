@@ -92,7 +92,7 @@ protected:
      * \brief Handles mouse enter events.
      * \param event The enter event
      */
-    void enterEvent(QEvent *event);
+    void enterEvent(QEnterEvent *event);
 
     /**
      * \brief Handles mouse leave events.

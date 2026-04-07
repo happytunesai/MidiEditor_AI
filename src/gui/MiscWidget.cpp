@@ -507,6 +507,9 @@ void MiscWidget::mouseReleaseEvent(QMouseEvent *event) {
             if (dragging) {
                 QList<MidiEvent *> accordingEvents;
                 getTrack(&accordingEvents);
+                if (trackIndex < 0 || trackIndex >= accordingEvents.size()) {
+                    return;
+                }
                 MidiEvent *ev = accordingEvents.at(trackIndex);
 
                 MidiTrack *track = matrixWidget->midiFile()->track(NewNoteTool::editTrack());
@@ -599,6 +602,7 @@ void MiscWidget::mouseReleaseEvent(QMouseEvent *event) {
                     } else {
                         MidiTrack *track = matrixWidget->midiFile()->track(NewNoteTool::editTrack());
                         if (!track) {
+                            matrixWidget->midiFile()->protocol()->endAction();
                             return;
                         }
 
@@ -687,6 +691,7 @@ void MiscWidget::mouseReleaseEvent(QMouseEvent *event) {
 
                 MidiTrack *track = matrixWidget->midiFile()->track(NewNoteTool::editTrack());
                 if (!track) {
+                    matrixWidget->midiFile()->protocol()->endAction();
                     return;
                 }
                 if (v < 0)
@@ -877,6 +882,7 @@ void MiscWidget::mouseReleaseEvent(QMouseEvent *event) {
                     }
                     MidiTrack *track = matrixWidget->midiFile()->track(NewNoteTool::editTrack());
                     if (!track) {
+                        matrixWidget->midiFile()->protocol()->endAction();
                         return;
                     }
                     lastValue = v;
@@ -926,7 +932,9 @@ int MiscWidget::xPosOfTick(int tick) {
 }
 
 int MiscWidget::value(double y) {
-    int v = _max * (height() - y) / height();
+    int h = height();
+    if (h <= 0) return 0;
+    int v = _max * (h - y) / h;
     if (v > _max) {
         v = _max;
     }

@@ -267,6 +267,9 @@ protected:
 
     /** \brief Mouse position tracking */
     int mouseX, mouseY, mouseLastX, mouseLastY;
+
+    /** \brief Cached paint size to avoid unnecessary GPU reallocations */
+    QSize _lastPaintSize;
 };
 
 #endif // OPENGLPAINTWIDGET_H_

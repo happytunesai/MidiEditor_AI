@@ -81,11 +81,6 @@ private slots:
 
 protected:
     /**
-     * \brief Override paint event to ensure description is always visible.
-     */
-    void paintEvent(QPaintEvent *event);
-
-    /**
      * \brief Override move event to refresh description.
      */
     void moveEvent(QMoveEvent *event);

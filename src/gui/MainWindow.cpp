@@ -904,6 +904,7 @@ void MainWindow::play() {
         CompleteMidiSetupDialog *d = new CompleteMidiSetupDialog(this, false, true);
         d->setModal(true);
         d->exec();
+        delete d;
         return;
     }
     if (file && !MidiInput::recording() && !MidiPlayer::isPlaying()) {
@@ -928,6 +929,8 @@ void MainWindow::play() {
 
         // Connect playback cursor updates for all platforms (not just Windows)
         // This is essential for the playback cursor to move during playback
+        // Disconnect first to prevent accumulating connections across play/stop cycles
+        disconnect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _matrixWidgetContainer, SLOT(timeMsChanged(int)));
         connect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _matrixWidgetContainer, SLOT(timeMsChanged(int)));
     }
 }
@@ -937,6 +940,7 @@ void MainWindow::record() {
         CompleteMidiSetupDialog *d = new CompleteMidiSetupDialog(this, !MidiInput::isConnected(), !MidiOutput::isConnected());
         d->setModal(true);
         d->exec();
+        delete d;
         return;
     }
 
@@ -972,6 +976,8 @@ void MainWindow::record() {
             connect(MidiPlayer::playerThread(), SIGNAL(playerStopped()), this, SLOT(stop()));
             // Connect playback cursor updates for all platforms (not just Windows)
             // This is essential for the playback cursor to move during playback
+            // Disconnect first to prevent accumulating connections across play/stop cycles
+            disconnect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _matrixWidgetContainer, SLOT(timeMsChanged(int)));
             connect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _matrixWidgetContainer, SLOT(timeMsChanged(int)));
         }
     }
@@ -1052,7 +1058,7 @@ void MainWindow::forward() {
     if (!file)
         return;
 
-    QList<TimeSignatureEvent *> *eventlist = new QList<TimeSignatureEvent *>;
+    QList<TimeSignatureEvent *> *eventlist = nullptr;
     int ticksleft;
     int oldTick = file->cursorTick();
     if (file->pauseTick() >= 0) {
@@ -1065,6 +1071,7 @@ void MainWindow::forward() {
     file->measure(oldTick, oldTick, &eventlist, &ticksleft);
 
     int newTick = oldTick - ticksleft + eventlist->last()->ticksPerMeasure();
+    delete eventlist;
     file->setPauseTick(-1);
     if (newTick <= file->endTick()) {
         file->setCursorTick(newTick);
@@ -1082,7 +1089,7 @@ void MainWindow::back() {
     if (!file)
         return;
 
-    QList<TimeSignatureEvent *> *eventlist = new QList<TimeSignatureEvent *>;
+    QList<TimeSignatureEvent *> *eventlist = nullptr;
     int ticksleft;
     int oldTick = file->cursorTick();
     if (file->pauseTick() >= 0) {
@@ -1103,6 +1110,7 @@ void MainWindow::back() {
     if (ticksleft > 0) {
         newTick -= ticksleft;
     }
+    delete eventlist;
     file->setPauseTick(-1);
     if (newTick >= 0) {
         file->setCursorTick(newTick);
@@ -1242,10 +1250,10 @@ void MainWindow::saveas() {
         return;
 
     QString oldPath = file->path();
-    QFile *f = new QFile(oldPath);
+    QFile f(oldPath);
     QString dir = startDirectory;
-    if (f->exists()) {
-        QFileInfo(*f).dir().path();
+    if (f.exists()) {
+        dir = QFileInfo(f).dir().path();
     }
     QString newPath = QFileDialog::getSaveFileName(this, tr("Save file as..."), dir);
 
@@ -1292,14 +1300,16 @@ void MainWindow::load() {
     if (file) {
         oldPath = file->path();
         if (!file->saved()) {
-            saveBeforeClose();
+            if (!saveBeforeClose()) {
+                return;
+            }
         }
     }
 
-    QFile *f = new QFile(oldPath);
+    QFile f(oldPath);
     QString dir = startDirectory;
-    if (f->exists()) {
-        QFileInfo(*f).dir().path();
+    if (f.exists()) {
+        dir = QFileInfo(f).dir().path();
     }
     QString midi = "*.mid *.midi";
 #ifdef GP678_SUPPORT
@@ -1328,7 +1338,9 @@ void MainWindow::loadFile(QString nfile) {
     if (file) {
         oldPath = file->path();
         if (!file->saved()) {
-            saveBeforeClose();
+            if (!saveBeforeClose()) {
+                return;
+            }
         }
     }
     if (!nfile.isEmpty()) {
@@ -1559,6 +1571,7 @@ void MainWindow::closeEvent(QCloseEvent *event) {
 
 void MainWindow::about() {
     AboutDialog *d = new AboutDialog(this);
+    d->setAttribute(Qt::WA_DeleteOnClose);
     d->setModal(true);
 
     // Ensure the about dialog inherits the current application style and palette
@@ -1589,6 +1602,7 @@ void MainWindow::setFileLengthMs() {
         return;
 
     FileLengthDialog *d = new FileLengthDialog(file, this);
+    d->setAttribute(Qt::WA_DeleteOnClose);
     d->setModal(true);
     d->show();
 }
@@ -1632,7 +1646,9 @@ bool MainWindow::saveBeforeClose() {
 void MainWindow::newFile() {
     if (file) {
         if (!file->saved()) {
-            saveBeforeClose();
+            if (!saveBeforeClose()) {
+                return;
+            }
         }
     }
 
@@ -1762,8 +1778,8 @@ void MainWindow::equalize() {
                     off->setMidiTime(avgStart + avgTime);
                 }
             }
+            file->protocol()->endAction();
         }
-        file->protocol()->endAction();
     }
 }
 
@@ -2125,7 +2141,9 @@ void MainWindow::openRecent(QAction *action) {
 
     if (file) {
         if (!file->saved()) {
-            saveBeforeClose();
+            if (!saveBeforeClose()) {
+                return;
+            }
         }
     }
 
@@ -3113,6 +3131,7 @@ void MainWindow::transposeNSemitones() {
     }
 
     TransposeDialog *d = new TransposeDialog(events, file, this);
+    d->setAttribute(Qt::WA_DeleteOnClose);
     d->setModal(true);
     d->show();
 }
@@ -3247,8 +3266,10 @@ void MainWindow::editChannel(int i, bool assign) {
 
     MidiOutput::setStandardChannel(i);
 
-    int prog = file->channel(i)->progAtTick(file->cursorTick());
-    MidiOutput::sendProgram(i, prog);
+    if (file && file->channel(i)) {
+        int prog = file->channel(i)->progAtTick(file->cursorTick());
+        MidiOutput::sendProgram(i, prog);
+    }
 
     updateChannelMenu();
 }

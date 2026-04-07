@@ -127,7 +127,7 @@ void EventWidgetDelegate::setEditorData(QWidget *editor, const QModelIndex &inde
     switch (field) {
         case EventWidget::MidiEventTick: {
             QSpinBox *spin = dynamic_cast<QSpinBox *>(editor);
-            spin->setMaximum(0);
+            spin->setMinimum(0);
             spin->setMaximum(INT_MAX);
             if (index.data().canConvert<int>()) {
                 spin->setValue(index.data().toInt());
@@ -149,7 +149,7 @@ void EventWidgetDelegate::setEditorData(QWidget *editor, const QModelIndex &inde
         }
         case EventWidget::MidiEventNote: {
             QSpinBox *spin = dynamic_cast<QSpinBox *>(editor);
-            spin->setMaximum(0);
+            spin->setMinimum(0);
             spin->setMaximum(127);
             if (index.data().canConvert<int>()) {
                 spin->setValue(index.data().toInt());
@@ -158,7 +158,7 @@ void EventWidgetDelegate::setEditorData(QWidget *editor, const QModelIndex &inde
         }
         case EventWidget::NoteEventOffTick: {
             QSpinBox *spin = dynamic_cast<QSpinBox *>(editor);
-            spin->setMaximum(0);
+            spin->setMinimum(0);
             spin->setMaximum(INT_MAX);
             if (index.data().canConvert<int>()) {
                 spin->setValue(index.data().toInt());
@@ -167,7 +167,7 @@ void EventWidgetDelegate::setEditorData(QWidget *editor, const QModelIndex &inde
         }
         case EventWidget::NoteEventVelocity: {
             QSpinBox *spin = dynamic_cast<QSpinBox *>(editor);
-            spin->setMaximum(0);
+            spin->setMinimum(0);
             spin->setMaximum(127);
             if (index.data().canConvert<int>()) {
                 spin->setValue(index.data().toInt());
@@ -176,7 +176,7 @@ void EventWidgetDelegate::setEditorData(QWidget *editor, const QModelIndex &inde
         }
         case EventWidget::NoteEventDuration: {
             QSpinBox *spin = dynamic_cast<QSpinBox *>(editor);
-            spin->setMaximum(0);
+            spin->setMinimum(0);
             spin->setMaximum(INT_MAX);
             if (index.data().canConvert<int>()) {
                 spin->setValue(index.data().toInt());
@@ -185,7 +185,7 @@ void EventWidgetDelegate::setEditorData(QWidget *editor, const QModelIndex &inde
         }
         case EventWidget::MidiEventChannel: {
             QSpinBox *spin = dynamic_cast<QSpinBox *>(editor);
-            spin->setMaximum(0);
+            spin->setMinimum(0);
             spin->setMaximum(15);
             if (index.data().canConvert<int>()) {
                 spin->setValue(index.data().toInt());
@@ -264,7 +264,7 @@ void EventWidgetDelegate::setEditorData(QWidget *editor, const QModelIndex &inde
         }
         case EventWidget::TimeSignatureNum: {
             QSpinBox *spin = dynamic_cast<QSpinBox *>(editor);
-            spin->setMaximum(1);
+            spin->setMinimum(1);
             spin->setMaximum(99);
             if (index.data().canConvert<int>()) {
                 spin->setValue(index.data().toInt());
@@ -530,6 +530,7 @@ void EventWidgetDelegate::setModelData(QWidget *editor, QAbstractItemModel *mode
 
             if (registeredTypes.keys().contains(type)) {
                 QMessageBox::warning(eventWidget, "Error", QString(tr("The entered type refers to known Meta Event (") + registeredTypes.value(type) + ")"));
+                eventWidget->file()->protocol()->endAction();
                 return;
             }
 
@@ -547,6 +548,7 @@ void EventWidgetDelegate::setModelData(QWidget *editor, QAbstractItemModel *mode
             if (eventWidget->type() == EventWidget::SystemExclusiveEventType) {
                 if (data.contains((unsigned char) 0xF7)) {
                     QMessageBox::warning(eventWidget, "Error", QString(tr("The data must not contain byte 0xF7 (End of SysEx)")));
+                    eventWidget->file()->protocol()->endAction();
                     return;
                 }
             }

@@ -48,7 +48,7 @@
 </head>
 <body>
 <div class="nav-bar">
-<div class="nav-header"><span class="nav-icon">&#129302;</span><span class="nav-title">MidiEditor AI Manual</span><span class="nav-version">v1.1.8</span></div>
+<div class="nav-header"><span class="nav-icon">&#129302;</span><span class="nav-title">MidiEditor AI Manual</span><span class="nav-version">v1.1.9</span></div>
 <div class="nav-links">
 <a href="index.html">Index</a>
 <a href="midipilot.html" class="active">MidiPilot</a>
@@ -115,6 +115,21 @@ MidiPilot is the AI brain embedded directly in MidiEditor AI. Open the sidebar p
 <p>Edit AI behavior per mode via the built-in editor. Export/import as JSON &mdash; no recompiling needed.</p>
 <span class="card-arrow">Learn more &rarr;</span>
 </a>
+<a class="feature-card" href="#conversation-history">
+<h4>&#x1F4DC; Conversation History</h4>
+<p>Conversations auto-saved as JSON. Browse, search, and resume past sessions from the history menu.</p>
+<span class="card-arrow">Learn more &rarr;</span>
+</a>
+<a class="feature-card" href="#streaming">
+<h4>&#x26A1; Response Streaming</h4>
+<p>Simple mode streams text in real time via SSE. Watch the response appear word by word instead of waiting.</p>
+<span class="card-arrow">Learn more &rarr;</span>
+</a>
+<a class="feature-card" href="#presets">
+<h4>&#x1F4BE; Per-File AI Presets</h4>
+<p>Save model, provider, mode, and custom instructions per MIDI file. Auto-loaded when you open the file.</p>
+<span class="card-arrow">Learn more &rarr;</span>
+</a>
 </div>
 
 <hr>
@@ -136,15 +151,20 @@ The input bar at the bottom provides quick access to everything you need:
 </p>
 
 <div class="screenshot-single">
-<img src="screenshots/midipilot-input-bar.png" alt="MidiPilot input bar close-up" width="700">
+<img src="screenshots/midipilot-input-bar.gif" alt="MidiPilot input bar close-up" width="700">
 <div class="caption">Agent/Simple mode toggle &middot; FFXIV checkbox &middot; Model selector &middot; Reasoning level</div>
 </div>
 
 <ul>
 <li><b>Mode selector</b> &mdash; Switch between Agent (multi-step) and Simple (single response)</li>
+<li><b>New Chat</b> &mdash; Start a fresh conversation (previous one is auto-saved to history)</li>
+<li><b>History</b> &mdash; Browse and resume past conversations</li>
 <li><b>FFXIV checkbox</b> &mdash; Enable FFXIV Bard Performance constraints</li>
 <li><b>Model dropdown</b> &mdash; Switch models on the fly without opening settings</li>
 <li><b>Reasoning level</b> &mdash; Adjust thinking effort (when supported by the model)</li>
+<li><b>Token counter</b> &mdash; Shows session usage vs. context window size</li>
+<li><b>Send / Stop</b> &mdash; Send your prompt or cancel an in-progress Agent run</li>
+<li><b>Settings gear</b> &mdash; Open AI settings or save per-file AI presets</li>
 <li><b>Status indicator</b> &mdash; Shows Ready, Thinking, or error states in real time</li>
 </ul>
 
@@ -211,13 +231,13 @@ Agent mode is the powerhouse for complex compositions and large-scale edits. Ins
 <li><b>Self-monitoring</b> &mdash; The model can call <code>get_editor_state</code> or <code>query_events</code> at any time to inspect what it has built so far, catch mistakes, and correct them</li>
 <li><b>Complex compositions</b> &mdash; Multi-track arrangements, genre conversions, full orchestrations &mdash; tasks that would overwhelm a single response are handled step by step</li>
 <li><b>Parallel tool calls</b> &mdash; The model can issue multiple tool calls in a single step (e.g., create three tracks at once), speeding up large jobs</li>
-<li><b>Single undo</b> &mdash; All steps from one Agent run are wrapped into a single undo action, so Ctrl+Z reverts the entire operation cleanly</li>
+<li><b>Granular undo</b> &mdash; Each tool call from an Agent run gets its own undo step. Press Ctrl+Z to revert one action at a time, keeping the rest intact</li>
 </ul>
 
 <h3>Agent Steps Panel</h3>
 
 <p>
-During an Agent run, a collapsible <b>Agent Steps</b> panel appears below the chat showing real-time progress: each tool call, its parameters, and results. This gives you full transparency into what the AI is doing.
+During an Agent run, a collapsible <b>Agent Steps</b> panel appears below the chat showing real-time progress: each tool call, its parameters, and results. Step indicators use theme-aware colors that adapt to dark and light mode (&#x23F3; pending, &#x1F504; active, &#x2705; done, &#x26A0; retrying, &#x274C; failed).
 </p>
 
 <h3>When to Use Agent Mode</h3>
@@ -299,32 +319,55 @@ before/after screenshots, and tips.
 <tr><td><b>Token Limit Risk</b></td><td>High for complex tasks</td><td>Low &mdash; work is split</td></tr>
 <tr><td><b>Truncation Handling</b></td><td>Warns, suggests Agent mode</td><td>Per-step, can continue</td></tr>
 <tr><td><b>Speed</b></td><td>Fast (single round-trip)</td><td>Slower (multiple round-trips)</td></tr>
-<tr><td><b>UI Feedback</b></td><td>&ldquo;Thinking&hellip;&rdquo; bubble</td><td>Agent Steps panel (live)</td></tr>
-<tr><td><b>Undo</b></td><td>Per action</td><td>Single undo for entire run</td></tr>
+<tr><td><b>UI Feedback</b></td><td>Streaming text (real-time)</td><td>Agent Steps panel (live)</td></tr>
+<tr><td><b>Undo</b></td><td>Per action</td><td>Granular &mdash; one Ctrl+Z per tool call</td></tr>
 <tr><td><b>Ideal For</b></td><td>Quick edits, small changes</td><td>Complex compositions, multi-track</td></tr>
 </table>
 
 <hr>
 
-<h2 id="token-tracking">Token Tracking</h2>
+<h2 id="token-tracking">Token Tracking &amp; Context Window</h2>
 
 <p>
-MidiPilot tracks token usage per API call and per session. The token counter is displayed at the bottom of the chat panel:
+MidiPilot tracks token usage per API call and per session, with automatic normalization across providers (OpenAI, Anthropic, Gemini). The token counter is displayed at the bottom of the chat panel:
 </p>
 
 <p>
-<code>&lt;last call&gt; | &lt;session total&gt;&#x1F525; [&lt;limit&gt;&#x2702;]</code>
+<code>&lt;last call&gt; | &lt;session total&gt;&#x1F525; / &lt;context window&gt; [&lt;limit&gt;&#x2702;]</code>
 </p>
 
 <ul>
 <li><b>Last call</b> &mdash; Prompt + completion tokens from the most recent API call</li>
 <li><b>Session total</b> &mdash; Cumulative tokens since the chat was opened (&#x1F525; fire icon)</li>
+<li><b>Context window</b> &mdash; The model&rsquo;s known context limit (e.g., 128k for GPT-4o, 1M for GPT-5). Turns yellow when usage exceeds 80%</li>
 <li><b>Limit</b> &mdash; Only shown when a max token limit is enabled (&#x2702; scissors icon)</li>
 </ul>
 
+<h3>Context Window Management</h3>
+
 <p>
-This helps you monitor API costs and spot when a task is consuming more tokens than expected. If a response is truncated, the truncation warning includes a suggestion to switch modes or increase the token limit.
+When conversations grow long, MidiPilot automatically manages context to prevent exceeding the model&rsquo;s limit:
 </p>
+
+<ul>
+<li><b>Sliding window</b> &mdash; When estimated token usage exceeds 70% of the context window, older messages are dropped while keeping the system prompt, first 2 messages (task context), and most recent messages</li>
+<li><b>Truncation marker</b> &mdash; A &ldquo;[Context truncated]&rdquo; message is inserted where older messages were removed</li>
+<li><b>Visual warning</b> &mdash; The token label turns yellow when approaching 80% of the context window</li>
+</ul>
+
+<h3>Multi-Provider Token Normalization</h3>
+
+<p>
+Different providers report token usage in different formats. MidiPilot normalizes all of them:
+</p>
+
+<ul>
+<li><b>OpenAI Chat Completions</b> &mdash; <code>prompt_tokens</code> / <code>completion_tokens</code> (native format)</li>
+<li><b>OpenAI Responses API</b> &mdash; <code>input_tokens</code> / <code>output_tokens</code> &rarr; normalized</li>
+<li><b>Anthropic</b> &mdash; <code>input_tokens</code> / <code>output_tokens</code> &rarr; normalized</li>
+<li><b>Google Gemini</b> &mdash; <code>usageMetadata.promptTokenCount</code> / <code>candidatesTokenCount</code> &rarr; normalized</li>
+<li><b>Estimation fallback</b> &mdash; When a provider returns no usage data, MidiPilot estimates ~4 characters per token</li>
+</ul>
 
 <hr>
 
@@ -485,6 +528,113 @@ The AI will compose the requested music directly into the editor using its built
 
 <p>
 See <a href="prompt-examples.html">Prompt Examples</a> for more real-world prompts and a full demo.
+</p>
+
+<hr>
+
+<h2 id="conversation-history">Conversation History</h2>
+
+<p>
+MidiPilot automatically saves every conversation as a JSON file. You can browse, search, and resume past sessions at any time.
+</p>
+
+<h3>How It Works</h3>
+
+<ul>
+<li><b>Auto-save</b> &mdash; After every assistant response, the conversation is saved (debounced 2 seconds) to <code>AppData/MidiPilotHistory/</code></li>
+<li><b>Associated with MIDI file</b> &mdash; Each conversation records which MIDI file it was working on</li>
+<li><b>History button</b> &mdash; Click the &#x1F4DC; history icon in the toolbar (next to New Chat) to browse past conversations</li>
+<li><b>Resume</b> &mdash; Click any past conversation to load it back into the chat and continue where you left off</li>
+<li><b>Persistent across sessions</b> &mdash; Conversations survive app restarts</li>
+</ul>
+
+<h3>Conversation File Format</h3>
+
+<p>
+Each conversation is stored as a single JSON file containing the full message history, model/provider info, token usage, and the associated MIDI file path. Files are human-readable and can be exported or shared.
+</p>
+
+<div class="screenshot-single">
+<img src="screenshots/history_menu_dropdown.png" alt="Conversation history dropdown menu" width="380">
+</div>
+
+<hr>
+
+<h2 id="streaming">Response Streaming</h2>
+
+<p>
+In Simple mode, MidiPilot uses <b>Server-Sent Events (SSE)</b> to stream text responses in real time. Instead of waiting for the entire response to complete, you see text appear word by word as the model generates it.
+</p>
+
+<h3>How It Works</h3>
+
+<ul>
+<li><b>Streaming bubble</b> &mdash; A chat bubble appears immediately and grows as text arrives</li>
+<li><b>Final replacement</b> &mdash; Once the response is complete, the streaming bubble is replaced with a properly styled chat bubble</li>
+<li><b>JSON actions</b> &mdash; When the model returns a JSON action response (edits, deletes, etc.), streaming is suppressed and the actions are executed after the full response arrives</li>
+<li><b>Token capture</b> &mdash; Usage statistics are captured from the final <code>[DONE]</code> SSE chunk</li>
+</ul>
+
+<h3>When Streaming Is Used</h3>
+
+<table>
+<tr><th>Mode</th><th>Streaming</th><th>Reason</th></tr>
+<tr><td>Simple &mdash; text response</td><td>&#x2705; Yes</td><td>Reduces perceived latency</td></tr>
+<tr><td>Simple &mdash; JSON actions</td><td>&#x274C; No</td><td>Needs complete JSON to execute</td></tr>
+<tr><td>Agent &mdash; tool calls</td><td>&#x274C; No</td><td>Tool call JSON must be complete</td></tr>
+</table>
+
+<div class="screenshot-single">
+<img src="screenshots/streaming_response.png" alt="Streaming response in action" width="380">
+</div>
+
+<hr>
+
+<h2 id="presets">Per-File AI Presets</h2>
+
+<p>
+Different MIDI files may need different AI settings. A 16-track orchestral arrangement needs different guidance than a 3-track FFXIV bard song. Per-file presets let you save and auto-load settings for each file.
+</p>
+
+<h3>What&rsquo;s Saved</h3>
+
+<ul>
+<li><b>Provider</b> &mdash; OpenAI, OpenRouter, Gemini, or Custom</li>
+<li><b>Model</b> &mdash; e.g., gpt-5.4, gemini-2.5-flash</li>
+<li><b>Mode</b> &mdash; Simple or Agent</li>
+<li><b>FFXIV mode</b> &mdash; On or off</li>
+<li><b>Reasoning effort</b> &mdash; None / Low / Medium / High / Extra High</li>
+<li><b>Custom instructions</b> &mdash; Free-text notes appended to the system prompt (e.g., &ldquo;This is a jazz arrangement, keep swing feel&rdquo;)</li>
+</ul>
+
+<h3>How to Use</h3>
+
+<ol>
+<li>Click the <b>&#x2699; gear button</b> in the MidiPilot footer</li>
+<li>Select <b>&ldquo;Save AI preset for this file&rdquo;</b></li>
+<li>The current settings are saved as a <code>.midipilot.json</code> sidecar file next to your MIDI file</li>
+<li>Next time you open that MIDI file, the preset is <b>auto-loaded</b></li>
+</ol>
+
+<div class="screenshot-single">
+<img src="screenshots/preset_save_dialog_1.png" alt="Gear menu with Save AI preset option" width="380">
+</div>
+<div class="screenshot-row">
+<img src="screenshots/preset_save_dialog_2.png" alt="Preset saved confirmation" width="380">
+<img src="screenshots/preset_save_dialog_3.png" alt="Preset auto-loaded on file reopen" width="380">
+</div>
+
+<h3>Sidecar File</h3>
+
+<p>
+Presets are stored as <code>&lt;filename&gt;.midipilot.json</code> next to the MIDI file. For example:
+</p>
+
+<pre><code>Sweet Child O Mine.mid
+Sweet Child O Mine.mid.midipilot.json   &larr; preset</code></pre>
+
+<p>
+The preset file is a simple JSON object. All fields are optional &mdash; any field not present falls back to the global default.
 </p>
 
 <hr>

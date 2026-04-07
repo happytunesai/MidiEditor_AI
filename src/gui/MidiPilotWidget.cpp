@@ -23,6 +23,10 @@
 #include <QMessageBox>
 #include <QMenu>
 #include <QClipboard>
+#include <QFile>
+#include <QFileDialog>
+#include <QFileInfo>
+#include <QInputDialog>
 
 #include <cmath>
 #include <algorithm>
@@ -33,6 +37,7 @@
 #include "../ai/AgentRunner.h"
 #include "../ai/EditorContext.h"
 #include "../ai/MidiEventSerializer.h"
+#include "../ai/ConversationStore.h"
 #include "../tool/Selection.h"
 #include "../tool/NewNoteTool.h"
 #include "../midi/MidiFile.h"
@@ -105,13 +110,16 @@ public:
         layout->setContentsMargins(8, 6, 8, 6);
         layout->setSpacing(0);
 
+        bool dark = Appearance::isDarkModeEnabled();
+
         // Header with collapse/expand toggle
         _headerBtn = new QPushButton(this);
         _headerBtn->setFlat(true);
         _headerBtn->setCursor(Qt::PointingHandCursor);
         _headerBtn->setStyleSheet(
-            "text-align: left; font-weight: bold; font-size: 12px; "
-            "padding: 4px 2px; color: #555;");
+            QString("text-align: left; font-weight: bold; font-size: 12px; "
+                    "padding: 4px 2px; color: %1;")
+                .arg(dark ? "#BBB" : "#555"));
         connect(_headerBtn, &QPushButton::clicked, this, [this]() {
             _collapsed = !_collapsed;
             _stepsContainer->setVisible(!_collapsed);
@@ -127,17 +135,21 @@ public:
         layout->addWidget(_stepsContainer);
 
         setStyleSheet(
-            "AgentStepsWidget { background-color: #F5F5F0; "
-            "border-radius: 8px; margin-right: 40px; }");
+            QString("AgentStepsWidget { background-color: %1; "
+                    "border-radius: 8px; margin-right: 40px; }")
+                .arg(dark ? "#2A2A2A" : "#F5F5F0"));
 
         updateHeader();
     }
 
     void addStep(int step, const QString &label) {
         if (_stepLabels.contains(step)) return;  // Already planned
+        bool dark = Appearance::isDarkModeEnabled();
         QLabel *lbl = new QLabel(
             QString("\xE2\x8F\xB3 %1").arg(label), _stepsContainer);  // ⏳
-        lbl->setStyleSheet("color: #CC7700; font-size: 11px; padding: 1px 2px;");
+        lbl->setStyleSheet(
+            QString("color: %1; font-size: 11px; padding: 1px 2px;")
+                .arg(dark ? "#CC9944" : "#CC7700"));
         _stepsLayout->addWidget(lbl);
         _stepLabels[step] = lbl;
         _stepNames[step] = label;
@@ -153,25 +165,35 @@ public:
 
     void markActive(int step) {
         if (!_stepLabels.contains(step)) return;
+        bool dark = Appearance::isDarkModeEnabled();
         QLabel *label = _stepLabels[step];
         QString name = _stepNames[step];
         label->setText(QString("\xF0\x9F\x94\x84 %1").arg(name));  // 🔄
-        label->setStyleSheet("color: #0066CC; font-weight: bold; font-size: 11px; padding: 1px 2px;");
+        label->setStyleSheet(
+            QString("color: %1; font-weight: bold; font-size: 11px; padding: 1px 2px;")
+                .arg(dark ? "#55AAFF" : "#0066CC"));
     }
 
     void completeStep(int step, bool success, bool recoverable = false) {
         if (!_stepLabels.contains(step)) return;
+        bool dark = Appearance::isDarkModeEnabled();
         QLabel *label = _stepLabels[step];
         QString name = _stepNames[step];
         if (success) {
             label->setText(QString("\xE2\x9C\x85 %1").arg(name));  // ✅
-            label->setStyleSheet("color: #2D8C3C; font-size: 11px; padding: 1px 2px;");
+            label->setStyleSheet(
+                QString("color: %1; font-size: 11px; padding: 1px 2px;")
+                    .arg(dark ? "#66CC77" : "#2D8C3C"));
         } else if (recoverable) {
             label->setText(QString("\xE2\x9A\xA0 %1 - retrying").arg(name));  // ⚠
-            label->setStyleSheet("color: #CC7700; font-size: 11px; padding: 1px 2px;");
+            label->setStyleSheet(
+                QString("color: %1; font-size: 11px; padding: 1px 2px;")
+                    .arg(dark ? "#CC9944" : "#CC7700"));
         } else {
             label->setText(QString("\xE2\x9D\x8C %1 - failed").arg(name));  // ❌
-            label->setStyleSheet("color: #CC3333; font-size: 11px; padding: 1px 2px;");
+            label->setStyleSheet(
+                QString("color: %1; font-size: 11px; padding: 1px 2px;")
+                    .arg(dark ? "#FF6666" : "#CC3333"));
         }
         _completedSteps++;
         updateHeader();
@@ -219,15 +241,23 @@ private:
 
 MidiPilotWidget::MidiPilotWidget(MainWindow *mainWindow, QWidget *parent)
     : QWidget(parent), _mainWindow(mainWindow), _file(nullptr),
-      _isAgentRunning(false), _agentStepsWidget(nullptr) {
+      _isAgentRunning(false), _agentStepsWidget(nullptr), _streamBubble(nullptr),
+      _streamIsJson(false) {
 
     _client = new AiClient(this);
     _agentRunner = new AgentRunner(_client, this);
+
+    _saveTimer = new QTimer(this);
+    _saveTimer->setSingleShot(true);
+    _saveTimer->setInterval(2000);
+    connect(_saveTimer, &QTimer::timeout, this, &MidiPilotWidget::doSaveConversation);
 
     setupUi();
 
     connect(_client, &AiClient::responseReceived, this, &MidiPilotWidget::onResponseReceived);
     connect(_client, &AiClient::errorOccurred, this, &MidiPilotWidget::onErrorOccurred);
+    connect(_client, &AiClient::streamDelta, this, &MidiPilotWidget::onStreamDelta);
+    connect(_client, &AiClient::streamFinished, this, &MidiPilotWidget::onStreamFinished);
 
     connect(_agentRunner, &AgentRunner::stepsPlanned, this, &MidiPilotWidget::onAgentStepsPlanned);
     connect(_agentRunner, &AgentRunner::stepStarted, this, &MidiPilotWidget::onAgentStepStarted);
@@ -345,6 +375,15 @@ void MidiPilotWidget::setupUi() {
     connect(newChatBtn, &QPushButton::clicked, this, &MidiPilotWidget::onNewChat);
     inputBtnLayout->addWidget(newChatBtn);
 
+    QPushButton *historyBtn = new QPushButton(this);
+    historyBtn->setIcon(Appearance::adjustIconForDarkMode(":/run_environment/graphics/tool/history.png"));
+    historyBtn->setIconSize(QSize(18, 18));
+    historyBtn->setFixedSize(28, 28);
+    historyBtn->setToolTip("Conversation history");
+    historyBtn->setFlat(true);
+    connect(historyBtn, &QPushButton::clicked, this, &MidiPilotWidget::showHistoryMenu);
+    inputBtnLayout->addWidget(historyBtn);
+
     // Mode selector (Simple / Agent)
     _modeCombo = new QComboBox(this);
     _modeCombo->addItem("Simple", "simple");
@@ -370,16 +409,21 @@ void MidiPilotWidget::setupUi() {
 
     inputBtnLayout->addStretch();
 
-    _sendButton = new QPushButton(QChar(0x27A4), this); // ➤
+    _sendButton = new QPushButton(this);
+    _sendButton->setIcon(Appearance::adjustIconForDarkMode(":/run_environment/graphics/tool/play.png"));
+    _sendButton->setIconSize(QSize(18, 18));
     _sendButton->setFixedSize(28, 28);
     _sendButton->setToolTip("Send");
+    _sendButton->setFlat(true);
     connect(_sendButton, &QPushButton::clicked, this, &MidiPilotWidget::onSendMessage);
     inputBtnLayout->addWidget(_sendButton);
 
-    _stopButton = new QPushButton(QChar(0x25A0), this); // ■ (stop)
+    _stopButton = new QPushButton(this);
+    _stopButton->setIcon(Appearance::adjustIconForDarkMode(":/run_environment/graphics/tool/stop.png"));
+    _stopButton->setIconSize(QSize(18, 18));
     _stopButton->setFixedSize(28, 28);
     _stopButton->setToolTip("Stop Agent");
-    _stopButton->setStyleSheet("color: #CC3333; font-weight: bold;");
+    _stopButton->setFlat(true);
     _stopButton->setVisible(false);
     connect(_stopButton, &QPushButton::clicked, this, [this]() {
         if (_isAgentRunning && _agentRunner) {
@@ -571,10 +615,16 @@ void MidiPilotWidget::setupUi() {
 
     QPushButton *settingsBtn = new QPushButton(QChar(0x2699), this); // ⚙
     settingsBtn->setFixedSize(20, 20);
-    settingsBtn->setToolTip("Open AI Settings");
+    settingsBtn->setToolTip("Settings");
     settingsBtn->setFlat(true);
     settingsBtn->setStyleSheet("font-size: 14px;");
-    connect(settingsBtn, &QPushButton::clicked, this, &MidiPilotWidget::onSettingsClicked);
+    QMenu *settingsMenu = new QMenu(settingsBtn);
+    settingsMenu->addAction("Open AI Settings...", this, &MidiPilotWidget::onSettingsClicked);
+    settingsMenu->addSeparator();
+    settingsMenu->addAction("Save AI preset for this file...", this, &MidiPilotWidget::savePresetForFile);
+    connect(settingsBtn, &QPushButton::clicked, settingsBtn, [settingsBtn, settingsMenu]() {
+        settingsMenu->exec(settingsBtn->mapToGlobal(QPoint(0, -settingsMenu->sizeHint().height())));
+    });
     footerLayout->addWidget(settingsBtn);
 
     mainLayout->addWidget(footerFrame);
@@ -692,6 +742,11 @@ void MidiPilotWidget::onFileChanged(MidiFile *f) {
     _file = f;
     refreshContext();
     AiClient::clearLog();
+    if (_file) {
+        loadPresetForFile(_file->path());
+    } else {
+        _customFileInstructions.clear();
+    }
 }
 
 void MidiPilotWidget::onNewChat() {
@@ -710,6 +765,10 @@ void MidiPilotWidget::onNewChat() {
 
     _conversationHistory = QJsonArray();
     _entries.clear();
+    // Flush any pending save for the old conversation before clearing the ID
+    _saveTimer->stop();
+    doSaveConversation();
+    _conversationId.clear();
     AiClient::clearLog();
 
     // Reset token counters
@@ -821,21 +880,32 @@ void MidiPilotWidget::onSendMessage() {
         _agentStepsWidget = stepsWidget;
         _chatLayout->addWidget(stepsWidget);
 
-        if (_file)
-            _file->protocol()->startNewAction("MidiPilot Agent: " + text);
         QString agentPrompt = EditorContext::agentSystemPrompt();
         if (ffxivMode())
             agentPrompt += EditorContext::ffxivContext();
+        if (!_customFileInstructions.isEmpty())
+            agentPrompt += QStringLiteral("\n\n## Per-File Instructions\n") + _customFileInstructions;
+
+        // Truncate history if approaching context window limit
+        QJsonArray historyForApi = truncateHistory(_conversationHistory,
+                                                    _client->contextWindowForModel());
+
         _agentRunner->run(agentPrompt,
-                          _conversationHistory, fullMessage, _file, this);
+                          historyForApi, fullMessage, _file, this);
     } else {
-        // Simple Mode: single-shot request (sendRequest appends userMessage itself)
-        addChatBubble("system", "Thinking...");
+        // Simple Mode: use streaming for incremental text display
         QString simplePrompt = EditorContext::systemPrompt();
         if (ffxivMode())
             simplePrompt += EditorContext::ffxivContext();
-        _client->sendRequest(simplePrompt,
-                             _conversationHistory, fullMessage);
+        if (!_customFileInstructions.isEmpty())
+            simplePrompt += QStringLiteral("\n\n## Per-File Instructions\n") + _customFileInstructions;
+
+        // Truncate history if approaching context window limit
+        QJsonArray historyForApi = truncateHistory(_conversationHistory,
+                                                    _client->contextWindowForModel());
+
+        _client->sendStreamingRequest(simplePrompt,
+                                       historyForApi, fullMessage);
         // Add user message to history AFTER constructing the request
         QJsonObject userMsg;
         userMsg["role"] = "user";
@@ -858,12 +928,17 @@ void MidiPilotWidget::onResponseReceived(const QString &content, const QJsonObje
         updateTokenLabel();
     }
 
-    // Remove "thinking" indicator
+    // Remove "thinking" indicator if present (check text before removing)
     if (_chatLayout->count() > 1) {
-        QLayoutItem *last = _chatLayout->takeAt(_chatLayout->count() - 1);
-        if (last->widget())
-            last->widget()->deleteLater();
-        delete last;
+        QLayoutItem *last = _chatLayout->itemAt(_chatLayout->count() - 1);
+        if (last && last->widget()) {
+            QLabel *lbl = qobject_cast<QLabel *>(last->widget());
+            if (lbl && lbl->text().contains(QStringLiteral("Thinking"))) {
+                _chatLayout->takeAt(_chatLayout->count() - 1);
+                lbl->deleteLater();
+                delete last;
+            }
+        }
     }
 
     setStatus("Ready", "green");
@@ -954,19 +1029,118 @@ void MidiPilotWidget::onResponseReceived(const QString &content, const QJsonObje
     entry.timestamp = QDateTime::currentDateTime();
     _entries.append(entry);
 
+    scheduleSave();
     refreshContext();
+}
+
+void MidiPilotWidget::onStreamDelta(const QString &text) {
+    // Ignore during Agent mode
+    if (_isAgentRunning) return;
+
+    // On first delta, detect if the response is a JSON action — if so, suppress
+    // visual streaming and let onStreamFinished dispatch it.
+    if (!_streamBubble && !_streamIsJson) {
+        QString trimmed = text.trimmed();
+        if (trimmed.startsWith('{') || trimmed.startsWith('[') || trimmed.startsWith("```")) {
+            _streamIsJson = true;
+            return;
+        }
+
+        // Remove "Thinking..." indicator if present
+        if (_chatLayout->count() > 1) {
+            QLayoutItem *lastItem = _chatLayout->itemAt(_chatLayout->count() - 1);
+            if (lastItem && lastItem->widget()) {
+                QLabel *lbl = qobject_cast<QLabel *>(lastItem->widget());
+                if (lbl && lbl->text().contains("Thinking")) {
+                    _chatLayout->removeItem(lastItem);
+                    lbl->deleteLater();
+                    delete lastItem;
+                }
+            }
+        }
+
+        // Create streaming bubble for text responses
+        bool dark = Appearance::isDarkModeEnabled();
+        _streamBubble = new QLabel(_chatContainer);
+        _streamBubble->setWordWrap(true);
+        _streamBubble->setTextFormat(Qt::PlainText);
+        _streamBubble->setStyleSheet(
+            QString("background-color: %1; color: %2; padding: 10px 14px; "
+                    "border-radius: 12px; font-size: 13px; margin-right: 40px;")
+                .arg(dark ? "#2A2A2A" : "#F5F5F0",
+                     dark ? "#DDD" : "#333"));
+        _chatLayout->addWidget(_streamBubble);
+    }
+
+    // JSON action mode — buffer silently
+    if (_streamIsJson) return;
+
+    if (_streamBubble)
+        _streamBubble->setText(_streamBubble->text() + text);
+
+    // Auto-scroll to bottom
+    QTimer::singleShot(10, this, [this]() {
+        _chatScroll->verticalScrollBar()->setValue(
+            _chatScroll->verticalScrollBar()->maximum());
+    });
+}
+
+void MidiPilotWidget::onStreamFinished(const QString &fullContent, const QJsonObject &fullResponse) {
+    if (_isAgentRunning) return;
+
+    // Reset streaming state
+    bool wasJson = _streamIsJson;
+    _streamIsJson = false;
+
+    // Remove the streaming bubble — we'll replace it with a proper chat bubble
+    if (_streamBubble) {
+        _chatLayout->removeWidget(_streamBubble);
+        _streamBubble->deleteLater();
+        _streamBubble = nullptr;
+    }
+
+    // Remove "Thinking..." indicator if still present (JSON path skipped the removal)
+    if (wasJson && _chatLayout->count() > 1) {
+        QLayoutItem *lastItem = _chatLayout->itemAt(_chatLayout->count() - 1);
+        if (lastItem && lastItem->widget()) {
+            QLabel *lbl = qobject_cast<QLabel *>(lastItem->widget());
+            if (lbl && lbl->text().contains("Thinking")) {
+                _chatLayout->removeItem(lastItem);
+                lbl->deleteLater();
+                delete lastItem;
+            }
+        }
+    }
+
+    // Delegate to the same response-processing logic as non-streamed responses
+    onResponseReceived(fullContent, fullResponse);
 }
 
 void MidiPilotWidget::onErrorOccurred(const QString &errorMessage) {
     // Ignore AiClient signals during Agent Mode (AgentRunner handles them)
     if (_isAgentRunning) return;
 
-    // Remove "thinking" indicator
+    // Reset streaming state
+    _streamIsJson = false;
+
+    // Clean up streaming bubble if active
+    if (_streamBubble) {
+        _chatLayout->removeWidget(_streamBubble);
+        _streamBubble->deleteLater();
+        _streamBubble = nullptr;
+    }
+
+    // Remove "thinking" indicator if present (check text before removing)
     if (_chatLayout->count() > 1) {
-        QLayoutItem *last = _chatLayout->takeAt(_chatLayout->count() - 1);
-        if (last->widget())
-            last->widget()->deleteLater();
-        delete last;
+        QLayoutItem *last = _chatLayout->itemAt(_chatLayout->count() - 1);
+        if (last && last->widget()) {
+            QLabel *lbl = qobject_cast<QLabel *>(last->widget());
+            if (lbl && lbl->text().contains(QStringLiteral("Thinking"))) {
+                _chatLayout->takeAt(_chatLayout->count() - 1);
+                lbl->deleteLater();
+                delete last;
+            }
+        }
     }
 
     setStatus("Error", "red");
@@ -1007,12 +1181,33 @@ void MidiPilotWidget::updateTokenLabel() {
                                    : QString::number(limit))
                 .arg(QString::fromUtf8(" \xE2\x9C\x82")); // ✂
         }
-        _tokenLabel->setText(QString("%1 | %2%3%4")
+
+        // Show context window usage
+        int ctxWindow = _client->contextWindowForModel();
+        QString ctxStr;
+        if (ctxWindow > 0 && _lastPromptTokens > 0) {
+            QString ctxLabel = ctxWindow >= 1000000
+                ? QString::number(ctxWindow / 1000000.0, 'f', 0) + "M"
+                : (ctxWindow >= 1000
+                    ? QString::number(ctxWindow / 1000.0, 'f', 0) + "k"
+                    : QString::number(ctxWindow));
+            ctxStr = QStringLiteral(" / ") + ctxLabel;
+        }
+
+        _tokenLabel->setText(QString("%1 | %2%3%4%5")
             .arg(lastTotal)
             .arg(sessionTotal >= 1000 ? QString::number(sessionTotal / 1000.0, 'f', 1) + "k"
                                       : QString::number(sessionTotal))
             .arg(QString::fromUtf8(" \xF0\x9F\x94\xA5")) // 🔥
+            .arg(ctxStr)
             .arg(limitStr));
+
+        // Yellow warning when approaching context limit
+        double ratio = static_cast<double>(_lastPromptTokens) / ctxWindow;
+        if (ratio > 0.8)
+            _tokenLabel->setStyleSheet("font-size: 10px; color: #CC9900; font-weight: bold;");
+        else
+            _tokenLabel->setStyleSheet("font-size: 10px; color: #888;");
     }
 }
 
@@ -1133,10 +1328,6 @@ void MidiPilotWidget::onAgentStepCompleted(int step, const QString &toolName, co
 void MidiPilotWidget::onAgentFinished(const QString &finalMessage) {
     _isAgentRunning = false;
 
-    // End the compound undo action
-    if (_file)
-        _file->protocol()->endAction();
-
     // Mark steps widget as finished
     if (_agentStepsWidget) {
         AgentStepsWidget *sw = static_cast<AgentStepsWidget *>(_agentStepsWidget);
@@ -1166,15 +1357,12 @@ void MidiPilotWidget::onAgentFinished(const QString &finalMessage) {
     entry.timestamp = QDateTime::currentDateTime();
     _entries.append(entry);
 
+    scheduleSave();
     refreshContext();
 }
 
 void MidiPilotWidget::onAgentError(const QString &error) {
     _isAgentRunning = false;
-
-    // End the compound undo action (will undo any partial changes on Ctrl+Z)
-    if (_file)
-        _file->protocol()->endAction();
 
     // Mark steps widget as failed
     if (_agentStepsWidget) {
@@ -1390,8 +1578,11 @@ QJsonObject MidiPilotWidget::applyAiEdits(const QJsonObject &response, bool show
         return result;
     }
 
-    // Start protocol action for undo support (skip in agent mode — compound action is active)
-    if (showBubbles) _file->protocol()->startNewAction("MidiPilot: " + explanation);
+    // Start protocol action for undo support (each tool call gets its own undo step)
+    QString protoMsg = QStringLiteral("MidiPilot: Agent insert events — %1 (%2)")
+                           .arg(track->name())
+                           .arg(events.size());
+    _file->protocol()->startNewAction(protoMsg);
 
     // In simple mode, remove currently selected events (they will be replaced by AI output).
     // In agent mode (showBubbles=false), skip this — each tool call is an independent insert.
@@ -1410,8 +1601,8 @@ QJsonObject MidiPilotWidget::applyAiEdits(const QJsonObject &response, bool show
     bool ok = MidiEventSerializer::deserialize(events, _file, track, channel, created, &skippedErrors);
 
     if (!ok) {
+        _file->protocol()->endAction();
         if (showBubbles) {
-            _file->protocol()->endAction();
             addChatBubble("system", "Warning: Some events could not be applied.");
         }
         result["success"] = false;
@@ -1423,8 +1614,8 @@ QJsonObject MidiPilotWidget::applyAiEdits(const QJsonObject &response, bool show
     // In agent mode, skip selection to prevent next tool call from deleting these events.
     if (showBubbles) {
         Selection::instance()->setSelection(created);
-        _file->protocol()->endAction();
     }
+    _file->protocol()->endAction();
 
     emit requestRepaint();
 
@@ -1442,7 +1633,6 @@ QJsonObject MidiPilotWidget::applyAiEdits(const QJsonObject &response, bool show
 }
 
 QJsonObject MidiPilotWidget::applyAiDeletes(const QJsonObject &response, bool showBubbles) {
-    Q_UNUSED(showBubbles);
     QJsonObject result;
     result["action"] = QString("delete");
 
@@ -1483,7 +1673,8 @@ QJsonObject MidiPilotWidget::applyAiDeletes(const QJsonObject &response, bool sh
         return result;
     }
 
-    if (showBubbles) _file->protocol()->startNewAction("MidiPilot: " + explanation);
+    _file->protocol()->startNewAction(
+        QStringLiteral("MidiPilot: Agent delete events (%1)").arg(toDelete.size()));
 
     // Remove the specified events
     QList<MidiEvent *> remaining;
@@ -1501,7 +1692,7 @@ QJsonObject MidiPilotWidget::applyAiDeletes(const QJsonObject &response, bool sh
         Selection::instance()->setSelection(remaining);
     }
 
-    if (showBubbles) _file->protocol()->endAction();
+    _file->protocol()->endAction();
 
     emit requestRepaint();
 
@@ -1527,14 +1718,15 @@ QJsonObject MidiPilotWidget::applyTrackAction(const QJsonObject &response, bool 
         QString trackName = response["trackName"].toString("New Track");
         int channel = response["channel"].toInt(-1);
 
-        if (showBubbles) _file->protocol()->startNewAction("MidiPilot: " + explanation);
+        _file->protocol()->startNewAction(
+            QStringLiteral("MidiPilot: Agent create track — %1").arg(trackName));
         _file->addTrack();
         MidiTrack *newTrack = _file->tracks()->at(_file->numTracks() - 1);
         newTrack->setName(trackName);
         if (channel >= 0 && channel <= 15) {
             newTrack->assignChannel(channel);
         }
-        if (showBubbles) _file->protocol()->endAction();
+        _file->protocol()->endAction();
 
         result["success"] = true;
         result["trackIndex"] = _file->numTracks() - 1;
@@ -1550,9 +1742,10 @@ QJsonObject MidiPilotWidget::applyTrackAction(const QJsonObject &response, bool 
             return result;
         }
 
-        if (showBubbles) _file->protocol()->startNewAction("MidiPilot: " + explanation);
+        _file->protocol()->startNewAction(
+            QStringLiteral("MidiPilot: Agent rename track %1 \u2192 %2").arg(trackIndex).arg(newName));
         _file->track(trackIndex)->setName(newName);
-        if (showBubbles) _file->protocol()->endAction();
+        _file->protocol()->endAction();
 
         result["success"] = true;
 
@@ -1573,9 +1766,10 @@ QJsonObject MidiPilotWidget::applyTrackAction(const QJsonObject &response, bool 
             return result;
         }
 
-        if (showBubbles) _file->protocol()->startNewAction("MidiPilot: " + explanation);
+        _file->protocol()->startNewAction(
+            QStringLiteral("MidiPilot: Agent set channel — Track %1 \u2192 Ch %2").arg(trackIndex).arg(channel));
         _file->track(trackIndex)->assignChannel(channel);
-        if (showBubbles) _file->protocol()->endAction();
+        _file->protocol()->endAction();
 
         result["success"] = true;
 
@@ -1645,15 +1839,16 @@ QJsonObject MidiPilotWidget::applyMoveToTrack(const QJsonObject &response, bool 
     }
 
     MidiTrack *targetTrack = _file->track(targetTrackIndex);
-    QString explanation = response["explanation"].toString("MidiPilot move to track");
 
-    if (showBubbles) _file->protocol()->startNewAction("MidiPilot: " + explanation);
+    _file->protocol()->startNewAction(
+        QStringLiteral("MidiPilot: Agent move events \u2192 %1 (%2)")
+            .arg(targetTrack->name()).arg(toMove.size()));
 
     for (MidiEvent *ev : toMove) {
         ev->setTrack(targetTrack, false);
     }
 
-    if (showBubbles) _file->protocol()->endAction();
+    _file->protocol()->endAction();
 
     emit requestRepaint();
 
@@ -1683,9 +1878,8 @@ QJsonObject MidiPilotWidget::applyTempoAction(const QJsonObject &response, bool 
     int tick = response["tick"].toInt(0);
     if (tick < 0) tick = 0;
 
-    QString explanation = response["explanation"].toString("MidiPilot set tempo");
-
-    if (showBubbles) _file->protocol()->startNewAction("MidiPilot: " + explanation);
+    _file->protocol()->startNewAction(
+        QStringLiteral("MidiPilot: Agent set tempo \u2014 %1 BPM").arg(bpm));
 
     // Check if there's already a tempo event at this tick
     QMap<int, MidiEvent *> *tempoMap = _file->tempoEvents();
@@ -1708,7 +1902,7 @@ QJsonObject MidiPilotWidget::applyTempoAction(const QJsonObject &response, bool 
         _file->channel(17)->insertEvent(ev, tick);
     }
 
-    if (showBubbles) _file->protocol()->endAction();
+    _file->protocol()->endAction();
     _file->calcMaxTime();
 
     emit requestRepaint();
@@ -1756,9 +1950,8 @@ QJsonObject MidiPilotWidget::applyTimeSignatureAction(const QJsonObject &respons
     int tick = response["tick"].toInt(0);
     if (tick < 0) tick = 0;
 
-    QString explanation = response["explanation"].toString("MidiPilot set time signature");
-
-    if (showBubbles) _file->protocol()->startNewAction("MidiPilot: " + explanation);
+    _file->protocol()->startNewAction(
+        QStringLiteral("MidiPilot: Agent set time sig \u2014 %1/%2").arg(num).arg(denomActual));
 
     // Check if there's already a time signature event at this tick
     QMap<int, MidiEvent *> *tsMap = _file->timeSignatureEvents();
@@ -1781,7 +1974,7 @@ QJsonObject MidiPilotWidget::applyTimeSignatureAction(const QJsonObject &respons
         _file->channel(18)->insertEvent(ev, tick);
     }
 
-    if (showBubbles) _file->protocol()->endAction();
+    _file->protocol()->endAction();
 
     emit requestRepaint();
 
@@ -1829,9 +2022,9 @@ QJsonObject MidiPilotWidget::applySelectAndEdit(const QJsonObject &response, boo
     int channel = targetTrack->assignedChannel();
     if (channel < 0) channel = NewNoteTool::editChannel();
 
-    QString explanation = response["explanation"].toString("MidiPilot select and edit");
-
-    if (showBubbles) _file->protocol()->startNewAction("MidiPilot: " + explanation);
+    _file->protocol()->startNewAction(
+        QStringLiteral("MidiPilot: Agent edit events \u2014 %1 (%2)")
+            .arg(targetTrack->name()).arg(events.size()));
 
     // Find and remove existing events in the tick range on this track
     QList<MidiEvent *> *allEvents = _file->eventsBetween(startTick, endTick);
@@ -1859,7 +2052,7 @@ QJsonObject MidiPilotWidget::applySelectAndEdit(const QJsonObject &response, boo
         Selection::instance()->setSelection(created);
     }
 
-    if (showBubbles) _file->protocol()->endAction();
+    _file->protocol()->endAction();
 
     emit requestRepaint();
 
@@ -1904,9 +2097,10 @@ QJsonObject MidiPilotWidget::applySelectAndDelete(const QJsonObject &response, b
     }
 
     MidiTrack *targetTrack = _file->track(trackIndex);
-    QString explanation = response["explanation"].toString("MidiPilot select and delete");
 
-    if (showBubbles) _file->protocol()->startNewAction("MidiPilot: " + explanation);
+    _file->protocol()->startNewAction(
+        QStringLiteral("MidiPilot: Agent delete events \u2014 %1")
+            .arg(targetTrack->name()));
 
     // Find and remove events in the tick range on this track
     QList<MidiEvent *> *allEvents = _file->eventsBetween(startTick, endTick);
@@ -1928,7 +2122,7 @@ QJsonObject MidiPilotWidget::applySelectAndDelete(const QJsonObject &response, b
 
     Selection::instance()->clearSelection();
 
-    if (showBubbles) _file->protocol()->endAction();
+    _file->protocol()->endAction();
 
     if (deletedCount == 0) {
         if (showBubbles) addChatBubble("system", "No events found in the specified range.");
@@ -1941,4 +2135,334 @@ QJsonObject MidiPilotWidget::applySelectAndDelete(const QJsonObject &response, b
 
     emit requestRepaint();
     return result;
+}
+
+// === Context Window Management ===
+
+QJsonArray MidiPilotWidget::truncateHistory(const QJsonArray &history, int contextWindow) const
+{
+    if (history.isEmpty())
+        return history;
+
+    // Estimate total chars, then tokens (~4 chars per token)
+    int totalChars = 0;
+    for (const QJsonValue &v : history) {
+        QJsonObject msg = v.toObject();
+        totalChars += msg[QStringLiteral("content")].toString().length();
+        // Tool calls and tool results can be large
+        if (msg.contains(QStringLiteral("tool_calls")))
+            totalChars += QJsonDocument(msg[QStringLiteral("tool_calls")].toArray()).toJson().size();
+    }
+
+    int estimatedTokens = totalChars / 4;
+    // Reserve 30% of context for system prompt + new request + response
+    int maxHistoryTokens = static_cast<int>(contextWindow * 0.7);
+
+    if (estimatedTokens <= maxHistoryTokens)
+        return history; // fits fine
+
+    // Sliding window: keep first 2 messages (task context) + as many recent messages as fit
+    QJsonArray truncated;
+    int keepFront = qMin(2, history.size());
+
+    // Calculate chars for front messages
+    int frontChars = 0;
+    for (int i = 0; i < keepFront; i++) {
+        frontChars += history[i].toObject()[QStringLiteral("content")].toString().length();
+    }
+
+    // Fill from the back with remaining budget
+    int budgetChars = maxHistoryTokens * 4 - frontChars;
+    QList<int> backIndices;
+    int backChars = 0;
+    for (int i = history.size() - 1; i >= keepFront; i--) {
+        int msgChars = history[i].toObject()[QStringLiteral("content")].toString().length();
+        if (backChars + msgChars > budgetChars)
+            break;
+        backChars += msgChars;
+        backIndices.prepend(i);
+    }
+
+    // Build truncated array
+    for (int i = 0; i < keepFront; i++)
+        truncated.append(history[i]);
+
+    if (!backIndices.isEmpty() && backIndices.first() > keepFront) {
+        // Insert marker for dropped messages
+        QJsonObject marker;
+        marker[QStringLiteral("role")] = QStringLiteral("system");
+        int dropped = backIndices.first() - keepFront;
+        marker[QStringLiteral("content")] = QStringLiteral("[Context truncated — %1 older messages removed to fit context window]")
+                                                .arg(dropped);
+        truncated.append(marker);
+    }
+
+    for (int idx : backIndices)
+        truncated.append(history[idx]);
+
+    return truncated;
+}
+
+// === Persistent Conversation History ===
+
+void MidiPilotWidget::scheduleSave()
+{
+    if (_conversationHistory.isEmpty())
+        return;
+    if (_conversationId.isEmpty())
+        _conversationId = ConversationStore::generateId();
+    _saveTimer->start();
+}
+
+void MidiPilotWidget::doSaveConversation()
+{
+    if (_conversationId.isEmpty() || _conversationHistory.isEmpty())
+        return;
+
+    QJsonObject data;
+    data[QStringLiteral("id")] = _conversationId;
+    data[QStringLiteral("updated")] = QDateTime::currentDateTime().toString(Qt::ISODate);
+
+    QString title;
+    for (int i = 0; i < _conversationHistory.size(); i++) {
+        QJsonObject msg = _conversationHistory[i].toObject();
+        if (msg[QStringLiteral("role")].toString() == QStringLiteral("user")) {
+            title = ConversationStore::titleFromMessage(msg[QStringLiteral("content")].toString());
+            break;
+        }
+    }
+    data[QStringLiteral("title")] = title;
+
+    QJsonObject existing = ConversationStore::loadConversation(_conversationId);
+    if (existing.contains(QStringLiteral("created")))
+        data[QStringLiteral("created")] = existing[QStringLiteral("created")];
+    else
+        data[QStringLiteral("created")] = QDateTime::currentDateTime().toString(Qt::ISODate);
+
+    data[QStringLiteral("midiFile")] = _file ? _file->path() : QString();
+    data[QStringLiteral("model")] = _client->model();
+    data[QStringLiteral("provider")] = _client->provider();
+    data[QStringLiteral("messages")] = _conversationHistory;
+
+    QJsonObject usage;
+    usage[QStringLiteral("prompt")] = _totalPromptTokens;
+    usage[QStringLiteral("completion")] = _totalCompletionTokens;
+    data[QStringLiteral("tokenUsage")] = usage;
+
+    ConversationStore::saveConversation(data);
+}
+
+void MidiPilotWidget::showHistoryMenu()
+{
+    QList<ConversationStore::ConversationMeta> conversations = ConversationStore::listConversations();
+
+    QMenu menu(this);
+
+    if (conversations.isEmpty()) {
+        menu.addAction("No saved conversations")->setEnabled(false);
+    } else {
+        for (const auto &conv : conversations) {
+            QString label = conv.title;
+            if (label.isEmpty()) label = QStringLiteral("(untitled)");
+            label += QStringLiteral("  \xe2\x80\x94  ") + conv.updated.toString(QStringLiteral("MMM d, hh:mm"));
+            if (!conv.model.isEmpty())
+                label += QStringLiteral("  [") + conv.model + QStringLiteral("]");
+            label += QStringLiteral("  (") + QString::number(conv.messageCount) + QStringLiteral(" msgs)");
+
+            // Use a submenu per conversation so user can load or delete
+            QMenu *subMenu = menu.addMenu(label);
+            QString convId = conv.id;
+            QAction *loadAction = subMenu->addAction("Load conversation");
+            connect(loadAction, &QAction::triggered, this, [this, convId]() {
+                loadConversation(convId);
+            });
+            subMenu->addSeparator();
+            QAction *deleteAction = subMenu->addAction("Delete conversation");
+            connect(deleteAction, &QAction::triggered, this, [this, convId]() {
+                ConversationStore::deleteConversation(convId);
+            });
+        }
+
+        menu.addSeparator();
+        QAction *clearAll = menu.addAction("Clear all history...");
+        connect(clearAll, &QAction::triggered, this, [this]() {
+            QMessageBox msgBox(this);
+            msgBox.setIcon(QMessageBox::Warning);
+            msgBox.setWindowTitle("Clear History");
+            msgBox.setText("Delete all saved conversations?");
+            msgBox.setInformativeText("This cannot be undone.");
+            msgBox.setStandardButtons(QMessageBox::Yes | QMessageBox::Cancel);
+            msgBox.setDefaultButton(QMessageBox::Cancel);
+            if (msgBox.exec() == QMessageBox::Yes)
+                ConversationStore::deleteAll();
+        });
+    }
+
+    menu.exec(QCursor::pos());
+}
+
+void MidiPilotWidget::loadConversation(const QString &id)
+{
+    QJsonObject data = ConversationStore::loadConversation(id);
+    if (data.isEmpty())
+        return;
+
+    _conversationHistory = QJsonArray();
+    _entries.clear();
+    _lastPromptTokens = 0;
+    _lastCompletionTokens = 0;
+    _totalPromptTokens = 0;
+    _totalCompletionTokens = 0;
+
+    while (_chatLayout->count() > 1) {
+        QLayoutItem *item = _chatLayout->takeAt(1);
+        if (item->widget())
+            item->widget()->deleteLater();
+        delete item;
+    }
+
+    _conversationId = id;
+    _conversationHistory = data[QStringLiteral("messages")].toArray();
+
+    QJsonObject tokUsage = data[QStringLiteral("tokenUsage")].toObject();
+    _totalPromptTokens = tokUsage[QStringLiteral("prompt")].toInt();
+    _totalCompletionTokens = tokUsage[QStringLiteral("completion")].toInt();
+    updateTokenLabel();
+
+    for (int i = 0; i < _conversationHistory.size(); i++) {
+        QJsonObject msg = _conversationHistory[i].toObject();
+        QString role = msg[QStringLiteral("role")].toString();
+        QString content = msg[QStringLiteral("content")].toString();
+
+        if (role == QStringLiteral("system") || role == QStringLiteral("tool"))
+            continue;
+
+        if (role == QStringLiteral("user") || role == QStringLiteral("assistant")) {
+            // For user messages, extract just the instruction from the JSON payload
+            QString displayText = content;
+            if (role == QStringLiteral("user")) {
+                QJsonDocument jd = QJsonDocument::fromJson(content.toUtf8());
+                if (jd.isObject()) {
+                    QString instr = jd.object()[QStringLiteral("instruction")].toString();
+                    if (!instr.isEmpty())
+                        displayText = instr;
+                }
+            }
+            addChatBubble(role, displayText);
+            ConversationEntry entry;
+            entry.role = role;
+            entry.message = displayText;
+            _entries.append(entry);
+        }
+    }
+}
+
+void MidiPilotWidget::loadPresetForFile(const QString &midiPath) {
+    _customFileInstructions.clear();
+    if (midiPath.isEmpty())
+        return;
+
+    QString presetPath = midiPath + QStringLiteral(".midipilot.json");
+    QFile f(presetPath);
+    if (!f.open(QIODevice::ReadOnly))
+        return;
+
+    QJsonDocument doc = QJsonDocument::fromJson(f.readAll());
+    f.close();
+    if (!doc.isObject())
+        return;
+
+    QJsonObject obj = doc.object();
+
+    // Apply provider (before model, so model list is populated correctly)
+    if (obj.contains(QStringLiteral("provider"))) {
+        int idx = _providerCombo->findData(obj[QStringLiteral("provider")].toString());
+        if (idx >= 0)
+            _providerCombo->setCurrentIndex(idx);
+    }
+
+    // Apply model
+    if (obj.contains(QStringLiteral("model"))) {
+        QString model = obj[QStringLiteral("model")].toString();
+        int idx = _modelCombo->findData(model);
+        if (idx >= 0)
+            _modelCombo->setCurrentIndex(idx);
+        else
+            _modelCombo->setEditText(model);
+    }
+
+    // Apply mode
+    if (obj.contains(QStringLiteral("mode"))) {
+        int idx = _modeCombo->findData(obj[QStringLiteral("mode")].toString());
+        if (idx >= 0)
+            _modeCombo->setCurrentIndex(idx);
+    }
+
+    // Apply FFXIV
+    if (obj.contains(QStringLiteral("ffxiv")))
+        _ffxivCheck->setChecked(obj[QStringLiteral("ffxiv")].toBool());
+
+    // Apply effort
+    if (obj.contains(QStringLiteral("effort"))) {
+        int idx = _effortCombo->findData(obj[QStringLiteral("effort")].toString());
+        if (idx >= 0)
+            _effortCombo->setCurrentIndex(idx);
+    }
+
+    // Custom instructions
+    _customFileInstructions = obj[QStringLiteral("instructions")].toString();
+
+    if (!_customFileInstructions.isEmpty()) {
+        addChatBubble("system", QString::fromUtf8("\xF0\x9F\x93\x8B Loaded AI preset for this file."));
+    }
+}
+
+void MidiPilotWidget::savePresetForFile() {
+    if (!_file) {
+        QMessageBox::warning(this, "Save AI Preset", "No file is currently open.");
+        return;
+    }
+
+    QString filePath = _file->path();
+    if (filePath.isEmpty()) {
+        filePath = QFileDialog::getSaveFileName(
+            this, "Save AI Preset — choose MIDI file",
+            QString(), "MIDI Files (*.mid *.midi *.kar);;All Files (*)");
+        if (filePath.isEmpty())
+            return;
+    }
+
+    // Ask for custom instructions
+    bool ok = false;
+    QString instructions = QInputDialog::getMultiLineText(
+        this, "Save AI Preset",
+        "Custom instructions for this file (optional):",
+        _customFileInstructions, &ok);
+    if (!ok)
+        return;
+
+    QJsonObject obj;
+    obj[QStringLiteral("provider")] = _providerCombo->currentData().toString();
+    obj[QStringLiteral("model")] = _modelCombo->currentData().toString().isEmpty()
+        ? _modelCombo->currentText()
+        : _modelCombo->currentData().toString();
+    obj[QStringLiteral("mode")] = _modeCombo->currentData().toString();
+    obj[QStringLiteral("ffxiv")] = _ffxivCheck->isChecked();
+    obj[QStringLiteral("effort")] = _effortCombo->currentData().toString();
+    if (!instructions.isEmpty())
+        obj[QStringLiteral("instructions")] = instructions;
+
+    QString presetPath = filePath + QStringLiteral(".midipilot.json");
+    QFile f(presetPath);
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        QMessageBox::warning(this, "Save AI Preset",
+            QString("Could not write preset file:\n%1").arg(presetPath));
+        return;
+    }
+
+    f.write(QJsonDocument(obj).toJson(QJsonDocument::Indented));
+    f.close();
+
+    _customFileInstructions = instructions;
+    addChatBubble("system", QString::fromUtf8("\xE2\x9C\x85 AI preset saved for this file."));
 }

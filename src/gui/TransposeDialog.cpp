@@ -27,7 +27,8 @@
 #include "../midi/MidiFile.h"
 #include "../protocol/Protocol.h"
 
-TransposeDialog::TransposeDialog(QList<NoteOnEvent *> toTranspose, MidiFile *file, QWidget *parent) {
+TransposeDialog::TransposeDialog(QList<NoteOnEvent *> toTranspose, MidiFile *file, QWidget *parent)
+    : QDialog(parent) {
     setWindowTitle(tr("Transpose Selection"));
 
     QLabel *text = new QLabel(tr("Number of semitones: "), this);
@@ -36,7 +37,7 @@ TransposeDialog::TransposeDialog(QList<NoteOnEvent *> toTranspose, MidiFile *fil
     _valueBox->setMaximum(2147483647);
     _valueBox->setValue(0);
 
-    QButtonGroup *group = new QButtonGroup();
+    QButtonGroup *group = new QButtonGroup(this);
     _up = new QRadioButton(tr("up"), this);
     _down = new QRadioButton(tr("down"), this);
     _up->setChecked(true);

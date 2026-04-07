@@ -42,8 +42,6 @@ SettingsDialog::SettingsDialog(QString title, QSettings *settings, QWidget *pare
     _settings = settings;
     _mainWindow = qobject_cast<MainWindow *>(parent);
 
-    _settingsWidgets = new QList<SettingsWidget *>;
-
     setMinimumSize(840, 450);
     resize(840, 720);
 
@@ -106,7 +104,7 @@ SettingsDialog::SettingsDialog(QString title, QSettings *settings, QWidget *pare
 }
 
 void SettingsDialog::addSetting(SettingsWidget *settingWidget) {
-    _settingsWidgets->append(settingWidget);
+    _settingsWidgets.append(settingWidget);
 
     QScrollArea *scrollArea = new QScrollArea(_container);
     scrollArea->setWidget(settingWidget);
@@ -120,14 +118,14 @@ void SettingsDialog::addSetting(SettingsWidget *settingWidget) {
     _listWidget->addItem(newItem);
 
     // set the index to 1 if its the first widget
-    if (_settingsWidgets->count() == 1) {
+    if (_settingsWidgets.count() == 1) {
         _container->setCurrentIndex(0);
         _listWidget->setCurrentRow(0);
     }
 }
 
 void SettingsDialog::setCurrentTab(int index) {
-    if (index >= 0 && index < _settingsWidgets->count()) {
+    if (index >= 0 && index < _settingsWidgets.count()) {
         _listWidget->setCurrentRow(index);
         _container->setCurrentIndex(index);
     }
@@ -135,8 +133,8 @@ void SettingsDialog::setCurrentTab(int index) {
 
 void SettingsDialog::rowChanged(int row) {
     int oldIndex = _container->currentIndex();
-    if (_settingsWidgets->at(oldIndex)) {
-        if (!_settingsWidgets->at(oldIndex)->accept()) {
+    if (_settingsWidgets.at(oldIndex)) {
+        if (!_settingsWidgets.at(oldIndex)->accept()) {
             return;
         }
     }
@@ -146,7 +144,7 @@ void SettingsDialog::rowChanged(int row) {
 void SettingsDialog::refreshToolbarIcons() {
     // Only refresh icons in LayoutSettingsWidget when customize toolbar is enabled
     // Colors are already refreshed by Appearance.cpp, so we don't need to do it here
-    for (SettingsWidget *widget: *_settingsWidgets) {
+    for (SettingsWidget *widget: _settingsWidgets) {
         if (widget && widget->inherits("LayoutSettingsWidget")) {
             // Only refresh if the widget actually has icons visible (customize mode enabled)
             QMetaObject::invokeMethod(widget, "refreshIcons", Qt::DirectConnection);
@@ -157,8 +155,8 @@ void SettingsDialog::refreshToolbarIcons() {
 
 void SettingsDialog::submit() {
     int oldIndex = _container->currentIndex();
-    if (_settingsWidgets->at(oldIndex)) {
-        if (!_settingsWidgets->at(oldIndex)->accept()) {
+    if (_settingsWidgets.at(oldIndex)) {
+        if (!_settingsWidgets.at(oldIndex)->accept()) {
             return;
         }
     }

@@ -74,8 +74,11 @@ void AgentRunner::run(const QString &systemPrompt,
 void AgentRunner::cancel()
 {
     _cancelled = true;
-    _client->cancelRequest();
+    // Disconnect BEFORE aborting — abort() can synchronously trigger
+    // onReplyFinished → onApiError, which would double-fire errorOccurred
+    // and double-cleanup while we're still inside cancel().
     cleanup();
+    _client->cancelRequest();
     emit errorOccurred("Agent cancelled by user.");
 }
 

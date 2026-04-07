@@ -281,7 +281,7 @@ bool AutoUpdater::applyUpdate(const QString &zipPath, const QString &midiPath)
     extractProc.setProgram("powershell.exe");
     extractProc.setArguments({
         "-NoProfile", "-Command",
-        QString("Expand-Archive -Path '%1' -DestinationPath '%2' -Force").arg(nativeZip, nativeStaging)
+        QString("Expand-Archive -Path '%1' -DestinationPath '%2' -Force").arg(nativeZip.replace("'", "''"), nativeStaging.replace("'", "''"))
     });
     extractProc.start();
     extractProc.waitForFinished(120000); // 2 minute timeout

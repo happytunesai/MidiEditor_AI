@@ -241,7 +241,7 @@ void TrackListWidget::dropEvent(QDropEvent *event) {
         int from = row(selected.first());
         
         // Get the item at the drop position
-        QListWidgetItem *dropItem = itemAt(event->pos());
+        QListWidgetItem *dropItem = itemAt(event->position().toPoint());
         if (!dropItem) {
             event->ignore();
             return;

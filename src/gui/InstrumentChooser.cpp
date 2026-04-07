@@ -105,5 +105,5 @@ void InstrumentChooser::accept() {
         }
     }
     _file->protocol()->endAction();
-    hide();
+    QDialog::accept();
 }

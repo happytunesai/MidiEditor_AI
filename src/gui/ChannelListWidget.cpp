@@ -18,6 +18,7 @@
 
 #include "ChannelListWidget.h"
 #include <QAction>
+#include <QDebug>
 #include <QGridLayout>
 #include <QLabel>
 #include <QPainter>
@@ -37,6 +38,8 @@ ChannelListItem::ChannelListItem(int ch, ChannelListWidget *parent)
     : QWidget(parent) {
     channelList = parent;
     channel = ch;
+    loudAction = nullptr;
+    soloAction = nullptr;
 
     setContentsMargins(0, 0, 0, 0);
     QGridLayout *layout = new QGridLayout(this);
@@ -123,7 +126,7 @@ void ChannelListItem::toggleVisibility(bool visible) {
     try {
         channelList->midiFile()->channel(channel)->setVisible(visible);
     } catch (...) {
-        // Ignore if MidiChannel is corrupted
+        qWarning() << "ChannelListItem: Failed to update MidiChannel" << channel << "visibility";
     }
 
     channelList->midiFile()->protocol()->endAction();

@@ -39,8 +39,8 @@ AppearanceSettingsWidget::AppearanceSettingsWidget(QWidget *parent)
     content->setLayout(layout);
     scrollArea->setWidget(content);
 
-    _channelItems = new QList<NamedColorWidgetItem *>();
-    _trackItems = new QList<NamedColorWidgetItem *>();
+    _channelItems = QList<NamedColorWidgetItem *>();
+    _trackItems = QList<NamedColorWidgetItem *>();
 
     // === Settings first (most used) ===
     int row = 0;
@@ -192,7 +192,7 @@ AppearanceSettingsWidget::AppearanceSettingsWidget(QWidget *parent)
         item->setSizeHint(QSize(0, ROW_HEIGHT));
         channelList->addItem(item);
         channelList->setItemWidget(item, channelItem);
-        _channelItems->append(channelItem);
+        _channelItems.append(channelItem);
         connect(channelItem, SIGNAL(colorChanged(int,QColor)), this, SLOT(channelColorChanged(int,QColor)));
     }
     channelList->setFixedHeight(ROW_HEIGHT * 5);
@@ -226,7 +226,7 @@ AppearanceSettingsWidget::AppearanceSettingsWidget(QWidget *parent)
         item->setSizeHint(QSize(0, ROW_HEIGHT));
         trackList->addItem(item);
         trackList->setItemWidget(item, trackItem);
-        _trackItems->append(trackItem);
+        _trackItems.append(trackItem);
         connect(trackItem, SIGNAL(colorChanged(int,QColor)), this, SLOT(trackColorChanged(int,QColor)));
     }
     trackList->setFixedHeight(ROW_HEIGHT * 5);
@@ -265,13 +265,13 @@ void AppearanceSettingsWidget::resetColors() {
 
 void AppearanceSettingsWidget::refreshColors() {
     // Refresh all color widgets to show current colors
-    foreach(NamedColorWidgetItem* item, *_trackItems) {
+    foreach(NamedColorWidgetItem* item, _trackItems) {
         QColor *trackColor = Appearance::trackColor(item->number());
         if (trackColor) {
             item->colorChanged(*trackColor);
         }
     }
-    foreach(NamedColorWidgetItem* item, *_channelItems) {
+    foreach(NamedColorWidgetItem* item, _channelItems) {
         QColor *channelColor = Appearance::channelColor(item->number());
         if (channelColor) {
             item->colorChanged(*channelColor);
@@ -283,10 +283,10 @@ void AppearanceSettingsWidget::refreshColors() {
 
 void AppearanceSettingsWidget::opacityChanged(int opacity) {
     Appearance::setOpacity(opacity);
-    foreach(NamedColorWidgetItem* item, *_trackItems) {
+    foreach(NamedColorWidgetItem* item, _trackItems) {
         item->colorChanged(*Appearance::trackColor(item->number()));
     }
-    foreach(NamedColorWidgetItem* item, *_channelItems) {
+    foreach(NamedColorWidgetItem* item, _channelItems) {
         item->colorChanged(*Appearance::channelColor(item->number()));
     }
     update();

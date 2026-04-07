@@ -169,16 +169,6 @@ void DeleteOverlapsDialog::onModeChanged() {
     _modeDescriptionLabel->update();
 }
 
-void DeleteOverlapsDialog::paintEvent(QPaintEvent *event) {
-    // Call the base class paint event first
-    QDialog::paintEvent(event);
-
-    // Ensure the description label is always properly painted
-    if (_modeDescriptionLabel && !_modeDescriptionLabel->text().isEmpty()) {
-        _modeDescriptionLabel->update();
-    }
-}
-
 void DeleteOverlapsDialog::moveEvent(QMoveEvent *event) {
     // Call the base class move event first
     QDialog::moveEvent(event);
@@ -195,11 +185,5 @@ void DeleteOverlapsDialog::moveEvent(QMoveEvent *event) {
 }
 
 void DeleteOverlapsDialog::resizeEvent(QResizeEvent *event) {
-    // Ignore resize events and maintain fixed size
-    Q_UNUSED(event);
-
-    // Force the dialog to stay at the fixed size
-    if (size() != QSize(480, 420)) {
-        resize(480, 420);
-    }
+    QDialog::resizeEvent(event);
 }

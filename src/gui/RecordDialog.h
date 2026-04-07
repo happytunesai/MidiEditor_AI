@@ -61,6 +61,11 @@ public:
     RecordDialog(MidiFile *file, QMultiMap<int, MidiEvent *> data, QSettings *settings,
                  QWidget *parent = 0);
 
+    /**
+     * \brief Destructor. Deletes any events not yet transferred to the file.
+     */
+    ~RecordDialog();
+
 public slots:
     /**
      * \brief Accepts the dialog and imports the recorded data.

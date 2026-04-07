@@ -101,6 +101,8 @@ private slots:
     void onModelComboChanged(int index);
     void onProviderComboChanged(int index);
     void onEffortComboChanged(int index);
+    void onStreamDelta(const QString &text);
+    void onStreamFinished(const QString &fullContent, const QJsonObject &fullResponse);
 
 private:
     struct ConversationEntry {
@@ -133,6 +135,10 @@ private:
 
     // Agent steps UI
     QWidget *_agentStepsWidget;  // Actually AgentStepsWidget*, stored as QWidget* to avoid header dep
+
+    // Streaming bubble for incremental display
+    QLabel *_streamBubble;
+    bool _streamIsJson;  // true = response is JSON action, suppress display
 
     // Context bar
     QLabel *_contextLabel;
@@ -173,6 +179,18 @@ private:
     int _lastCompletionTokens;
     int _totalPromptTokens;
     int _totalCompletionTokens;
+
+    // Persistent conversation history
+    QString _conversationId;
+    QTimer *_saveTimer;
+    void scheduleSave();
+    void doSaveConversation();
+    void showHistoryMenu();
+    void loadConversation(const QString &id);
+    QJsonArray truncateHistory(const QJsonArray &history, int contextWindow) const;
+    void loadPresetForFile(const QString &midiPath);
+    void savePresetForFile();
+    QString _customFileInstructions;  // Per-file custom instructions from preset
 };
 
 #endif // MIDIPILOTWIDGET_H

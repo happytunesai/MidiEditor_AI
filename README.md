@@ -16,7 +16,7 @@
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-0078D6?logo=windows)](https://github.com/happytunesai/MidiEditor_AI/releases)
 
-**Version:** 1.1.8
+**Version:** 1.1.9
 **Status:** Release
 
 📥 **[Download Latest Release](https://github.com/happytunesai/MidiEditor_AI/releases/latest)**
@@ -53,8 +53,12 @@ MidiPilot is the AI brain embedded directly in MidiEditor AI. Open the sidebar, 
 | 🤖 **MidiPilot AI Copilot** | Compose, edit, and transform MIDI via natural language chat |
 | 🎨 **Dark & Light Themes** | 7 QSS themes (Dark, Light, Sakura, AMOLED, Material Dark, System, Classic) with 10 color presets |
 | 🎹 **Full MIDI Editor** | Edit, record, and play MIDI files with track/channel/event editing |
-| 🎯 **Agent Mode** | Multi-step agentic loop — AI calls tools iteratively, inspecting results between steps |
-| 💬 **Simple Mode** | Single request/response for quick edits and small tasks |
+| 🎯 **Agent Mode** | Multi-step agentic loop — AI calls tools iteratively, with granular per-tool-call undo |
+| 💬 **Simple Mode** | Single request/response with real-time SSE streaming for quick edits and small tasks |
+| 📜 **Conversation History** | Auto-saved conversations as JSON — browse, resume, and reload past chats across sessions |
+| 🌊 **Response Streaming** | Server-Sent Events (SSE) streaming in Simple mode — text appears word by word in real time |
+| 💾 **Per-File AI Presets** | Save provider, model, mode, FFXIV, effort, and custom instructions per MIDI file as a sidecar `.midipilot.json` |
+| 📏 **Context Window Management** | Sliding-window truncation prevents exceeding model context limits, with usage warnings at 80% |
 | 🎮 **FFXIV Bard Mode** | Enforces Final Fantasy XIV Performance constraints (8 tracks, monophonic, C3–C6) |
 | 🎸 **Fix X\|V Channels** | One-click deterministic channel fixer — Rebuild or Preserve mode, velocity normalization, rich result summary |
 | 🔀 **Split Channels to Tracks** | Convert single-track multi-channel GM MIDI files into one track per instrument with auto-naming |
@@ -64,7 +68,7 @@ MidiPilot is the AI brain embedded directly in MidiEditor AI. Open the sidebar, 
 | 📊 **MIDI Visualizer** | Real-time 16-channel equalizer bars in the toolbar with velocity-based color and smooth decay animation |
 | 🔌 **Multi-Provider** | OpenAI, OpenRouter, Google Gemini, or any OpenAI-compatible endpoint |
 | 🧠 **Reasoning Support** | Configurable thinking/reasoning effort (None → Extra High) |
-| 📊 **Token Tracking** | Real-time token usage display per request and session |
+| 📊 **Token Tracking** | Real-time token & context window usage display with multi-provider normalization |
 | ✏️ **Custom System Prompts** | Edit AI behavior via JSON — no recompiling needed |
 | 🔄 **Auto-Updater** | In-app updates from GitHub Releases — Update Now, After Exit, or Download Manual |
 | 🎵 **Quantization** | Event quantization and control change visualization |
@@ -77,7 +81,8 @@ MidiEditor AI
 ├── Core Editor          → MIDI file I/O, tracks, channels, events
 ├── MatrixWidget         → Piano roll note editor with OpenGL rendering
 ├── MidiPilot            → AI copilot sidebar (chat + tools)
-│   ├── AiClient         → OpenAI-compatible API client (streaming)
+│   ├── AiClient         → OpenAI-compatible API client (SSE streaming)
+│   ├── ConversationStore → Persistent history (JSON save/load/resume)
 │   ├── EditorContext     → Musical context extraction for AI
 │   ├── ToolDefinitions   → 13 MIDI manipulation tools for AI
 │   └── SystemPrompts     → Customizable per-mode AI instructions
@@ -307,6 +312,7 @@ The AI has access to 13 tools for inspecting and modifying MIDI files:
 | **Agent Max Steps** | Maximum tool calls per Agent request (5–100, default 50) |
 | **Output Token Limit** | Optional cap on output tokens to control costs |
 | **System Prompts** | Customize AI behavior for each mode via built-in editor |
+| **Per-File Presets** | Save/auto-load provider, model, mode, FFXIV, effort, and custom instructions per MIDI file |
 
 ## 🎬 Examples
 
@@ -379,6 +385,9 @@ MidiEditor_AI/
 │   │   ├── AboutDialog.*      # Credits & version info
 │   │   ├── themes/            # QSS theme files (dark, light, sakura, amoled, materialdark)
 │   │   └── ...                # 40+ GUI components
+│   ├── ai/                    # AI integration
+│   │   ├── AiClient.*         # Multi-provider API client with SSE streaming
+│   │   └── ConversationStore.*# Persistent conversation history (JSON save/load/resume)
 │   ├── midi/                  # MIDI file I/O & devices
 │   │   ├── MidiFile.*         # MIDI file read/write
 │   │   ├── MidiInput.*        # Real-time MIDI input (RtMidi)

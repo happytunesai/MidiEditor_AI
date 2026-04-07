@@ -174,7 +174,7 @@ public slots:
 
 private:
     /** \brief Lists of available ports */
-    QStringList *_inputPorts, *_outputPorts;
+    QStringList *_inputPorts = nullptr, *_outputPorts = nullptr;
 
     /** \brief Port selection list widgets */
     QListWidget *_inList, *_outList;

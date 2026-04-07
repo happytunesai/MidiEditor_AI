@@ -7,6 +7,7 @@
 #include <QEvent>
 #include <QToolBar>
 #include <QToolButton>
+#include <QPointer>
 #include <QWindow>
 #include "../tool/ToolButton.h"
 #include "ProtocolWidget.h"
@@ -57,7 +58,7 @@ static QDateTime cacheTime;
 
 // Queue-based icon processing to prevent crashes
 static QTimer *iconUpdateTimer = nullptr;
-static QList<QPair<QAction *, QString> > iconUpdateQueue;
+static QList<QPair<QPointer<QAction>, QString> > iconUpdateQueue;
 
 // PERFORMANCE: Use QHash instead of QMap for O(1) color lookups instead of O(log n)
 QHash<int, QColor *> Appearance::channelColors = QHash<int, QColor *>();
@@ -467,7 +468,7 @@ QColor *Appearance::decode(QString name, QSettings *settings, QColor *defaultCol
     bool ok;
     int r = settings->value(name + "_r").toInt(&ok);
     if (!ok) {
-        return new QColor(*defaultColor);
+        return defaultColor;
     }
     int g = settings->value(name + "_g").toInt(&ok);
     if (!ok) {
@@ -477,6 +478,7 @@ QColor *Appearance::decode(QString name, QSettings *settings, QColor *defaultCol
     if (!ok) {
         return defaultColor;
     }
+    delete defaultColor;
     return new QColor(r, g, b);
 }
 
@@ -1723,26 +1725,17 @@ void Appearance::processNextQueuedIcon() {
     }
 
     // Process only ONE icon per timer tick to prevent crashes
-    QPair<QAction *, QString> iconPair = iconUpdateQueue.takeFirst();
+    QPair<QPointer<QAction>, QString> iconPair = iconUpdateQueue.takeFirst();
     QAction *action = iconPair.first;
     QString iconPath = iconPair.second;
 
     if (!action) {
-        return; // Skip null actions
+        return; // Skip null or deleted actions
     }
 
-    // Verify action is still valid and update icon
-    try {
-        // Test if action is still valid
-        action->objectName();
-
-        // Update the icon
-        QIcon newIcon = adjustIconForDarkMode(iconPath);
-        action->setIcon(newIcon);
-    } catch (...) {
-        // Action is invalid or update failed, just skip it
-        // Don't crash the entire process
-    }
+    // Update the icon
+    QIcon newIcon = adjustIconForDarkMode(iconPath);
+    action->setIcon(newIcon);
 }
 
 void Appearance::registerIconAction(QAction *action, const QString &iconPath) {
