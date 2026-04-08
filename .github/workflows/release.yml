@@ -59,6 +59,14 @@ jobs:
           Expand-Archive -Path fluidsynth.zip -DestinationPath fluidsynth
           Remove-Item fluidsynth.zip
 
+      - name: Download LAME source
+        shell: pwsh
+        run: |
+          $url = "https://sourceforge.net/projects/lame/files/lame/3.100/lame-3.100.tar.gz/download"
+          Invoke-WebRequest -Uri $url -OutFile lame-3.100.tar.gz -UserAgent "Mozilla/5.0"
+          tar -xzf lame-3.100.tar.gz -C lame
+          Remove-Item lame-3.100.tar.gz
+
       - name: CMake Configure
         shell: cmd
         run: |

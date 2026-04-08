@@ -136,6 +136,13 @@
 
 #ifdef FLUIDSYNTH_SUPPORT
 #include "../midi/FluidSynthEngine.h"
+#ifdef LAME_SUPPORT
+#include "../midi/LameEncoder.h"
+#endif
+#include "ExportDialog.h"
+#include <QFile>
+#include <QProgressDialog>
+#include <QThreadPool>
 #endif
 
 MainWindow::MainWindow(QString initFile)
@@ -846,6 +853,12 @@ void MainWindow::setFile(MidiFile *newFile) {
     // Update paste action state when file changes
     copiedEventsChanged();
     checkEnableActionsForSelection();
+
+#ifdef FLUIDSYNTH_SUPPORT
+    if (_exportAudioAction) {
+        _exportAudioAction->setEnabled(newFile != nullptr);
+    }
+#endif
 
     // Reset MIDI output channel programs and apply initial program changes
     if (MidiOutput::isConnected()) {
@@ -1558,6 +1571,7 @@ void MainWindow::closeEvent(QCloseEvent *event) {
 #endif
 
     Appearance::writeSettings(_settings);
+    _settings->sync();
 
     // Cleanup shared clipboard resources
     SharedClipboard::instance()->cleanup();
@@ -3491,6 +3505,18 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
     connect(saveAsAction, SIGNAL(triggered()), this, SLOT(saveas()));
     fileMB->addAction(saveAsAction);
     _actionMap["save_as"] = saveAsAction;
+
+#ifdef FLUIDSYNTH_SUPPORT
+    fileMB->addSeparator();
+    _exportAudioAction = new QAction(tr("Export Audio..."), this);
+    _exportAudioAction->setShortcut(QKeySequence(tr("Ctrl+Shift+E")));
+    _defaultShortcuts["export_audio"] = QList<QKeySequence>() << _exportAudioAction->shortcut();
+    Appearance::setActionIcon(_exportAudioAction, ":/run_environment/graphics/tool/noicon.png");
+    connect(_exportAudioAction, &QAction::triggered, this, &MainWindow::exportAudio);
+    fileMB->addAction(_exportAudioAction);
+    _actionMap["export_audio"] = _exportAudioAction;
+    _exportAudioAction->setEnabled(false);
+#endif
 
     fileMB->addSeparator();
 
@@ -6470,3 +6496,241 @@ void MainWindow::applyWidgetSizeConstraints() {
         }
     }
 }
+
+// ============================================================================
+// Audio Export
+// ============================================================================
+
+#ifdef FLUIDSYNTH_SUPPORT
+
+void MainWindow::exportAudio() {
+    if (!file) return;
+
+    ExportDialog dlg(file, this);
+    if (dlg.exec() != QDialog::Accepted) return;
+
+    ExportOptions opts = dlg.exportOptions();
+
+    // FluidSynth needs a standard MIDI file. If the loaded file is a Guitar Pro
+    // or other non-MIDI format, save the in-memory data to a temp .mid first.
+    QString filePath = file->path();
+    QString ext = QFileInfo(filePath).suffix().toLower();
+    if (ext == "mid" || ext == "midi") {
+        opts.midiFilePath = filePath;
+    } else {
+        QString tempMidi = QDir::tempPath() + "/midieditor_export_temp.mid";
+        if (!file->save(tempMidi)) {
+            QMessageBox::critical(this, tr("Export Failed"),
+                                  tr("Could not prepare MIDI data for export."));
+            return;
+        }
+        opts.midiFilePath = tempMidi;
+        opts.deleteMidiFileAfterExport = true;
+    }
+    startExport(opts);
+}
+
+void MainWindow::exportAudioSelection() {
+    if (!file) return;
+
+    QList<MidiEvent *> sel = Selection::instance()->selectedEvents();
+    if (sel.isEmpty()) return;
+
+    int minTick = INT_MAX, maxTick = 0;
+    for (MidiEvent *ev : sel) {
+        if (ev->midiTime() < minTick) minTick = ev->midiTime();
+        int end = ev->midiTime();
+        if (NoteOnEvent *on = dynamic_cast<NoteOnEvent *>(ev)) {
+            if (on->offEvent()) end = on->offEvent()->midiTime();
+        }
+        if (end > maxTick) maxTick = end;
+    }
+
+    ExportDialog dlg(file, this);
+    dlg.setSelectionRange(minTick, maxTick);
+    if (dlg.exec() != QDialog::Accepted) return;
+
+    ExportOptions opts = dlg.exportOptions();
+
+    QString filePath = file->path();
+    QString ext = QFileInfo(filePath).suffix().toLower();
+    if (ext == "mid" || ext == "midi") {
+        opts.midiFilePath = filePath;
+    } else {
+        QString tempMidi = QDir::tempPath() + "/midieditor_export_temp.mid";
+        if (!file->save(tempMidi)) {
+            QMessageBox::critical(this, tr("Export Failed"),
+                                  tr("Could not prepare MIDI data for export."));
+            return;
+        }
+        opts.midiFilePath = tempMidi;
+        opts.deleteMidiFileAfterExport = true;
+    }
+    startExport(opts);
+}
+
+void MainWindow::startExport(const ExportOptions &opts) {
+    FluidSynthEngine *engine = FluidSynthEngine::instance();
+
+    // Track temp MIDI file for cleanup
+    _exportTempMidiPath = opts.deleteMidiFileAfterExport ? opts.midiFilePath : QString();
+
+    // Create progress dialog
+    _exportProgressDialog = new QProgressDialog(tr("Exporting audio..."), tr("Cancel"), 0, 100, this);
+    _exportProgressDialog->setWindowModality(Qt::WindowModal);
+    _exportProgressDialog->setMinimumDuration(0);
+    _exportProgressDialog->setValue(0);
+
+    connect(engine, &FluidSynthEngine::exportProgress, this, [this](int pct) {
+        if (_exportProgressDialog) {
+            // For MP3: WAV render is 0–70%, LAME encode is 70–100%
+            // For others: 0–100% directly
+            _exportProgressDialog->setValue(pct);
+        }
+    });
+    connect(engine, &FluidSynthEngine::exportFinished, this, &MainWindow::onExportFinished);
+    connect(engine, &FluidSynthEngine::exportCancelled, this, &MainWindow::onExportCancelled);
+    connect(_exportProgressDialog, &QProgressDialog::canceled, engine, &FluidSynthEngine::cancelExport);
+
+#ifdef LAME_SUPPORT
+    bool isMp3 = (opts.fileType == "mp3");
+#else
+    bool isMp3 = false;
+#endif
+
+    if (isMp3) {
+#ifdef LAME_SUPPORT
+        // MP3 pipeline: render WAV to temp → encode MP3 → delete temp
+        ExportOptions wavOpts = opts;
+        wavOpts.fileType = "wav";
+        wavOpts.sampleFormat = "s16"; // LAME needs 16-bit PCM
+        wavOpts.outputFilePath = QDir::tempPath() + "/midieditor_export_temp.wav";
+
+        QString finalMp3Path = opts.outputFilePath;
+        int mp3Bitrate = opts.mp3Bitrate;
+
+        // Override progress to scale WAV phase to 0–70%
+        disconnect(engine, &FluidSynthEngine::exportProgress, nullptr, nullptr);
+        connect(engine, &FluidSynthEngine::exportProgress, this, [this](int pct) {
+            if (_exportProgressDialog) {
+                _exportProgressDialog->setValue(pct * 70 / 100);
+            }
+        });
+
+        // Override finish to chain LAME encoding
+        disconnect(engine, &FluidSynthEngine::exportFinished, nullptr, nullptr);
+        connect(engine, &FluidSynthEngine::exportFinished, this,
+                [this, wavOpts, finalMp3Path, mp3Bitrate](bool success, const QString &) {
+            if (!success) {
+                QFile::remove(wavOpts.outputFilePath);
+                onExportFinished(false, finalMp3Path);
+                return;
+            }
+
+            // Phase 2: encode WAV → MP3 in background
+            if (_exportProgressDialog) {
+                _exportProgressDialog->setLabelText(tr("Encoding MP3..."));
+                _exportProgressDialog->setValue(70);
+            }
+
+            QString tempWav = wavOpts.outputFilePath;
+            QThreadPool::globalInstance()->start([this, tempWav, finalMp3Path, mp3Bitrate]() {
+                bool ok = LameEncoder::encode(tempWav, finalMp3Path, mp3Bitrate,
+                    [this](int pct) {
+                        // Scale LAME progress 0–100 to dialog 70–100
+                        int scaled = 70 + pct * 30 / 100;
+                        QMetaObject::invokeMethod(this, [this, scaled]() {
+                            if (_exportProgressDialog) {
+                                _exportProgressDialog->setValue(scaled);
+                            }
+                        }, Qt::QueuedConnection);
+                    },
+                    FluidSynthEngine::instance()->cancelExportFlag());
+
+                // Clean up temp WAV
+                QFile::remove(tempWav);
+
+                QMetaObject::invokeMethod(this, [this, ok, finalMp3Path]() {
+                    if (!ok && FluidSynthEngine::instance()->cancelExportFlag()->load()) {
+                        onExportCancelled();
+                    } else {
+                        onExportFinished(ok, finalMp3Path);
+                    }
+                }, Qt::QueuedConnection);
+            });
+        });
+
+        // Run WAV render in background thread
+        QThreadPool::globalInstance()->start([engine, wavOpts]() {
+            engine->exportAudio(wavOpts);
+        });
+#endif // LAME_SUPPORT
+    } else {
+        // Standard pipeline: direct render
+        ExportOptions optsCopy = opts;
+        QThreadPool::globalInstance()->start([engine, optsCopy]() {
+            engine->exportAudio(optsCopy);
+        });
+    }
+}
+
+void MainWindow::onExportFinished(bool success, const QString &message) {
+    FluidSynthEngine *engine = FluidSynthEngine::instance();
+    disconnect(engine, &FluidSynthEngine::exportProgress, nullptr, nullptr);
+    disconnect(engine, &FluidSynthEngine::exportFinished, nullptr, nullptr);
+    disconnect(engine, &FluidSynthEngine::exportCancelled, nullptr, nullptr);
+
+    if (_exportProgressDialog) {
+        _exportProgressDialog->close();
+        _exportProgressDialog->deleteLater();
+        _exportProgressDialog = nullptr;
+    }
+
+    // Clean up temp MIDI file (for Guitar Pro etc.)
+    if (!_exportTempMidiPath.isEmpty()) {
+        QFile::remove(_exportTempMidiPath);
+        _exportTempMidiPath.clear();
+    }
+
+    if (success) {
+        QMessageBox msgBox(this);
+        msgBox.setWindowTitle(tr("Export Complete"));
+        msgBox.setText(tr("Audio exported successfully to:\n%1").arg(message));
+        msgBox.setIcon(QMessageBox::Information);
+        QPushButton *openBtn = msgBox.addButton(tr("Open"), QMessageBox::ActionRole);
+        QPushButton *openFolderBtn = msgBox.addButton(tr("Open Folder"), QMessageBox::ActionRole);
+        msgBox.addButton(tr("Close"), QMessageBox::RejectRole);
+        msgBox.exec();
+        if (msgBox.clickedButton() == openBtn) {
+            QDesktopServices::openUrl(QUrl::fromLocalFile(message));
+        } else if (msgBox.clickedButton() == openFolderBtn) {
+            QString folder = QFileInfo(message).absolutePath();
+            QDesktopServices::openUrl(QUrl::fromLocalFile(folder));
+        }
+    } else {
+        QMessageBox::critical(this, tr("Export Failed"),
+                              tr("Failed to export audio to:\n%1\n\n"
+                                 "Check that SoundFonts are loaded and the output path is writable.").arg(message));
+    }
+}
+
+void MainWindow::onExportCancelled() {
+    FluidSynthEngine *engine = FluidSynthEngine::instance();
+    disconnect(engine, &FluidSynthEngine::exportProgress, nullptr, nullptr);
+    disconnect(engine, &FluidSynthEngine::exportFinished, nullptr, nullptr);
+    disconnect(engine, &FluidSynthEngine::exportCancelled, nullptr, nullptr);
+
+    if (_exportProgressDialog) {
+        _exportProgressDialog->close();
+        _exportProgressDialog->deleteLater();
+        _exportProgressDialog = nullptr;
+    }
+
+    // Clean up temp MIDI file (for Guitar Pro etc.)
+    if (!_exportTempMidiPath.isEmpty()) {
+        QFile::remove(_exportTempMidiPath);
+        _exportTempMidiPath.clear();
+    }
+}
+
+#endif // FLUIDSYNTH_SUPPORT

@@ -1299,6 +1299,12 @@ void MatrixWidget::mousePressEvent(QMouseEvent *event) {
     // Only forward to tool on left-click or Ctrl+right-click.
     bool isRightClick = (event->buttons() & Qt::RightButton);
     bool ctrlHeld = (event->modifiers() & Qt::ControlModifier);
+
+    // Track Ctrl+Right-click so contextMenuEvent can suppress the menu
+    if (isRightClick && ctrlHeld) {
+        _ctrlRightClickInProgress = true;
+    }
+
     if (!MidiPlayer::isPlaying() && Tool::currentTool() && mouseInRect(ToolArea)
         && (!isRightClick || ctrlHeld)) {
         if (Tool::currentTool()->press(event->buttons() == Qt::LeftButton)) {
@@ -1731,6 +1737,13 @@ void MatrixWidget::keyReleaseEvent(QKeyEvent *event) {
 }
 
 void MatrixWidget::contextMenuEvent(QContextMenuEvent *event) {
+    // Suppress context menu when Ctrl+Right-click was used (note placement mode)
+    if (_ctrlRightClickInProgress) {
+        _ctrlRightClickInProgress = false;
+        event->accept();
+        return;
+    }
+
     if (!file || Selection::instance()->selectedEvents().isEmpty()) {
         QWidget::contextMenuEvent(event);
         return;
@@ -1807,6 +1820,12 @@ void MatrixWidget::contextMenuEvent(QContextMenuEvent *event) {
     // Scale
     QAction *scaleAct = menu.addAction(tr("Scale Selection..."));
     connect(scaleAct, &QAction::triggered, mw, &MainWindow::scaleSelection);
+
+#ifdef FLUIDSYNTH_SUPPORT
+    menu.addSeparator();
+    QAction *exportSelAct = menu.addAction(tr("Export Selection as Audio..."));
+    connect(exportSelAct, &QAction::triggered, mw, &MainWindow::exportAudioSelection);
+#endif
 
     menu.exec(event->globalPos());
 }

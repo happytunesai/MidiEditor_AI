@@ -5,6 +5,66 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 
 ---
 
+## [1.2.0] - 2026-04-08 — Audio Export, MP3, FluidSynth Hardening
+
+* **Audio Export** — Export MIDI as WAV, FLAC, or OGG Vorbis using loaded SoundFonts (File → Export Audio, Ctrl+Shift+E)
+* Export Dialog with format selection (WAV/FLAC/OGG/MP3), quality presets (Draft/CD/Studio/Hi-Res), range options (full song/selection/custom measures), reverb tail toggle, and estimated file size
+* Selection export via right-click context menu — select notes, right-click → "Export Selection as Audio..."
+* Export Audio button added to SoundFont settings panel
+* Background export with progress dialog and cancel support
+* **MP3 Export** — Built-in LAME 3.100 encoder compiled as static C library; export directly to MP3 without external tools
+* **Export Completion Dialog** — After export finishes, shows dialog with Open File, Open Folder, and Close buttons
+* **Guitar Pro Audio Export Fix** — Exporting audio from Guitar Pro files (.gp3–.gp8) no longer produces silent/empty output; saves in-memory MIDI to temp file for rendering
+* **SoundFont Enable/Disable** — Per-SoundFont checkboxes in the settings list; uncheck to temporarily disable a font without removing it; state persists across sessions
+* **FFXIV SoundFont Mode Auto-Toggle** — SoundFonts with "ff14" or "ffxiv" in the filename automatically enable/disable FFXIV SoundFont Mode when checked/unchecked
+* **FluidSynth Audio Driver Fallback** — If the preferred audio driver fails (e.g., SDL3 after restart), automatically tries wasapi → dsound → waveout → sdl3 → sdl2
+* **FluidSynth Settings Always Accessible** — SoundFont list and settings are now configurable even when Microsoft GS Wavetable Synth is the active output
+* **FluidSynth Error Dialog** — Shows a clear error message when FluidSynth initialization fails, with automatic revert to previous output
+* **Drum Channel Reset Fix** — Switching from FFXIV SoundFont back to GM mode now properly restores channel 9 drums (bank select 128 + program change); previously drums played as piano
+* **Radio button styling fix** — checked radio buttons now render as proper circles in all 5 themes (dark, light, amoled, materialdark, pink)
+
+<details>
+<summary>Full Changelog</summary>
+
+### Added
+* **MP3 export via LAME** — LAME 3.100 compiled from source as a static C library (`libmp3lame.a`) and linked directly into the build. No DLL or external encoder needed. Export dialog shows MP3 as a format option alongside WAV/FLAC/OGG. Supports VBR quality presets matching the existing quality tiers.
+* **Export completion dialog** — `QMessageBox` with three buttons after any audio export: **Open File** (launches default audio player), **Open Folder** (opens containing directory in Explorer), **Close** (dismiss). Previously there was no feedback after export completion.
+* **SoundFont enable/disable checkboxes** — Each SoundFont in the FluidSynth settings list has a checkbox. Unchecking removes it from the active FluidSynth stack without deleting it from the list. Re-checking reloads it. Disabled state persisted in QSettings across sessions. Dual-state system: runtime (`_soundFontStack` + `_disabledSoundFontPaths`) and pending (`_pendingSoundFontPaths` + `_pendingDisabledPaths`) for before/after FluidSynth initialization.
+* **FFXIV SoundFont Mode auto-toggle** — `updateFfxivModeFromSoundFonts()` scans checked SoundFonts for "ff14" or "ffxiv" in the filename (case-insensitive). Auto-enables FFXIV SoundFont Mode when a matching font is checked; auto-disables when all matching fonts are unchecked. Reads from UI list widget directly to ensure correctness before engine commits.
+* **Audio driver fallback chain** — `FluidSynthEngine::initialize()` tries multiple audio drivers in sequence: user preference → wasapi → dsound → waveout → sdl3 → sdl2. Common with SDL3 failures after a shutdown/restart cycle. Driver combo in settings reflects the actual driver used.
+* **FluidSynth settings always enabled** — Removed `setEnabled(false)` on the FluidSynth settings group when non-FluidSynth output is selected. Users can manage SoundFonts at any time; settings applied when FluidSynth is next activated.
+* **Pre-init SoundFont management** — `addPendingSoundFontPaths()` method allows adding SoundFonts before FluidSynth is initialized. `setSoundFontStack()` and `removeSoundFontByPath()` also update pending paths when engine is not initialized.
+* **FluidSynth error feedback** — `QMessageBox::warning` shown when switching to FluidSynth output fails, with error details. Output automatically reverts to previous working port.
+* **Output port fallback** — `MidiOutput::setOutputPort()` saves previous port; if new port's FluidSynth init fails, previous port restored automatically.
+
+### Fixed
+* **Guitar Pro audio export producing silence** — `file->path()` returned the `.gp5`/`.gpx` path which FluidSynth cannot parse. Now saves the in-memory MidiFile to a temporary `.mid` file, exports from that, then cleans up via `_exportTempMidiPath`.
+* **Drum channel playing piano after FFXIV→GM switch** — Two issues: (1) `updateFfxivModeFromSoundFonts()` was called AFTER `setSoundFontEnabled()`, so `applyChannelMode()` still used old FFXIV flag during stack rebuild. Reordered to update mode FIRST. (2) `applyChannelMode()` GM restore didn't reset channel 9 properly — now sends `bank_select(ch9, 128)` + `program_change(ch9, 0)` to restore drum kit, plus `program_change(0)` on all melodic channels.
+* **SoundFont state lost on shutdown** — `shutdown()` only preserved `_loadedFonts` (enabled fonts), losing disabled font paths. Now preserves full stack via `allSoundFontPaths()` → `_pendingSoundFontPaths` + `_pendingDisabledPaths`.
+* **SoundFont list empty before init** — `allSoundFontPaths()` returned empty when `_soundFontStack` was empty (before initialization). Now falls back to `_pendingSoundFontPaths`.
+* **Disabled SoundFonts lost on settings change** (V12-002) — Changing audio driver, sample rate, or reverb engine silently discarded disabled SoundFonts from the stack. Removed redundant `setSoundFontStack()` calls; `shutdown()`+`initialize()` already preserves and restores the full stack.
+* **MP3 export reported success after encoding error** (V12-003) — LAME encoder returned true even when `lame_encode_buffer_interleaved()` reported an error. Now tracks error state, skips flush, deletes corrupt output, and returns false.
+* **Cancel button ineffective during MP3 encoding** (V12-004) — Cancel only worked during WAV rendering phase. Now passes the cancel flag to `LameEncoder::encode()`, which checks it each iteration and aborts cleanly.
+* **Export failure showed file path instead of error** (V12-005) — Error dialog displayed the output file path rather than an actionable message. Now shows descriptive success/failure messages with guidance.
+* **Misleading comment in driver fallback loop** (V12-007) — Removed incorrect comment about re-creating settings+synth per driver attempt.
+* **Radio button styling** — checked radio buttons render as proper circles in all 5 themes.
+
+### Changed
+* Export dialog now shows MP3 as a fourth format option
+* Phase 20 title updated to "Audio Export & FluidSynth Hardening"
+* Version bump to 1.2.0
+
+### Technical Notes
+* **LAME integration:** `lame/` directory contains LAME 3.100 source; compiled as static C library via `add_library(mp3lame STATIC ...)` in CMakeLists.txt. `LameEncoder.h/.cpp` wraps the LAME API for Qt integration.
+* **FluidSynth driver fallback:** Preferred driver stored in `QSettings("FluidSynth/audio_driver")`. Fallback order: wasapi (Windows native) → dsound (DirectSound) → waveout (legacy) → sdl3 → sdl2. Each attempt calls `fluid_settings_setstr` + `new_fluid_audio_driver`; on failure, deletes settings/synth and tries next.
+* **SoundFont state management:** Four containers: `_soundFontStack` (active ordered list), `_disabledSoundFontPaths` (runtime disabled QSet), `_pendingSoundFontPaths` (pre-init ordered list), `_pendingDisabledPaths` (pre-init disabled QSet). `shutdown()` merges runtime → pending. `initialize()` consumes pending → runtime.
+* **Files created:** `src/midi/LameEncoder.h/.cpp`
+* **Files modified:** `FluidSynthEngine.h/.cpp`, `MidiSettingsWidget.h/.cpp`, `MainWindow.h/.cpp`, `MidiOutput.cpp`, `CMakeLists.txt`
+
+</details>
+
+---
+
 ## [1.1.9] - 2026-04-07 — MidiPilot AI Improvements + GUI Bug Sweep
 
 * Granular agent undo — each tool call gets its own Ctrl+Z step instead of one compound action

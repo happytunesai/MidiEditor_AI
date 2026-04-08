@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Audio Export - MidiEditor AI Manual</title>
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="nav-bar">
+<div class="nav-header"><span class="nav-icon">&#129302;</span><span class="nav-title">MidiEditor AI Manual</span><span class="nav-version">v1.2.0</span></div>
+<div class="nav-links">
+<a href="index.html">Index</a>
+<a href="midipilot.html">MidiPilot</a>
+<a href="prompt-examples.html">Prompts</a>
+<span class="nav-sep">&middot;</span>
+<a href="ffxiv-channel-fixer.html">Fix X|V</a>
+<a href="split-channels.html">Split</a>
+<a href="themes.html">Themes</a>
+<a href="soundfont.html">SoundFonts</a>
+<a href="guitar-pro.html">Guitar&nbsp;Pro</a>
+<span class="nav-sep">&middot;</span>
+<a href="midi-overview.html">MIDI</a>
+<a href="editor-and-components.html">Editor</a>
+<a href="setup.html">Setup</a>
+<a href="editing-midi-files.html">Editing</a>
+<span class="nav-sep">&middot;</span>
+<a href="playback.html">Playback</a>
+<a href="export-audio.html" class="active">Export</a>
+</div>
+</div>
+
+<h2>Audio Export</h2>
+
+<p>
+  MidiEditor AI can render your MIDI files to audio using the built-in
+  <a href="soundfont.html">FluidSynth synthesizer</a> and loaded SoundFonts. Export to
+  <b>WAV</b>, <b>FLAC</b>, <b>OGG Vorbis</b>, or <b>MP3</b> &mdash; no external tools required.
+</p>
+
+<p>
+  The MP3 encoder (<a href="https://lame.sourceforge.io/" target="_blank">LAME 3.100</a>) is compiled
+  directly into MidiEditor AI as a static library. There is no need to install or configure anything.
+</p>
+
+<!-- ───────── How to export ───────── -->
+<h3 id="how-to">How to Export</h3>
+
+<p>There are three ways to start an audio export:</p>
+
+<ol>
+  <li><b>File &rarr; Export Audio&hellip;</b> (or <kbd>Ctrl+Shift+E</kbd>) &mdash; exports the full MIDI file or a custom range.</li>
+  <li><b>Right-click selection &rarr; Export Selection as Audio&hellip;</b> &mdash; exports only the currently selected notes.</li>
+  <li><b>Export Audio button</b> in the FluidSynth settings panel.</li>
+</ol>
+
+<img src="screenshots/export-context-menu.png" width="350"
+     alt="Right-click context menu showing Export Selection as Audio option"/>
+<p style="color:var(--text-muted); font-style:italic; font-size:0.9rem;">
+  Right-click on selected notes to export just the selection.
+</p>
+
+<!-- ───────── Export dialog ───────── -->
+<h3 id="dialog">Export Dialog</h3>
+
+<p>
+  The export dialog lets you configure exactly how your audio should be rendered.
+</p>
+
+<img src="screenshots/export-dialog.png" width="500"
+     alt="Export Audio dialog showing format, quality, range, and reverb tail options"/>
+
+<table>
+<tr><th>Setting</th><th>Description</th></tr>
+<tr>
+  <td><b>Format</b></td>
+  <td>Choose the output format:
+    <ul>
+      <li><b>WAV</b> &mdash; Uncompressed PCM. Largest file, highest quality. Best for further processing.</li>
+      <li><b>FLAC</b> &mdash; Lossless compression. Same quality as WAV, ~60% smaller.</li>
+      <li><b>OGG Vorbis</b> &mdash; Lossy compression. Good quality at small file sizes.</li>
+      <li><b>MP3</b> &mdash; Lossy compression via LAME 3.100. Universal compatibility.</li>
+    </ul>
+  </td>
+</tr>
+<tr>
+  <td><b>Quality</b></td>
+  <td>Preset quality tiers:
+    <ul>
+      <li><b>Draft</b> &mdash; 22050 Hz, 16-bit (fast rendering, small files)</li>
+      <li><b>CD</b> &mdash; 44100 Hz, 16-bit (standard quality)</li>
+      <li><b>Studio</b> &mdash; 48000 Hz, 16-bit (professional)</li>
+      <li><b>Hi-Res</b> &mdash; 96000 Hz, 16-bit (audiophile)</li>
+    </ul>
+  </td>
+</tr>
+<tr>
+  <td><b>Range</b></td>
+  <td>What part of the file to export:
+    <ul>
+      <li><b>Full Song</b> &mdash; the entire MIDI file</li>
+      <li><b>Selection</b> &mdash; only the currently selected notes (when using the context menu)</li>
+      <li><b>Custom Measures</b> &mdash; specify start and end measure numbers</li>
+    </ul>
+  </td>
+</tr>
+<tr>
+  <td><b>Reverb Tail</b></td>
+  <td>When enabled, adds extra time at the end so reverb and sustain can fade out naturally instead of cutting off abruptly.</td>
+</tr>
+<tr>
+  <td><b>Estimated Size</b></td>
+  <td>Shows the approximate output file size based on the current settings.</td>
+</tr>
+</table>
+
+<!-- ───────── Export progress ───────── -->
+<h3 id="progress">Export Progress</h3>
+
+<p>
+  After clicking <b>Export</b> and choosing a save location, MidiEditor AI renders the audio in the
+  background. A progress dialog shows the current phase and percentage.
+</p>
+
+<img src="screenshots/export-progress.png" width="350"
+     alt="Export progress dialog showing rendering phase and cancel button"/>
+
+<p>
+  For MP3 exports, there are two phases:
+</p>
+<ol>
+  <li><b>Rendering WAV</b> &mdash; FluidSynth synthesizes the MIDI to a temporary WAV file.</li>
+  <li><b>Encoding MP3</b> &mdash; LAME converts the WAV to MP3 at the selected quality.</li>
+</ol>
+
+<p>
+  You can click <b>Cancel</b> at any time during either phase. The temporary files are cleaned up
+  automatically.
+</p>
+
+<!-- ───────── Completion ───────── -->
+<h3 id="completion">Export Completion</h3>
+
+<p>
+  When the export finishes, a dialog appears with three options:
+</p>
+
+<img src="screenshots/export-complete.png" width="400"
+     alt="Export completion dialog with Open File, Open Folder, and Close buttons"/>
+
+<table>
+<tr><th>Button</th><th>Action</th></tr>
+<tr><td><b>Open File</b></td><td>Opens the exported audio file in your default media player.</td></tr>
+<tr><td><b>Open Folder</b></td><td>Opens the containing folder in Windows Explorer.</td></tr>
+<tr><td><b>Close</b></td><td>Dismisses the dialog.</td></tr>
+</table>
+
+<!-- ───────── Guitar Pro ───────── -->
+<h3 id="guitar-pro">Exporting Guitar Pro Files</h3>
+
+<p>
+  Guitar Pro files (<code>.gp3</code>, <code>.gp4</code>, <code>.gp5</code>, <code>.gpx</code>, <code>.gp</code>)
+  can be exported to audio just like regular MIDI files. MidiEditor AI automatically saves the
+  imported data to a temporary MIDI file for FluidSynth to render. This happens transparently &mdash;
+  no extra steps needed.
+</p>
+
+<!-- ───────── SoundFont requirement ───────── -->
+<h3 id="soundfonts">SoundFont Requirement</h3>
+
+<p>
+  Audio export uses the currently loaded <a href="soundfont.html">SoundFonts</a> to determine
+  instrument sounds. Make sure at least one SoundFont is loaded before exporting. If no SoundFonts
+  are available, the export will fail with an error message.
+</p>
+
+<p>
+  <b>Tip:</b> The exported audio will sound exactly like what you hear during playback with
+  FluidSynth. If you want different instruments, reorder or swap SoundFonts before exporting.
+  SoundFonts that are <a href="soundfont.html#enable-disable">disabled</a> (unchecked) are not used
+  during export.
+</p>
+
+<!-- ───────── Formats detail ───────── -->
+<h3 id="formats">Format Details</h3>
+
+<table>
+<tr><th>Format</th><th>Type</th><th>File Size</th><th>Best For</th></tr>
+<tr><td><b>WAV</b></td><td>Uncompressed PCM</td><td>Large (~10 MB/min at CD)</td><td>Further editing in a DAW, maximum quality</td></tr>
+<tr><td><b>FLAC</b></td><td>Lossless</td><td>Medium (~6 MB/min at CD)</td><td>Archival, quality-conscious distribution</td></tr>
+<tr><td><b>OGG</b></td><td>Lossy</td><td>Small (~1.5 MB/min)</td><td>Web, games, Linux ecosystem</td></tr>
+<tr><td><b>MP3</b></td><td>Lossy (LAME VBR)</td><td>Small (~1.5 MB/min)</td><td>Universal sharing, broad player support</td></tr>
+</table>
+
+<!-- ───────── Keyboard shortcut ───────── -->
+<h3 id="shortcut">Keyboard Shortcut</h3>
+
+<table>
+<tr><th>Shortcut</th><th>Action</th></tr>
+<tr><td><kbd>Ctrl+Shift+E</kbd></td><td>Open the Export Audio dialog (full file)</td></tr>
+</table>
+
+<!-- ───────── Tips ───────── -->
+<h3 id="tips">Tips</h3>
+
+<ul>
+  <li><b>No sound in export?</b> Make sure SoundFonts are loaded. The export uses the same SoundFont stack as playback.</li>
+  <li><b>Wrong instruments?</b> Check your <a href="soundfont.html#priority">SoundFont priority order</a>. The export renders exactly what you hear during playback.</li>
+  <li><b>Export is slow?</b> Hi-Res quality (96 kHz) takes longer to render. Try CD quality (44.1 kHz) for faster exports.</li>
+  <li><b>MP3 for sharing:</b> MP3 at CD quality is the best choice for sharing online or via messaging apps.</li>
+  <li><b>FLAC for archival:</b> FLAC preserves full quality while being significantly smaller than WAV.</li>
+  <li><b>FFXIV SoundFont Mode:</b> If you have <a href="soundfont.html#ffxiv-mode">FFXIV SoundFont Mode</a> enabled, the export respects it &mdash; your bard arrangements will sound correct.</li>
+</ul>
+
+<div class="footer">
+  <p>MidiEditor AI &mdash; <a href="https://github.com/happytunesai/MidiEditor_AI">GitHub</a> &middot; Created with &hearts; + AI</p>
+</div>
+<script src="lightbox.js"></script>
+</body>
+</html>

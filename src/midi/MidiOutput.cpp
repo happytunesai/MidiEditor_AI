@@ -149,6 +149,9 @@ bool MidiOutput::setOutputPort(QString name) {
 #ifdef FLUIDSYNTH_SUPPORT
     // Handle FluidSynth virtual port
     if (name == FLUIDSYNTH_PORT_NAME) {
+        // Remember previous port in case FluidSynth init fails
+        QString previousPort = _outPort;
+
         // Close any RtMidi port
         _midiOut->closePort();
 
@@ -157,6 +160,10 @@ bool MidiOutput::setOutputPort(QString name) {
         if (!engine->isInitialized()) {
             if (!engine->initialize()) {
                 qWarning() << "Failed to initialize FluidSynth engine";
+                // Try to restore the previous port so user isn't left with no audio
+                if (!previousPort.isEmpty() && previousPort != FLUIDSYNTH_PORT_NAME) {
+                    setOutputPort(previousPort);
+                }
                 return false;
             }
         }

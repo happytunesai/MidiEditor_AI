@@ -9,7 +9,7 @@
 </head>
 <body>
 <div class="nav-bar">
-<div class="nav-header"><span class="nav-icon">&#129302;</span><span class="nav-title">MidiEditor AI Manual</span><span class="nav-version">v1.1.9</span></div>
+<div class="nav-header"><span class="nav-icon">&#129302;</span><span class="nav-title">MidiEditor AI Manual</span><span class="nav-version">v1.2.0</span></div>
 <div class="nav-links">
 <a href="index.html">Index</a>
 <a href="midipilot.html">MidiPilot</a>
@@ -27,6 +27,7 @@
 <a href="editing-midi-files.html">Editing</a>
 <span class="nav-sep">&middot;</span>
 <a href="playback.html">Playback</a>
+<a href="export-audio.html">Export</a>
 </div>
 </div>
 
@@ -45,7 +46,7 @@
   project, extended with FFXIV-specific features in MidiEditor AI.
 </p>
 
-<!-- ───────── Settings overview ───────── -->
+<!-- â”€â”€â”€â”€â”€â”€â”€â”€â”€ Settings overview â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
 <h3 id="settings">FluidSynth Settings</h3>
 
 <p>
@@ -69,7 +70,7 @@
 <tr><td><b>FFXIV SoundFont Mode</b></td><td>Special mode for FFXIV Bard SoundFonts &mdash; see <a href="#ffxiv-mode">below</a>.</td></tr>
 </table>
 
-<!-- ───────── Managing SoundFonts ───────── -->
+<!-- â”€â”€â”€â”€â”€â”€â”€â”€â”€ Managing SoundFonts â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
 <h3 id="managing">Managing SoundFonts</h3>
 
 <p>
@@ -109,7 +110,7 @@
   <b>Find More Online&hellip;</b> to open a web search for additional SoundFonts.
 </p>
 
-<!-- ───────── Priority order ───────── -->
+<!-- â”€â”€â”€â”€â”€â”€â”€â”€â”€ Priority order â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
 <h3 id="priority">SoundFont Priority</h3>
 
 <p>
@@ -126,7 +127,46 @@
   <li><code>GeneralUser-GS.sf2</code> &mdash; fallback for any programs not in the FFXIV font</li>
 </ol>
 
-<!-- ───────── FFXIV SoundFont Mode ───────── -->
+<!-- â”€â”€â”€â”€â”€â”€â”€â”€â”€ Enable / Disable â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
+<h3 id="enable-disable">Enable &amp; Disable SoundFonts</h3>
+
+<p>
+  Each SoundFont in the list has a <b>checkbox</b>. Unchecking a SoundFont <i>disables</i> it
+  &mdash; it stays in the list but is not loaded into FluidSynth. This is useful when you want to
+  temporarily mute a SoundFont without removing it from the stack.
+</p>
+
+<img src="screenshots/soundfont-checkboxes.png" width="500"
+     alt="SoundFont list with enable/disable checkboxes â€” one item unchecked"/>
+
+<ul>
+  <li><b>Checked</b> &mdash; SoundFont is active and used for playback and <a href="export-audio.html">audio export</a>.</li>
+  <li><b>Unchecked</b> &mdash; SoundFont stays in the list but is not loaded. It won&rsquo;t contribute any sounds.</li>
+</ul>
+
+<p>
+  The enabled/disabled state is <b>saved across sessions</b>. When you restart MidiEditor AI,
+  each SoundFont remembers whether it was checked or unchecked.
+</p>
+
+<h4 id="ffxiv-auto-toggle">FFXIV SoundFont Mode Auto-Toggle</h4>
+
+<p>
+  SoundFonts with <b>&ldquo;ff14&rdquo;</b> or <b>&ldquo;ffxiv&rdquo;</b> in the filename are
+  recognized as FFXIV Bard SoundFonts. When you check or uncheck such a SoundFont:
+</p>
+
+<ul>
+  <li><b>Checking</b> an FFXIV SoundFont automatically <b>enables</b> <a href="#ffxiv-mode">FFXIV SoundFont Mode</a>.</li>
+  <li><b>Unchecking</b> all FFXIV SoundFonts automatically <b>disables</b> FFXIV SoundFont Mode.</li>
+</ul>
+
+<p>
+  This saves you from manually toggling the mode checkbox every time you switch between
+  FFXIV and General MIDI SoundFonts.
+</p>
+
+<!-- â”€â”€â”€â”€â”€â”€â”€â”€â”€ FFXIV SoundFont Mode â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
 <h3 id="ffxiv-mode">FFXIV SoundFont Mode</h3>
 
 <p>
@@ -160,7 +200,7 @@
   Tracks whose names do not match any of the above are left unchanged on Channel 10.
 </p>
 
-<!-- ───────── Tips ───────── -->
+<!-- â”€â”€â”€â”€â”€â”€â”€â”€â”€ Tips â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
 <h3 id="tips">Tips</h3>
 
 <ul>
@@ -169,6 +209,7 @@
   <li><b>Crackling audio?</b> Lower the sample rate or switch the audio driver (e.g., DirectSound &rarr; WASAPI).</li>
   <li><b>Too quiet / too loud?</b> Adjust the Gain slider. The default is ~0.52.</li>
   <li><b>Combined with Fix X|V:</b> Use the <a href="ffxiv-channel-fixer.html">Fix X|V Channel Fixer</a> to set up correct program numbers and channels, then enable FFXIV SoundFont Mode for accurate playback preview.</li>
+  <li><b>Export to audio:</b> Use <a href="export-audio.html">File &rarr; Export Audio</a> (<kbd>Ctrl+Shift+E</kbd>) to render your MIDI to WAV, FLAC, OGG, or MP3 using the current SoundFont stack.</li>
 </ul>
 
 <div class="footer">

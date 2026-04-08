@@ -24,12 +24,32 @@
 #include <QObject>
 #include <QList>
 #include <QPair>
+#include <QSet>
 #include <QString>
 #include <QStringList>
 
+#include <atomic>
 #include <fluidsynth.h>
 
 class QSettings;
+
+/**
+ * \struct ExportOptions
+ * \brief Configuration for audio export (MIDI → WAV/FLAC/OGG).
+ */
+struct ExportOptions {
+    QString midiFilePath;       ///< Source MIDI file (usually a temp file from workspace)
+    QString outputFilePath;     ///< Destination audio file path
+    QString fileType;           ///< FluidSynth audio.file.type: "wav", "flac", "oga", "aiff", "raw", or "mp3"
+    QString sampleFormat;       ///< FluidSynth audio.file.format: "s16", "s24", "s32", "float"
+    double sampleRate = 44100.0;///< Sample rate in Hz
+    double encodingQuality = 0.5; ///< 0.0–1.0 for lossy formats (OGG Vorbis)
+    bool includeReverbTail = true; ///< Render extra ~2s after last note for reverb decay
+    int startTick = -1;         ///< First tick to include (-1 = from beginning)
+    int endTick = -1;           ///< Last tick to include (-1 = until end)
+    int mp3Bitrate = 192;       ///< MP3 CBR bitrate in kbps (128, 192, 256, 320)
+    bool deleteMidiFileAfterExport = false; ///< Delete midiFilePath after export (for temp files)
+};
 
 /**
  * \class FluidSynthEngine
@@ -94,6 +114,11 @@ public:
     bool unloadSoundFont(int sfontId);
 
     /**
+     * \brief Removes a SoundFont by path (works for both enabled and disabled fonts).
+     */
+    void removeSoundFontByPath(const QString &path);
+
+    /**
      * \brief Unloads all loaded SoundFonts.
      */
     void unloadAllSoundFonts();
@@ -110,11 +135,34 @@ public:
      * Unloads all current SoundFonts and reloads in the given order.
      * The last item in the list will have the highest priority in FluidSynth
      * (loaded last). The UI presents top = highest priority, so this method
-     * loads items in reverse order.
+     * loads items in reverse order. Disabled SoundFonts are tracked but not loaded.
      *
      * \param paths List of SF2/SF3 file paths, top = highest priority
      */
     void setSoundFontStack(const QStringList &paths);
+
+    /**
+     * \brief Returns ALL SoundFont paths (enabled + disabled) in priority order.
+     * Top = highest priority.
+     */
+    QStringList allSoundFontPaths() const;
+
+    /**
+     * \brief Enable or disable a SoundFont without removing it from the stack.
+     * Disabled SoundFonts are not loaded into FluidSynth but remain in the list.
+     */
+    void setSoundFontEnabled(const QString &path, bool enabled);
+
+    /**
+     * \brief Returns true if the SoundFont at the given path is enabled.
+     */
+    bool isSoundFontEnabled(const QString &path) const;
+
+    /**
+     * \brief Adds SoundFont paths to the pending list (used before initialization).
+     * These will be loaded when the engine initializes.
+     */
+    void addPendingSoundFontPaths(const QStringList &paths);
 
     // === MIDI Message Routing ===
 
@@ -123,6 +171,30 @@ public:
      * \param data Raw MIDI message bytes
      */
     void sendMidiData(const QByteArray &data);
+
+    // === Audio Export ===
+
+    /**
+     * \brief Renders a MIDI file to an audio file using the current SoundFont stack.
+     *
+     * Creates a separate FluidSynth instance (does not affect live playback).
+     * Runs synchronously — call from a worker thread (e.g. QThreadPool).
+     * Emits exportProgress(), exportFinished(), or exportCancelled().
+     *
+     * \param options Export configuration (format, quality, paths, etc.)
+     */
+    void exportAudio(const ExportOptions &options);
+
+    /**
+     * \brief Cancels an in-progress export.
+     * Thread-safe — can be called from any thread.
+     */
+    void cancelExport();
+
+    /**
+     * \brief Returns a pointer to the cancel flag (for passing to blocking encoders).
+     */
+    std::atomic<bool>* cancelExportFlag() { return &_cancelExport; }
 
     /**
      * \brief Returns the FFXIV SF2 program number for a percussion track name.
@@ -182,6 +254,9 @@ signals:
     void soundFontUnloaded(int sfontId);
     void initializationFailed(const QString &error);
     void engineRestarted();
+    void exportProgress(int percent);
+    void exportFinished(bool success, const QString &outputPath);
+    void exportCancelled();
 
 private:
     FluidSynthEngine();
@@ -198,11 +273,18 @@ private:
     fluid_audio_driver_t *_audioDriver;
     bool _initialized;
 
-    // SoundFont tracking: sfont_id ÔåÆ file path (in load order, last = highest priority)
+    // SoundFont tracking: sfont_id → file path (in load order, last = highest priority)
     QList<QPair<int, QString>> _loadedFonts;
+
+    // Complete SoundFont stack (enabled + disabled, in priority order: last = highest)
+    QStringList _soundFontStack;
+
+    // Paths of disabled SoundFonts (tracked but not loaded into synth)
+    QSet<QString> _disabledSoundFontPaths;
 
     // Deferred SoundFont paths loaded from settings before engine init
     QStringList _pendingSoundFontPaths;
+    QSet<QString> _pendingDisabledPaths;
 
     // Cached settings values
     QString _audioDriverName;
@@ -212,6 +294,9 @@ private:
     bool _reverbEnabled;
     bool _chorusEnabled;
     bool _ffxivSoundFontMode;
+
+    // Export cancel flag (thread-safe)
+    std::atomic<bool> _cancelExport{false};
 };
 
 #endif // FLUIDSYNTH_SUPPORT

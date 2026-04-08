@@ -30,11 +30,16 @@
 #include "ToolbarActionInfo.h"
 
 // Forward declarations
+class QProgressDialog;
 class MatrixWidget;
 class OpenGLMatrixWidget;
 class OpenGLMiscWidget;
 class MidiEvent;
 class MidiFile;
+
+#ifdef FLUIDSYNTH_SUPPORT
+struct ExportOptions;
+#endif
 class ChannelListWidget;
 class ProtocolWidget;
 class EventWidget;
@@ -806,6 +811,16 @@ public slots:
     void checkForUpdates(bool silent = false);
 
     /**
+     * \brief Exports the current MIDI file as audio.
+     */
+    void exportAudio();
+
+    /**
+     * \brief Exports the current selection as audio.
+     */
+    void exportAudioSelection();
+
+    /**
      * \brief Refreshes toolbar icons when theme changes.
      */
     void refreshToolbarIcons();
@@ -1061,6 +1076,21 @@ private:
 
     /** \brief Action to toggle MidiPilot visibility */
     QAction *_toggleMidiPilotAction;
+
+#ifdef FLUIDSYNTH_SUPPORT
+    /** \brief Action to export audio */
+    QAction *_exportAudioAction = nullptr;
+
+    /** \brief Progress dialog for audio export */
+    QProgressDialog *_exportProgressDialog = nullptr;
+
+    /** \brief Temp MIDI file path to clean up after export (for Guitar Pro etc.) */
+    QString _exportTempMidiPath;
+
+    void startExport(const ExportOptions &opts);
+    void onExportFinished(bool success, const QString &message);
+    void onExportCancelled();
+#endif
 
     /** \brief Whether the current update check should be silent (no UI if no update) */
     bool _silentUpdateCheck;

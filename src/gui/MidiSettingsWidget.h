@@ -192,6 +192,7 @@ private:
     QPushButton *_moveSoundFontUpBtn;
     QPushButton *_moveSoundFontDownBtn;
     QPushButton *_downloadDefaultSoundFontBtn;
+    QPushButton *_exportAudioBtn;
     QComboBox *_audioDriverCombo;
     QSlider *_gainSlider;
     QLabel *_gainValueLabel;
@@ -217,7 +218,10 @@ private slots:
     void onChorusToggled(bool enabled);
     void onFfxivModeToggled(bool enabled);
     void refreshSoundFontList();
+    void onSoundFontItemChanged(QListWidgetItem *item);
     void showDownloadSoundFontDialog();
+    void onExportAudioClicked();
+    void updateFfxivModeFromSoundFonts();
 
 private:
 #endif

@@ -310,6 +310,12 @@ protected:
     void wheelEvent(QWheelEvent *event) override;
 
     /**
+     * \brief Handles context menu events, forwarding to MatrixWidget.
+     * \param event The context menu event
+     */
+    void contextMenuEvent(QContextMenuEvent *event) override;
+
+    /**
      * \brief Handles mouse enter events.
      * \param event The enter event
      */

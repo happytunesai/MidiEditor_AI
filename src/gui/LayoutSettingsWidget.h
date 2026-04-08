@@ -277,6 +277,12 @@ private:
     void populateActionsList(bool forceRepopulation);
 
     /**
+     * \brief Populates the action lists using saved Appearance settings
+     * (preserving user's previous enabled/disabled and order choices).
+     */
+    void populateActionsListFromSaved();
+
+    /**
      * \brief Redistributes actions between rows.
      */
     void redistributeActions();

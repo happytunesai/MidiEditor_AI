@@ -39,11 +39,13 @@
 #include <QFileDialog>
 #include <QGroupBox>
 #include <QHBoxLayout>
+#include <QMessageBox>
 #include <QSlider>
 #include <QVBoxLayout>
 #include "../midi/FluidSynthEngine.h"
 #include "../midi/MidiOutput.h"
 #include "DownloadSoundFontDialog.h"
+#include "MainWindow.h"
 #endif
 
 AdditionalMidiSettingsWidget::AdditionalMidiSettingsWidget(QSettings *settings, QWidget *parent)
@@ -237,6 +239,8 @@ MidiSettingsWidget::MidiSettingsWidget(QWidget *parent)
     sfBtnCol->addWidget(_moveSoundFontUpBtn);
     sfBtnCol->addWidget(_moveSoundFontDownBtn);
     sfBtnCol->addWidget(_downloadDefaultSoundFontBtn);
+    _exportAudioBtn = new QPushButton(tr("Export Audio..."), _fluidSynthSettingsGroup);
+    sfBtnCol->addWidget(_exportAudioBtn);
     sfBtnCol->addStretch();
     sfRow->addLayout(sfBtnCol);
     fsLayout->addLayout(sfRow);
@@ -246,6 +250,8 @@ MidiSettingsWidget::MidiSettingsWidget(QWidget *parent)
     connect(_moveSoundFontUpBtn, SIGNAL(clicked()), this, SLOT(moveSoundFontUp()));
     connect(_moveSoundFontDownBtn, SIGNAL(clicked()), this, SLOT(moveSoundFontDown()));
     connect(_downloadDefaultSoundFontBtn, SIGNAL(clicked()), this, SLOT(showDownloadSoundFontDialog()));
+    connect(_exportAudioBtn, SIGNAL(clicked()), this, SLOT(onExportAudioClicked()));
+    connect(_soundFontList, SIGNAL(itemChanged(QListWidgetItem*)), this, SLOT(onSoundFontItemChanged(QListWidgetItem*)));
 
     // Audio Driver, Sample Rate, and Reverb Engine on one row
     QHBoxLayout *topSettingsRow = new QHBoxLayout();
@@ -393,12 +399,32 @@ void MidiSettingsWidget::inputChanged(QListWidgetItem *item) {
 
 void MidiSettingsWidget::outputChanged(QListWidgetItem *item) {
     if (item->checkState() == Qt::Checked) {
-        MidiOutput::setOutputPort(item->text());
+        bool success = MidiOutput::setOutputPort(item->text());
+
+        if (!success) {
+#ifdef FLUIDSYNTH_SUPPORT
+            if (item->text() == MidiOutput::FLUIDSYNTH_PORT_NAME) {
+                QMessageBox::warning(this, tr("FluidSynth Error"),
+                    tr("Failed to initialize FluidSynth.\n\n"
+                       "None of the available audio drivers could be loaded.\n"
+                       "Please check your audio setup."));
+            }
+#endif
+        }
 
         reloadOutputPorts();
 
 #ifdef FLUIDSYNTH_SUPPORT
         updateFluidSynthSettingsEnabled();
+        // Update driver combo to reflect actual driver (may have changed via fallback)
+        if (success) {
+            int idx = _audioDriverCombo->findData(FluidSynthEngine::instance()->audioDriver());
+            if (idx != -1) {
+                _audioDriverCombo->blockSignals(true);
+                _audioDriverCombo->setCurrentIndex(idx);
+                _audioDriverCombo->blockSignals(false);
+            }
+        }
 #endif
     }
 }
@@ -422,11 +448,10 @@ void MidiSettingsWidget::refreshColors() {
 
 #ifdef FLUIDSYNTH_SUPPORT
 void MidiSettingsWidget::updateFluidSynthSettingsEnabled() {
-    bool enabled = MidiOutput::isFluidSynthOutput();
-    _fluidSynthSettingsGroup->setEnabled(enabled);
-    if (enabled) {
-        refreshSoundFontList();
-    }
+    // Always keep the settings group enabled so users can manage SoundFonts
+    // and change the audio driver even when a different MIDI output is selected
+    _fluidSynthSettingsGroup->setEnabled(true);
+    refreshSoundFontList();
 }
 
 void MidiSettingsWidget::addSoundFont() {
@@ -437,9 +462,17 @@ void MidiSettingsWidget::addSoundFont() {
         tr("SoundFont Files (*.sf2 *.sf3 *.dls *.SF2 *.SF3 *.DLS);;All Files (*)")
     );
 
+    if (files.isEmpty()) return;
+
     FluidSynthEngine *engine = FluidSynthEngine::instance();
-    for (const QString &file : files) {
-        engine->loadSoundFont(file);
+    if (engine->isInitialized()) {
+        for (const QString &file : files) {
+            engine->loadSoundFont(file);
+        }
+    } else {
+        // Engine not yet initialized — add to pending paths so they load
+        // when FluidSynth is selected as the output
+        engine->addPendingSoundFontPaths(files);
     }
     refreshSoundFontList();
 }
@@ -451,11 +484,10 @@ void MidiSettingsWidget::removeSoundFont() {
     }
 
     FluidSynthEngine *engine = FluidSynthEngine::instance();
-    QList<QPair<int, QString>> fonts = engine->loadedSoundFonts();
-
-    int reversedIndex = fonts.size() - 1 - row;
-    if (reversedIndex >= 0 && reversedIndex < fonts.size()) {
-        engine->unloadSoundFont(fonts[reversedIndex].first);
+    QListWidgetItem *item = _soundFontList->item(row);
+    if (item) {
+        QString path = item->toolTip();
+        engine->removeSoundFontByPath(path);
     }
     refreshSoundFontList();
 }
@@ -467,12 +499,7 @@ void MidiSettingsWidget::moveSoundFontUp() {
     }
 
     FluidSynthEngine *engine = FluidSynthEngine::instance();
-    QList<QPair<int, QString>> fonts = engine->loadedSoundFonts();
-
-    QStringList paths;
-    for (int i = fonts.size() - 1; i >= 0; --i) {
-        paths.append(fonts[i].second);
-    }
+    QStringList paths = engine->allSoundFontPaths(); // highest priority first
 
     paths.swapItemsAt(row, row - 1);
 
@@ -488,12 +515,7 @@ void MidiSettingsWidget::moveSoundFontDown() {
     }
 
     FluidSynthEngine *engine = FluidSynthEngine::instance();
-    QList<QPair<int, QString>> fonts = engine->loadedSoundFonts();
-
-    QStringList paths;
-    for (int i = fonts.size() - 1; i >= 0; --i) {
-        paths.append(fonts[i].second);
-    }
+    QStringList paths = engine->allSoundFontPaths(); // highest priority first
 
     paths.swapItemsAt(row, row + 1);
 
@@ -541,15 +563,19 @@ void MidiSettingsWidget::onFfxivModeToggled(bool enabled) {
 }
 
 void MidiSettingsWidget::refreshSoundFontList() {
+    _soundFontList->blockSignals(true);
     _soundFontList->clear();
     FluidSynthEngine *engine = FluidSynthEngine::instance();
-    QList<QPair<int, QString>> fonts = engine->loadedSoundFonts();
+    QStringList allPaths = engine->allSoundFontPaths(); // highest priority first
 
-    for (int i = fonts.size() - 1; i >= 0; --i) {
-        QFileInfo fi(fonts[i].second);
-        _soundFontList->addItem(fi.fileName());
-        _soundFontList->item(_soundFontList->count() - 1)->setToolTip(fonts[i].second);
+    for (const QString &path : allPaths) {
+        QFileInfo fi(path);
+        QListWidgetItem *item = new QListWidgetItem(fi.fileName(), _soundFontList);
+        item->setToolTip(path);
+        item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
+        item->setCheckState(engine->isSoundFontEnabled(path) ? Qt::Checked : Qt::Unchecked);
     }
+    _soundFontList->blockSignals(false);
 }
 
 void MidiSettingsWidget::showDownloadSoundFontDialog() {
@@ -560,6 +586,53 @@ void MidiSettingsWidget::showDownloadSoundFontDialog() {
     });
     dialog->exec();
     dialog->deleteLater();
+}
+
+void MidiSettingsWidget::onSoundFontItemChanged(QListWidgetItem *item) {
+    if (!item) return;
+    QString path = item->toolTip();
+    bool enabled = (item->checkState() == Qt::Checked);
+
+    // Update FFXIV mode BEFORE rebuilding the SoundFont stack, so that
+    // applyChannelMode() inside setSoundFontEnabled uses the correct flag
+    updateFfxivModeFromSoundFonts();
+
+    FluidSynthEngine::instance()->setSoundFontEnabled(path, enabled);
+}
+
+void MidiSettingsWidget::onExportAudioClicked() {
+    // Find the MainWindow and trigger its export action
+    QWidget *w = this;
+    while (w && !qobject_cast<MainWindow *>(w)) {
+        w = w->parentWidget();
+    }
+    if (MainWindow *mainWin = qobject_cast<MainWindow *>(w)) {
+        mainWin->exportAudio();
+    }
+}
+
+void MidiSettingsWidget::updateFfxivModeFromSoundFonts() {
+    FluidSynthEngine *engine = FluidSynthEngine::instance();
+
+    // Check the UI list widget directly (reflects pending changes not yet
+    // committed to the engine)
+    bool anyFfxivEnabled = false;
+    for (int i = 0; i < _soundFontList->count(); ++i) {
+        QListWidgetItem *item = _soundFontList->item(i);
+        if (item->checkState() == Qt::Checked) {
+            QString name = QFileInfo(item->toolTip()).fileName().toLower();
+            if (name.contains("ff14") || name.contains("ffxiv")) {
+                anyFfxivEnabled = true;
+                break;
+            }
+        }
+    }
+
+    // Update engine and checkbox
+    engine->setFfxivSoundFontMode(anyFfxivEnabled);
+    _ffxivModeCheckBox->blockSignals(true);
+    _ffxivModeCheckBox->setChecked(anyFfxivEnabled);
+    _ffxivModeCheckBox->blockSignals(false);
 }
 
 #endif

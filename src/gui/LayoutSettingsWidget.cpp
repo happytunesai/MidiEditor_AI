@@ -254,6 +254,10 @@ void LayoutSettingsWidget::loadSettings() {
         if (customizeEnabled) {
             _secondRowLabel->setVisible(_twoRowMode);
             _secondRowList->setVisible(_twoRowMode);
+
+            // Populate the action lists with saved settings so the UI reflects
+            // what the user previously configured (not just empty lists)
+            populateActionsListFromSaved();
         }
     } catch (...) {
         // If loading fails, use safe defaults
@@ -299,6 +303,9 @@ void LayoutSettingsWidget::saveSettings() {
         // Actually save the settings to Appearance
         Appearance::setToolbarActionOrder(actionOrder);
         Appearance::setToolbarEnabledActions(enabledActions);
+
+        // Flush to QSettings immediately so settings survive process kill / rebuild
+        Appearance::flushToolbarSettings();
     } catch (...) {
         // If saving fails, just continue - don't crash the settings dialog
     }
@@ -405,6 +412,62 @@ void LayoutSettingsWidget::populateActionsList(bool forceRepopulation) {
     connect(_secondRowList, SIGNAL(itemChanged(QListWidgetItem*)), this, SLOT(itemCheckStateChanged(QListWidgetItem*)));
 }
 
+void LayoutSettingsWidget::populateActionsListFromSaved() {
+    QStringList savedOrder = Appearance::toolbarActionOrder();
+    QStringList savedEnabled = Appearance::toolbarEnabledActions();
+
+    // If nothing was saved, fall back to defaults
+    if (savedOrder.isEmpty()) {
+        populateActionsList(true);
+        return;
+    }
+
+    _actionsList->blockSignals(true);
+    _secondRowList->blockSignals(true);
+    _actionsList->clear();
+    _secondRowList->clear();
+
+    _availableActions = getDefaultActions();
+
+    // Split saved order into row1 / row2 at "row_separator"
+    QStringList row1Actions, row2Actions;
+    bool inRow2 = false;
+    for (const QString &id : savedOrder) {
+        if (id == "row_separator") {
+            inRow2 = true;
+            continue;
+        }
+        if (inRow2)
+            row2Actions << id;
+        else
+            row1Actions << id;
+    }
+
+    // Helper: create list item for an action id
+    auto addItem = [&](const QString &actionId, QListWidget *list) {
+        for (ToolbarActionInfo &info : _availableActions) {
+            if (info.id == actionId) {
+                info.enabled = savedEnabled.contains(actionId) || info.essential;
+                ToolbarActionItem *item = new ToolbarActionItem(info, list);
+                item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
+                item->setCheckState(info.enabled ? Qt::Checked : Qt::Unchecked);
+                break;
+            }
+        }
+    };
+
+    for (const QString &id : row1Actions)
+        addItem(id, _actionsList);
+    for (const QString &id : row2Actions)
+        addItem(id, _secondRowList);
+
+    _actionsList->blockSignals(false);
+    _secondRowList->blockSignals(false);
+
+    connect(_actionsList, SIGNAL(itemChanged(QListWidgetItem*)), this, SLOT(itemCheckStateChanged(QListWidgetItem*)));
+    connect(_secondRowList, SIGNAL(itemChanged(QListWidgetItem*)), this, SLOT(itemCheckStateChanged(QListWidgetItem*)));
+}
+
 
 void LayoutSettingsWidget::customizeToolbarToggled(bool customizeToolbarEnabled) {
     // Save the customize toolbar setting
@@ -444,6 +507,7 @@ void LayoutSettingsWidget::customizeToolbarToggled(bool customizeToolbarEnabled)
         // When disabling customization, clear custom settings and use defaults
         Appearance::setToolbarActionOrder(QStringList());
         Appearance::setToolbarEnabledActions(QStringList());
+        Appearance::flushToolbarSettings();
         // Clear the lists to save memory
         _actionsList->clear();
         _secondRowList->clear();

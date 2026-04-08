@@ -550,6 +550,9 @@ private:
     /** \brief Flag to prevent cascading repaints during scroll operations */
     bool _suppressScrollRepaints;
 
+    /** \brief Tracks whether a Ctrl+Right-click is in progress to suppress context menu */
+    bool _ctrlRightClickInProgress = false;
+
     /** \brief Cached background color to avoid expensive theme checks */
     QColor _cachedBackgroundColor;
 

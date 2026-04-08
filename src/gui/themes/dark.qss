@@ -487,6 +487,7 @@ QRadioButton::indicator:hover {
 QRadioButton::indicator:checked {
     background-color: #161b22;
     border: 5px solid #58a6ff;
+    border-radius: 10px;
 }
 
 QRadioButton::indicator:disabled {

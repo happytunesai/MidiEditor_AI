@@ -16,7 +16,7 @@
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-0078D6?logo=windows)](https://github.com/happytunesai/MidiEditor_AI/releases)
 
-**Version:** 1.1.9
+**Version:** 1.2.0
 **Status:** Release
 
 📥 **[Download Latest Release](https://github.com/happytunesai/MidiEditor_AI/releases/latest)**
@@ -60,11 +60,12 @@ MidiPilot is the AI brain embedded directly in MidiEditor AI. Open the sidebar, 
 | 💾 **Per-File AI Presets** | Save provider, model, mode, FFXIV, effort, and custom instructions per MIDI file as a sidecar `.midipilot.json` |
 | 📏 **Context Window Management** | Sliding-window truncation prevents exceeding model context limits, with usage warnings at 80% |
 | 🎮 **FFXIV Bard Mode** | Enforces Final Fantasy XIV Performance constraints (8 tracks, monophonic, C3–C6) |
-| 🎸 **Fix X\|V Channels** | One-click deterministic channel fixer — Rebuild or Preserve mode, velocity normalization, rich result summary |
+| 🎸 **Fix XIV Channels** | One-click deterministic channel fixer — Rebuild or Preserve mode, velocity normalization, rich result summary |
 | 🔀 **Split Channels to Tracks** | Convert single-track multi-channel GM MIDI files into one track per instrument with auto-naming |
 | 💥 **Explode Chords to Tracks** | Split polyphonic chords into separate monophonic tracks — one note per track, ideal for FFXIV ensemble prep |
 | 🎼 **Guitar Pro Import** | Open GP1–GP8 files (.gp, .gp3, .gp4, .gp5, .gpx, .gtp) directly — header-based format detection, tempo/time-sig/key extraction |
-| 🔊 **Built-in FluidSynth** | Play MIDI without external softsynth — load SF2/SF3 SoundFonts, SoundFont stacking, FFXIV SoundFont Mode |
+| 🔊 **Built-in FluidSynth** | Play MIDI without external softsynth — load SF2/SF3 SoundFonts, SoundFont stacking, enable/disable checkboxes, FFXIV SoundFont Mode |
+| 🎶 **Audio Export** | Export MIDI to WAV, FLAC, OGG Vorbis, or MP3 using loaded SoundFonts — built-in LAME 3.100 encoder, no external tools needed |
 | 📊 **MIDI Visualizer** | Real-time 16-channel equalizer bars in the toolbar with velocity-based color and smooth decay animation |
 | 🔌 **Multi-Provider** | OpenAI, OpenRouter, Google Gemini, or any OpenAI-compatible endpoint |
 | 🧠 **Reasoning Support** | Configurable thinking/reasoning effort (None → Extra High) |
@@ -90,6 +91,7 @@ MidiEditor AI
 ├── MIDI Visualizer      → Real-time 16-channel equalizer widget in toolbar
 ├── FFXIV Module         → Bard Performance validation & drum conversion
 ├── FluidSynth Engine    → Built-in software synthesizer with SoundFont support
+├── LAME Encoder         → Built-in MP3 encoder (LAME 3.100, static library)
 ├── Multi-Provider       → OpenAI / OpenRouter / Gemini / Custom / Local
 ├── MIDI I/O             → RtMidi for real-time MIDI device communication
 └── Settings             → Provider, model, appearance, keybinds, layout
@@ -243,11 +245,33 @@ MidiEditor AI includes a **built-in software synthesizer** powered by [FluidSynt
 
 **Key features:**
 - **SoundFont management** — load multiple SF2/SF3 files with priority-based stacking
+- **Enable/disable checkboxes** — temporarily disable a SoundFont without removing it; state persists across sessions
+- **FFXIV auto-toggle** — FFXIV SoundFont Mode automatically enables/disables when you check/uncheck SoundFonts with "ff14" or "ffxiv" in the name
 - **One-click download** — built-in download dialog for General MIDI and FFXIV SoundFonts
 - **FFXIV SoundFont Mode** — treats all 16 channels as melodic (bank 0) and auto-injects drum program changes based on track names, so FFXIV percussion plays correctly without modifying the MIDI file
+- **Audio driver fallback** — if the preferred driver fails, automatically tries wasapi → dsound → waveout → sdl3 → sdl2
 - **Audio settings** — configurable audio driver, gain, sample rate, reverb & chorus
 
 📖 **[FluidSynth Documentation →](https://happytunesai.github.io/MidiEditor_AI/soundfont.html)**
+
+---
+
+## 🎶 Audio Export
+
+MidiEditor AI can render your MIDI files to audio using the built-in FluidSynth synthesizer. Export to **WAV**, **FLAC**, **OGG Vorbis**, or **MP3** — no external tools required.
+
+**Key features:**
+- **Four formats** — WAV (uncompressed), FLAC (lossless), OGG Vorbis (lossy), MP3 (lossy via built-in LAME 3.100)
+- **Quality presets** — Draft (22 kHz), CD (44.1 kHz), Studio (48 kHz), Hi-Res (96 kHz)
+- **Flexible range** — export the full song, current selection, or custom measure range
+- **Selection export** — right-click selected notes → "Export Selection as Audio..."
+- **Background rendering** — progress dialog with cancel support for both FluidSynth and LAME phases
+- **Completion dialog** — Open File, Open Folder, or Close after export finishes
+- **Guitar Pro support** — GP3–GP8 files export seamlessly (temporary MIDI conversion is handled automatically)
+
+Export via **File → Export Audio** (Ctrl+Shift+E), the right-click context menu on selections, or the **Export Audio** button in the FluidSynth settings panel.
+
+📖 **[Audio Export Documentation →](https://happytunesai.github.io/MidiEditor_AI/export-audio.html)**
 
 ---
 
@@ -390,6 +414,8 @@ MidiEditor_AI/
 │   │   └── ConversationStore.*# Persistent conversation history (JSON save/load/resume)
 │   ├── midi/                  # MIDI file I/O & devices
 │   │   ├── MidiFile.*         # MIDI file read/write
+│   │   ├── FluidSynthEngine.* # Built-in synthesizer + audio export
+│   │   ├── LameEncoder.*      # MP3 encoding (LAME 3.100)
 │   │   ├── MidiInput.*        # Real-time MIDI input (RtMidi)
 │   │   └── ...
 │   ├── converter/             # File format converters

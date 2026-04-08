@@ -1044,6 +1044,16 @@ void Appearance::setToolbarEnabledActions(const QStringList &enabled) {
     _toolbarEnabledActions = enabled;
 }
 
+void Appearance::flushToolbarSettings() {
+    QSettings settings(QString("MidiEditor"), QString("NONE"));
+    settings.setValue("toolbar_icon_size", _toolbarIconSize);
+    settings.setValue("toolbar_two_row_mode", _toolbarTwoRowMode);
+    settings.setValue("toolbar_customize_enabled", _toolbarCustomizeEnabled);
+    settings.setValue("toolbar_action_order", _toolbarActionOrder);
+    settings.setValue("toolbar_enabled_actions", _toolbarEnabledActions);
+    settings.sync();
+}
+
 QStringList Appearance::availableStyles() {
     // Only return QWidget styles that actually work with QApplication::setStyle()
     // Qt Quick Controls styles (Material, Universal, FluentWinUI3, etc.) don't work with QWidget applications

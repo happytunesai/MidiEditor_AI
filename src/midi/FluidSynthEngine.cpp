@@ -23,6 +23,7 @@
 #include <fluidsynth.h>
 
 #include <QDebug>
+#include <QFile>
 #include <QFileInfo>
 #include <QHash>
 #include <QRegularExpression>
@@ -73,14 +74,10 @@ bool FluidSynthEngine::initialize() {
     }
 
     // Apply audio settings
-    if (!_audioDriverName.isEmpty()) {
-        fluid_settings_setstr(_settings, "audio.driver", _audioDriverName.toUtf8().constData());
-    }
     fluid_settings_setnum(_settings, "synth.gain", _gain);
     fluid_settings_setnum(_settings, "synth.sample-rate", _sampleRate);
     fluid_settings_setint(_settings, "synth.reverb.active", _reverbEnabled ? 1 : 0);
     fluid_settings_setint(_settings, "synth.chorus.active", _chorusEnabled ? 1 : 0);
-    // Set custom reverb engine only if supported (wrap string in literal or standard way to avoid errors if fallback is used)
     fluid_settings_setstr(_settings, "synth.reverb.engine", _reverbEngine.toUtf8().constData());
 
     // Create the synthesizer
@@ -92,8 +89,32 @@ bool FluidSynthEngine::initialize() {
         return false;
     }
 
-    // Create the audio driver
-    _audioDriver = new_fluid_audio_driver(_settings, _synth);
+    // Try to create the audio driver — first the preferred driver, then fallbacks
+    QStringList driversToTry;
+    if (!_audioDriverName.isEmpty()) {
+        driversToTry << _audioDriverName;
+    }
+    // Windows fallback chain
+    for (const QString &fb : {"wasapi", "dsound", "waveout", "sdl3", "sdl2"}) {
+        if (!driversToTry.contains(fb)) {
+            driversToTry << fb;
+        }
+    }
+
+    for (const QString &driver : driversToTry) {
+        fluid_settings_setstr(_settings, "audio.driver", driver.toUtf8().constData());
+        _audioDriver = new_fluid_audio_driver(_settings, _synth);
+        if (_audioDriver) {
+            if (driver != _audioDriverName) {
+                qDebug() << "FluidSynth: preferred driver" << _audioDriverName
+                         << "failed, using fallback:" << driver;
+                _audioDriverName = driver;
+            }
+            break;
+        }
+        qWarning() << "FluidSynth: audio driver" << driver << "failed, trying next...";
+    }
+
     if (!_audioDriver) {
         delete_fluid_synth(_synth);
         _synth = nullptr;
@@ -113,8 +134,10 @@ bool FluidSynthEngine::initialize() {
     // (must happen BEFORE channel mode setup, because sfload with
     //  reset_presets=1 calls program_reset which overrides channel types)
     if (!_pendingSoundFontPaths.isEmpty()) {
+        _disabledSoundFontPaths = _pendingDisabledPaths;
         setSoundFontStack(_pendingSoundFontPaths);
         _pendingSoundFontPaths.clear();
+        _pendingDisabledPaths.clear();
     }
 
     // Apply channel mode AFTER SoundFont loading
@@ -134,11 +157,12 @@ void FluidSynthEngine::shutdown() {
     }
 
     if (_synth) {
-        // Preserve SoundFont paths so they reload on next initialize()
-        _pendingSoundFontPaths.clear();
-        for (int i = _loadedFonts.size() - 1; i >= 0; --i) {
-            _pendingSoundFontPaths.append(_loadedFonts[i].second);
-        }
+        // Preserve the FULL SoundFont stack (enabled + disabled) so they
+        // reload on next initialize().  _soundFontStack is in internal
+        // order (last = highest priority) while _pendingSoundFontPaths
+        // must be in UI order (first = highest priority).
+        _pendingSoundFontPaths = allSoundFontPaths();
+        _pendingDisabledPaths = _disabledSoundFontPaths;
 
         // Unload all SoundFonts
         for (const auto &pair : _loadedFonts) {
@@ -149,6 +173,10 @@ void FluidSynthEngine::shutdown() {
         delete_fluid_synth(_synth);
         _synth = nullptr;
     }
+
+    // Clear runtime state that is rebuilt on next initialize()
+    _soundFontStack.clear();
+    _disabledSoundFontPaths.clear();
 
     if (_settings) {
         delete_fluid_settings(_settings);
@@ -196,6 +224,12 @@ int FluidSynthEngine::loadSoundFont(const QString &path) {
     }
 
     _loadedFonts.append(qMakePair(sfontId, path));
+
+    // Also track in the full stack if not already present
+    if (!_soundFontStack.contains(path)) {
+        _soundFontStack.append(path);
+    }
+
     qDebug() << "FluidSynth: Loaded SoundFont" << path << "with id" << sfontId;
 
     // Re-apply channel mode after every SoundFont load, because sfload
@@ -212,16 +246,42 @@ bool FluidSynthEngine::unloadSoundFont(int sfontId) {
     }
 
     if (fluid_synth_sfunload(_synth, sfontId, 1) == FLUID_OK) {
+        QString removedPath;
         for (int i = 0; i < _loadedFonts.size(); ++i) {
             if (_loadedFonts[i].first == sfontId) {
+                removedPath = _loadedFonts[i].second;
                 _loadedFonts.removeAt(i);
                 break;
             }
+        }
+        // Also remove from full stack and disabled set
+        if (!removedPath.isEmpty()) {
+            _soundFontStack.removeAll(removedPath);
+            _disabledSoundFontPaths.remove(removedPath);
         }
         emit soundFontUnloaded(sfontId);
         return true;
     }
     return false;
+}
+
+void FluidSynthEngine::removeSoundFontByPath(const QString &path) {
+    // If it's loaded in FluidSynth, unload it
+    for (int i = 0; i < _loadedFonts.size(); ++i) {
+        if (_loadedFonts[i].second == path) {
+            if (_initialized && _synth) {
+                fluid_synth_sfunload(_synth, _loadedFonts[i].first, 1);
+            }
+            _loadedFonts.removeAt(i);
+            break;
+        }
+    }
+    // Remove from full stack and disabled set
+    _soundFontStack.removeAll(path);
+    _disabledSoundFontPaths.remove(path);
+    // Also remove from pending state (pre-init)
+    _pendingSoundFontPaths.removeAll(path);
+    _pendingDisabledPaths.remove(path);
 }
 
 void FluidSynthEngine::unloadAllSoundFonts() {
@@ -242,16 +302,77 @@ QList<QPair<int, QString>> FluidSynthEngine::loadedSoundFonts() const {
 
 void FluidSynthEngine::setSoundFontStack(const QStringList &paths) {
     if (!_initialized || !_synth) {
+        // Not yet initialized — update the pending paths so the new order
+        // is applied when the engine starts (and persists on save)
+        _pendingSoundFontPaths = paths;
         return;
+    }
+
+    // Update the full stack (includes disabled fonts)
+    _soundFontStack.clear();
+    // paths is in UI order (first = highest priority), store reversed (last = highest)
+    for (int i = paths.size() - 1; i >= 0; --i) {
+        _soundFontStack.append(paths[i]);
     }
 
     // Unload all current SoundFonts
     unloadAllSoundFonts();
 
-    // Load in reverse order so that the first item (highest UI priority) is loaded last
-    // (FluidSynth checks the most-recently-loaded SoundFont first)
+    // Load only enabled fonts in reverse order so that the first item
+    // (highest UI priority) is loaded last
     for (int i = paths.size() - 1; i >= 0; --i) {
-        loadSoundFont(paths[i]);
+        if (!_disabledSoundFontPaths.contains(paths[i])) {
+            loadSoundFont(paths[i]);
+        }
+    }
+}
+
+QStringList FluidSynthEngine::allSoundFontPaths() const {
+    // Return in UI order (highest priority first)
+    if (!_soundFontStack.isEmpty()) {
+        QStringList result;
+        for (int i = _soundFontStack.size() - 1; i >= 0; --i) {
+            result.append(_soundFontStack[i]);
+        }
+        return result;
+    }
+    // Before initialize(), fall back to pending paths loaded from settings
+    return _pendingSoundFontPaths;
+}
+
+void FluidSynthEngine::setSoundFontEnabled(const QString &path, bool enabled) {
+    if (enabled) {
+        _disabledSoundFontPaths.remove(path);
+        _pendingDisabledPaths.remove(path);
+    } else {
+        _disabledSoundFontPaths.insert(path);
+        _pendingDisabledPaths.insert(path);
+    }
+
+    if (_initialized && _synth) {
+        // Rebuild the synth stack: unload all, reload only enabled
+        QStringList uiOrder = allSoundFontPaths();
+        unloadAllSoundFonts();
+        for (int i = uiOrder.size() - 1; i >= 0; --i) {
+            if (!_disabledSoundFontPaths.contains(uiOrder[i])) {
+                loadSoundFont(uiOrder[i]);
+            }
+        }
+    }
+}
+
+bool FluidSynthEngine::isSoundFontEnabled(const QString &path) const {
+    // Check both runtime and pending (pre-init) disabled sets
+    return !_disabledSoundFontPaths.contains(path) &&
+           !_pendingDisabledPaths.contains(path);
+}
+
+void FluidSynthEngine::addPendingSoundFontPaths(const QStringList &paths) {
+    // Add new paths at the beginning (highest priority) of the pending list
+    for (int i = paths.size() - 1; i >= 0; --i) {
+        if (!_pendingSoundFontPaths.contains(paths[i])) {
+            _pendingSoundFontPaths.prepend(paths[i]);
+        }
     }
 }
 
@@ -388,21 +509,210 @@ void FluidSynthEngine::sendMidiData(const QByteArray &data) {
 }
 
 // ============================================================================
+// Audio Export
+// ============================================================================
+
+void FluidSynthEngine::exportAudio(const ExportOptions &options) {
+    if (!_initialized) {
+        emit exportFinished(false, options.outputFilePath);
+        return;
+    }
+
+    _cancelExport.store(false);
+
+    // Create a separate FluidSynth instance for offline rendering
+    // (does not interfere with live playback)
+    fluid_settings_t *expSettings = new_fluid_settings();
+    if (!expSettings) {
+        emit exportFinished(false, options.outputFilePath);
+        return;
+    }
+
+    fluid_settings_setstr(expSettings, "audio.driver", "file");
+    fluid_settings_setstr(expSettings, "audio.file.name",
+                          options.outputFilePath.toUtf8().constData());
+    fluid_settings_setstr(expSettings, "audio.file.type",
+                          options.fileType.toUtf8().constData());
+    fluid_settings_setstr(expSettings, "audio.file.format",
+                          options.sampleFormat.toUtf8().constData());
+    fluid_settings_setnum(expSettings, "synth.sample-rate", options.sampleRate);
+    fluid_settings_setnum(expSettings, "synth.gain", _gain);
+    fluid_settings_setint(expSettings, "synth.reverb.active", _reverbEnabled ? 1 : 0);
+    fluid_settings_setint(expSettings, "synth.chorus.active", _chorusEnabled ? 1 : 0);
+    fluid_settings_setstr(expSettings, "synth.reverb.engine",
+                          _reverbEngine.toUtf8().constData());
+
+    // Collect loaded SoundFont paths (under no lock needed — read-only snapshot)
+    // Only include enabled SoundFonts
+    QStringList fontsToLoad;
+    for (int i = 0; i < _loadedFonts.size(); ++i) {
+        if (!_disabledSoundFontPaths.contains(_loadedFonts[i].second)) {
+            fontsToLoad.append(_loadedFonts[i].second);
+        }
+    }
+
+    if (fontsToLoad.isEmpty()) {
+        delete_fluid_settings(expSettings);
+        emit exportFinished(false, options.outputFilePath);
+        return;
+    }
+
+    fluid_synth_t *expSynth = new_fluid_synth(expSettings);
+    if (!expSynth) {
+        delete_fluid_settings(expSettings);
+        emit exportFinished(false, options.outputFilePath);
+        return;
+    }
+
+    // Load SoundFonts into the export synth
+    for (const QString &f : fontsToLoad) {
+        fluid_synth_sfload(expSynth, f.toUtf8().constData(), 1);
+    }
+
+    // Apply FFXIV channel mode if active
+    if (_ffxivSoundFontMode) {
+        for (int ch = 0; ch < 16; ++ch) {
+            fluid_synth_set_channel_type(expSynth, ch, CHANNEL_TYPE_MELODIC);
+            fluid_synth_bank_select(expSynth, ch, 0);
+            fluid_synth_program_change(expSynth, ch, 0);
+        }
+    }
+
+    // Create MIDI player and load the file
+    fluid_player_t *player = new_fluid_player(expSynth);
+    if (!player) {
+        delete_fluid_synth(expSynth);
+        delete_fluid_settings(expSettings);
+        emit exportFinished(false, options.outputFilePath);
+        return;
+    }
+
+    if (fluid_player_add(player, options.midiFilePath.toUtf8().constData()) != FLUID_OK) {
+        delete_fluid_player(player);
+        delete_fluid_synth(expSynth);
+        delete_fluid_settings(expSettings);
+        emit exportFinished(false, options.outputFilePath);
+        return;
+    }
+
+    fluid_player_play(player);
+
+    // If a start tick is specified, render silently (to a dummy buffer) until we
+    // reach the start position.  This processes all MIDI events (program changes,
+    // CC, tempo, etc.) so the synth state is correct when we begin recording.
+    bool hasRange = (options.startTick >= 0);
+    if (hasRange && options.startTick > 0) {
+        float dummyL[64], dummyR[64];
+        while (fluid_player_get_status(player) == FLUID_PLAYER_PLAYING) {
+            if (_cancelExport.load()) {
+                delete_fluid_player(player);
+                delete_fluid_synth(expSynth);
+                delete_fluid_settings(expSettings);
+                emit exportCancelled();
+                return;
+            }
+            int curTick = fluid_player_get_current_tick(player);
+            if (curTick >= options.startTick) break;
+            fluid_synth_write_float(expSynth, 64, dummyL, 0, 1, dummyR, 0, 1);
+        }
+    }
+
+    // Create file renderer — starts writing from the current position
+    fluid_file_renderer_t *renderer = new_fluid_file_renderer(expSynth);
+    if (!renderer) {
+        delete_fluid_player(player);
+        delete_fluid_synth(expSynth);
+        delete_fluid_settings(expSettings);
+        emit exportFinished(false, options.outputFilePath);
+        return;
+    }
+
+    // Set encoding quality for lossy formats (e.g., OGG Vorbis)
+    fluid_file_set_encoding_quality(renderer, options.encodingQuality);
+
+    int totalTicks = fluid_player_get_total_ticks(player);
+    if (totalTicks <= 0) totalTicks = 1;
+    int rangeStart = hasRange ? options.startTick : 0;
+    int rangeEnd = (hasRange && options.endTick > 0) ? options.endTick : totalTicks;
+    int rangeLen = rangeEnd - rangeStart;
+    if (rangeLen <= 0) rangeLen = 1;
+    int lastPercent = -1;
+
+    // Render loop
+    while (fluid_player_get_status(player) == FLUID_PLAYER_PLAYING) {
+        if (_cancelExport.load()) {
+            // User cancelled — clean up and remove partial file
+            delete_fluid_file_renderer(renderer);
+            delete_fluid_player(player);
+            delete_fluid_synth(expSynth);
+            delete_fluid_settings(expSettings);
+            QFile::remove(options.outputFilePath);
+            emit exportCancelled();
+            return;
+        }
+
+        int curTick = fluid_player_get_current_tick(player);
+
+        // Stop rendering when we reach the end of the requested range
+        if (hasRange && options.endTick > 0 && curTick >= options.endTick) {
+            break;
+        }
+
+        if (fluid_file_renderer_process_block(renderer) != FLUID_OK) {
+            break;
+        }
+
+        int percent = static_cast<int>(100.0 * (curTick - rangeStart) / rangeLen);
+        if (percent > 100) percent = 100;
+        if (percent < 0) percent = 0;
+        if (percent != lastPercent) {
+            lastPercent = percent;
+            emit exportProgress(percent);
+        }
+    }
+
+    // Render reverb/chorus tail (~2 seconds of silence after playback ends)
+    if (options.includeReverbTail && !_cancelExport.load()) {
+        int tailBlocks = static_cast<int>((options.sampleRate * 2.0) / 64.0);
+        for (int i = 0; i < tailBlocks; ++i) {
+            if (_cancelExport.load()) break;
+            if (fluid_file_renderer_process_block(renderer) != FLUID_OK) break;
+        }
+    }
+
+    // Cleanup
+    delete_fluid_file_renderer(renderer);
+    delete_fluid_player(player);
+    delete_fluid_synth(expSynth);
+    delete_fluid_settings(expSettings);
+
+    if (_cancelExport.load()) {
+        QFile::remove(options.outputFilePath);
+        emit exportCancelled();
+        return;
+    }
+
+    emit exportProgress(100);
+    emit exportFinished(true, options.outputFilePath);
+}
+
+void FluidSynthEngine::cancelExport() {
+    _cancelExport.store(true);
+}
+
+// ============================================================================
 // Audio Settings
 // ============================================================================
 
 void FluidSynthEngine::setAudioDriver(const QString &driver) {
     _audioDriverName = driver;
     if (_initialized) {
-        // Audio driver change requires full restart
-        QStringList currentFonts;
-        for (const auto &pair : _loadedFonts) {
-            currentFonts.append(pair.second);
-        }
+        // Audio driver change requires full restart.
+        // shutdown() preserves the full SoundFont state (enabled + disabled)
+        // in _pendingSoundFontPaths/_pendingDisabledPaths, and initialize()
+        // restores it automatically — no manual setSoundFontStack() needed.
         shutdown();
         initialize();
-        // Reload SoundFonts
-        setSoundFontStack(currentFonts);
     }
 }
 
@@ -415,35 +725,25 @@ void FluidSynthEngine::setGain(double gain) {
 
 void FluidSynthEngine::setSampleRate(double rate) {
     _sampleRate = rate;
-    // Note: sample rate change may require restarting the synth or audio driver to fully take effect
-    if (_initialized && _settings) {
-        fluid_settings_setnum(_settings, "synth.sample-rate", rate);
-    }
     if (_initialized) {
-        // Sample rate change requires full restart
-        QStringList currentFonts;
-        for (const auto &pair : _loadedFonts) {
-            currentFonts.append(pair.second);
-        }
+        // Sample rate change requires full restart.
+        // shutdown() preserves the full SoundFont state (enabled + disabled)
+        // in _pendingSoundFontPaths/_pendingDisabledPaths, and initialize()
+        // restores it automatically.
         shutdown();
         initialize();
-        // Reload SoundFonts
-        setSoundFontStack(currentFonts);
     }
 }
 
 void FluidSynthEngine::setReverbEngine(const QString &engine) {
     _reverbEngine = engine;
     if (_initialized) {
-        // Reverb engine change requires full restart
-        QStringList currentFonts;
-        for (const auto &pair : _loadedFonts) {
-            currentFonts.append(pair.second);
-        }
+        // Reverb engine change requires full restart.
+        // shutdown() preserves the full SoundFont state (enabled + disabled)
+        // in _pendingSoundFontPaths/_pendingDisabledPaths, and initialize()
+        // restores it automatically.
         shutdown();
         initialize();
-        // Reload SoundFonts
-        setSoundFontStack(currentFonts);
     }
 }
 
@@ -507,12 +807,15 @@ void FluidSynthEngine::applyChannelMode() {
         for (int ch = 0; ch < 16; ++ch) {
             if (ch == 9) {
                 fluid_synth_set_channel_type(_synth, ch, CHANNEL_TYPE_DRUM);
+                fluid_synth_bank_select(_synth, ch, 128);
+                fluid_synth_program_change(_synth, ch, 0);
             } else {
                 fluid_synth_set_channel_type(_synth, ch, CHANNEL_TYPE_MELODIC);
                 fluid_synth_bank_select(_synth, ch, 0);
+                fluid_synth_program_change(_synth, ch, 0);
             }
         }
-        qDebug() << "FluidSynth: GM channel mode restored (ch9=drum)";
+        qDebug() << "FluidSynth: GM channel mode restored (ch9=drum, bank 128)";
     }
 }
 
@@ -583,13 +886,14 @@ void FluidSynthEngine::saveSettings(QSettings *settings) {
     settings->setValue("ffxivSoundFontMode", _ffxivSoundFontMode);
 
     // Save SoundFont paths in priority order (first = highest priority)
-    QStringList fontPaths;
-    for (const auto &pair : _loadedFonts) {
-        fontPaths.append(pair.second);
-    }
-    // Reverse so highest-priority (last loaded) is stored first
-    std::reverse(fontPaths.begin(), fontPaths.end());
+    QStringList fontPaths = allSoundFontPaths(); // includes disabled
     settings->setValue("soundFontPaths", fontPaths);
+
+    // Save disabled SoundFont paths (merge both runtime and pending sets)
+    QSet<QString> allDisabled = _disabledSoundFontPaths;
+    allDisabled.unite(_pendingDisabledPaths);
+    QStringList disabledPaths(allDisabled.begin(), allDisabled.end());
+    settings->setValue("disabledSoundFontPaths", disabledPaths);
 
     settings->endGroup();
 }
@@ -608,16 +912,20 @@ void FluidSynthEngine::loadSettings(QSettings *settings) {
         settings->value("allChannelsMelodic", false)).toBool();
 
     QStringList fontPaths = settings->value("soundFontPaths").toStringList();
+    QStringList disabledPaths = settings->value("disabledSoundFontPaths").toStringList();
 
     settings->endGroup();
 
     // Store paths for deferred loading when engine initializes
     _pendingSoundFontPaths = fontPaths;
+    _pendingDisabledPaths = QSet<QString>(disabledPaths.begin(), disabledPaths.end());
 
     // If we're already initialized, reload SoundFonts immediately
     if (_initialized && !fontPaths.isEmpty()) {
+        _disabledSoundFontPaths = _pendingDisabledPaths;
         setSoundFontStack(fontPaths);
         _pendingSoundFontPaths.clear();
+        _pendingDisabledPaths.clear();
     }
 }
 

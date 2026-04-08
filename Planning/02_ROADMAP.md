@@ -795,7 +795,9 @@ Phase 14   Split Channels to Tracks                       ✅ DONE (14.1-14.4, v
 Phase 15   Auto-Updater                                   ✅ DONE (15.1-15.6, v1.1.5)
 Phase 16   Guitar Pro Import (.gp3-.gp7)                  ✅ DONE (16.1-16.5)
 Phase 17   Modern UI Facelift (Dark/Light QSS Themes)     ✅ DONE (17.1-17.13)
-Phase 18   Mewo Upstream Feature Sync                     ⬜ TODO (18.1-18.10)
+Phase 18   Mewo Upstream Feature Sync                     ✅ DONE (18.1-18.16, v1.1.8)
+Phase 19   MidiPilot AI Improvements                      ✅ DONE (19.1-19.7, v1.1.9)
+Phase 20   Audio Export & FluidSynth Hardening            ✅ DONE (20.1-20.8, v1.2.0)
 Phase 4.6  Persistent history (SQLite)                    ⬜ TODO (low priority)
 ```
 
@@ -828,6 +830,15 @@ Phase 4.6  Persistent history (SQLite)                    ⬜ TODO (low priority
 - ✅ Token usage display (last request / session totals)
 - ✅ Provider-specific model dropdowns (per-provider model lists)
 - ✅ FFXIV Bard Performance mode (toggle, prompts, validation, drum conversion)
+- ✅ MP3 export with built-in LAME encoder (static library, 3.100)
+- ✅ Export completion dialog (Open File / Open Folder / Close)
+- ✅ Guitar Pro file audio export fix (temp MIDI conversion for non-MIDI formats)
+- ✅ SoundFont enable/disable checkboxes (per-font toggle without removing)
+- ✅ FluidSynth audio driver fallback chain (wasapi → dsound → waveout → sdl3 → sdl2)
+- ✅ FFXIV SoundFont Mode auto-toggle (detect "ff14"/"ffxiv" in font filename)
+- ✅ FluidSynth settings always accessible (configure SoundFonts without switching output)
+- ✅ FluidSynth error feedback dialog (init failure shows QMessageBox)
+- ✅ Proper drum channel reset on GM restore (bank_select 128 + program_change on ch9)
 
 ---
 
@@ -5463,3 +5474,987 @@ FILES TO MODIFY:
 DEPENDS ON: Nothing (independent feature)
 RISK: Low — simple JSON file I/O, no complex logic
 ```
+
+---
+
+## Phase 20: Audio Export (WAV / FLAC / OGG / MP3) ✅
+
+> **Goal:** Let users render the current MIDI file (or a selected section) to standard
+> audio formats using the loaded SoundFont(s). Supports full-file export and
+> selection-range export with a unified Export Dialog. Accessible from File menu,
+> toolbar, context menu, and keyboard shortcut.
+>
+> **Motivation:** MIDI files are great for editing but useless for sharing — you can't
+> post a `.mid` to social media or send it to a non-musician. With FluidSynth already
+> powering real-time playback, we have everything needed to render offline to WAV/FLAC/OGG
+> natively. MP3 requires an external encoder (LAME) but is the #1 format people expect.
+> Mewo started a basic WAV-only export in the upstream fork — we extend it into a proper
+> export workflow with format selection, quality settings, range control, and progress UI.
+>
+> **Status:** All sub-phases complete (20.1–20.8, v1.2.0). Includes MP3/LAME (20.5),
+> SoundFont management (20.7), and FluidSynth hardening (20.8).
+
+### Analysis: What Exists Already
+
+**Mewo's original MidiEditor (reference, DO NOT MODIFY):**
+- `FluidSynthEngine::exportToWav(midiFilePath, wavFilePath)` — full implementation
+  - Creates a separate FluidSynth instance with `audio.driver = "file"`
+  - Loads all SoundFonts from current stack
+  - Uses `fluid_player` + `fluid_file_renderer` to render block-by-block
+  - Emits `exportProgress(int percent)` and `exportFinished(bool, QString)`
+  - Thread-safe: runs in `QThreadPool::globalInstance()`
+- `MidiSettingsWidget::onExportToWav()` — trigger from "Export MIDI" button
+  - Saves workspace to temp `.mid` file → renders → saves WAV to Downloads
+  - Progress shown as gradient fill on the disabled button (clever hack)
+  - No format selection, no range support, WAV-only
+
+**MidiEditor_AI (our codebase):**
+- `FluidSynthEngine` has **NO export code** — no `exportToWav()`, no signals
+- `MidiSettingsWidget` has **NO export button**
+- `MatrixWidget` context menu exists (line ~1733) with editing actions — no export
+- FluidSynth 2.5.2 pre-built binaries are available in `fluidsynth/`
+- Real-time playback already works with SoundFont stack
+
+**FluidSynth 2.5.2 native file format support** (via `audio.file.type` setting):
+- **WAV** ✅ — always available (default)
+- **FLAC** ✅ — if built with libsndfile (our build has it)
+- **OGG/Vorbis** ✅ — via `oga` type, requires libsndfile + libvorbis
+- **AIFF** ✅ — via libsndfile
+- **RAW** ✅ — always available (headerless PCM)
+- **MP3** ❌ — NOT supported by FluidSynth. Requires external LAME encoder.
+
+**Sample format options** (`audio.file.format`):
+- s16 (16-bit signed PCM — CD quality, default)
+- s24 (24-bit signed PCM — studio quality)
+- s32 (32-bit signed PCM)
+- float (32-bit float)
+- double (64-bit float)
+
+### Implementation Order
+
+```
+Phase 20.1   FluidSynthEngine Export Core (render pipeline)         ✅
+Phase 20.2   Export Dialog (format, quality, range selection)        ✅
+Phase 20.3   Full-File Export (File menu + toolbar)                  ✅
+Phase 20.4   Selection/Range Export (context menu + dialog)          ✅
+Phase 20.5   MP3 Support via LAME (built-in static encoder)         ✅
+Phase 20.6   Export Progress UI (progress bar + cancel)             ✅
+Phase 20.7   SoundFont Management (enable/disable + FFXIV auto)     ✅
+Phase 20.8   FluidSynth Hardening (driver fallback + error UX)      ✅
+```
+
+### Estimated Complexity
+
+| Sub-phase | New Code | Modified Code | Risk |
+|-----------|----------|---------------|------|
+| 20.1 Export core | ~200 lines (FluidSynthEngine) | FluidSynthEngine.h (~30 lines) | Low |
+| 20.2 Export dialog | ~400 lines (new ExportDialog class) | — | Low |
+| 20.3 Full-file export | ~80 lines | MainWindow.cpp (~40 lines), MidiSettingsWidget.cpp (~20 lines) | Low |
+| 20.4 Selection/range export | ~180 lines | MatrixWidget.cpp (~30 lines), MidiFile.cpp (~60 lines) | Medium |
+| 20.5 MP3 via LAME | ~150 lines | ExportDialog.cpp (~30 lines), CMakeLists.txt (~20 lines) | Medium |
+| 20.6 Progress UI | ~120 lines | ExportDialog.cpp (~40 lines) | Low |
+| 20.7 SoundFont mgmt | ~80 lines | MidiSettingsWidget.cpp (~60), FluidSynthEngine.cpp (~40) | Low |
+| 20.8 FluidSynth hardening | ~100 lines | FluidSynthEngine.cpp (~60), MidiSettingsWidget.cpp (~30), MidiOutput.cpp (~15) | Medium |
+| **Total** | **~1130 lines new** | **~270 lines modified** | **Low-Medium** |
+
+---
+
+### 20.1 — FluidSynthEngine Export Core (Render Pipeline) ⬜
+
+**Goal:** Add offline rendering to FluidSynthEngine that can export a MIDI file (or
+section) to WAV/FLAC/OGG using the currently loaded SoundFont stack.
+
+**Approach — port and extend Mewo's implementation:**
+
+Mewo's `exportToWav()` is a solid foundation but limited to WAV. We extend it with:
+1. Configurable output format (WAV, FLAC, OGG) via `audio.file.type`
+2. Configurable sample format (s16, s24, float) via `audio.file.format`
+3. Configurable sample rate (22050, 44100, 48000, 96000)
+4. Optional tick range (startTick, endTick) for partial exports
+5. Cancel support via atomic flag
+6. Quality setting for lossy formats via `fluid_file_set_encoding_quality()`
+
+**New method signature:**
+
+```cpp
+struct ExportOptions {
+    QString midiFilePath;       // Source MIDI (temp file from workspace)
+    QString outputFilePath;     // Destination audio file
+    QString fileType;           // "wav", "flac", "oga", "aiff", "raw"  (FluidSynth audio.file.type)
+    QString sampleFormat;       // "s16", "s24", "s32", "float", "double"
+    double sampleRate;          // 44100.0, 48000.0, etc.
+    double encodingQuality;     // 0.0–1.0 for lossy formats (OGG)
+    int startTick;              // -1 = beginning (for range export)
+    int endTick;                // -1 = end of file (for range export)
+    bool includeReverbTail;     // Render extra 2s after last note for reverb decay
+};
+
+void exportAudio(const ExportOptions &options);
+void cancelExport();
+```
+
+**New signals:**
+
+```cpp
+signals:
+    void exportProgress(int percent);
+    void exportFinished(bool success, const QString &outputPath);
+    void exportCancelled();
+```
+
+**Implementation Notes:**
+
+```
+FILES TO MODIFY:
+  src/midi/FluidSynthEngine.h   — add ExportOptions struct, exportAudio(), cancelExport(),
+                                   signals, _cancelExport atomic flag
+  src/midi/FluidSynthEngine.cpp — implement exportAudio() render loop
+
+RENDER PIPELINE (based on Mewo's proven approach):
+  1. Create SEPARATE FluidSynth settings/synth/player (don't touch live playback instance)
+  2. Configure file output:
+       fluid_settings_setstr(settings, "audio.driver", "file");
+       fluid_settings_setstr(settings, "audio.file.name", outputPath);
+       fluid_settings_setstr(settings, "audio.file.type", options.fileType);     // NEW
+       fluid_settings_setstr(settings, "audio.file.format", options.sampleFormat); // NEW
+       fluid_settings_setnum(settings, "synth.sample-rate", options.sampleRate);
+  3. Load all SoundFonts from current _loadedFonts stack (copy paths under lock)
+  4. Load MIDI file via fluid_player_add()
+  5. If range export: use fluid_player_seek() to startTick (if supported),
+     or let it play from beginning and skip writing until startTick
+  6. Render loop:
+       while (fluid_player_get_status(player) == FLUID_PLAYER_PLAYING) {
+           if (_cancelExport.load()) { cleanup; emit exportCancelled(); return; }
+           fluid_file_renderer_process_block(renderer);
+           // Calculate progress
+           int curTick = fluid_player_get_current_tick(player);
+           int percent = calculateProgress(curTick, startTick, endTick, totalTicks);
+           emit exportProgress(percent);
+           // Stop at endTick if range export
+           if (endTick > 0 && curTick >= endTick && !options.includeReverbTail) break;
+           if (endTick > 0 && curTick >= endTick + reverbTailTicks) break;
+       }
+  7. If includeReverbTail: render ~2 extra seconds of silence (let reverb/release decay)
+  8. Cleanup: delete renderer, player, synth, settings
+  9. emit exportProgress(100); emit exportFinished(true, outputPath);
+
+CANCEL SUPPORT:
+  std::atomic<bool> _cancelExport{false};
+  void cancelExport() { _cancelExport.store(true); }
+  Checked every block in render loop — responsive cancel.
+
+RANGE EXPORT (tick-based):
+  FluidSynth's fluid_player doesn't support seek-to-tick natively in all versions.
+  Two strategies:
+  A) PREFERRED: Save a trimmed MIDI file from MidiFile (startTick → endTick) to temp,
+     then render that temp file normally. This is simpler and guaranteed correct.
+     MidiFile already has eventsBetween(start, end) — build a minimal MIDI from that.
+  B) FALLBACK: Render full file but track tick position, only count progress within range.
+     Wasteful for "export last 8 bars of a 200-bar piece" but always works.
+
+  → Strategy A is better. New utility: MidiFile::saveRange(startTick, endTick, tempPath)
+
+REVERB TAIL:
+  After the last MIDI event, reverb/chorus effects may still be decaying.
+  Render an extra ~2 seconds (sampleRate * 2 / period_size blocks) of silence
+  so the audio doesn't cut off abruptly. Configurable via checkbox in dialog.
+
+THREADING:
+  Export runs on QThreadPool::globalInstance() (same as Mewo's approach).
+  Signals cross thread boundary via Qt::QueuedConnection (automatic for QObject signals).
+  The live playback synth is completely untouched — separate synth instance.
+
+ENCODING QUALITY:
+  fluid_file_set_encoding_quality(renderer, quality) — affects OGG/Vorbis compression.
+  0.0 = lowest quality/smallest file, 1.0 = highest quality/largest file.
+  Default 0.5 is good. Expose in dialog as "Quality" slider for OGG.
+
+EDGE CASES:
+  - No SoundFonts loaded → show error "No SoundFont loaded. Load a SoundFont in
+    Settings before exporting."
+  - Empty MIDI file → show error "Nothing to export."
+  - Output path not writable → FluidSynth will fail to create renderer → handle gracefully
+  - Very long files → progress bar essential, cancel button essential
+  - Disk full during render → fluid_file_renderer_process_block returns error → handle
+
+DEPENDS ON: Nothing (extends existing FluidSynthEngine)
+RISK: Low — proven approach from Mewo's code, just extended
+```
+
+---
+
+### 20.2 — Export Dialog (Format, Quality, Range Selection) ⬜
+
+**Goal:** A user-friendly modal dialog for configuring audio export. Replaces Mewo's
+button-only approach with a proper settings dialog.
+
+**Dialog Layout:**
+
+```
+┌─────────────────── Export Audio ───────────────────┐
+│                                                     │
+│  Source: Sweet Child O Mine.mid                     │
+│  Duration: 4:32 (272 seconds)                       │
+│                                                     │
+│  ┌─ Range ──────────────────────────────────────┐   │
+│  │ ○ Full song                                   │   │
+│  │ ○ Selection (Measure 5–12, 0:08–0:24)         │   │
+│  │ ○ Custom range:  [From: ____] [To: ____]      │   │
+│  └───────────────────────────────────────────────┘   │
+│                                                     │
+│  ┌─ Format ─────────────────────────────────────┐   │
+│  │ Format:     [WAV ▼]                           │   │
+│  │ Quality:    [CD Quality (16-bit, 44.1kHz) ▼]  │   │
+│  │ Channels:   [Stereo ▼]                        │   │
+│  └───────────────────────────────────────────────┘   │
+│                                                     │
+│  ┌─ Options ────────────────────────────────────┐   │
+│  │ ☑ Include reverb tail (2s after last note)    │   │
+│  │ ☐ Normalize volume                            │   │
+│  │ SoundFont: GeneralUser GS v1.471.sf2          │   │
+│  │            (Using current SoundFont stack)     │   │
+│  └───────────────────────────────────────────────┘   │
+│                                                     │
+│  Estimated file size: ~28.4 MB                      │
+│                                                     │
+│            [Cancel]  [Export...]                     │
+└─────────────────────────────────────────────────────┘
+```
+
+**UI Elements:**
+
+| Widget | Type | Options |
+|--------|------|---------|
+| Range radio buttons | QRadioButton group | Full song / Selection / Custom |
+| Custom range from/to | QSpinBox (measure) or QTimeEdit | Measure or mm:ss |
+| Format combo | QComboBox | WAV, FLAC, OGG Vorbis, MP3* |
+| Quality preset | QComboBox | Draft (s16/22050), CD (s16/44100), Studio (s24/48000), Hi-Res (s24/96000) |
+| OGG quality slider | QSlider | 0.1–1.0 (shown only for OGG) |
+| Reverb tail | QCheckBox | Default: checked |
+| Estimated size | QLabel | Auto-calculated from duration × format × sample rate |
+| SoundFont info | QLabel | Read-only, shows current SF stack |
+
+*MP3 shown only if LAME encoder is available (Phase 20.5)
+
+**Quality Presets:**
+
+| Preset | Sample Format | Sample Rate | Bit Depth | Use Case |
+|--------|--------------|-------------|-----------|----------|
+| Draft | s16 | 22050 Hz | 16-bit | Quick preview, small file |
+| CD Quality | s16 | 44100 Hz | 16-bit | Standard sharing (default) |
+| Studio | s24 | 48000 Hz | 24-bit | Professional quality |
+| Hi-Res | s24 | 96000 Hz | 24-bit | Archival / mastering |
+| Custom | user-set | user-set | user-set | Advanced users |
+
+**File Size Estimation Formula:**
+```
+WAV:   duration_sec × sample_rate × channels × (bit_depth / 8) bytes
+FLAC:  WAV_size × ~0.55 (typical compression ratio)
+OGG:   duration_sec × bitrate_estimate (based on quality slider)
+MP3:   duration_sec × bitrate / 8
+```
+
+**Implementation Notes:**
+
+```
+FILES TO CREATE:
+  src/gui/ExportDialog.h    — QDialog subclass
+  src/gui/ExportDialog.cpp  — full dialog implementation (~400 lines)
+
+FILES TO MODIFY:
+  CMakeLists.txt — add ExportDialog.cpp to SOURCES
+
+CLASS DESIGN:
+  class ExportDialog : public QDialog {
+      Q_OBJECT
+  public:
+      ExportDialog(MidiFile *file, QWidget *parent = nullptr);
+
+      // Set up for selection-based export (from context menu)
+      void setSelectionRange(int startTick, int endTick);
+
+      // Returns configured ExportOptions (from 20.1)
+      ExportOptions exportOptions() const;
+
+      // Returns the chosen output file path (from Save dialog)
+      QString outputFilePath() const;
+
+  private slots:
+      void onFormatChanged(int index);
+      void onQualityPresetChanged(int index);
+      void onRangeChanged();
+      void updateEstimatedSize();
+      void onExportClicked();
+
+  private:
+      void setupUi();
+      void populateFormats();
+      void populateQualityPresets();
+      QString formatFilter() const;       // For QFileDialog filter
+      qint64 estimateFileSize() const;    // Size estimation
+
+      MidiFile *_file;
+      int _selectionStartTick;   // -1 if no selection
+      int _selectionEndTick;     // -1 if no selection
+
+      // UI elements
+      QRadioButton *_fullSongRadio;
+      QRadioButton *_selectionRadio;
+      QRadioButton *_customRangeRadio;
+      QSpinBox *_fromMeasure, *_toMeasure;
+      QComboBox *_formatCombo;
+      QComboBox *_qualityPresetCombo;
+      QSlider *_oggQualitySlider;
+      QLabel *_oggQualityLabel;
+      QCheckBox *_reverbTailCheck;
+      QLabel *_estimatedSizeLabel;
+      QLabel *_soundFontLabel;
+      QPushButton *_exportBtn;
+      QPushButton *_cancelBtn;
+  };
+
+RANGE HANDLING:
+  - "Full song": startTick=-1, endTick=-1 (render everything)
+  - "Selection": uses the startTick/endTick passed from context menu
+    or computed from Selection::instance()->selectedEvents() min/max ticks
+  - "Custom range": user picks measures via QSpinBox, converted to ticks via
+    MidiFile::startTickOfMeasure(measure)
+
+  Selection radio is DISABLED (grayed out) when no selection exists.
+  When triggered from context menu, selection radio is pre-selected.
+
+FORMAT COMBO ITEMS:
+  - "WAV — Uncompressed PCM (.wav)" → fileType="wav"
+  - "FLAC — Lossless Compressed (.flac)" → fileType="flac"
+  - "OGG Vorbis — Lossy Compressed (.ogg)" → fileType="oga"
+  - "MP3 — Lossy Compressed (.mp3)" → shown only if LAME available (20.5)
+
+  When format changes:
+  - OGG: show quality slider, hide bit-depth options (Vorbis handles internally)
+  - MP3: show bitrate combo (128/192/256/320 kbps)
+  - WAV/FLAC: show quality preset combo with bit-depth options
+
+REMEMBER LAST SETTINGS:
+  Save user's last export choices to QSettings("Export/..."):
+  - Export/format, Export/quality_preset, Export/reverb_tail, Export/ogg_quality
+  - Export/last_directory (for QFileDialog)
+  Reload on next dialog open → user doesn't have to reconfigure every time.
+
+DEPENDS ON: 20.1 (ExportOptions struct)
+RISK: Low — standard QDialog construction
+```
+
+---
+
+### 20.3 — Full-File Export (File Menu + Toolbar + Settings) ⬜
+
+**Goal:** Wire up the Export Dialog to File menu, toolbar button, MidiSettingsWidget,
+and keyboard shortcut for full-file export.
+
+**Access Points:**
+
+| Location | Trigger | Behavior |
+|----------|---------|----------|
+| File menu | `File → Export Audio...` (Ctrl+Shift+E) | Opens ExportDialog (full song mode) |
+| Toolbar | 🔊 Export button (optional) | Same as File menu |
+| MidiSettingsWidget | "Export Audio" button (replaces Mewo's "Export MIDI") | Same as File menu |
+| Keyboard | Ctrl+Shift+E | Same as File menu |
+
+**Workflow:**
+1. User triggers export from any access point
+2. ExportDialog opens in "Full song" mode
+3. User configures format, quality, range (optional)
+4. User clicks "Export..." → QFileDialog for output path
+5. Dialog closes → progress UI appears (20.6)
+6. Render runs in background thread → progress updates
+7. Finished → notification "Export complete: filename.wav"
+
+**Implementation Notes:**
+
+```
+FILES TO MODIFY:
+  src/gui/MainWindow.h       — declare exportAudio() slot, _exportAudioAction
+  src/gui/MainWindow.cpp     — add File menu item, toolbar button, shortcut, handler
+  src/gui/MidiSettingsWidget.h   — declare _exportAudioBtn, onExportAudio()
+  src/gui/MidiSettingsWidget.cpp — add export button in FluidSynth settings group
+
+MAINWINDOW INTEGRATION:
+  1. In setupActions() (after "Save As" action, ~line 3500):
+     _exportAudioAction = new QAction(QIcon(":/run_environment/graphics/tool/export_audio.png"),
+                                       tr("Export Audio..."), this);
+     _exportAudioAction->setShortcut(QKeySequence(tr("Ctrl+Shift+E")));
+     _exportAudioAction->setEnabled(false); // enabled when file loaded
+     connect(_exportAudioAction, &QAction::triggered, this, &MainWindow::exportAudio);
+     fileMB->addAction(_exportAudioAction);
+
+  2. exportAudio() slot:
+     void MainWindow::exportAudio() {
+         if (!_file) return;
+         ExportDialog dlg(_file, this);
+         if (dlg.exec() == QDialog::Accepted) {
+             startExport(dlg.exportOptions(), dlg.outputFilePath());
+         }
+     }
+
+  3. startExport() helper:
+     - Save workspace to temp MIDI (same as Mewo)
+     - Set options.midiFilePath = tempMidi
+     - Show progress UI (20.6)
+     - QThreadPool::globalInstance()->start([options]() {
+           FluidSynthEngine::instance()->exportAudio(options);
+       });
+
+  4. Enable/disable _exportAudioAction when file is loaded/closed
+     (same pattern as existing Save/SaveAs actions)
+
+  5. In onFileLoaded() / onFileClosed():
+     _exportAudioAction->setEnabled(_file != nullptr);
+
+MIDISETTINGSWIDGET "EXPORT AUDIO" BUTTON:
+  Add button in FluidSynth settings group (where Mewo had "Export MIDI"):
+    _exportAudioBtn = new QPushButton(tr("Export Audio..."), _fluidSynthSettingsGroup);
+    _exportAudioBtn->setToolTip(tr("Export current file to WAV, FLAC, OGG, or MP3"));
+    sfBtnCol->addWidget(_exportAudioBtn);
+    connect(_exportAudioBtn, &QPushButton::clicked, this, &MidiSettingsWidget::onExportAudio);
+
+  onExportAudio() just calls _mainWindow->exportAudio() (delegates to MainWindow).
+
+ICON:
+  Need a new icon: export_audio.png (speaker with arrow, or waveform with download arrow)
+  Place at: run_environment/graphics/tool/export_audio.png
+  For dark theme: run_environment/graphics/tool/dark/export_audio.png
+  Can start with a placeholder from existing icons and refine later.
+
+GUARD: If no SoundFonts are loaded:
+  Show QMessageBox::warning("No SoundFont loaded",
+    "Please load a SoundFont in Settings → FluidSynth before exporting audio.");
+
+DEPENDS ON: 20.1, 20.2
+RISK: Low — standard menu/toolbar wiring
+```
+
+---
+
+### 20.4 — Selection/Range Export (Context Menu + Dialog) ⬜
+
+**Goal:** Let users select notes/measures in the piano roll, right-click, and export
+just that section as audio. This is the key user-requested feature.
+
+**Workflow:**
+1. User selects notes in piano roll (or sets loop markers for a region)
+2. Right-click → context menu shows "Export Selection as Audio..."
+3. ExportDialog opens with "Selection" radio pre-selected
+4. Range shown: "Measure 5–12 (0:08 – 0:24)"
+5. User can adjust range or switch to "Full song"
+6. Export proceeds as normal
+
+**Two selection modes:**
+
+| Mode | Source | Tick Range |
+|------|--------|------------|
+| Note selection | `Selection::instance()->selectedEvents()` | Min tick → max tick+duration of selected events |
+| Visible viewport | `MatrixWidget::minVisibleMidiTime()` / `maxVisibleMidiTime()` | Viewport bounds |
+
+**Context menu integration:**
+
+```cpp
+// In MatrixWidget::contextMenuEvent() — after existing items, before menu.exec():
+menu.addSeparator();
+QAction *exportSelAct = menu.addAction(QIcon(":/run_environment/graphics/tool/export_audio.png"),
+                                        tr("Export Selection as Audio..."));
+exportSelAct->setEnabled(hasSelection);
+connect(exportSelAct, &QAction::triggered, this, [this]() {
+    MainWindow *mw = qobject_cast<MainWindow*>(window());
+    if (mw) mw->exportAudioSelection();
+});
+```
+
+**Implementation Notes:**
+
+```
+FILES TO MODIFY:
+  src/gui/MatrixWidget.cpp   — add "Export Selection as Audio..." to contextMenuEvent()
+  src/gui/MainWindow.h       — declare exportAudioSelection() slot
+  src/gui/MainWindow.cpp     — implement exportAudioSelection()
+
+RANGE CALCULATION:
+  void MainWindow::exportAudioSelection() {
+      if (!_file) return;
+      QList<MidiEvent*> selected = Selection::instance()->selectedEvents();
+      if (selected.isEmpty()) {
+          QMessageBox::information(this, tr("No Selection"),
+              tr("Select some notes first, then use Export Selection."));
+          return;
+      }
+
+      // Find tick range from selection
+      int minTick = INT_MAX, maxTick = 0;
+      for (MidiEvent *e : selected) {
+          minTick = qMin(minTick, e->midiTime());
+          int endTick = e->midiTime();
+          if (NoteOnEvent *note = dynamic_cast<NoteOnEvent*>(e)) {
+              if (note->offEvent()) endTick = note->offEvent()->midiTime();
+          }
+          maxTick = qMax(maxTick, endTick);
+      }
+
+      // Expand to measure boundaries for cleaner export
+      int measureStart, measureEnd;
+      _file->measure(minTick, &measureStart, nullptr);
+      _file->measure(maxTick, nullptr, &measureEnd);
+
+      ExportDialog dlg(_file, this);
+      dlg.setSelectionRange(measureStart, measureEnd);
+      if (dlg.exec() == QDialog::Accepted) {
+          startExport(dlg.exportOptions(), dlg.outputFilePath());
+      }
+  }
+
+TEMP MIDI FOR RANGE EXPORT:
+  The trickiest part: rendering only a portion of the song.
+
+  Strategy: Create a temporary MIDI file containing ONLY events in the range,
+  with correct tempo/time-signature setup events prepended.
+
+  New utility method:
+    bool MidiFile::saveRange(int startTick, int endTick, const QString &path);
+
+  This method:
+  1. Creates a new temporary MidiFile in memory
+  2. Copies tempo events at or before startTick (so playback speed is correct)
+  3. Copies time signature events at or before startTick
+  4. Copies program change events at or before startTick for each channel
+     (so instruments are correct)
+  5. Copies all events between startTick and endTick, shifting ticks by -startTick
+     so the exported file starts at tick 0
+  6. Copies control change events (volume, pan, etc.) active at startTick
+  7. Saves to the given path
+
+  This ensures the range export sounds exactly like that section during playback,
+  with correct instruments, tempo, and effects.
+
+  Alternative (simpler but wasteful): render the FULL file and trim the WAV after.
+  Downside: slow for "export last 8 bars of a 200-bar piece." The MIDI trim
+  approach is much faster.
+
+EDGE CASES:
+  - Selection spans multiple tracks/channels → all included in range export
+  - Notes start before range but end within → include them (partial note = audible)
+  - No selection + context menu: "Export Selection" is grayed out
+  - Very short selection (<1 measure): warn user but allow it
+  - Selection crosses tempo change: include all tempo events → correct timing
+
+MEASURE DISPLAY IN DIALOG:
+  When setSelectionRange() is called, the dialog shows:
+  "Selection: Measure 5–12 (0:08 – 0:24)" computed from ticks via
+  MidiFile::measure() and MidiFile::msOfTick()
+
+DEPENDS ON: 20.1, 20.2, 20.3
+RISK: Medium — range/trim logic needs careful handling of setup events
+```
+
+---
+
+### 20.5 — MP3 Support via LAME (Optional Encoder) ⬜
+
+**Goal:** Add MP3 export support. Since FluidSynth doesn't support MP3 natively,
+we use a two-step pipeline: render to WAV → encode to MP3 via LAME.
+
+**Approach:**
+
+Two options evaluated:
+
+| Option | Approach | Pros | Cons |
+|--------|----------|------|------|
+| A: Ship LAME DLL | Bundle `libmp3lame.dll` + use C API | No user setup, seamless | License (LGPL), ~200KB extra |
+| B: External `lame.exe` | Detect installed LAME, call via QProcess | No license concern, user's choice | User must install LAME separately |
+| **C: Both** | Try DLL first, fall back to exe | Best UX | More code |
+
+**Recommended: Option C (try DLL, fall back to exe)**
+
+**Pipeline:**
+```
+MIDI → [FluidSynth renders WAV to temp] → [LAME encodes WAV→MP3] → [delete temp WAV]
+```
+
+**LAME detection:**
+```cpp
+// 1. Check for bundled libmp3lame.dll next to executable
+// 2. Check for lame.exe in PATH
+// 3. Check common install locations (Windows: C:\Program Files\LAME\)
+// 4. Check QSettings("Export/lame_path") for user-configured path
+```
+
+**MP3 Quality Options:**
+
+| Preset | Bitrate | Quality | Use Case |
+|--------|---------|---------|----------|
+| Low | 128 kbps CBR | Acceptable | Small file, previews |
+| Medium | 192 kbps CBR | Good | General sharing (default) |
+| High | 256 kbps CBR | Very good | Quality-conscious sharing |
+| Maximum | 320 kbps CBR | Excellent | Near-lossless |
+| VBR V2 | ~190 kbps VBR | Very good | Best quality/size ratio |
+
+**Implementation Notes:**
+
+```
+FILES TO CREATE:
+  src/audio/LameEncoder.h    — MP3 encoding wrapper
+  src/audio/LameEncoder.cpp  — DLL loading + QProcess fallback (~150 lines)
+
+FILES TO MODIFY:
+  src/gui/ExportDialog.cpp — show MP3 option when LAME available, bitrate combo
+  CMakeLists.txt           — optional LAME detection + linking
+
+CLASS DESIGN:
+  class LameEncoder {
+  public:
+      static bool isAvailable();           // Check if LAME is usable
+      static QString lamePath();            // Path to lame.exe or DLL
+      static void setLamePath(const QString &path);  // User override
+
+      // Encode WAV to MP3. Blocking call (run in worker thread).
+      // Emits progress via callback.
+      static bool encode(const QString &wavPath, const QString &mp3Path,
+                         int bitrate, bool vbr,
+                         std::function<void(int percent)> progress = nullptr);
+  private:
+      static bool encodeDll(const QString &wavPath, const QString &mp3Path,
+                            int bitrate, bool vbr,
+                            std::function<void(int percent)> progress);
+      static bool encodeExe(const QString &wavPath, const QString &mp3Path,
+                            int bitrate, bool vbr,
+                            std::function<void(int percent)> progress);
+  };
+
+EXPORT PIPELINE FOR MP3:
+  In FluidSynthEngine::exportAudio() or MainWindow::startExport():
+  if (format == "mp3") {
+      // Step 1: render to temp WAV
+      ExportOptions wavOpts = options;
+      wavOpts.outputFilePath = QDir::tempPath() + "/midieditor_export_temp.wav";
+      wavOpts.fileType = "wav";
+      exportAudio(wavOpts);  // renders WAV
+
+      // Step 2: encode WAV → MP3
+      LameEncoder::encode(wavOpts.outputFilePath, options.outputFilePath,
+                          options.mp3Bitrate, options.mp3Vbr,
+                          [this](int p) { emit exportProgress(50 + p/2); });
+
+      // Step 3: cleanup temp WAV
+      QFile::remove(wavOpts.outputFilePath);
+  }
+
+  Progress is split: 0–50% for WAV render, 50–100% for MP3 encode.
+
+DLL LOADING (Windows):
+  Using QLibrary for runtime loading of libmp3lame.dll:
+    QLibrary lame("libmp3lame");
+    if (lame.load()) {
+        auto lame_init = (lame_t(*)()) lame.resolve("lame_init");
+        auto lame_encode_buffer = ... // resolve all needed functions
+        // Use LAME C API directly
+    }
+
+  This avoids compile-time dependency — LAME is purely optional.
+  If DLL not found, fall back to lame.exe via QProcess.
+
+QProcess FALLBACK:
+  QProcess lameProc;
+  lameProc.start(lamePath(), {
+      "-h",                           // High quality
+      "--cbr", "-b", bitrate,         // Bitrate
+      wavPath, mp3Path
+  });
+  lameProc.waitForFinished(-1);       // Block until done
+
+  Progress: parse LAME's stderr output for progress percentage.
+
+UI CHANGES:
+  In ExportDialog:
+  - MP3 format entry shown ONLY if LameEncoder::isAvailable()
+  - If not available, show grayed-out "MP3 (LAME not found)" with tooltip:
+    "Install LAME encoder or place libmp3lame.dll next to MidiEditor.exe"
+  - When MP3 selected: show bitrate combo instead of quality preset combo
+  - Link/button: "Download LAME..." → opens https://lame.sourceforge.io in browser
+
+LICENSING NOTE:
+  LAME is LGPL. If we ship the DLL:
+  - LGPL requires: dynamic linking (✓ via QLibrary), provide LAME source/link, 
+    allow user to replace the DLL
+  - Our app is GPL3 ← compatible with LGPL
+  - Add LICENSE.LAME to the distribution
+  If we only support external lame.exe: no licensing concern at all.
+
+DEPENDS ON: 20.1, 20.2, 20.6
+RISK: Medium — external dependency, two encoding paths, DLL loading complexity
+  Can be deferred if other formats are sufficient initially.
+```
+
+---
+
+### 20.6 — Export Progress UI (Progress Bar + Cancel) ⬜
+
+**Goal:** Show a clear, non-blocking progress indicator during export with cancel support.
+
+**Two UI options evaluated:**
+
+| Option | Description | Pros | Cons |
+|--------|-------------|------|------|
+| A: Modal progress dialog | QProgressDialog with cancel button | Simple, proven Qt pattern | Blocks interaction |
+| B: Status bar + toast | Non-modal, export runs silently | User can keep editing | Easy to miss |
+| **C: Floating progress bar** | Small overlay at bottom of MatrixWidget | Non-blocking, visible | Custom widget |
+
+**Recommended: Option A (QProgressDialog) for simplicity, with enhancement**
+
+QProgressDialog is the standard Qt approach and users expect it. Enhancement: add
+file info below the progress bar (format, estimated time remaining).
+
+**Progress Dialog Layout:**
+```
+┌──────────── Exporting Audio ─────────────┐
+│                                           │
+│  Rendering: Sweet Child O Mine.wav        │
+│  Format: WAV (16-bit, 44100 Hz)           │
+│                                           │
+│  [████████████████████░░░░░░░░░] 62%      │
+│                                           │
+│  Elapsed: 0:12  |  Remaining: ~0:07       │
+│                                           │
+│              [Cancel]                      │
+└───────────────────────────────────────────┘
+```
+
+**Implementation Notes:**
+
+```
+FILES TO MODIFY:
+  src/gui/MainWindow.h    — add _exportProgressDialog member, progress/finished slots
+  src/gui/MainWindow.cpp  — create QProgressDialog, connect signals, handle cancel
+
+PROGRESS DIALOG:
+  void MainWindow::startExport(const ExportOptions &opts, const QString &outputPath) {
+      // Save to temp MIDI
+      QString tempMidi = QDir::tempPath() + "/MidiEditor_export_" +
+                         QString::number(QCoreApplication::applicationPid()) + ".mid";
+      if (opts.startTick >= 0 && opts.endTick > 0) {
+          _file->saveRange(opts.startTick, opts.endTick, tempMidi);
+      } else {
+          _file->save(tempMidi);
+      }
+
+      ExportOptions finalOpts = opts;
+      finalOpts.midiFilePath = tempMidi;
+      finalOpts.outputFilePath = outputPath;
+
+      // Create progress dialog
+      _exportProgressDialog = new QProgressDialog(
+          tr("Exporting to %1...").arg(QFileInfo(outputPath).fileName()),
+          tr("Cancel"), 0, 100, this);
+      _exportProgressDialog->setWindowTitle(tr("Exporting Audio"));
+      _exportProgressDialog->setWindowModality(Qt::WindowModal);
+      _exportProgressDialog->setMinimumDuration(0);  // Show immediately
+      _exportProgressDialog->setValue(0);
+
+      // Connect signals
+      connect(FluidSynthEngine::instance(), &FluidSynthEngine::exportProgress,
+              _exportProgressDialog, &QProgressDialog::setValue);
+      connect(FluidSynthEngine::instance(), &FluidSynthEngine::exportFinished,
+              this, &MainWindow::onExportFinished);
+      connect(FluidSynthEngine::instance(), &FluidSynthEngine::exportCancelled,
+              this, &MainWindow::onExportCancelled);
+      connect(_exportProgressDialog, &QProgressDialog::canceled,
+              FluidSynthEngine::instance(), &FluidSynthEngine::cancelExport);
+
+      // Track timing for "time remaining" estimate
+      _exportStartTime = QElapsedTimer();
+      _exportStartTime.start();
+      connect(FluidSynthEngine::instance(), &FluidSynthEngine::exportProgress,
+              this, [this](int percent) {
+          if (percent > 0 && _exportProgressDialog) {
+              qint64 elapsed = _exportStartTime.elapsed();
+              qint64 remaining = (elapsed * (100 - percent)) / percent;
+              _exportProgressDialog->setLabelText(
+                  tr("Exporting... %1 elapsed, ~%2 remaining")
+                  .arg(formatTime(elapsed))
+                  .arg(formatTime(remaining)));
+          }
+      });
+
+      // Run export in thread pool
+      QThreadPool::globalInstance()->start([finalOpts]() {
+          FluidSynthEngine::instance()->exportAudio(finalOpts);
+      });
+  }
+
+FINISHED HANDLER:
+  void MainWindow::onExportFinished(bool success, const QString &path) {
+      // Cleanup
+      _exportProgressDialog->close();
+      _exportProgressDialog->deleteLater();
+      _exportProgressDialog = nullptr;
+
+      // Remove temp MIDI
+      QFile::remove(QDir::tempPath() + "/MidiEditor_export_" +
+                    QString::number(QCoreApplication::applicationPid()) + ".mid");
+
+      if (success) {
+          // Show success notification
+          QMessageBox::information(this, tr("Export Complete"),
+              tr("Audio exported successfully to:\n%1\n\nFile size: %2")
+              .arg(path)
+              .arg(formatFileSize(QFileInfo(path).size())));
+
+          // Optional: offer to open file location
+          // QDesktopServices::openUrl(QUrl::fromLocalFile(QFileInfo(path).absolutePath()));
+      } else {
+          QMessageBox::warning(this, tr("Export Failed"),
+              tr("Failed to export audio. Check that:\n"
+                 "• A SoundFont is loaded\n"
+                 "• The output path is writable\n"
+                 "• There is enough disk space"));
+      }
+
+      // Disconnect signals
+      disconnect(FluidSynthEngine::instance(), &FluidSynthEngine::exportProgress, nullptr, nullptr);
+      disconnect(FluidSynthEngine::instance(), &FluidSynthEngine::exportFinished, nullptr, nullptr);
+      disconnect(FluidSynthEngine::instance(), &FluidSynthEngine::exportCancelled, nullptr, nullptr);
+  }
+
+CANCEL HANDLER:
+  void MainWindow::onExportCancelled() {
+      _exportProgressDialog->close();
+      _exportProgressDialog->deleteLater();
+      _exportProgressDialog = nullptr;
+
+      // Cleanup temp files
+      QFile::remove(QDir::tempPath() + "/MidiEditor_export_" + ...);
+      // Cleanup partial output file
+      // (FluidSynthEngine should delete partial output on cancel)
+  }
+
+TIME FORMATTING HELPERS:
+  QString formatTime(qint64 ms) {
+      int secs = ms / 1000;
+      return QString("%1:%2").arg(secs / 60).arg(secs % 60, 2, 10, QChar('0'));
+  }
+  QString formatFileSize(qint64 bytes) {
+      if (bytes < 1024) return QString("%1 B").arg(bytes);
+      if (bytes < 1048576) return QString("%1 KB").arg(bytes / 1024.0, 0, 'f', 1);
+      return QString("%1 MB").arg(bytes / 1048576.0, 0, 'f', 1);
+  }
+
+GUARD STATES:
+  - Export in progress: disable File→Export, toolbar export, context menu export
+  - No file loaded: disable all export triggers
+  - No SoundFont: show warning before starting
+
+DEPENDS ON: 20.1, 20.3
+RISK: Low — QProgressDialog is battle-tested Qt component
+```
+
+---
+
+### Phase 20 — Summary & Dependencies
+
+```
+20.1  Export Core          ─────────────────────────────────┐
+                                                            ├──→ 20.3 Full-File Export
+20.2  Export Dialog        ─────────────────────────────────┤
+                                                            ├──→ 20.4 Selection Export
+                                                            │
+20.6  Progress UI          ─────────────────────────────────┤
+                                                            │
+20.5  MP3 (LAME)           ─── built-in static encoder ────┤
+                                                            │
+20.7  SoundFont Management ─── enable/disable + FFXIV auto ┤
+                                                            │
+20.8  FluidSynth Hardening ─── driver fallback + error UX ─┘
+```
+
+**Implementation order:** 20.1 → 20.2 → 20.6 → 20.3 → 20.4 → 20.5 → 20.7 → 20.8
+
+**Total new files:** 4 (ExportDialog.h/.cpp, LameEncoder.h/.cpp)
+**Total modified files:** 8 (FluidSynthEngine.h/.cpp, MainWindow.h/.cpp, MatrixWidget.cpp, MidiSettingsWidget.h/.cpp, MidiOutput.cpp, CMakeLists.txt)
+**Estimated total:** ~1800 lines new code, ~450 lines modified
+
+---
+
+### 20.7 — SoundFont Management (Enable/Disable + FFXIV Auto-Toggle) ✅
+
+> **Goal:** Let users temporarily disable individual SoundFonts in the stack without
+> removing them. Automatically detect FFXIV SoundFonts by filename and toggle
+> the FFXIV SoundFont Mode accordingly.
+
+**Features implemented:**
+
+- **Per-SoundFont checkboxes:** Each SoundFont in the list widget now has a checkbox.
+  Unchecking a font removes it from the active FluidSynth stack but keeps it in the
+  UI list. Re-checking reloads it. Disabled state persists across sessions via QSettings.
+- **Dual-state system:** Runtime state (`_soundFontStack` + `_disabledSoundFontPaths`)
+  and pending state (`_pendingSoundFontPaths` + `_pendingDisabledPaths`) for
+  before/after FluidSynth initialization. `shutdown()` preserves both states.
+  `allSoundFontPaths()` falls back to pending paths when stack is empty.
+- **FFXIV SoundFont Mode auto-toggle:** `updateFfxivModeFromSoundFonts()` scans the
+  UI list widget for checked SoundFonts with "ff14" or "ffxiv" in the filename
+  (case-insensitive). If any match, FFXIV SoundFont Mode is auto-enabled; if none
+  match, it's auto-disabled. Reads from UI state directly (not engine state) to
+  ensure correctness before engine commits.
+- **Mode updated before stack rebuild:** When a SoundFont checkbox changes, FFXIV mode
+  is updated FIRST, then `setSoundFontEnabled()` rebuilds the FluidSynth stack.
+  This ensures `applyChannelMode()` inside the stack rebuild uses the correct flag.
+- **Proper GM drum restore:** When switching from FFXIV mode back to GM mode,
+  `applyChannelMode()` now sends `bank_select(channel 9, bank 128)` +
+  `program_change(channel 9, 0)` to properly restore the drum kit. Previously,
+  channel 9 was left in a melodic state (drums playing as piano).
+
+**Files modified:**
+- `FluidSynthEngine.h` — added `_disabledSoundFontPaths`, `_pendingDisabledPaths`, `addPendingSoundFontPaths()`, `setSoundFontEnabled()`, `isSoundFontEnabled()`, `allSoundFontPaths()`
+- `FluidSynthEngine.cpp` — updated `shutdown()`, `setSoundFontStack()`, `saveSettings()`, `removeSoundFontByPath()`, `applyChannelMode()`
+- `MidiSettingsWidget.h` — added `updateFfxivModeFromSoundFonts()`, `onSoundFontItemChanged()` slots
+- `MidiSettingsWidget.cpp` — checkbox rendering, state change handling, FFXIV auto-toggle
+
+---
+
+### 20.8 — FluidSynth Hardening (Driver Fallback + Error UX) ✅
+
+> **Goal:** Make FluidSynth initialization more resilient and give users better
+> feedback when things go wrong. FluidSynth settings should be accessible even
+> when a different output device is selected.
+
+**Features implemented:**
+
+- **Audio driver fallback chain:** `FluidSynthEngine::initialize()` now tries multiple
+  audio drivers in order: preferred driver (from settings) → wasapi → dsound → waveout →
+  sdl3 → sdl2. If the preferred driver fails (common with SDL3 after a restart cycle),
+  the next driver is tried automatically. The driver combo in settings reflects the
+  actual driver used after initialization.
+- **FluidSynth settings always accessible:** Removed the `setEnabled(false)` call on the
+  FluidSynth settings group when a non-FluidSynth output is selected. Users can now
+  browse, add, remove, and configure SoundFonts at any time, even while using Microsoft
+  GS Wavetable Synth. Settings are applied when FluidSynth is next activated.
+- **Pre-init SoundFont management:** `addPendingSoundFontPaths()` allows adding SoundFonts
+  to the pending list when FluidSynth is not initialized. `setSoundFontStack()` and
+  `removeSoundFontByPath()` also work before init by updating pending paths.
+- **FluidSynth error dialog:** When switching to FluidSynth output fails (e.g., no audio
+  driver available), a `QMessageBox::warning` is shown with the error details. The output
+  reverts to the previous working port automatically.
+- **Output port fallback:** `MidiOutput::setOutputPort()` saves the previous port before
+  attempting to switch. If the new port's FluidSynth init fails, the previous port is
+  restored automatically.
+
+**Files modified:**
+- `FluidSynthEngine.cpp` — `initialize()` driver fallback loop
+- `MidiSettingsWidget.cpp` — settings always enabled, error dialog, driver combo update
+- `MidiOutput.cpp` — fallback port restoration on failed FluidSynth init
+
+**Export completion dialog:** After any audio export finishes, a dialog with three
+buttons is shown: **Open File** (opens in default audio player), **Open Folder**
+(opens containing directory in Explorer), **Close** (dismiss). Previously there was
+no feedback after export completion.
+
+**Guitar Pro export fix:** When exporting audio from a Guitar Pro file (.gp3–.gp8),
+`file->path()` returned the GP file path which FluidSynth cannot parse. Now saves
+the in-memory MidiFile to a temporary `.mid` file for the export process, then
+cleans up via `_exportTempMidiPath`. This fixes the "silent/empty audio export from
+Guitar Pro files" bug.

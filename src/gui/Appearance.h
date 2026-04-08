@@ -333,6 +333,12 @@ public:
      */
     static void setToolbarEnabledActions(const QStringList &enabled);
 
+    /**
+     * \brief Immediately flushes toolbar settings to QSettings (disk/registry).
+     * Call after modifying toolbar settings to ensure persistence across crashes.
+     */
+    static void flushToolbarSettings();
+
     // === High DPI Scaling Control ===
 
     /**

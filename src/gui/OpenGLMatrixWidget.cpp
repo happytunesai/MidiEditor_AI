@@ -21,6 +21,7 @@
 #include "../midi/MidiFile.h"
 #include <QDebug>
 #include <QApplication>
+#include <QContextMenuEvent>
 
 OpenGLMatrixWidget::OpenGLMatrixWidget(QSettings *settings, QWidget *parent)
     : OpenGLPaintWidget(settings, parent) {
@@ -143,6 +144,13 @@ void OpenGLMatrixWidget::wheelEvent(QWheelEvent *event) {
         QApplication::sendEvent(_matrixWidget, event);
         // Hidden widget's zoom/scroll->update() doesn't trigger OpenGL repaint
         update();
+    }
+}
+
+void OpenGLMatrixWidget::contextMenuEvent(QContextMenuEvent *event) {
+    // Forward context menu events to internal MatrixWidget
+    if (_matrixWidget) {
+        QApplication::sendEvent(_matrixWidget, event);
     }
 }
 

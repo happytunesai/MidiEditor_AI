@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20 FATAL_ERROR)
 
-set(MIDIEDITOR_RELEASE_VERSION_STRING "1.1.9")
-project(MidiEditorAI VERSION ${MIDIEDITOR_RELEASE_VERSION_STRING} LANGUAGES CXX)
+set(MIDIEDITOR_RELEASE_VERSION_STRING "1.2.0")
+project(MidiEditorAI VERSION ${MIDIEDITOR_RELEASE_VERSION_STRING} LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -240,6 +240,52 @@ if(FLUIDSYNTH_FOUND)
     endif()
 else()
     message(STATUS "FluidSynth not found - built-in synthesizer disabled")
+endif()
+
+# Built-in LAME MP3 encoder (compiled from source, always available when FluidSynth is)
+if(FLUIDSYNTH_FOUND)
+    set(LAME_SRC_DIR "${CMAKE_SOURCE_DIR}/lame/lame-3.100")
+    if(EXISTS "${LAME_SRC_DIR}/libmp3lame/lame.c")
+        message(STATUS "LAME source found - building built-in MP3 encoder")
+        
+        # Collect LAME libmp3lame source files
+        file(GLOB LAME_SOURCES "${LAME_SRC_DIR}/libmp3lame/*.c")
+        
+        # Add SSE optimizations on x64
+        if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+            file(GLOB LAME_VECTOR_SOURCES "${LAME_SRC_DIR}/libmp3lame/vector/*.c")
+            list(APPEND LAME_SOURCES ${LAME_VECTOR_SOURCES})
+        endif()
+
+        # Build as static library (C language)
+        add_library(mp3lame STATIC ${LAME_SOURCES})
+        set_target_properties(mp3lame PROPERTIES LINKER_LANGUAGE C)
+        target_include_directories(mp3lame PRIVATE
+            "${CMAKE_SOURCE_DIR}/lame"
+            "${LAME_SRC_DIR}/include"
+            "${LAME_SRC_DIR}/libmp3lame"
+        )
+        target_compile_definitions(mp3lame PRIVATE
+            HAVE_CONFIG_H
+            LAME_LIBRARY_BUILD
+            _CRT_SECURE_NO_WARNINGS
+        )
+        # Suppress LAME warnings (it's third-party code)
+        if(MSVC)
+            target_compile_options(mp3lame PRIVATE /W0)
+        else()
+            target_compile_options(mp3lame PRIVATE -w)
+        endif()
+
+        # Link LAME into MidiEditorAI
+        target_link_libraries(MidiEditorAI PRIVATE mp3lame)
+        target_include_directories(MidiEditorAI PRIVATE "${LAME_SRC_DIR}/include")
+        target_compile_definitions(MidiEditorAI PRIVATE LAME_SUPPORT)
+        set_property(TARGET MidiEditorAI APPEND PROPERTY AUTOMOC_MOC_OPTIONS "-DLAME_SUPPORT")
+        set(LAME_FOUND TRUE)
+    else()
+        message(STATUS "LAME source not found at ${LAME_SRC_DIR} - MP3 export disabled")
+    endif()
 endif()
 
 # Additional linking for MinGW compatibility
