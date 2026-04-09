@@ -19,7 +19,8 @@
 #include "OffEvent.h"
 #include "OnEvent.h"
 
-QMultiMap<int, OnEvent *> *OffEvent::onEvents = new QMultiMap<int, OnEvent *>();
+static QMultiMap<int, OnEvent *> onEventsStorage;
+QMultiMap<int, OnEvent *> *OffEvent::onEvents = &onEventsStorage;
 
 OffEvent::OffEvent(int ch, int l, MidiTrack *track)
     : MidiEvent(ch, track) {

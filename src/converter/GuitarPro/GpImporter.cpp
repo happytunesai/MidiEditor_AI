@@ -58,7 +58,7 @@ MidiFile* GpImporter::loadFile(QString path, bool* ok) {
             gpFile = std::move(gp6);
             if (gpFile->self) {
                 GpFile* transferred = gpFile->self;
-                gpFile.release();
+                gpFile->self = nullptr;
                 gpFile.reset(transferred);
             }
 #else
@@ -100,7 +100,7 @@ MidiFile* GpImporter::loadFile(QString path, bool* ok) {
 
                 if (gpFile->self) {
                     GpFile* transferred = gpFile->self;
-                    gpFile.release();
+                    gpFile->self = nullptr;
                     gpFile.reset(transferred);
                 }
 #else
@@ -159,6 +159,7 @@ MidiFile* GpImporter::loadFile(QString path, bool* ok) {
         tempFile.setFileTemplate(QDir::tempPath() + "/gpimport_XXXXXX.mid");
         tempFile.setAutoRemove(false);
         if (!tempFile.open()) {
+            qWarning() << "GpImporter: cannot open temp file";
             return nullptr;
         }
 

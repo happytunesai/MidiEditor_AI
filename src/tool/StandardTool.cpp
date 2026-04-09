@@ -53,6 +53,7 @@ StandardTool::StandardTool(StandardTool &other)
     sizeChangeTool = other.sizeChangeTool;
     moveTool = other.moveTool;
     selectTool = other.selectTool;
+    newNoteTool = other.newNoteTool;
 }
 
 void StandardTool::draw(QPainter *painter) {

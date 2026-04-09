@@ -76,28 +76,16 @@ MidiFile *MidiChannel::file() {
 }
 
 bool MidiChannel::visible() {
-    // Always return true to prevent crashes
-    return true;
+    return ChannelVisibilityManager::instance().isChannelVisible(_num);
 }
 
 
 void MidiChannel::setVisible(bool b) {
-    // Use global visibility manager to avoid corrupted object access
-    try {
-        // Try to get channel number and update global storage
-        int channelNum = _num;
-        ChannelVisibilityManager::instance().setChannelVisible(channelNum, b);
-
-        // Also try to update object member for compatibility
-        _visible = b;
-
-        // Protocol handling
-        ProtocolEntry *toCopy = copy();
-        protocol(toCopy, this);
-    } catch (...) {
-        // If we can't access _num, we can't update visibility
-        // But at least we don't crash...
-    }
+    if (_num < 0 || _num > 18) return;
+    ChannelVisibilityManager::instance().setChannelVisible(_num, b);
+    _visible = b;
+    ProtocolEntry *toCopy = copy();
+    protocol(toCopy, this);
 }
 
 bool MidiChannel::mute() {
@@ -121,21 +109,10 @@ void MidiChannel::setSolo(bool b) {
 }
 
 int MidiChannel::number() {
-    // Basic crash prevention
-    if (this == nullptr) {
+    if (_num < 0 || _num > 18) {
         return 0;
     }
-
-    try {
-        // Validate _num is in expected range
-        if (_num < 0 || _num > 18) {
-            return 0;
-        }
-
-        return _num;
-    } catch (...) {
-        return 0;
-    }
+    return _num;
 }
 
 QMultiMap<int, MidiEvent *> *MidiChannel::eventMap() {
@@ -216,25 +193,12 @@ void MidiChannel::deleteAllEvents() {
 int MidiChannel::progAtTick(int tick) {
     if (_events->count() == 0)
         return 0;
-    // search for the last ProgChangeEvent in the channel
+    // search for the last ProgChangeEvent at or before tick
     QMultiMap<int, MidiEvent *>::iterator it = _events->upperBound(tick);
-    if (it == _events->end()) {
-        it--;
-    }
-    if (_events->size()) {
-        while (it != _events->begin()) {
-            ProgChangeEvent *ev = dynamic_cast<ProgChangeEvent *>(it.value());
-            if (ev && it.key() <= tick) {
-                return ev->program();
-            }
-            it--;
-        }
-    }
-
-    // default: first
-    foreach(MidiEvent* event, *_events) {
-        ProgChangeEvent *ev = dynamic_cast<ProgChangeEvent *>(event);
-        if (ev) {
+    while (it != _events->begin()) {
+        --it;
+        ProgChangeEvent *ev = dynamic_cast<ProgChangeEvent *>(it.value());
+        if (ev && it.key() <= tick) {
             return ev->program();
         }
     }

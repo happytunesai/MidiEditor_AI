@@ -21,6 +21,7 @@
 
 // Qt includes
 #include <QMap>
+#include <QMutex>
 #include <QObject>
 
 #include <atomic>
@@ -156,6 +157,9 @@ public:
 
     /** \brief Map tracking currently playing notes by channel */
     static QMap<int, QList<int> > playedNotes;
+
+    /** \brief Mutex protecting playedNotes from concurrent access */
+    static QMutex playedNotesMutex;
 
     /** \brief Per-channel note velocity for visualizer (thread-safe atomic reads) */
     static std::atomic<int> channelActivity[16];

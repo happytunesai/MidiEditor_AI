@@ -104,9 +104,7 @@ void MidiTrack::reloadState(ProtocolEntry *entry) {
     if (!other) {
         return;
     }
-    if (_number != other->number()) {
-        setNumber(other->_number);
-    }
+    _number = other->_number;
     _nameEvent = other->_nameEvent;
     _file = other->_file;
     _hidden = other->_hidden;

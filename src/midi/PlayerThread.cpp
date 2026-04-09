@@ -26,6 +26,7 @@
 #include "MidiPlayer.h"
 #include <QMultiMap>
 #include <QElapsedTimer>
+#include <QMutexLocker>
 
 #define INTERVAL_TIME 15
 #define TIMEOUTS_PER_SIGNAL 1
@@ -36,6 +37,11 @@ PlayerThread::PlayerThread()
     timer = 0;
     timeoutSinceLastSignal = 0;
     time = 0;
+}
+
+PlayerThread::~PlayerThread() {
+    delete timer;
+    delete time;
 }
 
 void PlayerThread::setFile(MidiFile *f) {
@@ -77,7 +83,9 @@ void PlayerThread::run() {
         array.append(char(0));
         MidiOutput::sendCommand(array);
     }
+    MidiOutput::playedNotesMutex.lock();
     MidiOutput::playedNotes.clear();
+    MidiOutput::playedNotesMutex.unlock();
 
     // All Events before position should be sent, progChanges and ControlChanges
     QMultiMap<int, MidiEvent *>::iterator it = events->begin();
@@ -128,6 +136,7 @@ void PlayerThread::timeout() {
             MidiOutput::sendCommand(array);
         }
         if (MidiOutput::isAlternativePlayer) {
+            QMutexLocker locker(&MidiOutput::playedNotesMutex);
             foreach(int channel, MidiOutput::playedNotes.keys()) {
                 foreach(int note, MidiOutput::playedNotes.value(channel)) {
                     QByteArray array;

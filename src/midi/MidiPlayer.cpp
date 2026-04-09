@@ -23,6 +23,7 @@
 #include "MidiOutput.h"
 #include "PlayerThread.h"
 #include "SingleNotePlayer.h"
+#include <QMutexLocker>
 
 #include "Metronome.h"
 
@@ -106,6 +107,7 @@ void MidiPlayer::panic() {
         MidiOutput::sendCommand(array);
     }
     if (MidiOutput::isAlternativePlayer) {
+        QMutexLocker locker(&MidiOutput::playedNotesMutex);
         foreach(int channel, MidiOutput::playedNotes.keys()) {
             foreach(int note, MidiOutput::playedNotes.value(channel)) {
                 QByteArray array;

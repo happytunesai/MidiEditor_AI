@@ -36,13 +36,11 @@
 #include <tchar.h>
 #include <windows.h>
 std::string wstrtostr(const std::wstring &wstr) {
-    std::string strTo;
-    char *szTo = new char[wstr.length() + 1];
-    szTo[wstr.size()] = '\0';
-    WideCharToMultiByte(CP_ACP, 0, wstr.c_str(), -1, szTo, (int) wstr.length(),
-                        NULL, NULL);
-    strTo = szTo;
-    delete[] szTo;
+    if (wstr.empty()) return std::string();
+    int size_needed = WideCharToMultiByte(CP_ACP, 0, wstr.c_str(), -1, NULL, 0, NULL, NULL);
+    if (size_needed <= 0) return std::string();
+    std::string strTo(size_needed - 1, '\0');
+    WideCharToMultiByte(CP_ACP, 0, wstr.c_str(), -1, &strTo[0], size_needed, NULL, NULL);
     return strTo;
 }
 int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmd, int show) {
@@ -257,5 +255,6 @@ int main(int argc, char *argv[]) {
     }
 
     int result = a.exec();
+    delete w;
     return result;
 }

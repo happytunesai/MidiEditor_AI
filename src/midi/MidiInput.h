@@ -21,6 +21,7 @@
 
 // Qt includes
 #include <QMultiMap>
+#include <QMutex>
 #include <QProcess>
 
 // Standard includes
@@ -163,10 +164,13 @@ private:
     /** \brief RtMidi input interface */
     static rt::midi::RtMidiIn *_midiIn;
 
-    /** \brief Map of recorded MIDI messages by time */
+    /** rief Map of recorded MIDI messages by time */
     static QMultiMap<int, std::vector<unsigned char> > *_messages;
 
-    /** \brief Current recording time reference */
+    /** rief Mutex protecting _messages and _currentTime */
+    static QMutex _messagesMutex;
+
+    /** rief Current recording time reference */
     static int _currentTime;
 
     /** \brief Recording state flag */

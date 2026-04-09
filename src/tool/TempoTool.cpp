@@ -52,11 +52,11 @@ bool TempoTool::release() {
     }
 
     if (startTick == endTick) {
-        TempoDialog *dialog = new TempoDialog(file(), endTick);
-        dialog->exec();
+        TempoDialog dialog(file(), endTick);
+        dialog.exec();
     } else {
-        TempoDialog *dialog = new TempoDialog(file(), startTick, endTick);
-        dialog->exec();
+        TempoDialog dialog(file(), startTick, endTick);
+        dialog.exec();
     }
 
     _startX = -1;

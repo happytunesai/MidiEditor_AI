@@ -143,13 +143,13 @@ public:
      * \brief Gets the map of tempo change events.
      * \return Pointer to QMap containing tempo events organized by tick
      */
-    QMap<int, MidiEvent *> *tempoEvents();
+    QMultiMap<int, MidiEvent *> *tempoEvents();
 
     /**
      * \brief Gets the map of time signature events.
-     * \return Pointer to QMap containing time signature events organized by tick
+     * \return Pointer to QMultiMap containing time signature events organized by tick
      */
-    QMap<int, MidiEvent *> *timeSignatureEvents();
+    QMultiMap<int, MidiEvent *> *timeSignatureEvents();
 
     /**
      * \brief Recalculates the maximum time of all events in the file.

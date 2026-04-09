@@ -202,6 +202,7 @@ void EventTool::changeTick(MidiEvent *event, int shiftX) {
 void EventTool::copyAction() {
     if (Selection::instance()->selectedEvents().size() > 0) {
         // clear old copied Events
+        qDeleteAll(*copiedEvents);
         copiedEvents->clear();
 
         // Store source file's ticksPerQuarter before copying events
@@ -277,7 +278,7 @@ void EventTool::pasteAction() {
 
         // if its onEvent, add a copy of the OffEvent
         OnEvent *onEv = dynamic_cast<OnEvent *>(ev);
-        if (onEv) {
+        if (onEv && onEv->offEvent()) {
             OffEvent *offEv = dynamic_cast<OffEvent *>(onEv->offEvent()->copy());
             if (offEv) {
                 offEv->setOnEvent(onEv);

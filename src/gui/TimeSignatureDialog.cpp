@@ -96,7 +96,7 @@ void TimeSignatureDialog::accept() {
     MidiTrack *generalTrack = _file->track(0);
     _file->protocol()->startNewAction("Change Time Signature");
 
-    QMap<int, MidiEvent *> *timeSignatureEvents = _file->timeSignatureEvents();
+    QMultiMap<int, MidiEvent *> *timeSignatureEvents = _file->timeSignatureEvents();
     bool hasTimeSignatureChangesAfter = false;
     foreach(int tick, timeSignatureEvents->keys()) {
         if (tick > _startTickOfMeasure) {
@@ -111,7 +111,7 @@ void TimeSignatureDialog::accept() {
 
     if (_endOfPiece->isChecked() || (_untilNextMeterChange->isChecked() && !hasTimeSignatureChangesAfter)) {
         // We delete all events after and insert a single new one.
-        QMap<int, MidiEvent *>::Iterator it = timeSignatureEvents->begin();
+        QMultiMap<int, MidiEvent *>::Iterator it = timeSignatureEvents->begin();
         while (it != timeSignatureEvents->end()) {
             if (it.key() >= _startTickOfMeasure) {
                 eventsToDelete.append(it.value());

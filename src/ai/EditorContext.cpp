@@ -118,7 +118,7 @@ QJsonObject EditorContext::captureFileInfo(MidiFile *file)
 QJsonObject EditorContext::captureTempo(MidiFile *file, int tick)
 {
     QJsonObject tempoObj;
-    QMap<int, MidiEvent *> *tempoMap = file->tempoEvents();
+    QMultiMap<int, MidiEvent *> *tempoMap = file->tempoEvents();
     if (!tempoMap || tempoMap->isEmpty()) {
         tempoObj[QStringLiteral("bpm")] = 120;
         return tempoObj;

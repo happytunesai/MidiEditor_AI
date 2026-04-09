@@ -34,7 +34,7 @@ Tool::Tool() {
 }
 
 Tool::Tool(Tool &other) {
-    _image = other._image;
+    _image = other._image ? new QImage(*other._image) : nullptr;
     _imagePath = other._imagePath;
     _button = other._button;
     _toolTip = other._toolTip;
@@ -47,6 +47,7 @@ void Tool::buttonClick() {
 
 void Tool::setImage(QString name) {
     _imagePath = name;
+    delete _image;
     _image = new QImage(name);
 }
 

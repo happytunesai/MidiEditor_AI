@@ -1405,11 +1405,35 @@ void MidiPilotWidget::onAgentStepLimitReached(int currentStep, int maxSteps) {
 }
 
 void MidiPilotWidget::addChatBubble(const QString &role, const QString &text) {
-    // Add timestamp prefix
-    QString timestamp = QTime::currentTime().toString("HH:mm:ss");
-    QString displayText = QString("[%1] %2").arg(timestamp, text);
+    bool dark = Appearance::isDarkModeEnabled();
 
-    QLabel *bubble = new QLabel(displayText, _chatContainer);
+    // Timestamp label — small outlined pill above the bubble
+    QString timestamp = QTime::currentTime().toString("HH:mm:ss");
+    QLabel *timeLabel = new QLabel(timestamp, _chatContainer);
+    QString timeColor = dark ? "#CCC" : "#888";
+    timeLabel->setStyleSheet(
+        QString("color: %1; font-size: 10px; padding: 0px 4px; margin: 0px; "
+                "background: transparent;")
+            .arg(timeColor));
+    timeLabel->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    if (role == "user")
+        timeLabel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    else
+        timeLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+
+    // Wrap in a widget to align left/right
+    QWidget *timeWidget = new QWidget(_chatContainer);
+    QHBoxLayout *timeRow = new QHBoxLayout(timeWidget);
+    timeRow->setContentsMargins(12, 2, 12, 0);
+    timeRow->setSpacing(0);
+    if (role == "user")
+        timeRow->addStretch();
+    timeRow->addWidget(timeLabel);
+    if (role != "user")
+        timeRow->addStretch();
+    _chatLayout->addWidget(timeWidget);
+
+    QLabel *bubble = new QLabel(text, _chatContainer);
     bubble->setWordWrap(true);
     bubble->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
     bubble->setContentsMargins(10, 6, 10, 6);
@@ -1440,16 +1464,21 @@ void MidiPilotWidget::addChatBubble(const QString &role, const QString &text) {
 
     if (role == "user") {
         bubble->setStyleSheet(
-            "background-color: #0078D4; color: white; "
-            "border-radius: 8px; padding: 8px; margin-left: 40px;");
+            QString("background-color: %1; color: white; "
+                    "border-radius: 12px; padding: 10px 14px; margin-left: 40px;")
+                .arg(dark ? "#0063B1" : "#0078D4"));
     } else if (role == "assistant") {
         bubble->setStyleSheet(
-            "background-color: #E8E8E8; color: black; "
-            "border-radius: 8px; padding: 8px; margin-right: 40px;");
+            QString("background-color: %1; color: %2; "
+                    "border-radius: 12px; padding: 10px 14px; margin-right: 40px;")
+                .arg(dark ? "#2A2A2A" : "#F0F0F0",
+                     dark ? "#DDD" : "#222"));
     } else {
-        // system messages
+        // system messages — no separate timestamp
+        timeWidget->hide();
         bubble->setStyleSheet(
-            "color: gray; font-style: italic; padding: 4px;");
+            QString("color: %1; font-style: italic; padding: 4px;")
+                .arg(dark ? "#888" : "gray"));
         bubble->setAlignment(Qt::AlignCenter);
     }
 
@@ -1882,7 +1911,7 @@ QJsonObject MidiPilotWidget::applyTempoAction(const QJsonObject &response, bool 
         QStringLiteral("MidiPilot: Agent set tempo \u2014 %1 BPM").arg(bpm));
 
     // Check if there's already a tempo event at this tick
-    QMap<int, MidiEvent *> *tempoMap = _file->tempoEvents();
+    QMultiMap<int, MidiEvent *> *tempoMap = _file->tempoEvents();
     TempoChangeEvent *existing = nullptr;
     if (tempoMap) {
         auto it = tempoMap->find(tick);
@@ -1954,7 +1983,7 @@ QJsonObject MidiPilotWidget::applyTimeSignatureAction(const QJsonObject &respons
         QStringLiteral("MidiPilot: Agent set time sig \u2014 %1/%2").arg(num).arg(denomActual));
 
     // Check if there's already a time signature event at this tick
-    QMap<int, MidiEvent *> *tsMap = _file->timeSignatureEvents();
+    QMultiMap<int, MidiEvent *> *tsMap = _file->timeSignatureEvents();
     TimeSignatureEvent *existing = nullptr;
     if (tsMap) {
         auto it = tsMap->find(tick);

@@ -387,7 +387,7 @@ QPair<int, int> SharedClipboard::getOriginalTiming(int index) {
 int SharedClipboard::getCurrentTempo(MidiFile *file, int atTick) {
     if (!file) return 120; // Default tempo
 
-    QMap<int, MidiEvent *> *tempoEvents = file->tempoEvents();
+    QMultiMap<int, MidiEvent *> *tempoEvents = file->tempoEvents();
     if (!tempoEvents || tempoEvents->isEmpty()) {
         return 120; // Default tempo
     }

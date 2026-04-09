@@ -21,6 +21,9 @@
 
 TempoChangeEvent::TempoChangeEvent(int channel, int value, MidiTrack *track)
     : MidiEvent(channel, track) {
+    if (value <= 0) {
+        value = 500000; // Default 120 BPM
+    }
     _beats = 60000000 / value;
 }
 
@@ -34,6 +37,8 @@ int TempoChangeEvent::beatsPerQuarter() {
 }
 
 double TempoChangeEvent::msPerTick() {
+    if (!file() || _beats <= 0 || file()->ticksPerQuarter() <= 0)
+        return 1.0;
     double quarters_per_second = (double) _beats / 60;
     double ticks_per_second = (double) (file()->ticksPerQuarter()) * quarters_per_second;
     return 1000 / (ticks_per_second);
@@ -62,7 +67,8 @@ QByteArray TempoChangeEvent::save() {
     array.append(char(0xFF));
     array.append(char(0x51));
     array.append(char(0x03));
-    int value = 60000000 / _beats;
+    int beats = (_beats > 0) ? _beats : 120;
+    int value = 60000000 / beats;
     for (int i = 2; i >= 0; i--) {
         array.append((value & (0xFF << 8 * i)) >> 8 * i);
     }

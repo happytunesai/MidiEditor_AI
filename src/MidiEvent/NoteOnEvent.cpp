@@ -61,7 +61,7 @@ int NoteOnEvent::line() {
 
 void NoteOnEvent::setNote(int n) {
     ProtocolEntry *toCopy = copy();
-    _note = n;
+    _note = qBound(0, n, 127);
     protocol(toCopy, this);
 }
 

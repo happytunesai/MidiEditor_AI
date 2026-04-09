@@ -61,6 +61,7 @@ void ToolButton::refreshIcon() {
         return;
     }
 
+    if (!button_tool->image()) return;
     QImage image = *(button_tool->image());
     QPixmap pixmap = QPixmap::fromImage(image);
     // Apply dark mode adjustment if needed

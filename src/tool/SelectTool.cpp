@@ -63,7 +63,7 @@ SelectTool::SelectTool(SelectTool &other)
 
 void SelectTool::draw(QPainter *painter) {
     paintSelectedEvents(painter);
-    if (SELECTION_TYPE_BOX && (x_rect || y_rect)) {
+    if (stool_type == SELECTION_TYPE_BOX && (x_rect || y_rect)) {
         painter->setPen(Appearance::borderColor());
         QColor selectionColor = Appearance::foregroundColor();
         selectionColor.setAlpha(100);

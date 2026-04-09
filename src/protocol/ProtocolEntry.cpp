@@ -25,6 +25,8 @@ void ProtocolEntry::protocol(ProtocolEntry *oldObj, ProtocolEntry *newObj) {
     if (oldObj->file() && oldObj->file()->protocol()) {
         oldObj->file()->protocol()->enterUndoStep(
             new ProtocolItem(oldObj, newObj));
+    } else {
+        delete oldObj;
     }
 }
 

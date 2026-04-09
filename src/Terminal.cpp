@@ -59,6 +59,7 @@ void Terminal::execute(QString startString, QString inPort, QString outPort) {
     if (startString != "") {
         if (_process) {
             _process->kill();
+            _process->deleteLater();
         }
         _process = new QProcess();
 
@@ -141,6 +142,7 @@ void Terminal::processStarted() {
     if ((MidiOutput::outputPort() == "" && _outPort != "") || (MidiInput::inputPort() == "" && _inPort != "")) {
         QTimer *timer = new QTimer();
         connect(timer, SIGNAL(timeout()), this, SLOT(processStarted()));
+        connect(timer, SIGNAL(timeout()), timer, SLOT(deleteLater()));
         timer->setSingleShot(true);
         timer->start(1000);
     }

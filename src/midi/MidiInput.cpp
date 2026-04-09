@@ -40,6 +40,7 @@ using namespace rt::midi;
 RtMidiIn *MidiInput::_midiIn = 0;
 QString MidiInput::_inPort = "";
 QMultiMap<int, std::vector<unsigned char> > *MidiInput::_messages = new QMultiMap<int, std::vector<unsigned char> >;
+QMutex MidiInput::_messagesMutex;
 int MidiInput::_currentTime = 0;
 bool MidiInput::_recording = false;
 bool MidiInput::_thru = false;
@@ -58,6 +59,7 @@ void MidiInput::init() {
 
 void MidiInput::receiveMessage(double deltatime, std::vector<unsigned char> *message, void *userData) {
     if (message->size() > 1) {
+        QMutexLocker lock(&_messagesMutex);
         _messages->insert(_currentTime, *message);
     }
 
@@ -106,6 +108,8 @@ void MidiInput::receiveMessage(double deltatime, std::vector<unsigned char> *mes
 QStringList MidiInput::inputPorts() {
     QStringList ports;
 
+    if (!_midiIn) return ports;
+
     // Check outputs.
     unsigned int nPorts = _midiIn->getPortCount();
 
@@ -147,6 +151,7 @@ QString MidiInput::inputPort() {
 
 void MidiInput::startInput() {
     // clear eventlist
+    QMutexLocker lock(&_messagesMutex);
     _messages->clear();
 
     _recording = true;
@@ -156,16 +161,25 @@ QMultiMap<int, MidiEvent *> MidiInput::endInput(MidiTrack *track) {
     QMultiMap<int, MidiEvent *> eventList;
     QByteArray array;
 
-    QMultiMap<int, std::vector<unsigned char> >::iterator it = _messages->begin();
+    _recording = false;
+
+    // Copy and clear messages under lock
+    QMultiMap<int, std::vector<unsigned char> > messagesCopy;
+    {
+        QMutexLocker lock(&_messagesMutex);
+        messagesCopy = *_messages;
+        _messages->clear();
+        _currentTime = 0;
+    }
+
+    QMultiMap<int, std::vector<unsigned char> >::iterator it = messagesCopy.begin();
 
     bool ok = true;
     bool endEvent = false;
 
-    _recording = false;
-
     QMultiMap<int, OffEvent *> emptyOffEvents;
 
-    while (ok && it != _messages->end()) {
+    while (ok && it != messagesCopy.end()) {
         array.clear();
 
         for (unsigned int i = 0; i < it.value().size(); i++) {
@@ -207,13 +221,11 @@ QMultiMap<int, MidiEvent *> MidiInput::endInput(MidiTrack *track) {
     while (it2 != eventList.end()) {
         OnEvent *on = dynamic_cast<OnEvent *>(it2.value());
         if (on && !on->offEvent()) {
-            eventList.remove(it2.key(), it2.value());
+            it2 = eventList.erase(it2);
+        } else {
+            it2++;
         }
-        it2++;
     }
-    _messages->clear();
-
-    _currentTime = 0;
 
     // perform consistency check
     QMultiMap<int, MidiEvent *> toRemove;
@@ -309,6 +321,7 @@ QMultiMap<int, MidiEvent *> MidiInput::endInput(MidiTrack *track) {
 }
 
 void MidiInput::setTime(int ms) {
+    QMutexLocker lock(&_messagesMutex);
     _currentTime = ms;
 }
 

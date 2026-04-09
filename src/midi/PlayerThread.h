@@ -23,6 +23,7 @@
 #include <QThread>
 #include <QTimer>
 #include <QElapsedTimer>
+#include <atomic>
 
 // Forward declarations
 class MidiFile;
@@ -62,6 +63,11 @@ public:
      * \brief Creates a new PlayerThread.
      */
     PlayerThread();
+
+    /**
+     * \brief Destroys the PlayerThread and cleans up timer resources.
+     */
+    ~PlayerThread();
 
     /**
      * \brief Sets the MIDI file to play.
@@ -152,7 +158,7 @@ private:
     int interval, position, timeoutSinceLastSignal;
 
     /** \brief Playback control flag */
-    volatile bool stopped;
+    std::atomic<bool> stopped{false};
 
     /** \brief Timer for playback timing */
     QTimer *timer;

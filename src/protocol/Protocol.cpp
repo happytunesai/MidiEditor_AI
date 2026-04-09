@@ -32,9 +32,19 @@ Protocol::Protocol(MidiFile *f) {
     _redoSteps = new QList<ProtocolStep *>;
 }
 
+Protocol::~Protocol() {
+    delete _currentStep;
+    qDeleteAll(*_undoSteps);
+    delete _undoSteps;
+    qDeleteAll(*_redoSteps);
+    delete _redoSteps;
+}
+
 void Protocol::enterUndoStep(ProtocolItem *item) {
     if (_currentStep) {
         _currentStep->addItem(item);
+    } else {
+        delete item;
     }
 
     emit protocolChanged();
@@ -86,6 +96,7 @@ void Protocol::redo(bool emitChanged) {
 
 void Protocol::startNewAction(QString description, QImage *img) {
     // When there is a new Action started the redoStack has to be cleared
+    qDeleteAll(*_redoSteps);
     _redoSteps->clear();
 
     // Any old Action is ended
@@ -99,16 +110,17 @@ void Protocol::endAction() {
     // only create the Step when it exists and its size is bigger 0
     if (_currentStep && _currentStep->items() > 0) {
         _undoSteps->append(_currentStep);
+        _currentStep = 0;
+
+        // the file has been changed
+        _file->setSaved(false);
+
+        emit protocolChanged();
+        emit actionFinished();
+    } else {
+        delete _currentStep;
+        _currentStep = 0;
     }
-
-    // the action is ended so there is no currentStep
-    _currentStep = 0;
-
-    // the file has been changed
-    _file->setSaved(false);
-
-    emit protocolChanged();
-    emit actionFinished();
 }
 
 int Protocol::stepsBack() {
@@ -134,8 +146,10 @@ void Protocol::goTo(ProtocolStep *toGo) {
             undo(false);
         }
     } else if (_redoSteps->contains(toGo)) {
-        // do redo() until toGo is the last Step on the undoStep
-        while (_redoSteps->contains(toGo)) {
+        // Count steps to redo — cannot use contains() after redo()
+        // because redo() deletes the step (use-after-free)
+        int count = _redoSteps->size() - _redoSteps->indexOf(toGo);
+        for (int i = 0; i < count && !_redoSteps->isEmpty(); i++) {
             redo(false);
         }
     }

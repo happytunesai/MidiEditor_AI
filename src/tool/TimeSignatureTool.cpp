@@ -38,8 +38,8 @@ bool TimeSignatureTool::release() {
     int measureStartTick, measureEndTick;
     int measure = file()->measure(tick, &measureStartTick, &measureEndTick);
 
-    TimeSignatureDialog *dialog = new TimeSignatureDialog(file(), measure, measureStartTick);
-    dialog->exec();
+    TimeSignatureDialog dialog(file(), measure, measureStartTick);
+    dialog.exec();
 
     return true;
 }

@@ -5,6 +5,153 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 
 ---
 
+## [1.2.1] - 2026-04-09 — Stability & Bugfix Release
+
+* **72 bug fixes** across the entire codebase — memory leaks, crashes, undefined behavior, protocol corruption, concurrency issues, parser security hardening, and correctness fixes
+* **Guitar Pro 5 parser fixes** — 4 byte-alignment bugs fixed; GP5 files that previously failed to open now load correctly
+* **MidiPilot timestamp readability** — Chat timestamps moved from inside the bubble to a clean label above each message; uses light gray text for dark themes, muted gray for light themes — readable across all 5 themes
+
+<details>
+<summary>Full Changelog — 72 Bug Fixes + GP5 Parser</summary>
+
+### Critical: Crash & Hang Prevention (9 fixes)
+
+* **EVT-001** — `loadMidiEvent()` infinite recursion on malformed MIDI data. Added recursion guard: bail when running status byte is 0 instead of recursing forever
+* **EVT-002** — SysEx loader infinite loop on truncated stream (missing 0xF7 terminator). Added `content->atEnd()` check in the read loop
+* **EVT-003** — `TempoChangeEvent` constructor division by zero on zero tempo value. Guards `value <= 0` with 120 BPM default
+* **EVT-004** — `TempoChangeEvent::save()` division by zero when `_beats` is 0. Guards `_beats > 0` before division
+* **PROTO-005** — `Protocol::goTo()` use-after-free when navigating to a redo step. Replaced dangling-pointer `contains()` loop with index-based count
+* **CONV-001** — `readIntByteSizeString()` negative size from file → SIZE_MAX string read. Returns empty string when `d < 0`
+* **CONV-002** — `readIntSizeString()` negative length from file → SIZE_MAX string read. Returns empty string when `length < 0`
+* **CONV-005** — GP6 BitStream `powers[]` array out-of-bounds read for wordSize > 10. Replaced lookup table with direct `(1 << i)` bit shift
+* **CONV-010** — Stack buffer overflow: `lastNoteIdx[10]` OOB write from untrusted GP6/7 string number. Added `MAX_STRINGS` constant with `std::min` clamping
+
+### Protocol System Memory Leaks (5 fixes)
+
+* **PROTO-001** — `Protocol` had no destructor — both undo/redo stacks and all contained steps leaked on file close. Added `~Protocol()` with `qDeleteAll` cleanup
+* **PROTO-002** — `startNewAction()` cleared redo stack without deleting `ProtocolStep` objects. Added `qDeleteAll` before `clear()`
+* **PROTO-006** — `enterUndoStep()` leaked `ProtocolItem` when no action step was open. Added `delete item` fallback
+* **PROTO-007** — `ProtocolStep` destructor didn't delete contained `ProtocolItem` objects. Added `qDeleteAll(*_itemStack)`
+* **PROTO-008** — `releaseStep()` leaked old items after calling `release()`. Added `delete item` after extracting reverse action
+
+### MIDI Engine (8 fixes)
+
+* **MIDI-001** — `msOfTick()` leaked a heap-allocated QList on every call (the most-called timing function). Changed to stack allocation — eliminates the single largest memory leak in the codebase
+* **MIDI-002** — `save()` leaked QFile and QDataStream on every save. Changed to stack allocation
+* **MIDI-003** — `timeSignatureEvents()`/`tempoEvents()` used `reinterpret_cast` from `QMultiMap*` to `QMap*` — undefined behavior in Qt 6 where these are different types. Changed return types to `QMultiMap*`, updated 12 callers
+* **MIDI-004** — `MidiChannel::number()` checked `this == nullptr` (UB in C++) and used useless try/catch. Removed dead guards
+* **MIDI-005** — `PlayerThread::stopped` used `volatile bool` instead of `std::atomic<bool>` — data race between main and player threads
+* **MIDI-006** — `playedNotes` QMap accessed from multiple threads without synchronization. Added `QMutex` protection around all accesses
+* **MIDI-007** — `setMaxLengthMs()` leaked QList from `eventsBetween()`. Added `delete ev`
+* **MIDI-008** — `reloadState()` leaked old `_tracks` list on every undo/redo. Added `delete _tracks` before reassignment
+
+### MidiEvent Layer (5 fixes)
+
+* **EVT-005** — `OnEvent::moveToChannel()` null dereference when OffEvent is missing. Added null check
+* **EVT-006** — `TimeSignatureEvent::ticksPerMeasure()` used `powf` for integer power-of-2 (float precision loss) and could divide by zero. Replaced with `1 << denominator` and added null/zero guards
+* **EVT-007** — `KeySignatureEvent::save()` OR'd meta type byte 0x59 with channel — latent corruption if channel != 16. Changed to hardcoded `char(0x59)`
+* **EVT-008** — `ProtocolEntry::protocol()` leaked the `copy()` allocation when `file()` is null (during file loading). Added `delete oldObj` fallback — fixes memory leak of 2 objects per TextEvent loaded
+* **EVT-009** — `TempoChangeEvent::msPerTick()` null dereference when `file()` is null. Added null/zero guards with 1.0ms fallback
+
+### Tools & Selection (8 fixes)
+
+* **TOOL-001** — `SelectTool::draw()` used the macro literal `SELECTION_TYPE_BOX` (always 2, always true) instead of `stool_type == SELECTION_TYPE_BOX`. All selection types incorrectly drew box rectangles
+* **TOOL-005** — `EventTool::copiedEvents` leaked old clipboard events on each copy operation. Added `qDeleteAll` before `clear()`
+* **CONV-003** — `GpBinaryReader::checkBounds()` integer overflow: `count * N` could wrap negative for large counts. Added `count < 0` / `pointer_ < 0` guards with `size_t` cast
+* **CONV-006** — GP7/8 ZIP `extract()` didn't validate data offset+size against buffer. Added bounds check
+* **CONV-007** — GP7/8 ZIP `inflateData()` trusted claimed uncompressed size for allocation (DoS). Added 256MB cap
+* **CONV-008** — `readDuration()` left-shift overflow from out-of-range signed byte. Clamped to `std::clamp(byte + 2, 0, 7)`
+* **CONV-011** — `SimileMark::simple` on first measure accessed `measures[-1]`. Added `measureIndex > 0` guard
+* **CONV-013** — `GpMidiExport::createBytes()` accessed `raw[0]` on empty vector for unrecognized message types. Added empty check
+
+### Medium-Severity Fixes (29 fixes)
+
+#### Protocol & Undo
+
+* **PROTO-003/004** — `endAction()` marked file unsaved and emitted signals even with no active action step. Now only triggers when items were actually recorded
+* **PROTO-009** — `ProtocolItem::release()` deletion guard checked the wrong variable (`entry` instead of `_oldObject`)
+
+#### MIDI Engine Correctness
+
+* **MIDI-011** — `PlayerThread` had no destructor — QTimer and QElapsedTimer leaked on every play/stop cycle (Windows). Added `~PlayerThread()`
+* **MIDI-012** — MIDI input `receiveMessage` callback wrote shared state from RtMidi thread without synchronization. Added `QMutex` protection
+* **MIDI-013** — `endInput()` invalidated QMultiMap iterator during container modification. Changed to `erase()` which returns next valid iterator
+* **MIDI-014** — `progAtTick()` off-by-one skipped the first element in backward search. Fixed loop to check `begin()` element
+* **MIDI-015** — Metronome sent triple NoteOn with single NoteOff, creating stuck notes that accumulated. Reduced to single NoteOn
+* **MIDI-016** — `MidiFile(int, Protocol*)` protocol-copy constructor left `channels[]`, `_tracks`, etc. uninitialized. Added safe defaults
+* **MIDI-018** — `MidiInput::inputPorts()` crashed if `init()` failed (null `_midiIn`). Added null check
+
+#### MidiEvent Correctness
+
+* **EVT-010** — `PitchBendEvent::toMessage()` sent "cc" instead of "pitchbend" command — wrong MIDI messages during playback
+* **EVT-011** — `_tempID` uninitialized in MidiEvent constructors. Initialized to -1
+* **EVT-012** — Tempo loading used fragile magic-number subtraction (`value -= 50331648`). Replaced with `value &= 0x00FFFFFF` bitmask
+* **EVT-014** — `NoteOnEvent::setNote()` had no range validation. Added `qBound(0, n, 127)`
+
+#### Tool System
+
+* **TOOL-002** — `NewNoteTool()` constructor reset static `_channel`/`_track` to 0, losing user's selection when StandardTool was created
+* **TOOL-003** — `Tool::setImage()` leaked previous QImage on reassignment. Added `delete _image` before `new`
+* **TOOL-004** — `Tool` copy constructor shallow-copied QImage pointer (shared ownership → double-free risk). Changed to deep copy
+* **TOOL-006** — `EventTool` copy/paste null dereference if OnEvent has no OffEvent. Added null check
+* **TOOL-007** — `EventMoveTool::computeRaster()` null dereference on missing OffEvent. Added null check
+* **TOOL-012** — `TempoTool::release()` leaked TempoDialog after `exec()`. Stack-allocated instead
+* **TOOL-013** — `TimeSignatureTool::release()` leaked TimeSignatureDialog after `exec()`. Stack-allocated instead
+
+#### Converter & Parser
+
+* **CONV-004** — `GpBinaryReader::skip()` didn't validate pointer stayed in bounds. Added negative count guard and `checkBounds()`
+* **CONV-009** — Tuplet `enters=0` from GP6/7 XML caused float division by zero. Added `enters > 0` guard
+* **CONV-012** — `SimileMark::secondOfDouble` with notes underflow accessed negative indices. Added `measureIndex >= 2` bounds check
+* **CONV-014** — GP6/7 outer parser leaked when transferring to inner GP5 object. Fixed `self` pointer transfer to null before `reset()`
+* **CONV-017** — GP1/2 `gpReadStringBSoB` with byte=0 → negative size → same crash as CONV-001. Added `size < 0` guard
+
+#### Terminal & System
+
+* **TERM-001** — `Terminal::execute()` leaked old QProcess on re-execute. Added `deleteLater()` before creating new process
+* **TERM-002** — `Terminal::processStarted()` leaked QTimer on each retry (one per second). Connected `timeout` to `deleteLater()`
+* **MAIN-001** — `wstrtostr()` buffer overflow with multi-byte characters (CJK usernames). Rewrote with two-pass `WideCharToMultiByte`
+
+### Low-Severity Fixes (8 fixes)
+
+* **MIDI-019** — `MidiChannel::visible()` was hardcoded to `return true` (dead code). Now delegates to `ChannelVisibilityManager`
+* **MIDI-020** — `MidiChannel::setVisible()` used try/catch for control flow. Replaced with `_num` range guard
+* **MIDI-021** — `MidiTrack::reloadState()` called `setNumber()` which re-entered the protocol system during undo. Changed to direct member assignment
+* **EVT-017** — `OffEvent::onEvents` static map was heap-allocated and never freed. Changed to static local storage
+* **TOOL-009** — `GlueTool::mergeNoteGroup()` null dereference on `lastNote->offEvent()`. Added null guard
+* **TOOL-010** — `ToolButton::refreshIcon()` dereference of potentially null tool image. Added null guard
+* **TOOL-011** — `StandardTool` copy constructor didn't copy `newNoteTool` (uninitialized pointer). Added missing copy
+* **MAIN-002** — `MainWindow` heap-allocated in `main()` but never deleted. Added `delete w` before return
+
+### Guitar Pro 5 Parser Fixes (4 fixes)
+
+* **GP5 readGrace() override** — GP5 grace notes have 5 bytes (fret, dynamic, transition, duration, flags) but MidiEditor inherited GP3/4's 4-byte version. Added `Gp5Parser::readGrace()` override reading the missing dead/onBeat flags byte. This was the primary cause of cumulative byte misalignment
+* **GP5 readMixTableChange() skip(1)** — Added missing `reader.skip(1)` after allTracksFlags byte, matching TuxGuitar's reference implementation
+* **GP5 readMixTableChange() v5.1+ strings** — Changed conditional RSE string reads to always read 2 strings for GP5.1+ files, matching TuxGuitar
+* **GP5 readMeasureHeader() field order** — Moved repeatAlternative (flag 0x10) from before marker/keySignature to after beams section, matching TuxGuitar's byte ordering
+
+### Deferred Bugs (8 — low risk, high complexity)
+
+* **EVT-013** — On/OffEvent copy constructor dangling pointers (deep protocol architecture issue)
+* **EVT-015** — SysEx VLQ length prefix omission (load/save internally consistent; changing one breaks the other)
+* **EVT-016** — QDataStream status checks throughout loadMidiEvent (too invasive for low crash risk)
+* **EVT-018** — Dead `< 0` checks on `quint8`-sourced values (harmless defensive code)
+* **CONV-015** — Unchecked `std::stoi()` on ~30+ GP6/7 XML sites (needs helper + mass update)
+* **CONV-016** — Custom GP6 XML parser edge cases (design-level issue)
+* **MIDI-017** — RtMidi static objects never deleted (OS reclaims at exit)
+* **TOOL-008** — ScissorsTool protocol recording (already works — `setMidiTime()` defaults to `toProtocol=true`)
+
+### Technical Notes
+
+* **Bug audit**: 137 bugs reported by automated analysis, 130 confirmed (7 false positives), 50 already fixed in v1.1.9/v1.2.0, 80 remaining → 72 fixed + 8 deferred
+* **Files modified (40+)**: MidiEvent.cpp, TempoChangeEvent.cpp, TimeSignatureEvent.cpp, KeySignatureEvent.cpp, OnEvent.cpp, NoteOnEvent.cpp, PitchBendEvent.cpp, OffEvent.cpp, ProtocolEntry.cpp, Protocol.h/.cpp, ProtocolStep.cpp, ProtocolItem.cpp, MidiFile.h/.cpp, MidiChannel.cpp, MidiTrack.cpp, MidiInput.h/.cpp, MidiOutput.h/.cpp, PlayerThread.h/.cpp, Metronome.cpp, MidiPlayer.cpp, GpBinaryReader.cpp, Gp345Parser.h/.cpp, Gp678Parser.cpp, GpToNative.cpp, GpMidiExport.cpp, GpUnzip.cpp, GpImporter.cpp, GpModels.h, Gp12Parser.cpp, SelectTool.cpp, EventTool.cpp, EventMoveTool.cpp, NewNoteTool.cpp, Tool.cpp, GlueTool.cpp, ToolButton.cpp, StandardTool.cpp, TempoTool.cpp, TimeSignatureTool.cpp, Terminal.cpp, main.cpp
+* **GP5 parser reference**: TuxGuitar's `GP5InputStream.java` used to identify byte-alignment differences
+* **Bug report**: `Planning/03_bugs.md` — full scan results with verification status
+
+</details>
+
+---
+
 ## [1.2.0] - 2026-04-08 — Audio Export, MP3, FluidSynth Hardening
 
 * **Audio Export** — Export MIDI as WAV, FLAC, or OGG Vorbis using loaded SoundFonts (File → Export Audio, Ctrl+Shift+E)

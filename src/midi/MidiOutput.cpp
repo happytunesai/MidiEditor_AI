@@ -22,6 +22,7 @@
 
 #include <QByteArray>
 #include <QFile>
+#include <QMutexLocker>
 
 #include <vector>
 
@@ -42,6 +43,7 @@ using namespace rt::midi;
 RtMidiOut *MidiOutput::_midiOut = 0;
 QString MidiOutput::_outPort = "";
 QMap<int, QList<int> > MidiOutput::playedNotes = QMap<int, QList<int> >();
+QMutex MidiOutput::playedNotesMutex;
 bool MidiOutput::isAlternativePlayer = false;
 std::atomic<int> MidiOutput::channelActivity[16] = {};
 
@@ -107,6 +109,7 @@ void MidiOutput::sendCommand(MidiEvent *e) {
 
         if (isAlternativePlayer) {
             NoteOnEvent *n = dynamic_cast<NoteOnEvent *>(e);
+            QMutexLocker locker(&playedNotesMutex);
             if (n && n->velocity() > 0) {
                 playedNotes[n->channel()].append(n->note());
             } else if (n && n->velocity() == 0) {

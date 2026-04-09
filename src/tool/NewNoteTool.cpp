@@ -46,8 +46,6 @@ NewNoteTool::NewNoteTool()
     inDrag = false;
     line = 0;
     xPos = 0;
-    _channel = 0;
-    _track = 0;
     setImage(":/run_environment/graphics/tool/newnote.png");
     setToolTipText(QObject::tr("Create new Events"));
 }

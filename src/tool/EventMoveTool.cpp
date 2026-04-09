@@ -258,7 +258,7 @@ int EventMoveTool::computeRaster() {
         }
 
         NoteOnEvent *onEvent = dynamic_cast<NoteOnEvent *>(event);
-        if (onEvent) {
+        if (onEvent && onEvent->offEvent()) {
             if ((lastTick == -1) || (onEvent->offEvent()->midiTime() > lastTick)) {
                 lastTick = onEvent->offEvent()->midiTime();
             }

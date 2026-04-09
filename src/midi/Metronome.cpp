@@ -86,9 +86,7 @@ void Metronome::click(bool isDownbeat) {
         // Velocity (volume) - scale 0-100 to 0-127
         event[2] = (char)(qMin(127, (int)(loudness() * 1.27)));
         
-        // Send command multiple times to amplify polyphony
-        MidiOutput::sendCommand(event);
-        MidiOutput::sendCommand(event);
+        // Send NoteOn once
         MidiOutput::sendCommand(event);
         
         // Note Off follows immediately for click sounds

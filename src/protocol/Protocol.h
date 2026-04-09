@@ -55,6 +55,11 @@ public:
     Protocol(MidiFile *f);
 
     /**
+     * \brief Destroys the Protocol and cleans up all undo/redo steps.
+     */
+    ~Protocol();
+
+    /**
      * \brief Undoes the first ProtocolStep on the undo stack.
      * \param emitChanged If true, emits the protocolChanged() signal
      */

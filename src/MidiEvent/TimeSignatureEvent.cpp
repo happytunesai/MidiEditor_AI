@@ -54,15 +54,20 @@ int TimeSignatureEvent::num32In4() {
 }
 
 int TimeSignatureEvent::ticksPerMeasure() {
-    return (4 * numerator * file()->ticksPerQuarter()) / powf(2, denominator);
+    if (!file() || numerator <= 0 || denominator < 0)
+        return 1;
+    int denom = 1 << denominator;
+    if (denom == 0) return 1;
+    return (4 * numerator * file()->ticksPerQuarter()) / denom;
 }
 
 int TimeSignatureEvent::measures(int ticks, int *ticksLeft) {
-    //int numTicks = tick-midiTime();
+    int tpm = ticksPerMeasure();
+    if (tpm <= 0) tpm = 1;
     if (ticksLeft) {
-        *ticksLeft = ticks % ticksPerMeasure();
+        *ticksLeft = ticks % tpm;
     }
-    return ticks / ticksPerMeasure();
+    return ticks / tpm;
 }
 
 ProtocolEntry *TimeSignatureEvent::copy() {

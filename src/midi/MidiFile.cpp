@@ -145,6 +145,17 @@ MidiFile::MidiFile(QString path, bool *ok, QStringList *log) {
 MidiFile::MidiFile(int ticks, Protocol *p) {
     midiTicks = ticks;
     prot = p;
+    _tracks = nullptr;
+    playerMap = nullptr;
+    _saved = false;
+    _cursorTick = 0;
+    _pauseTick = -1;
+    _midiFormat = 1;
+    timePerQuarter = defaultTimePerQuarter;
+    maxTimeMS = 0;
+    for (int i = 0; i < 19; i++) {
+        channels[i] = nullptr;
+    }
 }
 
 MidiFile::~MidiFile() {
@@ -462,12 +473,12 @@ int MidiFile::variableLengthvalue(QDataStream *content) {
     return (int) v;
 }
 
-QMap<int, MidiEvent *> *MidiFile::timeSignatureEvents() {
-    return reinterpret_cast<QMap<int, MidiEvent *> *>(channels[18]->eventMap());
+QMultiMap<int, MidiEvent *> *MidiFile::timeSignatureEvents() {
+    return channels[18]->eventMap();
 }
 
-QMap<int, MidiEvent *> *MidiFile::tempoEvents() {
-    return reinterpret_cast<QMap<int, MidiEvent *> *>(channels[17]->eventMap());
+QMultiMap<int, MidiEvent *> *MidiFile::tempoEvents() {
+    return channels[17]->eventMap();
 }
 
 void MidiFile::calcMaxTime() {
@@ -542,11 +553,10 @@ int MidiFile::tick(int ms) {
 
 int MidiFile::msOfTick(int tick, QList<MidiEvent *> *events, int
                        msOfFirstEventInList) {
+    QList<MidiEvent *> localEvents;
     if (!events) {
-        events = new QList<MidiEvent *>(channels[17]->eventMap()->values());
-        if (!events) {
-            return 0;
-        }
+        localEvents = channels[17]->eventMap()->values();
+        events = &localEvents;
     }
 
     // timeMs holds the time of the current tick
@@ -1537,14 +1547,14 @@ void MidiFile::setPauseTick(int tick) {
 }
 
 bool MidiFile::save(QString path) {
-    QFile *f = new QFile(path);
+    QFile f(path);
 
-    if (!f->open(QIODevice::WriteOnly)) {
+    if (!f.open(QIODevice::WriteOnly)) {
         return false;
     }
 
-    QDataStream *stream = new QDataStream(f);
-    stream->setByteOrder(QDataStream::BigEndian);
+    QDataStream stream(&f);
+    stream.setByteOrder(QDataStream::BigEndian);
 
     // All Events are stored in allEvents. This is because the data has to be
     // saved by tracks and not by channels
@@ -1637,11 +1647,11 @@ bool MidiFile::save(QString path) {
 
     // write data to the filestream
     for (int i = 0; i < data.size(); i++) {
-        (*stream) << (qint8) (data.at(i));
+        stream << (qint8) (data.at(i));
     }
 
     // close the file
-    f->close();
+    f.close();
 
     _saved = true;
 
@@ -1699,6 +1709,7 @@ void MidiFile::setMaxLengthMs(int ms) {
         foreach(MidiEvent* event, *ev) {
             channel(event->channel())->removeEvent(event);
         }
+        delete ev;
     }
     calcMaxTime();
 }
@@ -1714,6 +1725,7 @@ void MidiFile::reloadState(ProtocolEntry *entry) {
     MidiFile *file = dynamic_cast<MidiFile *>(entry);
     if (file) {
         midiTicks = file->midiTicks;
+        delete _tracks;
         _tracks = new QList<MidiTrack *>(*(file->_tracks));
         pasteTracks = file->pasteTracks;
     }
@@ -1829,8 +1841,8 @@ int MidiFile::tonalityAt(int tick) {
 }
 
 void MidiFile::meterAt(int tick, int *num, int *denum, TimeSignatureEvent **lastTimeSigEvent) {
-    QMap<int, MidiEvent *> *meterEvents = timeSignatureEvents();
-    QMap<int, MidiEvent *>::iterator it = meterEvents->begin();
+    QMultiMap<int, MidiEvent *> *meterEvents = timeSignatureEvents();
+    QMultiMap<int, MidiEvent *>::iterator it = meterEvents->begin();
     TimeSignatureEvent *event = 0;
     while (it != meterEvents->end()) {
         TimeSignatureEvent *timeSig = dynamic_cast<TimeSignatureEvent *>(it.value());
@@ -1960,8 +1972,8 @@ QList<int> MidiFile::quantization(int fractionSize) {
 
 
 int MidiFile::startTickOfMeasure(int measure) {
-    QMap<int, MidiEvent *> *timeSigs = timeSignatureEvents();
-    QMap<int, MidiEvent *>::iterator it = timeSigs->begin();
+    QMultiMap<int, MidiEvent *> *timeSigs = timeSignatureEvents();
+    QMultiMap<int, MidiEvent *>::iterator it = timeSigs->begin();
 
     // Find the time signature event the measure is in and its start measure
     int currentMeasure = 1;
