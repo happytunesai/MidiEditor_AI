@@ -3,937 +3,594 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MidiEditor AI Manual</title>
+<title>MidiEditor AI — The AI-Powered MIDI Editor</title>
+<meta name="description" content="MidiEditor AI — The AI-powered MIDI editor with intelligent MidiPilot copilot, Guitar Pro import (GP1-GP8), FFXIV bard mode, FluidSynth playback, and audio export. Free &amp; open source for Windows.">
+<meta property="og:title" content="MidiEditor AI — The AI-Powered MIDI Editor">
+<meta property="og:description" content="Compose, edit, transform &amp; play MIDI with an AI copilot. Guitar Pro import, FFXIV bard mode, FluidSynth, 7 themes. Free &amp; open source.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://midieditor-ai.de">
+<meta property="og:image" content="https://midieditor-ai.de/screenshots/midieditor-full.png">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="icon" type="image/png" href="favicon.png">
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="site.css">
+
 <style>
-/* Hero section */
-.hero {
-    text-align: center;
-    padding: 2.5rem 1rem 1.5rem;
-    margin-bottom: 1rem;
-}
-.hero pre {
-    display: inline-block;
-    text-align: left;
-    font-size: 0.55em;
-    line-height: 1.15;
-    color: var(--accent);
-    background: transparent;
-    border: none;
-    margin: 0 auto;
-    padding: 0;
-    overflow-x: auto;
-}
-@media (max-width: 700px) {
-    .hero pre { font-size: 0.3em; }
-}
-.hero .tagline {
-    color: var(--text-muted);
-    font-size: 1.15em;
-    margin-top: 1rem;
-    margin-bottom: 0.25rem;
-}
-.hero .version-badge {
-    display: inline-block;
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    padding: 0.25em 0.9em;
-    font-size: 0.85em;
-    color: var(--accent);
-    margin-top: 0.5rem;
-}
+    /* ---- Inline: Chat Demo (slimmed from manual) ---- */
+    .chat-demo {
+        max-width: 580px; margin: 0 auto;
+        border: 1px solid var(--border); border-radius: 12px;
+        background: #f8f8f6; overflow: hidden;
+        text-align: left;
+        opacity: 0; transform: translateY(15px);
+        transition: opacity .5s, transform .5s;
+    }
+    .chat-demo.visible { opacity: 1; transform: translateY(0); }
+    .chat-demo-header {
+        background: #eee; padding: 0.45rem 0.75rem;
+        border-bottom: 1px solid #ddd;
+        display: flex; align-items: center; gap: 0.5rem;
+        font-size: .82em; font-weight: 600; color: #333;
+    }
+    .chat-demo-body {
+        padding: .75rem; min-height: 90px; max-height: 180px;
+        display: flex; flex-direction: column; gap: .45rem;
+        overflow-y: auto; background: #fff;
+    }
+    .chat-msg {
+        padding: 5px 10px; border-radius: 8px;
+        font-size: .82em; line-height: 1.4; max-width: 85%;
+        opacity: 0; transform: translateY(8px);
+        transition: opacity .3s, transform .3s;
+        word-wrap: break-word;
+    }
+    .chat-msg.visible { opacity: 1; transform: translateY(0); }
+    .chat-msg .ts { color: #999; font-size: .85em; margin-right: .3em; }
+    .chat-msg.user {
+        background: #0078D4; color: #fff;
+        align-self: flex-end; margin-left: 40px;
+    }
+    .chat-msg.ai {
+        background: #E8E8E8; color: #222;
+        align-self: flex-start; margin-right: 40px;
+    }
+    .agent-step {
+        font-size: .8em; padding: 3px 10px;
+        background: #F5F5F0; border-radius: 8px;
+        margin-right: 40px; align-self: flex-start;
+        opacity: 0; transform: translateY(8px);
+        transition: opacity .3s, transform .3s; color: #333;
+    }
+    .agent-step.visible { opacity: 1; transform: translateY(0); }
+    .agent-step.done { color: #2D8C3C; }
+    .chat-status-bar {
+        display: flex; align-items: center; gap: 6px;
+        padding: 4px 10px; border-radius: 6px;
+        margin: 0 .75rem; font-size: .76em; font-weight: 600;
+    }
+    .chat-status-bar.ready { background: #E8F5E9; color: #2E7D32; }
+    .chat-status-bar.processing { background: #FFF3E0; color: #E65100; }
+    .chat-demo-input {
+        border-top: 1px solid #ddd; padding: .4rem .75rem;
+        background: #f8f8f6; display: flex; align-items: center; gap: .4rem;
+    }
+    .chat-demo-input .input-field {
+        flex: 1; background: #fff; border: 1px solid #ccc;
+        border-radius: 6px; padding: 4px 8px; color: #333;
+        font-size: .82em; font-family: inherit;
+    }
+    .chat-demo-input .input-field.placeholder { color: #999; }
+    .chat-demo-input .mode-select {
+        background: #fff; border: 1px solid #ccc; border-radius: 4px;
+        font-size: .72em; padding: 2px 6px; height: 22px; color: #333;
+    }
+    .chat-demo-input .send-btn {
+        background: none; border: none; color: #333; padding: 2px 6px;
+        cursor: default; font-size: 1em; opacity: .4;
+    }
+    .chat-demo-input .send-btn.active { opacity: 1; }
+    .chat-demo-footer {
+        border-top: 1px solid #eee; padding: 3px .75rem;
+        background: #f0f0ee; display: flex; align-items: center;
+        gap: .5rem; font-size: .7em; color: #666;
+    }
+    .chat-demo-footer .spacer { flex: 1; }
+    .chat-demo-footer .model-tag,
+    .chat-demo-footer .effort-tag {
+        background: #fff; border: 1px solid #ccc;
+        border-radius: 4px; padding: 1px 7px; font-size: 1em; color: #333;
+    }
+    .chat-demo-footer .ffxiv-box {
+        display: flex; align-items: center; gap: 3px;
+    }
+    .chat-demo-footer .ffxiv-box input { margin: 0; }
 
-/* Section cards */
-.section-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-    gap: 1.25rem;
-    margin: 1.5rem 0 2rem;
-}
-.section-card {
-    background: var(--bg-card);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 1.4rem;
-    opacity: 0;
-    transform: translateY(20px) scale(0.95);
-    animation: cardPopIn 0.45s ease-out forwards;
-    transition: border-color 0.2s, transform 0.2s, box-shadow 0.2s;
-}
-@keyframes cardPopIn {
-    to { opacity: 1; transform: translateY(0) scale(1); }
-}
-.section-card:nth-child(1) { animation-delay: 0.05s; }
-.section-card:nth-child(2) { animation-delay: 0.12s; }
-.section-card:nth-child(3) { animation-delay: 0.19s; }
-.section-card:hover {
-    border-color: var(--accent);
-    transform: translateY(-3px) scale(1.02);
-    box-shadow: 0 6px 24px rgba(88, 166, 255, 0.12);
-}
-.section-card h3 {
-    margin: 0 0 0.6rem;
-    font-size: 1.1em;
-    border-bottom: none;
-    color: var(--text);
-}
-.section-card h3 .icon {
-    margin-right: 0.4em;
-}
-.section-card ul {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-}
-.section-card li {
-    margin-bottom: 0.35rem;
-}
-.section-card li a {
-    color: var(--text-muted);
-    font-size: 0.92em;
-    transition: color 0.15s;
-}
-.section-card li a:hover {
-    color: var(--accent);
-}
-.section-card .card-link {
-    display: block;
-    color: var(--accent);
-    font-weight: 600;
-    font-size: 0.95em;
-    margin-bottom: 0.5rem;
-    text-decoration: none;
-}
-.section-card .card-link:hover {
-    text-decoration: underline;
-}
-.section-card .card-desc {
-    color: var(--text-muted);
-    font-size: 0.9em;
-    margin-bottom: 0.6rem;
-    line-height: 1.5;
-}
-
-/* Quick-start banner */
-.quick-start {
-    background: linear-gradient(135deg, #161b22 0%, #1c2129 100%);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 1.5rem 1.75rem;
-    margin: 2rem 0;
-    display: flex;
-    align-items: center;
-    gap: 1.25rem;
-}
-.quick-start .qs-icon {
-    font-size: 2.5em;
-    flex-shrink: 0;
-}
-.quick-start .qs-text h3 {
-    margin: 0 0 0.3rem;
-    border-bottom: none;
-    font-size: 1.1em;
-}
-.quick-start .qs-text p {
-    margin: 0;
-    color: var(--text-muted);
-    font-size: 0.92em;
-}
-.quick-start .qs-text a {
-    font-weight: 600;
-}
-
-/* Chat demo animation */
-.chat-demo {
-    max-width: 600px;
-    margin: 1.5rem auto 0;
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    background: #f8f8f6;
-    overflow: hidden;
-    opacity: 0;
-    transform: translateY(15px);
-    transition: opacity 0.5s, transform 0.5s;
-    text-align: left;
-}
-.chat-demo.visible {
-    opacity: 1;
-    transform: translateY(0);
-}
-.chat-demo-header {
-    background: #eee;
-    padding: 0.5rem 0.75rem;
-    border-bottom: 1px solid #ddd;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    font-size: 0.82em;
-    font-weight: 600;
-    color: #333;
-}
-.chat-demo-header .label { color: #555; }
-.chat-demo-body {
-    padding: 0.75rem;
-    min-height: 100px;
-    max-height: 200px;
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    overflow-y: auto;
-    background: #fff;
-}
-.chat-msg {
-    padding: 6px 10px;
-    border-radius: 8px;
-    font-size: 0.84em;
-    line-height: 1.45;
-    max-width: 85%;
-    opacity: 0;
-    transform: translateY(8px);
-    transition: opacity 0.3s, transform 0.3s;
-    word-wrap: break-word;
-}
-.chat-msg.visible {
-    opacity: 1;
-    transform: translateY(0);
-}
-.chat-msg .ts {
-    color: #999;
-    font-size: 0.85em;
-    margin-right: 0.3em;
-}
-.chat-msg.user {
-    background: #0078D4;
-    color: #fff;
-    align-self: flex-end;
-    margin-left: 40px;
-}
-.chat-msg.ai {
-    background: #E8E8E8;
-    color: #222;
-    align-self: flex-start;
-    margin-right: 40px;
-}
-.chat-msg.ai .tool-call {
-    color: #6a3dba;
-    font-family: 'Consolas', 'Courier New', monospace;
-    font-size: 0.88em;
-}
-/* Agent steps container */
-.agent-step {
-    font-size: 0.82em;
-    padding: 4px 10px;
-    background: #F5F5F0;
-    border-radius: 8px;
-    margin-right: 40px;
-    align-self: flex-start;
-    opacity: 0;
-    transform: translateY(8px);
-    transition: opacity 0.3s, transform 0.3s;
-    color: #333;
-}
-.agent-step.visible { opacity: 1; transform: translateY(0); }
-.agent-step.pending { color: #CC7700; }
-.agent-step.active { color: #0066CC; font-weight: bold; }
-.agent-step.done { color: #2D8C3C; }
-/* Status bar � matches app's ? ? ? animation */
-.chat-status-bar {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 5px 10px;
-    border-radius: 6px;
-    margin: 0 0.75rem;
-    font-size: 0.78em;
-    font-weight: 600;
-    transition: background 0.3s;
-}
-.chat-status-bar.ready {
-    background: #E8F5E9;
-    color: #2E7D32;
-}
-.chat-status-bar.processing {
-    background: #FFF3E0;
-    color: #E65100;
-}
-.chat-status-bar .status-dots {
-    font-size: 13px;
-    white-space: nowrap;
-    flex-shrink: 0;
-}
-.chat-status-bar.ready .status-dots { color: #4CAF50; }
-.chat-status-bar.processing .status-dots { color: #FF9800; }
-/* Input bar */
-.chat-demo-input {
-    border-top: 1px solid #ddd;
-    padding: 0.5rem 0.75rem;
-    background: #f8f8f6;
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-}
-.chat-demo-input .new-chat-btn {
-    background: none;
-    border: none;
-    cursor: default;
-    padding: 2px 4px;
-    display: flex;
-    align-items: center;
-}
-.chat-demo-input .new-chat-btn svg {
-    width: 18px;
-    height: 18px;
-    stroke: #6a3dba;
-}
-.chat-demo-input .mode-select {
-    background: #fff;
-    border: 1px solid #ccc;
-    border-radius: 4px;
-    font-size: 0.75em;
-    padding: 2px 6px;
-    height: 24px;
-    color: #333;
-}
-.chat-demo-input .input-field {
-    flex: 1;
-    background: #fff;
-    border: 1px solid #ccc;
-    border-radius: 6px;
-    padding: 5px 8px;
-    color: #333;
-    font-size: 0.82em;
-    font-family: inherit;
-    min-height: 1.4em;
-    overflow: hidden;
-    white-space: nowrap;
-}
-.chat-demo-input .input-field.placeholder {
-    color: #999;
-}
-.chat-demo-input .send-btn {
-    background: none;
-    border: none;
-    color: #333;
-    padding: 2px 6px;
-    cursor: default;
-    font-size: 1em;
-    opacity: 0.4;
-    transition: opacity 0.2s;
-}
-.chat-demo-input .send-btn.active {
-    opacity: 1;
-}
-/* Footer bar � FFXIV checkbox, model, reasoning */
-.chat-demo-footer {
-    border-top: 1px solid #eee;
-    padding: 4px 0.75rem;
-    background: #f0f0ee;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    font-size: 0.72em;
-    color: #666;
-}
-.chat-demo-footer .ffxiv-box {
-    display: flex;
-    align-items: center;
-    gap: 3px;
-}
-.chat-demo-footer .ffxiv-box input {
-    margin: 0;
-    accent-color: #6a3dba;
-}
-.chat-demo-footer .spacer { flex: 1; }
-.chat-demo-footer .model-tag {
-    background: #fff;
-    border: 1px solid #ccc;
-    border-radius: 4px;
-    padding: 1px 8px;
-    font-size: 1em;
-    color: #333;
-}
-.chat-demo-footer .effort-tag {
-    background: #fff;
-    border: 1px solid #ccc;
-    border-radius: 4px;
-    padding: 1px 8px;
-    font-size: 1em;
-    color: #333;
-}
-.chat-demo-footer .settings-btn {
-    background: none;
-    border: none;
-    font-size: 1.1em;
-    color: #888;
-    cursor: default;
-    padding: 0 2px;
-}
+    /* Easter egg — Happy Tunes bard band logo */
+    .easter-egg {
+        display: flex; align-items: center;
+        margin-left: 0.5rem; flex-shrink: 0;
+        opacity: 0.7; transition: opacity .3s, transform .3s;
+    }
+    .easter-egg:hover { opacity: 1; transform: scale(1.1) rotate(-3deg); }
+    .easter-egg-img {
+        height: 36px; width: auto; border-radius: 6px;
+    }
+    @media (max-width: 860px) {
+        .easter-egg { position: absolute; top: 14px; right: 50px; }
+    }
 </style>
+
+<!-- Structured data -->
+<script type="application/ld+json">
+{
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "MidiEditor AI",
+    "operatingSystem": "Windows",
+    "applicationCategory": "MultimediaApplication",
+    "description": "AI-powered MIDI editor with intelligent copilot, Guitar Pro import, FFXIV bard mode, and FluidSynth playback.",
+    "url": "https://midieditor-ai.de",
+    "downloadUrl": "https://github.com/happytunesai/MidiEditor_AI/releases/latest",
+    "softwareVersion": "1.2.1",
+    "license": "https://github.com/happytunesai/MidiEditor_AI/blob/main/LICENSE",
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
+}
+</script>
 </head>
 <body>
-<div class="nav-bar">
-<div class="nav-header"><span class="nav-icon">&#129302;</span><span class="nav-title">MidiEditor AI Manual</span><span class="nav-version">v1.2.0</span></div>
-<div class="nav-links">
-<a href="index.html" class="active">Index</a>
-<a href="midipilot.html">MidiPilot</a>
-<a href="prompt-examples.html">Prompts</a>
-<span class="nav-sep">&middot;</span>
-<a href="ffxiv-channel-fixer.html">Fix X|V</a>
-<a href="split-channels.html">Split</a>
-<a href="themes.html">Themes</a>
-<a href="soundfont.html">SoundFonts</a>
-<a href="guitar-pro.html">Guitar&nbsp;Pro</a>
-<span class="nav-sep">&middot;</span>
-<a href="midi-overview.html">MIDI</a>
-<a href="editor-and-components.html">Editor</a>
-<a href="setup.html">Setup</a>
-<a href="editing-midi-files.html">Editing</a>
-<span class="nav-sep">&middot;</span>
-<a href="playback.html">Playback</a>
-<a href="export-audio.html">Export</a>
+
+<!-- ==================== NAVIGATION ==================== -->
+<nav class="site-nav" role="navigation" aria-label="Main navigation">
+<div class="container">
+    <a href="index.html" class="nav-brand">
+        <span class="brand-icon">&#x1F3B5;</span>
+        <span>MidiEditor AI</span>
+    </a>
+    <button class="nav-hamburger" aria-label="Toggle menu" aria-expanded="false">&#x2630;</button>
+    <ul class="nav-links">
+        <li><a href="#features">Features</a></li>
+        <li><a href="#showcase">Showcase</a></li>
+        <li class="nav-dropdown">
+            <span class="nav-dropdown-trigger">Docs &#x25BE;</span>
+            <div class="nav-dropdown-menu">
+                <a href="docs-index.html">Manual Overview</a>
+                <a href="midipilot.html">MidiPilot AI</a>
+                <a href="prompt-examples.html">Prompt Examples</a>
+                <a href="ffxiv-channel-fixer.html">FFXIV Channel Fixer</a>
+                <a href="guitar-pro.html">Guitar Pro Import</a>
+                <a href="themes.html">Themes &amp; Appearance</a>
+                <a href="soundfont.html">SoundFonts &amp; FluidSynth</a>
+                <a href="setup.html">Setup &amp; Installation</a>
+            </div>
+        </li>
+        <li><a href="#whats-new">Changelog</a></li>
+        <li><a href="https://github.com/happytunesai/MidiEditor_AI" target="_blank" rel="noopener">GitHub &#x2197;</a></li>
+        <li><a href="https://github.com/happytunesai/MidiEditor_AI/releases/latest" class="nav-cta">&#x2B07; Download</a></li>
+    </ul>
+    <a href="https://www.happytunes.de" target="_blank" rel="noopener" class="easter-egg" title="Happy Tunes FFXIV Bard Band">
+        <img src="happy_tunes.gif" alt="Happy Tunes" class="easter-egg-img">
+    </a>
 </div>
+</nav>
+
+<!-- ==================== HERO ==================== -->
+<section class="hero">
+    <div class="floating-notes" aria-hidden="true"></div>
+
+    <div class="hero-logo" aria-label="MidiEditor AI Logo">
+        <img src="MidiEditor_AI_logo.png" alt="MidiEditor AI"
+             onerror="this.parentElement.style.display='none';">
+    </div>
+
+    <span class="hero-badge">v1.2.1 &middot; Open Source &middot; Windows</span>
+
+    <h1 class="hero-title">
+        The <span class="text-gradient">AI-Powered</span> MIDI Editor
+    </h1>
+    <p class="hero-subtitle">
+        Compose &bull; Edit &bull; Transform &bull; Play &mdash;
+        with an intelligent copilot that understands music.
+    </p>
+
+    <div class="hero-actions">
+        <a href="https://github.com/happytunesai/MidiEditor_AI/releases/latest" class="btn btn-primary">
+            &#x2B07; Download v1.2.1
+        </a>
+        <a href="docs-index.html" class="btn btn-secondary" target="_blank">
+            &#x1F4D6; Documentation
+        </a>
+        <a href="https://github.com/happytunesai/MidiEditor_AI" class="btn btn-secondary" target="_blank" rel="noopener">
+            &#x1F4BB; GitHub Repo
+        </a>
+    </div>
+
+    <!-- Chat Demo Widget -->
+    <div class="demo-container">
+        <div class="chat-demo" id="chat-demo">
+            <div class="chat-demo-header"><span>&#x1F9E0; MidiPilot</span></div>
+            <div class="chat-demo-body" id="chat-body"></div>
+            <div class="chat-demo-input">
+                <select class="mode-select" disabled><option>Agent</option></select>
+                <div class="input-field placeholder" id="chat-input">Ask MidiPilot...</div>
+                <button class="send-btn" id="chat-send">&#x27A4;</button>
+            </div>
+            <div class="chat-status-bar ready" id="chat-status">
+                <span id="status-dots">&#x25CF;</span>
+                <span id="status-text">Ready</span>
+            </div>
+            <div class="chat-demo-footer">
+                <label class="ffxiv-box"><input type="checkbox" disabled> FFXIV</label>
+                <span class="spacer"></span>
+                <span class="model-tag">gpt-5.4</span>
+                <span class="effort-tag">&#x1F4AD; med</span>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- ==================== FEATURES ==================== -->
+<section class="section" id="features">
+<div class="container">
+    <div class="section-header reveal">
+        <h2>&#x2728; Features</h2>
+        <p>Everything you need for MIDI editing &mdash; plus an AI that actually helps.</p>
+    </div>
+    <div class="features-grid">
+        <div class="feature-card">
+            <span class="card-icon">&#x1F916;</span>
+            <h3>MidiPilot AI Copilot</h3>
+            <p>15 AI tools, Agent &amp; Simple mode, natural language MIDI editing.
+               Compose melodies, add harmonies, fix arrangements &mdash; just ask.</p>
+        </div>
+        <div class="feature-card">
+            <span class="card-icon">&#x1F3B8;</span>
+            <h3>Guitar Pro Import</h3>
+            <p>Open GP1 through GP8 files directly. 30+ years of Guitar Pro formats,
+               from 1993 DOS-era tabs to 2024 GP8, all auto-detected by header.</p>
+        </div>
+        <div class="feature-card">
+            <span class="card-icon">&#x1F3AE;</span>
+            <h3>FFXIV Bard Mode</h3>
+            <p>One-click FFXIV channel fixer for MidiBard2 &mdash; deterministic algorithm,
+               no AI needed. Guitar variant switching, range clamping, validation.</p>
+        </div>
+        <div class="feature-card">
+            <span class="card-icon">&#x1F50A;</span>
+            <h3>FluidSynth &amp; Audio Export</h3>
+            <p>Built-in FluidSynth synthesizer with SoundFont management.
+               Export to WAV, FLAC, OGG, or MP3 with the bundled LAME encoder.</p>
+        </div>
+        <div class="feature-card">
+            <span class="card-icon">&#x1F3A8;</span>
+            <h3>7 Themes &amp; MIDI Visualizer</h3>
+            <p>Dark, Light, Sakura, AMOLED, Material Dark, System, Classic.
+               10 color presets for note bars. Real-time MIDI visualizer for playback.</p>
+        </div>
+        <div class="feature-card">
+            <span class="card-icon">&#x1F3B9;</span>
+            <h3>Professional Piano Roll</h3>
+            <p>Full-featured piano-roll editor with velocity/CC editing, quantization,
+               copy/paste, recording, multi-track support, and smooth playback scrolling.</p>
+        </div>
+    </div>
 </div>
+</section>
 
-<!-- Hero -->
-<div class="hero">
-<pre id="ascii-logo" aria-label="MidiEditor AI"></pre>
-<p class="tagline" id="hero-tagline" style="opacity:0">Your complete guide to the AI-powered MIDI editor</p>
-<span class="version-badge" id="hero-badge" style="opacity:0">v1.2.0 &middot; Manual</span>
-
-<!-- Fake Chat Demo -->
-<div class="chat-demo" id="chat-demo">
-<div class="chat-demo-header"><span class="label">&#x1F9E0; MidiPilot</span></div>
-<div class="chat-demo-body" id="chat-body"></div>
-<div class="chat-demo-input">
-<span class="new-chat-btn" title="New Chat"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M8 9h8"/><path d="M8 13h6"/><path d="M12.01 18.594l-4.01 2.406v-3h-2a3 3 0 0 1 -3 -3v-8a3 3 0 0 1 3 -3h12a3 3 0 0 1 3 3v5.5"/><path d="M16 19h6"/><path d="M19 16v6"/></svg></span>
-<select class="mode-select" disabled><option>Agent</option></select>
-<div class="input-field placeholder" id="chat-input">Ask MidiPilot...</div>
-<button class="send-btn" id="chat-send">&#x27A4;</button>
+<!-- ==================== SHOWCASE ==================== -->
+<section class="section" id="showcase">
+<div class="container">
+    <div class="section-header reveal">
+        <h2>&#x1F4F7; Showcase</h2>
+        <p>See MidiEditor AI in action.</p>
+    </div>
+    <div class="showcase reveal">
+        <div class="showcase-track">
+            <div class="showcase-slide">
+                <img src="screenshots/midieditor-full.png" alt="MidiEditor AI — Full Piano Roll View" loading="lazy">
+                <div class="slide-caption">Piano Roll &mdash; Full editor with tracks, channels, and event view</div>
+            </div>
+            <div class="showcase-slide">
+                <img src="screenshots/MidiPilot_Agent_run.gif" alt="MidiPilot Agent Run" loading="lazy">
+                <div class="slide-caption">MidiPilot Agent Mode &mdash; Multi-step AI composition in action</div>
+            </div>
+            <div class="showcase-slide">
+                <img src="screenshots/ffxiv_channel_fix_rebuild.gif" alt="FFXIV Channel Fixer" loading="lazy">
+                <div class="slide-caption">FFXIV Channel Fixer &mdash; One-click MidiBard2-ready output</div>
+            </div>
+            <div class="showcase-slide">
+                <img src="screenshots/midi_visualizer.gif" alt="MIDI Visualizer" loading="lazy">
+                <div class="slide-caption">MIDI Visualizer &mdash; Real-time note visualization during playback</div>
+            </div>
+            <div class="showcase-slide">
+                <img src="screenshots/midipilot-overview.png" alt="MidiPilot Panel" loading="lazy">
+                <div class="slide-caption">MidiPilot Panel &mdash; AI context, chat history, and tool integration</div>
+            </div>
+        </div>
+        <button class="showcase-btn prev" aria-label="Previous slide">&#x276E;</button>
+        <button class="showcase-btn next" aria-label="Next slide">&#x276F;</button>
+        <div class="showcase-dots">
+            <button class="dot active" aria-label="Slide 1"></button>
+            <button class="dot" aria-label="Slide 2"></button>
+            <button class="dot" aria-label="Slide 3"></button>
+            <button class="dot" aria-label="Slide 4"></button>
+            <button class="dot" aria-label="Slide 5"></button>
+        </div>
+    </div>
 </div>
-<div class="chat-status-bar ready" id="chat-status">
-<span class="status-dots" id="status-dots">&#x25CF;</span>
-<span class="status-text" id="status-text">Ready</span>
+</section>
+
+<!-- ==================== STATS ==================== -->
+<section class="section">
+<div class="container">
+    <div class="stats-bar reveal">
+        <div class="stat-item">
+            <span class="stat-number text-gradient" data-target="15" data-suffix="+">0</span>
+            <span class="stat-label">AI Tools</span>
+        </div>
+        <div class="stat-item">
+            <span class="stat-number text-gradient" data-target="8">0</span>
+            <span class="stat-label">File Formats</span>
+        </div>
+        <div class="stat-item">
+            <span class="stat-number text-gradient" data-target="7">0</span>
+            <span class="stat-label">Themes</span>
+        </div>
+        <div class="stat-item">
+            <span class="stat-number text-gradient" data-target="72">0</span>
+            <span class="stat-label">Bugfixes in v1.2</span>
+        </div>
+        <div class="stat-item">
+            <span class="stat-number text-gradient" data-target="30" data-suffix="+">0</span>
+            <span class="stat-label">Years of GP Formats</span>
+        </div>
+    </div>
 </div>
-<div class="chat-demo-footer">
-<label class="ffxiv-box"><input type="checkbox" disabled> FFXIV</label>
-<span class="spacer"></span>
-<span class="model-tag">gpt-5.4</span>
-<span class="effort-tag">&#x1F4AD; med</span>
-<span class="settings-btn">&#x2699;</span>
+</section>
+
+<!-- ==================== WHAT'S NEW ==================== -->
+<section class="section" id="whats-new">
+<div class="container">
+    <div class="section-header reveal">
+        <h2>&#x1F195; What&rsquo;s New</h2>
+    </div>
+    <div class="whats-new reveal">
+        <span class="latest-badge">Latest</span>
+        <h3>v1.2.1 &mdash; April 2026</h3>
+        <ul>
+            <li><strong>72 bug fixes</strong> across the entire codebase &mdash; memory leaks, crashes, parser hardening</li>
+            <li><strong>Guitar Pro 5 parser</strong> &mdash; 4 byte-alignment bugs fixed; GP5 files that failed now load correctly</li>
+            <li><strong>MidiPilot timestamps</strong> &mdash; cleaner chat timestamp display across all themes</li>
+        </ul>
+        <a href="https://github.com/happytunesai/MidiEditor_AI/releases" class="changelog-link">View Full Changelog &rarr;</a>
+    </div>
 </div>
+</section>
+
+<!-- ==================== COMPARISON TABLE ==================== -->
+<section class="section" id="comparison">
+<div class="container">
+    <div class="section-header reveal">
+        <h2>&#x2696;&#xFE0F; MidiEditor AI vs. Original</h2>
+    </div>
+    <div class="reveal">
+    <table class="comparison-table">
+        <thead>
+            <tr><th>Feature</th><th>Original MidiEditor</th><th>AI Edition</th></tr>
+        </thead>
+        <tbody>
+            <tr><td>AI Copilot (MidiPilot)</td><td><span class="cross">&#x2716;</span></td><td><span class="check">&#x2714;</span></td></tr>
+            <tr><td>Guitar Pro Import (GP1&ndash;GP8)</td><td><span class="cross">&#x2716;</span></td><td><span class="check">&#x2714;</span></td></tr>
+            <tr><td>FFXIV Bard Mode</td><td><span class="cross">&#x2716;</span></td><td><span class="check">&#x2714;</span></td></tr>
+            <tr><td>FluidSynth Playback</td><td><span class="cross">&#x2716;</span></td><td><span class="check">&#x2714;</span></td></tr>
+            <tr><td>Audio Export (WAV/FLAC/MP3)</td><td><span class="cross">&#x2716;</span></td><td><span class="check">&#x2714;</span></td></tr>
+            <tr><td>Themes</td><td>1</td><td><strong>7</strong></td></tr>
+            <tr><td>Note Color Presets</td><td><span class="cross">&#x2716;</span></td><td><strong>10</strong></td></tr>
+            <tr><td>MIDI Visualizer</td><td><span class="cross">&#x2716;</span></td><td><span class="check">&#x2714;</span></td></tr>
+            <tr><td>SoundFont Management</td><td><span class="cross">&#x2716;</span></td><td><span class="check">&#x2714;</span></td></tr>
+            <tr><td>Chord Detection</td><td><span class="cross">&#x2716;</span></td><td><span class="check">&#x2714;</span></td></tr>
+        </tbody>
+    </table>
+    </div>
 </div>
+</section>
+
+<!-- ==================== DOWNLOAD ==================== -->
+<section class="section" id="download">
+<div class="container" style="text-align: center;">
+    <div class="section-header reveal">
+        <h2>&#x2B07; Download</h2>
+        <p>Free &amp; open source. Windows 10/11.</p>
+    </div>
+    <div class="hero-actions reveal" style="margin-bottom: 1.5rem;">
+        <a href="https://github.com/happytunesai/MidiEditor_AI/releases/latest" class="btn btn-primary" style="font-size: 1.15rem; padding: 1rem 2.5rem;">
+            &#x2B07; Download MidiEditor AI v1.2.1
+        </a>
+    </div>
+    <p class="reveal" style="color: var(--text-muted); font-size: .9rem;">
+        Available as <strong>Windows Installer (.exe)</strong> and <strong>Portable (.zip)</strong>
+        &middot;
+        <a href="https://github.com/happytunesai/MidiEditor_AI/releases">All releases</a>
+    </p>
 </div>
+</section>
 
-<hr>
+<!-- ==================== FOOTER ==================== -->
+<footer class="site-footer">
+    <div class="footer-links">
+        <a href="https://github.com/happytunesai/MidiEditor_AI" target="_blank" rel="noopener">GitHub Repo</a>
+        <a href="https://github.com/happytunesai" target="_blank" rel="noopener">All Projects</a>
+        <a href="docs-index.html">Documentation</a>
+        <a href="https://github.com/happytunesai/MidiEditor_AI/releases">Changelog</a>
+        <a href="https://github.com/happytunesai/MidiEditor_AI/issues" target="_blank" rel="noopener">Issues</a>
+        <a href="midipilot.html">MidiPilot</a>
+        <a href="guitar-pro.html">Guitar Pro</a>
+        <a href="https://www.happytunes.de" target="_blank" rel="noopener">Happy Tunes &#x1F3B6;</a>
+    </div>
+    <p class="footer-copy">
+        MidiEditor AI &copy; 2026 &middot;
+        <a href="https://github.com/happytunesai/MidiEditor_AI/blob/main/LICENSE">License</a>
+        &middot; Made with &#x266A; + &#x1F916;
+        &middot; A <a href="https://www.happytunes.de" target="_blank" rel="noopener">Happy Tunes</a> project
+    </p>
+</footer>
 
-<!-- Quick Start -->
-<div class="quick-start">
-<span class="qs-icon">&#x1F680;</span>
-<div class="qs-text">
-<h3>New to MidiEditor AI?</h3>
-<p>Start with the <a href="editor-and-components.html">Editor Overview</a>, then jump to <a href="midipilot.html">MidiPilot</a> to learn how the AI copilot works. Check out the <a href="prompt-examples.html">Prompt Examples</a> for real-world use cases.</p>
-</div>
-</div>
+<!-- Scroll to top -->
+<button class="scroll-top" aria-label="Scroll to top">&#x2191;</button>
 
-<!-- AI Features -->
-<h2>&#x1F916; AI Features</h2>
+<!-- Scripts -->
+<script src="site.js"></script>
 
-<div class="section-grid">
-
-<div class="section-card">
-<h3><span class="icon">&#x1F4AC;</span> MidiPilot &mdash; AI Copilot</h3>
-<p class="card-desc">The integrated AI brain that composes, edits, transforms, and analyzes your MIDI data via natural language.</p>
-<ul>
-<li><a href="midipilot.html#features">&#x2B50; Key Features</a></li>
-<li><a href="midipilot.html#chat-panel">&#x1F4AC; Chat Panel</a></li>
-<li><a href="midipilot.html#simple-mode">&#x1F4E8; Simple Mode (One-Shot)</a></li>
-<li><a href="midipilot.html#agent-mode">&#x1F3AF; Agent Mode (Multi-Step)</a></li>
-<li><a href="midipilot.html#ffxiv-mode">&#x1F3AE; FFXIV Bard Mode</a></li>
-<li><a href="midipilot.html#mode-comparison">&#x2696;&#xFE0F; Mode Comparison</a></li>
-<li><a href="midipilot.html#token-tracking">&#x1F525; Token Tracking</a></li>
-<li><a href="midipilot.html#settings">&#x2699;&#xFE0F; AI Settings</a></li>
-<li><a href="midipilot.html#system-prompts">&#x270F;&#xFE0F; Custom System Prompts</a></li>
-<li><a href="midipilot.html#tools">&#x1F527; AI Tools Reference (15 tools)</a></li>
-<li><a href="midipilot.html#providers">&#x1F50C; Supported Providers</a></li>
-<li><a href="midipilot.html#getting-started">&#x1F680; Getting Started</a></li>
-</ul>
-</div>
-
-<div class="section-card">
-<h3><span class="icon">&#x1F4A1;</span> Prompt Examples</h3>
-<p class="card-desc">Real-world examples showing how to use MidiPilot for composing, editing, harmonizing, converting, and more.</p>
-<ul>
-<li><a href="prompt-examples.html#composing">&#x1F3B5; Composing &amp; Generating</a></li>
-<li><a href="prompt-examples.html#editing">&#x270F;&#xFE0F; Editing &amp; Transforming</a></li>
-<li><a href="prompt-examples.html#harmony">&#x1F3B6; Harmony &amp; Theory</a></li>
-<li><a href="prompt-examples.html#arrangement">&#x1F3BB; Arrangement &amp; Orchestration</a></li>
-<li><a href="prompt-examples.html#conversion">&#x1F504; MIDI Conversion &amp; Cleanup</a></li>
-<li><a href="prompt-examples.html#ffxiv">&#x1F3AE; FFXIV Bard Performance</a></li>
-</ul>
-</div>
-
-</div>
-
-<!-- Tools -->
-<h2>&#x1F6E0;&#xFE0F; Tools</h2>
-
-<div class="section-grid">
-
-<div class="section-card">
-<h3><span class="icon"><img src="tools/ffxiv_fix.png" alt="Fix X|V" style="height:1.1em;vertical-align:middle;"></span> Fix X|V Channels</h3>
-<p class="card-desc">One-click deterministic FFXIV channel fixer &mdash; no AI needed. Sets up MidiBard2 channel mapping, program changes, and guitar variant switching.</p>
-<ul>
-<li><a href="ffxiv-channel-fixer.html#overview">&#x2699;&#xFE0F; How It Works (6-Step Algorithm)</a></li>
-<li><a href="ffxiv-channel-fixer.html#modes">&#x1F504; Rebuild vs Preserve Modes</a></li>
-<li><a href="ffxiv-channel-fixer.html#result">&#x2705; Result Summary</a></li>
-<li><a href="ffxiv-channel-fixer.html#before-after">&#x1F4F7; Before &amp; After</a></li>
-<li><a href="ffxiv-channel-fixer.html#instruments">&#x1F3B5; Supported Instruments</a></li>
-<li><a href="ffxiv-channel-fixer.html#guitar">&#x1F3B8; Guitar Variant Switching</a></li>
-<li><a href="ffxiv-channel-fixer.html#validation">&#x2705; Validation</a></li>
-<li><a href="ffxiv-channel-fixer.html#tips">&#x1F4A1; Tips</a></li>
-</ul>
-</div>
-
-<div class="section-card">
-<h3><span class="icon">&#x1F50A;</span> SoundFonts &amp; FluidSynth</h3>
-<p class="card-desc">Built-in FluidSynth synthesizer with SoundFont management, audio settings, and FFXIV SoundFont Mode for accurate bard playback.</p>
-<ul>
-<li><a href="soundfont.html#settings">&#x2699;&#xFE0F; FluidSynth Settings</a></li>
-<li><a href="soundfont.html#managing">&#x1F4E6; Managing SoundFonts</a></li>
-<li><a href="soundfont.html#enable-disable">&#x2611;&#xFE0F; Enable &amp; Disable SoundFonts</a></li>
-<li><a href="soundfont.html#download">&#x2B07;&#xFE0F; Download Dialog</a></li>
-<li><a href="soundfont.html#priority">&#x1F4CA; SoundFont Priority</a></li>
-<li><a href="soundfont.html#ffxiv-mode">&#x1F3AE; FFXIV SoundFont Mode</a></li>
-<li><a href="soundfont.html#tips">&#x1F4A1; Tips</a></li>
-</ul>
-</div>
-
-<div class="section-card">
-<h3><span class="icon">&#x1F3B6;</span> Audio Export</h3>
-<p class="card-desc">Render MIDI to WAV, FLAC, OGG Vorbis, or MP3 using loaded SoundFonts. Built-in LAME 3.100 MP3 encoder &mdash; no external tools needed.</p>
-<ul>
-<li><a href="export-audio.html#how-to">&#x1F3AC; How to Export</a></li>
-<li><a href="export-audio.html#dialog">&#x2699;&#xFE0F; Export Dialog</a></li>
-<li><a href="export-audio.html#progress">&#x23F3; Export Progress</a></li>
-<li><a href="export-audio.html#completion">&#x2705; Export Completion</a></li>
-<li><a href="export-audio.html#formats">&#x1F4CB; Format Details</a></li>
-<li><a href="export-audio.html#tips">&#x1F4A1; Tips</a></li>
-</ul>
-</div>
-
-<div class="section-card">
-<h3><span class="icon"><img src="tools/channel_split_28.png" alt="Split" style="height:1.1em;vertical-align:middle;"></span> Split Channels to Tracks</h3>
-<p class="card-desc">Convert single-track multi-channel GM MIDI files into one track per instrument. Auto-names tracks from GM Program Change events.</p>
-<ul>
-<li><a href="split-channels.html#overview">&#x2699;&#xFE0F; How It Works</a></li>
-<li><a href="split-channels.html#dialog">&#x1F4CB; The Split Dialog</a></li>
-<li><a href="split-channels.html#options">&#x1F527; Options</a></li>
-<li><a href="split-channels.html#result">&#x2705; Result</a></li>
-<li><a href="split-channels.html#naming">&#x1F3B5; Automatic Track Naming</a></li>
-<li><a href="split-channels.html#tips">&#x1F4A1; Tips</a></li>
-</ul>
-</div>
-
-<div class="section-card">
-<h3><span class="icon">&#x1F3A8;</span> Themes &amp; Appearance</h3>
-<p class="card-desc">Seven built-in themes (Dark, Light, Sakura, AMOLED, Material Dark, System, Classic), 10 color presets, and a real-time MIDI Visualizer.</p>
-<ul>
-<li><a href="themes.html#settings">&#x2699;&#xFE0F; Appearance Settings</a></li>
-<li><a href="themes.html#themes">&#x1F3A8; Theme Gallery &amp; Palettes</a></li>
-<li><a href="themes.html#presets">&#x1F308; Note Bar Color Presets (10)</a></li>
-<li><a href="themes.html#markers">&#x1F4CD; Timeline Markers</a></li>
-<li><a href="themes.html#visualizer">&#x1F3B5; MIDI Visualizer</a></li>
-<li><a href="themes.html#switching">&#x1F504; How Theme Switching Works</a></li>
-<li><a href="themes.html#tips">&#x1F4A1; Tips</a></li>
-</ul>
-</div>
-
-<div class="section-card">
-<h3><span class="icon">&#x1F3B8;</span> Guitar Pro Import</h3>
-<p class="card-desc">Open GP1&ndash;GP8 files directly &mdash; all formats from 1993 DOS-era to 2024 are supported with header-based detection.</p>
-<ul>
-<li><a href="guitar-pro.html#formats">&#x1F4CB; Supported Formats (GP1&ndash;GP8)</a></li>
-<li><a href="guitar-pro.html#history">&#x1F4C5; History of Guitar Pro</a></li>
-<li><a href="guitar-pro.html#detection">&#x1F50D; Header-Based Detection</a></li>
-<li><a href="guitar-pro.html#conversion">&#x1F3B5; What Gets Converted</a></li>
-<li><a href="guitar-pro.html#architecture">&#x2699;&#xFE0F; Parser Architecture</a></li>
-<li><a href="guitar-pro.html#workflow">&#x1F3AE; GP to FFXIV Workflow</a></li>
-<li><a href="guitar-pro.html#tips">&#x1F4A1; Tips</a></li>
-</ul>
-</div>
-
-</div>
-
-<!-- Getting Started -->
-<h2>&#x1F3B5; Getting Started</h2>
-
-<div class="section-grid">
-
-<div class="section-card">
-<h3><span class="icon">&#x1F44B;</span> Editor &amp; Components</h3>
-<p class="card-desc">Overview of MidiEditor AI&rsquo;s main window, toolbars, event view, track/channel editors, and menubar.</p>
-<a href="editor-and-components.html" class="card-link">Read Overview &rarr;</a>
-</div>
-
-<div class="section-card">
-<h3><span class="icon">&#x2699;&#xFE0F;</span> Setup &amp; Installation</h3>
-<p class="card-desc">Configure MIDI I/O, connect instruments, set up synthesizers, and configure auto-updates.</p>
-<ul>
-<li><a href="setup.html#io">&#x1F50C; MIDI I/O</a></li>
-<li><a href="setup.html#connect">&#x1F50A; Making Input Device Audible</a></li>
-<li><a href="setup.html#external">&#x1F3B9; Starting Synthesizers</a></li>
-<li><a href="setup.html#updates">&#x1F504; Auto-Updater (Update Now / After Exit)</a></li>
-<li><a href="setup.html#old">&#x1F3B9; Older MIDI Devices</a></li>
-<li><a href="setup.html#large_playback">&#x1F4CF; Larger Playback Toolbar</a></li>
-</ul>
-</div>
-
-</div>
-
-<!-- MIDI Fundamentals -->
-<h2>&#x1F3BC; MIDI Fundamentals</h2>
-
-<div class="section-grid">
-
-<div class="section-card">
-<h3><span class="icon">&#x1F4DA;</span> MIDI Overview</h3>
-<p class="card-desc">A primer on the MIDI protocol: tracks, channels, events, and I/O.</p>
-<ul>
-<li><a href="midi-overview.html#tracksandchannels">&#x1F3B5; Tracks and Channels</a></li>
-<li><a href="midi-overview.html#events">&#x1F4E8; MIDI Events</a></li>
-<li><a href="midi-overview.html#io">&#x1F50C; MIDI I/O</a></li>
-</ul>
-</div>
-
-<div class="section-card">
-<h3><span class="icon">&#x1F5A5;&#xFE0F;</span> Editor &amp; Components</h3>
-<p class="card-desc">The main window, menus, toolbar, event view, and side panels explained.</p>
-<ul>
-<li><a href="editor-and-components.html#menu">&#x1F4CB; Menubar &amp; Menus</a></li>
-<li><a href="editor-and-components.html#file">&#x1F4C2; File Menu</a></li>
-<li><a href="editor-and-components.html#edit">&#x270F;&#xFE0F; Edit Menu</a></li>
-<li><a href="editor-and-components.html#view">&#x1F441;&#xFE0F; View Menu</a></li>
-<li><a href="editor-and-components.html#midi">&#x1F3B9; MIDI Menu</a></li>
-<li><a href="menu-tools.html">&#x1F6E0;&#xFE0F; Tools Menu</a></li>
-<li><a href="editor-and-components.html#event-view">&#x1F4CA; Event View</a></li>
-<li><a href="editor-and-components.html#track_editor">&#x1F3B5; Track Editor</a></li>
-<li><a href="editor-and-components.html#channel_editor">&#x1F39B;&#xFE0F; Channel Editor</a></li>
-<li><a href="editor-and-components.html#event_editor">&#x270F;&#xFE0F; Event Editor</a></li>
-<li><a href="editor-and-components.html#status_bar">&#x1F3B6; Status Bar &amp; Chord Detection</a></li>
-</ul>
-</div>
-
-</div>
-
-<!-- Editing & Workflow -->
-<h2>&#x270F;&#xFE0F; Editing &amp; Workflow</h2>
-
-<div class="section-grid">
-
-<div class="section-card">
-<h3><span class="icon">&#x1F3B9;</span> Editing MIDI Files</h3>
-<p class="card-desc">Select, move, create, delete, quantize, copy/paste events and manage tracks.</p>
-<ul>
-<li><a href="editing-midi-files.html#selecting">&#x1F4CC; Selecting Events</a></li>
-<li><a href="editing-midi-files.html#context_menu">&#x1F5B1;&#xFE0F; Right-Click Context Menu</a></li>
-<li><a href="editing-midi-files.html#moving">&#x2194;&#xFE0F; Moving Events</a></li>
-<li><a href="editing-midi-files.html#duration">&#x23F1;&#xFE0F; Changing Duration</a></li>
-<li><a href="editing-midi-files.html#create_and_delete">&#x2795; Creating &amp; Deleting</a></li>
-<li><a href="editing-midi-files.html#std_tool">&#x1F5B1;&#xFE0F; Standard Tool</a></li>
-<li><a href="editing-midi-files.html#magnet">&#x1F9F2; Magnet &amp; Raster</a></li>
-<li><a href="editing-midi-files.html#quantization">&#x1F3AF; Quantization</a></li>
-<li><a href="editing-midi-files.html#copy_paste">&#x1F4CB; Copy/Paste</a></li>
-<li><a href="editing-midi-files.html#controls-and-velocities">&#x1F39B;&#xFE0F; Controls &amp; Velocities</a></li>
-<li><a href="editing-midi-files.html#tracks-and-channels">&#x1F3B5; Tracks &amp; Channels</a></li>
-</ul>
-</div>
-
-<div class="section-card">
-<h3><span class="icon">&#x25B6;&#xFE0F;</span> Playback &amp; Recording</h3>
-<p class="card-desc">Play, record, mute tracks/channels, set cursor, adjust speed, and use the metronome.</p>
-<ul>
-<li><a href="playback.html#muting-tracks-channels">&#x1F507; Muting Tracks &amp; Channels</a></li>
-<li><a href="playback.html#cursor">&#x1F4CD; Setting the Cursor</a></li>
-<li><a href="playback.html#speed">&#x23E9; Playback Speed</a></li>
-<li><a href="playback.html#smooth-scroll">&#x1F4F9; Smooth Playback Scrolling</a></li>
-<li><a href="playback.html#metronome">&#x1F941; Metronome</a></li>
-<li><a href="playback.html#lock">&#x1F512; Locking the Screen</a></li>
-<li><a href="playback.html#recording">&#x1F534; Recording MIDI Data</a></li>
-<li><a href="export-audio.html">&#x1F3B6; Audio Export (WAV/FLAC/OGG/MP3)</a></li>
-</ul>
-</div>
-
-</div>
-
-<div class="footer">
-<p>MidiEditor AI &mdash; <a href="https://github.com/happytunesai/MidiEditor_AI">GitHub</a> &middot; Created with &hearts; + AI</p>
-</div>
-
+<!-- Chat demo animation -->
 <script>
 (function() {
     'use strict';
 
-    // ASCII logo lines (raw Unicode)
-    var LOGO = [
-        '\u2588\u2588\u2588\u2557   \u2588\u2588\u2588\u2557\u2588\u2588\u2557\u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2557\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557\u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2557\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2588\u2557      \u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2557',
-        '\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2551\u2588\u2588\u2551\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557\u2588\u2588\u2551\u2588\u2588\u2554\u2550\u2550\u2550\u2550\u255D\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557\u2588\u2588\u2551\u255A\u2550\u2550\u2588\u2588\u2554\u2550\u2550\u255D\u2588\u2588\u2554\u2550\u2550\u2550\u2588\u2588\u2557\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557    \u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557\u2588\u2588\u2551',
-        '\u2588\u2588\u2554\u2588\u2588\u2588\u2588\u2554\u2588\u2588\u2551\u2588\u2588\u2551\u2588\u2588\u2551  \u2588\u2588\u2551\u2588\u2588\u2551\u2588\u2588\u2588\u2588\u2588\u2557  \u2588\u2588\u2551  \u2588\u2588\u2551\u2588\u2588\u2551   \u2588\u2588\u2551   \u2588\u2588\u2551   \u2588\u2588\u2551\u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255D    \u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2551\u2588\u2588\u2551',
-        '\u2588\u2588\u2551\u255A\u2588\u2588\u2554\u255D\u2588\u2588\u2551\u2588\u2588\u2551\u2588\u2588\u2551  \u2588\u2588\u2551\u2588\u2588\u2551\u2588\u2588\u2554\u2550\u2550\u255D  \u2588\u2588\u2551  \u2588\u2588\u2551\u2588\u2588\u2551   \u2588\u2588\u2551   \u2588\u2588\u2551   \u2588\u2588\u2551\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557    \u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2551\u2588\u2588\u2551',
-        '\u2588\u2588\u2551 \u255A\u2550\u255D \u2588\u2588\u2551\u2588\u2588\u2551\u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255D\u2588\u2588\u2551\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557\u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255D\u2588\u2588\u2551   \u2588\u2588\u2551   \u255A\u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255D\u2588\u2588\u2551  \u2588\u2588\u2551    \u2588\u2588\u2551  \u2588\u2588\u2551\u2588\u2588\u2551',
-        '\u255A\u2550\u255D     \u255A\u2550\u255D\u255A\u2550\u255D\u255A\u2550\u2550\u2550\u2550\u2550\u255D \u255A\u2550\u255D\u255A\u2550\u2550\u2550\u2550\u2550\u2550\u255D\u255A\u2550\u2550\u2550\u2550\u2550\u255D \u255A\u2550\u255D   \u255A\u2550\u255D    \u255A\u2550\u2550\u2550\u2550\u2550\u255D \u255A\u2550\u255D  \u255A\u2550\u255D    \u255A\u2550\u255D  \u255A\u2550\u255D\u255A\u2550\u255D'
-    ];
-
-    // Status messages from the real app (subset of ~60)
     var STATUS_MSGS = [
         'Counting notes...', 'Analyzing chord progressions...', 'Adding musical rizz...',
         'Cooking up a masterpiece...', 'Channeling inner Mozart...', 'Tuning the algorithms...',
-        'Harmonizing the universe...', 'Consulting the music theory gods...', 'Sprinkling some stardust...',
-        'Generating MIDI magic...', 'Thinking in 12-tone equal temperament...',
-        'Calculating optimal voicings...', 'Wrangling semitones...',
-        'Composing at the speed of thought...', 'Aligning the notes...'
+        'Harmonizing the universe...', 'Generating MIDI magic...', 'Composing at the speed of thought...',
+        'Calculating optimal voicings...', 'Wrangling semitones...'
     ];
 
-    // Chat conversation pairs
     var CHATS = [
         {
-            prompt: 'Compose a 4-bar piano melody in C major at 120 BPM',
+            prompt: 'Compose a 4-bar jazz intro in Dm7',
             steps: [
-                { icon: '\u2705', text: 'set_tempo(bpm=120)', state: 'done' },
-                { icon: '\u2705', text: 'create_notes(track=1, notes=[C4, E4, G4, ...])', state: 'done' }
+                { icon: '\u2705', text: 'set_tempo(bpm=110)' },
+                { icon: '\u2705', text: 'create_notes(track=1, notes=[D3, F3, A3, C4, ...])' }
             ],
-            response: '\u2705 Created 16 notes on Track 1, Channel 0\nC major melody \u2022 120 BPM \u2022 4 bars'
+            response: '\u2705 Created 18 notes on Track 1\nDm7 \u2192 G7 \u2192 Cmaj7 \u2022 110 BPM'
         },
         {
-            prompt: 'Transpose all notes up by a perfect fifth',
+            prompt: 'Fix this for FFXIV Bard (3 octave range)',
             steps: [
-                { icon: '\u2705', text: 'transpose_notes(semitones=7)', state: 'done' }
+                { icon: '\u2705', text: 'get_all_notes()' },
+                { icon: '\u2705', text: 'constrain_range(min=48, max=84)' }
             ],
-            response: '\u2705 Transposed 42 notes by +7 semitones\nC major \u2192 G major'
+            response: '\u2705 Mapped to C3\u2013C6 range\n6 notes adjusted \u2022 Bard-ready'
         },
         {
-            prompt: 'Convert this for FFXIV Bard performance (3 octaves)',
+            prompt: 'Add a walking bass line',
             steps: [
-                { icon: '\u2705', text: 'get_all_notes()', state: 'done' },
-                { icon: '\u2705', text: 'constrain_range(min=48, max=84)', state: 'done' }
+                { icon: '\u2705', text: 'create_track(name="Bass")' },
+                { icon: '\u2705', text: 'create_notes(track=2, channel=1, ...)' }
             ],
-            response: '\u2705 Mapped to C3\u2013C6 range, split chords to arpeggios\n6 notes adjusted \u2022 Bard-ready'
-        },
-        {
-            prompt: 'Add a walking bass line following the chord progression',
-            steps: [
-                { icon: '\u2705', text: 'create_track(name="Bass")', state: 'done' },
-                { icon: '\u2705', text: 'create_notes(track=2, channel=1, ...)', state: 'done' }
-            ],
-            response: '\u2705 Generated bass on Track 2, Channel 1\nQuarter notes \u2022 following root motion'
+            response: '\u2705 Generated bass on Track 2\nQuarter notes \u2022 following root motion'
         }
     ];
 
-    var logoEl = document.getElementById('ascii-logo');
-    var taglineEl = document.getElementById('hero-tagline');
-    var badgeEl = document.getElementById('hero-badge');
-    var chatDemo = document.getElementById('chat-demo');
-    var chatBody = document.getElementById('chat-body');
+    var chatDemo  = document.getElementById('chat-demo');
+    var chatBody  = document.getElementById('chat-body');
     var chatInput = document.getElementById('chat-input');
-    var sendBtn = document.getElementById('chat-send');
+    var sendBtn   = document.getElementById('chat-send');
     var statusBar = document.getElementById('chat-status');
     var statusDots = document.getElementById('status-dots');
     var statusText = document.getElementById('status-text');
 
-    // --- Timestamp helper ---
     function ts() {
         var d = new Date();
-        var h = String(d.getHours()).padStart(2, '0');
-        var m = String(d.getMinutes()).padStart(2, '0');
-        var s = String(d.getSeconds()).padStart(2, '0');
-        return '[' + h + ':' + m + ':' + s + ']';
+        return '[' + String(d.getHours()).padStart(2,'0') + ':' +
+               String(d.getMinutes()).padStart(2,'0') + ':' +
+               String(d.getSeconds()).padStart(2,'0') + ']';
     }
 
-    // --- Typewriter for ASCII logo ---
-    function typewriterLogo(cb) {
-        var fullText = LOGO.join('\n');
-        var i = 0;
-        var charsPerTick = 3;
-        logoEl.textContent = '';
-        var timer = setInterval(function() {
-            var end = Math.min(i + charsPerTick, fullText.length);
-            logoEl.textContent += fullText.substring(i, end);
-            i = end;
-            if (i >= fullText.length) {
-                clearInterval(timer);
-                if (cb) cb();
-            }
-        }, 8);
-    }
-
-    // --- Fade in element ---
-    function fadeIn(el, cb) {
-        el.style.transition = 'opacity 0.5s';
-        el.style.opacity = '1';
-        setTimeout(cb || function(){}, 500);
-    }
-
-    // --- Status bar: set to ready ---
-    function setStatusReady() {
+    var dotTimer, msgTimer;
+    function setReady() {
+        if (dotTimer) clearInterval(dotTimer);
+        if (msgTimer) clearInterval(msgTimer);
         statusBar.className = 'chat-status-bar ready';
         statusDots.textContent = '\u25CF';
         statusText.textContent = 'Ready';
     }
-
-    // --- Status bar: animated processing (? ? ? cycling) ---
-    var dotTimer = null;
-    var msgTimer = null;
-    function setStatusProcessing() {
+    function setProcessing() {
         statusBar.className = 'chat-status-bar processing';
-        var frames = ['\u25CF \u25CB \u25CB', '\u25CB \u25CF \u25CB', '\u25CB \u25CB \u25CF', '\u25CB \u25CF \u25CB'];
-        var fi = 0;
-        statusDots.textContent = frames[0];
-        statusText.textContent = STATUS_MSGS[Math.floor(Math.random() * STATUS_MSGS.length)];
-        dotTimer = setInterval(function() {
-            fi = (fi + 1) % frames.length;
-            statusDots.textContent = frames[fi];
-        }, 400);
-        msgTimer = setInterval(function() {
-            statusText.textContent = STATUS_MSGS[Math.floor(Math.random() * STATUS_MSGS.length)];
+        var f = ['\u25CF \u25CB \u25CB','\u25CB \u25CF \u25CB','\u25CB \u25CB \u25CF'], fi = 0;
+        statusDots.textContent = f[0];
+        statusText.textContent = STATUS_MSGS[Math.floor(Math.random()*STATUS_MSGS.length)];
+        dotTimer = setInterval(function(){ fi=(fi+1)%f.length; statusDots.textContent=f[fi]; }, 400);
+        msgTimer = setInterval(function(){
+            statusText.textContent = STATUS_MSGS[Math.floor(Math.random()*STATUS_MSGS.length)];
         }, 2400);
     }
-    function stopStatusProcessing() {
-        if (dotTimer) { clearInterval(dotTimer); dotTimer = null; }
-        if (msgTimer) { clearInterval(msgTimer); msgTimer = null; }
-        setStatusReady();
-    }
 
-    // --- Typewriter for input field ---
-    function typeInInput(text, cb) {
-        var i = 0;
-        chatInput.textContent = '';
-        chatInput.classList.remove('placeholder');
+    function typeIn(text, cb) {
+        var i=0; chatInput.textContent=''; chatInput.classList.remove('placeholder');
         sendBtn.classList.remove('active');
-        var timer = setInterval(function() {
-            chatInput.textContent += text.charAt(i);
-            i++;
-            if (i >= text.length) {
-                clearInterval(timer);
-                sendBtn.classList.add('active');
-                setTimeout(cb || function(){}, 600);
-            }
-        }, 45);
+        var t = setInterval(function(){
+            chatInput.textContent += text.charAt(i++);
+            if (i>=text.length) { clearInterval(t); sendBtn.classList.add('active'); setTimeout(cb,500); }
+        }, 40);
     }
 
-    // --- Add user message bubble ---
-    function addUserMsg(text, cb) {
-        chatInput.textContent = 'Ask MidiPilot...';
-        chatInput.classList.add('placeholder');
-        sendBtn.classList.remove('active');
-        var msg = document.createElement('div');
-        msg.className = 'chat-msg user';
-        var stamp = document.createElement('span');
-        stamp.className = 'ts';
-        stamp.textContent = ts();
-        msg.appendChild(stamp);
-        msg.appendChild(document.createTextNode(text));
-        chatBody.appendChild(msg);
-        void msg.offsetWidth;
-        msg.classList.add('visible');
-        setTimeout(cb || function(){}, 350);
+    function addMsg(cls, text, cb) {
+        if (cls === 'user') { chatInput.textContent='Ask MidiPilot...'; chatInput.classList.add('placeholder'); sendBtn.classList.remove('active'); }
+        var el=document.createElement('div'); el.className='chat-msg '+cls;
+        var s=document.createElement('span'); s.className='ts'; s.textContent=ts();
+        el.appendChild(s);
+        text.split('\n').forEach(function(l,i){ if(i)el.appendChild(document.createElement('br')); el.appendChild(document.createTextNode(l)); });
+        chatBody.appendChild(el); void el.offsetWidth; el.classList.add('visible');
+        chatBody.scrollTop = chatBody.scrollHeight;
+        setTimeout(cb||function(){}, 300);
     }
 
-    // --- Show agent steps one by one ---
     function showSteps(steps, idx, cb) {
-        if (idx >= steps.length) { if (cb) cb(); return; }
-        var s = steps[idx];
-        var el = document.createElement('div');
-        el.className = 'agent-step active';
-        el.textContent = '\uD83D\uDD04 ' + s.text;
-        chatBody.appendChild(el);
-        void el.offsetWidth;
-        el.classList.add('visible');
-        setTimeout(function() {
-            el.className = 'agent-step done visible';
-            el.textContent = s.icon + ' ' + s.text;
-            setTimeout(function() {
-                showSteps(steps, idx + 1, cb);
-            }, 500);
-        }, 900);
+        if (idx>=steps.length) { if(cb)cb(); return; }
+        var el=document.createElement('div'); el.className='agent-step';
+        el.textContent='\uD83D\uDD04 '+steps[idx].text;
+        chatBody.appendChild(el); void el.offsetWidth; el.classList.add('visible');
+        chatBody.scrollTop = chatBody.scrollHeight;
+        setTimeout(function(){
+            el.className='agent-step done visible';
+            el.textContent=steps[idx].icon+' '+steps[idx].text;
+            setTimeout(function(){ showSteps(steps,idx+1,cb); }, 400);
+        }, 800);
     }
 
-    // --- Add AI response bubble ---
-    function addAiMsg(text, cb) {
-        var msg = document.createElement('div');
-        msg.className = 'chat-msg ai';
-        var stamp = document.createElement('span');
-        stamp.className = 'ts';
-        stamp.textContent = ts();
-        msg.appendChild(stamp);
-        var lines = text.split('\n');
-        for (var i = 0; i < lines.length; i++) {
-            if (i > 0) msg.appendChild(document.createElement('br'));
-            msg.appendChild(document.createTextNode(lines[i]));
-        }
-        chatBody.appendChild(msg);
-        void msg.offsetWidth;
-        msg.classList.add('visible');
-        setTimeout(cb || function(){}, 900);
-    }
-
-    // --- Clear chat body for next round ---
     function clearChat(cb) {
-        var children = chatBody.children;
-        for (var i = 0; i < children.length; i++) {
-            children[i].style.opacity = '0';
-            children[i].style.transform = 'translateY(-8px)';
-        }
-        setTimeout(function() {
-            chatBody.innerHTML = '';
-            if (cb) cb();
-        }, 400);
+        Array.from(chatBody.children).forEach(function(c){ c.style.opacity='0'; c.style.transform='translateY(-8px)'; });
+        setTimeout(function(){ chatBody.innerHTML=''; if(cb)cb(); }, 350);
     }
 
-    // --- Run one chat conversation ---
     function runChat(idx, cb) {
-        var chat = CHATS[idx];
-        typeInInput(chat.prompt, function() {
-            addUserMsg(chat.prompt, function() {
-                setStatusProcessing();
-                // Simulate thinking time, then show agent steps
-                setTimeout(function() {
-                    showSteps(chat.steps, 0, function() {
-                        stopStatusProcessing();
-                        addAiMsg(chat.response, function() {
-                            setTimeout(function() {
-                                clearChat(cb);
-                            }, 4000);
+        var c = CHATS[idx];
+        typeIn(c.prompt, function(){
+            addMsg('user', c.prompt, function(){
+                setProcessing();
+                setTimeout(function(){
+                    showSteps(c.steps, 0, function(){
+                        setReady();
+                        addMsg('ai', c.response, function(){
+                            setTimeout(cb||function(){}, 2000);
                         });
                     });
-                }, 2400);
+                }, 800);
             });
         });
     }
 
-    // --- Cycle through all chats ---
-    function cycleChats() {
-        var idx = 0;
-        function next() {
-            runChat(idx, function() {
-                idx = (idx + 1) % CHATS.length;
-                next();
-            });
+    function runLoop(idx) {
+        if (idx >= CHATS.length) {
+            setTimeout(function(){ clearChat(function(){ runLoop(0); }); }, 2500);
+            return;
         }
-        next();
+        runChat(idx, function(){ runLoop(idx+1); });
     }
 
-    // --- Start the animation sequence ---
-    typewriterLogo(function() {
-        fadeIn(taglineEl, function() {
-            fadeIn(badgeEl, function() {
+    // Start when chat demo scrolls into view
+    var started = false;
+    if ('IntersectionObserver' in window) {
+        new IntersectionObserver(function(entries){
+            if (entries[0].isIntersecting && !started) {
+                started = true;
                 chatDemo.classList.add('visible');
-                setTimeout(cycleChats, 600);
-            });
-        });
-    });
+                setTimeout(function(){ runLoop(0); }, 800);
+            }
+        }, { threshold: 0.3 }).observe(chatDemo);
+    } else {
+        chatDemo.classList.add('visible');
+        setTimeout(function(){ runLoop(0); }, 1200);
+    }
 })();
 </script>
-<script src="lightbox.js"></script>
+
 </body>
 </html>

@@ -258,13 +258,13 @@ hr {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 0.35rem 0.55rem;
+    gap: 0.25rem clamp(0.25rem, 0.8vw, 0.55rem);
     flex-wrap: wrap;
 }
 
 .nav-bar a {
     color: var(--text-muted);
-    font-size: 0.78em;
+    font-size: clamp(0.62em, 1.3vw, 0.78em);
     font-weight: 500;
     white-space: nowrap;
     transition: color 0.2s, transform 0.15s;

@@ -1,0 +1,658 @@
+/* ============================================================
+   MidiEditor AI — Website Global Stylesheet (site.css)
+   Shares DNA with manual/style.css but adds landing-page power.
+   ============================================================ */
+
+/* ---------- Design Tokens ---------- */
+:root {
+    /* Core palette (inherited from manual) */
+    --bg:            #0d1117;
+    --bg-secondary:  #161b22;
+    --bg-card:       #1c2129;
+    --bg-card-hover: #242b35;
+    --text:          #e6edf3;
+    --text-muted:    #8b949e;
+    --accent:        #58a6ff;
+    --accent-hover:  #79c0ff;
+    --border:        #30363d;
+    --link:          #58a6ff;
+    --link-hover:    #79c0ff;
+    --code-bg:       #1c2129;
+
+    /* NEW — gradient / glow accents */
+    --gradient-hero:    linear-gradient(160deg, #0d1117 0%, #111820 40%, #151d28 70%, #0d1117 100%);
+    --gradient-accent:  linear-gradient(135deg, #58a6ff, #a855f7);
+    --gradient-rainbow: linear-gradient(90deg,
+        #ff6b6b, #ffa94d, #ffd43b, #69db7c, #58a6ff, #a855f7, #f06595, #ff6b6b);
+    --glow-blue:   0 0 30px rgba(88,166,255,0.15);
+    --glow-purple: 0 0 30px rgba(168,85,247,0.15);
+
+    /* Layout */
+    --nav-height: 64px;
+    --max-width:  1200px;
+    --section-gap: 6rem;
+}
+
+/* ---------- Reset & Base ---------- */
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+html { scroll-behavior: smooth; scroll-padding-top: calc(var(--nav-height) + 1rem); }
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.7;
+    font-size: 16px;
+    overflow-x: hidden;
+}
+
+a { color: var(--link); text-decoration: none; transition: color .2s; }
+a:hover { color: var(--link-hover); }
+
+img { max-width: 100%; height: auto; }
+
+/* ---------- Utility ---------- */
+.container { max-width: var(--max-width); margin: 0 auto; padding: 0 1.5rem; }
+.text-gradient {
+    background: var(--gradient-accent);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+.sr-only {
+    position: absolute; width: 1px; height: 1px;
+    padding: 0; margin: -1px; overflow: hidden;
+    clip: rect(0,0,0,0); border: 0;
+}
+
+/* =========================================================
+   NAVIGATION — Sticky glassmorphism navbar
+   ========================================================= */
+.site-nav {
+    position: fixed; top: 0; left: 0; right: 0;
+    height: var(--nav-height);
+    z-index: 1000;
+    background: rgba(13,17,23,0.8);
+    backdrop-filter: blur(16px) saturate(1.6);
+    -webkit-backdrop-filter: blur(16px) saturate(1.6);
+    border-bottom: 1px solid var(--border);
+    transition: background .3s, box-shadow .3s;
+}
+.site-nav.scrolled {
+    background: rgba(13,17,23,0.95);
+    box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+}
+.site-nav .container {
+    display: flex; align-items: center; height: 100%;
+}
+.nav-brand {
+    display: flex; align-items: center; gap: 0.6rem;
+    font-weight: 700; font-size: 1.15rem; color: var(--text);
+    text-decoration: none; flex-shrink: 0;
+}
+.nav-brand:hover { color: var(--accent); }
+.nav-brand .brand-icon { font-size: 1.4rem; }
+.nav-links {
+    display: flex; align-items: center; gap: 0.2rem;
+    margin-left: auto; list-style: none;
+}
+.nav-links a, .nav-links .nav-dropdown-trigger {
+    display: inline-flex; align-items: center; gap: 0.3rem;
+    padding: 0.45rem 0.85rem;
+    border-radius: 8px;
+    font-size: 0.9rem; font-weight: 500;
+    color: var(--text-muted);
+    text-decoration: none; cursor: pointer;
+    transition: color .2s, background .2s;
+}
+.nav-links a:hover, .nav-links .nav-dropdown-trigger:hover,
+.nav-links a.active {
+    color: var(--text);
+    background: rgba(255,255,255,0.06);
+}
+.nav-links a.active { color: var(--accent); }
+
+/* Download CTA in nav */
+.nav-cta {
+    background: var(--gradient-accent) !important;
+    color: #fff !important;
+    font-weight: 600 !important;
+    padding: 0.45rem 1.1rem !important;
+    border-radius: 8px !important;
+    transition: opacity .2s, transform .2s !important;
+}
+.nav-cta:hover { opacity: 0.9; transform: translateY(-1px); }
+
+/* Dropdown */
+.nav-dropdown {
+    position: relative;
+}
+.nav-dropdown-menu {
+    position: absolute; top: 100%; left: 0;
+    min-width: 200px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.5rem;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+    opacity: 0; visibility: hidden;
+    transform: translateY(8px);
+    transition: opacity .2s, transform .2s, visibility .2s;
+    z-index: 10;
+}
+.nav-dropdown:hover .nav-dropdown-menu,
+.nav-dropdown.open .nav-dropdown-menu {
+    opacity: 1; visibility: visible; transform: translateY(0);
+}
+.nav-dropdown-menu a {
+    display: block;
+    padding: 0.5rem 0.8rem;
+    border-radius: 6px;
+    font-size: 0.88rem;
+    color: var(--text-muted);
+}
+.nav-dropdown-menu a:hover {
+    color: var(--text); background: rgba(255,255,255,0.06);
+}
+
+/* Hamburger (mobile) */
+.nav-hamburger {
+    display: none;
+    background: none; border: none;
+    color: var(--text); font-size: 1.5rem;
+    cursor: pointer; padding: 0.3rem;
+    margin-left: auto;
+}
+@media (max-width: 860px) {
+    .nav-hamburger { display: block; }
+    .nav-links {
+        position: fixed; top: var(--nav-height); left: 0; right: 0;
+        background: var(--bg-secondary);
+        border-bottom: 1px solid var(--border);
+        flex-direction: column; align-items: stretch;
+        padding: 0.5rem 1rem;
+        transform: translateY(-110%);
+        transition: transform .3s;
+    }
+    .nav-links.open { transform: translateY(0); }
+    .nav-links a, .nav-links .nav-dropdown-trigger { padding: 0.7rem 0.5rem; }
+    .nav-dropdown-menu {
+        position: static; opacity: 1; visibility: visible;
+        transform: none; box-shadow: none;
+        border: none; background: transparent; padding: 0 0 0 1rem;
+    }
+}
+
+/* =========================================================
+   HERO SECTION
+   ========================================================= */
+.hero {
+    min-height: calc(100vh - var(--nav-height));
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    text-align: center;
+    padding: calc(var(--nav-height) + 3rem) 1.5rem 4rem;
+    background: var(--gradient-hero);
+    position: relative; overflow: hidden;
+}
+
+/* Subtle grid pattern behind hero */
+.hero::before {
+    content: '';
+    position: absolute; inset: 0;
+    background-image:
+        linear-gradient(rgba(88,166,255,0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(88,166,255,0.03) 1px, transparent 1px);
+    background-size: 60px 60px;
+    pointer-events: none;
+}
+
+/* Logo container */
+.hero-logo {
+    position: relative;
+    display: inline-block;
+    margin-bottom: 1.5rem;
+    border-radius: 16px;
+    overflow: hidden;
+    isolation: isolate; /* contain the blend mode */
+}
+.hero-logo img {
+    display: block;
+    max-width: min(700px, 90vw);
+    height: auto;
+    position: relative;
+    z-index: 1;
+}
+
+/* ==== C64 / Amiga Rainbow Sweep Animation ====
+   Uses mix-blend-mode: multiply — rainbow gradient × white text = rainbow text,
+   rainbow gradient × black background = stays black.
+   Requires the dark-background version of the logo (not transparent).
+   No mask-image needed → works on file:// and https:// alike. */
+.hero-logo::after {
+    content: '';
+    position: absolute; inset: 0;
+    background: var(--gradient-rainbow);
+    background-size: 300% 100%;
+    mix-blend-mode: multiply;
+    z-index: 2;
+    pointer-events: none;
+    animation: rainbow-sweep 4s linear infinite;
+}
+@keyframes rainbow-sweep {
+    0%   { background-position: 0% 50%; }
+    100% { background-position: 300% 50%; }
+}
+
+/* Respect reduced motion */
+@media (prefers-reduced-motion: reduce) {
+    .hero-logo::after { animation: none; opacity: 0; }
+    .floating-notes { display: none; }
+}
+
+/* Hero text */
+.hero-title {
+    font-size: clamp(2rem, 5vw, 3.5rem);
+    font-weight: 800;
+    line-height: 1.15;
+    margin-bottom: 0.75rem;
+}
+.hero-subtitle {
+    font-size: clamp(1rem, 2.5vw, 1.3rem);
+    color: var(--text-muted);
+    max-width: 600px;
+    margin: 0 auto 2rem;
+}
+
+/* Hero CTA buttons */
+.hero-actions {
+    display: flex; flex-wrap: wrap; gap: 1rem;
+    justify-content: center;
+    margin-bottom: 2.5rem;
+}
+.btn {
+    display: inline-flex; align-items: center; gap: 0.5rem;
+    padding: 0.75rem 1.6rem;
+    border-radius: 10px;
+    font-size: 1rem; font-weight: 600;
+    text-decoration: none;
+    transition: transform .2s, box-shadow .2s, opacity .2s;
+    cursor: pointer; border: none;
+}
+.btn:hover { transform: translateY(-2px); }
+.btn-primary {
+    background: var(--gradient-accent); color: #fff;
+    box-shadow: 0 4px 20px rgba(88,166,255,0.25);
+}
+.btn-primary:hover { box-shadow: 0 6px 28px rgba(88,166,255,0.35); color: #fff; }
+.btn-secondary {
+    background: var(--bg-card); color: var(--text);
+    border: 1px solid var(--border);
+}
+.btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+
+/* Hero version badge */
+.hero-badge {
+    display: inline-block;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 0.25rem 1rem;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    margin-bottom: 1.5rem;
+}
+
+/* =========================================================
+   FLOATING MUSIC NOTES (hero background)
+   ========================================================= */
+.floating-notes {
+    position: absolute; inset: 0;
+    pointer-events: none; overflow: hidden;
+    z-index: 0;
+}
+.floating-notes .note {
+    position: absolute;
+    font-size: 1.5rem;
+    opacity: 0;
+    color: var(--accent);
+    animation: float-up linear infinite;
+}
+@keyframes float-up {
+    0%   { transform: translateY(100vh) rotate(0deg); opacity: 0; }
+    10%  { opacity: 0.15; }
+    90%  { opacity: 0.15; }
+    100% { transform: translateY(-10vh) rotate(360deg); opacity: 0; }
+}
+
+/* =========================================================
+   SECTION BASE
+   ========================================================= */
+.section {
+    padding: var(--section-gap) 0;
+}
+.section-header {
+    text-align: center;
+    margin-bottom: 3rem;
+}
+.section-header h2 {
+    font-size: clamp(1.5rem, 3.5vw, 2.2rem);
+    font-weight: 700;
+    margin-bottom: 0.5rem;
+    border: none; padding: 0;
+}
+.section-header p {
+    color: var(--text-muted);
+    font-size: 1.1rem;
+    max-width: 600px;
+    margin: 0 auto;
+}
+.section:nth-child(even) {
+    background: var(--bg-secondary);
+}
+
+/* =========================================================
+   FEATURE CARDS
+   ========================================================= */
+.features-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 1.5rem;
+}
+.feature-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 2rem 1.75rem;
+    transition: transform .25s, border-color .25s, box-shadow .25s;
+    /* reveal animation base */
+    opacity: 0;
+    transform: translateY(24px);
+}
+.feature-card.visible {
+    opacity: 1;
+    transform: translateY(0);
+    transition: opacity .5s ease-out, transform .5s ease-out, border-color .25s, box-shadow .25s;
+}
+.feature-card:hover {
+    border-color: var(--accent);
+    transform: translateY(-4px);
+    box-shadow: var(--glow-blue);
+}
+.feature-card .card-icon {
+    font-size: 2.2rem;
+    margin-bottom: 0.75rem;
+    display: inline-block;
+    transition: transform .3s;
+}
+.feature-card:hover .card-icon {
+    transform: scale(1.15) rotate(-5deg);
+}
+.feature-card h3 {
+    font-size: 1.15rem;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+    color: var(--text);
+    border: none; padding: 0;
+}
+.feature-card p {
+    color: var(--text-muted);
+    font-size: 0.92rem;
+    line-height: 1.55;
+}
+
+/* =========================================================
+   SHOWCASE — Screenshot Carousel
+   ========================================================= */
+.showcase {
+    position: relative;
+    max-width: 900px;
+    margin: 0 auto;
+    overflow: hidden;
+    border-radius: 14px;
+    border: 1px solid var(--border);
+    background: var(--bg-card);
+}
+.showcase-track {
+    display: flex;
+    transition: transform .5s ease;
+}
+.showcase-slide {
+    min-width: 100%;
+    position: relative;
+}
+.showcase-slide img,
+.showcase-slide video {
+    width: 100%;
+    display: block;
+}
+.showcase-slide .slide-caption {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    padding: 1rem 1.5rem;
+    background: linear-gradient(transparent, rgba(0,0,0,0.85));
+    color: #fff; font-size: 0.95rem; font-weight: 500;
+}
+.showcase-btn {
+    position: absolute; top: 50%; transform: translateY(-50%);
+    background: rgba(0,0,0,0.6); border: none;
+    color: #fff; font-size: 1.5rem;
+    width: 44px; height: 44px;
+    border-radius: 50%; cursor: pointer;
+    transition: background .2s;
+    z-index: 5;
+}
+.showcase-btn:hover { background: rgba(88,166,255,0.5); }
+.showcase-btn.prev { left: 1rem; }
+.showcase-btn.next { right: 1rem; }
+.showcase-dots {
+    display: flex; gap: 0.5rem;
+    justify-content: center;
+    padding: 1rem;
+}
+.showcase-dots .dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: var(--border);
+    border: none; cursor: pointer;
+    transition: background .2s;
+}
+.showcase-dots .dot.active { background: var(--accent); }
+
+/* =========================================================
+   STATS BAR — Animated counters
+   ========================================================= */
+.stats-bar {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 1.5rem;
+    text-align: center;
+    max-width: 800px;
+    margin: 0 auto;
+}
+.stat-item .stat-number {
+    font-size: 2.5rem;
+    font-weight: 800;
+    display: block;
+    margin-bottom: 0.25rem;
+}
+.stat-item .stat-label {
+    font-size: 0.88rem;
+    color: var(--text-muted);
+}
+
+/* =========================================================
+   WHATS NEW — Latest release
+   ========================================================= */
+.whats-new {
+    max-width: 700px;
+    margin: 0 auto;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 2rem 2.5rem;
+    position: relative;
+}
+.whats-new .latest-badge {
+    position: absolute; top: -12px; left: 2rem;
+    background: var(--gradient-accent);
+    color: #fff; font-size: 0.75rem; font-weight: 700;
+    padding: 0.25rem 0.8rem; border-radius: 999px;
+    text-transform: uppercase; letter-spacing: 0.05em;
+}
+.whats-new h3 {
+    font-size: 1.25rem; font-weight: 700;
+    margin-bottom: 1rem;
+    border: none; padding: 0;
+}
+.whats-new ul {
+    list-style: none; padding: 0;
+}
+.whats-new li {
+    padding: 0.4rem 0;
+    color: var(--text-muted);
+    font-size: 0.95rem;
+}
+.whats-new li::before {
+    content: '•';
+    color: var(--accent);
+    font-weight: bold;
+    margin-right: 0.6rem;
+}
+.whats-new .changelog-link {
+    display: inline-block;
+    margin-top: 1rem;
+    font-weight: 600;
+}
+
+/* =========================================================
+   COMPARISON TABLE
+   ========================================================= */
+.comparison-table {
+    max-width: 700px;
+    margin: 0 auto;
+    border-collapse: collapse;
+    width: 100%;
+    font-size: 0.95rem;
+}
+.comparison-table th,
+.comparison-table td {
+    padding: 0.75rem 1.25rem;
+    text-align: center;
+    border-bottom: 1px solid var(--border);
+}
+.comparison-table th {
+    color: var(--text-muted);
+    font-weight: 600;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+.comparison-table th:first-child,
+.comparison-table td:first-child {
+    text-align: left;
+}
+.comparison-table td:first-child {
+    font-weight: 500;
+}
+.comparison-table .check { color: #4ade80; font-size: 1.2rem; }
+.comparison-table .cross { color: var(--text-muted); opacity: 0.5; font-size: 1.2rem; }
+
+/* =========================================================
+   CHAT DEMO (reused from manual, slimmed down)
+   ========================================================= */
+.demo-container {
+    max-width: 600px;
+    margin: 0 auto;
+}
+
+/* =========================================================
+   FOOTER
+   ========================================================= */
+.site-footer {
+    padding: 3rem 0;
+    border-top: 1px solid var(--border);
+    background: var(--bg-secondary);
+    text-align: center;
+}
+.footer-links {
+    display: flex; flex-wrap: wrap; gap: 1.5rem;
+    justify-content: center;
+    margin-bottom: 1.5rem;
+}
+.footer-links a {
+    color: var(--text-muted); font-size: 0.9rem;
+}
+.footer-links a:hover { color: var(--accent); }
+.footer-copy {
+    color: var(--text-muted);
+    font-size: 0.82rem;
+}
+
+/* =========================================================
+   THEME PREVIEW SWITCHER
+   ========================================================= */
+.theme-switcher-bar {
+    display: flex; gap: 0.5rem; justify-content: center;
+    margin-bottom: 1.5rem;
+}
+.theme-switcher-bar button {
+    background: var(--bg-card);
+    border: 2px solid var(--border);
+    border-radius: 8px;
+    padding: 0.4rem 1rem;
+    color: var(--text-muted);
+    font-size: 0.85rem; font-weight: 500;
+    cursor: pointer;
+    transition: border-color .2s, color .2s;
+}
+.theme-switcher-bar button.active,
+.theme-switcher-bar button:hover {
+    border-color: var(--accent);
+    color: var(--text);
+}
+.theme-preview-frame {
+    position: relative;
+    border-radius: 14px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+    max-width: 800px;
+    margin: 0 auto;
+}
+.theme-preview-frame img {
+    display: block; width: 100%;
+    transition: opacity .4s;
+}
+
+/* =========================================================
+   SCROLL ANIMATIONS (Intersection Observer helper)
+   ========================================================= */
+.reveal {
+    opacity: 0;
+    transform: translateY(24px);
+    transition: opacity .6s ease-out, transform .6s ease-out;
+}
+.reveal.visible {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+/* =========================================================
+   SCROLL TO TOP
+   ========================================================= */
+.scroll-top {
+    position: fixed; bottom: 2rem; right: 2rem;
+    width: 44px; height: 44px;
+    background: var(--accent); color: #fff; border: none;
+    border-radius: 50%; font-size: 1.3rem;
+    cursor: pointer;
+    opacity: 0; visibility: hidden;
+    transform: translateY(12px);
+    transition: opacity .3s, visibility .3s, transform .3s, background .2s;
+    z-index: 999;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+    display: flex; align-items: center; justify-content: center;
+}
+.scroll-top.visible {
+    opacity: 1; visibility: visible; transform: translateY(0);
+}
+.scroll-top:hover { background: var(--accent-hover); }
