@@ -311,58 +311,6 @@ MidiEditor AI does <b>not</b> rely on the file extension to determine the format
 
 <hr>
 
-<h2 id="fixes">Bugs Fixed from Upstream</h2>
-
-<p>
-The Meowchestra/MidiEditor upstream contained a non-functional Guitar Pro parser skeleton.
-MidiEditor AI fixed and completed it:
-</p>
-
-<table class="info-table">
-<tr>
-<th>Issue</th>
-<th>Problem</th>
-<th>Fix</th>
-</tr>
-<tr>
-<td><b>GP5 note effects</b></td>
-<td>Missing <code>readNoteEffects()</code> override &mdash; GP5 effect flags were read as GP3 format, corrupting subsequent data</td>
-<td>Added <code>Gp5Parser::readNoteEffects()</code> with correct GP5 flag layout</td>
-</tr>
-<tr>
-<td><b>Field ordering</b></td>
-<td><code>readNote()</code> read <code>accentuatedNote</code> and <code>ghostNote</code> flags in wrong order</td>
-<td>Swapped to match the actual binary layout</td>
-</tr>
-<tr>
-<td><b>EOF crashes</b></td>
-<td>No boundary checking &mdash; truncated files caused segfaults</td>
-<td>Added EOF checks throughout binary readers</td>
-</tr>
-<tr>
-<td><b>BCFZ decompression</b></td>
-<td>Used zlib <code>inflate()</code> &mdash; completely wrong algorithm for BCFZ</td>
-<td>Rewrote with correct bit-level LZ77 algorithm (ported from BardMusicPlayer C# source)</td>
-</tr>
-<tr>
-<td><b>ZIP extraction</b></td>
-<td>Parsed local file headers which have unreliable sizes with data descriptors</td>
-<td>Rewrote to parse the <b>central directory</b> from the end of the file</td>
-</tr>
-<tr>
-<td><b>XML lookup</b></td>
-<td><code>getSubnodeByName()</code> found nested elements before top-level collections (e.g., <code>&lt;Bars&gt;</code> inside <code>&lt;MasterBar&gt;</code>)</td>
-<td>All lookups now use <code>directOnly=true</code> for first-child-only matching</td>
-</tr>
-<tr>
-<td><b>GP1/GP2 missing</b></td>
-<td>No support at all for the original DOS formats</td>
-<td>New <code>Gp12Parser</code> ported from TuxGuitar reference</td>
-</tr>
-</table>
-
-<hr>
-
 <h2 id="tested">Tested Files</h2>
 
 <p>The parser has been validated against real-world files spanning all supported formats:</p>

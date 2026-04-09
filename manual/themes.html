@@ -563,5 +563,18 @@ theme perfectly &mdash; no stale colours or mismatched icons.
 <p>MidiEditor AI &mdash; <a href="https://github.com/happytunesai/MidiEditor_AI">GitHub</a> &middot; Created with &hearts; + AI</p>
 </div>
 
+<button class="scroll-top" id="scrollTopBtn" title="Back to top">&#x2191;</button>
+<script>
+(function() {
+    var btn = document.getElementById('scrollTopBtn');
+    window.addEventListener('scroll', function() {
+        btn.classList.toggle('visible', window.scrollY > 300);
+    });
+    btn.addEventListener('click', function() {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+})();
+</script>
+
 </body>
 </html>
