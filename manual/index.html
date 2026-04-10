@@ -189,7 +189,7 @@
         <li><a href="download.html" class="nav-cta">&#x2B07; Download</a></li>
     </ul>
     <a href="https://www.happytunes.de" target="_blank" rel="noopener noreferrer" class="easter-egg" title="Happy Tunes FFXIV Bard Band">
-        <img src="happy_tunes.gif" alt="Happy Tunes" class="easter-egg-img">
+        <img src="happy_tunes.gif" alt="Happy Tunes" class="easter-egg-img" width="360" height="203">
     </a>
 </div>
 </nav>
@@ -204,7 +204,7 @@
 
     <div class="hero-logo" aria-label="MidiEditor AI Logo">
         <img src="MidiEditor_AI_logo.png" alt="MidiEditor AI"
-             width="888" height="191"
+             width="888" height="191" fetchpriority="high"
              onerror="this.parentElement.style.display='none';">
     </div>
 
@@ -241,6 +241,7 @@
             <div style="border-top:1px solid #eee; padding:3px .75rem; background:#f8f8f6; display:flex; align-items:center; gap:.4rem; font-size:.7em; color:#666;">
                 <span>&#x1F4CB;</span>
                 <span>&#x23F1;</span>
+                <label for="mode-select" class="sr-only">MidiPilot Mode</label>
                 <select class="mode-select" disabled style="margin:0;" id="mode-select"><option>Agent</option><option>Simple</option><option>Compo</option></select>
                 <span style="color:#444; font-size:.95em;" id="token-display">&#x25A0; 0 | 0k &#x1F525; / 1M</span>
                 <span class="spacer" style="flex:1;"></span>
@@ -319,6 +320,10 @@
     <div class="showcase reveal">
         <div class="showcase-track">
             <div class="showcase-slide">
+                <img src="midipilot_ai_OG.png" alt="MidiEditor AI — The AI-Powered MIDI Editor" width="1200" height="630" loading="lazy">
+                <div class="slide-caption">MidiEditor AI &mdash; The AI-Powered MIDI Editor</div>
+            </div>
+            <div class="showcase-slide">
                 <img src="screenshots/midipilot-promt-example.png" alt="MidiEditor AI — MidiPilot Agent composing a metal arrangement" width="2623" height="1287" loading="lazy">
                 <div class="slide-caption">MidiPilot Agent &mdash; AI-composed metal arrangement with 6 tracks and 15 steps</div>
             </div>
@@ -347,6 +352,7 @@
             <button class="dot" aria-label="Slide 3"></button>
             <button class="dot" aria-label="Slide 4"></button>
             <button class="dot" aria-label="Slide 5"></button>
+            <button class="dot" aria-label="Slide 6"></button>
         </div>
     </div>
 </div>
