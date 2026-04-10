@@ -6458,3 +6458,667 @@ no feedback after export completion.
 the in-memory MidiFile to a temporary `.mid` file for the export process, then
 cleans up via `_exportTempMidiPath`. This fixes the "silent/empty audio export from
 Guitar Pro files" bug.
+
+---
+
+## Phase 21: Lyric Editor ⬜
+
+> **Goal:** A full-featured lyric editor that enables creating, importing, synchronizing,
+> and exporting song lyrics directly in MidiEditor AI. Lyrics are stored as MIDI meta
+> events (0x05 Lyric) embedded in the MIDI file or exported as SRT subtitle files.
+> A new dedicated Lyric Timeline below the piano roll displays text blocks cleanly
+> along the time axis — no more overlapping with other events.
+>
+> **Motivation:** Currently, lyrics are only shown as tiny, truncated marker labels in the
+> MatrixWidget timeline — overlapping, unreadable, and not editable. Musicians and
+> arrangers need a clean, synchronized text display that scrolls with the song, and a
+> simple way to enter, synchronize, and export lyrics. SRT is the universal standard
+> for subtitles and is understood by video editors and karaoke software alike.
+>
+> **Status:** Planning. Not yet implemented.
+
+### Analysis: What Exists Already
+
+**TextEvent Infrastructure (existing):**
+- `TextEvent` class in `src/MidiEvent/TextEvent.{h,cpp}` — stores `QString text()`,
+  `int type()` (0x01–0x07), inherits `midiTime()` from MidiEvent
+- MIDI Meta-Event Types: 0x01=Text, 0x02=Copyright, 0x03=Track Name,
+  0x04=Instrument Name, **0x05=Lyric**, 0x06=Marker, 0x07=Cue Point
+- Parsing in `MidiEvent.cpp` (L300–346): All types 0x01–0x07 create `TextEvent` objects
+- Storage in `QMultiMap<int, MidiEvent*>` per channel, accessed via `MidiFile::channelEvents(ch)`
+- `TextEvent::save()` produces MIDI-compliant bytes (0xFF + type + varlen + text)
+
+**Current Display (MatrixWidget, L840–970):**
+- Dashed vertical lines through the timeline at TextEvent positions
+- Small label badges at the top showing ~10–12 characters + ".." (truncated)
+- Toggle: `Appearance::showTextEventMarkers()`
+- **Problem:** Labels overlap, text is unreadable, not editable, not movable
+
+**MainWindow Layout (leftSplitter, vertical):**
+```
+leftSplitter (Qt::Vertical)
+├── matrixArea          (Piano Roll + vertical scrollbar)
+├── velocityArea        (MiscWidget: Velocity/CC/Tempo Editor)
+└── scrollBarArea       (Horizontal scrollbar, fixed height 20px)
+```
+→ The new LyricTimeline will be inserted as its own splitter entry between
+  `velocityArea` and `scrollBarArea` — or between `matrixArea` and `velocityArea`,
+  depending on UX testing.
+
+**Playback Sync (PlayerThread):**
+- Signal `timeMsChanged(int ms)` — main signal for playhead position
+- `playerStarted()` / `playerStopped()` signals
+- `MidiFile::msOfTick(int tick)` and `MidiFile::tick(int ms)` for conversion
+- → Sync hook: `PlayerThread::timeMsChanged()` → Lyric widget highlights current block
+
+**SRT Infrastructure:** Not present. Must be implemented from scratch.
+SRT is a trivial text format — no parser library needed.
+
+### SRT File Format
+
+```
+1
+00:00:05,000 --> 00:00:10,500
+First line of the verse
+
+2
+00:00:10,800 --> 00:00:15,200
+Second line continues here
+
+3
+00:00:16,000 --> 00:00:21,000
+Chorus begins now
+```
+
+Each block: sequence number, time range (HH:MM:SS,mmm --> HH:MM:SS,mmm), text (1+ lines),
+blank line as separator. Parsing is ~50 lines of code.
+
+### Implementation Order
+
+```
+Phase 21.1   LyricTimelineWidget (Display + Scroll Sync)           ⬜
+Phase 21.2   Lyric Blocks (Data Model + TextEvent Integration)     ⬜
+Phase 21.3   SRT Import/Export                                      ⬜
+Phase 21.4   Text Import Dialog (Paste + Manual Editor)             ⬜
+Phase 21.5   Lyric Sync Mode (Tap-to-Sync during Playback)         ⬜
+Phase 21.6   Interactive Editing (Drag, Resize, Edit in Place)      ⬜
+Phase 21.7   MIDI Lyric Embedding (Export as Meta Events)           ⬜
+Phase 21.8   UI Integration (Menu, Toolbar, Toggle, Settings)       ⬜
+Phase 21.9   LRC Export (FFXIV MidiBard2 Lyric Format)              ⬜
+```
+
+### Estimated Complexity
+
+| Sub-phase | New Code | Modified Code | Risk |
+|-----------|----------|---------------|------|
+| 21.1 LyricTimelineWidget | ~400 lines (new widget) | MainWindow.cpp (~40 lines) | Medium |
+| 21.2 Lyric Blocks (data model) | ~200 lines (LyricBlock class) | TextEvent.cpp (~20 lines) | Low |
+| 21.3 SRT Import/Export | ~250 lines (SrtParser class) | MidiFile.cpp (~30 lines) | Low |
+| 21.4 Text Import Dialog | ~300 lines (LyricImportDialog) | MainWindow.cpp (~20 lines) | Low |
+| 21.5 Tap-to-Sync | ~350 lines (SyncDialog + logic) | PlayerThread.cpp (~15 lines) | Medium |
+| 21.6 Interactive Editing | ~400 lines (drag/resize handlers) | LyricTimelineWidget (~80 lines) | Medium |
+| 21.7 MIDI Lyric Embedding | ~150 lines | MidiFile.cpp (~40 lines), TextEvent.cpp (~20 lines) | Low |
+| 21.8 UI Integration | ~100 lines | MainWindow.cpp (~60 lines), Appearance (~20 lines) | Low |
+| 21.9 LRC Export (FFXIV) | ~200 lines (LrcExporter class) | MainWindow.cpp (~15 lines) | Low |
+| **Total** | **~2350 lines new** | **~340 lines modified** | **Low–Medium** |
+
+---
+
+### 21.1 — LyricTimelineWidget (Display + Scroll Sync) ⬜
+
+> **Goal:** A new widget that displays lyric blocks as colored rectangles along the
+> time axis. Horizontal scrolling is synchronized with MatrixWidget and MiscWidget.
+> Togglable show/hide.
+
+**Architecture:**
+
+- New class `LyricTimelineWidget` inherits from `PaintWidget` (like MiscWidget)
+- Inserted into `leftSplitter` between `velocityArea` and `scrollBarArea`
+- Fixed minimum height ~60px, resizable via splitter handle up to ~200px
+- Collapsible: can be collapsed to 0 height via toggle
+
+**Display:**
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│ Lyrics │ ┌──────────┐    ┌─────────────────┐  ┌──────┐    ┌──────────┐│
+│        │ │ Verse 1  │    │ And the stars   │  │ fall │    │ Chorus   ││
+│        │ │ begins   │    │ are shining     │  │ down │    │ here     ││
+│        │ └──────────┘    └─────────────────┘  └──────┘    └──────────┘│
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+- Each lyric block = colored rectangle with text, width proportional to duration
+- Currently playing block is highlighted (e.g. brighter background, border)
+- Vertical playhead line synchronized with MatrixWidget
+- Measure/beat grid lines taken from MatrixWidget (same x-coordinates)
+
+**Scroll Sync:**
+- `MatrixWidget::xPosOfMs()` and `msOfXPos()` for coordinate-based synchronization
+- Horizontal scrolling via the same `hori` QScrollBar as MatrixWidget
+- `MatrixWidget::zoomChanged()` signal → LyricTimeline adjusts zoom accordingly
+
+**MIDI Scroll Mode:** When playback is running and "Follow Playback" is active,
+the Lyric Timeline auto-scrolls — same mechanism as MatrixWidget
+(via `PlayerThread::timeMsChanged()` → auto-scroll).
+
+**Implementation:**
+
+```cpp
+// src/gui/LyricTimelineWidget.h
+class LyricTimelineWidget : public PaintWidget {
+    Q_OBJECT
+public:
+    LyricTimelineWidget(MatrixWidget *matrixWidget, QWidget *parent = nullptr);
+
+    void setFile(MidiFile *file);
+    void setVisible(bool visible);
+
+public slots:
+    void onPlaybackPositionChanged(int ms);
+    void onZoomChanged();
+    void onScrollChanged(int value);
+
+signals:
+    void lyricBlockSelected(int tick);
+    void lyricBlockMoved(int oldTick, int newTick);
+
+protected:
+    void paintEvent(QPaintEvent *event) override;
+
+private:
+    MatrixWidget *_matrixWidget;
+    MidiFile *_file;
+    int _currentPlaybackMs = 0;
+    int _selectedBlockIndex = -1;
+};
+```
+
+**Files:**
+- **New:** `src/gui/LyricTimelineWidget.h`, `src/gui/LyricTimelineWidget.cpp`
+- **Modified:** `MainWindow.cpp` (leftSplitter insertion), `CMakeLists.txt` (new files)
+
+---
+
+### 21.2 — Lyric Blocks (Data Model + TextEvent Integration) ⬜
+
+> **Goal:** A clean data model for lyric blocks that can exist independently (before
+> embedding) and also interacts seamlessly with MIDI TextEvents (type 0x05).
+
+**LyricBlock Data Structure:**
+
+```cpp
+// src/midi/LyricBlock.h
+struct LyricBlock {
+    int startTick;       // Start position in MIDI ticks
+    int endTick;         // End position in MIDI ticks (= start of next syllable block)
+    QString text;        // The lyric text (one line/syllable/phrase)
+    int trackIndex;      // Assigned track (-1 = global)
+
+    // Computed values
+    int startMs() const; // Via MidiFile::msOfTick()
+    int endMs() const;
+    int durationTicks() const { return endTick - startTick; }
+};
+```
+
+**LyricManager Class:**
+
+```cpp
+// src/midi/LyricManager.h
+class LyricManager : public QObject {
+    Q_OBJECT
+public:
+    LyricManager(MidiFile *file);
+
+    // Access
+    QList<LyricBlock> allBlocks() const;
+    LyricBlock blockAtTick(int tick) const;
+    LyricBlock blockAtMs(int ms) const;
+
+    // Editing
+    void addBlock(const LyricBlock &block);
+    void removeBlock(int index);
+    void moveBlock(int index, int newStartTick);
+    void resizeBlock(int index, int newEndTick);
+    void editBlockText(int index, const QString &newText);
+
+    // Import
+    void importFromTextEvents();   // Read existing 0x05 lyrics from MidiFile
+    void importFromSrt(const QString &srtPath);
+    void importFromPlainText(const QString &text);
+
+    // Export
+    void exportToTextEvents();     // Write blocks as 0x05 lyrics into MidiFile
+    void exportToSrt(const QString &srtPath);
+
+    // Sync
+    void clearAllBlocks();
+    bool hasLyrics() const;
+
+signals:
+    void lyricsChanged();
+    void blockAdded(int index);
+    void blockRemoved(int index);
+    void blockModified(int index);
+
+private:
+    MidiFile *_file;
+    QList<LyricBlock> _blocks;     // Sorted by startTick
+};
+```
+
+**TextEvent Integration:**
+- `importFromTextEvents()` scans all channels for `TextEvent` with `type() == 0x05`
+- Converts to sorted `LyricBlock` list by `midiTime()`
+- `endTick` of a block = `startTick` of the next block (or + 480 ticks default)
+- `exportToTextEvents()` creates new `TextEvent(type=0x05)` for each block
+
+**Undo Integration:**
+- Every LyricManager action is wrapped in a Protocol action
+- `Protocol::startNewAction("Edit Lyrics")` → changes → `Protocol::endAction()`
+- Every lyric edit is undoable with Ctrl+Z
+
+**Files:**
+- **New:** `src/midi/LyricBlock.h`, `src/midi/LyricManager.{h,cpp}`
+- **Modified:** `MidiFile.h` (new member `LyricManager *_lyricManager`)
+
+---
+
+### 21.3 — SRT Import/Export ⬜
+
+> **Goal:** Read and write SRT files. Import creates LyricBlocks,
+> export writes LyricBlocks as SRT file.
+
+**SRT Parser:**
+
+```cpp
+// src/converter/SrtParser.h
+class SrtParser {
+public:
+    static QList<LyricBlock> importSrt(const QString &filePath, MidiFile *file);
+    static bool exportSrt(const QString &filePath, const QList<LyricBlock> &blocks, MidiFile *file);
+
+private:
+    static int timeStringToMs(const QString &timeStr);  // "00:01:23,456" → 83456
+    static QString msToTimeString(int ms);               // 83456 → "00:01:23,456"
+};
+```
+
+**Import Logic:**
+1. Read file line by line
+2. Regex pattern: `(\d{2}):(\d{2}):(\d{2}),(\d{3}) --> (\d{2}):(\d{2}):(\d{2}),(\d{3})`
+3. Convert start/end times to milliseconds
+4. `MidiFile::tick(ms)` → convert to ticks
+5. Create `LyricBlock` and insert into `LyricManager`
+
+**Export Logic:**
+1. Iterate all blocks sorted by `startTick`
+2. `MidiFile::msOfTick()` → milliseconds
+3. Write SRT format with sequence number, time range, text
+
+**Menu Integration:**
+- **File → Import Lyrics (SRT)…** — opens file dialog (*.srt filter)
+- **File → Export Lyrics (SRT)…** — saves as .srt
+
+**Edge Cases:**
+- Multi-line SRT entries → merged into one LyricBlock with `\n`
+- Overlapping time ranges → warning, but import anyway
+- Empty entries → skip
+- BOM (UTF-8 Byte Order Mark) → detect and strip
+
+**Files:**
+- **New:** `src/converter/SrtParser.{h,cpp}`
+- **Modified:** `MainWindow.cpp` (menu entries), `CMakeLists.txt`
+
+---
+
+### 21.4 — Text Import Dialog (Paste + Manual Editor) ⬜
+
+> **Goal:** An editor window where users can paste plain text lyrics (copy/paste)
+> or type them manually. Each line becomes one LyricBlock.
+
+**LyricImportDialog (QDialog):**
+
+```
+┌─ Import Lyrics ─────────────────────────────────────────────┐
+│                                                              │
+│  Paste or type your lyrics below (one line = one phrase):    │
+│  ┌────────────────────────────────────────────────────────┐  │
+│  │ Verse 1:                                               │  │
+│  │ I walk along the empty road                            │  │
+│  │ The only one that I have ever known                    │  │
+│  │                                                        │  │
+│  │ Chorus:                                                │  │
+│  │ And the stars are shining bright                       │  │
+│  │ ...                                                    │  │
+│  └────────────────────────────────────────────────────────┘  │
+│                                                              │
+│  Options:                                                    │
+│  ☑ Skip empty lines (treat as phrase separators)            │
+│  ☐ Skip lines starting with [ ] (section headers)           │
+│  Default phrase duration: [2.0] seconds                      │
+│  Start offset: [0.0] seconds                                 │
+│                                                              │
+│  Preview: 14 phrases detected                                │
+│                                                              │
+│  [Import & Sync Later]  [Import with Even Spacing]  [Cancel] │
+└──────────────────────────────────────────────────────────────┘
+```
+
+**Two Import Modes:**
+1. **Import & Sync Later** — Creates blocks with placeholder timings (evenly distributed
+   across the song duration). User synchronizes later via Tap-to-Sync (Phase 21.5).
+2. **Import with Even Spacing** — Distributes phrases evenly across the entire file duration
+   with configurable default phrase duration.
+
+**Features:**
+- `QPlainTextEdit` as input field with line numbers
+- Live preview: shows number of detected phrases
+- Option: treat empty lines as separators (verse/chorus gaps)
+- Option: skip lines starting with `[…]` as section headers
+- Start offset: where in the song lyrics begin
+
+**Files:**
+- **New:** `src/gui/LyricImportDialog.{h,cpp}`
+- **Modified:** `MainWindow.cpp` (menu/toolbar), `CMakeLists.txt`
+
+---
+
+### 21.5 — Lyric Sync Mode (Tap-to-Sync during Playback) ⬜
+
+> **Goal:** The core of the lyric editor: the song plays back, and the user holds
+> a key (e.g. Space) while a phrase is being sung — press = phrase starts,
+> release = phrase ends. Timestamps are captured in real time and assigned to
+> LyricBlocks.
+
+**Sync Dialog (LyricSyncDialog):**
+
+```
+┌─ Sync Lyrics ────────────────────────────────────────────────┐
+│                                                               │
+│  ▶ Playing: 01:23 / 04:15                ♪ ████████░░░░ 33%  │
+│                                                               │
+│  Current phrase (3 / 14):                                     │
+│  ┌──────────────────────────────────────────────────────────┐ │
+│  │        "The only one that I have ever known"             │ │
+│  └──────────────────────────────────────────────────────────┘ │
+│                                                               │
+│  Next: "Don't know where it goes"                             │
+│                                                               │
+│  ┌──────────────────────────────────────────────────────────┐ │
+│  │   HOLD [Space] while the phrase is being sung            │ │
+│  │   Press = phrase starts    Release = phrase ends          │ │
+│  └──────────────────────────────────────────────────────────┘ │
+│                                                               │
+│  Synced: 2 / 14 phrases                                      │
+│                                                               │
+│  [◀ Rewind 5s]  [⏸ Pause]  [Undo Last]  [Done]  [Cancel]   │
+└───────────────────────────────────────────────────────────────┘
+```
+
+**How It Works:**
+1. Dialog starts playback from the beginning (or configurable offset)
+2. Displays the current phrase prominently, the next phrase smaller below
+3. User holds **Space** (or configurable key):
+   - **KeyPress** → `startTick = currentPlaybackTick()`
+   - **KeyRelease** → `endTick = currentPlaybackTick()`
+4. Automatically advances to the next phrase
+5. **Undo Last** — reset last phrase and replay from that point
+6. **Rewind 5s** — rewind 5 seconds
+7. Progress display: "Synced: X / Y phrases"
+
+**Technical Implementation:**
+- `QShortcut` or `keyPressEvent()`/`keyReleaseEvent()` override in dialog
+- Playback via existing `PlayerThread` start/stop
+- `PlayerThread::timeMsChanged(int ms)` → `MidiFile::tick(ms)` → determine tick
+- Result written directly to `LyricManager::moveBlock()` / `resizeBlock()`
+- Entire sync operation as one Protocol action (one Ctrl+Z undoes everything)
+
+**Edge Cases:**
+- User presses Space too late → Rewind + Undo Last
+- User skips a phrase → Skip button or automatic counter advancement
+- Playback ends before all phrases synced → warning, rest stays unsynced
+- Very fast phrases → enforce minimum duration of 100ms
+
+**Files:**
+- **New:** `src/gui/LyricSyncDialog.{h,cpp}`
+- **Modified:** `MainWindow.cpp`, `CMakeLists.txt`
+
+---
+
+### 21.6 — Interactive Editing (Drag, Resize, Edit in Place) ⬜
+
+> **Goal:** Move lyric blocks in the LyricTimelineWidget via mouse, resize them
+> (adjust start/end), and double-click to edit text inline.
+
+**Mouse Interactions:**
+
+| Action | Behavior |
+|--------|----------|
+| **Click on block** | Select block, highlight |
+| **Double-click on block** | Open inline text editor (QLineEdit overlay) |
+| **Drag block horizontally** | Move block (change start + end tick) |
+| **Drag left edge** | Change start tick (shorten/lengthen left side) |
+| **Drag right edge** | Change end tick (shorten/lengthen right side) |
+| **Right-click** | Context menu: Edit, Delete, Split, Merge, Insert Before/After |
+| **Click in empty area** | Insert new block at this position |
+| **Delete key** | Delete selected block |
+
+**Context Menu:**
+- **Edit Text…** — text dialog for the block
+- **Delete Block** — remove block
+- **Split at Cursor** — split block at mouse position (two blocks)
+- **Merge with Next** — merge current block with the next one
+- **Insert Block Before** — insert empty block before current
+- **Insert Block After** — insert empty block after current
+
+**Visual Aids:**
+- Cursor changes: arrow (normal), hand (over block), double-arrow (at edges)
+- Snap-to-grid: blocks snap to beat/measure boundaries (configurable)
+- Drag preview: transparent block shows target position during drag
+
+**Undo:** Every drag/resize/edit action = separate Protocol action → individually undoable.
+
+**Files:**
+- **Modified:** `LyricTimelineWidget.cpp` (~400 new lines of mouse handlers)
+
+---
+
+### 21.7 — MIDI Lyric Embedding (Export as Meta Events) ⬜
+
+> **Goal:** Embed LyricBlocks as MIDI meta events (0x05 Lyric) into the MIDI file
+> so they are displayed in any MIDI player with lyric support. And vice versa:
+> import existing 0x05 events from a MIDI file into LyricBlocks.
+
+**Export (LyricBlocks → MIDI):**
+1. Remove existing 0x05 lyrics from the file (optional, with confirmation)
+2. Create a `TextEvent(type=0x05)` at `startTick` for each `LyricBlock`
+3. Insert into track 0 (or user-configurable track)
+4. `MidiFile::save()` writes the events as standard MIDI meta events
+
+**Import (MIDI → LyricBlocks):**
+1. Collect all `TextEvent` with `type() == 0x05` from all tracks
+2. Sort by `midiTime()`
+3. Convert to `LyricBlock` list
+4. `endTick` = `startTick` of next block (last block: + 960 ticks default)
+
+**Automatic Import:** When loading a MIDI file, check if 0x05 events exist.
+If so, they are automatically imported into the LyricManager and the
+LyricTimeline displays them immediately.
+
+**Compatibility:**
+- Standard MIDI Lyric Events (type 0x05) — universally compatible
+- Karaoke format: some MIDI karaoke files (.kar) use type 0x01 with
+  slash/backslash prefixes for line breaks → optional parsing
+- Guitar Pro: GP files have a dedicated lyrics field → could be converted
+  to TextEvents during GpImporter import (bonus, not in v1)
+
+**Files:**
+- **Modified:** `LyricManager.cpp` (import/export logic), `MidiFile.cpp` (auto-import on load)
+
+---
+
+### 21.8 — UI Integration (Menu, Toolbar, Toggle, Settings) ⬜
+
+> **Goal:** Clean integration of all lyric features into the MidiEditor AI
+> user interface — menus, toolbar button, toggle, keyboard shortcuts, settings.
+
+**Menu Entries (under "Tools" or new "Lyrics" menu):**
+
+| Menu | Entry | Shortcut |
+|------|-------|----------|
+| Tools → Lyrics | Import Lyrics (SRT)… | Ctrl+Shift+L |
+| Tools → Lyrics | Import Lyrics (Text)… | — |
+| Tools → Lyrics | Export Lyrics (SRT)… | — |
+| Tools → Lyrics | Embed Lyrics in MIDI | — |
+| Tools → Lyrics | Sync Lyrics… | — |
+| Tools → Lyrics | Clear All Lyrics | — |
+| View | Show Lyric Timeline | Ctrl+L |
+
+**Toolbar:**
+- New toggle button with lyric icon (text/notes symbol) in the toolbar
+- Click → show/hide LyricTimeline
+- Visual state: active = highlighted, inactive = grayed out
+
+**Settings (Appearance Tab):**
+- Lyric block color (default: theme-dependent, e.g. accent color with transparency)
+- Lyric text font size (default: 11pt)
+- Active block highlight color
+- Snap-to-grid for drag operations (on/off)
+
+**Keyboard Shortcuts:**
+- `Ctrl+L` — toggle Lyric Timeline visibility
+- `Ctrl+Shift+L` — SRT Import Dialog
+- `Space` (in Sync Dialog) — mark phrase (Press=Start, Release=End)
+
+**Theme Support:**
+- LyricTimelineWidget reads colors from `Appearance` class
+- Block colors defined for all 7 themes
+- Dark themes: light text on dark block background
+- Light themes: dark text on light block background
+
+**Files:**
+- **Modified:** `MainWindow.cpp` (menus, toolbar, toggle), `Appearance.{h,cpp}` (colors/settings),
+  `MidiSettingsWidget.cpp` (settings section for lyrics)
+
+---
+
+### 21.9 — LRC Export (FFXIV MidiBard2 Lyric Format) ⬜
+
+> **Goal:** Export lyrics in LRC format for use with MidiBard2's lyric display.
+> LRC is a simple timestamp+text format used by karaoke software and FFXIV
+> bard performance plugins. MidiBard2 reads `.lrc` files placed next to the
+> MIDI file and displays the lyrics in-game during performance.
+
+**LRC Format (from MidiBard2 template):**
+
+```
+[ar:Artist Name]
+[ti:Song Title]
+[al:Album]
+[by:Lyrics by]
+[offset:0]
+[00:07.40]Bard Name:Lyric Line 1
+[00:08.40]Another Bard Name:Lyric Line 2
+[00:10.40]Bard Name:Lyric Line 3
+[00:15.40]Lyric Line 4
+```
+
+**Format Details:**
+- **Header tags:** `[ar:...]` (artist), `[ti:...]` (title), `[al:...]` (album),
+  `[by:...]` (lyrics by), `[offset:N]` (global offset in ms)
+- **Timestamp:** `[MM:SS.cc]` where cc = centiseconds (hundredths of a second)
+- **Bard assignment (optional):** `BardName:Text` — assigns a lyric line to a
+  specific bard in a MidiBard2 ensemble. If omitted, the line is global.
+- **Multiple lines at same timestamp:** Allowed — MidiBard2 displays them simultaneously
+- **Encoding:** UTF-8 (supports Umlauts, special characters)
+
+**LrcExporter Class:**
+
+```cpp
+// src/converter/LrcExporter.h
+class LrcExporter {
+public:
+    struct LrcMetadata {
+        QString artist;
+        QString title;
+        QString album;
+        QString lyricsBy;
+        int offsetMs = 0;
+    };
+
+    static bool exportLrc(const QString &filePath,
+                          const QList<LyricBlock> &blocks,
+                          MidiFile *file,
+                          const LrcMetadata &metadata = {});
+
+    static QList<LyricBlock> importLrc(const QString &filePath, MidiFile *file);
+
+private:
+    static QString tickToLrcTimestamp(int tick, MidiFile *file);  // → "01:23.45"
+    static int lrcTimestampToMs(const QString &ts);               // "01:23.45" → 83450
+};
+```
+
+**Export Logic:**
+1. Write header tags from metadata (or auto-fill from MIDI file: track name → title)
+2. For each `LyricBlock` sorted by `startTick`:
+   - Convert `startTick` → milliseconds via `MidiFile::msOfTick()`
+   - Format as `[MM:SS.cc]` (centisecond precision)
+   - If block has a bard/track assignment: `[MM:SS.cc]BardName:Text`
+   - Otherwise: `[MM:SS.cc]Text`
+3. Write to `.lrc` file (UTF-8, no BOM)
+
+**Import Logic (bonus):**
+1. Parse header tags → metadata
+2. Regex: `\[(\d{2}):(\d{2})\.(\d{2})\](.+)`
+3. Convert MM:SS.cc → milliseconds → `MidiFile::tick(ms)` → ticks
+4. Optional bard prefix: split on first `:` if pattern matches `Name:Text`
+5. Create `LyricBlock` for each entry
+
+**FFXIV Integration:**
+- When FFXIV mode is enabled and lyrics exist, offer "Export LRC for MidiBard2"
+  in the export dialog
+- Auto-suggest filename: `{midi_filename}.lrc` (same base name as MIDI file)
+- If tracks have FFXIV instrument names, use them as bard names in the LRC
+- MidiBard2 expects the `.lrc` file next to the `.mid` file with the same base name
+
+**Menu Integration:**
+- **Tools → Lyrics → Export Lyrics (LRC)…** — MidiBard2 format
+- **Tools → Lyrics → Import Lyrics (LRC)…** — read existing LRC files
+
+**Files:**
+- **New:** `src/converter/LrcExporter.{h,cpp}`
+- **Modified:** `MainWindow.cpp` (menu entries), `CMakeLists.txt`
+
+---
+
+### Feasibility Analysis
+
+**Risk Assessment:**
+
+| Aspect | Rating | Comment |
+|--------|--------|---------|
+| **Widget Integration** | ✅ Feasible | leftSplitter allows arbitrary new widgets, MiscWidget proves the pattern |
+| **Scroll Sync** | ✅ Feasible | MiscWidget already synchronizes horizontally — same mechanism |
+| **SRT Parsing** | ✅ Trivial | ~50 lines regex-based parser, no external library needed |
+| **TextEvent MIDI I/O** | ✅ Existing | TextEvent class fully implemented, save/load works |
+| **Playback Sync** | ✅ Feasible | `PlayerThread::timeMsChanged()` provides real-time position |
+| **Tap-to-Sync** | ⚠️ Medium | keyPress/keyRelease timing must be robust enough (~50ms tolerance), Qt events may be delayed |
+| **Inline Editing** | ⚠️ Medium | QLineEdit overlay on PaintWidget requires precise positioning |
+| **Undo Integration** | ✅ Feasible | Protocol system supports arbitrary actions, proven pattern |
+| **Performance** | ✅ No issue | Typical song has 30–100 lyric blocks — no performance risk |
+
+**Dependencies:**
+- No external libraries needed
+- No new build system setup
+- No API dependencies
+- Purely Qt-based (QWidget, QPainter, QDialog)
+
+**Main Risk:** The Tap-to-Sync feature requires precise timing with low latency
+between the key event and the current playback position. Qt's event loop may
+introduce a few milliseconds of delay. Solution: cache `PlayerThread::timeMsChanged()`
+and use the last known value plus a small delta instead of querying the tick
+synchronously in the event handler. In the music domain, ±50ms tolerance is
+perfectly acceptable for lyric sync.

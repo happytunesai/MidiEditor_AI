@@ -582,10 +582,10 @@ def main():
             rf"\g<1>{latest_version}",
             content,
         )
-        # GitHub releases/download/vX.Y.Z/MidiEditor_AI_vX.Y.Z.zip
+        # GitHub releases/download/vX.Y.Z/MidiEditorAI-vX.Y.Z-win64.zip
         content = re.sub(
             r"(releases/download/v)\d+\.\d+\.\d+(/"
-            r"MidiEditor_AI_v)\d+\.\d+\.\d+(\.zip)",
+            r"MidiEditorAI-v)\d+\.\d+\.\d+(-win64\.zip)",
             rf"\g<1>{latest_version}\g<2>{latest_version}\3",
             content,
         )
@@ -595,9 +595,9 @@ def main():
             rf"\g<1>{latest_version}",
             content,
         )
-        # MidiEditor_AI_vX.Y.Z.zip (checksum labels etc.)
+        # MidiEditorAI-vX.Y.Z-win64.zip (checksum labels etc.)
         content = re.sub(
-            r"(MidiEditor_AI_v)\d+\.\d+\.\d+(\.zip)",
+            r"(MidiEditorAI-v)\d+\.\d+\.\d+(-win64\.zip)",
             rf"\g<1>{latest_version}\2",
             content,
         )
