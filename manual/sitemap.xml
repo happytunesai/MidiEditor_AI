@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <!-- Landing Page -->
+  <url><loc>https://midieditor-ai.de/</loc><priority>1.0</priority><changefreq>weekly</changefreq></url>
+
+  <!-- Main Pages -->
+  <url><loc>https://midieditor-ai.de/download.html</loc><priority>0.9</priority><changefreq>monthly</changefreq></url>
+  <url><loc>https://midieditor-ai.de/changelog.html</loc><priority>0.7</priority><changefreq>monthly</changefreq></url>
+  <url><loc>https://midieditor-ai.de/docs-index.html</loc><priority>0.8</priority><changefreq>monthly</changefreq></url>
+
+  <!-- Documentation -->
+  <url><loc>https://midieditor-ai.de/midipilot.html</loc><priority>0.8</priority><changefreq>monthly</changefreq></url>
+  <url><loc>https://midieditor-ai.de/prompt-examples.html</loc><priority>0.7</priority><changefreq>monthly</changefreq></url>
+  <url><loc>https://midieditor-ai.de/guitar-pro.html</loc><priority>0.7</priority><changefreq>monthly</changefreq></url>
+  <url><loc>https://midieditor-ai.de/ffxiv-channel-fixer.html</loc><priority>0.7</priority><changefreq>monthly</changefreq></url>
+  <url><loc>https://midieditor-ai.de/themes.html</loc><priority>0.6</priority><changefreq>monthly</changefreq></url>
+  <url><loc>https://midieditor-ai.de/soundfont.html</loc><priority>0.6</priority><changefreq>monthly</changefreq></url>
+  <url><loc>https://midieditor-ai.de/setup.html</loc><priority>0.6</priority><changefreq>monthly</changefreq></url>
+  <url><loc>https://midieditor-ai.de/export-audio.html</loc><priority>0.5</priority><changefreq>monthly</changefreq></url>
+  <url><loc>https://midieditor-ai.de/split-channels.html</loc><priority>0.5</priority><changefreq>monthly</changefreq></url>
+  <url><loc>https://midieditor-ai.de/playback.html</loc><priority>0.5</priority><changefreq>monthly</changefreq></url>
+  <url><loc>https://midieditor-ai.de/record.html</loc><priority>0.5</priority><changefreq>monthly</changefreq></url>
+  <url><loc>https://midieditor-ai.de/editing-midi-files.html</loc><priority>0.5</priority><changefreq>monthly</changefreq></url>
+  <url><loc>https://midieditor-ai.de/midi-overview.html</loc><priority>0.5</priority><changefreq>monthly</changefreq></url>
+  <url><loc>https://midieditor-ai.de/editor-and-components.html</loc><priority>0.5</priority><changefreq>monthly</changefreq></url>
+
+  <!-- Menu Reference -->
+  <url><loc>https://midieditor-ai.de/menu-file.html</loc><priority>0.4</priority><changefreq>monthly</changefreq></url>
+  <url><loc>https://midieditor-ai.de/menu-edit.html</loc><priority>0.4</priority><changefreq>monthly</changefreq></url>
+  <url><loc>https://midieditor-ai.de/menu-midi.html</loc><priority>0.4</priority><changefreq>monthly</changefreq></url>
+  <url><loc>https://midieditor-ai.de/menu-playback.html</loc><priority>0.4</priority><changefreq>monthly</changefreq></url>
+  <url><loc>https://midieditor-ai.de/menu-tools.html</loc><priority>0.4</priority><changefreq>monthly</changefreq></url>
+  <url><loc>https://midieditor-ai.de/menu-view.html</loc><priority>0.4</priority><changefreq>monthly</changefreq></url>
+  <url><loc>https://midieditor-ai.de/menu-reference.html</loc><priority>0.4</priority><changefreq>monthly</changefreq></url>
+</urlset>

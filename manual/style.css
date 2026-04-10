@@ -34,7 +34,7 @@ body {
     font-size: 16px;
     max-width: 960px;
     margin: 0 auto;
-    padding: 2rem 2rem 4rem;
+    padding: calc(var(--nav-height, 0px) + var(--subnav-height, 0px) + 2rem) 2rem 4rem;
 }
 
 /* Header / Title */
@@ -135,6 +135,11 @@ img[src*="tools/"] {
     border: none;
     border-radius: 3px;
     margin: 0 4px;
+    filter: invert(1);
+}
+/* Colored icons that should not be inverted */
+img[src*="ffxiv_fix"], img[src*="channel_split"] {
+    filter: drop-shadow(0 0 1px rgba(255,255,255,0.5));
 }
 
 /* Tables */

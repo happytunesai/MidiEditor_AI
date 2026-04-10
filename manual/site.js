@@ -158,4 +158,57 @@
         });
     });
 
+    // ----------------------------------------------------------
+    // 9. Theme Preview Switcher (with auto-carousel)
+    // ----------------------------------------------------------
+    var themeTabs = document.querySelectorAll('.theme-tab');
+    var previewImg = document.querySelector('.theme-preview-img');
+    if (themeTabs.length && previewImg) {
+        var themeKeys = ['dark', 'light', 'classic', 'sakura', 'amoled', 'material_dark'];
+        var themeMap = {
+            dark: 'screenshots/dark_theme.png',
+            light: 'screenshots/light_theme.png',
+            classic: 'screenshots/classic_theme.png',
+            sakura: 'screenshots/sakura_theme.png',
+            amoled: 'screenshots/amoled_theme.png',
+            material_dark: 'screenshots/material_dark_theme.png'
+        };
+        var currentThemeIdx = 0;
+        var themeTimer = null;
+
+        function switchTheme(idx) {
+            idx = ((idx % themeKeys.length) + themeKeys.length) % themeKeys.length;
+            currentThemeIdx = idx;
+            var theme = themeKeys[idx];
+            themeTabs.forEach(function (t) { t.classList.remove('active'); });
+            themeTabs[idx].classList.add('active');
+            previewImg.classList.add('fade-out');
+            setTimeout(function () {
+                previewImg.src = themeMap[theme];
+                previewImg.alt = themeTabs[idx].textContent + ' Theme Preview';
+                previewImg.onload = function () {
+                    previewImg.classList.remove('fade-out');
+                };
+            }, 300);
+        }
+
+        function resetThemeTimer() {
+            if (themeTimer) clearInterval(themeTimer);
+            themeTimer = setInterval(function () {
+                switchTheme(currentThemeIdx + 1);
+            }, 5000);
+        }
+
+        themeTabs.forEach(function (tab, i) {
+            tab.addEventListener('click', function () {
+                if (tab.classList.contains('active')) return;
+                switchTheme(i);
+                resetThemeTimer();
+            });
+        });
+
+        // Start auto-advance
+        resetThemeTimer();
+    }
+
 })();

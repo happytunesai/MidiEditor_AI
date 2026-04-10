@@ -5,7 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Guitar Pro Import | MidiEditor AI Manual</title>
 <link rel="icon" type="image/png" href="favicon.png">
+<meta name="theme-color" content="#0d1117">
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="site.css">
 <style>
 .screenshot-row { display: flex; flex-wrap: wrap; gap: 1.5rem; justify-content: center; margin: 1.5rem 0; }
 .screenshot-row img { border: 1px solid var(--border); border-radius: 8px; }
@@ -78,28 +80,60 @@
 </style>
 </head>
 <body>
-<div class="nav-bar">
-<div class="nav-header"><span class="nav-icon">&#129302;</span><span class="nav-title">MidiEditor AI Manual</span><span class="nav-version">v1.2.0</span></div>
-<div class="nav-links">
-<a href="docs-index.html">Index</a>
-<a href="midipilot.html">MidiPilot</a>
-<a href="prompt-examples.html">Prompts</a>
-<span class="nav-sep">&middot;</span>
-<a href="ffxiv-channel-fixer.html">Fix X|V</a>
-<a href="split-channels.html">Split</a>
-<a href="themes.html">Themes</a>
-<a href="soundfont.html">SoundFonts</a>
-<a href="guitar-pro.html" class="active">Guitar&nbsp;Pro</a>
-<span class="nav-sep">&middot;</span>
-<a href="midi-overview.html">MIDI</a>
-<a href="editor-and-components.html">Editor</a>
-<a href="setup.html">Setup</a>
-<a href="editing-midi-files.html">Editing</a>
-<span class="nav-sep">&middot;</span>
-<a href="playback.html">Playback</a>
-<a href="export-audio.html">Export</a>
+<nav class="site-nav" role="navigation" aria-label="Main navigation">
+<div class="container">
+    <a href="index.html" class="nav-brand">
+        <span class="brand-icon">&#x1F3B5;</span>
+        <span>MidiEditor AI</span>
+    </a>
+    <button class="nav-hamburger" aria-label="Toggle menu" aria-expanded="false">&#x2630;</button>
+    <ul class="nav-links">
+        <li><a href="index.html#features">Features</a></li>
+        <li><a href="index.html#showcase">Showcase</a></li>
+        <li class="nav-dropdown">
+            <span class="nav-dropdown-trigger active">Docs &#x25BE;</span>
+            <div class="nav-dropdown-menu">
+                <a href="docs-index.html">Manual Overview</a>
+                <a href="midipilot.html">MidiPilot AI</a>
+                <a href="prompt-examples.html">Prompt Examples</a>
+                <a href="ffxiv-channel-fixer.html">FFXIV Channel Fixer</a>
+                <a href="guitar-pro.html">Guitar Pro Import</a>
+                <a href="themes.html">Themes &amp; Appearance</a>
+                <a href="soundfont.html">SoundFonts &amp; FluidSynth</a>
+                <a href="setup.html">Setup &amp; Installation</a>
+            </div>
+        </li>
+        <li><a href="changelog.html">Changelog</a></li>
+        <li><a href="https://github.com/happytunesai/MidiEditor_AI" target="_blank" rel="noopener noreferrer">GitHub &#x2197;</a></li>
+        <li><a href="download.html" class="nav-cta">&#x2B07; Download</a></li>
+    </ul>
 </div>
+</nav>
+
+
+<!-- doc-subnav:start -->
+<div class="doc-subnav" role="navigation" aria-label="Manual sections">
+    <a href="docs-index.html"><span class="icon">📖</span>Index</a>
+    <a href="midipilot.html"><span class="icon">🤖</span>MidiPilot</a>
+    <a href="prompt-examples.html"><span class="icon">💬</span>Prompts</a>
+    <a href="ffxiv-channel-fixer.html"><span class="icon">🎮</span>Fix XIV</a>
+    <a href="split-channels.html"><span class="icon">✂️</span>Split</a>
+    <a href="themes.html"><span class="icon">🎨</span>Themes</a>
+    <a href="soundfont.html"><span class="icon">🔊</span>SoundFonts</a>
+    <a href="guitar-pro.html" class="active"><span class="icon">🎸</span>Guitar Pro</a>
+    <a href="midi-overview.html"><span class="icon">🎹</span>MIDI</a>
+    <a href="editor-and-components.html"><span class="icon">🖥️</span>Editor</a>
+    <a href="setup.html"><span class="icon">⚙️</span>Setup</a>
+    <a href="editing-midi-files.html"><span class="icon">✏️</span>Editing</a>
+    <a href="playback.html"><span class="icon">▶️</span>Playback</a>
+    <a href="export-audio.html"><span class="icon">💾</span>Export</a>
+    <a href="menu-tools.html"><span class="icon">🔧</span>Tools</a>
 </div>
+<!-- doc-subnav:end -->
+
+<a href="#main-content" class="skip-link">Skip to main content</a>
+
+<main id="main-content">
 
 <h1>&#x1F3B8; Guitar Pro Import (GP1&ndash;GP8)</h1>
 
@@ -402,9 +436,28 @@ MidiEditor AI does <b>not</b> rely on the file extension to determine the format
 <li><b>After import:</b> The file is a standard MIDI file in memory. You can use all MidiEditor AI tools (Split Channels, Explode Chords, MidiPilot AI, etc.) on the imported data.</li>
 </ul>
 
-<div class="footer">
-<p>MidiEditor AI &mdash; <a href="https://github.com/happytunesai/MidiEditor_AI">GitHub</a> &middot; Created with &hearts; + AI</p>
-</div>
+</main>
+
+<footer class="site-footer">
+    <div class="footer-links">
+        <a href="https://github.com/happytunesai/MidiEditor_AI" target="_blank" rel="noopener noreferrer">GitHub Repo</a>
+        <a href="https://github.com/happytunesai" target="_blank" rel="noopener noreferrer">All Projects</a>
+        <a href="docs-index.html">Documentation</a>
+        <a href="changelog.html">Changelog</a>
+        <a href="https://github.com/happytunesai/MidiEditor_AI/issues" target="_blank" rel="noopener noreferrer">Issues</a>
+        <a href="midipilot.html">MidiPilot</a>
+        <a href="guitar-pro.html">Guitar Pro</a>
+        <a href="https://www.happytunes.de" target="_blank" rel="noopener noreferrer">Happy Tunes &#x1F3B6;</a>
+    </div>
+    <p class="footer-copy">
+        MidiEditor AI &copy; 2026 &middot;
+        <a href="https://github.com/happytunesai/MidiEditor_AI/blob/main/LICENSE">License</a>
+        &middot; Made with &#x266A; + &#x1F916;
+        &middot; A <a href="https://www.happytunes.de" target="_blank" rel="noopener noreferrer">Happy Tunes</a> project
+    </p>
+</footer>
+<button class="scroll-top" aria-label="Scroll to top">&#x2191;</button>
+<script src="site.js"></script>
 <script src="lightbox.js"></script>
 </body>
 </html>

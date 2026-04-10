@@ -5,6 +5,8 @@ on:
     branches: [ main ]
     paths:
       - 'manual/**'
+      - 'CHANGELOG.md'
+      - 'scripts/build_changelog.py'
       - '.github/workflows/deploy-pages.yml'
   workflow_dispatch:
 
@@ -25,6 +27,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build changelog.html from CHANGELOG.md
+        run: python scripts/build_changelog.py
 
       - name: Setup Pages
         uses: actions/configure-pages@v6

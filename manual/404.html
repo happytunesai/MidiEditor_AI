@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>404 — Page Not Found | MidiEditor AI</title>
+<meta name="description" content="Page not found. Return to MidiEditor AI — the AI-powered MIDI editor.">
+<link rel="icon" type="image/png" href="favicon.png">
+<meta name="theme-color" content="#0d1117">
+<link rel="stylesheet" href="site.css">
+<style>
+    .error-page {
+        min-height: calc(100vh - var(--nav-height) - 80px);
+        display: flex; align-items: center; justify-content: center;
+        text-align: center; padding: 2rem;
+    }
+    .error-code {
+        font-size: 8rem; font-weight: 800; line-height: 1;
+        background: var(--gradient-accent);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin-bottom: .5rem;
+    }
+    .error-title { font-size: 1.5rem; margin-bottom: 1rem; }
+    .error-text { color: var(--text-muted); max-width: 420px; margin: 0 auto 2rem; }
+    .error-actions { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; }
+    .error-note {
+        margin-top: 3rem; font-size: .85rem; color: var(--text-muted);
+    }
+    .error-note span { font-size: 1.5rem; display: block; margin-bottom: .5rem; }
+</style>
+</head>
+<body>
+
+<nav class="site-nav" role="navigation" aria-label="Main navigation">
+<div class="container">
+    <a href="index.html" class="nav-brand">
+        <span class="brand-icon">&#x1F3B5;</span>
+        <span>MidiEditor AI</span>
+    </a>
+    <button class="nav-hamburger" aria-label="Toggle menu" aria-expanded="false">&#x2630;</button>
+    <ul class="nav-links">
+        <li><a href="index.html#features">Features</a></li>
+        <li><a href="index.html#showcase">Showcase</a></li>
+        <li class="nav-dropdown">
+            <span class="nav-dropdown-trigger">Docs &#x25BE;</span>
+            <div class="nav-dropdown-menu">
+                <a href="docs-index.html">Manual Overview</a>
+                <a href="midipilot.html">MidiPilot AI</a>
+                <a href="prompt-examples.html">Prompt Examples</a>
+                <a href="ffxiv-channel-fixer.html">FFXIV Channel Fixer</a>
+                <a href="guitar-pro.html">Guitar Pro Import</a>
+                <a href="themes.html">Themes &amp; Appearance</a>
+                <a href="soundfont.html">SoundFonts &amp; FluidSynth</a>
+                <a href="setup.html">Setup &amp; Installation</a>
+            </div>
+        </li>
+        <li><a href="index.html#whats-new">Changelog</a></li>
+        <li><a href="https://github.com/happytunesai/MidiEditor_AI" target="_blank" rel="noopener noreferrer">GitHub &#x2197;</a></li>
+        <li><a href="https://github.com/happytunesai/MidiEditor_AI/releases/latest" class="nav-cta">&#x2B07; Download</a></li>
+    </ul>
+</div>
+</nav>
+
+<a href="#main-content" class="skip-link">Skip to main content</a>
+
+<main id="main-content" class="error-page">
+    <div>
+        <div class="error-code">404</div>
+        <h1 class="error-title">Page Not Found</h1>
+        <p class="error-text">
+            The page you're looking for doesn't exist or has been moved.
+            Maybe a wrong note in the URL?
+        </p>
+        <div class="error-actions">
+            <a href="index.html" class="btn btn-primary">&#x1F3E0; Back to Home</a>
+            <a href="docs-index.html" class="btn btn-secondary">&#x1F4D6; Documentation</a>
+            <a href="https://github.com/happytunesai/MidiEditor_AI/releases/latest" class="btn btn-secondary">&#x2B07; Download</a>
+        </div>
+        <div class="error-note">
+            <span>&#x1F3B5;</span>
+            Even the best MIDI files have the occasional wrong note.
+        </div>
+    </div>
+</main>
+
+<footer class="site-footer">
+    <div class="footer-links">
+        <a href="https://github.com/happytunesai/MidiEditor_AI" target="_blank" rel="noopener noreferrer">GitHub Repo</a>
+        <a href="docs-index.html">Documentation</a>
+        <a href="https://github.com/happytunesai/MidiEditor_AI/releases">Releases</a>
+        <a href="https://github.com/happytunesai/MidiEditor_AI/issues" target="_blank" rel="noopener noreferrer">Issues</a>
+    </div>
+    <p class="footer-copy">
+        MidiEditor AI &copy; 2026 &middot;
+        <a href="https://github.com/happytunesai/MidiEditor_AI/blob/main/LICENSE">License</a>
+        &middot; Made with &#x266A; + &#x1F916;
+    </p>
+</footer>
+
+<script src="site.js"></script>
+</body>
+</html>

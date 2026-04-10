@@ -1,0 +1,660 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Changelog | MidiEditor AI</title>
+<meta name="description" content="Full release history for MidiEditor AI — every version, feature, bug fix, and improvement documented.">
+<meta property="og:title" content="Changelog — MidiEditor AI">
+<meta property="og:description" content="Full release history for MidiEditor AI — every version, feature, and bug fix.">
+<meta property="og:url" content="https://midieditor-ai.de/changelog.html">
+<meta property="og:image" content="https://midieditor-ai.de/screenshots/midieditor-full.png">
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="preconnect" href="https://github.com" crossorigin>
+<meta name="theme-color" content="#0d1117">
+<link rel="stylesheet" href="site.css">
+<style>
+    /* ─ changelog hero ─ */
+    .cl-hero {
+        padding: calc(var(--nav-height) + 3rem) 0 2.5rem;
+        text-align: center;
+        background: var(--gradient-hero);
+    }
+    .cl-hero h1 {
+        font-size: 2.5rem; font-weight: 800;
+        background: var(--gradient-accent);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        margin-bottom: .5rem;
+    }
+    .cl-hero p { color: var(--text-muted); }
+
+    /* ─ search / filter ─ */
+    .cl-search {
+        max-width: 900px; margin: 0 auto 2rem; padding: 0 1rem;
+    }
+    .cl-search input {
+        width: 100%; padding: .65rem 1rem; font-size: .95rem;
+        background: var(--bg-card); color: var(--text);
+        border: 1px solid var(--border); border-radius: 8px;
+        outline: none; transition: border-color .2s;
+    }
+    .cl-search input:focus { border-color: var(--accent); }
+    .cl-search input::placeholder { color: var(--text-muted); }
+    .cl-no-results {
+        display: none; text-align: center; padding: 3rem 1rem;
+        color: var(--text-muted); font-size: 1.1rem;
+    }
+
+    /* ─ timeline ─ */
+    .cl-timeline {
+        max-width: 900px; margin: 0 auto 4rem; padding: 0 1rem;
+        position: relative;
+    }
+    .cl-timeline::before {
+        content: ""; position: absolute; left: 20px; top: 0; bottom: 0;
+        width: 2px; background: var(--border);
+    }
+
+    /* ─ version card ─ */
+    .cl-version {
+        position: relative; padding-left: 50px; margin-bottom: 2.5rem;
+    }
+    .cl-dot {
+        position: absolute; left: 12px; top: 6px;
+        width: 18px; height: 18px; border-radius: 50%;
+        background: var(--accent); border: 3px solid var(--bg);
+        z-index: 1;
+    }
+    .cl-version.latest .cl-dot {
+        box-shadow: 0 0 12px rgba(88,166,255,.5);
+    }
+    .cl-version-head {
+        display: flex; flex-wrap: wrap; align-items: baseline; gap: .5rem .75rem;
+        margin-bottom: .5rem;
+    }
+    .cl-version-head h2 {
+        font-size: 1.4rem; font-weight: 700; margin: 0;
+        color: var(--text);
+    }
+    .cl-version-head h2 a {
+        color: inherit; text-decoration: none;
+    }
+    .cl-version-head h2 a:hover { color: var(--accent); }
+    .cl-date { color: var(--text-muted); font-size: .85rem; }
+    .cl-badge-latest {
+        display: inline-block; padding: 2px 10px; font-size: .7rem;
+        font-weight: 700; text-transform: uppercase; letter-spacing: .5px;
+        background: var(--accent); color: #fff; border-radius: 10px;
+    }
+    .cl-title {
+        font-size: 1rem; color: var(--text-muted); margin-bottom: .75rem;
+        font-style: italic;
+    }
+    .cl-blockquote {
+        font-size: .85rem; color: var(--text-muted); font-style: italic;
+        margin-bottom: .5rem; padding-left: .75rem;
+        border-left: 2px solid var(--border);
+    }
+
+    /* summary bullets */
+    .cl-summary { list-style: none; padding: 0; margin: 0 0 .75rem; }
+    .cl-summary li {
+        position: relative; padding-left: 1.25rem;
+        margin-bottom: .35rem; line-height: 1.5; font-size: .9rem;
+    }
+    .cl-summary li::before {
+        content: ""; position: absolute; left: 0; top: .55em;
+        width: 6px; height: 6px; border-radius: 50%;
+        background: var(--accent);
+    }
+
+    /* expand toggle */
+    .cl-toggle {
+        display: inline-block; cursor: pointer;
+        color: var(--accent); font-size: .85rem; font-weight: 600;
+        border: none; background: none; padding: 0;
+        margin-bottom: .75rem; transition: color .2s;
+    }
+    .cl-toggle:hover { text-decoration: underline; }
+    .cl-toggle .arrow { display: inline-block; transition: transform .2s; }
+    .cl-toggle.open .arrow { transform: rotate(90deg); }
+
+    /* detail panel */
+    .cl-details {
+        display: none; padding: 1rem 0 0;
+        border-top: 1px solid var(--border);
+    }
+    .cl-details.open { display: block; }
+
+    /* category cards */
+    .cl-cat {
+        background: var(--bg-card); border: 1px solid var(--border);
+        border-radius: 10px; padding: 1rem 1.25rem; margin-bottom: 1rem;
+        border-left: 3px solid var(--border);
+    }
+    .cl-cat h4 { font-size: .95rem; margin: 0 0 .5rem; color: var(--text); }
+    .cl-cat h5 {
+        font-size: .85rem; margin: .75rem 0 .35rem; color: var(--text-muted);
+    }
+    .cat-badge { font-size: .8rem; margin-right: .25rem; }
+    .cl-cat ul {
+        list-style: disc; padding-left: 1.25rem; margin: 0;
+    }
+    .cl-cat li {
+        margin-bottom: .3rem; font-size: .85rem; line-height: 1.55;
+    }
+    code.hl {
+        background: var(--code-bg, rgba(88,166,255,.1));
+        padding: 1px 5px; border-radius: 4px; font-size: .82em;
+    }
+
+    /* category border colors */
+    .cat-critical { border-left-color: #f85149; }
+    .cat-memory   { border-left-color: #d29922; }
+    .cat-feature  { border-left-color: #a371f7; }
+    .cat-fix      { border-left-color: #58a6ff; }
+    .cat-changed  { border-left-color: #79c0ff; }
+    .cat-low      { border-left-color: #2ea043; }
+    .cat-tech     { border-left-color: #8b949e; }
+    .cat-medium   { border-left-color: #d29922; }
+
+    /* responsive */
+    @media (max-width: 600px) {
+        .cl-timeline::before { left: 14px; }
+        .cl-version { padding-left: 38px; }
+        .cl-dot { left: 6px; width: 16px; height: 16px; }
+        .cl-version-head h2 { font-size: 1.15rem; }
+    }
+</style>
+</head>
+<body>
+
+<nav class="site-nav" role="navigation" aria-label="Main navigation">
+<div class="container">
+    <a href="index.html" class="nav-brand">
+        <span class="brand-icon">&#x1F3B5;</span>
+        <span>MidiEditor AI</span>
+    </a>
+    <button class="nav-hamburger" aria-label="Toggle menu" aria-expanded="false">&#x2630;</button>
+    <ul class="nav-links">
+        <li><a href="index.html#features">Features</a></li>
+        <li><a href="index.html#showcase">Showcase</a></li>
+        <li class="nav-dropdown">
+            <span class="nav-dropdown-trigger">Docs &#x25BE;</span>
+            <div class="nav-dropdown-menu">
+                <a href="docs-index.html">Manual Overview</a>
+                <a href="midipilot.html">MidiPilot AI</a>
+                <a href="prompt-examples.html">Prompt Examples</a>
+                <a href="ffxiv-channel-fixer.html">FFXIV Channel Fixer</a>
+                <a href="guitar-pro.html">Guitar Pro Import</a>
+                <a href="themes.html">Themes &amp; Appearance</a>
+                <a href="soundfont.html">SoundFonts &amp; FluidSynth</a>
+                <a href="setup.html">Setup &amp; Installation</a>
+            </div>
+        </li>
+        <li><a href="changelog.html" class="active">Changelog</a></li>
+        <li><a href="https://github.com/happytunesai/MidiEditor_AI" target="_blank" rel="noopener noreferrer">GitHub &#x2197;</a></li>
+        <li><a href="https://github.com/happytunesai/MidiEditor_AI/releases/latest" class="nav-cta">&#x2B07; Download</a></li>
+    </ul>
+</div>
+</nav>
+
+<a href="#main-content" class="skip-link">Skip to main content</a>
+
+<main id="main-content">
+
+<section class="cl-hero">
+    <div class="container">
+        <h1>&#x1F4DC; Changelog</h1>
+        <p>Full release history &mdash; every version, feature, and bug fix.</p>
+    </div>
+</section>
+
+<div class="cl-search">
+    <input type="search" id="cl-filter" placeholder="Search changelog&hellip; (version, keyword, bug ID)" autocomplete="off">
+</div>
+<div class="cl-no-results" id="cl-no-results">No matching releases found.</div>
+
+<div class="cl-timeline">
+<article class="cl-version latest" data-version="1.2.1">
+<div class="cl-dot"></div>
+<div class="cl-version-head">
+<h2><a href="https://github.com/happytunesai/MidiEditor_AI/releases/tag/v1.2.1" target="_blank" rel="noopener noreferrer">v1.2.1</a></h2>
+<span class="cl-date">2026-04-09</span>
+<span class="cl-badge-latest">Latest</span>
+</div>
+<div class="cl-title">Stability &amp; Bugfix Release</div>
+<ul class="cl-summary">
+<li><strong>72 bug fixes</strong> across the entire codebase — memory leaks, crashes, undefined behavior, protocol corruption, concurrency issues, parser security hardening, and correctness fixes</li>
+<li><strong>Guitar Pro 5 parser fixes</strong> — 4 byte-alignment bugs fixed; GP5 files that previously failed to open now load correctly</li>
+<li><strong>MidiPilot timestamp readability</strong> — Chat timestamps moved from inside the bubble to a clean label above each message; uses light gray text for dark themes, muted gray for light themes — readable across all 5 themes</li>
+</ul>
+<button class="cl-toggle" type="button"><span class="arrow">▶</span> Show full changelog</button>
+<div class="cl-details"><div class="cl-cat cat-critical"><h4><span class="cat-badge">🔴 Critical</span> Critical: Crash &amp; Hang Prevention (9 fixes)</h4><ul><li><strong>EVT-001</strong> — <code class="hl">loadMidiEvent()</code> infinite recursion on malformed MIDI data. Added recursion guard: bail when running status byte is 0 instead of recursing forever</li><li><strong>EVT-002</strong> — SysEx loader infinite loop on truncated stream (missing 0xF7 terminator). Added <code class="hl">content-&gt;atEnd()</code> check in the read loop</li><li><strong>EVT-003</strong> — <code class="hl">TempoChangeEvent</code> constructor division by zero on zero tempo value. Guards <code class="hl">value &lt;= 0</code> with 120 BPM default</li><li><strong>EVT-004</strong> — <code class="hl">TempoChangeEvent::save()</code> division by zero when <code class="hl">_beats</code> is 0. Guards <code class="hl">_beats &gt; 0</code> before division</li><li><strong>PROTO-005</strong> — <code class="hl">Protocol::goTo()</code> use-after-free when navigating to a redo step. Replaced dangling-pointer <code class="hl">contains()</code> loop with index-based count</li><li><strong>CONV-001</strong> — <code class="hl">readIntByteSizeString()</code> negative size from file → SIZE_MAX string read. Returns empty string when <code class="hl">d &lt; 0</code></li><li><strong>CONV-002</strong> — <code class="hl">readIntSizeString()</code> negative length from file → SIZE_MAX string read. Returns empty string when <code class="hl">length &lt; 0</code></li><li><strong>CONV-005</strong> — GP6 BitStream <code class="hl">powers[]</code> array out-of-bounds read for wordSize &gt; 10. Replaced lookup table with direct <code class="hl">(1 &lt;&lt; i)</code> bit shift</li><li><strong>CONV-010</strong> — Stack buffer overflow: <code class="hl">lastNoteIdx[10]</code> OOB write from untrusted GP6/7 string number. Added <code class="hl">MAX_STRINGS</code> constant with <code class="hl">std::min</code> clamping</li></ul></div>
+<div class="cl-cat cat-memory"><h4><span class="cat-badge">🟠 Memory</span> Protocol System Memory Leaks (5 fixes)</h4><ul><li><strong>PROTO-001</strong> — <code class="hl">Protocol</code> had no destructor — both undo/redo stacks and all contained steps leaked on file close. Added <code class="hl">~Protocol()</code> with <code class="hl">qDeleteAll</code> cleanup</li><li><strong>PROTO-002</strong> — <code class="hl">startNewAction()</code> cleared redo stack without deleting <code class="hl">ProtocolStep</code> objects. Added <code class="hl">qDeleteAll</code> before <code class="hl">clear()</code></li><li><strong>PROTO-006</strong> — <code class="hl">enterUndoStep()</code> leaked <code class="hl">ProtocolItem</code> when no action step was open. Added <code class="hl">delete item</code> fallback</li><li><strong>PROTO-007</strong> — <code class="hl">ProtocolStep</code> destructor didn&#x27;t delete contained <code class="hl">ProtocolItem</code> objects. Added <code class="hl">qDeleteAll(*_itemStack)</code></li><li><strong>PROTO-008</strong> — <code class="hl">releaseStep()</code> leaked old items after calling <code class="hl">release()</code>. Added <code class="hl">delete item</code> after extracting reverse action</li></ul></div>
+<div class="cl-cat cat-fix"><h4><span class="cat-badge">🔧 Fixed</span> MIDI Engine (8 fixes)</h4><ul><li><strong>MIDI-001</strong> — <code class="hl">msOfTick()</code> leaked a heap-allocated QList on every call (the most-called timing function). Changed to stack allocation — eliminates the single largest memory leak in the codebase</li><li><strong>MIDI-002</strong> — <code class="hl">save()</code> leaked QFile and QDataStream on every save. Changed to stack allocation</li><li><strong>MIDI-003</strong> — <code class="hl">timeSignatureEvents()</code>/<code class="hl">tempoEvents()</code> used <code class="hl">reinterpret_cast</code> from <code class="hl">QMultiMap*</code> to <code class="hl">QMap*</code> — undefined behavior in Qt 6 where these are different types. Changed return types to <code class="hl">QMultiMap*</code>, updated 12 callers</li><li><strong>MIDI-004</strong> — <code class="hl">MidiChannel::number()</code> checked <code class="hl">this == nullptr</code> (UB in C++) and used useless try/catch. Removed dead guards</li><li><strong>MIDI-005</strong> — <code class="hl">PlayerThread::stopped</code> used <code class="hl">volatile bool</code> instead of <code class="hl">std::atomic&lt;bool&gt;</code> — data race between main and player threads</li><li><strong>MIDI-006</strong> — <code class="hl">playedNotes</code> QMap accessed from multiple threads without synchronization. Added <code class="hl">QMutex</code> protection around all accesses</li><li><strong>MIDI-007</strong> — <code class="hl">setMaxLengthMs()</code> leaked QList from <code class="hl">eventsBetween()</code>. Added <code class="hl">delete ev</code></li><li><strong>MIDI-008</strong> — <code class="hl">reloadState()</code> leaked old <code class="hl">_tracks</code> list on every undo/redo. Added <code class="hl">delete _tracks</code> before reassignment</li></ul></div>
+<div class="cl-cat cat-fix"><h4><span class="cat-badge">🔧 Fixed</span> MidiEvent Layer (5 fixes)</h4><ul><li><strong>EVT-005</strong> — <code class="hl">OnEvent::moveToChannel()</code> null dereference when OffEvent is missing. Added null check</li><li><strong>EVT-006</strong> — <code class="hl">TimeSignatureEvent::ticksPerMeasure()</code> used <code class="hl">powf</code> for integer power-of-2 (float precision loss) and could divide by zero. Replaced with <code class="hl">1 &lt;&lt; denominator</code> and added null/zero guards</li><li><strong>EVT-007</strong> — <code class="hl">KeySignatureEvent::save()</code> OR&#x27;d meta type byte 0x59 with channel — latent corruption if channel != 16. Changed to hardcoded <code class="hl">char(0x59)</code></li><li><strong>EVT-008</strong> — <code class="hl">ProtocolEntry::protocol()</code> leaked the <code class="hl">copy()</code> allocation when <code class="hl">file()</code> is null (during file loading). Added <code class="hl">delete oldObj</code> fallback — fixes memory leak of 2 objects per TextEvent loaded</li><li><strong>EVT-009</strong> — <code class="hl">TempoChangeEvent::msPerTick()</code> null dereference when <code class="hl">file()</code> is null. Added null/zero guards with 1.0ms fallback</li></ul></div>
+<div class="cl-cat cat-fix"><h4><span class="cat-badge">🔧 Fixed</span> Tools &amp; Selection (8 fixes)</h4><ul><li><strong>TOOL-001</strong> — <code class="hl">SelectTool::draw()</code> used the macro literal <code class="hl">SELECTION_TYPE_BOX</code> (always 2, always true) instead of <code class="hl">stool_type == SELECTION_TYPE_BOX</code>. All selection types incorrectly drew box rectangles</li><li><strong>TOOL-005</strong> — <code class="hl">EventTool::copiedEvents</code> leaked old clipboard events on each copy operation. Added <code class="hl">qDeleteAll</code> before <code class="hl">clear()</code></li><li><strong>CONV-003</strong> — <code class="hl">GpBinaryReader::checkBounds()</code> integer overflow: <code class="hl">count * N</code> could wrap negative for large counts. Added <code class="hl">count &lt; 0</code> / <code class="hl">pointer_ &lt; 0</code> guards with <code class="hl">size_t</code> cast</li><li><strong>CONV-006</strong> — GP7/8 ZIP <code class="hl">extract()</code> didn&#x27;t validate data offset+size against buffer. Added bounds check</li><li><strong>CONV-007</strong> — GP7/8 ZIP <code class="hl">inflateData()</code> trusted claimed uncompressed size for allocation (DoS). Added 256MB cap</li><li><strong>CONV-008</strong> — <code class="hl">readDuration()</code> left-shift overflow from out-of-range signed byte. Clamped to <code class="hl">std::clamp(byte + 2, 0, 7)</code></li><li><strong>CONV-011</strong> — <code class="hl">SimileMark::simple</code> on first measure accessed <code class="hl">measures[-1]</code>. Added <code class="hl">measureIndex &gt; 0</code> guard</li><li><strong>CONV-013</strong> — <code class="hl">GpMidiExport::createBytes()</code> accessed <code class="hl">raw[0]</code> on empty vector for unrecognized message types. Added empty check</li></ul></div>
+<div class="cl-cat cat-fix"><h4><span class="cat-badge">🔧 Fixed</span> Medium-Severity Fixes (29 fixes)</h4><h5>Protocol &amp; Undo</h5><ul><li><strong>PROTO-003/004</strong> — <code class="hl">endAction()</code> marked file unsaved and emitted signals even with no active action step. Now only triggers when items were actually recorded</li><li><strong>PROTO-009</strong> — <code class="hl">ProtocolItem::release()</code> deletion guard checked the wrong variable (<code class="hl">entry</code> instead of <code class="hl">_oldObject</code>)</li></ul><h5>MIDI Engine Correctness</h5><ul><li><strong>MIDI-011</strong> — <code class="hl">PlayerThread</code> had no destructor — QTimer and QElapsedTimer leaked on every play/stop cycle (Windows). Added <code class="hl">~PlayerThread()</code></li><li><strong>MIDI-012</strong> — MIDI input <code class="hl">receiveMessage</code> callback wrote shared state from RtMidi thread without synchronization. Added <code class="hl">QMutex</code> protection</li><li><strong>MIDI-013</strong> — <code class="hl">endInput()</code> invalidated QMultiMap iterator during container modification. Changed to <code class="hl">erase()</code> which returns next valid iterator</li><li><strong>MIDI-014</strong> — <code class="hl">progAtTick()</code> off-by-one skipped the first element in backward search. Fixed loop to check <code class="hl">begin()</code> element</li><li><strong>MIDI-015</strong> — Metronome sent triple NoteOn with single NoteOff, creating stuck notes that accumulated. Reduced to single NoteOn</li><li><strong>MIDI-016</strong> — <code class="hl">MidiFile(int, Protocol*)</code> protocol-copy constructor left <code class="hl">channels[]</code>, <code class="hl">_tracks</code>, etc. uninitialized. Added safe defaults</li><li><strong>MIDI-018</strong> — <code class="hl">MidiInput::inputPorts()</code> crashed if <code class="hl">init()</code> failed (null <code class="hl">_midiIn</code>). Added null check</li></ul><h5>MidiEvent Correctness</h5><ul><li><strong>EVT-010</strong> — <code class="hl">PitchBendEvent::toMessage()</code> sent &quot;cc&quot; instead of &quot;pitchbend&quot; command — wrong MIDI messages during playback</li><li><strong>EVT-011</strong> — <code class="hl">_tempID</code> uninitialized in MidiEvent constructors. Initialized to -1</li><li><strong>EVT-012</strong> — Tempo loading used fragile magic-number subtraction (<code class="hl">value -= 50331648</code>). Replaced with <code class="hl">value &amp;= 0x00FFFFFF</code> bitmask</li><li><strong>EVT-014</strong> — <code class="hl">NoteOnEvent::setNote()</code> had no range validation. Added <code class="hl">qBound(0, n, 127)</code></li></ul><h5>Tool System</h5><ul><li><strong>TOOL-002</strong> — <code class="hl">NewNoteTool()</code> constructor reset static <code class="hl">_channel</code>/<code class="hl">_track</code> to 0, losing user&#x27;s selection when StandardTool was created</li><li><strong>TOOL-003</strong> — <code class="hl">Tool::setImage()</code> leaked previous QImage on reassignment. Added <code class="hl">delete _image</code> before <code class="hl">new</code></li><li><strong>TOOL-004</strong> — <code class="hl">Tool</code> copy constructor shallow-copied QImage pointer (shared ownership → double-free risk). Changed to deep copy</li><li><strong>TOOL-006</strong> — <code class="hl">EventTool</code> copy/paste null dereference if OnEvent has no OffEvent. Added null check</li><li><strong>TOOL-007</strong> — <code class="hl">EventMoveTool::computeRaster()</code> null dereference on missing OffEvent. Added null check</li><li><strong>TOOL-012</strong> — <code class="hl">TempoTool::release()</code> leaked TempoDialog after <code class="hl">exec()</code>. Stack-allocated instead</li><li><strong>TOOL-013</strong> — <code class="hl">TimeSignatureTool::release()</code> leaked TimeSignatureDialog after <code class="hl">exec()</code>. Stack-allocated instead</li></ul><h5>Converter &amp; Parser</h5><ul><li><strong>CONV-004</strong> — <code class="hl">GpBinaryReader::skip()</code> didn&#x27;t validate pointer stayed in bounds. Added negative count guard and <code class="hl">checkBounds()</code></li><li><strong>CONV-009</strong> — Tuplet <code class="hl">enters=0</code> from GP6/7 XML caused float division by zero. Added <code class="hl">enters &gt; 0</code> guard</li><li><strong>CONV-012</strong> — <code class="hl">SimileMark::secondOfDouble</code> with notes underflow accessed negative indices. Added <code class="hl">measureIndex &gt;= 2</code> bounds check</li><li><strong>CONV-014</strong> — GP6/7 outer parser leaked when transferring to inner GP5 object. Fixed <code class="hl">self</code> pointer transfer to null before <code class="hl">reset()</code></li><li><strong>CONV-017</strong> — GP1/2 <code class="hl">gpReadStringBSoB</code> with byte=0 → negative size → same crash as CONV-001. Added <code class="hl">size &lt; 0</code> guard</li></ul><h5>Terminal &amp; System</h5><ul><li><strong>TERM-001</strong> — <code class="hl">Terminal::execute()</code> leaked old QProcess on re-execute. Added <code class="hl">deleteLater()</code> before creating new process</li><li><strong>TERM-002</strong> — <code class="hl">Terminal::processStarted()</code> leaked QTimer on each retry (one per second). Connected <code class="hl">timeout</code> to <code class="hl">deleteLater()</code></li><li><strong>MAIN-001</strong> — <code class="hl">wstrtostr()</code> buffer overflow with multi-byte characters (CJK usernames). Rewrote with two-pass <code class="hl">WideCharToMultiByte</code></li></ul></div>
+<div class="cl-cat cat-low"><h4><span class="cat-badge">🟢 Low</span> Low-Severity Fixes (8 fixes)</h4><ul><li><strong>MIDI-019</strong> — <code class="hl">MidiChannel::visible()</code> was hardcoded to <code class="hl">return true</code> (dead code). Now delegates to <code class="hl">ChannelVisibilityManager</code></li><li><strong>MIDI-020</strong> — <code class="hl">MidiChannel::setVisible()</code> used try/catch for control flow. Replaced with <code class="hl">_num</code> range guard</li><li><strong>MIDI-021</strong> — <code class="hl">MidiTrack::reloadState()</code> called <code class="hl">setNumber()</code> which re-entered the protocol system during undo. Changed to direct member assignment</li><li><strong>EVT-017</strong> — <code class="hl">OffEvent::onEvents</code> static map was heap-allocated and never freed. Changed to static local storage</li><li><strong>TOOL-009</strong> — <code class="hl">GlueTool::mergeNoteGroup()</code> null dereference on <code class="hl">lastNote-&gt;offEvent()</code>. Added null guard</li><li><strong>TOOL-010</strong> — <code class="hl">ToolButton::refreshIcon()</code> dereference of potentially null tool image. Added null guard</li><li><strong>TOOL-011</strong> — <code class="hl">StandardTool</code> copy constructor didn&#x27;t copy <code class="hl">newNoteTool</code> (uninitialized pointer). Added missing copy</li><li><strong>MAIN-002</strong> — <code class="hl">MainWindow</code> heap-allocated in <code class="hl">main()</code> but never deleted. Added <code class="hl">delete w</code> before return</li></ul></div>
+<div class="cl-cat cat-fix"><h4><span class="cat-badge">🔧 Fixed</span> Guitar Pro 5 Parser Fixes (4 fixes)</h4><ul><li><strong>GP5 readGrace() override</strong> — GP5 grace notes have 5 bytes (fret, dynamic, transition, duration, flags) but MidiEditor inherited GP3/4&#x27;s 4-byte version. Added <code class="hl">Gp5Parser::readGrace()</code> override reading the missing dead/onBeat flags byte. This was the primary cause of cumulative byte misalignment</li><li><strong>GP5 readMixTableChange() skip(1)</strong> — Added missing <code class="hl">reader.skip(1)</code> after allTracksFlags byte, matching TuxGuitar&#x27;s reference implementation</li><li><strong>GP5 readMixTableChange() v5.1+ strings</strong> — Changed conditional RSE string reads to always read 2 strings for GP5.1+ files, matching TuxGuitar</li><li><strong>GP5 readMeasureHeader() field order</strong> — Moved repeatAlternative (flag 0x10) from before marker/keySignature to after beams section, matching TuxGuitar&#x27;s byte ordering</li></ul></div>
+<div class="cl-cat cat-low"><h4><span class="cat-badge">🟢 Low</span> Deferred Bugs (8 — low risk, high complexity)</h4><ul><li><strong>EVT-013</strong> — On/OffEvent copy constructor dangling pointers (deep protocol architecture issue)</li><li><strong>EVT-015</strong> — SysEx VLQ length prefix omission (load/save internally consistent; changing one breaks the other)</li><li><strong>EVT-016</strong> — QDataStream status checks throughout loadMidiEvent (too invasive for low crash risk)</li><li><strong>EVT-018</strong> — Dead <code class="hl">&lt; 0</code> checks on <code class="hl">quint8</code>-sourced values (harmless defensive code)</li><li><strong>CONV-015</strong> — Unchecked <code class="hl">std::stoi()</code> on ~30+ GP6/7 XML sites (needs helper + mass update)</li><li><strong>CONV-016</strong> — Custom GP6 XML parser edge cases (design-level issue)</li><li><strong>MIDI-017</strong> — RtMidi static objects never deleted (OS reclaims at exit)</li><li><strong>TOOL-008</strong> — ScissorsTool protocol recording (already works — <code class="hl">setMidiTime()</code> defaults to <code class="hl">toProtocol=true</code>)</li></ul></div>
+<div class="cl-cat cat-tech"><h4><span class="cat-badge">📝 Notes</span> Technical Notes</h4><ul><li><strong>Bug audit</strong>: 137 bugs reported by automated analysis, 130 confirmed (7 false positives), 50 already fixed in v1.1.9/v1.2.0, 80 remaining → 72 fixed + 8 deferred</li><li><strong>Files modified (40+)</strong>: MidiEvent.cpp, TempoChangeEvent.cpp, TimeSignatureEvent.cpp, KeySignatureEvent.cpp, OnEvent.cpp, NoteOnEvent.cpp, PitchBendEvent.cpp, OffEvent.cpp, ProtocolEntry.cpp, Protocol.h/.cpp, ProtocolStep.cpp, ProtocolItem.cpp, MidiFile.h/.cpp, MidiChannel.cpp, MidiTrack.cpp, MidiInput.h/.cpp, MidiOutput.h/.cpp, PlayerThread.h/.cpp, Metronome.cpp, MidiPlayer.cpp, GpBinaryReader.cpp, Gp345Parser.h/.cpp, Gp678Parser.cpp, GpToNative.cpp, GpMidiExport.cpp, GpUnzip.cpp, GpImporter.cpp, GpModels.h, Gp12Parser.cpp, SelectTool.cpp, EventTool.cpp, EventMoveTool.cpp, NewNoteTool.cpp, Tool.cpp, GlueTool.cpp, ToolButton.cpp, StandardTool.cpp, TempoTool.cpp, TimeSignatureTool.cpp, Terminal.cpp, main.cpp</li><li><strong>GP5 parser reference</strong>: TuxGuitar&#x27;s <code class="hl">GP5InputStream.java</code> used to identify byte-alignment differences</li><li><strong>Bug report</strong>: <code class="hl">Planning/03_bugs.md</code> — full scan results with verification status</li></ul></div></div>
+</article>
+<article class="cl-version" data-version="1.2.0">
+<div class="cl-dot"></div>
+<div class="cl-version-head">
+<h2><a href="https://github.com/happytunesai/MidiEditor_AI/releases/tag/v1.2.0" target="_blank" rel="noopener noreferrer">v1.2.0</a></h2>
+<span class="cl-date">2026-04-08</span>
+</div>
+<div class="cl-title">Audio Export, MP3, FluidSynth Hardening</div>
+<ul class="cl-summary">
+<li><strong>Audio Export</strong> — Export MIDI as WAV, FLAC, or OGG Vorbis using loaded SoundFonts (File → Export Audio, Ctrl+Shift+E)</li>
+<li>Export Dialog with format selection (WAV/FLAC/OGG/MP3), quality presets (Draft/CD/Studio/Hi-Res), range options (full song/selection/custom measures), reverb tail toggle, and estimated file size</li>
+<li>Selection export via right-click context menu — select notes, right-click → &quot;Export Selection as Audio...&quot;</li>
+<li>Export Audio button added to SoundFont settings panel</li>
+<li>Background export with progress dialog and cancel support</li>
+<li><strong>MP3 Export</strong> — Built-in LAME 3.100 encoder compiled as static C library; export directly to MP3 without external tools</li>
+<li><strong>Export Completion Dialog</strong> — After export finishes, shows dialog with Open File, Open Folder, and Close buttons</li>
+<li><strong>Guitar Pro Audio Export Fix</strong> — Exporting audio from Guitar Pro files (.gp3–.gp8) no longer produces silent/empty output; saves in-memory MIDI to temp file for rendering</li>
+<li><strong>SoundFont Enable/Disable</strong> — Per-SoundFont checkboxes in the settings list; uncheck to temporarily disable a font without removing it; state persists across sessions</li>
+<li><strong>FFXIV SoundFont Mode Auto-Toggle</strong> — SoundFonts with &quot;ff14&quot; or &quot;ffxiv&quot; in the filename automatically enable/disable FFXIV SoundFont Mode when checked/unchecked</li>
+<li><strong>FluidSynth Audio Driver Fallback</strong> — If the preferred audio driver fails (e.g., SDL3 after restart), automatically tries wasapi → dsound → waveout → sdl3 → sdl2</li>
+<li><strong>FluidSynth Settings Always Accessible</strong> — SoundFont list and settings are now configurable even when Microsoft GS Wavetable Synth is the active output</li>
+<li><strong>FluidSynth Error Dialog</strong> — Shows a clear error message when FluidSynth initialization fails, with automatic revert to previous output</li>
+<li><strong>Drum Channel Reset Fix</strong> — Switching from FFXIV SoundFont back to GM mode now properly restores channel 9 drums (bank select 128 + program change); previously drums played as piano</li>
+<li><strong>Radio button styling fix</strong> — checked radio buttons now render as proper circles in all 5 themes (dark, light, amoled, materialdark, pink)</li>
+</ul>
+<button class="cl-toggle" type="button"><span class="arrow">▶</span> Show full changelog</button>
+<div class="cl-details"><div class="cl-cat cat-feature"><h4><span class="cat-badge">✨ Added</span> Added</h4><ul><li><strong>MP3 export via LAME</strong> — LAME 3.100 compiled from source as a static C library (<code class="hl">libmp3lame.a</code>) and linked directly into the build. No DLL or external encoder needed. Export dialog shows MP3 as a format option alongside WAV/FLAC/OGG. Supports VBR quality presets matching the existing quality tiers.</li><li><strong>Export completion dialog</strong> — <code class="hl">QMessageBox</code> with three buttons after any audio export: <strong>Open File</strong> (launches default audio player), <strong>Open Folder</strong> (opens containing directory in Explorer), <strong>Close</strong> (dismiss). Previously there was no feedback after export completion.</li><li><strong>SoundFont enable/disable checkboxes</strong> — Each SoundFont in the FluidSynth settings list has a checkbox. Unchecking removes it from the active FluidSynth stack without deleting it from the list. Re-checking reloads it. Disabled state persisted in QSettings across sessions. Dual-state system: runtime (<code class="hl">_soundFontStack</code> + <code class="hl">_disabledSoundFontPaths</code>) and pending (<code class="hl">_pendingSoundFontPaths</code> + <code class="hl">_pendingDisabledPaths</code>) for before/after FluidSynth initialization.</li><li><strong>FFXIV SoundFont Mode auto-toggle</strong> — <code class="hl">updateFfxivModeFromSoundFonts()</code> scans checked SoundFonts for &quot;ff14&quot; or &quot;ffxiv&quot; in the filename (case-insensitive). Auto-enables FFXIV SoundFont Mode when a matching font is checked; auto-disables when all matching fonts are unchecked. Reads from UI list widget directly to ensure correctness before engine commits.</li><li><strong>Audio driver fallback chain</strong> — <code class="hl">FluidSynthEngine::initialize()</code> tries multiple audio drivers in sequence: user preference → wasapi → dsound → waveout → sdl3 → sdl2. Common with SDL3 failures after a shutdown/restart cycle. Driver combo in settings reflects the actual driver used.</li><li><strong>FluidSynth settings always enabled</strong> — Removed <code class="hl">setEnabled(false)</code> on the FluidSynth settings group when non-FluidSynth output is selected. Users can manage SoundFonts at any time; settings applied when FluidSynth is next activated.</li><li><strong>Pre-init SoundFont management</strong> — <code class="hl">addPendingSoundFontPaths()</code> method allows adding SoundFonts before FluidSynth is initialized. <code class="hl">setSoundFontStack()</code> and <code class="hl">removeSoundFontByPath()</code> also update pending paths when engine is not initialized.</li><li><strong>FluidSynth error feedback</strong> — <code class="hl">QMessageBox::warning</code> shown when switching to FluidSynth output fails, with error details. Output automatically reverts to previous working port.</li><li><strong>Output port fallback</strong> — <code class="hl">MidiOutput::setOutputPort()</code> saves previous port; if new port&#x27;s FluidSynth init fails, previous port restored automatically.</li></ul></div>
+<div class="cl-cat cat-fix"><h4><span class="cat-badge">🔧 Fixed</span> Fixed</h4><ul><li><strong>Guitar Pro audio export producing silence</strong> — <code class="hl">file-&gt;path()</code> returned the <code class="hl">.gp5</code>/<code class="hl">.gpx</code> path which FluidSynth cannot parse. Now saves the in-memory MidiFile to a temporary <code class="hl">.mid</code> file, exports from that, then cleans up via <code class="hl">_exportTempMidiPath</code>.</li><li><strong>Drum channel playing piano after FFXIV→GM switch</strong> — Two issues: (1) <code class="hl">updateFfxivModeFromSoundFonts()</code> was called AFTER <code class="hl">setSoundFontEnabled()</code>, so <code class="hl">applyChannelMode()</code> still used old FFXIV flag during stack rebuild. Reordered to update mode FIRST. (2) <code class="hl">applyChannelMode()</code> GM restore didn&#x27;t reset channel 9 properly — now sends <code class="hl">bank_select(ch9, 128)</code> + <code class="hl">program_change(ch9, 0)</code> to restore drum kit, plus <code class="hl">program_change(0)</code> on all melodic channels.</li><li><strong>SoundFont state lost on shutdown</strong> — <code class="hl">shutdown()</code> only preserved <code class="hl">_loadedFonts</code> (enabled fonts), losing disabled font paths. Now preserves full stack via <code class="hl">allSoundFontPaths()</code> → <code class="hl">_pendingSoundFontPaths</code> + <code class="hl">_pendingDisabledPaths</code>.</li><li><strong>SoundFont list empty before init</strong> — <code class="hl">allSoundFontPaths()</code> returned empty when <code class="hl">_soundFontStack</code> was empty (before initialization). Now falls back to <code class="hl">_pendingSoundFontPaths</code>.</li><li><strong>Disabled SoundFonts lost on settings change</strong> (V12-002) — Changing audio driver, sample rate, or reverb engine silently discarded disabled SoundFonts from the stack. Removed redundant <code class="hl">setSoundFontStack()</code> calls; <code class="hl">shutdown()</code>+<code class="hl">initialize()</code> already preserves and restores the full stack.</li><li><strong>MP3 export reported success after encoding error</strong> (V12-003) — LAME encoder returned true even when <code class="hl">lame_encode_buffer_interleaved()</code> reported an error. Now tracks error state, skips flush, deletes corrupt output, and returns false.</li><li><strong>Cancel button ineffective during MP3 encoding</strong> (V12-004) — Cancel only worked during WAV rendering phase. Now passes the cancel flag to <code class="hl">LameEncoder::encode()</code>, which checks it each iteration and aborts cleanly.</li><li><strong>Export failure showed file path instead of error</strong> (V12-005) — Error dialog displayed the output file path rather than an actionable message. Now shows descriptive success/failure messages with guidance.</li><li><strong>Misleading comment in driver fallback loop</strong> (V12-007) — Removed incorrect comment about re-creating settings+synth per driver attempt.</li><li><strong>Radio button styling</strong> — checked radio buttons render as proper circles in all 5 themes.</li></ul></div>
+<div class="cl-cat cat-changed"><h4><span class="cat-badge">🔄 Changed</span> Changed</h4><ul><li>Export dialog now shows MP3 as a fourth format option</li><li>Phase 20 title updated to &quot;Audio Export &amp; FluidSynth Hardening&quot;</li><li>Version bump to 1.2.0</li></ul></div>
+<div class="cl-cat cat-tech"><h4><span class="cat-badge">📝 Notes</span> Technical Notes</h4><ul><li><strong>LAME integration:</strong> <code class="hl">lame/</code> directory contains LAME 3.100 source; compiled as static C library via <code class="hl">add_library(mp3lame STATIC ...)</code> in CMakeLists.txt. <code class="hl">LameEncoder.h/.cpp</code> wraps the LAME API for Qt integration.</li><li><strong>FluidSynth driver fallback:</strong> Preferred driver stored in <code class="hl">QSettings(&quot;FluidSynth/audio_driver&quot;)</code>. Fallback order: wasapi (Windows native) → dsound (DirectSound) → waveout (legacy) → sdl3 → sdl2. Each attempt calls <code class="hl">fluid_settings_setstr</code> + <code class="hl">new_fluid_audio_driver</code>; on failure, deletes settings/synth and tries next.</li><li><strong>SoundFont state management:</strong> Four containers: <code class="hl">_soundFontStack</code> (active ordered list), <code class="hl">_disabledSoundFontPaths</code> (runtime disabled QSet), <code class="hl">_pendingSoundFontPaths</code> (pre-init ordered list), <code class="hl">_pendingDisabledPaths</code> (pre-init disabled QSet). <code class="hl">shutdown()</code> merges runtime → pending. <code class="hl">initialize()</code> consumes pending → runtime.</li><li><strong>Files created:</strong> <code class="hl">src/midi/LameEncoder.h/.cpp</code></li><li><strong>Files modified:</strong> <code class="hl">FluidSynthEngine.h/.cpp</code>, <code class="hl">MidiSettingsWidget.h/.cpp</code>, <code class="hl">MainWindow.h/.cpp</code>, <code class="hl">MidiOutput.cpp</code>, <code class="hl">CMakeLists.txt</code></li></ul></div></div>
+</article>
+<article class="cl-version" data-version="1.1.9">
+<div class="cl-dot"></div>
+<div class="cl-version-head">
+<h2><a href="https://github.com/happytunesai/MidiEditor_AI/releases/tag/v1.1.9" target="_blank" rel="noopener noreferrer">v1.1.9</a></h2>
+<span class="cl-date">2026-04-07</span>
+</div>
+<div class="cl-title">MidiPilot AI Improvements + GUI Bug Sweep</div>
+<ul class="cl-summary">
+<li>Granular agent undo — each tool call gets its own Ctrl+Z step instead of one compound action</li>
+<li>Token counting fix — OpenAI Responses API, Anthropic, and Gemini usage fields now correctly normalized</li>
+<li>Persistent conversation history — conversations auto-saved as JSON, loadable from history menu</li>
+<li>Context window management — sliding-window truncation prevents exceeding model context limits</li>
+<li>Token label now shows context window size and warns at 80% usage</li>
+<li>Agent progress steps now theme-aware (dark/light mode colors)</li>
+<li>Response streaming (SSE) for Simple mode — text appears incrementally</li>
+<li>Per-file AI presets — save/load model, provider, mode, FFXIV, effort, and custom instructions per MIDI file</li>
+<li>4 runtime bugfixes from Phase 19 testing — stop button crash, streaming JSON dump, vanishing prompt bubble, preset save on unsaved files</li>
+<li>MidiPilot Send/Stop buttons now use proper themed icons instead of Unicode emoji (consistent with toolbar style)</li>
+<li><strong>45 bug fixes</strong> across 18 GUI source files — memory leaks, crash-causing null derefs, undo/redo corruption, data loss, division-by-zero, deprecated Qt6 API usage, and more</li>
+</ul>
+<button class="cl-toggle" type="button"><span class="arrow">▶</span> Show full changelog</button>
+<div class="cl-details"><div class="cl-cat cat-medium"><h4><span class="cat-badge">🟡 Medium</span> Phase 19 — MidiPilot AI Improvements</h4><h5>Fixed</h5><ul><li><strong>Granular agent undo (19.1)</strong> — Previously, all tool calls from one Agent request were wrapped in a single <code class="hl">startNewAction/endAction</code> pair, so Ctrl+Z reverted everything at once. Now each tool call (e.g. transpose, edit, rename) creates its own protocol step. Undo reverts one action at a time.</li><li><strong>Token counting for non-OpenAI providers (19.3)</strong> — <code class="hl">normalizeResponsesApiResponse()</code> was not copying the <code class="hl">usage</code> field from OpenAI Responses API responses (<code class="hl">input_tokens</code>/<code class="hl">output_tokens</code>). Also added normalization for Anthropic (<code class="hl">input_tokens</code>/<code class="hl">output_tokens</code>) and Gemini (<code class="hl">usageMetadata.promptTokenCount</code>/<code class="hl">candidatesTokenCount</code>) formats. All downstream code uses canonical <code class="hl">prompt_tokens</code>/<code class="hl">completion_tokens</code> field names.</li><li><strong>Stop button crash</strong> — Clicking Stop during an API request could crash because <code class="hl">cancel()</code> called <code class="hl">cancelRequest()</code> first, which triggered a synchronous <code class="hl">abort()</code> → <code class="hl">onReplyFinished</code> → <code class="hl">errorOccurred</code> double-fire. Fixed by reordering: <code class="hl">cleanup()</code> runs before <code class="hl">cancelRequest()</code>.</li><li><strong>Simple mode JSON dump</strong> — Streaming in Simple mode displayed raw JSON <code class="hl">{&quot;actions&quot;:[...]}</code> in chat instead of executing it. Added <code class="hl">_streamIsJson</code> flag to suppress the streaming bubble for JSON action responses; <code class="hl">onStreamFinished</code> now delegates to <code class="hl">onResponseReceived</code> for proper action dispatch.</li><li><strong>User prompt bubble disappearing</strong> — <code class="hl">onResponseReceived</code> and <code class="hl">onErrorOccurred</code> blindly removed the last chat widget (intended for the &quot;Thinking...&quot; indicator), which sometimes deleted the user&#x27;s own prompt bubble. Now checks for &quot;Thinking&quot; text via <code class="hl">qobject_cast&lt;QLabel*&gt;</code> before removing.</li><li><strong>Preset save on unsaved file</strong> — Saving an AI preset when the MIDI file had never been saved showed an error. Replaced with a <code class="hl">QFileDialog::getSaveFileName</code> fallback so the user can pick a file path first.</li></ul><h5>Added</h5><ul><li><strong>Persistent conversation history (19.2)</strong> — New <code class="hl">ConversationStore</code> class saves conversations as JSON files in <code class="hl">AppData/MidiPilotHistory/</code>. Auto-saves after every assistant response (debounced 2s). History button in toolbar shows past conversations sorted by date. Click to load and resume any previous conversation.</li><li><strong>Context window management (19.5)</strong> — Before each API request, conversation history is estimated for token count (~4 chars/token). If exceeding 70% of the model&#x27;s context window, a sliding window keeps the first 2 messages + most recent messages that fit, inserting a truncation marker. Token label now shows <code class="hl">session / contextWindow</code> and turns yellow at 80% usage.</li><li><strong>Model context window lookup</strong> — <code class="hl">AiClient::contextWindowForModel()</code> returns known context windows for GPT-5/4o/4.1, Claude 3/4, Gemini 1.5/2.0/2.5, o-series models.</li><li><strong>Agent progress polish (19.4)</strong> — <code class="hl">AgentStepsWidget</code> step labels now use theme-aware colors via <code class="hl">Appearance::isDarkModeEnabled()</code>. Dark and light mode each have distinct pending/active/success/retry/failed colors.</li><li><strong>Response streaming (19.6)</strong> — Simple mode now uses SSE streaming (<code class="hl">&quot;stream&quot;: true</code>). Text appears incrementally in a streaming bubble. On completion, the bubble is replaced with a proper styled chat bubble. Handles <code class="hl">[DONE]</code> sentinel, captures usage from final chunk. Agent mode remains non-streaming.</li><li><strong>Per-file AI presets (19.7)</strong> — Gear button now opens a menu with &quot;Open AI Settings&quot; and &quot;Save AI preset for this file&quot;. Presets are stored as <code class="hl">&lt;filename&gt;.midipilot.json</code> sidecar files. Saves provider, model, mode, FFXIV, effort, and custom instructions. Auto-loaded when a file is opened via <code class="hl">onFileChanged()</code>. Custom instructions are appended to both Agent and Simple mode system prompts.</li></ul></div>
+<div class="cl-cat cat-fix"><h4><span class="cat-badge">🔧 Fixed</span> GUI Bug Sweep — 45 fixes across 18 files</h4><h5>Data Loss Prevention (3 fixes)</h5><ul><li><strong>CORE-006/007/014</strong> — <code class="hl">newFile()</code>, <code class="hl">loadFile()</code>, and <code class="hl">load()</code> now check the return value of <code class="hl">saveBeforeClose()</code>. Previously, clicking Cancel in the save prompt was ignored and unsaved work was silently discarded.</li></ul><h5>Undo/Redo Protocol Corruption (3 fixes)</h5><ul><li><strong>CORE-005</strong> — <code class="hl">equalize()</code> called <code class="hl">endAction()</code> without a matching <code class="hl">startNewAction()</code> when ≤1 notes were selected, corrupting the undo stack. Moved <code class="hl">endAction()</code> inside the guard.</li><li><strong>WIDGET-001</strong> — <code class="hl">EventWidget::setModelData()</code> left the protocol in a dangling state on validation error returns. Added <code class="hl">endAction()</code> before early returns.</li><li><strong>WIDGET-002</strong> — <code class="hl">MiscWidget::mouseReleaseEvent()</code> left the protocol open when track was null. Added <code class="hl">endAction()</code> before early returns.</li></ul><h5>Crash Fixes — Null Derefs &amp; Out-of-Bounds (5 fixes)</h5><ul><li><strong>CORE-009</strong> — <code class="hl">MatrixWidget::mouseDoubleClickEvent()</code> null dereference when no file loaded. Added null check.</li><li><strong>CORE-013</strong> — <code class="hl">MainWindow::editChannel()</code> null dereference when <code class="hl">file</code> is null. Wrapped in <code class="hl">if (file)</code>.</li><li><strong>MISC-004</strong> — <code class="hl">TweakTarget::getTimeOneDivEarlier/Later()</code> crashed on single-element divs list (out-of-bounds access). Added <code class="hl">if (divs.size() &lt; 2) return time</code> guard.</li><li><strong>MISC-005</strong> — <code class="hl">NoteTweakTarget</code> and <code class="hl">ValueTweakTarget</code> missing upper-bound checks — arrow keys could push note/velocity/CC past 127, pitch bend past 16383. Added <code class="hl">qBound()</code> clamping.</li><li><strong>WIDGET-005</strong> — <code class="hl">MiscWidget</code> <code class="hl">trackIndex</code> could go out-of-bounds if undo changed data between mouse press and release. Added bounds check.</li></ul><h5>Memory Leaks (14 fixes)</h5><ul><li><strong>CORE-001/002</strong> — <code class="hl">forward()</code> and <code class="hl">back()</code> leaked heap-allocated <code class="hl">QList</code> on every call. Changed to stack allocation.</li><li><strong>CORE-003/004</strong> — <code class="hl">saveas()</code> and <code class="hl">load()</code> leaked heap <code class="hl">QFile</code> and discarded directory result. Changed to stack <code class="hl">QFile</code>, assigned <code class="hl">dir</code> properly.</li><li><strong>CORE-008</strong> — <code class="hl">MatrixWidget::paintEvent()</code> leaked <code class="hl">QPainter</code> on two early-return paths. Added <code class="hl">delete painter</code> before returns.</li><li><strong>CORE-012</strong> — Multiple dialog functions leaked heap-allocated dialogs. Added <code class="hl">WA_DeleteOnClose</code> for <code class="hl">show()</code> dialogs, <code class="hl">delete</code> after <code class="hl">exec()</code> dialogs.</li><li><strong>DLG-001</strong> — <code class="hl">AboutDialog::loadContributors()</code> returned heap <code class="hl">QList*</code> that was never freed. Changed to return by value.</li><li><strong>DLG-002/003</strong> — <code class="hl">RecordDialog::enter()</code> leaked filtered-out MidiEvent objects; no destructor to clean up <code class="hl">_data</code>. Added destructor and cleanup loop.</li><li><strong>DLG-005</strong> — <code class="hl">TransposeDialog</code> leaked parentless <code class="hl">QButtonGroup</code>. Added <code class="hl">this</code> as parent.</li><li><strong>DLG-006</strong> — <code class="hl">SettingsDialog</code> leaked heap-allocated <code class="hl">_settingsWidgets</code> QList. Changed to stack allocation.</li><li><strong>MISC-001</strong> — <code class="hl">Appearance::decode()</code> leaked <code class="hl">defaultColor</code> parameter on success path. Added <code class="hl">delete defaultColor</code> before returning new color.</li><li><strong>MISC-002</strong> — <code class="hl">ClickButton::setImageName()</code> leaked previous <code class="hl">QImage</code> on reassignment. Added <code class="hl">delete image</code> before <code class="hl">new</code>, initialized to <code class="hl">nullptr</code>.</li><li><strong>MISC-010</strong> — <code class="hl">AppearanceSettingsWidget</code> leaked heap-allocated <code class="hl">_channelItems</code>/<code class="hl">_trackItems</code> QLists. Changed to stack allocation.</li></ul><h5>Division by Zero (2 fixes)</h5><ul><li><strong>CORE-010</strong> — <code class="hl">MatrixWidget::xPosOfMs()</code>, <code class="hl">msOfXPos()</code>, <code class="hl">timeMsOfWidth()</code> could divide by zero with zero-length files or very narrow widget. Added zero-checks.</li><li><strong>WIDGET-006</strong> — <code class="hl">MiscWidget::value()</code> divided by <code class="hl">height()</code> without checking for zero. Added <code class="hl">if (h &lt;= 0) return 0</code> guard.</li></ul><h5>Signal &amp; Resource Management (2 fixes)</h5><ul><li><strong>CORE-011</strong> — <code class="hl">play()</code> and <code class="hl">record()</code> accumulated <code class="hl">timeMsChanged</code> signal connections on each play/stop cycle, causing N+1 repaints per tick. Added <code class="hl">disconnect()</code> before <code class="hl">connect()</code>.</li><li><strong>MISC-008</strong> — <code class="hl">Appearance::processNextQueuedIcon()</code> used try/catch on potentially dangling <code class="hl">QAction*</code> pointer (undefined behavior). Changed <code class="hl">iconUpdateQueue</code> to use <code class="hl">QPointer&lt;QAction&gt;</code> for safe null detection.</li></ul><h5>Logic &amp; Correctness (4 fixes)</h5><ul><li><strong>WIDGET-003</strong> — <code class="hl">EventWidget::setEditorData()</code> called <code class="hl">setMaximum()</code> instead of <code class="hl">setMinimum()</code> in 7 places (copy-paste error). Time signature allowed numerator 0. Fixed to <code class="hl">setMinimum()</code>.</li><li><strong>WIDGET-008</strong> — <code class="hl">InstrumentChooser::accept()</code> called <code class="hl">hide()</code> instead of <code class="hl">QDialog::accept()</code>, leaving result code as Rejected. Fixed to call base class.</li><li><strong>DLG-004</strong> — <code class="hl">TransposeDialog</code> constructor didn&#x27;t pass <code class="hl">parent</code> to <code class="hl">QDialog</code> base class. Added <code class="hl">: QDialog(parent)</code> initializer.</li><li><strong>DLG-009</strong> — <code class="hl">TempoDialog::accept()</code> integer overflow in smooth tempo interpolation for long ramps. Changed to <code class="hl">qint64</code> arithmetic.</li></ul><h5>Download Robustness (2 fixes)</h5><ul><li><strong>DLG-007</strong> — <code class="hl">DownloadSoundFontDialog</code> didn&#x27;t flush remaining network buffer before closing file. Added <code class="hl">readAll()</code> flush in finished handler.</li><li><strong>DLG-008</strong> — Download write errors silently ignored (disk full → corrupt SoundFont). Added return value check on <code class="hl">write()</code>, abort on failure.</li></ul><h5>Deprecated/Wrong Qt6 API (2 fixes)</h5><ul><li><strong>WIDGET-009</strong> — <code class="hl">TrackListWidget::dropEvent()</code> used deprecated <code class="hl">QDropEvent::pos()</code>. Changed to <code class="hl">position().toPoint()</code>.</li><li><strong>MISC-011</strong> — <code class="hl">PaintWidget::enterEvent(QEvent*)</code> didn&#x27;t match Qt6 signature <code class="hl">enterEvent(QEnterEvent*)</code>. Fixed signature.</li></ul><h5>Initialization &amp; Hardening (5 fixes)</h5><ul><li><strong>MISC-003</strong> — <code class="hl">GraphicObject::shownInWidget</code> never initialized (undefined behavior on read). Initialized to <code class="hl">false</code>.</li><li><strong>MISC-009</strong> — <code class="hl">MidiSettingsWidget::_inputPorts/_outputPorts</code> pointer members uninitialized. Set to <code class="hl">nullptr</code>.</li><li><strong>WIDGET-010</strong> — <code class="hl">ChannelListItem::loudAction/soloAction</code> uninitialized for channel ≥ 16. Set to <code class="hl">nullptr</code>.</li><li><strong>WIDGET-011</strong> — <code class="hl">ChannelListItem::toggleVisibility()</code> silent catch-all exception handler. Added <code class="hl">qWarning()</code> logging.</li><li><strong>MISC-006</strong> — <code class="hl">OpenGLPaintWidget::paintGL()</code> used <code class="hl">static QSize lastSize</code> shared across all instances, causing unnecessary GPU reallocations. Changed to member <code class="hl">_lastPaintSize</code>.</li></ul><h5>UI &amp; Cosmetic (3 fixes)</h5><ul><li><strong>DLG-010</strong> — <code class="hl">DeleteOverlapsDialog::paintEvent()</code> called <code class="hl">update()</code> on child widget, creating redundant repaint cycles. Removed override.</li><li><strong>DLG-011</strong> — <code class="hl">DeleteOverlapsDialog::resizeEvent()</code> didn&#x27;t call base class <code class="hl">QDialog::resizeEvent()</code>. Fixed.</li><li><strong>MISC-007</strong> — <code class="hl">AutoUpdater::applyUpdate()</code> PowerShell command injection via single-quote in paths. Added <code class="hl">&#x27;</code> → <code class="hl">&#x27;&#x27;</code> escaping.</li></ul></div>
+<div class="cl-cat cat-tech"><h4><span class="cat-badge">📝 Notes</span> Technical Notes</h4><ul><li><strong>Phase 19 files created:</strong> <code class="hl">src/ai/ConversationStore.h/.cpp</code></li><li><strong>Phase 19 files modified:</strong> <code class="hl">src/gui/MidiPilotWidget.h/.cpp</code>, <code class="hl">src/ai/AiClient.h/.cpp</code></li><li><strong>Bug sweep files modified (18):</strong> <code class="hl">MainWindow.cpp</code>, <code class="hl">MatrixWidget.cpp</code>, <code class="hl">EventWidget.cpp</code>, <code class="hl">MiscWidget.cpp</code>, <code class="hl">RecordDialog.cpp/.h</code>, <code class="hl">TransposeDialog.cpp</code>, <code class="hl">SettingsDialog.cpp/.h</code>, <code class="hl">AboutDialog.cpp/.h</code>, <code class="hl">DownloadSoundFontDialog.cpp</code>, <code class="hl">TempoDialog.cpp</code>, <code class="hl">DeleteOverlapsDialog.cpp</code>, <code class="hl">GraphicObject.cpp</code>, <code class="hl">ClickButton.cpp</code>, <code class="hl">Appearance.cpp</code>, <code class="hl">TweakTarget.cpp</code>, <code class="hl">InstrumentChooser.cpp</code>, <code class="hl">TrackListWidget.cpp</code>, <code class="hl">ChannelListWidget.cpp</code>, <code class="hl">OpenGLPaintWidget.cpp/.h</code>, <code class="hl">PaintWidget.h</code>, <code class="hl">MidiSettingsWidget.h</code>, <code class="hl">AppearanceSettingsWidget.cpp/.h</code>, <code class="hl">AutoUpdater.cpp</code></li><li><strong>Bug report:</strong> <code class="hl">Planning/03_bugs.md</code> — full scan results with verification status</li></ul></div></div>
+</article>
+<article class="cl-version" data-version="1.1.8.1">
+<div class="cl-dot"></div>
+<div class="cl-version-head">
+<h2><a href="https://github.com/happytunesai/MidiEditor_AI/releases/tag/v1.1.8.1" target="_blank" rel="noopener noreferrer">v1.1.8.1</a></h2>
+<span class="cl-date">2026-04-06</span>
+</div>
+<div class="cl-title">Bugfix: FFXIV Channel Fixer</div>
+<ul class="cl-summary">
+<li>Fixed undo crash when reverting Channel Fixer operations</li>
+<li>Restored Tier 3 guitar track renaming with reliable data source</li>
+<li>Added Tier 2 event cleanup (remove CC, PitchBend, etc.; keep Text/lyrics)</li>
+<li>Context menu &quot;Move to Channel&quot; now shows instrument names</li>
+<li>4 bug fixes from v1.1.8 regression + 2 improvements</li>
+</ul>
+<button class="cl-toggle" type="button"><span class="arrow">▶</span> Show full changelog</button>
+<div class="cl-details"><div class="cl-cat cat-fix"><h4><span class="cat-badge">🔧 Fixed</span> Fixed</h4><ul><li><strong>Undo crash after Channel Fixer</strong> — v1.1.8 introduced <code class="hl">toProtocol=false</code> as a performance optimization for bulk operations, but this caused the Protocol undo system to record an empty step (discarded by <code class="hl">endAction</code>). Undoing past the Channel Fixer operation crashed because no undo entry existed and deleted events left dangling pointers. Reverted to <code class="hl">toProtocol=true</code> (default) so all changes are properly recorded; removed <code class="hl">delete ev</code> on removed Program Changes since the Protocol system keeps events alive for undo</li><li><strong>Tier 3 guitar track renaming restored</strong> — v1.1.8.0 removed all Tier 3 renaming as a workaround for unreliable <code class="hl">chToVariant</code> data. Now that <code class="hl">guitarChannelMap</code> is built from <code class="hl">assignedChannel()</code> (the v1.1.8.0 fix), the reverse-map is reliable again. Tier 3 now detects when a guitar track&#x27;s first note is on a different variant&#x27;s channel and renames accordingly (e.g. Overdriven track with first note on Distortion channel → renamed to PowerChords)</li><li><strong>Tier 3 crash / wrong channel on first run after Tier 2</strong> — (carried forward from v1.1.8.0) Uses <code class="hl">track-&gt;assignedChannel()</code> as sole source of truth</li><li><strong>Free channel reservation Tier 2 only</strong> — (carried forward from v1.1.8.0)</li></ul></div>
+<div class="cl-cat cat-feature"><h4><span class="cat-badge">✨ Added</span> Added</h4><ul><li><strong>Tier 2 event cleanup</strong> — Tier 2 (Rebuild) now removes non-essential MIDI events (ControlChange, PitchBend, ChannelPressure, KeyPressure, SysEx, etc.) from all channels. FFXIV performance mode doesn&#x27;t use these events. Text events (lyrics) and notes are preserved</li><li><strong>Context menu channel names</strong> — Right-click &quot;Move to Channel&quot; submenu now shows instrument names (e.g. <code class="hl">0: Piano</code>, <code class="hl">1: ElectricGuitarOverdriven</code>) matching the toolbar channel menus, instead of bare channel numbers</li></ul></div>
+<div class="cl-cat cat-tech"><h4><span class="cat-badge">📝 Notes</span> Technical Notes</h4><ul><li><strong>Undo root cause:</strong> <code class="hl">toProtocol=false</code> prevents <code class="hl">MidiChannel::removeEvent</code>/<code class="hl">MidiEvent::moveToChannel</code> from calling <code class="hl">protocol(copy, this)</code>, so <code class="hl">startNewAction/endAction</code> recorded 0 items and silently discarded the step</li><li><strong>Files modified:</strong> <code class="hl">src/ai/FFXIVChannelFixer.cpp</code> (undo fix, rename restoration, event cleanup), <code class="hl">src/gui/MatrixWidget.cpp</code> (channel names in context menu)</li></ul></div></div>
+</article>
+<article class="cl-version" data-version="1.1.8">
+<div class="cl-dot"></div>
+<div class="cl-version-head">
+<h2><a href="https://github.com/happytunesai/MidiEditor_AI/releases/tag/v1.1.8" target="_blank" rel="noopener noreferrer">v1.1.8</a></h2>
+<span class="cl-date">2026-04-06</span>
+</div>
+<div class="cl-title">Mewo Feature Sync</div>
+<div class="cl-blockquote">Cherry-picking the best upstream features: context menus, note presets, timeline markers, chord detection, MML import, drum presets, and a whole lotta polish.</div>
+<ul class="cl-summary">
+<li>Right-click context menu, note duration presets, smooth playback scrolling</li>
+<li>Timeline markers (CC/PC/Text), status bar with chord detection</li>
+<li>MML importer (.mml/.3mle), drum kit presets, DLS SoundFont support</li>
+<li>7 bug fixes · 3 UI changes · Cherry-picked 16 features from Mewo upstream</li>
+</ul>
+<button class="cl-toggle" type="button"><span class="arrow">▶</span> Show full changelog</button>
+<div class="cl-details"><div class="cl-cat cat-feature"><h4><span class="cat-badge">✨ Added</span> Added</h4><ul><li><strong>Right-Click Context Menu</strong> — right-click on selected events in the piano roll for quick access to Quantize, Copy, Delete, Transpose, Move to Track/Channel, Scale, and Legato operations. Plain right-click opens the menu; Ctrl+Right-Click still creates notes</li><li><strong>Note Duration Presets</strong> — when the pencil tool is active, select a fixed note duration (whole, half, quarter, 8th, 16th, 32nd) from the toolbar with keyboard shortcuts (1-6). Shows a semi-transparent ghost preview on hover before clicking</li><li><strong>Smooth Playback Scrolling</strong> — playback cursor now smoothly scrolls the viewport instead of jumping by screen-widths. Toggle in Settings → Appearance or Additional Midi Settings</li><li><strong>Timeline Markers</strong> — visual CC, Program Change, and Text/Marker event indicators on the timeline:</li><li><strong>Status Bar with Chord Detection</strong> — bottom status bar showing selected note info, chord analysis (major/minor/7th/dim/aug/sus), tick position, and event count. Togglable in Settings → System &amp; Performance</li><li><strong>MML Importer</strong> — import Music Macro Language (.mml/.3mle) text files as MIDI. Supports 3MLE format used by FFXIV bard performers with multi-track channels, tempo, octave, note length, volume, and program change commands</li><li><strong>DrumKit Preset Mapping</strong> — Split Channels dialog now includes a &quot;Drum Kit Preset&quot; dropdown for channel 9 with 17 standard GM drum kits (Standard, Room, Power, Electronic, etc.) that auto-insert the correct Program Change event</li><li><strong>DLS SoundFont Support</strong> — file dialog now accepts <code class="hl">.dls</code> (Downloadable Sound) files alongside <code class="hl">.sf2</code>/<code class="hl">.sf3</code></li></ul></div>
+<div class="cl-cat cat-fix"><h4><span class="cat-badge">🔧 Fixed</span> Fixed</h4><ul><li><strong>Null-byte text event truncation</strong> — MIDI text events containing <code class="hl">\0</code> null bytes no longer truncate or show <code class="hl">[]</code> boxes in the UI</li><li><strong>SizeChangeTool improvements</strong> — resize handle behavior refined for more precise note length editing</li><li><strong>Measure numbers shifting with markers</strong> — measure numbers now use a fixed Y position (<code class="hl">textY = 41</code>) so they don&#x27;t jump when the timeline marker bar appears/disappears</li><li><strong>TrackList/ChannelList stale toolbar colors</strong> — added <code class="hl">refreshColors()</code> methods that properly update toolbar palettes on theme change, instead of just repainting</li><li><strong>FFXIVChannelFixer memory leak</strong> — Program Change events removed during channel fixing are now properly <code class="hl">delete</code>d after removal from the channel</li><li><strong>FFXIVChannelFixer bulk operation performance</strong> — <code class="hl">moveToChannel()</code> and <code class="hl">removeEvent()</code> now accept a <code class="hl">toProtocol</code> parameter; Channel Fixer passes <code class="hl">false</code> to skip hundreds of individual undo entries during batch operations</li><li><strong>Appearance Settings UI</strong> — collapsible Channel/Track Colors sections now use clickable arrow buttons (▶/▼) instead of checkboxes, readable in all themes. Settings panel wrapped in QScrollArea</li></ul></div>
+<div class="cl-cat cat-changed"><h4><span class="cat-badge">🔄 Changed</span> Changed</h4><ul><li><strong>Timeline layout</strong> — separate <code class="hl">MarkerArea</code> rect for the 16px marker row below the 50px ruler; cleaner hit-testing separation</li><li><strong>Full-height vertical divider</strong> — the divider between piano/header area and the note area now extends from top to bottom of the widget</li><li><strong>Removed bottom/right border lines</strong> — cleaner look without redundant edge borders on the piano roll</li><li>Version bump to 1.1.8</li></ul></div>
+<div class="cl-cat cat-tech"><h4><span class="cat-badge">📝 Notes</span> Technical Notes</h4><ul><li><strong>Mewo upstream sync:</strong> Cherry-picked 16 features/fixes from Meowchestra/MidiEditor commits <code class="hl">28eb14c..5080ff3</code> (62 commits after fork-point <code class="hl">25ebba3</code>)</li><li><strong>New files:</strong> <code class="hl">src/gui/ChordDetector.h</code>, <code class="hl">src/gui/StatusBarSettingsWidget.h/cpp</code>, <code class="hl">src/gui/SplitChannelsDialog.h/cpp</code>, <code class="hl">src/midi/DrumKitPreset.h/cpp</code>, <code class="hl">src/converter/MML/ThreeMleParser.h/cpp</code>, <code class="hl">src/converter/MML/MmlConverter.h/cpp</code></li><li><strong>Core modifications:</strong> <code class="hl">MatrixWidget.h/cpp</code> (context menu, smooth scroll, marker bar, MarkerArea), <code class="hl">MainWindow.h/cpp</code> (status bar, duration presets, MML import), <code class="hl">Appearance.h/cpp</code> (marker settings, refreshColors), <code class="hl">MidiEvent.h/cpp</code> + <code class="hl">OnEvent.h/cpp</code> + <code class="hl">MidiChannel.h/cpp</code> (<code class="hl">toProtocol</code> parameter), <code class="hl">FFXIVChannelFixer.cpp</code> (leak fix + toProtocol), <code class="hl">TrackListWidget.h/cpp</code> + <code class="hl">ChannelListWidget.h/cpp</code> (refreshColors), <code class="hl">AppearanceSettingsWidget.cpp</code> (collapsible arrows, scrollable layout)</li></ul></div></div>
+</article>
+<article class="cl-version" data-version="1.1.7">
+<div class="cl-dot"></div>
+<div class="cl-version-head">
+<h2><a href="https://github.com/happytunesai/MidiEditor_AI/releases/tag/v1.1.7" target="_blank" rel="noopener noreferrer">v1.1.7</a></h2>
+<span class="cl-date">2026-04-05</span>
+</div>
+<div class="cl-title">The Totally Unnecessary Glow Up</div>
+<div class="cl-blockquote">Adding Dark/Light Mode and a totally useless but cool MIDI Visualizer.</div>
+<ul class="cl-summary">
+<li>7 dark/light QSS themes (Dark, Light, Sakura, AMOLED, Material Dark, System, Classic)</li>
+<li>Real-time 16-channel MIDI Visualizer in the toolbar</li>
+<li>10 note bar color presets, Sakura piano keys, dark title bar (Windows)</li>
+<li>Dark mode icon adjustment, checkbox visibility fix</li>
+<li>2 bug fixes · Theme restart mechanism</li>
+</ul>
+<button class="cl-toggle" type="button"><span class="arrow">▶</span> Show full changelog</button>
+<div class="cl-details"><div class="cl-cat cat-feature"><h4><span class="cat-badge">✨ Added</span> Added</h4><ul><li><strong>Dark &amp; Light QSS Themes</strong> — full application theming with seven modes:</li><li><strong>Dark Title Bar (Windows)</strong> — native Windows dark title bar using DWM API (<code class="hl">DWMWA_USE_IMMERSIVE_DARK_MODE</code>), applies to all windows and dialogs automatically</li><li><strong>Theme Change Restart</strong> — changing themes triggers app restart with confirmation dialog; reopens Settings → Appearance tab automatically via <code class="hl">--open-settings</code> CLI flag</li><li><strong>MIDI Visualizer</strong> — real-time 16-channel equalizer bars in the toolbar:</li><li><strong>Note Bar Color Presets</strong> — 10 one-click channel color schemes in Settings → Appearance:</li><li><strong>Sakura piano keys</strong> — white keys tinted lavender blush (<code class="hl">#FFF0F5</code>), black keys dark rose (<code class="hl">#502837</code>), with matching hover/selected/highlight states</li><li><strong>Toolbar icon dark mode adjustment</strong> — black toolbar icons automatically recolored to light gray in dark themes for visibility (colored icons like FFXIV Fix, Explode Chords, MidiPilot preserved as-is)</li><li><strong>Checkbox visibility in dark mode</strong> — brighter borders for checkboxes in dark theme</li></ul></div>
+<div class="cl-cat cat-fix"><h4><span class="cat-badge">🔧 Fixed</span> Fixed</h4><ul><li><strong>Color preset combo always showing &quot;Default&quot;</strong> — added <code class="hl">_colorPreset</code> persistence to QSettings; combo now correctly shows the saved preset when re-entering Settings</li><li><strong>Piano key note labels unreadable in dark mode</strong> — C1/C2/C3 octave labels on the piano bar changed from hardcoded <code class="hl">Qt::gray</code> to light gray (<code class="hl">QColor(200,200,200)</code>) in dark themes for readability</li></ul></div>
+<div class="cl-cat cat-changed"><h4><span class="cat-badge">🔄 Changed</span> Changed</h4><ul><li>Toolbar inline styles refactored to use centralized <code class="hl">Appearance</code> helper methods for theme consistency</li><li>Version bump to 1.1.7</li></ul></div>
+<div class="cl-cat cat-tech"><h4><span class="cat-badge">📝 Notes</span> Technical Notes</h4><ul><li><strong>New files:</strong> <code class="hl">src/gui/themes/dark.qss</code>, <code class="hl">src/gui/themes/light.qss</code>, <code class="hl">src/gui/themes/pink.qss</code>, <code class="hl">src/gui/themes/amoled.qss</code>, <code class="hl">src/gui/themes/materialdark.qss</code>, <code class="hl">src/gui/MidiVisualizerWidget.h/cpp</code>, <code class="hl">run_environment/graphics/tool/midi_visualizer.png</code></li><li><strong>Core modifications:</strong> <code class="hl">Appearance.h/cpp</code> (theme management, 7 themes, 10 color presets, piano key overrides, DWM dark title bar, icon adjustment), <code class="hl">AppearanceSettingsWidget.h/cpp</code> (theme selector + preset combo UI), <code class="hl">MainWindow.h/cpp</code> (toolbar theming, visualizer lifecycle, restart mechanism), <code class="hl">SettingsDialog.h/cpp</code> (<code class="hl">setCurrentTab()</code>), <code class="hl">main.cpp</code> (<code class="hl">--open-settings</code> CLI arg), <code class="hl">LayoutSettingsWidget.cpp</code> (visualizer in customize toolbar)</li><li><strong>Visualizer lifecycle:</strong> Widget created fresh on each toolbar rebuild via <code class="hl">toolbar-&gt;addWidget()</code> — avoids Qt <code class="hl">QWidgetAction</code> ownership bugs where <code class="hl">setDefaultWidget()</code> transfers ownership to the toolbar which destroys the widget on rebuild</li><li><strong>AMOLED/Material themes inspired by:</strong> <a href="https://github.com/GTRONICK/QSS" target="_blank" rel="noopener noreferrer">GTRONICK/QSS</a> (MIT License) — color palettes adapted into our QSS structure</li></ul></div></div>
+</article>
+<article class="cl-version" data-version="1.1.6.1">
+<div class="cl-dot"></div>
+<div class="cl-version-head">
+<h2><a href="https://github.com/happytunesai/MidiEditor_AI/releases/tag/v1.1.6.1" target="_blank" rel="noopener noreferrer">v1.1.6.1</a></h2>
+<span class="cl-date">2026-04-04</span>
+</div>
+<div class="cl-title">Bugfix: Duplicate Guitar Track Channels</div>
+<ul class="cl-summary">
+<li>Fixed duplicate guitar variants mapped to wrong channel in Fix X|V</li>
+<li>Fixed Tier 3 duplicate guitar notes not migrated to shared channel</li>
+</ul>
+<button class="cl-toggle" type="button"><span class="arrow">▶</span> Show full changelog</button>
+<div class="cl-details"><div class="cl-cat cat-fix"><h4><span class="cat-badge">🔧 Fixed</span> Fixed</h4><ul><li><strong>Fix X|V Channels: duplicate guitar variants mapped to wrong channel</strong> — when two or more tracks shared the same guitar variant name (e.g. two &quot;ElectricGuitarPowerChords&quot; tracks), the second track was assigned its own channel instead of sharing the first occurrence&#x27;s channel. This caused the duplicate track to receive a wrong program (e.g. Piano on CH3 instead of Distortion Guitar). Now all tracks with the same guitar variant name share a single channel with the correct program change, in both Rebuild (Tier 2) and Preserve (Tier 3) modes</li><li><strong>Fix X|V Channels Tier 3: duplicate guitar notes not migrated</strong> — in Preserve mode, duplicate guitar tracks had their notes stranded on the original channel. Added note migration for duplicate guitar tracks to move events to the shared target channel</li></ul></div>
+<div class="cl-cat cat-changed"><h4><span class="cat-badge">🔄 Changed</span> Changed</h4><ul><li>Version bump to 1.1.6.1</li></ul></div></div>
+</article>
+<article class="cl-version" data-version="1.1.6">
+<div class="cl-dot"></div>
+<div class="cl-version-head">
+<h2><a href="https://github.com/happytunesai/MidiEditor_AI/releases/tag/v1.1.6" target="_blank" rel="noopener noreferrer">v1.1.6</a></h2>
+<span class="cl-date">2026-04-04</span>
+</div>
+<div class="cl-title">Guitar Pro Import (GP1–GP8)</div>
+<ul class="cl-summary">
+<li>Native Guitar Pro import: GP1–GP8 (.gtp, .gp3, .gp4, .gp5, .gpx, .gp)</li>
+<li>Fixed GP3/GP4/GP5 binary parser bugs, GP6 BCFZ decompression, GP7/GP8 ZIP extraction</li>
+<li>GP1/GP2 legacy parser ported from TuxGuitar reference</li>
+<li>Explode Chords toolbar icon</li>
+</ul>
+<button class="cl-toggle" type="button"><span class="arrow">▶</span> Show full changelog</button>
+<div class="cl-details"><div class="cl-cat cat-feature"><h4><span class="cat-badge">✨ Added</span> Added</h4><ul><li><strong>Native Guitar Pro import</strong> — all Guitar Pro formats from 1990s DOS to 2024 are now supported:</li><li><strong>GP3/GP4/GP5 binary parser fixes</strong> (Phase 16.1) — the upstream Meowchestra fork contained an unfinished Guitar Pro parser skeleton that failed on every real-world file. Fixed:</li><li><strong>GP6 BCFZ decompression rewrite</strong> (Phase 16.2) — upstream used zlib <code class="hl">inflate()</code> on BCFZ data which is completely wrong (BCFZ is a custom bit-level LZ77 algorithm, not zlib/DEFLATE). Rewrote <code class="hl">decompressGPX()</code> with the correct algorithm, ported from C# BardMusicPlayer/LightAmp source code</li><li><strong>GP7/GP8 ZIP extraction rewrite</strong> (Phase 16.3) — upstream parsed local file headers which have unreliable sizes when ZIP data descriptors are present. Rewrote to parse the <strong>central directory</strong> from the end of the file for correct entry sizes</li><li><strong>GPIF XML node lookup fix</strong> (Phase 16.4) — <code class="hl">getSubnodeByName()</code> could find nested elements (e.g. <code class="hl">&lt;Bars&gt;</code> inside <code class="hl">&lt;MasterBar&gt;</code>) before the top-level collection, causing silent data loss. All lookups now use <code class="hl">directOnly=true</code></li><li><strong>GP1/GP2 legacy parser</strong> (Phase 16.6) — new <code class="hl">Gp12Parser</code> classes ported from TuxGuitar&#x27;s <code class="hl">GP1InputStream.java</code> / <code class="hl">GP2InputStream.java</code> reference implementation</li><li><strong>Explode Chords to Tracks icon</strong> — toolbar icon added for the Explode Chords tool</li></ul></div>
+<div class="cl-cat cat-changed"><h4><span class="cat-badge">🔄 Changed</span> Changed</h4><ul><li>Version bump to 1.1.6</li></ul></div>
+<div class="cl-cat cat-tech"><h4><span class="cat-badge">📝 Notes</span> Technical Notes</h4><ul><li><strong>Origin:</strong> Meowchestra/MidiEditor upstream contained a non-functional Guitar Pro parser (<code class="hl">src/converter/GuitarPro/</code>) with basic structure for GP3–GP7. Binary parsers had field-ordering bugs, BCFZ used the wrong algorithm, ZIP extraction failed on data descriptors, XML lookups returned wrong elements. All bugs were fixed, GP1/GP2 support was added from scratch.</li><li><strong>Architecture:</strong> Three parser families — binary (<code class="hl">Gp345Parser</code> inheritance chain), XML (<code class="hl">Gp678Parser</code> with BCFZ/ZIP decompression), and legacy (<code class="hl">Gp12Parser</code> inheritance chain). All share <code class="hl">GpImporter</code> as entry point with header-based detection.</li><li><strong>Tested formats:</strong> GP1 (You&#x27;ve Got Something There.gtp, 8 tracks/12 measures), GP3 (U2 - Lemon.gp3, 9/199), GP4 (Sakuran.gp4, 5/137), GP5 (Flogging-Molly.gp5, 5/74), GP6 (Sweet Child O Mine.gpx, 6/180), GP7 (The Mirror.gp, 6/147)</li></ul></div></div>
+</article>
+<article class="cl-version" data-version="1.1.5">
+<div class="cl-dot"></div>
+<div class="cl-version-head">
+<h2><a href="https://github.com/happytunesai/MidiEditor_AI/releases/tag/v1.1.5" target="_blank" rel="noopener noreferrer">v1.1.5</a></h2>
+<span class="cl-date">2026-03-31</span>
+</div>
+<div class="cl-title">Auto-Updater</div>
+<ul class="cl-summary">
+<li>Seamless in-app auto-updater from GitHub Releases (Update Now / After Exit / Download / Skip)</li>
+<li>Self-update: renames running EXE, extracts new, restarts — no installer needed</li>
+<li>Fixed MidiPilot chat Ctrl+C copy and context menu styling</li>
+</ul>
+<button class="cl-toggle" type="button"><span class="arrow">▶</span> Show full changelog</button>
+<div class="cl-details"><div class="cl-cat cat-feature"><h4><span class="cat-badge">✨ Added</span> Added</h4><ul><li><strong>Auto-Updater</strong> — seamless in-app update directly from GitHub Releases:</li><li><strong>Manual: Auto-Update section</strong> updated with screenshots (Update dialog, Progress bar, Scheduled confirmation)</li></ul></div>
+<div class="cl-cat cat-fix"><h4><span class="cat-badge">🔧 Fixed</span> Fixed</h4><ul><li><strong>MidiPilot chat: Ctrl+C copy</strong> — selected text in chat bubbles can now be copied with Ctrl+C (previously only right-click → Copy worked)</li><li><strong>MidiPilot chat: context menu</strong> — replaced the unstyled default system context menu with a compact dark-themed menu (Copy / Select All) that matches the application style</li></ul></div>
+<div class="cl-cat cat-changed"><h4><span class="cat-badge">🔄 Changed</span> Changed</h4><ul><li>Feature table: &quot;Auto-Update Checker&quot; renamed to &quot;Auto-Updater&quot; reflecting the new in-app update capability</li><li>Version bump to 1.1.5</li></ul></div></div>
+</article>
+<article class="cl-version" data-version="1.1.4.1">
+<div class="cl-dot"></div>
+<div class="cl-version-head">
+<h2><a href="https://github.com/happytunesai/MidiEditor_AI/releases/tag/v1.1.4.1" target="_blank" rel="noopener noreferrer">v1.1.4.1</a></h2>
+<span class="cl-date">2026-03-30</span>
+</div>
+<div class="cl-title">Chat UX Fix</div>
+<ul class="cl-summary">
+<li>Fixed MidiPilot chat Ctrl+C copy and styled context menu</li>
+</ul>
+<button class="cl-toggle" type="button"><span class="arrow">▶</span> Show full changelog</button>
+<div class="cl-details"><div class="cl-cat cat-fix"><h4><span class="cat-badge">🔧 Fixed</span> Fixed</h4><ul><li><strong>MidiPilot chat: Ctrl+C copy</strong> — selected text in chat bubbles can now be copied with Ctrl+C (previously only right-click → Copy worked)</li><li><strong>MidiPilot chat: context menu</strong> — replaced the unstyled default system context menu with a compact dark-themed menu (Copy / Select All) that matches the application style</li></ul></div>
+<div class="cl-cat cat-changed"><h4><span class="cat-badge">🔄 Changed</span> Changed</h4><ul><li>Version bump to 1.1.4.1</li></ul></div></div>
+</article>
+<article class="cl-version" data-version="1.1.4">
+<div class="cl-dot"></div>
+<div class="cl-version-head">
+<h2><a href="https://github.com/happytunesai/MidiEditor_AI/releases/tag/v1.1.4" target="_blank" rel="noopener noreferrer">v1.1.4</a></h2>
+<span class="cl-date">2026-03-29</span>
+</div>
+<div class="cl-title">Split Channels to Tracks</div>
+<ul class="cl-summary">
+<li>Split single-track multi-channel MIDI into one track per instrument</li>
+<li>Preview dialog with GM instrument names, auto-naming, drum track option</li>
+<li>Single undo action, toolbar migration for existing users</li>
+</ul>
+<button class="cl-toggle" type="button"><span class="arrow">▶</span> Show full changelog</button>
+<div class="cl-details"><div class="cl-cat cat-feature"><h4><span class="cat-badge">✨ Added</span> Added</h4><ul><li><strong>Split Channels to Tracks</strong> — convert single-track multi-channel GM MIDI files into one track per instrument:</li><li><strong>Manual: Split Channels to Tracks page</strong> added with screenshots and animated GIF</li></ul></div>
+<div class="cl-cat cat-changed"><h4><span class="cat-badge">🔄 Changed</span> Changed</h4><ul><li>Version bump to 1.1.4</li></ul></div></div>
+</article>
+<article class="cl-version" data-version="1.1.3.1">
+<div class="cl-dot"></div>
+<div class="cl-version-head">
+<h2><a href="https://github.com/happytunesai/MidiEditor_AI/releases/tag/v1.1.3.1" target="_blank" rel="noopener noreferrer">v1.1.3.1</a></h2>
+<span class="cl-date">2026-03-29</span>
+</div>
+<div class="cl-title">Auto-Save</div>
+<ul class="cl-summary">
+<li>Auto-save with sidecar <code class="hl">.autosave</code> backups after configurable idle period</li>
+<li>Crash recovery for untitled documents, orphaned backup detection</li>
+<li>Configurable interval (30–600s), toggle in Settings → System &amp; Performance</li>
+</ul>
+<button class="cl-toggle" type="button"><span class="arrow">▶</span> Show full changelog</button>
+<div class="cl-details"><div class="cl-cat cat-feature"><h4><span class="cat-badge">✨ Added</span> Added</h4><ul><li><strong>Auto-Save</strong> — automatic backup saves to prevent data loss during editing:</li><li><strong>Auto-Save settings</strong> in Settings → System &amp; Performance:</li><li><strong>Manual: Auto-Save section</strong> added to MidiPilot documentation page with screenshot</li></ul></div>
+<div class="cl-cat cat-changed"><h4><span class="cat-badge">🔄 Changed</span> Changed</h4><ul><li>Version bump to 1.1.3.1</li></ul></div></div>
+</article>
+<article class="cl-version" data-version="1.1.3">
+<div class="cl-dot"></div>
+<div class="cl-version-head">
+<h2><a href="https://github.com/happytunesai/MidiEditor_AI/releases/tag/v1.1.3" target="_blank" rel="noopener noreferrer">v1.1.3</a></h2>
+<span class="cl-date">2026-03-28</span>
+</div>
+<div class="cl-title">Prompt Architecture v2, Crash Fix &amp; Provider Selector</div>
+<ul class="cl-summary">
+<li>Provider selector in MidiPilot footer (OpenAI / OpenRouter / Gemini / Custom)</li>
+<li>Prompt v2: priority rules, validation block, timing reference, truncation fallback</li>
+<li>Fixed crash on New File during playback (use-after-free)</li>
+</ul>
+<button class="cl-toggle" type="button"><span class="arrow">▶</span> Show full changelog</button>
+<div class="cl-details"><div class="cl-cat cat-feature"><h4><span class="cat-badge">✨ Added</span> Added</h4><ul><li><strong>Provider selector in MidiPilot footer</strong> — switch between OpenAI, OpenRouter, Gemini, and Custom directly in the chat panel without opening Settings. Automatically swaps API key, base URL, and model list per provider</li><li><strong>Prompt: Priority Rule (Phase 12.1)</strong> — mode-specific prompts (e.g. FFXIV) now explicitly override general rules, eliminating the #1 source of FFXIV agent errors (inserting <code class="hl">program_change</code> when the mode says not to)</li><li><strong>Prompt: Final Validation Block (Phase 12.2)</strong> — compact checklist appended to system prompts that the LLM reviews before responding (field requirements, value ranges, FFXIV constraints)</li><li><strong>Prompt: Timing Reference (Phase 12.3)</strong> — explicit note duration formulas (quarter = ticksPerQuarter, eighth = ticksPerQuarter/2, etc.) so LLMs no longer miscalculate rhythms</li><li><strong>Prompt: Truncation Fallback (Phase 12.4)</strong> — instruction to produce the smallest complete musically coherent version instead of truncated output when a request is too large</li><li><strong>Prompt: Schema unification (Phase 12.6)</strong> — Simple mode prompt now always requires the <code class="hl">actions[]</code> array format, reducing ambiguity (parser still accepts single-action format for backward compat)</li><li><strong>Agent mode: Invalid event feedback (Phase 12.5)</strong> — <code class="hl">deserialize()</code> now collects validation errors and returns them in the tool result (<code class="hl">skippedErrors</code> array), allowing the LLM to self-correct in subsequent tool calls instead of silently losing events</li></ul></div>
+<div class="cl-cat cat-fix"><h4><span class="cat-badge">🔧 Fixed</span> Fixed</h4><ul><li><strong>Crash: New File during playback</strong> — <code class="hl">newFile()</code> now stops playback before replacing the MIDI file, and <code class="hl">MidiPlayer::stop()</code> waits for the player thread to finish (<code class="hl">wait()</code>), preventing a use-after-free crash when the old file was deleted while <code class="hl">PlayerThread</code> still accessed it on a separate thread</li></ul></div>
+<div class="cl-cat cat-changed"><h4><span class="cat-badge">🔄 Changed</span> Changed</h4><ul><li>Removed unused <code class="hl">tsEvents</code> variable in <code class="hl">EditorContext::captureKeySignature()</code> (Phase 12.7)</li><li>Version bump to 1.1.3</li></ul></div></div>
+</article>
+<article class="cl-version" data-version="1.1.2.2">
+<div class="cl-dot"></div>
+<div class="cl-version-head">
+<h2><a href="https://github.com/happytunesai/MidiEditor_AI/releases/tag/v1.1.2.2" target="_blank" rel="noopener noreferrer">v1.1.2.2</a></h2>
+<span class="cl-date">2026-03-28</span>
+</div>
+<div class="cl-title">Manual Update: Prompt Examples &amp; CI</div>
+<ul class="cl-summary">
+<li>Prompt Examples with screenshots and downloadable MIDI files</li>
+<li>Fixed broken download links, stray <code class="hl">n</code> artifact, navbar overflow</li>
+<li>CI dependency bumps (GitHub Actions v6/v7)</li>
+</ul>
+<button class="cl-toggle" type="button"><span class="arrow">▶</span> Show full changelog</button>
+<div class="cl-details"><div class="cl-cat cat-feature"><h4><span class="cat-badge">✨ Added</span> Added</h4><ul><li><strong>Prompt Examples: screenshots &amp; MIDI downloads</strong> — every prompt section (Composing, Editing, Harmony, Arrangement) now includes result screenshots and downloadable MIDI files</li><li><strong>New manual assets</strong> — <code class="hl">manual/midi/</code> and <code class="hl">manual/wav/</code> directories for hosting example files locally on GitHub Pages</li></ul></div>
+<div class="cl-cat cat-fix"><h4><span class="cat-badge">🔧 Fixed</span> Fixed</h4><ul><li><strong>Broken download links</strong> — MIDI/WAV links in Prompt Examples pointed to non-existent <code class="hl">../examples/</code> path (404); now link to <code class="hl">midi/</code> and <code class="hl">wav/</code> within the manual</li><li><strong>Stray <code class="hl">` </code>n `` artifact</strong> in 15 HTML pages — a PowerShell newline literal was rendered as visible text in the navbar</li><li><strong>Navbar overflow</strong> — reduced font size, gap, and disabled wrapping so all 12 links fit in a single row</li></ul></div>
+<div class="cl-cat cat-changed"><h4><span class="cat-badge">🔄 Changed</span> Changed</h4><ul><li>README: documentation link now points to the manual index instead of directly to the MidiPilot page</li><li>CI: bumped GitHub Actions dependencies (checkout v6, upload-artifact v7, configure-pages v6, upload-pages-artifact v4, deploy-pages v5)</li></ul></div></div>
+</article>
+<article class="cl-version" data-version="1.1.2.1">
+<div class="cl-dot"></div>
+<div class="cl-version-head">
+<h2><a href="https://github.com/happytunesai/MidiEditor_AI/releases/tag/v1.1.2.1" target="_blank" rel="noopener noreferrer">v1.1.2.1</a></h2>
+<span class="cl-date">2026-03-26</span>
+</div>
+<div class="cl-title">Hotfix: SoundFont Persistence &amp; CI Fix</div>
+<ul class="cl-summary">
+<li>Fixed SoundFont stack lost when switching MIDI output</li>
+<li>Fixed CI/Release FluidSynth download 404</li>
+</ul>
+<button class="cl-toggle" type="button"><span class="arrow">▶</span> Show full changelog</button>
+<div class="cl-details"><div class="cl-cat cat-fix"><h4><span class="cat-badge">🔧 Fixed</span> Fixed</h4><ul><li><strong>SoundFont stack lost when switching MIDI output</strong> — switching from FluidSynth to another output (e.g. Microsoft GS Wavetable) and back no longer loses loaded SoundFonts; the engine now preserves font paths across shutdown/reinitialize cycles</li><li><strong>CI/Release workflow: FluidSynth download 404</strong> — updated FluidSynth v2.5.2 asset URL to match upstream&#x27;s renamed zip (<code class="hl">fluidsynth-v2.5.2-…</code> instead of <code class="hl">fluidsynth-2.5.2-…</code>)</li></ul></div></div>
+</article>
+<article class="cl-version" data-version="1.1.2">
+<div class="cl-dot"></div>
+<div class="cl-version-head">
+<h2><a href="https://github.com/happytunesai/MidiEditor_AI/releases/tag/v1.1.2" target="_blank" rel="noopener noreferrer">v1.1.2</a></h2>
+<span class="cl-date">2026-03-26</span>
+</div>
+<div class="cl-title">FluidSynth &amp; FFXIV SoundFont Mode</div>
+<ul class="cl-summary">
+<li>Built-in FluidSynth synthesizer with SoundFont stack management</li>
+<li>FFXIV SoundFont Mode: melodic channels + per-note drum program injection</li>
+<li>Velocity normalization in Fix X|V Channels (all notes → 127)</li>
+<li>Version in title bar, DLS support, SoundFont download dialog</li>
+<li>2 bug fixes (guitar channel migration, transpose dialog)</li>
+</ul>
+<button class="cl-toggle" type="button"><span class="arrow">▶</span> Show full changelog</button>
+<div class="cl-details"><div class="cl-cat cat-feature"><h4><span class="cat-badge">✨ Added</span> Added</h4><ul><li><strong>Built-in FluidSynth synthesizer</strong> (upstream merge from <a href="https://github.com/Meowchestra/MidiEditor" target="_blank" rel="noopener noreferrer">Meowchestra/MidiEditor</a>) — no external softsynth needed. Select *FluidSynth (Built-in Synthesizer)* as MIDI output and load any SF2/SF3 SoundFont directly in Settings</li><li><strong>SoundFont stack management</strong> (upstream) — load multiple SoundFonts with drag-and-drop priority ordering; highest-priority font is checked first for presets</li><li><strong>SoundFont download dialog</strong> (upstream) — one-click download of recommended SoundFonts (General MIDI, FFXIV) from within the application</li><li><strong>FFXIV SoundFont Mode</strong> — single toggle in FluidSynth settings that:</li><li><strong>Velocity normalization</strong> in Fix X|V Channels — Tier 2 (Rebuild) and Tier 3 (Preserve) now set all NoteOn velocities to 127 (max), since FFXIV performance has no dynamics</li><li><strong>Manual: SoundFont &amp; FluidSynth page</strong> — new documentation section covering built-in synth setup, SoundFont management, FFXIV SoundFont Mode, and audio settings</li><li><strong>Version in title bar</strong> — application window title now shows <code class="hl">MidiEditor AI v1.1.2</code> (with version number) on startup, file open, save, and new document</li></ul></div>
+<div class="cl-cat cat-fix"><h4><span class="cat-badge">🔧 Fixed</span> Fixed</h4><ul><li><strong>Fix X|V Channels Rebuild mode: guitar notes stuck on wrong channel</strong> — removed an incorrect guitar-channel exemption that prevented notes from being moved to their target channel when the source channel belonged to another guitar variant (e.g., Track 5 PowerChords notes stayed on CH1 instead of moving to CH5)</li><li><strong>Transpose dialog button order</strong> — swapped Cancel/Accept buttons back to original MidiEditor layout (Cancel left, Accept right) to match muscle memory from the original editor</li></ul></div>
+<div class="cl-cat cat-changed"><h4><span class="cat-badge">🔄 Changed</span> Changed</h4><ul><li><strong>Fix X|V Channels</strong> — &quot;All Channels Melodic (FFXIV)&quot; checkbox renamed to <strong>&quot;FFXIV SoundFont Mode&quot;</strong> with updated tooltip explaining both melodic channels and drum program injection</li><li><strong>Fix X|V Channels result dialog</strong> — now shows velocity normalization count (🔊 Normalized X note velocity(ies) to 127)</li><li><strong>Fix X|V Channels tier descriptions</strong> — both Rebuild and Preserve modes now list velocity normalization as a bullet point</li><li>Manual: updated Fix X|V Channels page with new screenshots and velocity normalization info</li><li>README: added FluidSynth / SoundFont section and updated Features table</li><li>Version bump to 1.1.2</li></ul></div></div>
+</article>
+<article class="cl-version" data-version="1.1.1">
+<div class="cl-dot"></div>
+<div class="cl-version-head">
+<h2><a href="https://github.com/happytunesai/MidiEditor_AI/releases/tag/v1.1.1" target="_blank" rel="noopener noreferrer">v1.1.1</a></h2>
+<span class="cl-date">2026-03-25</span>
+</div>
+<div class="cl-title">Upstream merge</div>
+<ul class="cl-summary">
+<li>Metronome rewrite: GM drum notes instead of WAV files</li>
+<li>Removed Qt6::Multimedia and Qt6::Xml dependencies</li>
+<li>Plugin path fix, rtmidi updated</li>
+</ul>
+<button class="cl-toggle" type="button"><span class="arrow">▶</span> Show full changelog</button>
+<div class="cl-details"><div class="cl-cat cat-changed"><h4><span class="cat-badge">🔄 Changed</span> Changed</h4><ul><li><strong>Metronome rewrite</strong> — replaced <code class="hl">QSoundEffect</code> audio playback with General MIDI drum notes on Channel 10 (High/Low Wood Block). No more WAV file dependency, works through the connected MIDI output device. Downbeats and regular beats now use distinct drum sounds</li><li><strong>Metronome timing</strong> — all PlayerThread→Metronome signal connections now use <code class="hl">Qt::DirectConnection</code> for tighter timing in the audio thread</li><li><strong>Removed Qt6::Multimedia and Qt6::Xml</strong> dependencies — fewer Qt modules required, smaller deployment footprint</li><li><strong>Plugin path fix</strong> — <code class="hl">QCoreApplication::addLibraryPath(appDir + &quot;/plugins&quot;)</code> added before QApplication construction; windeployqt now deploys to <code class="hl">plugins/</code> subdirectory for reliable Qt plugin discovery</li><li><strong>rtmidi updated</strong> — submodule bumped to latest upstream (<code class="hl">a3233c2</code>)</li><li>Version bump to 1.1.1</li></ul></div>
+<div class="cl-cat cat-changed"><h4><span class="cat-badge">🔄 Changed</span> Removed</h4><ul><li>Metronome WAV/MP3 audio files (no longer needed — metronome clicks via MIDI)</li><li>Qt6::Xml and Qt6::Multimedia from build dependencies</li></ul></div></div>
+</article>
+<article class="cl-version" data-version="1.1.0">
+<div class="cl-dot"></div>
+<div class="cl-version-head">
+<h2><a href="https://github.com/happytunesai/MidiEditor_AI/releases/tag/v1.1.0" target="_blank" rel="noopener noreferrer">v1.1.0</a></h2>
+<span class="cl-date">2026-03-25</span>
+</div>
+<ul class="cl-summary">
+<li>Fix X|V Channels: one-click deterministic FFXIV channel fixer</li>
+<li>5-step algorithm with Rebuild/Preserve modes, guitar variant channels</li>
+<li>Rich result summary, progress dialog, single undo action</li>
+<li>Fixed QSettings mismatch, stale channel menus</li>
+</ul>
+<button class="cl-toggle" type="button"><span class="arrow">▶</span> Show full changelog</button>
+<div class="cl-details"><div class="cl-cat cat-feature"><h4><span class="cat-badge">✨ Added</span> Added</h4><ul><li><strong>Fix X|V Channels</strong> — one-click deterministic FFXIV channel fixer (no AI call needed):</li><li><code class="hl">FFXIVChannelFixer</code> class — static deterministic fixer delegated from <code class="hl">setup_channel_pattern</code> tool</li><li>Toolbar migration code ensures Fix X|V button appears for existing users</li></ul></div>
+<div class="cl-cat cat-fix"><h4><span class="cat-badge">🔧 Fixed</span> Fixed</h4><ul><li><strong>QSettings constructor mismatch</strong> — FFXIV tools (<code class="hl">setup_channel_pattern</code>, <code class="hl">validate_ffxiv</code>, <code class="hl">convert_drums_ffxiv</code>) were never sent to the LLM because <code class="hl">ToolDefinitions</code> read from a different registry path than <code class="hl">MidiPilotWidget</code> wrote to. Both now use <code class="hl">QSettings(&quot;MidiEditor&quot;, &quot;NONE&quot;)</code></li><li><strong>Stale channel menus</strong> — &quot;Move events to channel&quot; and similar channel context menus now refresh after Fix X|V Channels (added <code class="hl">updateChannelMenu()</code> to <code class="hl">updateAll()</code>)</li></ul></div>
+<div class="cl-cat cat-changed"><h4><span class="cat-badge">🔄 Changed</span> Changed</h4><ul><li><strong>Fix X|V Channels dialog</strong> — removed redundant Tier 1 (Abort) option; Abort button already cancels. Tier labels simplified to &quot;Rebuild (Full Reassignment)&quot; and &quot;Preserve (Minimal Changes)&quot; without tier numbers</li><li><strong>Fix X|V Channels result</strong> — replaced debug text popup with structured HTML info log showing success status, channel mapping table, program change stats, and track renames</li><li>FFXIV system prompts simplified — removed verbose channel/program tables, now instructs the LLM to call <code class="hl">setup_channel_pattern</code> once</li><li>UI label renamed from &quot;Fix FFXIV Channels&quot; to &quot;Fix X|V Channels&quot; across all dialogs and menus</li><li>README: added Fix X|V Channels to Features table, FFXIV constraint table, and Tools reference</li><li>Manual: new Fix X|V Channels section in MidiPilot page with before/after screenshots and animated GIF</li><li>Manual: new Fix X|V Channels entry in Tools Menu page</li><li>Manual: separate Rebuild and Preserve GIF animations replacing single animation</li><li><strong>Version single source of truth</strong> — <code class="hl">setApplicationVersion()</code> now reads from CMake define <code class="hl">MIDIEDITOR_RELEASE_VERSION_STRING_DEF</code> instead of a hardcoded string. Only update version in <code class="hl">CMakeLists.txt</code> line 3</li><li>Version bump to 1.1.0</li></ul></div></div>
+</article>
+<article class="cl-version" data-version="1.0.2">
+<div class="cl-dot"></div>
+<div class="cl-version-head">
+<h2><a href="https://github.com/happytunesai/MidiEditor_AI/releases/tag/v1.0.2" target="_blank" rel="noopener noreferrer">v1.0.2</a></h2>
+<span class="cl-date">2026-03-24</span>
+</div>
+<ul class="cl-summary">
+<li>FFXIV Bard Mode system prompts rewritten for better LLM compliance</li>
+</ul>
+<button class="cl-toggle" type="button"><span class="arrow">▶</span> Show full changelog</button>
+<div class="cl-details"><div class="cl-cat cat-changed"><h4><span class="cat-badge">🔄 Changed</span> Changed</h4><ul><li>FFXIV Bard Mode system prompts rewritten for better LLM compliance:</li><li>Version bump to 1.0.2</li></ul></div></div>
+</article>
+<article class="cl-version" data-version="1.0.1">
+<div class="cl-dot"></div>
+<div class="cl-version-head">
+<h2><a href="https://github.com/happytunesai/MidiEditor_AI/releases/tag/v1.0.1" target="_blank" rel="noopener noreferrer">v1.0.1</a></h2>
+<span class="cl-date">2026-03-24</span>
+</div>
+<ul class="cl-summary">
+<li>Manual: Prompt Examples page with screenshots, MIDI downloads, demo videos</li>
+<li>New Chat button redesign + confirmation dialog</li>
+<li>FFXIV example prompts improved</li>
+</ul>
+<button class="cl-toggle" type="button"><span class="arrow">▶</span> Show full changelog</button>
+<div class="cl-details"><div class="cl-cat cat-changed"><h4><span class="cat-badge">🔄 Changed</span> Changed</h4><ul><li>New Chat button: replaced ambiguous ➕ icon with a dedicated &quot;message-plus&quot; icon for clarity</li><li>New Chat now shows a confirmation dialog when conversation history exists</li><li>Manual: added Prompt Examples page with real-world prompts, screenshots, and demo videos</li><li>Manual: added API Log documentation to MidiPilot page</li><li>Manual: added navigation links on all pages for Prompt Examples</li><li>MidiPilot page hero image updated to animated Agent Run GIF</li><li>Manual: added lo-fi hip hop example files (MIDI + WAV) as downloadable examples</li><li>FFXIV example prompts improved: removed redundant MidiBard2 references and over-specified constraints</li><li>YouTube demo videos embedded on Prompt Examples page (4 videos: full agent run, audio preview, guitar solo, harmony)</li><li>Version bump to 1.0.1</li></ul></div></div>
+</article>
+<article class="cl-version" data-version="1.0.0">
+<div class="cl-dot"></div>
+<div class="cl-version-head">
+<h2><a href="https://github.com/happytunesai/MidiEditor_AI/releases/tag/v1.0.0" target="_blank" rel="noopener noreferrer">v1.0.0</a></h2>
+<span class="cl-date">2026-03-20</span>
+</div>
+<ul class="cl-summary">
+<li><strong>MidiPilot AI Assistant</strong> — integrated chat panel with Agent Mode (13 tools), Simple Mode, FFXIV Bard Mode</li>
+<li>Multi-provider support (OpenAI, Gemini, OpenRouter, Ollama, etc.), token tracking, editable system prompts</li>
+<li>FFXIV Validation tool, GM Drum Conversion tool, API logging, reasoning display</li>
+<li>Rebranded to MidiEditor AI with CI/CD, GitHub Pages manual</li>
+<li>Based on Meowchestra/MidiEditor v4.3.1 (all upstream features included)</li>
+</ul>
+<button class="cl-toggle" type="button"><span class="arrow">▶</span> Show full changelog</button>
+<div class="cl-details"><div class="cl-cat cat-medium"><h4><span class="cat-badge">🟡 Medium</span> MidiPilot AI Assistant (New)</h4><ul><li><strong>MidiPilot</strong> — integrated AI chat panel for composing, editing, and transforming MIDI</li><li><strong>Agent Mode</strong> — multi-step autonomous AI with 13 tool functions (create tracks, insert/replace/delete events, set tempo, transpose, etc.)</li><li><strong>Simple Mode</strong> — single-step AI for quick edits with lower token usage</li><li><strong>FFXIV Bard Mode</strong> — toggle for Final Fantasy XIV performance constraints (C3-C6 range, monophonic, 8-track limit, instrument validation)</li><li><strong>FFXIV Validation tool</strong> — checks and auto-fixes MIDI files for FFXIV compliance</li><li><strong>GM Drum Conversion tool</strong> — splits GM drum tracks into separate FFXIV tonal drum tracks</li><li><strong>Multi-Provider Support</strong> — OpenAI, Google Gemini, OpenRouter, Groq, Ollama, LM Studio, or any custom OpenAI-compatible endpoint</li><li><strong>Token Usage Tracking</strong> — displays per-request and session token counts in the status bar</li><li><strong>Editable System Prompts</strong> — customize AI behavior via JSON file or built-in editor dialog</li><li><strong>API Logging</strong> — all API requests/responses logged to <code class="hl">midipilot_api.log</code> for debugging</li><li><strong>Reasoning Display</strong> — shows AI thinking/reasoning tokens in a collapsible section</li></ul></div>
+<div class="cl-cat cat-medium"><h4><span class="cat-badge">🟡 Medium</span> App &amp; Infrastructure</h4><ul><li>Rebranded from MeowMidiEditor to <strong>MidiEditor AI</strong></li><li>About dialog credits full upstream chain (Markus Schwenk → ProMidEdit → Meowchestra → MidiEditor AI)</li><li>Update checker redirected to <code class="hl">happytunesai/MidiEditor_AI</code> releases</li><li>GitHub Actions CI/CD: automated build on push + release workflow on tag</li><li>GitHub Pages manual/wiki deployed automatically</li><li>Dark-themed manual with MidiPilot documentation, screenshots, and getting started guide</li></ul></div>
+<div class="cl-cat cat-medium"><h4><span class="cat-badge">🟡 Medium</span> Based On</h4><ul><li><a href="https://github.com/Meowchestra/MidiEditor" target="_blank" rel="noopener noreferrer">Meowchestra/MidiEditor</a> v4.3.1 — all upstream features included:</li><li>Numerous fixes such as sustain notes disappearing if the start &amp; end times were outside the view, sustains partially outside the view visually clipping the note length when dragged back into view, dead scrolls when zoomed in too far, cancelling color selection setting color black instead of properly cancelling, opacity not applying to custom colors set after opacity adjustment, and more.</li></ul></div></div>
+</article>
+<article class="cl-version" data-version="4.0.0">
+<div class="cl-dot"></div>
+<div class="cl-version-head">
+<h2><a href="https://github.com/happytunesai/MidiEditor_AI/releases/tag/v4.0.0" target="_blank" rel="noopener noreferrer">v4.0.0</a></h2>
+<span class="cl-date">2025-07-22</span>
+</div>
+</article>
+</div>
+</main>
+
+<footer class="site-footer">
+    <div class="footer-links">
+        <a href="https://github.com/happytunesai/MidiEditor_AI" target="_blank" rel="noopener noreferrer">GitHub Repo</a>
+        <a href="https://github.com/happytunesai" target="_blank" rel="noopener noreferrer">All Projects</a>
+        <a href="docs-index.html">Documentation</a>
+        <a href="changelog.html">Changelog</a>
+        <a href="https://github.com/happytunesai/MidiEditor_AI/issues" target="_blank" rel="noopener noreferrer">Issues</a>
+        <a href="midipilot.html">MidiPilot</a>
+        <a href="guitar-pro.html">Guitar Pro</a>
+        <a href="https://www.happytunes.de" target="_blank" rel="noopener noreferrer">Happy Tunes &#x1F3B6;</a>
+    </div>
+    <p class="footer-copy">
+        MidiEditor AI &copy; 2026 &middot;
+        <a href="https://github.com/happytunesai/MidiEditor_AI/blob/main/LICENSE">License</a>
+        &middot; Made with &#x266A; + &#x1F916;
+        &middot; A <a href="https://www.happytunes.de" target="_blank" rel="noopener noreferrer">Happy Tunes</a> project
+    </p>
+</footer>
+
+<button class="scroll-top" aria-label="Scroll to top">&#x2191;</button>
+<script src="site.js"></script>
+<script>
+/* Toggle details */
+document.querySelectorAll('.cl-toggle').forEach(btn => {
+    btn.addEventListener('click', () => {
+        const panel = btn.nextElementSibling;
+        const open = panel.classList.toggle('open');
+        btn.classList.toggle('open', open);
+        btn.querySelector('.arrow').textContent = open ? '▶' : '▶';
+    });
+});
+/* Search filter */
+const input = document.getElementById('cl-filter');
+const versions = document.querySelectorAll('.cl-version');
+const noResults = document.getElementById('cl-no-results');
+input.addEventListener('input', () => {
+    const q = input.value.toLowerCase().trim();
+    let visible = 0;
+    versions.forEach(v => {
+        const text = v.textContent.toLowerCase();
+        const show = !q || text.includes(q);
+        v.style.display = show ? '' : 'none';
+        if (show) visible++;
+    });
+    noResults.style.display = visible === 0 ? 'block' : 'none';
+});
+</script>
+
+</body>
+</html>

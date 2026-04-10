@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Download | MidiEditor AI</title>
+<meta name="description" content="Download MidiEditor AI — the AI-powered MIDI editor with MidiPilot copilot, Guitar Pro import, FFXIV bard mode, and FluidSynth playback. Free for Windows.">
+<meta property="og:title" content="Download MidiEditor AI">
+<meta property="og:description" content="Download the AI-powered MIDI editor. Free &amp; open source for Windows 10/11.">
+<meta property="og:url" content="https://midieditor-ai.de/download.html">
+<meta property="og:image" content="https://midieditor-ai.de/screenshots/midieditor-full.png">
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="preconnect" href="https://github.com" crossorigin>
+<meta name="theme-color" content="#0d1117">
+<link rel="stylesheet" href="site.css">
+<style>
+    .dl-hero {
+        padding: calc(var(--nav-height) + 3rem) 0 3rem;
+        text-align: center;
+        background: var(--gradient-hero);
+    }
+    .dl-hero h1 {
+        font-size: 2.5rem; font-weight: 800;
+        background: var(--gradient-accent);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin-bottom: .5rem;
+    }
+    .dl-hero .version {
+        font-size: 1.1rem; color: var(--text-muted); margin-bottom: 2rem;
+    }
+    .dl-cards {
+        display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 1.5rem; max-width: 700px; margin: 0 auto 3rem;
+    }
+    .dl-card {
+        background: var(--bg-card); border: 1px solid var(--border);
+        border-radius: 12px; padding: 2rem; text-align: center;
+        transition: border-color .2s, transform .2s;
+    }
+    .dl-card:hover { border-color: var(--accent); transform: translateY(-3px); }
+    .dl-card .icon { font-size: 2.5rem; margin-bottom: .75rem; }
+    .dl-card h3 { font-size: 1.15rem; margin-bottom: .25rem; }
+    .dl-card .size { color: var(--text-muted); font-size: .85rem; margin-bottom: 1rem; }
+    .dl-card .btn { display: inline-block; width: 100%; }
+
+    .sys-req {
+        max-width: 700px; margin: 0 auto 3rem;
+        background: var(--bg-card); border: 1px solid var(--border);
+        border-radius: 12px; padding: 2rem;
+    }
+    .sys-req h2 { font-size: 1.3rem; margin-bottom: 1rem; }
+    .sys-req table { width: 100%; border-collapse: collapse; }
+    .sys-req td { padding: .5rem 0; border-bottom: 1px solid var(--border); }
+    .sys-req td:first-child { color: var(--text-muted); width: 180px; }
+    .sys-req tr:last-child td { border-bottom: none; }
+
+    .checksums {
+        max-width: 700px; margin: 0 auto 3rem;
+        background: var(--bg-card); border: 1px solid var(--border);
+        border-radius: 12px; padding: 2rem;
+    }
+    .checksums h2 { font-size: 1.3rem; margin-bottom: 1rem; }
+    .checksums .hash-block {
+        background: var(--code-bg); border: 1px solid var(--border);
+        border-radius: 8px; padding: .75rem 1rem; margin-bottom: 1rem;
+        font-family: "Consolas", "Monaco", monospace; font-size: .78rem;
+        word-break: break-all; color: var(--text-muted);
+    }
+    .checksums .hash-block strong { color: var(--text); display: block; margin-bottom: .25rem; font-size: .85rem; }
+
+    .older-versions {
+        max-width: 700px; margin: 0 auto 3rem; text-align: center;
+    }
+    .older-versions p { color: var(--text-muted); }
+
+    .included {
+        max-width: 700px; margin: 0 auto 3rem;
+        background: var(--bg-card); border: 1px solid var(--border);
+        border-radius: 12px; padding: 2rem;
+    }
+    .included h2 { font-size: 1.3rem; margin-bottom: 1rem; }
+    .included-grid {
+        display: grid; grid-template-columns: 1fr 1fr; gap: .5rem .75rem;
+    }
+    .included-grid .item { display: flex; align-items: center; gap: .5rem; font-size: .9rem; }
+    .included-grid .item span:first-child { color: #2ea043; }
+    @media (max-width: 480px) { .included-grid { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+
+<nav class="site-nav" role="navigation" aria-label="Main navigation">
+<div class="container">
+    <a href="index.html" class="nav-brand">
+        <span class="brand-icon">&#x1F3B5;</span>
+        <span>MidiEditor AI</span>
+    </a>
+    <button class="nav-hamburger" aria-label="Toggle menu" aria-expanded="false">&#x2630;</button>
+    <ul class="nav-links">
+        <li><a href="index.html#features">Features</a></li>
+        <li><a href="index.html#showcase">Showcase</a></li>
+        <li class="nav-dropdown">
+            <span class="nav-dropdown-trigger">Docs &#x25BE;</span>
+            <div class="nav-dropdown-menu">
+                <a href="docs-index.html">Manual Overview</a>
+                <a href="midipilot.html">MidiPilot AI</a>
+                <a href="prompt-examples.html">Prompt Examples</a>
+                <a href="ffxiv-channel-fixer.html">FFXIV Channel Fixer</a>
+                <a href="guitar-pro.html">Guitar Pro Import</a>
+                <a href="themes.html">Themes &amp; Appearance</a>
+                <a href="soundfont.html">SoundFonts &amp; FluidSynth</a>
+                <a href="setup.html">Setup &amp; Installation</a>
+            </div>
+        </li>
+        <li><a href="changelog.html">Changelog</a></li>
+        <li><a href="https://github.com/happytunesai/MidiEditor_AI" target="_blank" rel="noopener noreferrer">GitHub &#x2197;</a></li>
+        <li><a href="https://github.com/happytunesai/MidiEditor_AI/releases/latest" class="nav-cta">&#x2B07; Download</a></li>
+    </ul>
+</div>
+</nav>
+
+<a href="#main-content" class="skip-link">Skip to main content</a>
+
+<main id="main-content">
+
+<!-- Hero -->
+<section class="dl-hero">
+    <div class="container">
+        <h1>&#x2B07; Download MidiEditor AI</h1>
+        <p class="version">Current Release: <strong>v1.2.1</strong> &mdash; April 9, 2026</p>
+
+        <div class="dl-cards">
+            <div class="dl-card">
+                <div class="icon">&#x1F4C1;</div>
+                <h3>Portable ZIP</h3>
+                <p class="size">.zip &middot; ~45 MB &middot; Windows 10/11 &middot; No install needed</p>
+                <a href="https://github.com/happytunesai/MidiEditor_AI/releases/download/v1.2.1/MidiEditor_AI_v1.2.1.zip" class="btn btn-primary">&#x2B07; Download v1.2.1</a>
+                <p style="color: var(--text-muted); font-size: .8rem; margin-top: .75rem;">Extract anywhere &amp; run <code style="background: var(--code-bg); padding: 1px 5px; border-radius: 4px;">MidiEditor.exe</code></p>
+            </div>
+            <div class="dl-card">
+                <div class="icon">&#x1F4BB;</div>
+                <h3>Source Code</h3>
+                <p class="size">C++ / Qt 6 &middot; CMake &middot; MIT License</p>
+                <a href="https://github.com/happytunesai/MidiEditor_AI" class="btn btn-secondary" target="_blank" rel="noopener noreferrer">&#x1F4BB; GitHub Repository</a>
+                <p style="color: var(--text-muted); font-size: .8rem; margin-top: .75rem;">Clone, fork, or download source from GitHub</p>
+            </div>
+        </div>
+    </div>
+</section>
+
+<!-- What's Included -->
+<section class="section">
+<div class="container">
+    <div class="included">
+        <h2>&#x2705; What's Included</h2>
+        <div class="included-grid">
+            <div class="item"><span>&#x2714;</span> MidiEditor AI with MidiPilot copilot</div>
+            <div class="item"><span>&#x2714;</span> FluidSynth audio engine</div>
+            <div class="item"><span>&#x2714;</span> Default SoundFont (GeneralUser GS)</div>
+            <div class="item"><span>&#x2714;</span> Guitar Pro import (GP1&ndash;GP8)</div>
+            <div class="item"><span>&#x2714;</span> FFXIV Bard Channel Fixer</div>
+            <div class="item"><span>&#x2714;</span> 7 themes (Dark, Light, Solarized, &hellip;)</div>
+            <div class="item"><span>&#x2714;</span> WAV / MP3 audio export</div>
+            <div class="item"><span>&#x2714;</span> LAME MP3 encoder</div>
+        </div>
+    </div>
+</div>
+</section>
+
+<!-- System Requirements -->
+<section class="section">
+<div class="container">
+    <div class="sys-req">
+        <h2>&#x1F4BB; System Requirements</h2>
+        <table>
+            <tr><td>Operating System</td><td>Windows 10 / 11 (64-bit)</td></tr>
+            <tr><td>Processor</td><td>Any x64 CPU (Intel / AMD)</td></tr>
+            <tr><td>RAM</td><td>4 GB minimum, 8 GB recommended</td></tr>
+            <tr><td>Disk Space</td><td>~150 MB (with SoundFont)</td></tr>
+            <tr><td>Display</td><td>1280&times;720 minimum</td></tr>
+            <tr><td>Audio</td><td>Any sound output device</td></tr>
+            <tr><td>Internet</td><td>Required for MidiPilot AI (OpenAI API)</td></tr>
+            <tr><td>API Key</td><td>OpenAI API key for MidiPilot features</td></tr>
+        </table>
+    </div>
+</div>
+</section>
+
+<!-- Checksums -->
+<section class="section">
+<div class="container">
+    <div class="checksums">
+        <h2>&#x1F512; Verify Your Download (SHA-256)</h2>
+        <p style="color: var(--text-muted); font-size: .85rem; margin-bottom: 1rem;">
+            Compare the hash of your downloaded file with the values below to verify integrity.
+            On Windows: <code style="background: var(--code-bg); padding: 2px 6px; border-radius: 4px;">certutil -hashfile FILENAME SHA256</code>
+        </p>
+        <div class="hash-block">
+            <strong>MidiEditor_AI_v1.2.1.zip</strong>
+            Available on the <a href="https://github.com/happytunesai/MidiEditor_AI/releases/tag/v1.2.1" style="color: var(--accent);">GitHub release page</a>
+        </div>
+    </div>
+</div>
+</section>
+
+<!-- Older Versions -->
+<section class="section">
+<div class="container">
+    <div class="older-versions">
+        <h2 style="margin-bottom: .75rem;">Previous Releases</h2>
+        <p>Looking for an older version?</p>
+        <p style="margin-top: .75rem;">
+            <a href="https://github.com/happytunesai/MidiEditor_AI/releases" class="btn btn-secondary" target="_blank" rel="noopener noreferrer">
+                View All Releases on GitHub &#x2197;
+            </a>
+        </p>
+    </div>
+</div>
+</section>
+
+</main>
+
+<footer class="site-footer">
+    <div class="footer-links">
+        <a href="https://github.com/happytunesai/MidiEditor_AI" target="_blank" rel="noopener noreferrer">GitHub Repo</a>
+        <a href="https://github.com/happytunesai" target="_blank" rel="noopener noreferrer">All Projects</a>
+        <a href="docs-index.html">Documentation</a>
+        <a href="changelog.html">Changelog</a>
+        <a href="https://github.com/happytunesai/MidiEditor_AI/issues" target="_blank" rel="noopener noreferrer">Issues</a>
+        <a href="midipilot.html">MidiPilot</a>
+        <a href="guitar-pro.html">Guitar Pro</a>
+        <a href="https://www.happytunes.de" target="_blank" rel="noopener noreferrer">Happy Tunes &#x1F3B6;</a>
+    </div>
+    <p class="footer-copy">
+        MidiEditor AI &copy; 2026 &middot;
+        <a href="https://github.com/happytunesai/MidiEditor_AI/blob/main/LICENSE">License</a>
+        &middot; Made with &#x266A; + &#x1F916;
+        &middot; A <a href="https://www.happytunes.de" target="_blank" rel="noopener noreferrer">Happy Tunes</a> project
+    </p>
+</footer>
+
+<button class="scroll-top" aria-label="Scroll to top">&#x2191;</button>
+<script src="site.js"></script>
+</body>
+</html>
