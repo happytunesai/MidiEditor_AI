@@ -49,10 +49,23 @@
 
         img.classList.add('lightbox-thumb');
         (function (el) {
-            el.addEventListener('click', function () {
+            el.addEventListener('click', function (e) {
+                // Prevent <a> wrapper from navigating away
+                e.preventDefault();
+                e.stopPropagation();
                 openLightbox(el.src, el.alt);
             });
         })(img);
+    }
+
+    // Also handle <a class="lightbox-link"> wrappers directly
+    var links = document.querySelectorAll('a.lightbox-link');
+    for (var j = 0; j < links.length; j++) {
+        (function (link) {
+            link.addEventListener('click', function (e) {
+                e.preventDefault();
+            });
+        })(links[j]);
     }
 })();
 

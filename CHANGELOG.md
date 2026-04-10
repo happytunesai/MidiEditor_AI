@@ -5,6 +5,34 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 
 ---
 
+## [1.2.2] - 2026-04-11 — FFXIV Channel Fixer Bugfix & Website Fixes
+
+* **Fix XIV Channels — Tier 3 (Preserve) now sees reserved guitar channels**
+  Previously, Tier 3 only recognized guitar channels that had an active track assigned.
+  Reserved channels from a prior Tier 2 run (e.g. ElectricGuitarSpecial on CH6) were
+  invisible to the rename logic and switch-point detection. This caused:
+  - Notes manually placed on a reserved guitar channel were ignored
+  - Track was not renamed when the first note sat on a reserved channel
+  - Guitar switch program changes were not inserted for reserved channels
+  - Re-running Tier 3 after a manual track rename could reassign *all* notes to the wrong variant
+
+  **Fix:** `allGuitarChs` now includes channels from `guitarChToProgram` (reserved channels
+  from previous Tier 2 runs). A new `guitarChsFromTracks` set limits PC cleaning to channels
+  with actual guitar tracks, keeping reserved channel PCs intact. The `chToVariant` reverse
+  map used by rename and switch logic is now built from both `guitarChannelMap` and
+  `guitarChToProgram`.
+
+* **Fix lightbox on manual pages** — Images wrapped in `<a class="lightbox-link">` on
+  split-channels, themes, editing-midi-files, playback, and editor-and-components pages
+  did not open the lightbox overlay on click. Added `preventDefault` / `stopPropagation`
+  to the image click handler so the enclosing anchor no longer intercepts the event.
+  Also added the missing `lightbox.js` script include on the Themes page.
+
+* **Updated FFXIV Channel Fixer manual page** — Clearer Tier 2 / Tier 3 descriptions,
+  especially around reserved guitar channels and Preserve mode behavior.
+
+---
+
 ## [1.2.1] - 2026-04-09 — Stability & Bugfix Release
 
 * **72 bug fixes** across the entire codebase — memory leaks, crashes, undefined behavior, protocol corruption, concurrency issues, parser security hardening, and correctness fixes

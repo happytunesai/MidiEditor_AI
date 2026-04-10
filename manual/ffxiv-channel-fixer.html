@@ -160,11 +160,13 @@ When you click <b>Fix X|V Channels</b>, a confirmation dialog appears with two m
 <td>
 <ul style="margin:0; padding-left:1.2em;">
 <li>Maps every track to a fresh channel (T0&rarr;CH0, T1&rarr;CH1, &hellip;)</li>
-<li>Percussion tracks &rarr; CH9</li>
-<li>Removes <b>all</b> existing program changes</li>
+<li>Percussion tracks &rarr; CH9 &nbsp;(Timpani stays on track index &mdash; it's tonal)</li>
+<li>Removes <b>all</b> existing program changes and non-essential events (CC, PitchBend, SysEx)</li>
 <li>Moves all events to the correct channel</li>
-<li>Inserts new program changes at tick 0</li>
-<li>Normalizes all note velocities to 127 (max)</li>
+<li>Reserves channels for <b>all 5 guitar variants</b>, even if only 1&ndash;2 are present as tracks</li>
+<li>Inserts <code>program_change</code> at tick 0 for every instrument on every track</li>
+<li>Detects guitar variant switches and inserts <code>program_change</code> at switch points</li>
+<li>Normalizes all note velocities to 127 (FFXIV has no dynamics)</li>
 </ul>
 </td>
 <td>New or unconfigured MIDI files, files exported from a DAW, files with scrambled channels</td>
@@ -173,14 +175,15 @@ When you click <b>Fix X|V Channels</b>, a confirmation dialog appears with two m
 <td><b>&#x1F6E1;&#xFE0F; Preserve</b><br>(Minimal Changes)</td>
 <td>
 <ul style="margin:0; padding-left:1.2em;">
-<li>Keeps all existing channel assignments</li>
-<li>Non-guitar channels completely untouched</li>
-<li>Only refreshes guitar program changes (tick 0 + switch points)</li>
-<li>Auto-renames guitar tracks if first note differs from track name</li>
-<li>Normalizes all note velocities to 127 (max)</li>
+<li>Keeps all existing channel assignments (uses <code>assignedChannel()</code>)</li>
+<li>Non-guitar channels <b>completely untouched</b> &mdash; no PCs removed, no events moved</li>
+<li>Recognizes <b>reserved guitar channels</b> from a previous Rebuild (e.g. CH5, CH6 for unused variants)</li>
+<li>Refreshes guitar program changes at tick 0 + inserts switch PCs at variant change points</li>
+<li>Auto-renames guitar tracks if first note sits on a different variant's channel</li>
+<li>Normalizes all note velocities to 127 (FFXIV has no dynamics)</li>
 </ul>
 </td>
-<td>Already configured files needing a guitar touch-up, files that were partially fixed by MidiPilot AI</td>
+<td>Already configured files needing a guitar touch-up, files after manual note editing, files partially fixed by MidiPilot AI</td>
 </tr>
 </table>
 
@@ -288,7 +291,8 @@ FFXIV electric guitar supports 5 tonal variants that share channels via <code>pr
 </p>
 
 <ul>
-<li><b>5 channels reserved</b> &mdash; even if your file only uses 1-2 guitar variants, all 5 get a channel so MidiBard2 can switch freely</li>
+<li><b>5 channels reserved</b> &mdash; Rebuild mode ensures all 5 guitar variants get a channel, even if your file only uses 1&ndash;2 variants. These reserved channels persist across saves and are recognized by Preserve mode.</li>
+<li><b>Reserved channels visible in Preserve</b> &mdash; when you manually place notes on a reserved guitar channel (e.g. Guitar harmonics on CH6), Preserve mode detects them for auto-rename and switch-point insertion.</li>
 <li><b>Mid-song switches</b> &mdash; when notes jump between guitar channels, a <code>program_change</code> is inserted at the switch point</li>
 <li><b>Auto-rename</b> &mdash; in Preserve mode, if a guitar track's first note is on a different variant's channel, the track is automatically renamed to match</li>
 </ul>
