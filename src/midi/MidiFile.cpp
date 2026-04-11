@@ -31,6 +31,7 @@
 #include "../MidiEvent/TextEvent.h"
 #include "../MidiEvent/TimeSignatureEvent.h"
 #include "../protocol/Protocol.h"
+#include "LyricManager.h"
 #include "MidiChannel.h"
 #include "MidiTrack.h"
 #include "InstrumentDefinitions.h"
@@ -81,6 +82,8 @@ MidiFile::MidiFile() {
 
     midiTicks = 7680;
     calcMaxTime();
+
+    _lyricManager = new LyricManager(this, this);
 }
 
 MidiFile::MidiFile(QString path, bool *ok, QStringList *log) {
@@ -134,6 +137,10 @@ MidiFile::MidiFile(QString path, bool *ok, QStringList *log) {
     *ok = true;
     playerMap = new QMultiMap<int, MidiEvent *>;
     calcMaxTime();
+
+    _lyricManager = new LyricManager(this, this);
+    _lyricManager->importFromTextEvents();
+
     printLog(log);
 
     // Clean up log if we created it
@@ -147,6 +154,7 @@ MidiFile::MidiFile(int ticks, Protocol *p) {
     prot = p;
     _tracks = nullptr;
     playerMap = nullptr;
+    _lyricManager = nullptr;
     _saved = false;
     _cursorTick = 0;
     _pauseTick = -1;
@@ -789,6 +797,10 @@ QMultiMap<int, MidiEvent *> *MidiFile::channelEvents(int channel) {
 
 Protocol *MidiFile::protocol() {
     return prot;
+}
+
+LyricManager *MidiFile::lyricManager() {
+    return _lyricManager;
 }
 
 MidiChannel *MidiFile::channel(int i) {

@@ -339,9 +339,14 @@ MidiEvent *MidiEvent::loadMidiEvent(QDataStream *content, bool *ok, bool *endEve
                                     textData.truncate(nullIdx);
                                 }
 
-                                // QString::fromUtf8() safely handles malformed UTF-8 by replacing
-                                // invalid sequences with Unicode replacement characters (U+FFFD)
-                                textEvent->setText(QString::fromUtf8(textData).remove(QChar(0)).trimmed());
+                                // Try UTF-8 first; if invalid sequences are found, fall back to Latin-1
+                                // (most MIDI files, especially older European ones, use ISO 8859-1)
+                                QString decodedText = QString::fromUtf8(textData);
+                                if (decodedText.contains(QChar(0xFFFD))) {
+                                    // UTF-8 decoding produced replacement chars → use Latin-1
+                                    decodedText = QString::fromLatin1(textData);
+                                }
+                                textEvent->setText(decodedText.remove(QChar(0)).trimmed());
                                 *ok = true;
                                 return textEvent;
                             } else {

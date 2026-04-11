@@ -72,6 +72,11 @@
 #include "OpenGLMatrixWidget.h"
 #include "OpenGLMiscWidget.h"
 #include "MiscWidget.h"
+#include "LyricImportDialog.h"
+#include "LyricSyncDialog.h"
+#include "LyricTimelineWidget.h"
+#include "../midi/LyricManager.h"
+#include "../converter/LrcExporter.h"
 #include "PerformanceSettingsWidget.h"
 #include "NToleQuantizationDialog.h"
 #include "ProtocolWidget.h"
@@ -86,6 +91,7 @@
 #include "AutoUpdater.h"
 #include "MidiPilotWidget.h"
 #include "MidiVisualizerWidget.h"
+#include "LyricVisualizerWidget.h"
 
 #include <QDockWidget>
 
@@ -221,6 +227,12 @@ MainWindow::MainWindow(QString initFile)
     visualizerAction->setToolTip(tr("MIDI activity visualizer — shows per-channel velocity during playback"));
     _actionMap["midi_visualizer"] = visualizerAction;
 
+    _lyricVisualizer = nullptr;  // Created on-demand in toolbar build
+    QAction *lyricVisAction = new QAction(this);
+    lyricVisAction->setText(tr("Lyric Visualizer"));
+    lyricVisAction->setToolTip(tr("Live lyric display \u2014 shows current lyrics during playback (karaoke-style)"));
+    _actionMap["lyric_visualizer"] = lyricVisAction;
+
     startDirectory = QDir::homePath();
 
     if (_settings->value("open_path").toString() != "") {
@@ -350,6 +362,36 @@ MainWindow::MainWindow(QString initFile)
     velocityAreaLayout->addWidget(scrollNothing, 0, 2, 1, 1);
     velocityAreaLayout->setRowStretch(0, 1);
     velocityArea->setLayout(velocityAreaLayout);
+
+    // Lyric Timeline area (between velocity and scrollbar)
+    _lyricArea = new QWidget(leftSplitter);
+    _lyricArea->setContentsMargins(0, 0, 0, 0);
+    QGridLayout *lyricAreaLayout = new QGridLayout(_lyricArea);
+    lyricAreaLayout->setContentsMargins(0, 0, 0, 0);
+    lyricAreaLayout->setHorizontalSpacing(6);
+
+    QLabel *lyricLabel = new QLabel(tr("Lyrics"), _lyricArea);
+    lyricLabel->setFixedWidth(110 - lyricAreaLayout->horizontalSpacing());
+    lyricLabel->setAlignment(Qt::AlignCenter);
+    QFont lyricLabelFont = lyricLabel->font();
+    lyricLabelFont.setBold(true);
+    lyricLabel->setFont(lyricLabelFont);
+    lyricAreaLayout->addWidget(lyricLabel, 0, 0, 1, 1);
+
+    _lyricTimeline = new LyricTimelineWidget(mw_matrixWidget, _lyricArea);
+    lyricAreaLayout->addWidget(_lyricTimeline, 0, 1, 1, 1);
+
+    QScrollBar *lyricScrollNothing = new QScrollBar(Qt::Vertical, _lyricArea);
+    lyricScrollNothing->setMinimum(0);
+    lyricScrollNothing->setMaximum(0);
+    lyricAreaLayout->addWidget(lyricScrollNothing, 0, 2, 1, 1);
+
+    lyricAreaLayout->setRowStretch(0, 1);
+    _lyricArea->setLayout(lyricAreaLayout);
+    _lyricArea->setMinimumHeight(0);
+    _lyricArea->setMaximumHeight(200);
+    _lyricArea->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    leftSplitter->addWidget(_lyricArea);
 
     // Create horizontal scrollbar container as separate splitter widget - but make it non-resizable
     QWidget *scrollBarArea = new QWidget(leftSplitter);
@@ -482,7 +524,13 @@ MainWindow::MainWindow(QString initFile)
     // Set the sizes of leftSplitter
     leftSplitter->setStretchFactor(0, 8);  // matrixArea
     leftSplitter->setStretchFactor(1, 1);  // velocityArea
-    leftSplitter->setStretchFactor(2, 0);  // scrollBarArea (fixed height, non-resizable)
+    leftSplitter->setStretchFactor(2, 0);  // lyricArea (collapsible)
+    leftSplitter->setStretchFactor(3, 0);  // scrollBarArea (fixed height, non-resizable)
+
+    // Start with lyric timeline at a reasonable default height (60px)
+    QList<int> leftSizes;
+    leftSizes << 600 << 120 << 60 << 20;
+    leftSplitter->setSizes(leftSizes);
 
     // Track
     tracksWidget = new QWidget(upperTabWidget);
@@ -836,6 +884,11 @@ void MainWindow::setFile(MidiFile *newFile) {
     connect(newFile->protocol(), SIGNAL(actionFinished()), eventWidget(), SLOT(reload()));
     connect(newFile->protocol(), SIGNAL(actionFinished()), this, SLOT(checkEnableActionsForSelection()));
     connect(newFile->protocol(), SIGNAL(actionFinished()), this, SLOT(updateStatusBar()));
+
+    // Refresh LyricManager from MIDI events after undo/redo so blocks stay in sync
+    connect(newFile->protocol(), &Protocol::undoRedoPerformed, newFile->lyricManager(), &LyricManager::importFromTextEvents);
+    // Update lyric timeline after undo/redo
+    connect(newFile->protocol(), &Protocol::undoRedoPerformed, _lyricTimeline, QOverload<>::of(&QWidget::update));
     connect(newFile, SIGNAL(cursorPositionChanged()), this, SLOT(updateStatusBar()));
     // Set file on the appropriate widget based on rendering mode
     if (OpenGLMatrixWidget *openglMatrix = qobject_cast<OpenGLMatrixWidget*>(_matrixWidgetContainer)) {
@@ -844,6 +897,23 @@ void MainWindow::setFile(MidiFile *newFile) {
     } else {
         // Using software rendering - set file directly on MatrixWidget
         mw_matrixWidget->setFile(newFile);
+    }
+
+    // Update lyric timeline
+    _lyricTimeline->setFile(newFile);
+
+    // Update lyric visualizer
+    if (_lyricVisualizer) {
+        _lyricVisualizer->setFile(newFile);
+    }
+
+    // Auto-show/hide lyric timeline based on lyrics presence
+    if (Appearance::autoShowLyricTimeline()) {
+        bool hasLyrics = newFile && newFile->lyricManager() && newFile->lyricManager()->hasLyrics();
+        _lyricArea->setVisible(hasLyrics);
+        if (_toggleLyricTimeline) {
+            _toggleLyricTimeline->setChecked(hasLyrics);
+        }
     }
     updateChannelMenu();
     updateTrackMenu();
@@ -945,6 +1015,16 @@ void MainWindow::play() {
         // Disconnect first to prevent accumulating connections across play/stop cycles
         disconnect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _matrixWidgetContainer, SLOT(timeMsChanged(int)));
         connect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _matrixWidgetContainer, SLOT(timeMsChanged(int)));
+
+        // Connect lyric timeline playback cursor
+        disconnect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _lyricTimeline, SLOT(onPlaybackPositionChanged(int)));
+        connect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _lyricTimeline, SLOT(onPlaybackPositionChanged(int)));
+
+        // Connect lyric visualizer playback position
+        if (_lyricVisualizer) {
+            disconnect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _lyricVisualizer, SLOT(onPlaybackPositionChanged(int)));
+            connect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _lyricVisualizer, SLOT(onPlaybackPositionChanged(int)));
+        }
     }
 }
 
@@ -992,6 +1072,16 @@ void MainWindow::record() {
             // Disconnect first to prevent accumulating connections across play/stop cycles
             disconnect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _matrixWidgetContainer, SLOT(timeMsChanged(int)));
             connect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _matrixWidgetContainer, SLOT(timeMsChanged(int)));
+
+            // Connect lyric timeline playback cursor (record mode)
+            disconnect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _lyricTimeline, SLOT(onPlaybackPositionChanged(int)));
+            connect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _lyricTimeline, SLOT(onPlaybackPositionChanged(int)));
+
+            // Connect lyric visualizer playback position (record mode)
+            if (_lyricVisualizer) {
+                disconnect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _lyricVisualizer, SLOT(onPlaybackPositionChanged(int)));
+                connect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _lyricVisualizer, SLOT(onPlaybackPositionChanged(int)));
+            }
         }
     }
 }
@@ -1031,6 +1121,8 @@ void MainWindow::stop(bool autoConfirmRecord, bool addEvents, bool resetPause) {
         } else if (MatrixWidget *matrixWidget = qobject_cast<MatrixWidget*>(_matrixWidgetContainer)) {
             matrixWidget->timeMsChanged(MidiPlayer::timeMs(), true);
         }
+        // Reset lyric timeline playback position
+        _lyricTimeline->onPlaybackPositionChanged(-1);
         _trackWidget->setEnabled(true);
         panic();
     }
@@ -4052,6 +4144,59 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
 
     toolsMB->addSeparator();
 
+    // Lyrics submenu
+    QMenu *lyricsMenu = new QMenu(tr("Lyrics..."), toolsMB);
+
+    QAction *importSrtAction = new QAction(tr("Import Lyrics (SRT)..."), this);
+    importSrtAction->setShortcut(QKeySequence(QKeyCombination(Qt::CTRL | Qt::SHIFT, Qt::Key_L)));
+    _defaultShortcuts["import_lyrics_srt"] = QList<QKeySequence>() << importSrtAction->shortcut();
+    connect(importSrtAction, &QAction::triggered, this, &MainWindow::importLyricsSrt);
+    lyricsMenu->addAction(importSrtAction);
+    _actionMap["import_lyrics_srt"] = importSrtAction;
+
+    QAction *importTextAction = new QAction(tr("Import Lyrics (Text)..."), this);
+    connect(importTextAction, &QAction::triggered, this, &MainWindow::importLyricsText);
+    lyricsMenu->addAction(importTextAction);
+    _actionMap["import_lyrics_text"] = importTextAction;
+
+    QAction *syncLyricsAction = new QAction(tr("Sync Lyrics (Tap-to-Sync)..."), this);
+    connect(syncLyricsAction, &QAction::triggered, this, &MainWindow::syncLyrics);
+    lyricsMenu->addAction(syncLyricsAction);
+    _actionMap["sync_lyrics"] = syncLyricsAction;
+
+    QAction *importLrcAction = new QAction(tr("Import Lyrics (LRC)..."), this);
+    connect(importLrcAction, &QAction::triggered, this, &MainWindow::importLyricsLrc);
+    lyricsMenu->addAction(importLrcAction);
+    _actionMap["import_lyrics_lrc"] = importLrcAction;
+
+    QAction *exportSrtAction = new QAction(tr("Export Lyrics (SRT)..."), this);
+    connect(exportSrtAction, &QAction::triggered, this, &MainWindow::exportLyricsSrt);
+    lyricsMenu->addAction(exportSrtAction);
+    _actionMap["export_lyrics_srt"] = exportSrtAction;
+
+    QAction *exportLrcAction = new QAction(tr("Export Lyrics (LRC)..."), this);
+    connect(exportLrcAction, &QAction::triggered, this, &MainWindow::exportLyricsLrc);
+    lyricsMenu->addAction(exportLrcAction);
+    _actionMap["export_lyrics_lrc"] = exportLrcAction;
+
+    lyricsMenu->addSeparator();
+
+    QAction *embedLyricsAction = new QAction(tr("Embed Lyrics in MIDI"), this);
+    connect(embedLyricsAction, &QAction::triggered, this, &MainWindow::embedLyricsInMidi);
+    lyricsMenu->addAction(embedLyricsAction);
+    _actionMap["embed_lyrics_midi"] = embedLyricsAction;
+
+    lyricsMenu->addSeparator();
+
+    QAction *clearLyricsAction = new QAction(tr("Clear All Lyrics"), this);
+    connect(clearLyricsAction, &QAction::triggered, this, &MainWindow::clearAllLyrics);
+    lyricsMenu->addAction(clearLyricsAction);
+    _actionMap["clear_lyrics"] = clearLyricsAction;
+
+    toolsMB->addMenu(lyricsMenu);
+
+    toolsMB->addSeparator();
+
     QAction *quantizeAction = new QAction(tr("Quantify selection"), this);
     _activateWithSelections.append(quantizeAction);
     Appearance::setActionIcon(quantizeAction, ":/run_environment/graphics/tool/quantize.png");
@@ -4361,6 +4506,19 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
     });
     viewMB->addAction(_toggleMidiPilotAction);
     _actionMap["toggle_midipilot"] = _toggleMidiPilotAction;
+
+    // Lyric Timeline toggle
+    _toggleLyricTimeline = new QAction(tr("Lyric Timeline"), this);
+    _toggleLyricTimeline->setCheckable(true);
+    _toggleLyricTimeline->setChecked(_lyricArea->isVisible());
+    _toggleLyricTimeline->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_L));
+    _defaultShortcuts["toggle_lyric_timeline"] = QList<QKeySequence>() << _toggleLyricTimeline->shortcut();
+    _toggleLyricTimeline->setToolTip(tr("Toggle Lyric Timeline panel (Ctrl+L)"));
+    connect(_toggleLyricTimeline, &QAction::toggled, this, [this](bool checked) {
+        _lyricArea->setVisible(checked);
+    });
+    viewMB->addAction(_toggleLyricTimeline);
+    _actionMap["toggle_lyric_timeline"] = _toggleLyricTimeline;
 
     viewMB->addSeparator();
 
@@ -5157,6 +5315,15 @@ QWidget *MainWindow::createCustomToolbar(QWidget *parent) {
             if (!enabledActions.contains("midi_visualizer"))
                 enabledActions << "midi_visualizer";
         }
+        if (!actionOrder.contains("lyric_visualizer")) {
+            int visIdx = actionOrder.indexOf("midi_visualizer");
+            if (visIdx >= 0)
+                actionOrder.insert(visIdx + 1, "lyric_visualizer");
+            else
+                actionOrder << "lyric_visualizer";
+            if (!enabledActions.contains("lyric_visualizer"))
+                enabledActions << "lyric_visualizer";
+        }
     }
 
     // Only prepend essential actions for single row mode
@@ -5343,16 +5510,27 @@ QWidget *MainWindow::createCustomToolbar(QWidget *parent) {
                 }
             }
 
+            // Special handling for midi_visualizer: create widget directly
+            if (actionId == "midi_visualizer") {
+                _visualizer = new MidiVisualizerWidget(currentToolBar);
+                connect(MidiPlayer::playerThread(), SIGNAL(playerStarted()), _visualizer, SLOT(playbackStarted()));
+                connect(MidiPlayer::playerThread(), SIGNAL(playerStopped()), _visualizer, SLOT(playbackStopped()));
+                currentToolBar->addWidget(_visualizer);
+                continue;
+            }
+            // Special handling for lyric_visualizer: create karaoke widget
+            if (actionId == "lyric_visualizer") {
+                _lyricVisualizer = new LyricVisualizerWidget(currentToolBar);
+                _lyricVisualizer->setFile(file);
+                connect(MidiPlayer::playerThread(), SIGNAL(playerStarted()), _lyricVisualizer, SLOT(playbackStarted()));
+                connect(MidiPlayer::playerThread(), SIGNAL(playerStopped()), _lyricVisualizer, SLOT(playbackStopped()));
+                connect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _lyricVisualizer, SLOT(onPlaybackPositionChanged(int)));
+                currentToolBar->addWidget(_lyricVisualizer);
+                continue;
+            }
+
             if (action) {
                 try {
-                    // Special handling for midi_visualizer: create widget directly
-                    if (actionId == "midi_visualizer") {
-                        _visualizer = new MidiVisualizerWidget(currentToolBar);
-                        connect(MidiPlayer::playerThread(), SIGNAL(playerStarted()), _visualizer, SLOT(playbackStarted()));
-                        connect(MidiPlayer::playerThread(), SIGNAL(playerStopped()), _visualizer, SLOT(playbackStopped()));
-                        currentToolBar->addWidget(_visualizer);
-                        continue;
-                    }
                     currentToolBar->addAction(action);
                 } catch (...) {
                     // If adding action fails, skip it
@@ -5461,6 +5639,16 @@ QWidget *MainWindow::createCustomToolbar(QWidget *parent) {
                 connect(MidiPlayer::playerThread(), SIGNAL(playerStarted()), _visualizer, SLOT(playbackStarted()));
                 connect(MidiPlayer::playerThread(), SIGNAL(playerStopped()), _visualizer, SLOT(playbackStopped()));
                 toolBar->addWidget(_visualizer);
+                continue;
+            }
+            // Special handling for lyric_visualizer: create karaoke widget
+            if (actionId == "lyric_visualizer") {
+                _lyricVisualizer = new LyricVisualizerWidget(toolBar);
+                _lyricVisualizer->setFile(file);
+                connect(MidiPlayer::playerThread(), SIGNAL(playerStarted()), _lyricVisualizer, SLOT(playbackStarted()));
+                connect(MidiPlayer::playerThread(), SIGNAL(playerStopped()), _lyricVisualizer, SLOT(playbackStopped()));
+                connect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _lyricVisualizer, SLOT(onPlaybackPositionChanged(int)));
+                toolBar->addWidget(_lyricVisualizer);
                 continue;
             }
 
@@ -5589,6 +5777,15 @@ void MainWindow::updateToolbarContents(QWidget *toolbarWidget, QGridLayout *btnL
                 actionOrder << "midi_visualizer";
             if (!enabledActions.contains("midi_visualizer"))
                 enabledActions << "midi_visualizer";
+        }
+        if (!actionOrder.contains("lyric_visualizer")) {
+            int visIdx = actionOrder.indexOf("midi_visualizer");
+            if (visIdx >= 0)
+                actionOrder.insert(visIdx + 1, "lyric_visualizer");
+            else
+                actionOrder << "lyric_visualizer";
+            if (!enabledActions.contains("lyric_visualizer"))
+                enabledActions << "lyric_visualizer";
         }
     }
 
@@ -5762,6 +5959,16 @@ void MainWindow::updateToolbarContents(QWidget *toolbarWidget, QGridLayout *btnL
                 currentToolBar->addWidget(_visualizer);
                 continue;
             }
+            // Special handling for lyric_visualizer: create karaoke widget
+            if (actionId == "lyric_visualizer") {
+                _lyricVisualizer = new LyricVisualizerWidget(currentToolBar);
+                _lyricVisualizer->setFile(file);
+                connect(MidiPlayer::playerThread(), SIGNAL(playerStarted()), _lyricVisualizer, SLOT(playbackStarted()));
+                connect(MidiPlayer::playerThread(), SIGNAL(playerStopped()), _lyricVisualizer, SLOT(playbackStopped()));
+                connect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _lyricVisualizer, SLOT(onPlaybackPositionChanged(int)));
+                currentToolBar->addWidget(_lyricVisualizer);
+                continue;
+            }
 
             if (action) {
                 try {
@@ -5851,6 +6058,16 @@ void MainWindow::updateToolbarContents(QWidget *toolbarWidget, QGridLayout *btnL
                 connect(MidiPlayer::playerThread(), SIGNAL(playerStarted()), _visualizer, SLOT(playbackStarted()));
                 connect(MidiPlayer::playerThread(), SIGNAL(playerStopped()), _visualizer, SLOT(playbackStopped()));
                 toolBar->addWidget(_visualizer);
+                continue;
+            }
+            // Special handling for lyric_visualizer: create karaoke widget
+            if (actionId == "lyric_visualizer") {
+                _lyricVisualizer = new LyricVisualizerWidget(toolBar);
+                _lyricVisualizer->setFile(file);
+                connect(MidiPlayer::playerThread(), SIGNAL(playerStarted()), _lyricVisualizer, SLOT(playbackStarted()));
+                connect(MidiPlayer::playerThread(), SIGNAL(playerStopped()), _lyricVisualizer, SLOT(playbackStopped()));
+                connect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _lyricVisualizer, SLOT(onPlaybackPositionChanged(int)));
+                toolBar->addWidget(_lyricVisualizer);
                 continue;
             }
 
@@ -6495,6 +6712,292 @@ void MainWindow::applyWidgetSizeConstraints() {
             }
         }
     }
+}
+
+// ============================================================================
+// Lyrics
+// ============================================================================
+
+void MainWindow::importLyricsSrt() {
+    if (!file) {
+        QMessageBox::warning(this, tr("Import Lyrics"), tr("No file loaded."));
+        return;
+    }
+
+    QString path = QFileDialog::getOpenFileName(this, tr("Import SRT Lyrics"),
+        startDirectory, tr("SRT Subtitle Files (*.srt);;All Files (*)"));
+    if (path.isEmpty())
+        return;
+
+    LyricManager *mgr = file->lyricManager();
+    if (!mgr)
+        return;
+
+    mgr->importFromSrt(path);
+
+    // Show lyric timeline
+    _lyricArea->setVisible(true);
+    if (_toggleLyricTimeline)
+        _toggleLyricTimeline->setChecked(true);
+    _lyricTimeline->update();
+    updateAll();
+
+    QMessageBox::information(this, tr("Import Lyrics"),
+        tr("Imported %1 lyric blocks from SRT file.").arg(mgr->count()));
+}
+
+void MainWindow::importLyricsText() {
+    if (!file) {
+        QMessageBox::warning(this, tr("Import Lyrics"), tr("No file loaded."));
+        return;
+    }
+
+    LyricManager *mgr = file->lyricManager();
+    if (!mgr)
+        return;
+
+    int fileDurationMs = file->msOfTick(file->endTick());
+    LyricImportDialog dialog(fileDurationMs, this);
+    if (dialog.exec() != QDialog::Accepted)
+        return;
+
+    QStringList phrases = dialog.parsedPhrases();
+    if (phrases.isEmpty())
+        return;
+
+    int startOffsetMs = static_cast<int>(dialog.startOffsetSec() * 1000.0);
+    int startTick = file->tick(startOffsetMs);
+
+    if (dialog.importMode() == LyricImportDialog::EvenSpacing) {
+        // Distribute evenly across file duration
+        int defaultDurationMs = static_cast<int>(dialog.phraseDurationSec() * 1000.0);
+        int defaultDurationTicks = file->tick(startOffsetMs + defaultDurationMs) - startTick;
+        if (defaultDurationTicks < 1) defaultDurationTicks = 480;
+
+        // Calculate total available ticks
+        int endTick = file->endTick();
+        int availableTicks = endTick - startTick;
+        int spacing = (phrases.size() > 1) ? (availableTicks / phrases.size()) : availableTicks;
+
+        // Use the smaller of even spacing or default duration
+        int phraseTicks = qMin(spacing, defaultDurationTicks);
+        if (phraseTicks < 1) phraseTicks = 480;
+
+        // Build text with one phrase per line, import via LyricManager
+        QString text = phrases.join('\n');
+        mgr->importFromPlainText(text, startTick, phraseTicks, true);
+    } else {
+        // Sync Later: placeholder timings with default duration
+        int defaultDurationMs = static_cast<int>(dialog.phraseDurationSec() * 1000.0);
+        int defaultDurationTicks = file->tick(startOffsetMs + defaultDurationMs) - startTick;
+        if (defaultDurationTicks < 1) defaultDurationTicks = 480;
+
+        QString text = phrases.join('\n');
+        mgr->importFromPlainText(text, startTick, defaultDurationTicks, true);
+    }
+
+    // Show lyric timeline
+    _lyricArea->setVisible(true);
+    if (_toggleLyricTimeline)
+        _toggleLyricTimeline->setChecked(true);
+    _lyricTimeline->update();
+    updateAll();
+
+    QMessageBox::information(this, tr("Import Lyrics"),
+        tr("Imported %1 lyric phrases.").arg(mgr->count()));
+
+    // If user chose "Import & Sync Now", launch the sync dialog immediately
+    if (dialog.importMode() == LyricImportDialog::SyncNow) {
+        syncLyrics();
+    }
+}
+
+void MainWindow::syncLyrics() {
+    if (!file) {
+        QMessageBox::warning(this, tr("Sync Lyrics"), tr("No file loaded."));
+        return;
+    }
+
+    LyricManager *mgr = file->lyricManager();
+    if (!mgr || !mgr->hasLyrics()) {
+        QMessageBox::warning(this, tr("Sync Lyrics"),
+            tr("No lyrics to sync. Import lyrics first using Import Lyrics (SRT) or Import Lyrics (Text)."));
+        return;
+    }
+
+    // Stop any current playback
+    if (MidiPlayer::isPlaying()) {
+        stop();
+    }
+
+    // Reset cursor to beginning
+    file->setCursorTick(0);
+    file->setPauseTick(-1);
+
+    LyricSyncDialog dialog(file, this);
+    if (dialog.exec() == QDialog::Accepted) {
+        _lyricTimeline->update();
+        updateAll();
+        markEdited();
+    }
+
+    // Reset file state after sync
+    file->setPauseTick(-1);
+}
+
+void MainWindow::exportLyricsSrt() {
+    if (!file) {
+        QMessageBox::warning(this, tr("Export Lyrics"), tr("No file loaded."));
+        return;
+    }
+
+    LyricManager *mgr = file->lyricManager();
+    if (!mgr || !mgr->hasLyrics()) {
+        QMessageBox::warning(this, tr("Export Lyrics"), tr("No lyrics to export."));
+        return;
+    }
+
+    QString path = QFileDialog::getSaveFileName(this, tr("Export SRT Lyrics"),
+        startDirectory, tr("SRT Subtitle Files (*.srt)"));
+    if (path.isEmpty())
+        return;
+
+    if (mgr->exportToSrt(path)) {
+        QMessageBox::information(this, tr("Export Lyrics"),
+            tr("Exported %1 lyric blocks to SRT file.").arg(mgr->count()));
+    } else {
+        QMessageBox::warning(this, tr("Export Lyrics"),
+            tr("Failed to export lyrics to SRT file."));
+    }
+}
+
+void MainWindow::importLyricsLrc() {
+    if (!file) {
+        QMessageBox::warning(this, tr("Import Lyrics"), tr("No file loaded."));
+        return;
+    }
+
+    QString path = QFileDialog::getOpenFileName(this, tr("Import LRC Lyrics"),
+        startDirectory, tr("LRC Lyric Files (*.lrc)"));
+    if (path.isEmpty())
+        return;
+
+    LyricMetadata importedMeta;
+    QList<LyricBlock> blocks = LrcExporter::importLrc(path, file, &importedMeta);
+    if (blocks.isEmpty()) {
+        QMessageBox::warning(this, tr("Import Lyrics"),
+            tr("No lyrics found in the LRC file."));
+        return;
+    }
+
+    LyricManager *mgr = file->lyricManager();
+    if (!importedMeta.isEmpty()) {
+        mgr->setMetadata(importedMeta);
+    }
+
+    // Wrap entire import in a single Protocol action (P3-002)
+    // Use direct insertion instead of addBlock() which creates nested actions
+    file->protocol()->startNewAction("Import Lyrics (LRC)");
+    MidiTrack *defaultTrack = (file->numTracks() > 0) ? file->track(0) : nullptr;
+    for (const LyricBlock &block : blocks) {
+        LyricBlock b = block;
+        if (defaultTrack) {
+            MidiTrack *track = defaultTrack;
+            if (b.trackIndex >= 0 && b.trackIndex < file->numTracks())
+                track = file->track(b.trackIndex);
+            TextEvent *te = new TextEvent(16, track);
+            te->setText(b.text);
+            te->setType(TextEvent::LYRIK);
+            file->channel(16)->insertEvent(te, b.startTick);
+            b.sourceEvent = te;
+        }
+        mgr->insertSorted(b);
+    }
+    file->protocol()->endAction();
+    emit mgr->lyricsChanged();
+
+    _lyricTimeline->update();
+    updateAll();
+    markEdited();
+
+    QMessageBox::information(this, tr("Import Lyrics"),
+        tr("Imported %1 lyric blocks from LRC file.").arg(blocks.size()));
+}
+
+void MainWindow::exportLyricsLrc() {
+    if (!file) {
+        QMessageBox::warning(this, tr("Export Lyrics"), tr("No file loaded."));
+        return;
+    }
+
+    LyricManager *mgr = file->lyricManager();
+    if (!mgr || !mgr->hasLyrics()) {
+        QMessageBox::warning(this, tr("Export Lyrics"), tr("No lyrics to export."));
+        return;
+    }
+
+    QString path = QFileDialog::getSaveFileName(this, tr("Export LRC Lyrics"),
+        startDirectory, tr("LRC Lyric Files (*.lrc)"));
+    if (path.isEmpty())
+        return;
+
+    LyricMetadata metadata = mgr->metadata();
+    // If no title set in metadata, fall back to filename
+    if (metadata.title.isEmpty())
+        metadata.title = QFileInfo(file->path()).fileName();
+
+    if (LrcExporter::exportLrc(path, mgr->allBlocks(), file, metadata)) {
+        QMessageBox::information(this, tr("Export Lyrics"),
+            tr("Exported %1 lyric blocks to LRC file.").arg(mgr->count()));
+    } else {
+        QMessageBox::warning(this, tr("Export Lyrics"),
+            tr("Failed to export lyrics to LRC file."));
+    }
+}
+
+void MainWindow::embedLyricsInMidi() {
+    if (!file) {
+        QMessageBox::warning(this, tr("Embed Lyrics"), tr("No file loaded."));
+        return;
+    }
+
+    LyricManager *mgr = file->lyricManager();
+    if (!mgr || !mgr->hasLyrics()) {
+        QMessageBox::warning(this, tr("Embed Lyrics"), tr("No lyrics to embed."));
+        return;
+    }
+
+    mgr->exportToTextEvents();
+    markEdited();
+    updateAll();
+
+    QMessageBox::information(this, tr("Embed Lyrics"),
+        tr("Embedded %1 lyric events into the MIDI file.").arg(mgr->count()));
+}
+
+void MainWindow::clearAllLyrics() {
+    if (!file) {
+        QMessageBox::warning(this, tr("Clear Lyrics"), tr("No file loaded."));
+        return;
+    }
+
+    LyricManager *mgr = file->lyricManager();
+    if (!mgr || !mgr->hasLyrics()) {
+        QMessageBox::warning(this, tr("Clear Lyrics"), tr("No lyrics to clear."));
+        return;
+    }
+
+    QMessageBox::StandardButton reply = QMessageBox::question(this,
+        tr("Clear All Lyrics"),
+        tr("Are you sure you want to remove all %1 lyric blocks?\nThis action can be undone with Ctrl+Z.").arg(mgr->count()),
+        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+
+    if (reply != QMessageBox::Yes)
+        return;
+
+    mgr->clearAllBlocks();
+    _lyricTimeline->update();
+    updateAll();
 }
 
 // ============================================================================

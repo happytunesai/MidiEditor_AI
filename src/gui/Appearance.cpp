@@ -88,6 +88,9 @@ bool Appearance::_smoothPlaybackScrolling = false;
 bool Appearance::_showProgramChangeMarkers = false;
 bool Appearance::_showControlChangeMarkers = false;
 bool Appearance::_showTextEventMarkers = true;
+bool Appearance::_autoShowLyricTimeline = true;
+bool Appearance::_useFixedLyricColor = true;
+QColor Appearance::_fixedLyricColor = QColor(230, 140, 180);
 Appearance::MarkerColorMode Appearance::_markerColorMode = Appearance::ColorByTrack;
 bool Appearance::_shuttingDown = false;
 bool Appearance::_startupComplete = false;
@@ -103,6 +106,9 @@ void Appearance::init(QSettings *settings) {
     _showProgramChangeMarkers = settings->value("appearance/show_pc_markers", false).toBool();
     _showControlChangeMarkers = settings->value("appearance/show_cc_markers", false).toBool();
     _showTextEventMarkers = settings->value("appearance/show_text_markers", true).toBool();
+    _autoShowLyricTimeline = settings->value("appearance/auto_show_lyrics", true).toBool();
+    _useFixedLyricColor = settings->value("appearance/use_fixed_lyric_color", true).toBool();
+    _fixedLyricColor = settings->value("appearance/fixed_lyric_color", QColor(230, 140, 180)).value<QColor>();
     _markerColorMode = static_cast<MarkerColorMode>(settings->value("appearance/marker_color_mode", 0).toInt());
 
     // Set default style with fallback
@@ -284,6 +290,9 @@ void Appearance::writeSettings(QSettings *settings) {
     settings->setValue("appearance/show_pc_markers", _showProgramChangeMarkers);
     settings->setValue("appearance/show_cc_markers", _showControlChangeMarkers);
     settings->setValue("appearance/show_text_markers", _showTextEventMarkers);
+    settings->setValue("appearance/auto_show_lyrics", _autoShowLyricTimeline);
+    settings->setValue("appearance/use_fixed_lyric_color", _useFixedLyricColor);
+    settings->setValue("appearance/fixed_lyric_color", _fixedLyricColor);
     settings->setValue("appearance/marker_color_mode", static_cast<int>(_markerColorMode));
     settings->setValue("application_style", _applicationStyle);
     settings->setValue("theme", static_cast<int>(_theme));
@@ -894,6 +903,12 @@ bool Appearance::showControlChangeMarkers() { return _showControlChangeMarkers; 
 void Appearance::setShowControlChangeMarkers(bool enabled) { _showControlChangeMarkers = enabled; }
 bool Appearance::showTextEventMarkers() { return _showTextEventMarkers; }
 void Appearance::setShowTextEventMarkers(bool enabled) { _showTextEventMarkers = enabled; }
+bool Appearance::autoShowLyricTimeline() { return _autoShowLyricTimeline; }
+void Appearance::setAutoShowLyricTimeline(bool enabled) { _autoShowLyricTimeline = enabled; }
+bool Appearance::useFixedLyricColor() { return _useFixedLyricColor; }
+void Appearance::setUseFixedLyricColor(bool enabled) { _useFixedLyricColor = enabled; }
+QColor Appearance::fixedLyricColor() { return _fixedLyricColor; }
+void Appearance::setFixedLyricColor(const QColor &color) { _fixedLyricColor = color; }
 Appearance::MarkerColorMode Appearance::markerColorMode() { return _markerColorMode; }
 void Appearance::setMarkerColorMode(MarkerColorMode mode) { _markerColorMode = mode; }
 

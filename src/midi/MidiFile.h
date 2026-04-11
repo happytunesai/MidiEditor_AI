@@ -33,6 +33,7 @@ class TempoChangeEvent;
 class Protocol;
 class MidiChannel;
 class MidiTrack;
+class LyricManager;
 
 /**
  * \class MidiFile
@@ -223,6 +224,12 @@ public:
      * \return Pointer to the Protocol instance
      */
     Protocol *protocol();
+
+    /**
+     * \brief Gets the lyric manager for this file.
+     * \return Pointer to the LyricManager instance
+     */
+    LyricManager *lyricManager();
 
     /**
      * \brief Gets a specific MIDI channel.
@@ -534,6 +541,9 @@ private:
 
     /** \brief Protocol system for undo/redo */
     Protocol *prot;
+
+    /** \brief Lyric manager for lyric block operations */
+    LyricManager *_lyricManager;
 
     /** \brief Player data and state */
     QMultiMap<int, MidiEvent *> *playerMap;

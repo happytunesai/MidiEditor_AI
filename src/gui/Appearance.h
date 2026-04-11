@@ -248,6 +248,12 @@ public:
     static void setShowControlChangeMarkers(bool enabled);
     static bool showTextEventMarkers();
     static void setShowTextEventMarkers(bool enabled);
+    static bool autoShowLyricTimeline();
+    static void setAutoShowLyricTimeline(bool enabled);
+    static bool useFixedLyricColor();
+    static void setUseFixedLyricColor(bool enabled);
+    static QColor fixedLyricColor();
+    static void setFixedLyricColor(const QColor &color);
     static MarkerColorMode markerColorMode();
     static void setMarkerColorMode(MarkerColorMode mode);
 
@@ -858,6 +864,9 @@ private:
     static bool _showProgramChangeMarkers;
     static bool _showControlChangeMarkers;
     static bool _showTextEventMarkers;
+    static bool _autoShowLyricTimeline;
+    static bool _useFixedLyricColor;
+    static QColor _fixedLyricColor;
     static MarkerColorMode _markerColorMode;
 
     /** \brief Flag to prevent QPixmap creation during application shutdown */

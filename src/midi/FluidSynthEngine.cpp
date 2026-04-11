@@ -78,7 +78,13 @@ bool FluidSynthEngine::initialize() {
     fluid_settings_setnum(_settings, "synth.sample-rate", _sampleRate);
     fluid_settings_setint(_settings, "synth.reverb.active", _reverbEnabled ? 1 : 0);
     fluid_settings_setint(_settings, "synth.chorus.active", _chorusEnabled ? 1 : 0);
-    fluid_settings_setstr(_settings, "synth.reverb.engine", _reverbEngine.toUtf8().constData());
+
+    // synth.reverb.engine is not a standard FluidSynth setting in v2.5.x —
+    // only attempt if the settings object actually knows about it.
+    if (fluid_settings_get_type(_settings, "synth.reverb.engine") != FLUID_NO_TYPE) {
+        fluid_settings_setstr(_settings, "synth.reverb.engine",
+                              _reverbEngine.toUtf8().constData());
+    }
 
     // Create the synthesizer
     _synth = new_fluid_synth(_settings);
@@ -540,7 +546,7 @@ void FluidSynthEngine::exportAudio(const ExportOptions &options) {
     fluid_settings_setint(expSettings, "synth.reverb.active", _reverbEnabled ? 1 : 0);
     fluid_settings_setint(expSettings, "synth.chorus.active", _chorusEnabled ? 1 : 0);
     fluid_settings_setstr(expSettings, "synth.reverb.engine",
-                          _reverbEngine.toUtf8().constData());
+                          _reverbEngine.toUtf8().constData());  // may fail silently on v2.5.x
 
     // Collect loaded SoundFont paths (under no lock needed — read-only snapshot)
     // Only include enabled SoundFonts

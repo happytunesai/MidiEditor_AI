@@ -68,6 +68,7 @@ void Protocol::undo(bool emitChanged) {
         if (emitChanged) {
             emit protocolChanged();
             emit actionFinished();
+            emit undoRedoPerformed();
         }
     }
 }
@@ -90,6 +91,7 @@ void Protocol::redo(bool emitChanged) {
         if (emitChanged) {
             emit protocolChanged();
             emit actionFinished();
+            emit undoRedoPerformed();
         }
     }
 }
@@ -156,6 +158,7 @@ void Protocol::goTo(ProtocolStep *toGo) {
 
     emit protocolChanged();
     emit actionFinished();
+    emit undoRedoPerformed();
 }
 
 void Protocol::addEmptyAction(QString name) {

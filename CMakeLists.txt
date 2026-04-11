@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20 FATAL_ERROR)
 
-set(MIDIEDITOR_RELEASE_VERSION_STRING "1.2.2")
+set(MIDIEDITOR_RELEASE_VERSION_STRING "1.3.0")
 project(MidiEditorAI VERSION ${MIDIEDITOR_RELEASE_VERSION_STRING} LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -336,6 +336,7 @@ file(GLOB SOURCES_GUI "src/gui/*.cpp")
 file(GLOB SOURCES_PROTOCOL "src/protocol/*.cpp")
 file(GLOB SOURCES_TOOL "src/tool/*.cpp")
 file(GLOB SOURCES_AI "src/ai/*.cpp")
+file(GLOB SOURCES_CONVERTER_BASE "src/converter/*.cpp")
 file(GLOB SOURCES_CONVERTER "src/converter/GuitarPro/*.cpp")
 file(GLOB SOURCES_CONVERTER_MML "src/converter/MML/*.cpp")
 
@@ -357,6 +358,7 @@ set(SOURCES
     ${SOURCES_PROTOCOL}
     ${SOURCES_TOOL}
     ${SOURCES_AI}
+    ${SOURCES_CONVERTER_BASE}
     ${SOURCES_CONVERTER}
     ${SOURCES_CONVERTER_MML}
 )
@@ -530,6 +532,20 @@ if(WIN32)
                     COMMENT "Copying FluidSynth DLLs to build directory"
                 )
             endif()
+        endif()
+
+        # Copy bundled SoundFont files to build directory so clean builds
+        # don't lose them (user-downloaded fonts will still need re-download)
+        file(GLOB BUNDLED_SOUNDFONTS "${CMAKE_SOURCE_DIR}/soundfont/*.sf2")
+        if(BUNDLED_SOUNDFONTS)
+            add_custom_command(TARGET MidiEditorAI POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E make_directory
+                    $<TARGET_FILE_DIR:MidiEditorAI>/soundfonts
+                COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                    ${BUNDLED_SOUNDFONTS}
+                    $<TARGET_FILE_DIR:MidiEditorAI>/soundfonts/
+                COMMENT "Copying bundled SoundFont files to build directory"
+            )
         endif()
     else()
         message(WARNING "windeployqt not found - attempting manual Qt deployment")

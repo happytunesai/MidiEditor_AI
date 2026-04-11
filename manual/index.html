@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>MidiEditor AI — The AI-Powered MIDI Editor</title>
-<meta name="description" content="MidiEditor AI — The AI-powered MIDI editor with intelligent MidiPilot copilot, Guitar Pro import (GP1-GP8), FFXIV bard mode, FluidSynth playback, and audio export. Free &amp; open source for Windows.">
-<meta property="og:title" content="MidiEditor AI — The AI-Powered MIDI Editor">
+<meta name="description" content="MidiEditor AI - The AI-powered MIDI editor with intelligent MidiPilot copilot, Guitar Pro import (GP1-GP8), FFXIV bard mode, FluidSynth playback, and audio export. Free &amp; open source for Windows.">
+<meta property="og:title" content="MidiEditor AI - The AI-Powered MIDI Editor">
 <meta property="og:description" content="Compose, edit, transform &amp; play MIDI with an AI copilot. Guitar Pro import, FFXIV bard mode, FluidSynth, 7 themes. Free &amp; open source.">
 <meta property="og:type" content="website">
 <meta property="og:url" content="https://midieditor-ai.de">
@@ -152,7 +152,7 @@
     "description": "AI-powered MIDI editor with intelligent copilot, Guitar Pro import, FFXIV bard mode, and FluidSynth playback.",
     "url": "https://midieditor-ai.de",
     "downloadUrl": "https://github.com/happytunesai/MidiEditor_AI/releases/latest",
-    "softwareVersion": "1.2.2",
+    "softwareVersion": "1.3.0",
     "license": "https://github.com/happytunesai/MidiEditor_AI/blob/main/LICENSE",
     "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
 }
@@ -180,6 +180,7 @@
                 <a href="ffxiv-channel-fixer.html">FFXIV Channel Fixer</a>
                 <a href="guitar-pro.html">Guitar Pro Import</a>
                 <a href="themes.html">Themes &amp; Appearance</a>
+                <a href="lyrics.html">Lyric Editor</a>
                 <a href="soundfont.html">SoundFonts &amp; FluidSynth</a>
                 <a href="setup.html">Setup &amp; Installation</a>
             </div>
@@ -189,7 +190,10 @@
         <li><a href="download.html" class="nav-cta">&#x2B07; Download</a></li>
     </ul>
     <a href="https://www.happytunes.de" target="_blank" rel="noopener noreferrer" class="easter-egg" title="Happy Tunes FFXIV Bard Band">
-        <img src="happy_tunes.gif" alt="Happy Tunes" class="easter-egg-img" width="360" height="203">
+        <video autoplay loop muted playsinline class="easter-egg-img" width="360" height="203">
+            <source src="happy_tunes.webm" type="video/webm">
+            <img src="happy_tunes.gif" alt="Happy Tunes" class="easter-egg-img" width="360" height="203">
+        </video>
     </a>
 </div>
 </nav>
@@ -208,7 +212,7 @@
              onerror="this.parentElement.style.display='none';">
     </div>
 
-    <span class="hero-badge">v1.2.2 &middot; Open Source &middot; Windows</span>
+    <span class="hero-badge">v1.3.0 &middot; Open Source &middot; Windows</span>
 
     <h1 class="hero-title">
         The <span class="text-gradient">AI-Powered</span> MIDI Editor
@@ -220,7 +224,7 @@
 
     <div class="hero-actions">
         <a href="download.html" class="btn btn-primary">
-            &#x2B07; Download v1.2.2
+            &#x2B07; Download v1.3.0
         </a>
         <a href="docs-index.html" class="btn btn-secondary" target="_blank" rel="noopener noreferrer">
             &#x1F4D6; Documentation
@@ -301,10 +305,29 @@
                10 color presets for note bars. Real-time MIDI visualizer for playback.</p>
         </div>
         <div class="feature-card">
+            <span class="card-icon">&#x1F3A4;</span>
+            <h3>Lyric Editor &amp; Visualizer</h3>
+            <p>Full lyric timeline with drag, resize, split &amp; merge. Tap-to-sync dialog,
+               SRT/LRC/text import, and a karaoke toolbar widget with real-time color sweep.</p>
+        </div>
+        <div class="feature-card">
             <span class="card-icon">&#x1F3B9;</span>
             <h3>Professional Piano Roll</h3>
             <p>Full-featured piano-roll editor with velocity/CC editing, quantization,
                copy/paste, recording, multi-track support, and smooth playback scrolling.</p>
+        </div>
+        <div class="feature-card">
+            <span class="card-icon">&#x1F500;</span>
+            <h3>Channel-to-Track Splitter</h3>
+            <p>Split multi-channel MIDI files into one track per channel with correct
+               GM instrument names. Ideal for GM-0 piano files and multi-instrument imports.</p>
+        </div>
+        <div class="feature-card">
+            <span class="card-icon">&#x1F6E0;</span>
+            <h3>Additional Tools</h3>
+            <p>Chord Explode, delete overlapping notes, convert pitch bends to discrete notes,
+               show markers for Program Changes / Control Changes / Text events,
+               C3&ndash;C6 octave range markers, and smooth auto-scroll during playback.</p>
         </div>
     </div>
 </div>
@@ -352,6 +375,38 @@
                 <img src="screenshots/midipilot-overview.png" alt="MidiPilot Panel" width="3839" height="2099" loading="lazy">
                 <div class="slide-caption">MidiPilot Panel &mdash; AI context, chat history, and tool integration</div>
             </div>
+            <div class="showcase-slide">
+                <img src="screenshots/lyric_timeline_overview.png" alt="Lyric Timeline Editor" loading="lazy">
+                <div class="slide-caption">Lyric Timeline Editor &mdash; Visual phrase editing with drag, resize, and sync</div>
+            </div>
+            <div class="showcase-slide">
+                <video autoplay loop muted playsinline loading="lazy" aria-label="Lyric Visualizer">
+                    <source src="screenshots/lyric_visualizer_sweep_dark.webm" type="video/webm">
+                    <img src="screenshots/lyric_visualizer_toolbar.png" alt="Lyric Visualizer" loading="lazy">
+                </video>
+                <div class="slide-caption">Lyric Visualizer &mdash; Real-time karaoke-style overlay during playback</div>
+            </div>
+            <div class="showcase-slide">
+                <video autoplay loop muted playsinline loading="lazy" aria-label="Channel Splitting">
+                    <source src="screenshots/channel_splitting.webm" type="video/webm">
+                    <img src="screenshots/channel_splitting.png" alt="Channel Splitting" loading="lazy">
+                </video>
+                <div class="slide-caption">Channel Splitting &mdash; Separate multi-channel tracks in one click</div>
+            </div>
+            <div class="showcase-slide">
+                <video autoplay loop muted playsinline loading="lazy" aria-label="Smooth Playback Scrolling">
+                    <source src="screenshots/smooth_playback_scrolling.webm" type="video/webm">
+                    <img src="screenshots/midieditor-full.png" alt="Smooth Playback Scrolling" loading="lazy">
+                </video>
+                <div class="slide-caption">Smooth Playback Scrolling &mdash; Fluid auto-scroll follows the cursor</div>
+            </div>
+            <div class="showcase-slide">
+                <video autoplay loop muted playsinline loading="lazy" aria-label="FFXIV Channel Fixer — Preserve Mode">
+                    <source src="screenshots/ffxiv_channel_fix_Preserve.webm" type="video/webm">
+                    <img src="screenshots/midipilot-ffxiv-channelfix_fixed.png" alt="FFXIV Channel Fixer Preserve" loading="lazy">
+                </video>
+                <div class="slide-caption">FFXIV Channel Fixer &mdash; Preserve mode keeps your original arrangement</div>
+            </div>
         </div>
         <button class="showcase-btn prev" aria-label="Previous slide">&#x276E;</button>
         <button class="showcase-btn next" aria-label="Next slide">&#x276F;</button>
@@ -362,6 +417,11 @@
             <button class="dot" aria-label="Slide 4"></button>
             <button class="dot" aria-label="Slide 5"></button>
             <button class="dot" aria-label="Slide 6"></button>
+            <button class="dot" aria-label="Slide 7"></button>
+            <button class="dot" aria-label="Slide 8"></button>
+            <button class="dot" aria-label="Slide 9"></button>
+            <button class="dot" aria-label="Slide 10"></button>
+            <button class="dot" aria-label="Slide 11"></button>
         </div>
     </div>
 </div>
@@ -426,11 +486,14 @@
     </div>
     <div class="whats-new reveal">
         <span class="latest-badge">Latest</span>
-        <h3>v1.2.2 &mdash; April 2026</h3>
+        <h3>v1.3.0 &mdash; 2025</h3>
         <ul>
-            <li><strong>72 bug fixes</strong> across the entire codebase &mdash; memory leaks, crashes, parser hardening</li>
-            <li><strong>Guitar Pro 5 parser</strong> &mdash; 4 byte-alignment bugs fixed; GP5 files that failed now load correctly</li>
-            <li><strong>MidiPilot timestamps</strong> &mdash; cleaner chat timestamp display across all themes</li>
+            <li><strong>Lyric Editor</strong> &mdash; Full timeline lane with drag, resize, split, merge, inline editing, and multi-select</li>
+            <li><strong>Lyric Visualizer</strong> &mdash; Karaoke-style toolbar widget with left-to-right color sweep and two-line display</li>
+            <li><strong>Tap-to-Sync</strong> &mdash; Time lyrics to music by holding Space during playback, with teleprompter view</li>
+            <li><strong>Lyric Import/Export</strong> &mdash; Plain text, SRT subtitles, LRC karaoke files, and MIDI text events</li>
+            <li><strong>FFXIV Channel Fixer Tier 3</strong> &mdash; Complete overhaul with 5 critical bug fixes</li>
+            <li><strong>FluidSynth fixes</strong> &mdash; Improved SoundFont handling and FFXIV SoundFont Mode</li>
         </ul>
         <a href="changelog.html" class="changelog-link">View Full Changelog &rarr;</a>
     </div>
@@ -467,6 +530,7 @@
             <tr><td>Convert Pitch Bend to Notes</td><td><span class="cross">&#x2716;</span></td><td><span class="check">&#x2714;</span></td></tr>
             <tr><td>Context Menu (Move Track/Channel/Transpose)</td><td><span class="cross">&#x2716;</span></td><td><span class="check">&#x2714;</span></td></tr>
             <tr><td>Octave Transpose</td><td><span class="cross">&#x2716;</span></td><td><span class="check">&#x2714;</span></td></tr>
+            <tr><td>Lyric Editor &amp; Visualizer</td><td><span class="cross">&#x2716;</span></td><td><span class="check">&#x2714;</span></td></tr>
         </tbody>
     </table>
     </div>
@@ -482,7 +546,7 @@
     </div>
     <div class="hero-actions reveal" style="margin-bottom: 1.5rem;">
         <a href="download.html" class="btn btn-primary" style="font-size: 1.15rem; padding: 1rem 2.5rem;">
-            &#x2B07; Download MidiEditor AI v1.2.2
+            &#x2B07; Download MidiEditor AI v1.3.0
         </a>
     </div>
     <p class="reveal" style="color: var(--text-muted); font-size: .9rem;">

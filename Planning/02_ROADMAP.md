@@ -798,6 +798,8 @@ Phase 17   Modern UI Facelift (Dark/Light QSS Themes)     ✅ DONE (17.1-17.13)
 Phase 18   Mewo Upstream Feature Sync                     ✅ DONE (18.1-18.16, v1.1.8)
 Phase 19   MidiPilot AI Improvements                      ✅ DONE (19.1-19.7, v1.1.9)
 Phase 20   Audio Export & FluidSynth Hardening            ✅ DONE (20.1-20.8, v1.2.0)
+Phase 21   Lyric Editor                                   ✅ DONE (all sub-phases 21.1–21.9 complete)
+Phase 22   Lyric Visualizer (Karaoke Display)             ✅ DONE
 Phase 4.6  Persistent history (SQLite)                    ⬜ TODO (low priority)
 ```
 
@@ -839,6 +841,9 @@ Phase 4.6  Persistent history (SQLite)                    ⬜ TODO (low priority
 - ✅ FluidSynth settings always accessible (configure SoundFonts without switching output)
 - ✅ FluidSynth error feedback dialog (init failure shows QMessageBox)
 - ✅ Proper drum channel reset on GM restore (bank_select 128 + program_change on ch9)
+- ✅ Lyric Timeline Widget with playback pop effects, label panel, dynamic font, auto-show
+- ✅ Configurable lyric color (fixed pinkish default or track color) in Appearance settings
+- ✅ MIDI text encoding fix — UTF-8 with Latin-1 fallback for TextEvents (fixes umlauts in ISO-8859-1 files)
 
 ---
 
@@ -1623,6 +1628,9 @@ Phase 9.4  App startup auto-loading                     ✅ DONE
 - ⬜ **Rate limit awareness** + auto-retry for free tiers (Phase 8.3) — *nice-to-have*
 
 ### Completed Since Last Update
+- ✅ **Lyric Timeline Widget (Phase 21.1)** — new LyricTimelineWidget displaying lyric/text events as colored blocks synced with MatrixWidget scroll/zoom, label panel, playback pop effects (expand, glow, shadow, bold), View menu toggle (Ctrl+L), auto-show setting, dynamic font sizing, centered text, configurable lyric color (fixed pinkish default or track color) in Appearance settings
+- ✅ **Lyric UI Integration (Phase 21.8 partial)** — View → Lyric Timeline toggle, Ctrl+L shortcut, auto-show setting in Appearance, lyric color mode (Fixed Color / Track Color) + color picker in Settings
+- ✅ **MIDI text encoding fix** — UTF-8 with Latin-1 fallback for text events (fixes German umlauts in MIDI files encoded as ISO-8859-1)
 - ✅ **Prompt Architecture v2 (Phase 12.1-12.7)** — priority rule, validation block, timing reference, truncation fallback, event error feedback, schema unification, unused variable removal (v1.1.3)
 - ✅ **Provider selector in MidiPilot footer** — switch provider/model directly in chat panel (v1.1.3)
 - ✅ **Crash fix: New File during playback** — use-after-free in PlayerThread (v1.1.3)
@@ -6461,7 +6469,7 @@ Guitar Pro files" bug.
 
 ---
 
-## Phase 21: Lyric Editor ⬜
+## Phase 21: Lyric Editor ✅
 
 > **Goal:** A full-featured lyric editor that enables creating, importing, synchronizing,
 > and exporting song lyrics directly in MidiEditor AI. Lyrics are stored as MIDI meta
@@ -6475,7 +6483,7 @@ Guitar Pro files" bug.
 > simple way to enter, synchronize, and export lyrics. SRT is the universal standard
 > for subtitles and is understood by video editors and karaoke software alike.
 >
-> **Status:** Planning. Not yet implemented.
+> **Status:** In progress. Phase 21.1 complete, Phase 21.8 partial.
 
 ### Analysis: What Exists Already
 
@@ -6536,15 +6544,15 @@ blank line as separator. Parsing is ~50 lines of code.
 ### Implementation Order
 
 ```
-Phase 21.1   LyricTimelineWidget (Display + Scroll Sync)           ⬜
-Phase 21.2   Lyric Blocks (Data Model + TextEvent Integration)     ⬜
-Phase 21.3   SRT Import/Export                                      ⬜
-Phase 21.4   Text Import Dialog (Paste + Manual Editor)             ⬜
-Phase 21.5   Lyric Sync Mode (Tap-to-Sync during Playback)         ⬜
-Phase 21.6   Interactive Editing (Drag, Resize, Edit in Place)      ⬜
-Phase 21.7   MIDI Lyric Embedding (Export as Meta Events)           ⬜
-Phase 21.8   UI Integration (Menu, Toolbar, Toggle, Settings)       ⬜
-Phase 21.9   LRC Export (FFXIV MidiBard2 Lyric Format)              ⬜
+Phase 21.1   LyricTimelineWidget (Display + Scroll Sync)           ✅ DONE
+Phase 21.2   Lyric Blocks (Data Model + TextEvent Integration)     ✅ DONE
+Phase 21.3   SRT Import/Export                                      ✅ DONE
+Phase 21.4   Text Import Dialog (Paste + Manual Editor)             ✅ DONE
+Phase 21.5   Lyric Sync Mode (Tap-to-Sync during Playback)         ✅ DONE
+Phase 21.6   Interactive Editing (Drag, Resize, Edit in Place)      ✅ DONE
+Phase 21.7   MIDI Lyric Embedding (Export as Meta Events)           ✅ DONE
+Phase 21.8   UI Integration (Menu, Toolbar, Toggle, Settings)       ✅ DONE (partial — View toggle, auto-show, lyric color settings)
+Phase 21.9   LRC Export (FFXIV MidiBard2 Lyric Format)              ✅ DONE
 ```
 
 ### Estimated Complexity
@@ -6564,11 +6572,26 @@ Phase 21.9   LRC Export (FFXIV MidiBard2 Lyric Format)              ⬜
 
 ---
 
-### 21.1 — LyricTimelineWidget (Display + Scroll Sync) ⬜
+### 21.1 — LyricTimelineWidget (Display + Scroll Sync) ✅
 
 > **Goal:** A new widget that displays lyric blocks as colored rectangles along the
 > time axis. Horizontal scrolling is synchronized with MatrixWidget and MiscWidget.
 > Togglable show/hide.
+
+**Implementation Notes (completed):**
+- ✅ `LyricTimelineWidget` inherits `PaintWidget`, synced with MatrixWidget via `xPosOfTick()`/`tickOfXPos()`
+- ✅ Label panel: `_lyricArea` QWidget with QGridLayout ("Lyrics" label 110px | timeline | dummy scrollbar), matching velocityArea pattern
+- ✅ Inserted into `leftSplitter` as 3rd child (index 2) between velocityArea and scrollBarArea
+- ✅ `collectLyricEvents()` scans channels 0-16 for TextEvent types LYRIK (0x05) and TEXT (0x01)
+- ✅ Blocks drawn as rounded rects with dynamic font size `qBound(9, blockHeight - 10, 18)`, centered text (AlignHCenter|AlignVCenter)
+- ✅ Playback pop effect: playing block expands vertically (margin-3), lighter color (150%), alpha 240, drop shadow, glow border 2px, bold text
+- ✅ Grid lines from `matrixWidget->divs()` aligned with piano roll
+- ✅ View → "Lyric Timeline" toggle (Ctrl+L shortcut)
+- ✅ Auto-show in `MainWindow::setFile()` when file has lyric events (configurable: `Appearance::autoShowLyricTimeline()`)
+- ✅ Configurable lyric color: Fixed Color (default pinkish `QColor(230,140,180)`) or Track Color, selectable in Appearance settings
+- ✅ Lyric color mode QComboBox + color picker QPushButton in AppearanceSettingsWidget
+- ✅ Playback signals connected in `play()`/`record()`/`stop()` for cursor position tracking
+- ✅ **Bonus:** MIDI text encoding fix — UTF-8 with Latin-1 fallback in MidiEvent.cpp (fixes German umlauts)
 
 **Architecture:**
 
@@ -6640,7 +6663,7 @@ private:
 
 ---
 
-### 21.2 — Lyric Blocks (Data Model + TextEvent Integration) ⬜
+### 21.2 — Lyric Blocks (Data Model + TextEvent Integration) ✅
 
 > **Goal:** A clean data model for lyric blocks that can exist independently (before
 > embedding) and also interacts seamlessly with MIDI TextEvents (type 0x05).
@@ -6725,10 +6748,19 @@ private:
 
 ---
 
-### 21.3 — SRT Import/Export ⬜
+### 21.3 — SRT Import/Export ✅
 
 > **Goal:** Read and write SRT files. Import creates LyricBlocks,
 > export writes LyricBlocks as SRT file.
+
+**Implementation Notes (completed):**
+- ✅ `SrtParser` class in `src/converter/SrtParser.{h,cpp}` — static import/export methods
+- ✅ State machine parser (ExpectSeq → ExpectTiming → ExpectText) handles BOM, multi-line entries, comma/dot timestamp separators
+- ✅ Regex: `(\d{2}):(\d{2}):(\d{2})[,.](\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2})[,.](\d{3})`
+- ✅ `LyricManager::importFromSrt()` and `exportToSrt()` with Protocol undo support
+- ✅ Tools → Lyrics submenu: Import Lyrics (SRT)… [Ctrl+Shift+L], Export Lyrics (SRT)…, Embed Lyrics in MIDI, Clear All Lyrics
+- ✅ All 4 MainWindow slots implemented with file dialogs, validation, and user feedback
+- ✅ CMakeLists.txt updated: added `src/converter/*.cpp` GLOB for SrtParser and future converters
 
 **SRT Parser:**
 
@@ -6773,7 +6805,15 @@ private:
 
 ---
 
-### 21.4 — Text Import Dialog (Paste + Manual Editor) ⬜
+### 21.4 — Text Import Dialog (Paste + Manual Editor) ✅
+
+**Implementation Notes (completed):**
+- ✅ `LyricImportDialog` in `src/gui/LyricImportDialog.{h,cpp}` — QDialog with QPlainTextEdit
+- ✅ Options: skip empty lines, skip section headers `[...]`, default phrase duration, start offset
+- ✅ Two import modes: "Import & Sync Later" (placeholder timings) and "Import with Even Spacing"
+- ✅ Live preview shows detected phrase count
+- ✅ Tools → Lyrics → "Import Lyrics (Text)..." menu entry
+- ✅ Uses `LyricManager::importFromPlainText()` for block creation
 
 > **Goal:** An editor window where users can paste plain text lyrics (copy/paste)
 > or type them manually. Each line becomes one LyricBlock.
@@ -6825,7 +6865,17 @@ private:
 
 ---
 
-### 21.5 — Lyric Sync Mode (Tap-to-Sync during Playback) ⬜
+### 21.5 — Lyric Sync Mode (Tap-to-Sync during Playback) ✅
+
+**Implementation Notes (completed):**
+- ✅ `LyricSyncDialog` in `src/gui/LyricSyncDialog.{h,cpp}` — modal dialog with playback integration
+- ✅ Hold Space key: KeyPress = phrase starts, KeyRelease = phrase ends, advances automatically
+- ✅ Real-time display: current phrase (large), next phrase (small), progress bar, time display
+- ✅ Controls: Play/Pause, Rewind 5s, Undo Last, Done, Cancel
+- ✅ Minimum phrase duration enforced (100ms)
+- ✅ Entire sync operation wrapped in single Protocol action for undo
+- ✅ Handles playback stop gracefully (auto-ends held phrase)
+- ✅ Tools → Lyrics → "Sync Lyrics (Tap-to-Sync)..." menu entry
 
 > **Goal:** The core of the lyric editor: the song plays back, and the user holds
 > a key (e.g. Space) while a phrase is being sung — press = phrase starts,
@@ -6887,7 +6937,17 @@ private:
 
 ---
 
-### 21.6 — Interactive Editing (Drag, Resize, Edit in Place) ⬜
+### 21.6 — Interactive Editing (Drag, Resize, Edit in Place) ✅
+
+**Implementation Notes (completed):**
+- ✅ Mouse tracking with cursor changes: arrow (empty), open hand (over block), size-hor (at edges), closed hand (dragging)
+- ✅ Click to select block (blue highlight border)
+- ✅ Drag to move block horizontally (changes startTick, preserves duration)
+- ✅ Drag left/right edges to resize (6px edge detection zone)
+- ✅ Double-click on block: inline QLineEdit editor for text
+- ✅ Double-click on empty area: insert new block (480 ticks default duration)
+- ✅ Right-click context menu: Edit Text, Delete, Split at Cursor, Merge with Next, Insert Before/After
+- ✅ All edit operations go through LyricManager (Protocol undo support)
 
 > **Goal:** Move lyric blocks in the LyricTimelineWidget via mouse, resize them
 > (adjust start/end), and double-click to edit text inline.
@@ -6925,7 +6985,15 @@ private:
 
 ---
 
-### 21.7 — MIDI Lyric Embedding (Export as Meta Events) ⬜
+### 21.7 — MIDI Lyric Embedding (Export as Meta Events) ✅
+
+**Implementation Notes (completed):**
+- ✅ `LyricManager::exportToTextEvents()` — removes existing lyrics, creates new TextEvent(0x05) at each block's startTick (Phase 21.2)
+- ✅ `LyricManager::importFromTextEvents()` — scans channels 0-16 for lyric/text events, builds sorted block list (Phase 21.2)
+- ✅ Auto-import on file load in MidiFile constructor (Phase 21.2)
+- ✅ "Embed Lyrics in MIDI" menu entry in Tools → Lyrics (Phase 21.3)
+- ✅ `embedLyricsInMidi()` slot with user feedback (Phase 21.3)
+- ✅ Standard MIDI Lyric Events (type 0x05) for universal compatibility
 
 > **Goal:** Embed LyricBlocks as MIDI meta events (0x05 Lyric) into the MIDI file
 > so they are displayed in any MIDI player with lyric support. And vice versa:
@@ -6959,7 +7027,7 @@ LyricTimeline displays them immediately.
 
 ---
 
-### 21.8 — UI Integration (Menu, Toolbar, Toggle, Settings) ⬜
+### 21.8 — UI Integration (Menu, Toolbar, Toggle, Settings) ✅ (partial)
 
 > **Goal:** Clean integration of all lyric features into the MidiEditor AI
 > user interface — menus, toolbar button, toggle, keyboard shortcuts, settings.
@@ -7004,7 +7072,12 @@ LyricTimeline displays them immediately.
 
 ---
 
-### 21.9 — LRC Export (FFXIV MidiBard2 Lyric Format) ⬜
+### 21.9 — LRC Export (FFXIV MidiBard2 Lyric Format) ✅ DONE
+
+**Implemented:** LrcExporter.h/.cpp with exportLrc()/importLrc() supporting [MM:SS.cc] timestamp format,
+LrcMetadata struct for header tags ([ar:], [ti:], [al:], [by:], [offset:]). Menu entries for
+"Import Lyrics (LRC)..." and "Export Lyrics (LRC)..." added to Tools → Lyrics submenu.
+Import creates LyricBlocks from LRC timestamps, export writes standard LRC format.
 
 > **Goal:** Export lyrics in LRC format for use with MidiBard2's lyric display.
 > LRC is a simple timestamp+text format used by karaoke software and FFXIV
@@ -7122,3 +7195,254 @@ introduce a few milliseconds of delay. Solution: cache `PlayerThread::timeMsChan
 and use the last known value plus a small delta instead of querying the tick
 synchronously in the event handler. In the music domain, ±50ms tolerance is
 perfectly acceptable for lyric sync.
+
+---
+
+## Phase 22: Lyric Visualizer (Karaoke Display) ✅
+
+> **Goal:** A live lyric visualizer ("Karaoke Mode") that can be docked in the toolbar
+> area — similar to the existing MIDI Visualizer. During playback, it shows the current
+> lyric phrase with smooth karaoke-style animations. When no lyrics are present in the
+> file, the widget auto-hides; once lyrics are imported or available, it becomes visible.
+>
+> **Motivation:** Purely a "cool factor" feature. Musicians performing or previewing songs
+> want to see lyrics scrolling in real-time. Combined with the Lyric Editor (Phase 21),
+> this makes MidiEditor AI a complete karaoke authoring + preview tool.
+>
+> **Pattern:** Follows the same integration pattern as `MidiVisualizerWidget` — a compact
+> `QWidget` that lives in the customizable toolbar, polls playback state via a timer,
+> and can be toggled on/off. But unlike the 84×24px MIDI visualizer, this needs more
+> horizontal space (~300-400px) to display text comfortably.
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Toolbar: [File] [Edit] ║ [🎵] [▶ ⏸ ⏹] ... [🎤 Lyric Display] │
+│                          ║                                       │
+│                          ║  ┌──────────────────────────────────┐ │
+│                          ║  │   ♪ And the stars are shining ♪  │ │
+│                          ║  │      ── falling down ──          │ │
+│                          ║  └──────────────────────────────────┘ │
+├──────────────────────────╨───────────────────────────────────────┤
+│  Piano Roll ...                                                  │
+```
+
+**Two display lines:**
+- **Line 1 (main):** Current phrase — large, prominent, animated highlight
+- **Line 2 (preview):** Next phrase — smaller, dimmed, gives the reader a look-ahead
+
+**When idle (no playback / between phrases):**
+- Shows faded "♪ ♪ ♪" or the song title if metadata is set
+
+### Widget: `LyricVisualizerWidget`
+
+```cpp
+// src/gui/LyricVisualizerWidget.h
+class LyricVisualizerWidget : public QWidget {
+    Q_OBJECT
+public:
+    explicit LyricVisualizerWidget(QWidget *parent = nullptr);
+
+    void setFile(MidiFile *file);
+
+public slots:
+    void playbackStarted();
+    void playbackStopped();
+    void onPlaybackPositionChanged(int ms);
+
+protected:
+    void paintEvent(QPaintEvent *event) override;
+    void showEvent(QShowEvent *event) override;
+    void hideEvent(QHideEvent *event) override;
+    QSize sizeHint() const override;
+    QSize minimumSizeHint() const override;
+
+private slots:
+    void refresh();
+
+private:
+    void updateCurrentLyric(int ms);
+
+    MidiFile *_file = nullptr;
+    QTimer _timer;                 // ~30fps animation timer
+    bool _playing = false;
+
+    // Current lyric state
+    int _currentBlockIndex = -1;   // Index in LyricManager::allBlocks()
+    QString _currentText;          // Current phrase text
+    QString _nextText;             // Next phrase text (look-ahead)
+    float _phraseProgress = 0.0f;  // 0.0 (start) → 1.0 (end) within current block
+    int _lastMs = 0;               // Last known playback position
+
+    // Animation
+    float _fadeIn = 0.0f;          // 0→1 fade for new phrase
+    float _glowPulse = 0.0f;      // Subtle glow oscillation
+};
+```
+
+### Rendering (paintEvent)
+
+**Visual Design (Dark Mode):**
+```
+┌─────────────────────────────────────────────────┐
+│  ♪  And the stars are shi[ning]  ♪              │  ← Current: large, white
+│         ── falling down ──                      │  ← Next: small, dim gray
+└─────────────────────────────────────────────────┘
+   ▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔▔
+   ← progress bar (accent color, fills left→right)
+```
+
+**Karaoke highlight effect:**
+- The `_phraseProgress` (0→1) determines how much of the text is "sung"
+- Characters before the progress point: **bright accent color** (e.g. #58a6ff blue or lyric color)
+- Characters after progress point: **white/light gray**
+- Smooth transition — the highlight slides through the text like karaoke
+
+**Animations:**
+- **Fade-in:** When a new phrase starts, `_fadeIn` animates 0→1 over ~200ms (opacity transition)
+- **Glow pulse:** Subtle sine-wave glow behind the current text (period ~2s, barely noticeable)
+- **Progress bar:** Thin 2px accent-colored bar at the bottom, filling left→right with phrase progress
+
+**Typography:**
+- Current phrase: Bold, 14-16px, centered horizontally
+- Next phrase: Regular, 10-12px, centered, 60% opacity
+- Musical note decorations: "♪" at start/end of current phrase during playback
+
+**Colors (themed):**
+- Dark mode: Background `#0d1117`, current text white, highlight `#58a6ff`, next text `#8b949e`
+- Light mode: Background `#f6f8fa`, current text `#24292f`, highlight `#0969da`, next text `#656d76`
+- Or use `Appearance::lyricColor()` for the highlight, matching the Lyric Timeline setting
+
+### Playback Integration
+
+**Signal connections (same pattern as MIDI Visualizer):**
+```cpp
+// In MainWindow::createCustomToolbar() for "lyric_visualizer" action:
+connect(MidiPlayer::playerThread(), SIGNAL(playerStarted()),
+        _lyricVisualizer, SLOT(playbackStarted()));
+connect(MidiPlayer::playerThread(), SIGNAL(playerStopped()),
+        _lyricVisualizer, SLOT(playbackStopped()));
+connect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)),
+        _lyricVisualizer, SLOT(onPlaybackPositionChanged(int)));
+```
+
+**`onPlaybackPositionChanged(int ms)`:**
+1. Store `_lastMs = ms`
+2. Convert ms to tick via `_file->tick(ms)`
+3. Find current block via `LyricManager::blockAtTick(tick)`
+4. If block changed → update `_currentText`, `_nextText`, reset `_fadeIn = 0`
+5. Calculate `_phraseProgress` = `(ms - blockStartMs) / (blockEndMs - blockStartMs)`
+
+**Timer-based refresh (~30fps):**
+- Advances `_fadeIn` and `_glowPulse` animation values
+- Calls `update()` if playing or animating
+- Same show/hide timer management as MidiVisualizerWidget
+
+### Auto-Hide Logic
+
+**The visualizer auto-hides when no lyrics are available:**
+
+```cpp
+void LyricVisualizerWidget::setFile(MidiFile *file) {
+    _file = file;
+    bool hasLyrics = file && file->lyricManager() && file->lyricManager()->hasLyrics();
+    setVisible(hasLyrics);
+}
+```
+
+**Visibility updates on:**
+- File load (`MainWindow::setFile()` → `setFile(newFile)`)
+- Lyric import (connect `LyricManager::lyricsChanged()` → re-check visibility)
+- Lyric clear (same signal → hide if empty)
+
+**When hidden:** Takes 0 space in toolbar (standard Qt behavior for hidden widgets).
+
+**When lyrics become available:** The widget smoothly appears (or the toolbar updates to show it).
+
+### Toolbar Integration
+
+**Follows the MIDI Visualizer pattern exactly:**
+
+```cpp
+// In MainWindow constructor (action registration):
+QAction *lyricVisAction = new QAction("Lyric Visualizer", this);
+lyricVisAction->setToolTip("Live lyric display — shows current lyrics during playback (karaoke-style)");
+_actionMap["lyric_visualizer"] = lyricVisAction;
+
+// In createCustomToolbar():
+if (actionId == "lyric_visualizer") {
+    _lyricVisualizer = new LyricVisualizerWidget(currentToolBar);
+    _lyricVisualizer->setFile(file);
+    connect(MidiPlayer::playerThread(), SIGNAL(playerStarted()),
+            _lyricVisualizer, SLOT(playbackStarted()));
+    connect(MidiPlayer::playerThread(), SIGNAL(playerStopped()),
+            _lyricVisualizer, SLOT(playbackStopped()));
+    connect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)),
+            _lyricVisualizer, SLOT(onPlaybackPositionChanged(int)));
+    currentToolBar->addWidget(_lyricVisualizer);
+    continue;
+}
+```
+
+**Toolbar action order:** Inserted after `midi_visualizer` in default order.
+
+### Implementation Order
+
+```
+Phase 22.1   LyricVisualizerWidget (core widget + rendering)    ✅ DONE
+Phase 22.2   Playback integration (signal hookup + text lookup)  ✅ DONE
+Phase 22.3   Karaoke animation (progress highlight + fade)       ✅ DONE
+Phase 22.4   Toolbar integration (action + createCustomToolbar)  ✅ DONE
+Phase 22.5   Auto-hide (visibility based on lyrics presence)     ✅ DONE
+Phase 22.6   Toolbar integration bugfixes                        ✅ DONE
+             — Added lyric_visualizer.png icon to resources.qrc
+             — Added ToolbarActionInfo entry in getDefaultActions()
+             — Added to getComprehensiveActionOrder(), getDefaultEnabledActions(),
+               getDefaultRowDistribution() (was missing from all 3 "single source
+               of truth" methods → invisible in Customize Toolbar dialog)
+             — Removed setVisible(false) auto-hide: QToolBar doesn't reliably
+               relayout hidden widgets. Now always visible (like MIDI Visualizer),
+               paintEvent draws ♪♪♪ idle state when no lyrics.
+             — Moved visualizer widget creation outside if(action) block in
+               createCustomToolbar two-row mode (was inconsistent with other 3 sites)
+Phase 22.7   Dynamic box sizing                                  ✅ DONE
+             — Changed SizePolicy from Fixed to Preferred
+             — sizeHint() now computes width from current phrase (200–600px)
+             — updateGeometry() called on phrase change for toolbar relayout
+             — Elides long text with "…" when toolbar constrains width
+```
+
+### Estimated Complexity
+
+| Sub-phase | New Code | Modified Code | Risk |
+|-----------|----------|---------------|------|
+| 22.1 Core widget + rendering | ~200 lines (new class) | — | Low |
+| 22.2 Playback integration | ~60 lines | — | Low |
+| 22.3 Karaoke animation | ~80 lines | — | Low |
+| 22.4 Toolbar integration | ~30 lines | MainWindow.cpp (~50 lines) | Low |
+| 22.5 Auto-hide | ~30 lines | MainWindow.cpp (~10 lines) | Low |
+| **Total** | **~400 lines new** | **~60 lines modified** | **Low** |
+
+### Key Design Decisions
+
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| Widget size | ~300×40px (flexible width) | Needs space for text, but shouldn't dominate the toolbar |
+| Two-line display | Current + next phrase | Classic karaoke look-ahead keeps the reader prepared |
+| Karaoke highlight | Left-to-right color sweep | Most recognized karaoke effect, smooth and readable |
+| Timer-based vs signal-only | Hybrid (signals for data, timer for animation) | `timeMsChanged` provides position, timer smooths animation between signals |
+| Auto-hide | Based on `LyricManager::hasLyrics()` | No point showing an empty box; appears when lyrics are imported |
+| Toolbar placement | Custom widget in toolbar (like MIDI Visualizer) | User can position it anywhere via toolbar customization |
+
+### Dependencies
+
+- **Phase 21 (Lyric Editor):** ✅ Complete — provides `LyricManager`, `LyricBlock`, and all lyric data
+- **MidiVisualizerWidget:** Reference implementation for toolbar widget pattern
+- **No external libraries** — pure Qt painting
+- **No new build system changes** — CMake GLOB picks up new files automatically
+
+### Files
+
+- **New:** `src/gui/LyricVisualizerWidget.h`, `src/gui/LyricVisualizerWidget.cpp`
+- **Modified:** `MainWindow.h` (add `_lyricVisualizer` member), `MainWindow.cpp` (action registration + toolbar creation + file/playback connections)

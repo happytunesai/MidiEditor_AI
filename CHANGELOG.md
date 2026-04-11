@@ -5,6 +5,145 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 
 ---
 
+## [1.3.0] - 2026-04-11 — Lyric Editor & Visualizer
+
+* **Lyric Timeline** — New dedicated lane below the piano roll for visual lyric editing (add, delete, move, resize, split, merge, inline text editing)
+* **Sync Lyrics dialog** — Tap-to-sync: hold Space while each phrase is sung to capture precise timing in real time
+* **Import/Export** — Import from plain text, SRT subtitles, or MIDI Text/Lyric events; export to SRT or LRC (karaoke) format
+* **Lyric Visualizer** — Karaoke-style toolbar widget with left-to-right color sweep, two-line display (current + next phrase), dynamic sizing (200–600px)
+* **Full undo/redo** — All lyric operations integrate with the Protocol system for complete undo/redo support
+* **FluidSynth fixes** — `synth.reverb.engine` compatibility guard for FluidSynth 2.5.2; bundled SoundFonts survive clean builds
+* **FFXIV Channel Fixer — 5 Tier 3 bugs fixed** — wrong programs, broken renames, unwanted event migration; `progAtTick(0)` now single source of truth for channel programs
+* **Website & documentation** — New Lyrics manual page, version bump to 1.3.0 across all pages, GIF→webm migration for bandwidth savings, video lightbox support
+
+<details>
+<summary>Full Changelog — Lyric Editor, Visualizer & FluidSynth Fixes</summary>
+
+### Lyric Timeline Widget
+
+* **New Lyric Timeline lane** — A dedicated lane below the piano roll displays lyric blocks
+  aligned to the MIDI timeline. Blocks show text, timing, and playback highlighting with a
+  pop/glow effect on the currently playing phrase.
+* **Full lyric editing** — Add, delete, move, resize, split, and merge lyric blocks directly
+  in the timeline. Drag blocks to reposition, drag edges to resize, double-click to edit text
+  inline, and use Delete/Backspace to remove. Shift+Click for multi-select with range support.
+* **Sync Lyrics dialog** — Tap-to-sync mode: play the song and hold Space while each phrase
+  is being sung. Press = phrase starts, Release = phrase ends. Captures precise timing in real
+  time. Features a teleprompter view showing the next 8 upcoming phrases, separate Play/Stop
+  buttons, and progress tracking.
+* **Import lyrics** — Import from plain text (one phrase per line), SRT subtitle files
+  (with timestamp conversion), or existing MIDI Text/Lyric events. Automatically creates
+  properly timed lyric blocks from any source.
+* **Export lyrics** — Export to SRT subtitle format or LRC (karaoke) format. LRC export
+  supports both 2-digit centisecond and 3-digit millisecond timestamps on import.
+* **Undo/Redo support** — All lyric operations (add, delete, move, resize, edit, split,
+  merge, sync, import) integrate with the Protocol system for full undo/redo. A dedicated
+  `undoRedoPerformed` signal ensures lyric blocks stay in sync after undo without disrupting
+  forward editing operations.
+* **Context menu** — Right-click any block for Edit Text, Delete, Split at Cursor, Merge
+  with Next, Insert Before/After. Right-click empty space to insert a new block.
+
+### Lyric Visualizer (Karaoke Display)
+
+* **Karaoke toolbar widget** — A compact toolbar widget that shows the current lyric phrase
+  during playback with a karaoke-style left-to-right color sweep. Two-line display: current
+  phrase (large, bold, with highlight animation) and next phrase (small, dimmed preview).
+  Includes a thin progress bar at the bottom of the widget.
+* **Dynamic sizing** — The visualizer box dynamically expands (200–600px) based on the
+  current phrase length. Long text is gracefully elided with "…" when the toolbar constrains
+  the available width. `updateGeometry()` called on phrase change for smooth toolbar relayout.
+* **Always visible** — Stays visible at all times (matching the MIDI Visualizer pattern).
+  Shows "♪ ♪ ♪" idle state when no lyrics are loaded; shows song title from lyric metadata
+  when stopped.
+* **Full toolbar integration** — Appears in the Customize Toolbar dialog with its own icon,
+  can be repositioned via drag-and-drop, and persists across layout changes (single-row /
+  double-row). Registered in all 4 toolbar creation sites and both migration blocks for
+  seamless upgrades from older settings.
+* **Toolbar integration fixes** — Added `lyric_visualizer` to all three "single source of
+  truth" methods (`getComprehensiveActionOrder`, `getDefaultEnabledActions`,
+  `getDefaultRowDistribution`) so it appears in the Customize Toolbar dialog. Added icon to
+  `resources.qrc` and `ToolbarActionInfo` entry in `getDefaultActions()`. Fixed inconsistent
+  widget creation placement in `createCustomToolbar()` two-row mode.
+
+### FluidSynth Fixes
+
+* **`synth.reverb.engine` compatibility** — FluidSynth 2.5.2 doesn't support the
+  `synth.reverb.engine` setting. Added `fluid_settings_get_type()` guard before calling
+  `fluid_settings_setstr()` to prevent initialization errors.
+* **Bundled SoundFonts survive clean builds** — Added CMake post-build rule to copy
+  `soundfont/*.sf2` to `build/bin/soundfonts/`. Previously, a clean build (`Remove-Item build`)
+  deleted the user's downloaded SoundFont files.
+
+### Technical Notes
+* **New files:** `src/gui/LyricVisualizerWidget.h/.cpp`, `run_environment/graphics/tool/lyric_visualizer.png`
+* **Modified files:** `MainWindow.h/.cpp` (action registration, 4 toolbar creation sites, 2 migration blocks, signal connections), `LayoutSettingsWidget.cpp` (ToolbarActionInfo entry, 3 single-source-of-truth methods, default order/distribution), `resources.qrc` (icon), `FluidSynthEngine.cpp` (reverb engine guard), `CMakeLists.txt` (SoundFont copy rule)
+* **Lyric Editor files (from Phase 21):** `src/midi/LyricManager.h/.cpp`, `src/midi/LyricBlock.h`, `src/gui/LyricTimelineWidget.h/.cpp`, `src/gui/LyricEditorDialog.h/.cpp`, `src/gui/SyncLyricsDialog.h/.cpp`
+
+### Website & Documentation
+
+* **New Lyrics manual page** — Full `manual/lyrics.html` with 10+ sections: Timeline overview,
+  editing, context menu, Tap-to-Sync, import/export, Lyric Visualizer, appearance settings,
+  keyboard shortcuts, tips, and menu reference. Includes screenshots and video demos.
+* **Version bump to 1.3.0** — Updated `CMakeLists.txt`, `README.md`, `index.html` (4 locations),
+  and `docs-index.html`.
+* **README.md updated** — 3 new feature rows, 2 architecture entries, full Lyric Editor section,
+  4 project structure entries.
+* **Navigation updated on all pages** — Doc-subnav (🎤 Lyrics link) added to all 16 doc pages;
+  nav dropdown (Lyric Editor) added to all 19 HTML pages; index.html updated with feature card,
+  What's New section, and comparison table row.
+* **GIF→webm migration** — All 11 standalone GIF `<img>` tags across 8 HTML pages replaced with
+  `<video autoplay loop muted playsinline>` using webm as primary source and GIF as `<img>`
+  fallback. Saves significant bandwidth (webm is ~10× smaller than GIF).
+* **Video lightbox** — Extended `lightbox.js` to support click-to-enlarge on `<video>` elements.
+  Clicking any inline video opens it full-screen in the lightbox overlay with autoplay+loop.
+  Added matching CSS for `video.lightbox-thumb` hover states and overlay styling in both
+  `style.css` and `site.css`.
+* **Lightbox added to lyrics page** — Added missing `lightbox.js` script include; wrapped
+  `lyric_context_menu.png` and `lyric_tool_menu.png` in `<a class="lightbox-link">` anchors.
+* **Fixed mojibake in FFXIV page** — Corrected `â€"` (corrupted UTF-8 em dash) to proper `—`
+  in `ffxiv-channel-fixer.html` aria-label attributes during webm migration.
+* **Lightbox click-to-close on images** — Fixed enlarged images not closing when clicked (only
+  overlay edge or × button worked). Root cause: the lightbox's own `<img>` element was picked up
+  by the thumbnail handler, causing close+reopen on every click. Added skip for `lbImg` in the
+  image loop and changed enlarged image/video cursor to `pointer`.
+
+### FFXIV Channel Fixer — Tier 3 Overhaul (5 bugs)
+
+* **Bug #1:** Reserved guitar channels (from Tier 2) were invisible to rename/switch logic — `allGuitarChs` now includes `guitarChToProgram` channels
+* **Bug #2:** Track name was used instead of actual channel program for PC insertion and `chToVariant` — now uses `guitarChToProgram` as primary source
+* **Bug #3:** Duplicate guitar track names caused event migration between channels — removed all duplicate logic from Tier 3 (every track keeps its own channel)
+* **Bug #4:** Rename on switching tracks (notes on multiple channels) was unreliable — now only renames single-channel guitar tracks
+* **Bug #5:** `guitarChToProgram` scan took the first PC at tick 0 instead of the effective one — now uses `channel->progAtTick(0)` (matches channel view display)
+* **Files modified:** `src/ai/FFXIVChannelFixer.cpp`
+
+### Lyric System Bug Fixes (Pass 3 Audit — 7 fixes)
+
+* **P3-001 (Critical)** — `lyricsChanged` signal unconditionally cleared the timeline selection
+  during an active drag operation. Added `_dragActive` guard in the lambda so drags are never
+  interrupted by a background lyrics refresh.
+* **P3-002 (High)** — `importLyricsLrc()` called `addBlock()` in a loop, each creating its own
+  Protocol action — importing 50 lines produced 50 separate undo steps. Rewritten to use
+  `insertSorted()` with direct event creation inside a single `startNewAction`/`endAction` pair.
+* **P3-003 (Medium)** — Consecutive MIDI Text events at the same tick produced zero-duration
+  lyric blocks (`endTick == startTick`), which were invisible and unmovable. Added 120-tick
+  minimum duration enforcement in `importFromTextEvents()`.
+* **P3-004 (Medium)** — `LyricTimelineWidget::paintEvent()` directly overwrote the `_file`
+  member from `matrixWidget->midiFile()`, bypassing `setFile()` signal connections. Changed to
+  a local variable with a conditional `setFile()` call when the file actually changes.
+* **P3-005 (Medium)** — `LyricSyncDialog::onDone()` did not re-sort blocks after applying
+  tap-to-sync timings. Added `sortBlocks()` method to `LyricManager`; called after all timings
+  are applied.
+* **P3-006 (Medium)** — `LyricTimelineWidget::setFile()` never disconnected the old file's
+  `lyricsChanged` signal, causing accumulated connections and stale callbacks over multiple
+  file loads. Added `disconnect()` before connecting the new file.
+* **P3-009 (Low)** — `LyricVisualizerWidget::onLyricsChanged()` did not reset
+  `_currentBlockIndex`, so the visualizer could display a stale phrase after lyrics were
+  re-imported or edited. Now resets to `-1` before calling `update()`.
+
+</details>
+
+---
+
 ## [1.2.2] - 2026-04-11 — FFXIV Channel Fixer Bugfix & Website Fixes
 
 * **Fix XIV Channels — Tier 3 (Preserve) now sees reserved guitar channels**

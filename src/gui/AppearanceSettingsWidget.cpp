@@ -158,6 +158,43 @@ AppearanceSettingsWidget::AppearanceSettingsWidget(QWidget *parent)
     layout->addWidget(textMarkers, row, 1, 1, 1);
     row++;
 
+    layout->addWidget(new QLabel("Auto-show Lyric Timeline"), row, 0, 1, 1);
+    QCheckBox *autoLyrics = new QCheckBox(content);
+    autoLyrics->setChecked(Appearance::autoShowLyricTimeline());
+    connect(autoLyrics, &QCheckBox::toggled, [](bool on) { Appearance::setAutoShowLyricTimeline(on); });
+    layout->addWidget(autoLyrics, row, 1, 1, 1);
+    row++;
+
+    layout->addWidget(new QLabel("Lyric Color Mode"), row, 0, 1, 1);
+    QComboBox *lyricColorMode = new QComboBox(content);
+    lyricColorMode->addItem("Fixed Color");
+    lyricColorMode->addItem("Track Color");
+    lyricColorMode->setCurrentIndex(Appearance::useFixedLyricColor() ? 0 : 1);
+    layout->addWidget(lyricColorMode, row, 1, 1, 1);
+    row++;
+
+    layout->addWidget(new QLabel("Lyric Block Color"), row, 0, 1, 1);
+    QPushButton *lyricColorBtn = new QPushButton(content);
+    QColor lyricCol = Appearance::fixedLyricColor();
+    lyricColorBtn->setStyleSheet(QString("background-color: %1; border: 1px solid gray;").arg(lyricCol.name()));
+    lyricColorBtn->setFixedSize(60, 24);
+    lyricColorBtn->setEnabled(Appearance::useFixedLyricColor());
+    connect(lyricColorMode, QOverload<int>::of(&QComboBox::currentIndexChanged),
+        [lyricColorBtn](int index) {
+            bool fixed = (index == 0);
+            Appearance::setUseFixedLyricColor(fixed);
+            lyricColorBtn->setEnabled(fixed);
+        });
+    connect(lyricColorBtn, &QPushButton::clicked, [lyricColorBtn]() {
+        QColor c = QColorDialog::getColor(Appearance::fixedLyricColor(), lyricColorBtn->parentWidget());
+        if (c.isValid()) {
+            Appearance::setFixedLyricColor(c);
+            lyricColorBtn->setStyleSheet(QString("background-color: %1; border: 1px solid gray;").arg(c.name()));
+        }
+    });
+    layout->addWidget(lyricColorBtn, row, 1, 1, 1);
+    row++;
+
     layout->addWidget(new QLabel("Marker Color Mode"), row, 0, 1, 1);
     QComboBox *markerColorCombo = new QComboBox(content);
     markerColorCombo->addItem("By Track");

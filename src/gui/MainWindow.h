@@ -50,6 +50,7 @@ class QMenu;
 class TrackListWidget;
 class QComboBox;
 class MiscWidget;
+class LyricTimelineWidget;
 class QGridLayout;
 class MidiTrack;
 class QShowEvent;
@@ -60,6 +61,7 @@ class UpdateChecker;
 class AutoUpdater;
 class MidiPilotWidget;
 class MidiVisualizerWidget;
+class LyricVisualizerWidget;
 class QDockWidget;
 class QLabel;
 
@@ -122,6 +124,11 @@ public:
      * \return Pointer to the MatrixWidget
      */
     MatrixWidget *matrixWidget();
+
+    /**
+     * \brief Gets the matrix widget container (MatrixWidget or OpenGLMatrixWidget).
+     */
+    QWidget *matrixWidgetContainer() { return _matrixWidgetContainer; }
 
     /**
      * \brief Gets the event widget for detailed event editing.
@@ -557,6 +564,46 @@ public slots:
     void fixFFXIVChannels();
 
     /**
+     * \brief Imports lyrics from an SRT subtitle file.
+     */
+    void importLyricsSrt();
+
+    /**
+     * \brief Imports lyrics from plain text via a dialog.
+     */
+    void importLyricsText();
+
+    /**
+     * \brief Opens the Tap-to-Sync dialog for lyric timing.
+     */
+    void syncLyrics();
+
+    /**
+     * \brief Exports lyrics to an SRT subtitle file.
+     */
+    void exportLyricsSrt();
+
+    /**
+     * \brief Embeds lyric blocks into the MIDI file as meta events.
+     */
+    void embedLyricsInMidi();
+
+    /**
+     * \brief Imports lyrics from an LRC file.
+     */
+    void importLyricsLrc();
+
+    /**
+     * \brief Exports lyrics to an LRC file (MidiBard2 compatible).
+     */
+    void exportLyricsLrc();
+
+    /**
+     * \brief Clears all lyric blocks and their MIDI events.
+     */
+    void clearAllLyrics();
+
+    /**
      * \brief Marks the file as edited (unsaved changes).
      */
     void markEdited();
@@ -968,6 +1015,15 @@ private:
     /** \brief Misc editor widget */
     MiscWidget *_miscWidget;
 
+    /** \brief Lyric timeline widget */
+    LyricTimelineWidget *_lyricTimeline;
+
+    /** \brief Container widget for lyric timeline (with label) */
+    QWidget *_lyricArea;
+
+    /** \brief Action to toggle lyric timeline visibility */
+    QAction *_toggleLyricTimeline;
+
     // === Setup and Toolbar Methods ===
 
     /**
@@ -1063,8 +1119,11 @@ private:
     /** \brief MidiPilot AI sidebar widget */
     MidiPilotWidget *_midiPilotWidget = nullptr;
 
-    /** \brief MIDI visualizer in status bar */
+    /** \brief MIDI visualizer in toolbar */
     MidiVisualizerWidget *_visualizer = nullptr;
+
+    /** \brief Lyric visualizer (karaoke display) in toolbar */
+    LyricVisualizerWidget *_lyricVisualizer = nullptr;
 
     /** \brief Status bar labels for cursor/selection/chord info */
     QLabel *_statusCursorLabel = nullptr;

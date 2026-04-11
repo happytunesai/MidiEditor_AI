@@ -140,6 +140,11 @@ signals:
 
     void actionFinished();
 
+    /**
+     * \brief Emitted only after undo(), redo(), or goTo() — NOT after endAction().
+     */
+    void undoRedoPerformed();
+
 private:
     /**
 		 * \brief currentStep is the actual opened Step.

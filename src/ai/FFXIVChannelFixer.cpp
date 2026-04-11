@@ -196,24 +196,20 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
 
     reportProgress(10, QStringLiteral("Analyzing guitar programs..."));
 
-    QHash<int, int> guitarChToProgram;  // channel â†’ guitar program number
-    int totalProgChangesSeen = 0;       // debug counter
+    QHash<int, int> guitarChToProgram;  // channel -> guitar program number
 
     if (hasGuitar) {
+        // Use progAtTick(0) -- the effective program at tick 0, which is
+        // exactly what the channel view displays (last PC at or before tick 0).
+        // This is reliable even when multiple PCs exist at tick 0 from
+        // previous Tier 2 runs (one per track), because progAtTick() returns
+        // the last one, matching MIDI playback semantics.
         for (int ch = 0; ch < 16; ch++) {
             MidiChannel *channel = file->channel(ch);
             if (!channel) continue;
-            QMultiMap<int, MidiEvent *> *map = channel->eventMap();
-            for (auto it = map->begin(); it != map->end(); ++it) {
-                auto *pc = dynamic_cast<ProgChangeEvent *>(it.value());
-                if (!pc) continue;
-                totalProgChangesSeen++;
-                int prog = pc->program();
-                if (prog >= 27 && prog <= 31) {
-                    if (!guitarChToProgram.contains(ch))
-                        guitarChToProgram[ch] = prog;
-                }
-            }
+            int prog = channel->progAtTick(0);
+            if (prog >= 27 && prog <= 31)
+                guitarChToProgram[ch] = prog;
         }
     }
 
@@ -282,35 +278,26 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
     QVector<int> channelFor(trackCount, -1);
     QSet<int> usedChannels;
     QHash<QString, int> guitarChannelMap;
-    QSet<int> dupGuitarTracks;  // tracks that are duplicate guitar variants
 
     if (isPreserveMode) {
-        // TIER 3 -- minimal-invasive: assignedChannel() is the ONLY source of truth
-        // (Note distribution is unreliable after Tier 2 inserts tick-0 PCs for all
-        //  instruments on all tracks, making guitarChToProgram random.)
+        // TIER 3 -- minimal-invasive: assignedChannel() is the ONLY source of truth.
+        // Every guitar track keeps its own assigned channel — even if two tracks
+        // share the same variant name (e.g. two "PowerChords" on CH3 and CH4).
+        // No duplicate merging, no event migration.
         if (hasGuitar) {
             for (int t = 0; t < trackCount; t++) {
                 if (!isGuitar(baseNames[t])) continue;
-
-                // Duplicate variant: reuse first occurrence's channel
-                if (guitarChannelMap.contains(baseNames[t])) {
-                    channelFor[t] = guitarChannelMap[baseNames[t]];
-                    usedChannels.insert(channelFor[t]);
-                    dupGuitarTracks.insert(t);
-                    continue;
-                }
 
                 MidiTrack *track = file->track(t);
                 int aCh = track->assignedChannel();
                 if (aCh < 0 || aCh > 15) aCh = qMin(t, 15);
                 channelFor[t] = aCh;
-                guitarChannelMap[baseNames[t]] = aCh;
                 usedChannels.insert(aCh);
+
+                // Register first-seen variant (for chToVariant fallback)
+                if (!guitarChannelMap.contains(baseNames[t]))
+                    guitarChannelMap[baseNames[t]] = aCh;
             }
-            // Note: guitarChToProgram IS reliable — after Tier 2, each
-            // reserved channel gets PCs for only its single assigned program.
-            // Reserved channels are included in allGuitarChs (below) for
-            // rename / switch detection, but NOT in guitarChannelMap.
         }
 
         // channelFor for non-guitar tracks: use assignedChannel()
@@ -374,6 +361,14 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
     QSet<int> allGuitarChs;
     QSet<int> guitarChsFromTracks;  // only channels with actual guitar tracks
     if (hasGuitar) {
+        // Include ALL guitar track channels (not just first occurrence per variant)
+        for (int t = 0; t < trackCount; t++) {
+            if (isGuitar(baseNames[t]) && channelFor[t] >= 0) {
+                allGuitarChs.insert(channelFor[t]);
+                guitarChsFromTracks.insert(channelFor[t]);
+            }
+        }
+        // Also include guitarChannelMap entries (covers Tier 2 reserved variants)
         for (auto it = guitarChannelMap.begin(); it != guitarChannelMap.end(); ++it) {
             allGuitarChs.insert(it.value());
             guitarChsFromTracks.insert(it.value());
@@ -479,47 +474,15 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
             track->assignChannel(targetCh);
         }
     } else {
-        // Tier 3: preserve with minimal note movement
-        // Migrate duplicate guitar tracks to their shared channel, then
-        // rename guitar tracks if tick-0 note is on a different variant
-        // Migrate duplicate guitar tracks to their shared channel
-        for (int t : dupGuitarTracks) {
-            int targetCh = channelFor[t];
-            MidiTrack *track = file->track(t);
+        // Tier 3: preserve — NO event migration, NO channel changes.
+        // Only rename tracks and assign channels.
 
-            struct EventInfo { MidiEvent *ev; int currentCh; };
-            QList<EventInfo> trackEvents;
-
-            for (int ch = 0; ch < 16; ch++) {
-                if (ch == targetCh) continue;
-                MidiChannel *channel = file->channel(ch);
-                if (!channel) continue;
-                QMultiMap<int, MidiEvent *> *map = channel->eventMap();
-                for (auto it = map->begin(); it != map->end(); ++it) {
-                    MidiEvent *ev = it.value();
-                    if (ev->track() != track) continue;
-                    if (dynamic_cast<ProgChangeEvent *>(ev)) continue;
-                    if (dynamic_cast<OffEvent *>(ev)) continue;
-                    trackEvents.append({ev, ch});
-                }
-            }
-
-            for (const auto &info : trackEvents)
-                info.ev->moveToChannel(targetCh);
-
-            track->assignChannel(targetCh);
-        }
-
-        // Tier 3: rename guitar tracks if the first note sits on a
-        // different variant's channel (e.g. user moved notes from
-        // Overdriven to Distortion → track should become PowerChords).
-        // guitarChannelMap is built from assignedChannel(), so the
-        // chToVariant reverse-map is now reliable.
+        // Tier 3: rename guitar tracks if all notes sit on a single
+        // channel that belongs to a different variant.
         {
             QHash<int, QString> chToVariant;
-            for (auto it = guitarChannelMap.begin(); it != guitarChannelMap.end(); ++it)
-                chToVariant[it.value()] = it.key();
-            // Add reserved channels from guitarChToProgram (don't override tracks)
+            // PRIMARY: actual channel programs from guitarChToProgram
+            // (these are the real programs on each channel — source of truth)
             static const QHash<int, QString> progToVariant = {
                 {27, QStringLiteral("ElectricGuitarClean")},
                 {28, QStringLiteral("ElectricGuitarMuted")},
@@ -527,9 +490,12 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
                 {30, QStringLiteral("ElectricGuitarPowerChords")},
                 {31, QStringLiteral("ElectricGuitarSpecial")}
             };
-            for (auto it = guitarChToProgram.begin(); it != guitarChToProgram.end(); ++it) {
-                if (!chToVariant.contains(it.key()))
-                    chToVariant[it.key()] = progToVariant.value(it.value());
+            for (auto it = guitarChToProgram.begin(); it != guitarChToProgram.end(); ++it)
+                chToVariant[it.key()] = progToVariant.value(it.value());
+            // SECONDARY: track→channel from guitarChannelMap (only if no PC data)
+            for (auto it = guitarChannelMap.begin(); it != guitarChannelMap.end(); ++it) {
+                if (!chToVariant.contains(it.value()))
+                    chToVariant[it.value()] = it.key();
             }
 
             for (int t = 0; t < trackCount; t++) {
@@ -538,22 +504,24 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
 
                 if (!isGuitar(baseNames[t])) continue;
 
-                // Find first NoteOnEvent across all guitar channels
-                int firstTick = INT_MAX;
-                int firstCh   = -1;
+                // Count distinct guitar channels with notes for this track
+                QSet<int> chsWithNotes;
                 for (int ch : allGuitarChs) {
                     MidiChannel *channel = file->channel(ch);
                     if (!channel) continue;
                     QMultiMap<int, MidiEvent *> *map = channel->eventMap();
                     for (auto eit = map->begin(); eit != map->end(); ++eit) {
-                        if (eit.key() >= firstTick) break;   // sorted – no need to continue
-                        if (eit.value()->track() != track)   continue;
+                        if (eit.value()->track() != track) continue;
                         if (!dynamic_cast<NoteOnEvent *>(eit.value())) continue;
-                        firstTick = eit.key();
-                        firstCh   = ch;
+                        chsWithNotes.insert(ch);
                         break;
                     }
                 }
+
+                // Skip rename for switching tracks (notes on >1 guitar channel)
+                if (chsWithNotes.size() != 1) continue;
+
+                int firstCh = *chsWithNotes.constBegin();
 
                 if (firstCh >= 0 && chToVariant.contains(firstCh)) {
                     QString newVariant = chToVariant[firstCh];
@@ -592,12 +560,23 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
         }
     }
 
-    // All guitar channels: from guitarChannelMap (both tiers)
+    // All guitar channels
     if (hasGuitar) {
-        for (auto it = guitarChannelMap.begin(); it != guitarChannelMap.end(); ++it) {
-            int prog = programNumber(it.key());
-            if (prog >= 0)
-                channelPrograms.append({it.value(), prog});
+        if (isPreserveMode) {
+            // Tier 3: re-insert PCs using the ACTUAL channel programs.
+            // Use guitarChsFromTracks (all channels with guitar tracks)
+            // and look up the program from guitarChToProgram.
+            for (int ch : guitarChsFromTracks) {
+                if (guitarChToProgram.contains(ch))
+                    channelPrograms.append({ch, guitarChToProgram[ch]});
+            }
+        } else {
+            // Tier 2: from guitarChannelMap (includes reserved variants)
+            for (auto it = guitarChannelMap.begin(); it != guitarChannelMap.end(); ++it) {
+                int prog = programNumber(it.key());
+                if (prog >= 0)
+                    channelPrograms.append({it.value(), prog});
+            }
         }
     }
 
@@ -619,9 +598,7 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
     int switchCount = 0;
     if (hasGuitar) {
         QHash<int, QString> chToVariant;
-        for (auto it = guitarChannelMap.begin(); it != guitarChannelMap.end(); ++it)
-            chToVariant[it.value()] = it.key();
-        // Add reserved channels from guitarChToProgram (don't override tracks)
+        // PRIMARY: actual channel programs from guitarChToProgram
         static const QHash<int, QString> progToVariant2 = {
             {27, QStringLiteral("ElectricGuitarClean")},
             {28, QStringLiteral("ElectricGuitarMuted")},
@@ -629,9 +606,12 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
             {30, QStringLiteral("ElectricGuitarPowerChords")},
             {31, QStringLiteral("ElectricGuitarSpecial")}
         };
-        for (auto it = guitarChToProgram.begin(); it != guitarChToProgram.end(); ++it) {
-            if (!chToVariant.contains(it.key()))
-                chToVariant[it.key()] = progToVariant2.value(it.value());
+        for (auto it = guitarChToProgram.begin(); it != guitarChToProgram.end(); ++it)
+            chToVariant[it.key()] = progToVariant2.value(it.value());
+        // SECONDARY: track→channel from guitarChannelMap (only if no PC data)
+        for (auto it = guitarChannelMap.begin(); it != guitarChannelMap.end(); ++it) {
+            if (!chToVariant.contains(it.value()))
+                chToVariant[it.value()] = it.key();
         }
 
         for (int t = 0; t < trackCount; t++) {

@@ -16,7 +16,7 @@
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-0078D6?logo=windows)](https://github.com/happytunesai/MidiEditor_AI/releases)
 
-**Version:** 1.2.2
+**Version:** 1.3.0
 **Status:** Release
 
 📥 **[Download Latest Release](https://github.com/happytunesai/MidiEditor_AI/releases/latest)**
@@ -72,7 +72,10 @@ MidiPilot is the AI brain embedded directly in MidiEditor AI. Open the sidebar, 
 | 📊 **Token Tracking** | Real-time token & context window usage display with multi-provider normalization |
 | ✏️ **Custom System Prompts** | Edit AI behavior via JSON — no recompiling needed |
 | 🔄 **Auto-Updater** | In-app updates from GitHub Releases — Update Now, After Exit, or Download Manual |
-| 🎵 **Quantization** | Event quantization and control change visualization |
+| � **Lyric Editor** | Full lyric timeline with drag, resize, split, merge, inline text editing, and tap-to-sync dialog |
+| 🎤 **Lyric Visualizer** | Karaoke-style toolbar widget with left-to-right color sweep, two-line current/next phrase display |
+| 🎤 **Lyric Import/Export** | Import plain text, SRT subtitles, or LRC karaoke files — export to SRT, LRC, or MIDI text events |
+| �🎵 **Quantization** | Event quantization and control change visualization |
 | 🎤 **MIDI Recording** | Record from connected MIDI devices (keyboards, digital pianos) |
 
 ## 🏗️ Architecture
@@ -88,6 +91,8 @@ MidiEditor AI
 │   ├── ToolDefinitions   → 13 MIDI manipulation tools for AI
 │   └── SystemPrompts     → Customizable per-mode AI instructions
 ├── Appearance           → 7 QSS themes, 10 color presets, dark title bar, icon adaptation
+├── Lyric Editor         → Timeline lane, inline editing, split/merge, tap-to-sync, SRT/LRC import/export
+├── Lyric Visualizer     → Karaoke toolbar widget with highlight sweep and two-line display
 ├── MIDI Visualizer      → Real-time 16-channel equalizer widget in toolbar
 ├── FFXIV Module         → Bard Performance validation & drum conversion
 ├── FluidSynth Engine    → Built-in software synthesizer with SoundFont support
@@ -181,7 +186,51 @@ Find it in the toolbar or via **Tools → Explode Chords to Tracks**.
 
 ---
 
-## 🎼 Guitar Pro Import
+## � Lyric Editor & Visualizer
+
+MidiEditor AI includes a full **Lyric Editor** with a dedicated timeline lane below the piano roll and a **Lyric Visualizer** karaoke widget in the toolbar.
+
+### Lyric Timeline
+
+A visual lane showing lyric blocks aligned to the MIDI timeline. Edit lyrics directly:
+
+- **Drag & resize** blocks to adjust timing
+- **Double-click** for inline text editing
+- **Right-click** context menu: Edit, Delete, Split at Cursor, Merge with Next, Insert Before/After
+- **Multi-select** with Shift+Click
+- **Keyboard shortcut:** Ctrl+L to toggle visibility
+
+### Tap-to-Sync Dialog
+
+Timing lyrics to music is easy — play the song and **hold Space** while each phrase is sung:
+
+- Press = phrase starts, Release = phrase ends
+- Real-time timeline with colored sync markers
+- Teleprompter view showing the next 8 upcoming phrases
+- Undo Last to correct mistakes on the fly
+
+### Import & Export
+
+| Format | Import | Export |
+|--------|--------|--------|
+| **Plain Text** | ✓ (one phrase per line) | — |
+| **SRT Subtitles** | ✓ (timestamps → MIDI ticks) | ✓ |
+| **LRC Karaoke** | ✓ (with MidiBard2 extension) | ✓ (with metadata) |
+| **MIDI Text Events** | ✓ (auto on file load) | ✓ (Type 0x05 Lyric) |
+
+Find all options under **Tools → Lyrics**.
+
+### Lyric Visualizer
+
+A karaoke-style toolbar widget that displays the current phrase with a left-to-right color sweep highlight and a preview of the next phrase below. Auto-hides when no lyrics are loaded.
+
+All lyric operations support **full undo/redo** (Ctrl+Z / Ctrl+Y).
+
+📖 **[Lyric Editor Documentation →](https://happytunesai.github.io/MidiEditor_AI/lyrics.html)**
+
+---
+
+## �🎼 Guitar Pro Import
 
 MidiEditor AI can open **Guitar Pro** files directly — all versions from GP1 through GP8 are supported. Files are converted to MIDI on-the-fly with tempo, time signature, key signature, and instrument mapping preserved.
 
@@ -405,6 +454,10 @@ MidiEditor_AI/
 │   │   ├── AiSettingsWidget.* # AI provider/model settings
 │   │   ├── Appearance.*       # Theme management, color presets, DWM dark title bar
 │   │   ├── MidiVisualizerWidget.* # Real-time 16-channel equalizer bars
+│   │   ├── LyricTimelineWidget.* # Lyric timeline lane (edit, drag, split, merge)
+│   │   ├── LyricVisualizerWidget.* # Karaoke toolbar widget (highlight sweep)
+│   │   ├── LyricSyncDialog.*  # Tap-to-sync dialog (teleprompter)
+│   │   ├── LyricImportDialog.* # Plain text import with preview
 │   │   ├── MatrixWidget.*     # Piano roll editor
 │   │   ├── AboutDialog.*      # Credits & version info
 │   │   ├── themes/            # QSS theme files (dark, light, sakura, amoled, materialdark)
@@ -419,7 +472,9 @@ MidiEditor_AI/
 │   │   ├── MidiInput.*        # Real-time MIDI input (RtMidi)
 │   │   └── ...
 │   ├── converter/             # File format converters
-│   │   └── GuitarPro/         # GP1–GP8 import (Gp12, Gp345, Gp678 parsers)
+│   │   ├── GuitarPro/         # GP1–GP8 import (Gp12, Gp345, Gp678 parsers)
+│   │   ├── SrtParser.*        # SRT subtitle parser
+│   │   └── LrcExporter.*      # LRC karaoke import/export
 │   ├── MidiEvent/             # MIDI event types
 │   ├── protocol/              # Undo/redo protocol
 │   └── tool/                  # Editor tools (select, draw, etc.)
