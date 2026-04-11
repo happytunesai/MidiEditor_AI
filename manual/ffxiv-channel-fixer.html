@@ -132,7 +132,7 @@ The fixer analyzes your MIDI file by track name, auto-detects the best mode, and
 </div>
 <div class="step-card">
 <h4>4&#xFE0F;&#x20E3; Program</h4>
-<p>Inserts correct <code>program_change</code> events at tick 0 for every channel on every track, plus mid-song switches for guitar variants.</p>
+<p>Inserts correct <code>program_change</code> events at tick 0 for every channel on every track. Preserve mode also detects mid-song guitar variant switches and inserts PCs at switch points.</p>
 </div>
 <div class="step-card">
 <h4>5&#xFE0F;&#x20E3; Report</h4>
@@ -165,7 +165,7 @@ When you click <b>Fix X|V Channels</b>, a confirmation dialog appears with two m
 <li>Moves all events to the correct channel</li>
 <li>Reserves channels for <b>all 5 guitar variants</b>, even if only 1&ndash;2 are present as tracks</li>
 <li>Inserts <code>program_change</code> at tick 0 for every instrument on every track</li>
-<li>Detects guitar variant switches and inserts <code>program_change</code> at switch points</li>
+<li>Reserves channels for all 5 guitar variants &mdash; preparing the file for guitar variant switching in subsequent Preserve runs</li>
 <li>Normalizes all note velocities to 127 (FFXIV has no dynamics)</li>
 </ul>
 </td>
