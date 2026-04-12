@@ -113,17 +113,14 @@ void EventTool::batchSelectEvents(const QList<MidiEvent *> &events) {
         return;
     }
 
-    // Clear existing selection
-    QList<MidiEvent *> &selected = Selection::instance()->selectedEvents();
-    selected.clear();
-
-    // Reserve space for better performance with large selections
-    selected.reserve(events.size());
+    // Build a NEW local list — do NOT modify _selectedEvents via reference,
+    // otherwise setSelection()'s early-return check always sees them as equal.
+    QList<MidiEvent *> newSelection;
+    newSelection.reserve(events.size());
 
     // Add all valid events to selection in batch
-    // Note: Events should already be pre-filtered for channel/track visibility
     foreach(MidiEvent* event, events) {
-        // Double-check visibility as a safety measure using the global visibility manager
+        // Check visibility using the global visibility manager
         if (!ChannelVisibilityManager::instance().isChannelVisible(event->channel())) {
             continue;
         }
@@ -138,11 +135,11 @@ void EventTool::batchSelectEvents(const QList<MidiEvent *> &events) {
             continue;
         }
 
-        selected.append(event);
+        newSelection.append(event);
     }
 
     // Update selection state once at the end
-    Selection::instance()->setSelection(selected);
+    Selection::instance()->setSelection(newSelection);
     _mainWindow->eventWidget()->reportSelectionChangedByTool();
 }
 

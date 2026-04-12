@@ -56,8 +56,13 @@ QList<MidiEvent *> &Selection::selectedEvents() {
 }
 
 void Selection::setSelection(QList<MidiEvent *> selections) {
-    if (selections == _selectedEvents)
-        return;
+    // Quick size check first (O(1)), then compare only for small selections.
+    // For large selections, always accept — the O(n) element-by-element
+    // comparison is too expensive and blocks the UI thread.
+    if (selections.size() == _selectedEvents.size() && selections.size() < 200) {
+        if (selections == _selectedEvents)
+            return;
+    }
 
     protocol(copy(), this);
 

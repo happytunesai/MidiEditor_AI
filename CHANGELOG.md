@@ -5,6 +5,13 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 
 ---
 
+## [1.3.1.2] - 2026-04-12 — Hotfix: Selection Regression
+
+* **Fixed Ctrl+A / large selection freezing the UI** - `batchSelectEvents()` obtained a reference to the internal `_selectedEvents` list and modified it in-place (clear + append), so `setSelection()`'s equality check (SEL-001) always saw them as identical and returned early - no protocol entry, no EventWidget update, no Ctrl+T. Fixed by building a new local list instead of mutating through the reference.
+* **Fixed O(n) selection comparison blocking large files** - `setSelection()` did an element-by-element `QList::operator==` on every call, taking seconds for 4000+ events. Now only performs the full comparison for selections under 200 events; larger selections skip the check entirely.
+
+---
+
 ## [1.3.1.1] - 2026-04-12 — Hotfix: Post-Update Changelog
 
 * **Fixed "Could not load patch notes" in post-update and update-available dialogs** - `fetchChangelog()` shared the same `QNetworkAccessManager` whose `finished` signal was already connected to `onResult()`, consuming the response before the changelog lambda could read it. Additionally, the GitHub Pages URL redirected to the custom domain, but Qt6 does not follow redirects by default. Fixed by using a separate `QNetworkAccessManager`, correcting the URL to `midieditor-ai.de`, and adding `NoLessSafeRedirectPolicy` as a safety net.
