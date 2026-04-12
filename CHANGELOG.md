@@ -5,6 +5,12 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 
 ---
 
+## [1.3.1.1] - 2026-04-12 — Hotfix: Post-Update Changelog
+
+* **Fixed "Could not load patch notes" in post-update and update-available dialogs** - `fetchChangelog()` shared the same `QNetworkAccessManager` whose `finished` signal was already connected to `onResult()`, consuming the response before the changelog lambda could read it. Additionally, the GitHub Pages URL redirected to the custom domain, but Qt6 does not follow redirects by default. Fixed by using a separate `QNetworkAccessManager`, correcting the URL to `midieditor-ai.de`, and adding `NoLessSafeRedirectPolicy` as a safety net.
+
+---
+
 ## [1.3.1] - 2026-04-12 — Bugfix Release
 
 * **16 bug fixes** across AI subsystem, lyric editor, clipboard, selection, FluidSynth export, and FFXIV Channel Fixer - memory leaks, use-after-free, undo spam, overlap prevention, and performance improvements

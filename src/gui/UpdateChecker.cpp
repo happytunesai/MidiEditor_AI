@@ -76,15 +76,20 @@ void UpdateChecker::fetchChangelog(const QString &version)
 {
     _pendingChangelogVersion = version;
 
-    QNetworkRequest request(QUrl("https://happytunesai.github.io/MidiEditor_AI/changelog.html"));
+    // Use a separate manager so the changelog response doesn't go through onResult()
+    auto *clManager = new QNetworkAccessManager(this);
+    QNetworkRequest request(QUrl("https://midieditor-ai.de/changelog.html"));
     request.setHeader(QNetworkRequest::UserAgentHeader, "MidiEditor AI");
+    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                         QNetworkRequest::NoLessSafeRedirectPolicy);
 
-    QNetworkReply *reply = manager->get(request);
-    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+    QNetworkReply *reply = clManager->get(request);
+    connect(reply, &QNetworkReply::finished, this, [this, reply, clManager]() {
         if (reply->error() != QNetworkReply::NoError) {
             qWarning() << "Changelog fetch failed:" << reply->errorString();
             emit changelogFetchFailed();
             reply->deleteLater();
+            clManager->deleteLater();
             return;
         }
 
@@ -92,6 +97,7 @@ void UpdateChecker::fetchChangelog(const QString &version)
         ChangelogSummary summary = parseChangelogForVersion(html, _pendingChangelogVersion);
         emit changelogReady(summary);
         reply->deleteLater();
+        clManager->deleteLater();
     });
 }
 
