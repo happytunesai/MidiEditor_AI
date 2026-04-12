@@ -142,6 +142,9 @@ public:
     /** \brief Removes a block without Protocol wrapping. */
     void removeBlockDirect(int index);
 
+    /** \brief Inserts a block in sorted order AND emits lyricsChanged. No Protocol wrapping. (P3-007) */
+    void addBlockDirect(const LyricBlock &block);
+
     // === Import ===
 
     /**

@@ -189,6 +189,7 @@ bool AiClient::isBusy() const
 void AiClient::cancelRequest()
 {
     if (_currentReply) {
+        _currentReply->disconnect(this);
         _currentReply->abort();
         _currentReply = nullptr;
     }
@@ -394,7 +395,7 @@ void AiClient::sendMessages(const QJsonArray &messages, const QJsonArray &tools)
                 reasoning ? QStringLiteral("yes") : QStringLiteral("no"),
                 tools.isEmpty() ? QStringLiteral("none") : QString::number(tools.size()),
                 _useResponsesApi ? QStringLiteral("responses") : QStringLiteral("completions"),
-                QString::fromUtf8(data)));
+                QString::fromUtf8(data.left(4000))));
 
     _currentReply = _manager->post(request, data);
 }
@@ -441,7 +442,7 @@ void AiClient::testConnection()
     request.setRawHeader("Authorization", QStringLiteral("Bearer %1").arg(apiKey()).toUtf8());
     request.setTransferTimeout(15000);
 
-    logApi(QStringLiteral("[TEST-REQ] model=%1 body=%2").arg(_model, QString::fromUtf8(data)));
+    logApi(QStringLiteral("[TEST-REQ] model=%1 body=%2").arg(_model, QString::fromUtf8(data.left(4000))));
 
     _currentReply = _manager->post(request, data);
 }
@@ -644,6 +645,10 @@ void AiClient::onReplyFinished(QNetworkReply *reply)
 
     // Detect output truncation (model hit max output tokens)
     if (finishReason == QStringLiteral("length")) {
+        // Log partial content for debugging (AI-004)
+        logApi(QStringLiteral("[TRUNCATED] partial content (%1 chars): %2")
+                   .arg(content.size())
+                   .arg(content.left(500)));
         if (_hasToolsInRequest) {
             emit errorOccurred(tr("Response was truncated (output token limit reached). "
                                   "Try a simpler request, reduce the number of tracks/measures, "

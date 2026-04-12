@@ -71,24 +71,18 @@ QList<ConversationStore::ConversationMeta> ConversationStore::findByMidiFile(con
 
 QJsonObject ConversationStore::loadConversation(const QString &id)
 {
-    QDir dir(storageDir());
-    QStringList files = dir.entryList(QStringList() << QStringLiteral("*.json"), QDir::Files);
+    // Direct path lookup — saveConversation() uses id + ".json" as filename
+    QString filePath = storageDir() + QStringLiteral("/") + id + QStringLiteral(".json");
+    QFile f(filePath);
+    if (!f.open(QIODevice::ReadOnly))
+        return QJsonObject();
 
-    for (const QString &fileName : files) {
-        QFile f(dir.filePath(fileName));
-        if (!f.open(QIODevice::ReadOnly))
-            continue;
+    QJsonDocument doc = QJsonDocument::fromJson(f.readAll());
+    f.close();
+    if (!doc.isObject())
+        return QJsonObject();
 
-        QJsonDocument doc = QJsonDocument::fromJson(f.readAll());
-        f.close();
-        if (!doc.isObject())
-            continue;
-
-        QJsonObject obj = doc.object();
-        if (obj[QStringLiteral("id")].toString() == id)
-            return obj;
-    }
-    return QJsonObject();
+    return doc.object();
 }
 
 void ConversationStore::saveConversation(const QJsonObject &data)

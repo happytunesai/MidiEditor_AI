@@ -74,12 +74,43 @@
         }
         requestAnimationFrame(step);
     }
+    // Dynamic bugfix count from changelog
+    var bugfixReady = (function loadBugfixCount() {
+        var el = document.getElementById('stat-bugfixes');
+        if (!el) return Promise.resolve();
+        return fetch('changelog.html')
+            .then(function (r) { return r.text(); })
+            .then(function (html) {
+                var doc = new DOMParser().parseFromString(html, 'text/html');
+                var timeline = doc.querySelector('.cl-timeline');
+                if (!timeline) return;
+                var text = timeline.textContent;
+                var re = /(\d+)\s+bug\s*fix/gi;
+                var total = 0, m;
+                while ((m = re.exec(text)) !== null) {
+                    total += parseInt(m[1], 10);
+                }
+                if (total > 0) {
+                    total = Math.ceil(total / 5) * 5;
+                    el.setAttribute('data-target', total);
+                }
+            })
+            .catch(function () { /* keep hardcoded fallback */ });
+    })();
+
     var statEls = document.querySelectorAll('.stat-number[data-target]');
     if (statEls.length && 'IntersectionObserver' in window) {
         var statObs = new IntersectionObserver(function (entries) {
             entries.forEach(function (e) {
                 if (e.isIntersecting) {
-                    animateCounter(e.target);
+                    // Wait for bugfix fetch before animating that counter
+                    if (e.target.id === 'stat-bugfixes' && bugfixReady) {
+                        bugfixReady.then(function () {
+                            animateCounter(e.target);
+                        });
+                    } else {
+                        animateCounter(e.target);
+                    }
                     statObs.unobserve(e.target);
                 }
             });

@@ -42,6 +42,13 @@
     }
     .cl-search input:focus { border-color: var(--accent); }
     .cl-search input::placeholder { color: var(--text-muted); }
+    .cl-search-hl {
+        background: rgba(88, 166, 255, 0.2);
+        color: var(--accent);
+        border-radius: 3px;
+        padding: 0.05em 0.25em;
+        font-weight: 600;
+    }
     .cl-no-results {
         display: none; text-align: center; padding: 3rem 1rem;
         color: var(--text-muted); font-size: 1.1rem;
@@ -218,12 +225,43 @@
 <div class="cl-no-results" id="cl-no-results">No matching releases found.</div>
 
 <div class="cl-timeline">
-<article class="cl-version latest" data-version="1.2.2">
+<article class="cl-version latest" data-version="1.3.1">
+<div class="cl-dot"></div>
+<div class="cl-version-head">
+<h2><a href="https://github.com/happytunesai/MidiEditor_AI/releases/tag/v1.3.1" target="_blank" rel="noopener noreferrer">v1.3.1</a></h2>
+<span class="cl-date">2026-04-12</span>
+<span class="cl-badge-latest">Latest</span>
+</div>
+<div class="cl-title">Bugfix Release</div>
+<ul class="cl-summary">
+<li><strong>15 bug fixes</strong> across AI subsystem, lyric editor, clipboard, selection, FluidSynth export, and FFXIV Channel Fixer - memory leaks, use-after-free, undo spam, overlap prevention, and performance improvements</li>
+<li><strong>Documentation fixes</strong> - Fixed lyrics manual page layout, removed dead CLI argument documentation</li>
+<li><strong>Website UX tweaks</strong> - Showcase carousel videos, 16:9 aspect ratio, darker caption bar, What's New section updates</li>
+<li><strong>Auto-updater enhancement</strong> - Custom update dialogs with changelog display, post-update welcome dialog</li>
+</ul>
+</article>
+<article class="cl-version" data-version="1.3.0">
+<div class="cl-dot"></div>
+<div class="cl-version-head">
+<h2><a href="https://github.com/happytunesai/MidiEditor_AI/releases/tag/v1.3.0" target="_blank" rel="noopener noreferrer">v1.3.0</a></h2>
+<span class="cl-date">2026-04-11</span>
+</div>
+<div class="cl-title">Lyric Editor &amp; Visualizer</div>
+<ul class="cl-summary">
+<li><strong>Lyric Timeline</strong> - New dedicated lane below the piano roll for visual lyric editing (add, delete, move, resize, split, merge, inline text editing)</li>
+<li><strong>Sync Lyrics dialog</strong> - Tap-to-sync: hold Space while each phrase is sung to capture precise timing in real time</li>
+<li><strong>Import/Export</strong> - Import from plain text, SRT subtitles, or MIDI Text/Lyric events; export to SRT or LRC (karaoke) format</li>
+<li><strong>Lyric Visualizer</strong> - Karaoke-style toolbar widget with left-to-right color sweep, two-line display (current + next phrase)</li>
+<li><strong>Full undo/redo</strong> - All lyric operations integrate with the Protocol system for complete undo/redo support</li>
+<li><strong>FluidSynth fixes</strong> - synth.reverb.engine compatibility guard for FluidSynth 2.5.2; bundled SoundFonts survive clean builds</li>
+<li><strong>FFXIV Channel Fixer</strong> - 5 Tier 3 bugs fixed: wrong programs, broken renames, unwanted event migration</li>
+</ul>
+</article>
+<article class="cl-version" data-version="1.2.2">
 <div class="cl-dot"></div>
 <div class="cl-version-head">
 <h2><a href="https://github.com/happytunesai/MidiEditor_AI/releases/tag/v1.2.2" target="_blank" rel="noopener noreferrer">v1.2.2</a></h2>
 <span class="cl-date">2026-04-11</span>
-<span class="cl-badge-latest">Latest</span>
 </div>
 <div class="cl-title">FFXIV Channel Fixer Bugfix &amp; Website Fixes</div>
 <ul class="cl-summary">
@@ -656,14 +694,61 @@ document.querySelectorAll('.cl-toggle').forEach(btn => {
 const input = document.getElementById('cl-filter');
 const versions = document.querySelectorAll('.cl-version');
 const noResults = document.getElementById('cl-no-results');
+
+function clearHighlights(root) {
+    root.querySelectorAll('mark.cl-search-hl').forEach(m => {
+        const parent = m.parentNode;
+        parent.replaceChild(document.createTextNode(m.textContent), m);
+        parent.normalize();
+    });
+}
+
+function highlightText(node, re) {
+    if (node.nodeType === 3) { /* text node */
+        const match = node.textContent.match(re);
+        if (!match) return;
+        const span = document.createElement('mark');
+        span.className = 'cl-search-hl';
+        const after = node.splitText(match.index);
+        after.textContent = after.textContent.substring(match[0].length);
+        span.textContent = match[0];
+        node.parentNode.insertBefore(span, after);
+        highlightText(after, re); /* continue for remaining matches */
+    } else if (node.nodeType === 1 && node.tagName !== 'MARK') {
+        Array.from(node.childNodes).forEach(c => highlightText(c, re));
+    }
+}
+
+function escapeRegex(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+
 input.addEventListener('input', () => {
     const q = input.value.toLowerCase().trim();
     let visible = 0;
     versions.forEach(v => {
-        const text = v.textContent.toLowerCase();
-        const show = !q || text.includes(q);
+        /* Clear previous highlights */
+        const title = v.querySelector('.cl-title');
+        const summary = v.querySelector('.cl-summary');
+        if (title) clearHighlights(title);
+        if (summary) clearHighlights(summary);
+
+        /* Only search version number, title, and visible summary — not hidden details */
+        const head = v.querySelector('.cl-version-head');
+        const searchable = [
+            v.dataset.version || '',
+            head ? head.textContent : '',
+            title ? title.textContent : '',
+            summary ? summary.textContent : ''
+        ].join(' ').toLowerCase();
+        const show = !q || searchable.includes(q);
         v.style.display = show ? '' : 'none';
         if (show) visible++;
+
+        /* Highlight matches in visible text */
+        if (q && show) {
+            const re = new RegExp(escapeRegex(q), 'i');
+            if (title) highlightText(title, re);
+            if (summary) highlightText(summary, re);
+        }
     });
     noResults.style.display = visible === 0 ? 'block' : 'none';
 });

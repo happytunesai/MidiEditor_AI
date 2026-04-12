@@ -429,8 +429,9 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
                 if (dynamic_cast<ProgChangeEvent *>(ev)) continue;
                 toRemoveExtra.append(ev);
             }
-            for (MidiEvent *ev : toRemoveExtra)
+            for (MidiEvent *ev : toRemoveExtra) {
                 channel->removeEvent(ev);
+            }
             removedExtraCount += toRemoveExtra.size();
         }
     }

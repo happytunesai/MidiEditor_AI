@@ -698,6 +698,11 @@ void FluidSynthEngine::exportAudio(const ExportOptions &options) {
         return;
     }
 
+    // Clean up temporary MIDI file if requested
+    if (options.deleteMidiFileAfterExport && !options.midiFilePath.isEmpty()) {
+        QFile::remove(options.midiFilePath);
+    }
+
     emit exportProgress(100);
     emit exportFinished(true, options.outputFilePath);
 }

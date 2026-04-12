@@ -209,6 +209,12 @@ void AgentRunner::processToolCalls(const QJsonObject &assistantMessage)
         // Allow Qt event loop to process repaints so editor updates are visible live
         QCoreApplication::processEvents();
 
+        // Check cancellation after processing events (user may have cancelled during repaint)
+        if (_cancelled) {
+            cleanup();
+            return;
+        }
+
         // Append tool result message
         QJsonObject toolResultMsg;
         toolResultMsg["role"] = QString("tool");

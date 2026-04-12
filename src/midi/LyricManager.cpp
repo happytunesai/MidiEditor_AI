@@ -583,6 +583,13 @@ int LyricManager::insertSorted(const LyricBlock &block)
     return lo;
 }
 
+void LyricManager::addBlockDirect(const LyricBlock &block)
+{
+    int idx = insertSorted(block);
+    emit blockAdded(idx);
+    emit lyricsChanged();
+}
+
 void LyricManager::sortBlocks()
 {
     std::sort(_blocks.begin(), _blocks.end(),

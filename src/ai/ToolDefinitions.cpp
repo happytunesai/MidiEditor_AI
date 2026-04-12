@@ -15,6 +15,7 @@
 #include <QSettings>
 #include <QSet>
 #include <QRegularExpression>
+#include <algorithm>
 
 // ---------------------------------------------------------------------------
 // Helper: create a tool schema object in OpenAI format (strict mode)
@@ -672,10 +673,16 @@ QJsonObject ToolDefinitions::execValidateFFXIV(MidiFile *file) {
         }
 
         // Check polyphony (overlapping notes)
+        // Sort by tick so the first overlap found is chronologically first (AI-006)
+        std::sort(notes.begin(), notes.end(),
+                  [](const NoteInfo &a, const NoteInfo &b) { return a.tick < b.tick; });
         // For guitar tracks: only flag overlaps on the SAME channel (different
         // channels are intentional guitar switches)
         for (int i = 0; i < notes.size(); i++) {
             for (int j = i + 1; j < notes.size(); j++) {
+                // Notes are sorted by tick — if next note starts after this one ends, skip rest
+                if (notes[j].tick >= notes[i].endTick)
+                    break;
                 if (trackIsGuitar && notes[i].channel != notes[j].channel)
                     continue; // different guitar switch channels — OK
                 if (notes[i].endTick > notes[j].tick && notes[j].endTick > notes[i].tick) {

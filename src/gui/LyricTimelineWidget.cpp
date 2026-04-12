@@ -625,6 +625,18 @@ void LyricTimelineWidget::mouseDoubleClickEvent(QMouseEvent *event)
         newBlock.endTick = tick + 480;
         newBlock.text = tr("New lyric");
 
+        // Clamp endTick to avoid overlapping the next block (P2-007)
+        const auto &allBlocks = _file->lyricManager()->allBlocks();
+        for (const auto &b : allBlocks) {
+            if (b.startTick > tick) {
+                if (newBlock.endTick > b.startTick)
+                    newBlock.endTick = b.startTick;
+                break;
+            }
+        }
+        if (newBlock.endTick <= newBlock.startTick)
+            return;
+
         _file->lyricManager()->addBlock(newBlock);
         update();
     }
@@ -768,12 +780,10 @@ void LyricTimelineWidget::contextMenuEvent(QContextMenuEvent *event)
                     _file->channel(16)->insertEvent(te, splitTick);
                     secondHalf.sourceEvent = te;
                 }
-                mgr->insertSorted(secondHalf);
+                mgr->addBlockDirect(secondHalf);
 
                 if (_file->protocol())
                     _file->protocol()->endAction();
-
-                emit mgr->lyricsChanged();
             }
         } else if (chosen == mergeAction) {
             LyricBlock nextBlock = mgr->blockAt(idx + 1);
@@ -791,12 +801,28 @@ void LyricTimelineWidget::contextMenuEvent(QContextMenuEvent *event)
             newBlock.endTick = block.startTick;
             newBlock.startTick = qMax(0, block.startTick - 480);
             newBlock.text = tr("New lyric");
+            // Clamp startTick to avoid overlapping the previous block (P2-007)
+            if (idx > 0) {
+                int prevEnd = mgr->blockAt(idx - 1).endTick;
+                if (newBlock.startTick < prevEnd)
+                    newBlock.startTick = prevEnd;
+            }
+            if (newBlock.startTick >= newBlock.endTick)
+                return;
             mgr->addBlock(newBlock);
         } else if (chosen == insertAfterAction) {
             LyricBlock newBlock;
             newBlock.startTick = block.endTick;
             newBlock.endTick = block.endTick + 480;
             newBlock.text = tr("New lyric");
+            // Clamp endTick to avoid overlapping the next block (P2-007)
+            if (idx + 1 < mgr->count()) {
+                int nextStart = mgr->blockAt(idx + 1).startTick;
+                if (newBlock.endTick > nextStart)
+                    newBlock.endTick = nextStart;
+            }
+            if (newBlock.endTick <= newBlock.startTick)
+                return;
             mgr->addBlock(newBlock);
         }
 

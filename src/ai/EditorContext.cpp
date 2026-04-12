@@ -169,10 +169,9 @@ QJsonObject EditorContext::captureKeySignature(MidiFile *file, int tick)
     // Use tonality directly
     bool isMinor = false;
 
-    // Search for key signature event at or before tick
-    for (int ch = 0; ch < 19; ch++) {
-        QMultiMap<int, MidiEvent *> *events = file->channelEvents(ch);
-        if (!events) continue;
+    // Key signature events live on channel 18 (the meta-event channel)
+    QMultiMap<int, MidiEvent *> *events = file->channelEvents(18);
+    if (events) {
         for (auto it = events->begin(); it != events->end(); ++it) {
             if (it.key() > tick) break;
             KeySignatureEvent *ks = dynamic_cast<KeySignatureEvent *>(it.value());

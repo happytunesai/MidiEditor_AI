@@ -23,6 +23,7 @@
 #include <QFile>
 #include <QRegularExpression>
 #include <QTextStream>
+#include <algorithm>
 
 bool LrcExporter::exportLrc(const QString &filePath,
                             const QList<LyricBlock> &blocks,
@@ -76,7 +77,8 @@ QList<LyricBlock> LrcExporter::importLrc(const QString &filePath, MidiFile *file
     stream.setEncoding(QStringConverter::Utf8);
 
     // Regex for LRC timestamp lines: [MM:SS.cc]Text or [MM:SS.ccc]Text
-    static QRegularExpression lrcLineRx(R"(\[(\d{2}:\d{2}\.\d{2,3})\](.+))");
+    // Supports multi-timestamp lines like [00:12.34][01:56.78]Text (P3-011)
+    static QRegularExpression timestampRx(R"(\[(\d{2}:\d{2}\.\d{2,3})\])");
     // Regex for header tags: [tag:value]
     static QRegularExpression headerRx(R"(^\[([a-z]+):(.+)\]$)");
 
@@ -85,23 +87,33 @@ QList<LyricBlock> LrcExporter::importLrc(const QString &filePath, MidiFile *file
         if (line.isEmpty())
             continue;
 
-        // Check for LRC timestamp line
-        QRegularExpressionMatch match = lrcLineRx.match(line);
-        if (match.hasMatch()) {
-            QString timestamp = match.captured(1);
-            QString text = match.captured(2).trimmed();
+        // Collect all timestamps on this line
+        QRegularExpressionMatchIterator it = timestampRx.globalMatch(line);
+        QStringList timestamps;
+        int lastMatchEnd = 0;
+        while (it.hasNext()) {
+            QRegularExpressionMatch m = it.next();
+            timestamps.append(m.captured(1));
+            lastMatchEnd = m.capturedEnd(0);
+        }
 
+        if (!timestamps.isEmpty()) {
+            // Text is everything after the last timestamp tag
+            QString text = line.mid(lastMatchEnd).trimmed();
             if (text.isEmpty())
                 continue;
 
-            int ms = lrcTimestampToMs(timestamp);
-            int startTick = file->tick(ms);
+            // Create one block per timestamp (same text)
+            for (const QString &timestamp : timestamps) {
+                int ms = lrcTimestampToMs(timestamp);
+                int startTick = file->tick(ms);
 
-            LyricBlock block;
-            block.startTick = startTick;
-            block.endTick = startTick + 480; // Default, will be adjusted
-            block.text = text;
-            blocks.append(block);
+                LyricBlock block;
+                block.startTick = startTick;
+                block.endTick = startTick + 480; // Default, will be adjusted
+                block.text = text;
+                blocks.append(block);
+            }
         } else if (outMetadata) {
             // Parse header tags into metadata
             QRegularExpressionMatch hm = headerRx.match(line);
@@ -123,6 +135,12 @@ QList<LyricBlock> LrcExporter::importLrc(const QString &filePath, MidiFile *file
     }
 
     in.close();
+
+    // Sort blocks by startTick (multi-timestamp lines may produce out-of-order blocks)
+    std::sort(blocks.begin(), blocks.end(),
+              [](const LyricBlock &a, const LyricBlock &b) {
+                  return a.startTick < b.startTick;
+              });
 
     // Adjust end ticks: each block ends when the next begins
     for (int i = 0; i < blocks.size() - 1; i++) {

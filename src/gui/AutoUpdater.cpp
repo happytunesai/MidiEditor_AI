@@ -357,6 +357,10 @@ bool AutoUpdater::applyUpdate(const QString &zipPath, const QString &midiPath)
     if (!midiPath.isEmpty()) {
         args << "--open" << midiPath;
     }
+    // Tell the new instance that it was just updated so it can show the post-update dialog
+    // Use --updated-from=X.Y.Z (single arg) so older versions that don't understand it
+    // will silently ignore the flag instead of treating the version as a filename.
+    args << ("--updated-from=" + QCoreApplication::applicationVersion());
 
     qDebug() << "  Step 6: Launching:" << newExePath << args;
     bool launched = QProcess::startDetached(newExePath, args, appDir);

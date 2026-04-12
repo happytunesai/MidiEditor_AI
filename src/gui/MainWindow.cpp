@@ -88,6 +88,7 @@
 #include "TransposeDialog.h"
 #include "TweakTarget.h"
 #include "UpdateChecker.h"
+#include "UpdateDialogs.h"
 #include "AutoUpdater.h"
 #include "MidiPilotWidget.h"
 #include "MidiVisualizerWidget.h"
@@ -4983,76 +4984,71 @@ void MainWindow::checkForUpdates(bool silent) {
         connect(_updateChecker, &UpdateChecker::updateAvailable, this,
             [this](QString version, QString releaseUrl, QString zipDownloadUrl, qint64 zipSize){
 
-            // Build 4-button update dialog
-            QMessageBox msgBox(this);
-            msgBox.setWindowTitle(tr("Update Available"));
-            msgBox.setIcon(QMessageBox::Information);
-            msgBox.setText(tr("Version %1 is available!\nCurrent: %2")
-                .arg(version, QCoreApplication::applicationVersion()));
+            // Create the Update Available dialog
+            auto *dlg = new UpdateAvailableDialog(version, QCoreApplication::applicationVersion(), this);
+            dlg->setAttribute(Qt::WA_DeleteOnClose);
+            dlg->setChangelogLoading();
 
-            // Add clickable links for Changelog and Manual
-            msgBox.setInformativeText(
-                tr("<a href='https://github.com/happytunesai/MidiEditor_AI/blob/main/CHANGELOG.md'>Changelog</a>"
-                   " &nbsp; | &nbsp; "
-                   "<a href='https://happytunesai.github.io/MidiEditor_AI/'>Manual</a>"
-                   "<br><br>The app will save your work and restart automatically."));
+            // Fetch changelog from website (async)
+            auto *fetcher = new UpdateChecker(dlg);
+            connect(fetcher, &UpdateChecker::changelogReady, dlg,
+                [dlg](const ChangelogSummary &summary) {
+                dlg->setChangelogSummary(summary);
+            });
+            connect(fetcher, &UpdateChecker::changelogFetchFailed, dlg,
+                [dlg]() {
+                dlg->setChangelogUnavailable();
+            });
+            fetcher->fetchChangelog(version);
 
-            QPushButton *updateNowBtn = msgBox.addButton(tr("Update Now"), QMessageBox::AcceptRole);
-            QPushButton *afterExitBtn = msgBox.addButton(tr("After Exit"), QMessageBox::ActionRole);
-            QPushButton *manualBtn = msgBox.addButton(tr("Download Manual"), QMessageBox::ActionRole);
-            QPushButton *skipBtn = msgBox.addButton(tr("Skip"), QMessageBox::RejectRole);
-            msgBox.setDefaultButton(updateNowBtn);
+            // Show dialog and handle result
+            if (dlg->exec() == QDialog::Accepted) {
+                auto choice = dlg->userChoice();
 
-            msgBox.exec();
-            QAbstractButton *clicked = msgBox.clickedButton();
-
-            if (clicked == manualBtn) {
-                // Old behavior — open release page in browser
-                QDesktopServices::openUrl(QUrl(releaseUrl));
-            }
-            else if (clicked == updateNowBtn || clicked == afterExitBtn) {
-                bool updateNow = (clicked == updateNowBtn);
-
-                if (zipDownloadUrl.isEmpty()) {
-                    // No ZIP asset found — fallback to browser
-                    QMessageBox::information(this, tr("Auto-Update"),
-                        tr("No downloadable ZIP found in this release.\nOpening the release page instead."));
-                    QDesktopServices::openUrl(QUrl(releaseUrl));
-                    return;
+                if (choice == UpdateAvailableDialog::DownloadManual) {
+                    QDesktopServices::openUrl(QUrl("https://midieditor-ai.de/download.html"));
                 }
+                else if (choice == UpdateAvailableDialog::UpdateNow ||
+                         choice == UpdateAvailableDialog::AfterExit) {
+                    bool updateNow = (choice == UpdateAvailableDialog::UpdateNow);
 
-                if (!_autoUpdater) {
-                    _autoUpdater = new AutoUpdater(this, _settings, this);
-                }
-
-                connect(_autoUpdater, &AutoUpdater::downloadComplete, this,
-                    [this, updateNow](const QString &zipPath) {
-                    if (updateNow) {
-                        // Save current file if dirty, then launch updater and quit
-                        QString midiPath;
-                        if (file) {
-                            midiPath = file->path();
-                            if (!file->saved() && !midiPath.isEmpty()) {
-                                file->save(midiPath);
-                            }
-                        }
-                        // Skip save dialogs in closeEvent — we've already saved above
-                        _forceCloseForUpdate = true;
-                        _autoUpdater->executeUpdateNow(midiPath);
-                    } else {
-                        // Schedule for exit
-                        _autoUpdater->scheduleUpdateOnExit();
-                        QMessageBox::information(this, tr("Update Scheduled"),
-                            tr("The update will be applied when you close the application."));
+                    if (zipDownloadUrl.isEmpty()) {
+                        QMessageBox::information(this, tr("Auto-Update"),
+                            tr("No downloadable ZIP found in this release.\nOpening the release page instead."));
+                        QDesktopServices::openUrl(QUrl(releaseUrl));
+                        return;
                     }
-                }, Qt::SingleShotConnection);
 
-                connect(_autoUpdater, &AutoUpdater::downloadFailed, this,
-                    [this](const QString &error) {
-                    QMessageBox::warning(this, tr("Download Failed"), error);
-                }, Qt::SingleShotConnection);
+                    if (!_autoUpdater) {
+                        _autoUpdater = new AutoUpdater(this, _settings, this);
+                    }
 
-                _autoUpdater->downloadUpdate(zipDownloadUrl, zipSize);
+                    connect(_autoUpdater, &AutoUpdater::downloadComplete, this,
+                        [this, updateNow](const QString &zipPath) {
+                        if (updateNow) {
+                            QString midiPath;
+                            if (file) {
+                                midiPath = file->path();
+                                if (!file->saved() && !midiPath.isEmpty()) {
+                                    file->save(midiPath);
+                                }
+                            }
+                            _forceCloseForUpdate = true;
+                            _autoUpdater->executeUpdateNow(midiPath);
+                        } else {
+                            _autoUpdater->scheduleUpdateOnExit();
+                            QMessageBox::information(this, tr("Update Scheduled"),
+                                tr("The update will be applied when you close the application."));
+                        }
+                    }, Qt::SingleShotConnection);
+
+                    connect(_autoUpdater, &AutoUpdater::downloadFailed, this,
+                        [this](const QString &error) {
+                        QMessageBox::warning(this, tr("Download Failed"), error);
+                    }, Qt::SingleShotConnection);
+
+                    _autoUpdater->downloadUpdate(zipDownloadUrl, zipSize);
+                }
             }
             // else: Skip — do nothing
         });
@@ -5070,6 +5066,27 @@ void MainWindow::checkForUpdates(bool silent) {
         });
     }
     _updateChecker->checkForUpdates();
+}
+
+void MainWindow::showPostUpdateDialog(const QString &updatedFromVersion) {
+    QString currentVersion = QCoreApplication::applicationVersion();
+    auto *dlg = new PostUpdateDialog(currentVersion, this);
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    dlg->setChangelogLoading();
+
+    // Fetch changelog from website (async)
+    auto *fetcher = new UpdateChecker(dlg);
+    connect(fetcher, &UpdateChecker::changelogReady, dlg,
+        [dlg](const ChangelogSummary &summary) {
+        dlg->setChangelogSummary(summary);
+    });
+    connect(fetcher, &UpdateChecker::changelogFetchFailed, dlg,
+        [dlg]() {
+        dlg->setChangelogUnavailable();
+    });
+    fetcher->fetchChangelog(currentVersion);
+
+    dlg->show();
 }
 
 void MainWindow::openConfig() {

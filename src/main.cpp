@@ -229,14 +229,18 @@ int main(int argc, char *argv[]) {
     // Supports: MidiEditorAI.exe [file.mid]
     //           MidiEditorAI.exe --open <file.mid>  (used by auto-updater)
     //           MidiEditorAI.exe --open-settings     (reopen settings on Appearance tab after theme restart)
+    //           MidiEditorAI.exe --updated-from=<ver> (show post-update dialog after self-update)
     QString openFilePath;
     bool openSettings = false;
+    QString updatedFromVersion;
     for (int i = 1; i < argc; ++i) {
         QString arg = QString::fromLocal8Bit(argv[i]);
         if (arg == "--open" && i + 1 < argc) {
             openFilePath = QString::fromLocal8Bit(argv[++i]);
         } else if (arg == "--open-settings") {
             openSettings = true;
+        } else if (arg.startsWith("--updated-from=")) {
+            updatedFromVersion = arg.mid(QString("--updated-from=").length());
         } else if (!arg.startsWith("-")) {
             openFilePath = arg;
         }
@@ -252,6 +256,13 @@ int main(int argc, char *argv[]) {
     // After startup, reopen settings dialog on Appearance tab if requested
     if (openSettings) {
         QTimer::singleShot(300, w, &MainWindow::openConfigOnAppearanceTab);
+    }
+
+    // Show post-update dialog if we just completed a self-update
+    if (!updatedFromVersion.isEmpty()) {
+        QTimer::singleShot(500, w, [w, updatedFromVersion]() {
+            w->showPostUpdateDialog(updatedFromVersion);
+        });
     }
 
     int result = a.exec();

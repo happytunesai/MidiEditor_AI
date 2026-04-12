@@ -59,6 +59,8 @@ class SelectionNavigator;
 class TweakTarget;
 class UpdateChecker;
 class AutoUpdater;
+class UpdateAvailableDialog;
+class PostUpdateDialog;
 class MidiPilotWidget;
 class MidiVisualizerWidget;
 class LyricVisualizerWidget;
@@ -856,6 +858,12 @@ public slots:
      * \param silent If true, only show UI if an update is available.
      */
     void checkForUpdates(bool silent = false);
+
+    /**
+     * \brief Show "Update Successful" dialog after a self-update restart.
+     * \param updatedFromVersion The version we updated from (passed via --updated-from).
+     */
+    void showPostUpdateDialog(const QString &updatedFromVersion);
 
     /**
      * \brief Exports the current MIDI file as audio.

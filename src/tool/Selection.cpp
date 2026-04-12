@@ -56,6 +56,9 @@ QList<MidiEvent *> &Selection::selectedEvents() {
 }
 
 void Selection::setSelection(QList<MidiEvent *> selections) {
+    if (selections == _selectedEvents)
+        return;
+
     protocol(copy(), this);
 
     // For large selections, use move semantics to avoid copying

@@ -542,18 +542,22 @@ img { max-width: 100%; height: auto; }
 .showcase-slide {
     min-width: 100%;
     position: relative;
+    aspect-ratio: 16 / 9;
+    overflow: hidden;
 }
 .showcase-slide img,
 .showcase-slide video {
     width: 100%;
-    height: auto;
+    height: 100%;
     display: block;
-    object-fit: contain;
+    object-fit: cover;
+    object-position: center top;
+    cursor: pointer;
 }
 .showcase-slide .slide-caption {
     position: absolute; bottom: 0; left: 0; right: 0;
-    padding: 1rem 1.5rem;
-    background: linear-gradient(transparent, rgba(0,0,0,0.85));
+    padding: 2rem 1.5rem 1.2rem;
+    background: linear-gradient(transparent, rgba(0,0,0,0.85) 40%, rgba(0,0,0,0.95));
     color: #fff; font-size: 0.95rem; font-weight: 500;
 }
 .showcase-btn {

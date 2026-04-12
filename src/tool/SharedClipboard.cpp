@@ -365,10 +365,7 @@ bool SharedClipboard::deserializeEvents(const QByteArray &data, MidiFile *target
             // Just add the event as-is
             events.append(event);
         } else if (event) {
-            try {
-                delete event; // Clean up failed event
-            } catch (...) {
-            }
+            delete event;
         }
 
         eventIndex++;

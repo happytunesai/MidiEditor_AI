@@ -130,8 +130,12 @@ void LyricVisualizerWidget::refresh()
     if (_glowPhase > 6.2831853f)
         _glowPhase -= 6.2831853f;
 
-    if (_playing || _fadeIn < 1.0f)
+    if (_playing || _fadeIn < 1.0f) {
         update();
+    } else {
+        // Not playing and fully faded in — stop wasting CPU (P3-008)
+        _timer.stop();
+    }
 }
 
 void LyricVisualizerWidget::updateCurrentLyric(int ms)

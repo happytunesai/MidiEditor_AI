@@ -5,6 +5,53 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 
 ---
 
+## [1.3.1] - 2026-04-12 — Bugfix Release
+
+* **16 bug fixes** across AI subsystem, lyric editor, clipboard, selection, FluidSynth export, and FFXIV Channel Fixer - memory leaks, use-after-free, undo spam, overlap prevention, and performance improvements
+* **Fix FFXIV Channel Fixer undo crash** - Reverting Fix XIV Channels (Tier 2 or Tier 3) caused a crash due to use-after-free; removed incorrect event deletion that conflicted with the Protocol undo system
+* **Documentation fixes** - Fixed lyrics manual page layout, removed dead CLI argument documentation
+* **Website UX tweaks** - Showcase carousel videos, 16:9 aspect ratio, darker caption bar, What's New section updates
+
+<details>
+<summary>Full Changelog - 15 Bug Fixes + Documentation + Website</summary>
+
+### Bug Fixes (Pass 4 - AI Subsystem & Core)
+
+* **AI cancel safety** — Disconnect network reply signals before `abort()` in streaming cancel, preventing potential use-after-free (AI-002)
+* **Agent cancel after processEvents** — Added `_cancelled` check immediately after `QCoreApplication::processEvents()` in the tool-call loop (AI-001)
+* **Conversation store O(1) lookup** — `loadConversation()` now uses direct path lookup instead of scanning all JSON files (AI-009)
+* **FFXIV Channel Fixer memory leaks** — Removed events (ProgChange, CC, PitchBend) are now properly `delete`d in the CLEAN phase (AI-010, AI-011)
+* **Selection undo spam** — `setSelection()` returns early when selection is unchanged, avoiding redundant Protocol entries (SEL-001)
+* **SharedClipboard dead catch** — Removed `try/catch(...)` around `delete` (destructors are noexcept in C++11+) (CLIP-001)
+* **Export temp file cleanup** — `ExportOptions::deleteMidiFileAfterExport` flag is now honored; temp MIDI files are deleted after export (FLUID-002)
+* **Key signature scan** — `captureKeySignature()` now only scans channel 18 (meta) instead of all 19 channels (AI-008)
+* **API log truncation** — Non-streaming request/test logs now truncate body to 4000 chars, matching the streaming pattern (AI-005)
+
+### Bug Fixes (Remaining Lyric & AI Bugs)
+
+* **Insert overlap prevention** — Double-click, Insert Before, and Insert After now clamp new blocks to avoid overlapping adjacent blocks (P2-007)
+* **Split encapsulation** — Split operation now uses `addBlockDirect()` instead of calling `insertSorted()` + emitting `lyricsChanged()` from outside LyricManager (P3-007)
+* **Visualizer timer idle stop** — `LyricVisualizerWidget` timer now stops when not playing and fully faded in, eliminating unnecessary 30fps CPU usage (P3-008)
+* **Multi-timestamp LRC import** — LRC import now handles karaoke-style multi-timestamp lines like `[00:12.34][01:56.78]Text`, creating one block per timestamp (P3-011)
+* **Truncated response logging** — Truncated API responses now log partial content (up to 500 chars) for debugging before emitting the error (AI-004)
+* **FFXIV polyphony sort** — `execValidateFFXIV` now sorts notes by tick before the polyphony check, ensuring the first reported overlap is chronologically first; inner loop early-breaks for better performance (AI-006)
+
+### Documentation Fixes
+
+* **Fixed lyrics manual page** — "Lyric Metadata" section was a mismatch of Customize Toolbar and metadata content. Split into two proper sections: "Customize Toolbar" (toggle Lyric Visualizer on/off) and "Lyric Settings & Metadata" (LRC metadata fields with `lyric_settings.png` screenshot)
+* **Removed dead documentation** — "Larger Playback Toolbar" section in setup.html referenced a `--large-playback-toolbar` CLI argument that doesn't exist in the codebase. Removed section and screenshot reference
+
+### Website UX Tweaks
+
+* **Showcase carousel videos** — Replaced static screenshots with webm videos for MidiPilot, Lyric Visualizer, and other features
+* **Showcase aspect ratio** — All slides now use a fixed 16:9 aspect ratio with `object-fit: cover` cropping for a consistent, clean layout; click any slide for the full uncropped view in the lightbox
+* **Showcase caption bar** — Darker, taller gradient overlay for better text readability
+* **What's New section** — Fixed year (2025 to 2026), updated version to v1.3.1, added bug fix count
+
+</details>
+
+---
+
 ## [1.3.0] - 2026-04-11 — Lyric Editor & Visualizer
 
 * **Lyric Timeline** — New dedicated lane below the piano roll for visual lyric editing (add, delete, move, resize, split, merge, inline text editing)

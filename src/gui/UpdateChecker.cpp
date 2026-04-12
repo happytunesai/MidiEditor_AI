@@ -6,6 +6,7 @@
 #include <QVersionNumber>
 #include <QUrl>
 #include <QNetworkRequest>
+#include <QRegularExpression>
 
 
 UpdateChecker::UpdateChecker(QObject *parent) : QObject(parent)
@@ -69,4 +70,92 @@ void UpdateChecker::onResult(QNetworkReply *reply)
     }
 
     reply->deleteLater();
+}
+
+void UpdateChecker::fetchChangelog(const QString &version)
+{
+    _pendingChangelogVersion = version;
+
+    QNetworkRequest request(QUrl("https://happytunesai.github.io/MidiEditor_AI/changelog.html"));
+    request.setHeader(QNetworkRequest::UserAgentHeader, "MidiEditor AI");
+
+    QNetworkReply *reply = manager->get(request);
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        if (reply->error() != QNetworkReply::NoError) {
+            qWarning() << "Changelog fetch failed:" << reply->errorString();
+            emit changelogFetchFailed();
+            reply->deleteLater();
+            return;
+        }
+
+        QString html = QString::fromUtf8(reply->readAll());
+        ChangelogSummary summary = parseChangelogForVersion(html, _pendingChangelogVersion);
+        emit changelogReady(summary);
+        reply->deleteLater();
+    });
+}
+
+ChangelogSummary UpdateChecker::parseChangelogForVersion(const QString &html, const QString &version)
+{
+    ChangelogSummary result;
+    result.version = version;
+
+    // Find the <article> block for this version using data-version attribute
+    // Pattern: <article class="cl-version..." data-version="X.Y.Z">
+    QString versionEscaped = QRegularExpression::escape(version);
+    QRegularExpression articleRe(
+        QString("<article[^>]*data-version=\"%1\"[^>]*>(.*?)</article>").arg(versionEscaped),
+        QRegularExpression::DotMatchesEverythingOption);
+
+    QRegularExpressionMatch articleMatch = articleRe.match(html);
+    if (!articleMatch.hasMatch()) {
+        return result;
+    }
+    QString articleHtml = articleMatch.captured(1);
+
+    // Extract the title from <div class="cl-title">...</div>
+    QRegularExpression titleRe("<div class=\"cl-title\">(.*?)</div>");
+    QRegularExpressionMatch titleMatch = titleRe.match(articleHtml);
+    if (titleMatch.hasMatch()) {
+        result.title = titleMatch.captured(1);
+        // Decode HTML entities
+        result.title.replace("&amp;", "&");
+        result.title.replace("&lt;", "<");
+        result.title.replace("&gt;", ">");
+        result.title.replace("&mdash;", "-");
+        result.title.replace("&ndash;", "-");
+    }
+
+    // Extract summary bullets from <ul class="cl-summary"><li>...</li>...</ul>
+    QRegularExpression summaryRe(
+        "<ul class=\"cl-summary\">(.*?)</ul>",
+        QRegularExpression::DotMatchesEverythingOption);
+    QRegularExpressionMatch summaryMatch = summaryRe.match(articleHtml);
+    if (summaryMatch.hasMatch()) {
+        QString summaryHtml = summaryMatch.captured(1);
+
+        // Extract each <li>...</li>
+        QRegularExpression liRe("<li>(.*?)</li>", QRegularExpression::DotMatchesEverythingOption);
+        QRegularExpressionMatchIterator liIt = liRe.globalMatch(summaryHtml);
+        while (liIt.hasNext()) {
+            QRegularExpressionMatch liMatch = liIt.next();
+            QString bullet = liMatch.captured(1);
+            // Strip HTML tags for plain text display
+            bullet.replace(QRegularExpression("<[^>]*>"), "");
+            // Decode HTML entities
+            bullet.replace("&amp;", "&");
+            bullet.replace("&lt;", "<");
+            bullet.replace("&gt;", ">");
+            bullet.replace("&mdash;", "-");
+            bullet.replace("&ndash;", "-");
+            bullet.replace("&hellip;", "...");
+            bullet.replace("&quot;", "\"");
+            bullet = bullet.trimmed();
+            if (!bullet.isEmpty()) {
+                result.bullets.append(bullet);
+            }
+        }
+    }
+
+    return result;
 }
