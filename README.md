@@ -11,7 +11,7 @@
 
 **An AI-powered MIDI editor with an integrated AI copilot.**
 
-[![Build](https://github.com/happytunesai/MidiEditor_AI/actions/workflows/cmake-build.yml/badge.svg)](https://github.com/happytunesai/MidiEditor_AI/actions/workflows/cmake-build.yml)
+[![Build](https://github.com/happytunesai/MidiEditor_AI/actions/workflows/ci.yml/badge.svg)](https://github.com/happytunesai/MidiEditor_AI/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/happytunesai/MidiEditor_AI?include_prereleases&label=release)](https://github.com/happytunesai/MidiEditor_AI/releases/latest)
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-0078D6?logo=windows)](https://github.com/happytunesai/MidiEditor_AI/releases)
