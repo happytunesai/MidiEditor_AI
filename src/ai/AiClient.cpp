@@ -6,6 +6,7 @@
 #include <QFile>
 #include <QJsonDocument>
 #include <QNetworkRequest>
+#include <QTimer>
 #include <QUrl>
 
 const QString AiClient::API_URL = QStringLiteral("https://api.openai.com/v1/chat/completions");
@@ -31,7 +32,8 @@ AiClient::AiClient(QObject *parent)
       _maxTokensEnabled(false),
       _maxTokensLimit(16384),
       _hasToolsInRequest(false),
-      _isStreaming(false)
+      _isStreaming(false),
+      _retryCount(0)
 {
     _model = _settings.value(SETTINGS_KEY_MODEL, DEFAULT_MODEL).toString();
     _thinkingEnabled = _settings.value(SETTINGS_KEY_THINKING, true).toBool();
@@ -260,6 +262,7 @@ void AiClient::sendMessages(const QJsonArray &messages, const QJsonArray &tools)
 
     _isTestRequest = false;
     _hasToolsInRequest = !tools.isEmpty();
+    _retryCount = 0;
 
     bool reasoning = isReasoningModel();
     bool geminiThinking = isGeminiThinkingModel();
@@ -397,6 +400,8 @@ void AiClient::sendMessages(const QJsonArray &messages, const QJsonArray &tools)
                 _useResponsesApi ? QStringLiteral("responses") : QStringLiteral("completions"),
                 QString::fromUtf8(data.left(4000))));
 
+    _lastRequest = request;
+    _lastRequestData = data;
     _currentReply = _manager->post(request, data);
 }
 
@@ -547,17 +552,37 @@ void AiClient::onReplyFinished(QNetworkReply *reply)
     if (reply->error() != QNetworkReply::NoError) {
         QString errorMsg;
 
+        bool retriable = false;
+        int retryDelayMs = 0;
+
         if (statusCode == 401) {
             errorMsg = tr("Invalid API key. Please check your key in Settings.");
         } else if (statusCode == 429) {
             errorMsg = tr("Rate limit exceeded. Please wait a moment and try again.");
+            retriable = true;
+            retryDelayMs = 2000;
         } else if (statusCode == 500 || statusCode == 503) {
             errorMsg = tr("API service is temporarily unavailable. Please try again later.");
+            retriable = true;
+            retryDelayMs = 1000;
         } else if (reply->error() == QNetworkReply::HostNotFoundError ||
                    reply->error() == QNetworkReply::ConnectionRefusedError) {
             errorMsg = tr("Unable to connect to the API. Please check your internet connection.");
         } else {
             errorMsg = tr("API error (HTTP %1): %2").arg(statusCode).arg(reply->errorString());
+        }
+
+        // Retry once for transient errors (429 rate limit, 5xx server errors)
+        if (retriable && !_isTestRequest && _retryCount < 1 && !_lastRequestData.isEmpty()) {
+            _retryCount++;
+            reply->deleteLater();
+            logApi(QStringLiteral("[RETRY] Scheduling retry %1/1 in %2ms for HTTP %3")
+                       .arg(_retryCount).arg(retryDelayMs).arg(statusCode));
+            emit retrying(tr("Retrying... (%1/1)").arg(_retryCount));
+            QTimer::singleShot(retryDelayMs, this, [this]() {
+                _currentReply = _manager->post(_lastRequest, _lastRequestData);
+            });
+            return;
         }
 
         if (_isTestRequest) {

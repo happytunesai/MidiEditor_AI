@@ -814,6 +814,9 @@ QList<ToolbarActionInfo> LayoutSettingsWidget::getDefaultActions() {
     // Lyric Visualizer (widget)
     actions << ToolbarActionInfo{"lyric_visualizer", "Lyric Visualizer", ":/run_environment/graphics/tool/lyric_visualizer.png", nullptr, true, false, "View"};
 
+    // MCP Server toggle (widget)
+    actions << ToolbarActionInfo{"mcp_toggle", "MCP Server", ":/run_environment/graphics/tool/mcp_off.png", nullptr, true, false, "View"};
+
     // MidiPilot toggle
     actions << ToolbarActionInfo{"separator14", "--- Separator ---", "", nullptr, true, false, "Separator"};
     actions << ToolbarActionInfo{"toggle_midipilot", "MidiPilot", ":/run_environment/graphics/tool/midipilot.png", nullptr, true, false, "View"};
@@ -891,7 +894,7 @@ QStringList LayoutSettingsWidget::getComprehensiveActionOrder() {
             << "thru" << "panic" << "separator12"
             << "measure" << "time_signature" << "tempo"
             << "explode_chords_to_tracks" << "split_channels_to_tracks" << "fix_ffxiv_channels"
-            << "toggle_midipilot" << "separator14" << "midi_visualizer" << "lyric_visualizer";
+            << "toggle_midipilot" << "separator14" << "midi_visualizer" << "lyric_visualizer" << "mcp_toggle";
     return order;
 }
 
@@ -914,7 +917,7 @@ QStringList LayoutSettingsWidget::getDefaultEnabledActions() {
             // << "thru" << "panic" << "separator12"
             << "measure" << "time_signature" << "tempo"
             << "explode_chords_to_tracks" << "split_channels_to_tracks" << "fix_ffxiv_channels"
-            << "toggle_midipilot" << "separator14" << "midi_visualizer" << "lyric_visualizer";
+            << "toggle_midipilot" << "separator14" << "midi_visualizer" << "lyric_visualizer" << "mcp_toggle";
     return enabled;
 }
 
@@ -933,7 +936,7 @@ void LayoutSettingsWidget::getDefaultRowDistribution(QStringList &row1Actions, Q
             << "quantize" << "magnet" << "separator9"
             << "measure" << "time_signature" << "tempo"
             << "explode_chords_to_tracks" << "split_channels_to_tracks" << "fix_ffxiv_channels"
-            << "toggle_midipilot" << "separator14" << "midi_visualizer" << "lyric_visualizer";
+            << "toggle_midipilot" << "separator14" << "midi_visualizer" << "lyric_visualizer" << "mcp_toggle";
 
     // Row 2: Playback and view actions
     row2Actions << "back_to_begin" << "back_marker" << "back" << "play" << "pause"
@@ -984,7 +987,7 @@ QStringList LayoutSettingsWidget::getDefaultToolbarOrder() {
             << "lock" << "separator8" << "quantize" << "magnet" << "separator9"
             << "measure" << "time_signature" << "tempo"
             << "explode_chords_to_tracks" << "split_channels_to_tracks" << "fix_ffxiv_channels"
-            << "separator10" << "toggle_midipilot" << "separator14" << "midi_visualizer" << "lyric_visualizer";
+            << "separator10" << "toggle_midipilot" << "separator14" << "midi_visualizer" << "lyric_visualizer" << "mcp_toggle";
     return order;
 }
 
@@ -1026,5 +1029,5 @@ void LayoutSettingsWidget::getDefaultToolbarRowDistribution(QStringList &row1Act
             << "stop" << "record" << "forward" << "forward_marker" << "separator10"
             << "metronome" << "zoom_hor_in" << "zoom_hor_out" << "zoom_ver_in" << "zoom_ver_out"
             << "lock" << "separator11"
-            << "toggle_midipilot" << "separator14" << "midi_visualizer" << "lyric_visualizer";
+            << "toggle_midipilot" << "separator14" << "midi_visualizer" << "lyric_visualizer" << "mcp_toggle";
 }

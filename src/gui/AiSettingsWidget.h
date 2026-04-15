@@ -12,6 +12,7 @@ class QCheckBox;
 class QSpinBox;
 class AiClient;
 class SystemPromptDialog;
+class McpServer;
 
 /**
  * \class AiSettingsWidget
@@ -27,6 +28,9 @@ class AiSettingsWidget : public SettingsWidget {
 public:
     AiSettingsWidget(QSettings *settings, QWidget *parent = nullptr);
 
+    /** Pass the McpServer so the UI can show live status. */
+    void setMcpServer(McpServer *server);
+
     bool accept() override;
     QIcon icon() override;
 
@@ -36,6 +40,7 @@ private slots:
     void onToggleKeyVisibility();
     void onProviderChanged(int index);
     void onEditSystemPrompts();
+    void updateMcpStatus();
 
 private:
     void populateModelsForProvider(const QString &provider);
@@ -62,6 +67,14 @@ private:
     QLabel *_promptsStatusLabel;
     bool _keyVisible;
     QString _lastProvider;
+
+    // MCP Server settings
+    McpServer *_mcpServer = nullptr;
+    QCheckBox *_mcpEnableCheck;
+    QSpinBox *_mcpPortSpin;
+    QLineEdit *_mcpTokenEdit;
+    QLabel *_mcpStatusLabel;
+    QPushButton *_mcpCopyConfigButton;
 };
 
 #endif // AISETTINGSWIDGET_H

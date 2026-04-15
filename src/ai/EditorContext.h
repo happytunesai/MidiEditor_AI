@@ -48,9 +48,11 @@ public:
 
     /**
      * \brief Returns FFXIV Bard Performance mode context to append to system prompts.
+     * \param includeDrums Include the Drums section (default true)
+     * \param includeGuitar Include the Guitar Variants section (default true)
      * \return The FFXIV rules and constraints string
      */
-    static QString ffxivContext();
+    static QString ffxivContext(bool includeDrums = true, bool includeGuitar = true);
 
     /**
      * \brief Returns compact FFXIV context for Simple mode (no tool references).

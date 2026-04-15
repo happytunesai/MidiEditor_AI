@@ -800,6 +800,8 @@ Phase 19   MidiPilot AI Improvements                      ✅ DONE (19.1-19.7, v
 Phase 20   Audio Export & FluidSynth Hardening            ✅ DONE (20.1-20.8, v1.2.0)
 Phase 21   Lyric Editor                                   ✅ DONE (all sub-phases 21.1–21.9 complete)
 Phase 22   Lyric Visualizer (Karaoke Display)             ✅ DONE
+Phase 23   MidiPilot Tool Call & Model Optimization       ⬜ TODO
+Phase 24   Sheet Music Import (PDF/Image to MIDI via OMR) ⬜ TODO
 Phase 4.6  Persistent history (SQLite)                    ⬜ TODO (low priority)
 ```
 
@@ -7446,3 +7448,747 @@ Phase 22.7   Dynamic box sizing                                  ✅ DONE
 
 - **New:** `src/gui/LyricVisualizerWidget.h`, `src/gui/LyricVisualizerWidget.cpp`
 - **Modified:** `MainWindow.h` (add `_lyricVisualizer` member), `MainWindow.cpp` (action registration + toolbar creation + file/playback connections)
+
+---
+
+## Phase 23: MidiPilot Tool Call & Model Optimization ✅
+
+> Goal: Optimize tool calls, model integration, and FFXIV prompt architecture
+> for better results across all LLM providers. Leaner prompts, smarter tool
+> results, retry logic, and provider robustness.
+
+### Phase 23.1 — FFXIV Prompt Simplification
+
+**Problem:** The FFXIV system prompt includes channel assignment mechanics, guitar
+switch channel details, and program change insertion rules that the LLM doesn't
+need to know — the `setup_channel_pattern` tool and the Channel Fixer handle all
+of that automatically. This wastes ~600-800 tokens and confuses models.
+
+**Keep in FFXIV prompt:**
+- Max 8 tracks
+- Monophonic rule (with polyphony exceptions: Lute/Harp 2-3, Piano 2)
+- C3-C6 range (MIDI 48-84)
+- Valid instrument names list
+- Track naming = instrument selection
+- No pitch_bend, no velocity editing
+- Drum = separate tonal tracks (basic mapping: Bass Drum C4, Snare C5, Cymbal C5/C6)
+- "Call `setup_channel_pattern` once after all tracks created/renamed" (one line)
+- Guitar variants exist, switch by channel (one line, no mechanics)
+
+**Remove from FFXIV prompt:**
+- Channel assignment details (track N → channel N, percussion → CH9)
+- Guitar switch channel mechanics (5 variants, per-note channel changes)
+- Program change insertion rules
+- Instrument native range/transpose table (player handles transposition)
+- ElectricGuitarSpecial sound map (reduce to one-line: "pitch ranges = sound effects, use sparingly")
+
+**Simplify `validate_ffxiv` tool:**
+- Keep: track name check, track count, note range, polyphony
+- The channel/program checks are the Channel Fixer's job
+
+**Estimated impact:** ~150-200 lines removed from ffxivContext(), ~50 lines from ffxivContextCompact().
+Saves ~800-1200 tokens per FFXIV request.
+
+**Files:** `src/ai/EditorContext.cpp` (ffxivContext, ffxivContextCompact)
+
+### Phase 23.2 — Tool Call Improvements
+
+**23.2a — Enhanced tool result summaries**
+After `insert_events`/`replace_events`, return richer feedback:
+- Note count, pitch range (min-max as note names), tick range
+- Pitch class distribution (for harmonic awareness across tracks)
+- Duration stats (shortest/longest note)
+- MidiEventSerializer is a pure serializer — summaries must be added in ToolDefinitions.cpp
+  (in the tool execution return path after write operations)
+
+**23.2b — Truncation auto-recovery**
+When events array is empty (output truncation detected):
+- Return actionable suggestion: "Split into smaller chunks (e.g., 4 measures at a time)"
+- Include the tick range that needs filling so model can retry intelligently
+- Consider auto-splitting large insert_events into multiple calls
+
+**23.2c — Batch tool calls (optional)**
+Allow `insert_events` to accept multiple tracks in one call:
+- Reduces round-trips in Agent mode
+- Lower latency for multi-track compositions
+- E.g., `tracks: [{trackIndex: 0, events: [...]}, {trackIndex: 1, events: [...]}]`
+
+**Files:** `src/ai/ToolDefinitions.cpp` (result summaries, truncation recovery, batch schema)
+
+### Phase 23.3 — Model Integration Improvements
+
+**23.3a — Retry logic**
+Add single retry with backoff for transient failures:
+- 429 (rate limit): wait 2s + retry once
+- 5xx (server error): wait 1s + retry once
+- Timeout (>45s no response): retry with reduced expectation (add "be concise" hint)
+- No retry on 401 (auth), 400 (bad request), 403 (forbidden), or user cancel
+- Show retry indicator in MidiPilot chat ("Retrying... (1/1)")
+
+**23.3b — Dynamic model list**
+Move context window map from hardcoded to configurable:
+- Store in QSettings, allow user to add custom models + context sizes
+- Ship sensible defaults for known models (GPT-5.x, Claude 4, Gemini 2.5)
+- Update defaults on app update without losing user additions
+
+**23.3c — Streaming for Agent mode (stretch)**
+Parse `tool_calls` from streaming chunks:
+- Shows progress earlier, better UX
+- Most providers now support streaming + tool calls
+- Falls back to non-streaming if provider doesn't support it
+
+**23.3d — Provider abstraction (stretch)**
+Create base class with per-provider subclasses:
+- `AiProvider` base → `OpenAiProvider`, `AnthropicProvider`, `GeminiProvider`
+- Each handles request format, response parsing, error mapping
+- Cleaner code, easier to add new providers
+
+**Files:** `src/ai/AiClient.h/.cpp`, `src/ai/AgentRunner.cpp`
+
+### Phase 23.5 — MCP Server Support (Model Context Protocol)
+
+**Problem:** MidiPilot currently bundles its own AI client (`AiClient.cpp`) that speaks
+OpenAI-compatible HTTP to a fixed set of providers (OpenAI, Anthropic, Google, local).
+Users are locked into the providers we explicitly support, and adding new ones requires
+code changes (see 23.3d). Meanwhile, the AI ecosystem has converged on **MCP** (Model
+Context Protocol) as the standard way for AI models to discover and use external tools.
+
+**Solution:** Expose MidiEditor AI's existing tool set as an **MCP server** so that
+any MCP-compatible client (Claude Desktop, VS Code Copilot, Cursor, Windsurf, Continue,
+local LLM frontends, etc.) can connect and use MidiEditor's MIDI editing tools directly.
+
+**MCP protocol version:** 2025-03-26 (or latest at implementation time)
+
+**How MCP works:**
+- MCP uses **JSON-RPC 2.0** over a transport (stdio or Streamable HTTP)
+- The server advertises **tools** (with JSON Schema parameters) and **resources** (read-only context)
+- The client (AI model/frontend) discovers tools via `tools/list`, calls them via `tools/call`
+- The server executes the tool and returns results
+- Server sends `notifications/tools/list_changed` when tool set changes (e.g., FFXIV mode toggle)
+
+**Why Streamable HTTP transport (not stdio):**
+- MidiEditor is a running GUI application - it can't be launched as a subprocess by a client
+- HTTP allows multiple clients to connect simultaneously (multi-model workflows)
+- We already link Qt6::Network (QTcpServer available)
+- Configurable port (default 9420, user can change in Settings)
+- The old SSE transport (separate /sse + /messages) was deprecated in MCP 2024-11-05;
+  Streamable HTTP uses a **single endpoint** that accepts POST (messages) and GET (SSE stream)
+
+**Architecture:**
+
+```
++------------------------------------------------------------------+
+|  MidiEditor AI (running)                                         |
+|  +------------------------------------------------------------+  |
+|  |  McpServer (QTcpServer on localhost:9420)                  |  |
+|  |    POST /mcp     → JSON-RPC 2.0 messages (Streamable HTTP) |  |
+|  |    GET  /mcp     → SSE stream (server-initiated messages)  |  |
+|  |                                                            |  |
+|  |  Advertised tools (auto-generated from ToolDefinitions):   |  |
+|  |    get_editor_state, get_track_info, query_events,         |  |
+|  |    create_track, rename_track, set_channel,                |  |
+|  |    insert_events, replace_events, delete_events,           |  |
+|  |    set_tempo, set_time_signature, move_events_to_track,    |  |
+|  |    validate_ffxiv*, convert_drums_ffxiv*,                  |  |
+|  |    setup_channel_pattern*     (*when FFXIV mode active)    |  |
+|  |                                                            |  |
+|  |  Advertised resources:                                     |  |
+|  |    midi://state     → current file state (JSON)            |  |
+|  |    midi://tracks    → track list with details              |  |
+|  |    midi://config    → FFXIV mode, file path, tick info     |  |
+|  +------------------------------------------------------------+  |
++------------------------------------------------------------------+
+        ↕ JSON-RPC 2.0 / SSE              ↕ JSON-RPC 2.0 / SSE
++--------------------+            +--------------------+
+| Claude Desktop     |            | VS Code Copilot    |
+| (MCP client)       |            | (MCP client)       |
++--------------------+            +--------------------+
+```
+
+**Tool schema conversion:**
+Our `ToolDefinitions::toolSchemas()` already generates JSON Schema for each tool.
+The MCP server converts these from OpenAI format to MCP format at startup:
+- OpenAI: `{"type": "function", "function": {"name": ..., "parameters": ...}}`
+- MCP: `{"name": ..., "description": ..., "inputSchema": ...}`
+This is a straightforward 1:1 mapping - no manual schema duplication needed.
+
+**Tool execution:**
+MCP `tools/call` requests are dispatched to the same `ToolDefinitions::executeTool()`
+that the built-in AgentRunner uses. Zero code duplication for tool logic.
+
+**Concurrency safety:**
+Tool execution happens on the Qt main thread (via `QMetaObject::invokeMethod` with
+`Qt::BlockingQueuedConnection` from the HTTP handler thread). This ensures all MIDI
+file modifications go through the same thread as the GUI - same pattern as the existing
+AgentRunner which processes events via `QCoreApplication::processEvents()`.
+
+**Sub-items:**
+
+- [ ] **23.5a** `McpServer` class (`src/ai/McpServer.h/.cpp`)
+  - QTcpServer listening on configurable localhost port (default 9420)
+  - Streamable HTTP transport: single `/mcp` endpoint (POST for messages, GET for SSE)
+  - HTTP request parsing (minimal - POST /mcp and GET /mcp only)
+  - SSE connection management (keep-alive, client tracking, session IDs via `Mcp-Session-Id`)
+  - JSON-RPC 2.0 request/response handling
+  - Methods: `initialize`, `tools/list`, `tools/call`, `resources/list`, `resources/read`
+  - Send `notifications/tools/list_changed` when FFXIV mode toggled (adds/removes 3 tools)
+  - Auto-convert ToolDefinitions schemas to MCP format
+  - Thread-safe tool execution via Qt signal/slot
+  - Backwards compat: also accept old-style GET /sse + POST /messages for older clients
+
+- [ ] **23.5b** MCP Resources
+  - `midi://state` - serializes `ToolDefinitions::execGetEditorState()` result
+  - `midi://tracks` - track list with names, channels, event counts
+  - `midi://config` - FFXIV mode status, file path, ticks per beat, tempo
+  - Resources update when file changes (resource change notifications via SSE)
+
+- [ ] **23.5c** Settings UI
+  - New "MCP Server" section in AI Settings tab
+  - Enable/disable toggle (default: disabled)
+  - Port number (default: 9420)
+  - Status indicator: "Running on localhost:9420" / "Stopped"
+  - "Copy MCP Config" button - copies the JSON config snippet that users paste
+    into their MCP client config (e.g., Claude Desktop's `claude_desktop_config.json`)
+  - Connection log (shows connected clients)
+
+- [ ] **23.5d** Security
+  - Listen on localhost only (127.0.0.1) - no remote access
+  - Validate `Origin` header on all requests (MCP spec requirement against DNS rebinding)
+  - Optional auth token (generated on enable, shown in Settings, sent as `Authorization: Bearer` header)
+  - Rate limiting: max 100 tool calls per minute per client
+  - Read-only mode option (only get_editor_state, get_track_info, query_events)
+  - Session management: assign `Mcp-Session-Id` on initialize, reject requests without valid session
+
+- [ ] **23.5e** Documentation
+  - Setup guide: how to connect Claude Desktop, VS Code Copilot, Cursor
+  - Example MCP client config JSON for each popular client
+  - Tool reference (auto-generated from schemas)
+  - Website feature card
+
+**Impact on Phase 23.3d (Provider abstraction):**
+With MCP Server support, 23.3d becomes much less important. Instead of us abstracting
+every provider, users connect their preferred MCP client which already speaks to any
+model. The built-in MidiPilot (with AiClient) remains for users who want a simple
+out-of-the-box experience. MCP is the power-user path.
+
+**MCP client config example (Claude Desktop):**
+```json
+{
+  "mcpServers": {
+    "midieditor": {
+      "url": "http://localhost:9420/mcp",
+      "headers": {
+        "Authorization": "Bearer <token_from_settings>"
+      }
+    }
+  }
+}
+```
+
+**Files:** `src/ai/McpServer.h/.cpp` (new), `src/gui/AiSettingsWidget.cpp` (settings UI),
+`MainWindow.cpp` (server lifecycle), `CMakeLists.txt` (new source files)
+
+### Phase 23.4 — Prompt Architecture v3
+
+**23.4a — Token budgeting**
+Before sending each request:
+- Calculate: system prompt + FFXIV context + history + state = X tokens
+- If X > 60% of context window, compress history (smarter truncation)
+- Show warning in token label at 80% usage (already partially done)
+- Smart truncation: keep first 2 messages + most recent, insert summary marker
+
+**23.4b — Conditional prompt sections**
+Only include what the current file needs:
+- Drum mapping section: only if file has drum tracks or user mentions drums
+- Guitar switch section: only if file has guitar tracks
+- Surrounding events: configurable depth (±2 vs ±4 measures based on effort)
+
+**23.4c — GM instrument program_change reminder**
+Strengthen the "always insert program_change at tick 0" rule:
+- This is the #1 user issue: tracks default to Piano sound when no program_change is set
+- Add explicit reminder to tool description of `create_track` and `insert_events`
+- Consider auto-inserting a program_change event when `create_track` is called with
+  an instrument context (e.g., track named "Strings" → auto-insert program 48 at tick 0)
+- Channel 9 (drums) excluded from auto-insert
+
+**23.4d — Effort-based prompt selection**
+- Low effort → compact prompt (ffxivContextCompact pattern)
+- Medium effort → standard prompt
+- High effort → detailed prompt with examples
+- Extend compact variant to general (non-FFXIV) prompts too
+
+**Files:** `src/ai/EditorContext.cpp`, `src/gui/MidiPilotWidget.cpp`
+
+### Implementation Order
+
+```
+Phase 23.1   FFXIV prompt simplification                         ✅ DONE
+Phase 23.2a  Enhanced tool result summaries                      ✅ DONE
+Phase 23.4a  Token budgeting & smart truncation                  ✅ DONE
+Phase 23.4b  Conditional prompt sections                         ✅ DONE
+Phase 23.4c  GM program_change reminder                          ✅ DONE
+Phase 23.3a  Retry logic (429/5xx)                               ✅ DONE
+Phase 23.2b  Truncation auto-recovery                            ✅ DONE
+Phase 23.4d  Effort-based prompt selection                       ✅ DONE
+Phase 23.5a  MCP Server core (Streamable HTTP + JSON-RPC)         ✅ DONE
+Phase 23.5b  MCP Resources (state/tracks/config)                 ✅ DONE
+Phase 23.5c  MCP Settings UI                                     ✅ DONE
+Phase 23.5d  MCP Security (localhost, Origin, auth token)        ✅ DONE
+Phase 23.5e  MCP Documentation                                  ✅ DONE
+Phase 23.5f  MCP Protocol prefix (client identification)         ✅ DONE
+Phase 23.2c  Batch insert_events (optional)                      ⏭️ SKIPPED (low value, partial-failure risk)
+Phase 23.3b  Dynamic model list                                  ⏭️ SKIPPED (low priority, hardcoded defaults sufficient)
+Phase 23.3c  Streaming for Agent mode                            ⏭️ SKIPPED (high risk, provider-specific fragmentation)
+Phase 23.3d  Provider abstraction                                ⏭️ SKIPPED (superseded by MCP Server)
+```
+
+### Estimated Complexity
+
+| Sub-phase | New Code | Modified Code | Risk |
+|-----------|----------|---------------|------|
+| 23.1 FFXIV prompt simplification | — | EditorContext.cpp (~150-200 lines removed) | Low |
+| 23.2a Tool result summaries | ~50 lines | ToolDefinitions.cpp (write-op return paths) | Low |
+| 23.2b Truncation recovery | ~30 lines | ToolDefinitions.cpp | Low |
+| 23.2c Batch insert (stretch) | ~80 lines | ToolDefinitions.cpp | Medium |
+| 23.3a Retry logic | ~60 lines | AiClient.cpp | Medium |
+| 23.3b Dynamic model list | ~80 lines | AiClient.cpp, AiSettingsWidget.cpp | Low |
+| 23.3c Streaming Agent (stretch) | ~150 lines | AiClient.cpp, AgentRunner.cpp | High |
+| 23.3d Provider abstraction (stretch) | ~400 lines (new classes) | AiClient refactor | High |
+| 23.5a MCP Server core | ~500 lines (new class) | — | Medium |
+| 23.5b MCP Resources | ~100 lines | McpServer.cpp | Low |
+| 23.5c MCP Settings UI | ~120 lines | AiSettingsWidget.cpp | Low |
+| 23.5d MCP Security | ~80 lines | McpServer.cpp | Low |
+| 23.5e MCP Documentation | ~200 lines HTML | Website, manual | Low |
+| 23.4a Token budgeting | ~40 lines | MidiPilotWidget.cpp | Low |
+| 23.4b Conditional sections | ~30 lines | EditorContext.cpp | Low |
+| 23.4c GM program_change | ~20 lines | ToolDefinitions.cpp, EditorContext.cpp | Low |
+| 23.4d Effort prompts | ~60 lines | EditorContext.cpp | Low |
+| **Total (core, no stretch)** | **~1230 lines** | **~420 lines modified** | **Low-Medium** |
+
+### Key Design Decisions
+
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| FFXIV channel setup | Delegate entirely to `setup_channel_pattern` tool | Channel Fixer is deterministic and bug-tested; LLMs get confused by channel mechanics |
+| Retry policy | Single retry only | Avoids infinite loops; user can always retry manually |
+| Provider abstraction | Deprioritized by MCP | MCP Server lets external clients use any model; built-in MidiPilot covers basic needs |
+| MCP transport | Streamable HTTP (MCP 2025-03-26) | MidiEditor is a GUI app, can't be a subprocess; single /mcp endpoint, multi-client |
+| MCP port | localhost:9420 (configurable) | Localhost-only for security; port configurable in Settings |
+| Batch insert | Optional stretch goal | Current per-track approach works; batch is optimization, not correctness |
+| Token budgeting | Warn at 80%, compress at 60% | Matches existing yellow warning pattern in token label |
+
+### Dependencies
+
+- **Phase 12 (Prompt Architecture v2):** ✅ Complete — provides priority rules, validation block, timing reference
+- **Phase 19 (MidiPilot AI Improvements):** ✅ Complete — provides streaming, presets, conversation history, context management
+- **No external libraries** — pure Qt/C++ changes (MCP server uses Qt6::Network which is already linked)
+- **No new build system changes** (McpServer.cpp added to existing CMake GLOB)
+
+### Files
+
+- **New:** `src/ai/McpServer.h/.cpp` (MCP server with JSON-RPC 2.0, SSE, tool/resource dispatching)
+- **Modified:** `src/ai/EditorContext.cpp` (prompts), `src/ai/ToolDefinitions.cpp` (tool schemas + execution + result summaries + MCP schema conversion), `src/ai/AiClient.h/.cpp` (retry, model list), `src/gui/MidiPilotWidget.cpp` (token budgeting, effort prompts), `src/gui/AiSettingsWidget.cpp` (MCP settings section), `MainWindow.cpp` (MCP server lifecycle)
+
+---
+
+## Phase 24 - Sheet Music Import (PDF/Image to MIDI via OMR)
+
+> **Goal:** Allow users to open a PDF or image of printed sheet music and convert it
+> to editable MIDI inside MidiEditor AI, using Optical Music Recognition (OMR) -
+> fully built-in with no external runtime dependencies (no Python, no Java).
+
+### Problem Statement
+
+Users frequently have sheet music as scanned PDFs or photos but no corresponding
+MIDI file. Currently, they must manually transcribe the notes into the editor.
+An integrated OMR pipeline would let them import sheet music directly via
+**File -> Open** (alongside MIDI, Guitar Pro, and MML) and immediately edit/play
+the result.
+
+### Candidate OMR Engines - Evaluation
+
+| Project | Stars | License | Language | Output | Input | Active | GPU Required | Notes |
+|---------|-------|---------|----------|--------|-------|--------|-------------|-------|
+| **homr** | 175 | AGPL-3.0 | Python 3.11 | MusicXML | Image (camera/scan) | Yes (last month) | Optional (CUDA) | Best overall: improved oemer + TrOMR transformer, ONNX runtime, actively maintained |
+| **oemer** | 713 | MIT | Python 3.x | MusicXML | Image | Low (last commit 1y) | Optional (TF/ONNX) | Pioneer project, UNet segmentation + SVM classifiers, ONNX models available |
+| **Audiveris** | 2.4k | AGPL-3.0 | Java | MusicXML (.omr) | PDF/Image | Yes (weekly) | No | Most mature, GUI editor for corrections, but Java dependency is heavy |
+| **Clarity-OMR** | 23 | GPL-3.0 | Python | MusicXML | PDF | Yes (last month) | Optional (CUDA) | YOLO detection + transformer, HuggingFace models, newest but least tested |
+| **PDF2Muse** | 4 | MIT | Python | MusicXML/MSCX | PDF | Low (5mo) | Inherits oemer | Thin wrapper around oemer with Poppler PDF->image |
+| **Polyphonic-TrOMR** | 75 | Apache-2.0 | Python | Custom tokens | Image (staff crop) | No (3y) | Yes | Research-only transformer, ONNX-convertible, used as component by homr |
+
+### Decision: Native C++ OMR Pipeline using ONNX Models
+
+**Approach:** Do NOT use any external Python/Java runtime. Instead, reimplement the
+OMR pipeline in C++ using:
+- **ONNX Runtime C++ API** for neural network inference (loads `.onnx` model files)
+- **OpenCV C++ (minimal static build)** for image preprocessing
+- **Qt QPdfDocument** for PDF page rendering (already in Qt 6.5.3)
+- **Pre-trained ONNX models** downloaded on first use (like SoundFonts)
+
+**Model Selection - License-Clean Strategy:**
+
+The OMR pipeline requires three ONNX models. We use models from permissive-licensed
+sources to avoid AGPL concerns:
+
+| Model | Purpose | Source | License | Size (fp16) |
+|-------|---------|--------|---------|-------------|
+| **segnet** | UNet image segmentation (staff, noteheads, symbols, clefs, stems) | oemer / homr checkpoint | MIT (oemer weights) | ~25 MB |
+| **encoder** | TrOMR visual feature encoder | Polyphonic-TrOMR | Apache-2.0 | ~23-60 MB |
+| **decoder** | TrOMR music notation token decoder | Polyphonic-TrOMR | Apache-2.0 | ~18-40 MB |
+
+Total model download: ~66-125 MB (fp16 variants). Stored in `<AppData>/MidiEditor/omr_models/`.
+
+**Why NOT use homr as a subprocess:**
+1. Requires Python runtime installed on user's machine
+2. Requires `pip install homr` (dependency management nightmare)
+3. First-run setup UX is confusing for non-technical users
+4. Version conflicts with system Python
+5. Adds ~500 MB Python install as implicit requirement
+6. We want MidiEditor AI to be a single self-contained application
+
+**Why native C++ with ONNX Runtime:**
+1. Zero runtime dependencies beyond our own DLLs
+2. ONNX Runtime C++ is MIT-licensed, ~30 MB DLL
+3. Models are just data files - download once, use forever
+4. Full control over the pipeline (threading, progress, cancellation)
+5. GPU acceleration via ONNX Runtime's CUDA/DirectML providers (optional)
+6. OpenCV C++ (Apache-2.0) provides battle-tested image processing
+7. Same pattern as FluidSynth integration (ship DLL + data files)
+
+**AGPL avoidance:** We do NOT use homr's Python code. We reimplement the OMR pipeline
+in our own C++ code, and use only MIT/Apache-2.0 licensed model weights. The ONNX model
+files are trained weights (not code), and the original training projects (oemer, TrOMR)
+use permissive licenses. homr's AGPL applies to its Python source code, not the
+pre-trained model weights it distributes.
+
+### Architecture: Native C++ OMR Pipeline
+
+```
++-------------------------------------------------------------------+
+|  User: File -> Open -> selects score.pdf / score.png              |
++-------------------------------------------------------------------+
+|  1. MidiEditor detects PDF/image extension                        |
+|  2. If models not downloaded -> show "Download OMR Models" dialog  |
+|     (~100 MB one-time download from GitHub Releases)              |
+|  3. Shows progress dialog: "Running Optical Music Recognition..." |
+|  4. OMR Pipeline (all native C++):                                |
+|     a. Load image (QImage) or render PDF page (QPdfDocument)      |
+|     b. Preprocess: autocrop, resize, CLAHE contrast enhancement   |
+|     c. Run segnet ONNX model -> 5 prediction maps                |
+|        (noteheads, symbols, staff, clefs/keys, stems/rests)       |
+|     d. Post-process predictions: bounding boxes, staff detection, |
+|        note detection, bar line detection                         |
+|     e. For each detected staff region:                            |
+|        - Crop staff image                                         |
+|        - Run TrOMR encoder ONNX model -> visual features          |
+|        - Run TrOMR decoder ONNX model -> music notation tokens    |
+|     f. Convert parsed staves to MusicXML                          |
+|  5. MusicXmlImporter converts MusicXML -> MIDI                    |
+|  6. Opens resulting MidiFile in editor                            |
+|  7. Cleans up temp files                                          |
++-------------------------------------------------------------------+
+```
+
+**Library Dependencies (all shipped with the application):**
+
+| Library | License | Integration | Size | Purpose |
+|---------|---------|-------------|------|---------|
+| ONNX Runtime | MIT | Dynamic (DLL) | ~30 MB | Neural network inference |
+| OpenCV (core+imgproc) | Apache-2.0 | Static link | ~5-8 MB in binary | Image preprocessing |
+| Qt QPdfDocument | LGPL (Qt) | Already linked | 0 (part of Qt) | PDF page rendering |
+
+### OMR Pipeline Stages (C++ Implementation Detail)
+
+The pipeline mirrors homr's proven 4-stage architecture, reimplemented in C++:
+
+**Stage 1 - Image Preprocessing** (`OmrPreprocessor`)
+```
+Input image (QImage/cv::Mat)
+  -> Autocrop (remove white borders)
+  -> Resize (normalize to working resolution)
+  -> CLAHE (Contrast Limited Adaptive Histogram Equalization)
+  -> Convert to float32 tensor for ONNX input
+```
+
+**Stage 2 - Segmentation** (`OmrSegmentation`)
+```
+Preprocessed image tensor
+  -> Run segnet ONNX model (UNet architecture)
+  -> Output: 5 prediction maps (uint8 masks)
+     - notehead map
+     - symbols map
+     - staff line map
+     - clefs/keys map
+     - stems/rests map
+  -> Noise filtering (morphological operations)
+  -> Extract bounding boxes from each map:
+     - Noteheads: bounding ellipses (min 4x4)
+     - Staff fragments: rotated bounding boxes
+     - Clefs/keys: rotated bounding boxes
+     - Stems/rests: rotated bounding boxes
+     - Bar lines: from stems/rest map filtering
+```
+
+**Stage 3 - Staff Detection & Symbol Assignment** (`OmrStaffDetector`)
+```
+Bounding boxes + prediction maps
+  -> Detect staff lines from staff fragments
+  -> Build staff grid (5 lines per staff, x/y positions)
+  -> Combine noteheads with stems
+  -> Assign notes, accidentals, rests to staves
+  -> Detect bar lines
+  -> Find grand staff connections (braces/brackets)
+  -> Group into multi-staff systems
+```
+
+**Stage 4 - Transformer Recognition** (`OmrTransformer`)
+```
+For each detected staff:
+  -> Crop staff region from preprocessed image
+  -> Resize to transformer input size
+  -> Run TrOMR encoder (ONNX) -> feature tensor
+  -> Run TrOMR decoder (ONNX, autoregressive)
+     - Greedy decode or beam search
+     - Output: sequence of music notation tokens
+  -> Parse token sequence into:
+     - Notes (pitch, duration, accidentals)
+     - Rests (duration)
+     - Time/key signatures
+     - Clefs
+     - Bar lines
+```
+
+**Stage 5 - MusicXML Generation** (`OmrMusicXmlWriter`)
+```
+Parsed staff data
+  -> Build MusicXML document structure
+  -> Assign parts, measures, voices
+  -> Handle multi-staff systems (piano grand staff)
+  -> Write to temp .musicxml file
+  -> Feed to MusicXmlImporter (Phase 24.1) -> MIDI
+```
+
+### Sub-Phases
+
+#### Phase 24.1 - MusicXML to MIDI Converter (Foundation)
+
+Before we can import OMR results, we need a MusicXML -> MidiFile converter.
+This is also useful standalone (users can open `.musicxml` files directly).
+
+- [ ] **24.1a** `MusicXmlImporter` class (`src/converter/MusicXml/MusicXmlImporter.h/.cpp`)
+  - Parse MusicXML using Qt's `QXmlStreamReader` (no external XML lib needed)
+  - Extract: parts, measures, notes (pitch, duration, voice), rests, time signatures, key signatures, tempo, dynamics
+  - Convert to MIDI events and write to temp `.mid` file
+  - Load via `MidiFile(tempPath)` - same pattern as GpImporter and MmlImporter
+- [ ] **24.1b** Register `.musicxml`, `.xml` (with MusicXML detection) in file dialog filter
+- [ ] **24.1c** Add format detection in `MainWindow::openFile()` alongside Guitar Pro and MML
+- [ ] **24.1d** Unit tests with sample MusicXML files
+
+**Complexity:** ~400-600 lines new code. MusicXML is well-documented (W3C standard).
+We only need a subset: note pitch/duration/voice, measures, time/key/tempo signatures.
+We do NOT need: layout, lyrics, articulations, dynamics beyond velocity.
+
+#### Phase 24.2 - Native OMR Engine (C++ with ONNX Runtime)
+
+The core OMR pipeline: image in, MusicXML out, fully native C++.
+
+- [ ] **24.2a** ONNX Runtime integration in CMake
+  - Download ONNX Runtime C++ SDK (Windows x64) or add as submodule
+  - Add to CMakeLists.txt: find_package or manual linking
+  - Ship `onnxruntime.dll` with the application
+  - Verify: load a simple ONNX model, run inference, check output
+- [ ] **24.2b** OpenCV minimal static build integration
+  - Build OpenCV from source with only `core` + `imgproc` modules (no GUI, no video, no highgui)
+  - Static linking to avoid shipping opencv DLLs
+  - Add to CMakeLists.txt
+  - ~5-8 MB added to binary size
+- [ ] **24.2c** Model download manager (`src/converter/OMR/OmrModelManager.h/.cpp`)
+  - Check if models exist in `<AppData>/MidiEditor/omr_models/`
+  - If missing, download from GitHub Releases (segnet + encoder + decoder)
+  - Show progress dialog during download (~100 MB total)
+  - Verify file integrity (SHA-256 hash check)
+  - Support: "Download Models" button in Settings, auto-prompt on first OMR use
+- [ ] **24.2d** Image preprocessor (`src/converter/OMR/OmrPreprocessor.h/.cpp`)
+  - Autocrop: detect and remove white borders (cv::threshold + cv::findContours)
+  - Resize: scale to working resolution (cv::resize with aspect ratio)
+  - CLAHE: contrast enhancement (cv::createCLAHE - built into OpenCV imgproc)
+  - Convert QImage <-> cv::Mat (shared memory, no copy when possible)
+  - Output: float32 tensor ready for ONNX Runtime input
+- [ ] **24.2e** Segmentation engine (`src/converter/OMR/OmrSegmentation.h/.cpp`)
+  - Load segnet ONNX model via Ort::Session
+  - Run inference: input image tensor -> 5 output prediction maps
+  - Post-process: threshold, morphological cleanup (erosion/dilation)
+  - Extract bounding boxes from prediction maps:
+    - Connected component labeling (cv::connectedComponentsWithStats)
+    - Minimum rotated rectangles (cv::minAreaRect)
+    - Ellipse fitting for noteheads (cv::fitEllipse)
+- [ ] **24.2f** Staff detector (`src/converter/OMR/OmrStaffDetector.h/.cpp`)
+  - Detect staff lines from staff fragment bounding boxes
+  - Build staff grid: 5 lines per staff with x/y coordinates
+  - Staff point interpolation for curved/warped staves
+  - Grand staff detection (brace/bracket connections)
+  - Note/symbol assignment to staves based on position
+- [ ] **24.2g** Transformer recognition (`src/converter/OMR/OmrTransformer.h/.cpp`)
+  - Load TrOMR encoder + decoder ONNX models
+  - For each staff: crop region, resize, run encoder, run decoder
+  - Autoregressive decoding loop (greedy or beam search)
+  - Token vocabulary: parse token IDs to music notation events
+  - Handle multi-voice staves
+- [ ] **24.2h** MusicXML writer (`src/converter/OMR/OmrMusicXmlWriter.h/.cpp`)
+  - Convert parsed staff data to MusicXML format
+  - Build XML document with QXmlStreamWriter
+  - Handle: parts, measures, notes, rests, time/key signatures, clefs
+  - Multi-staff systems -> MusicXML part-groups
+- [ ] **24.2i** PDF page renderer
+  - Use Qt's `QPdfDocument` to render each page to QImage at 300 DPI
+  - Multi-page PDFs: process each page sequentially
+  - Memory-efficient: render one page at a time, don't load entire PDF into memory
+
+#### Phase 24.3 - File Dialog & UX Integration
+
+- [ ] **24.3a** Add PDF/image extensions to Open file dialog
+  - Filter: `Sheet Music (*.pdf *.png *.jpg *.jpeg *.tif *.tiff *.bmp)`
+  - Combined filter: `Music Files (*.mid *.midi *.gtp *.gp3 ... *.pdf *.png *.jpg)`
+- [ ] **24.3b** Format detection in `MainWindow::openFile()`
+  - PDF: check for `%PDF` magic bytes
+  - Images: check extension (.png, .jpg, .jpeg, .tif, .tiff, .bmp)
+  - Route to OMR pipeline -> MusicXmlImporter -> MidiFile
+- [ ] **24.3c** Model download prompt
+  - On first OMR use: "Sheet Music Import requires OMR models (~100 MB download).
+    Download now?" with [Download] [Cancel] buttons
+  - Progress dialog during download with cancel support
+  - Store download state in QSettings
+- [ ] **24.3d** Settings page entry
+  - New "Sheet Music Import" section in Settings dialog
+  - Model status: installed / not downloaded / downloading
+  - Model path (default: AppData, configurable)
+  - GPU toggle: use CUDA/DirectML if available (ONNX Runtime auto-detects)
+  - "Re-download Models" button (for updates or corruption)
+- [ ] **24.3e** Progress dialog with cancel support
+  - Modal progress dialog during OMR processing
+  - Per-stage progress: "Preprocessing... Segmenting... Detecting staves... Recognizing..."
+  - Cancel button cleanly aborts the pipeline
+  - Run OMR in a worker thread to keep UI responsive
+
+#### Phase 24.4 - Polish & Documentation
+
+- [ ] **24.4a** Error handling and user feedback
+  - "OMR failed" dialog with error details and troubleshooting hints
+  - "Low confidence" warning if recognition quality is poor
+  - Suggestion to try different DPI or image quality
+  - Edge cases: blank pages, non-music images, tablature (not supported)
+- [ ] **24.4b** Manual page (`manual/sheet-music-import.html`)
+  - Supported formats (PDF, PNG, JPG, TIFF, BMP)
+  - No external requirements (models downloaded automatically)
+  - Best practices (300 DPI, clear print, Western notation)
+  - Known limitations (no handwritten, no tablature, no dynamics)
+  - Troubleshooting
+- [ ] **24.4c** Website updates
+  - Feature card on index.html
+  - Navigation entry in all pages
+  - What's New section update
+- [ ] **24.4d** README update
+  - New feature row in comparison table
+  - Architecture entry for OMR pipeline
+
+### Implementation Order
+
+```
+Phase 24.1a  MusicXmlImporter core parser                        ⬜ TODO (START HERE)
+Phase 24.1b  Register MusicXML in file dialog                    ⬜ TODO
+Phase 24.1c  Format detection in openFile()                      ⬜ TODO
+Phase 24.1d  MusicXML unit tests                                 ⬜ TODO
+Phase 24.2a  ONNX Runtime CMake integration                      ⬜ TODO
+Phase 24.2b  OpenCV minimal static build                         ⬜ TODO
+Phase 24.2c  Model download manager                              ⬜ TODO
+Phase 24.2d  Image preprocessor                                  ⬜ TODO
+Phase 24.2e  Segmentation engine (UNet ONNX)                     ⬜ TODO
+Phase 24.2f  Staff detector (heuristic algorithms)               ⬜ TODO
+Phase 24.2g  Transformer recognition (TrOMR ONNX)                ⬜ TODO
+Phase 24.2h  MusicXML writer                                     ⬜ TODO
+Phase 24.2i  PDF page renderer                                   ⬜ TODO
+Phase 24.3a  PDF/image extensions in file dialog                 ⬜ TODO
+Phase 24.3b  Format detection for images/PDF                     ⬜ TODO
+Phase 24.3c  Model download prompt                               ⬜ TODO
+Phase 24.3d  Settings page entry                                 ⬜ TODO
+Phase 24.3e  Progress dialog with cancel                         ⬜ TODO
+Phase 24.4a  Error handling & feedback                           ⬜ TODO
+Phase 24.4b  Manual page                                        ⬜ TODO
+Phase 24.4c  Website updates                                    ⬜ TODO
+Phase 24.4d  README update                                      ⬜ TODO
+```
+
+### Estimated Complexity
+
+| Sub-phase | New Code | Modified Code | Risk | External Deps |
+|-----------|----------|---------------|------|---------------|
+| 24.1 MusicXmlImporter | ~500 lines | MainWindow.cpp (~20 lines) | Medium | None (Qt XML) |
+| 24.2a ONNX Runtime CMake | ~50 lines CMake | CMakeLists.txt | Low | ONNX Runtime SDK |
+| 24.2b OpenCV static build | ~30 lines CMake | CMakeLists.txt | Medium | OpenCV source |
+| 24.2c Model download manager | ~200 lines | — | Medium | Network (GitHub) |
+| 24.2d Image preprocessor | ~250 lines | — | Low | OpenCV imgproc |
+| 24.2e Segmentation engine | ~300 lines | — | High | ONNX Runtime |
+| 24.2f Staff detector | ~500 lines | — | High | OpenCV |
+| 24.2g Transformer recognition | ~400 lines | — | High | ONNX Runtime |
+| 24.2h MusicXML writer | ~300 lines | — | Medium | Qt XML |
+| 24.2i PDF renderer | ~100 lines | — | Low | Qt QPdfDocument |
+| 24.3 File dialog + UX | ~250 lines | MainWindow.cpp, SettingsDialog | Low | — |
+| 24.4 Docs + website | ~300 lines HTML | Multiple HTML files | Low | — |
+| **Total** | **~3180 lines** | **~80 lines modified** | **High** | **ONNX Runtime + OpenCV (both shipped)** |
+
+### Key Design Decisions
+
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| Runtime dependencies | None (all shipped as DLLs/static) | Self-contained application, no Python/Java required |
+| OMR inference | ONNX Runtime C++ API | MIT licensed, cross-platform, GPU optional, ~30 MB DLL |
+| Image processing | OpenCV C++ (core+imgproc, static) | Apache-2.0, battle-tested CLAHE/morphology/contours, ~5-8 MB |
+| Model weights | Downloaded on first use | Keeps installer small; models ~100 MB stored in AppData |
+| Model source | oemer (MIT) + TrOMR (Apache-2.0) weights | Avoids AGPL; permissive licensed weights only |
+| MusicXML parser | Qt QXmlStreamReader | Already available, no new dependency |
+| PDF rendering | Qt QPdfDocument | Zero external dependency, available since Qt 6.4 |
+| GPU support | Optional (ONNX Runtime CUDA/DirectML) | CPU works (slower ~60s/page); GPU auto-detected |
+| Multi-page PDF | Sequential page processing | One page at a time to limit memory usage |
+| Pipeline architecture | Modular classes per stage | Each stage independently testable and replaceable |
+
+### Risks & Mitigations
+
+| Risk | Impact | Mitigation |
+|------|--------|------------|
+| ONNX Runtime C++ integration complexity | Build issues | Well-documented API; NuGet/vcpkg packages available; test with simple model first |
+| OpenCV static build size | Binary bloat | Minimal build (core+imgproc only); strip unused symbols; ~5-8 MB acceptable |
+| Model accuracy on poor scans | Bad MIDI output | Show quality tips; link to manual; user can edit result in editor |
+| Long processing time (~60s/page on CPU) | UX friction | Progress dialog with cancel; GPU acceleration optional; process in worker thread |
+| Transformer decode loop complexity | Bugs in C++ | Port carefully from TrOMR reference; test with known inputs; compare output to Python reference |
+| Model download fails (network issues) | Can't use OMR | Retry with exponential backoff; manual download option; clear error message |
+| ONNX model format changes | Broken inference | Pin model versions with SHA-256 hashes; test in CI; ship specific model versions |
+| AGPL license concern (homr code) | Legal risk | We do NOT use homr code; we use MIT/Apache model weights + our own C++ pipeline |
+| MusicXML subset incomplete | Missing notation | Start with notes/rests/time/key/tempo; extend as needed |
+| OpenCV version conflicts | Build issues | Static link eliminates runtime conflicts; pin OpenCV version |
+
+### Dependencies
+
+- **Phase 24.1 is standalone** - MusicXML import is useful even without OMR
+- **Phase 24.2a-b are infrastructure** - ONNX Runtime + OpenCV must be set up before OMR pipeline
+- **Phase 24.2c-i depend on 24.2a-b** - OMR pipeline stages need the libraries
+- **Phase 24.2 depends on 24.1** - OMR output feeds into MusicXML importer
+- **Phase 24.3 depends on 24.2** - UX wraps the OMR pipeline
+- **Phase 24.4 depends on 24.3** - Documentation covers the complete feature
+- **No dependency on Phase 23** - can be developed in parallel
+
+### Files
+
+- **New:** `src/converter/MusicXml/MusicXmlImporter.h/.cpp` (MusicXML parser),
+  `src/converter/OMR/OmrEngine.h/.cpp` (pipeline orchestrator),
+  `src/converter/OMR/OmrModelManager.h/.cpp` (model download/management),
+  `src/converter/OMR/OmrPreprocessor.h/.cpp` (image preprocessing),
+  `src/converter/OMR/OmrSegmentation.h/.cpp` (UNet segmentation),
+  `src/converter/OMR/OmrStaffDetector.h/.cpp` (staff detection algorithms),
+  `src/converter/OMR/OmrTransformer.h/.cpp` (TrOMR encoder/decoder),
+  `src/converter/OMR/OmrMusicXmlWriter.h/.cpp` (MusicXML output),
+  `manual/sheet-music-import.html`
+- **Modified:** `MainWindow.cpp` (file dialog filters, openFile() routing),
+  `CMakeLists.txt` (new source files, ONNX Runtime, OpenCV, Qt6::Pdf module),
+  `SettingsDialog.cpp` (OMR settings section)
+- **Shipped:** `onnxruntime.dll` (MIT), OpenCV statically linked
+- **Downloaded at runtime:** `omr_models/segnet.onnx`, `omr_models/encoder.onnx`, `omr_models/decoder.onnx`

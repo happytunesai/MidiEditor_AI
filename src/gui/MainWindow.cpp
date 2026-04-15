@@ -93,6 +93,10 @@
 #include "MidiPilotWidget.h"
 #include "MidiVisualizerWidget.h"
 #include "LyricVisualizerWidget.h"
+#include "McpToggleWidget.h"
+#include "AiSettingsWidget.h"
+
+#include "../ai/McpServer.h"
 
 #include <QDockWidget>
 
@@ -233,6 +237,12 @@ MainWindow::MainWindow(QString initFile)
     lyricVisAction->setText(tr("Lyric Visualizer"));
     lyricVisAction->setToolTip(tr("Live lyric display \u2014 shows current lyrics during playback (karaoke-style)"));
     _actionMap["lyric_visualizer"] = lyricVisAction;
+
+    _mcpToggleWidget = nullptr;  // Created on-demand in toolbar build
+    QAction *mcpToggleAction = new QAction(this);
+    mcpToggleAction->setText(tr("MCP Server"));
+    mcpToggleAction->setToolTip(tr("Toggle MCP Server on/off"));
+    _actionMap["mcp_toggle"] = mcpToggleAction;
 
     startDirectory = QDir::homePath();
 
@@ -688,6 +698,11 @@ MainWindow::MainWindow(QString initFile)
         _trackWidget->update();
     });
 
+    // Create MCP Server early so the toolbar toggle widget can reference it
+    _mcpServer = new McpServer(this);
+    _mcpServer->setWidget(_midiPilotWidget);
+    if (file) _mcpServer->setFile(file);
+
     QWidget *buttons = setupActions(central);
 
     rightSplitter->setStretchFactor(0, 5);
@@ -736,6 +751,15 @@ MainWindow::MainWindow(QString initFile)
 
     // Load initial file immediately - no need for artificial delay
     loadInitFile();
+
+    // Start MCP Server if enabled in settings (server object created earlier, before setupActions)
+    if (_settings->value("MCP/enabled", false).toBool()) {
+        quint16 mcpPort = _settings->value("MCP/port", 9420).toInt();
+        QString mcpToken = _settings->value("MCP/auth_token").toString();
+        if (!mcpToken.isEmpty())
+            _mcpServer->setAuthToken(mcpToken);
+        _mcpServer->start(mcpPort);
+    }
 
     // Check for updates silently on startup
     QTimer::singleShot(2000, this, [this](){ checkForUpdates(true); });
@@ -874,6 +898,7 @@ void MainWindow::setFile(MidiFile *newFile) {
 
     Tool::setFile(newFile);
     _midiPilotWidget->onFileChanged(newFile);
+    if (_mcpServer) _mcpServer->setFile(newFile);
     this->file = newFile;
     connect(newFile, SIGNAL(trackChanged()), this, SLOT(updateTrackMenu()));
     setWindowTitle(QApplication::applicationName() + " v" + QApplication::applicationVersion() + " - " + newFile->path() + "[*]");
@@ -1021,8 +1046,13 @@ void MainWindow::play() {
         disconnect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _lyricTimeline, SLOT(onPlaybackPositionChanged(int)));
         connect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _lyricTimeline, SLOT(onPlaybackPositionChanged(int)));
 
-        // Connect lyric visualizer playback position
+        // Connect lyric visualizer playback signals
+        // On Windows, PlayerThread is destroyed/recreated each play(), breaking toolbar-time connections
         if (_lyricVisualizer) {
+            disconnect(MidiPlayer::playerThread(), SIGNAL(playerStarted()), _lyricVisualizer, SLOT(playbackStarted()));
+            connect(MidiPlayer::playerThread(), SIGNAL(playerStarted()), _lyricVisualizer, SLOT(playbackStarted()));
+            disconnect(MidiPlayer::playerThread(), SIGNAL(playerStopped()), _lyricVisualizer, SLOT(playbackStopped()));
+            connect(MidiPlayer::playerThread(), SIGNAL(playerStopped()), _lyricVisualizer, SLOT(playbackStopped()));
             disconnect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _lyricVisualizer, SLOT(onPlaybackPositionChanged(int)));
             connect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _lyricVisualizer, SLOT(onPlaybackPositionChanged(int)));
         }
@@ -1078,8 +1108,12 @@ void MainWindow::record() {
             disconnect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _lyricTimeline, SLOT(onPlaybackPositionChanged(int)));
             connect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _lyricTimeline, SLOT(onPlaybackPositionChanged(int)));
 
-            // Connect lyric visualizer playback position (record mode)
+            // Connect lyric visualizer playback signals (record mode)
             if (_lyricVisualizer) {
+                disconnect(MidiPlayer::playerThread(), SIGNAL(playerStarted()), _lyricVisualizer, SLOT(playbackStarted()));
+                connect(MidiPlayer::playerThread(), SIGNAL(playerStarted()), _lyricVisualizer, SLOT(playbackStarted()));
+                disconnect(MidiPlayer::playerThread(), SIGNAL(playerStopped()), _lyricVisualizer, SLOT(playbackStopped()));
+                connect(MidiPlayer::playerThread(), SIGNAL(playerStopped()), _lyricVisualizer, SLOT(playbackStopped()));
                 disconnect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _lyricVisualizer, SLOT(onPlaybackPositionChanged(int)));
                 connect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _lyricVisualizer, SLOT(onPlaybackPositionChanged(int)));
             }
@@ -5108,6 +5142,12 @@ void MainWindow::openConfig() {
         qDebug() << "Connected PerformanceSettingsWidget for immediate rendering updates";
     }
 
+    // Pass MCP server reference so the settings UI can show live status
+    QList<AiSettingsWidget*> aiWidgets = d->findChildren<AiSettingsWidget*>();
+    if (!aiWidgets.isEmpty() && _mcpServer) {
+        aiWidgets.first()->setMcpServer(_mcpServer);
+    }
+
     d->show();
 }
 
@@ -5341,6 +5381,15 @@ QWidget *MainWindow::createCustomToolbar(QWidget *parent) {
             if (!enabledActions.contains("lyric_visualizer"))
                 enabledActions << "lyric_visualizer";
         }
+        if (!actionOrder.contains("mcp_toggle")) {
+            int lyricIdx = actionOrder.indexOf("lyric_visualizer");
+            if (lyricIdx >= 0)
+                actionOrder.insert(lyricIdx + 1, "mcp_toggle");
+            else
+                actionOrder << "mcp_toggle";
+            if (!enabledActions.contains("mcp_toggle"))
+                enabledActions << "mcp_toggle";
+        }
     }
 
     // Only prepend essential actions for single row mode
@@ -5545,6 +5594,12 @@ QWidget *MainWindow::createCustomToolbar(QWidget *parent) {
                 currentToolBar->addWidget(_lyricVisualizer);
                 continue;
             }
+            // Special handling for mcp_toggle: create MCP server toggle widget
+            if (actionId == "mcp_toggle" && _mcpServer) {
+                _mcpToggleWidget = new McpToggleWidget(_mcpServer, currentToolBar);
+                currentToolBar->addWidget(_mcpToggleWidget);
+                continue;
+            }
 
             if (action) {
                 try {
@@ -5666,6 +5721,12 @@ QWidget *MainWindow::createCustomToolbar(QWidget *parent) {
                 connect(MidiPlayer::playerThread(), SIGNAL(playerStopped()), _lyricVisualizer, SLOT(playbackStopped()));
                 connect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _lyricVisualizer, SLOT(onPlaybackPositionChanged(int)));
                 toolBar->addWidget(_lyricVisualizer);
+                continue;
+            }
+            // Special handling for mcp_toggle: create MCP server toggle widget
+            if (actionId == "mcp_toggle" && _mcpServer) {
+                _mcpToggleWidget = new McpToggleWidget(_mcpServer, toolBar);
+                toolBar->addWidget(_mcpToggleWidget);
                 continue;
             }
 
@@ -5803,6 +5864,15 @@ void MainWindow::updateToolbarContents(QWidget *toolbarWidget, QGridLayout *btnL
                 actionOrder << "lyric_visualizer";
             if (!enabledActions.contains("lyric_visualizer"))
                 enabledActions << "lyric_visualizer";
+        }
+        if (!actionOrder.contains("mcp_toggle")) {
+            int lyricIdx = actionOrder.indexOf("lyric_visualizer");
+            if (lyricIdx >= 0)
+                actionOrder.insert(lyricIdx + 1, "mcp_toggle");
+            else
+                actionOrder << "mcp_toggle";
+            if (!enabledActions.contains("mcp_toggle"))
+                enabledActions << "mcp_toggle";
         }
     }
 
@@ -5986,6 +6056,12 @@ void MainWindow::updateToolbarContents(QWidget *toolbarWidget, QGridLayout *btnL
                 currentToolBar->addWidget(_lyricVisualizer);
                 continue;
             }
+            // Special handling for mcp_toggle: create MCP server toggle widget
+            if (actionId == "mcp_toggle" && _mcpServer) {
+                _mcpToggleWidget = new McpToggleWidget(_mcpServer, currentToolBar);
+                currentToolBar->addWidget(_mcpToggleWidget);
+                continue;
+            }
 
             if (action) {
                 try {
@@ -6085,6 +6161,12 @@ void MainWindow::updateToolbarContents(QWidget *toolbarWidget, QGridLayout *btnL
                 connect(MidiPlayer::playerThread(), SIGNAL(playerStopped()), _lyricVisualizer, SLOT(playbackStopped()));
                 connect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _lyricVisualizer, SLOT(onPlaybackPositionChanged(int)));
                 toolBar->addWidget(_lyricVisualizer);
+                continue;
+            }
+            // Special handling for mcp_toggle: create MCP server toggle widget
+            if (actionId == "mcp_toggle" && _mcpServer) {
+                _mcpToggleWidget = new McpToggleWidget(_mcpServer, toolBar);
+                toolBar->addWidget(_mcpToggleWidget);
                 continue;
             }
 
@@ -6362,7 +6444,7 @@ void MainWindow::updateStatusBar() {
     _statusCursorLabel->setText(QString("M:%1 B:%2 | T:%3").arg(measureNum).arg(beat).arg(tick));
 
     // Selection info + chord detection
-    const QList<MidiEvent *> &sel = Selection::instance()->selectedEvents();
+    const QList<MidiEvent *> sel = Selection::instance()->selectedEvents();
     QList<int> notes;
     for (MidiEvent *ev : sel) {
         NoteOnEvent *on = dynamic_cast<NoteOnEvent *>(ev);
@@ -6417,6 +6499,25 @@ void MainWindow::updateAll() {
 
     // Refresh channel names in context menus (Move to channel, Delete channel, etc.)
     updateChannelMenu();
+
+    // Reload MCP Server settings (start/stop as needed)
+    if (_mcpServer) {
+        bool wantEnabled = _settings->value("MCP/enabled", false).toBool();
+        quint16 wantPort = _settings->value("MCP/port", 9420).toInt();
+        QString wantToken = _settings->value("MCP/auth_token").toString();
+
+        _mcpServer->setAuthToken(wantToken.isEmpty() ? QString() : wantToken);
+
+        if (wantEnabled) {
+            // Restart if port changed or not running
+            if (!_mcpServer->isRunning() || _mcpServer->port() != wantPort) {
+                _mcpServer->stop();
+                _mcpServer->start(wantPort);
+            }
+        } else if (_mcpServer->isRunning()) {
+            _mcpServer->stop();
+        }
+    }
 }
 
 void MainWindow::updateRenderingMode() {
@@ -6933,6 +7034,10 @@ void MainWindow::importLyricsLrc() {
     file->protocol()->endAction();
     emit mgr->lyricsChanged();
 
+    // Show lyric timeline
+    _lyricArea->setVisible(true);
+    if (_toggleLyricTimeline)
+        _toggleLyricTimeline->setChecked(true);
     _lyricTimeline->update();
     updateAll();
     markEdited();

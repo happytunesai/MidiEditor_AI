@@ -213,6 +213,12 @@ signals:
      */
     void streamFinished(const QString &fullContent, const QJsonObject &fullResponse);
 
+    /**
+     * \brief Emitted when a request is being retried after a transient error.
+     * \param message Description (e.g. "Retrying... (1/1)")
+     */
+    void retrying(const QString &message);
+
 private slots:
     void onReplyFinished(QNetworkReply *reply);
     void onStreamDataAvailable();
@@ -234,6 +240,9 @@ private:
     bool _isStreaming;
     QByteArray _streamBuffer;
     QString _streamContent;
+    int _retryCount;
+    QByteArray _lastRequestData;
+    QNetworkRequest _lastRequest;
 
     static const QString API_URL;
     static const QString RESPONSES_API_URL;

@@ -16,7 +16,7 @@
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-0078D6?logo=windows)](https://github.com/happytunesai/MidiEditor_AI/releases)
 
-**Version:** 1.3.1
+**Version:** 1.3.2
 **Status:** Release
 
 📥 **[Download Latest Release](https://github.com/happytunesai/MidiEditor_AI/releases/latest)**
@@ -74,8 +74,7 @@ MidiPilot is the AI brain embedded directly in MidiEditor AI. Open the sidebar, 
 | 🔄 **Auto-Updater** | In-app updates from GitHub Releases — Update Now, After Exit, or Download Manual |
 | � **Lyric Editor** | Full lyric timeline with drag, resize, split, merge, inline text editing, and tap-to-sync dialog |
 | 🎤 **Lyric Visualizer** | Karaoke-style toolbar widget with left-to-right color sweep, two-line current/next phrase display |
-| 🎤 **Lyric Import/Export** | Import plain text, SRT subtitles, or LRC karaoke files — export to SRT, LRC, or MIDI text events |
-| �🎵 **Quantization** | Event quantization and control change visualization |
+| 🎤 **Lyric Import/Export** | Import plain text, SRT subtitles, or LRC karaoke files — export to SRT, LRC, or MIDI text events || 🔌 **MCP Server** | Built-in Model Context Protocol server — Claude Desktop, VS Code Copilot, Cursor, and any MCP client can edit MIDI directly || �🎵 **Quantization** | Event quantization and control change visualization |
 | 🎤 **MIDI Recording** | Record from connected MIDI devices (keyboards, digital pianos) |
 
 ## 🏗️ Architecture
@@ -98,6 +97,7 @@ MidiEditor AI
 ├── FluidSynth Engine    → Built-in software synthesizer with SoundFont support
 ├── LAME Encoder         → Built-in MP3 encoder (LAME 3.100, static library)
 ├── Multi-Provider       → OpenAI / OpenRouter / Gemini / Custom / Local
+├── MCP Server           → Model Context Protocol server for external AI clients
 ├── MIDI I/O             → RtMidi for real-time MIDI device communication
 └── Settings             → Provider, model, appearance, keybinds, layout
 ```
@@ -359,21 +359,60 @@ MidiEditor AI checks for new versions on GitHub at every startup. When an update
 
 ## 🛠️ MidiPilot Tools
 
-The AI has access to 13 tools for inspecting and modifying MIDI files:
+The AI has access to 15 tools for inspecting and modifying MIDI files:
 
 | Tool | Description |
 |------|-------------|
 | `get_editor_state` | Read file info, tracks, tempo, time signature, cursor |
+| `get_track_info` | Get details about a specific track |
 | `create_track` / `rename_track` / `set_channel` | Manage tracks |
 | `insert_events` / `replace_events` / `delete_events` | Add, modify, remove MIDI events |
 | `query_events` | Read events in a tick range on a track |
 | `move_events_to_track` | Move events between tracks |
 | `set_tempo` / `set_time_signature` | Change tempo and meter |
 | `setup_channel_pattern` | Auto-configure MidiBard2 channel mapping *(FFXIV)* |
-
-> **Tip:** The **Fix X\|V Channels** toolbar button runs the same channel setup deterministically — no AI call needed. Find it in **Tools → Fix X\|V Channels** or on the toolbar.
 | `validate_ffxiv` | Check FFXIV rule compliance *(FFXIV)* |
 | `convert_drums_ffxiv` | Convert GM drums to FFXIV tonal percussion *(FFXIV)* |
+
+> **Tip:** The **Fix X\|V Channels** toolbar button runs the same channel setup deterministically — no AI call needed. Find it in **Tools → Fix X\|V Channels** or on the toolbar.
+
+---
+
+## 🔌 MCP Server (Model Context Protocol)
+
+MidiEditor AI includes a built-in **MCP server** that exposes all MidiPilot tools to external AI clients. Any MCP-compatible client — **Claude Desktop**, **VS Code Copilot**, **Cursor**, **Windsurf**, and others — can connect and edit MIDI files directly.
+
+### How It Works
+
+1. Enable the MCP server in **Settings → AI → MCP Server**
+2. Copy the MCP config JSON to your AI client's configuration
+3. The client discovers all 15 tools automatically and can compose, edit, and analyze MIDI
+
+### Quick Setup
+
+```json
+{
+  "mcpServers": {
+    "midieditor": {
+      "url": "http://localhost:9420/mcp",
+      "headers": {
+        "Authorization": "Bearer YOUR_TOKEN_HERE"
+      }
+    }
+  }
+}
+```
+
+### Features
+
+- **Streamable HTTP** transport (MCP 2025-03-26) on a single `/mcp` endpoint
+- **All 15 MidiPilot tools** exposed — same tools the built-in AI uses
+- **3 MCP Resources** — `midi://state`, `midi://tracks`, `midi://config` for read-only context
+- **Client identification** — Protocol panel shows which client made each edit (e.g. "MidiPilotMCP (VS Code Copilot Claude Opus 4.6)")
+- **Security** — localhost-only, Origin validation, optional auth token, rate limiting (100 calls/min)
+- **FFXIV-aware** — FFXIV-specific tools appear/disappear automatically when FFXIV mode is toggled
+
+📖 **Full MCP Server Documentation** is available in the built-in manual under *Help → Manual → MCP Server*.
 
 ## ⚙️ Settings
 
@@ -464,6 +503,7 @@ MidiEditor_AI/
 │   │   └── ...                # 40+ GUI components
 │   ├── ai/                    # AI integration
 │   │   ├── AiClient.*         # Multi-provider API client with SSE streaming
+│   │   ├── McpServer.*        # Built-in MCP server (Streamable HTTP, JSON-RPC 2.0)
 │   │   └── ConversationStore.*# Persistent conversation history (JSON save/load/resume)
 │   ├── midi/                  # MIDI file I/O & devices
 │   │   ├── MidiFile.*         # MIDI file read/write

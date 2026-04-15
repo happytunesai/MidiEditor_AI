@@ -59,6 +59,7 @@ static QJsonObject buildMusicalSummary(const QList<MidiEvent *> &events) {
     int noteCount = 0, ccCount = 0, progChange = -1;
     int minNote = 128, maxNote = -1;
     int minTick = INT_MAX, maxTick = 0;
+    int minDur = INT_MAX, maxDur = 0;
     QSet<int> pitchClasses;
 
     for (MidiEvent *ev : events) {
@@ -72,6 +73,13 @@ static QJsonObject buildMusicalSummary(const QList<MidiEvent *> &events) {
             if (n < minNote) minNote = n;
             if (n > maxNote) maxNote = n;
             pitchClasses.insert(n % 12);
+            if (OffEvent *off = on->offEvent()) {
+                int dur = off->midiTime() - t;
+                if (dur > 0) {
+                    if (dur < minDur) minDur = dur;
+                    if (dur > maxDur) maxDur = dur;
+                }
+            }
         } else if (dynamic_cast<ControlChangeEvent *>(ev)) {
             ccCount++;
         } else if (auto *pc = dynamic_cast<ProgChangeEvent *>(ev)) {
@@ -93,6 +101,8 @@ static QJsonObject buildMusicalSummary(const QList<MidiEvent *> &events) {
         QJsonArray pcArr;
         for (int pc : pcList) pcArr.append(QString(noteNames[pc]));
         summary["pitchClasses"] = pcArr;
+        if (maxDur > 0)
+            summary["durationRange"] = QString("%1-%2 ticks").arg(minDur).arg(maxDur);
     }
     if (ccCount > 0) summary["ccCount"] = ccCount;
     if (progChange >= 0) summary["gmProgram"] = progChange;
@@ -256,6 +266,9 @@ MidiPilotWidget::MidiPilotWidget(MainWindow *mainWindow, QWidget *parent)
 
     connect(_client, &AiClient::responseReceived, this, &MidiPilotWidget::onResponseReceived);
     connect(_client, &AiClient::errorOccurred, this, &MidiPilotWidget::onErrorOccurred);
+    connect(_client, &AiClient::retrying, this, [this](const QString &msg) {
+        addChatBubble("system", msg);
+    });
     connect(_client, &AiClient::streamDelta, this, &MidiPilotWidget::onStreamDelta);
     connect(_client, &AiClient::streamFinished, this, &MidiPilotWidget::onStreamFinished);
 
@@ -881,28 +894,70 @@ void MidiPilotWidget::onSendMessage() {
         _chatLayout->addWidget(stepsWidget);
 
         QString agentPrompt = EditorContext::agentSystemPrompt();
-        if (ffxivMode())
-            agentPrompt += EditorContext::ffxivContext();
+        if (ffxivMode()) {
+            // Detect which optional sections the file needs
+            bool hasDrums = false, hasGuitar = false;
+            if (_file) {
+                static const QStringList drumNames = {"Timpani","Bongo","Bass Drum","Snare Drum","Cymbal"};
+                for (int i = 0; i < _file->numTracks(); i++) {
+                    QString tn = _file->track(i)->name();
+                    if (drumNames.contains(tn)) hasDrums = true;
+                    if (tn.startsWith("ElectricGuitar")) hasGuitar = true;
+                }
+                // Also include if user message mentions them
+                if (fullMessage.contains("drum", Qt::CaseInsensitive) ||
+                    fullMessage.contains("percussion", Qt::CaseInsensitive))
+                    hasDrums = true;
+                if (fullMessage.contains("guitar", Qt::CaseInsensitive))
+                    hasGuitar = true;
+                // New/empty file: include everything
+                if (_file->numTracks() <= 1) { hasDrums = true; hasGuitar = true; }
+            }
+            agentPrompt += EditorContext::ffxivContext(hasDrums, hasGuitar);
+        }
         if (!_customFileInstructions.isEmpty())
             agentPrompt += QStringLiteral("\n\n## Per-File Instructions\n") + _customFileInstructions;
 
         // Truncate history if approaching context window limit
         QJsonArray historyForApi = truncateHistory(_conversationHistory,
-                                                    _client->contextWindowForModel());
+                                                    _client->contextWindowForModel(),
+                                                    agentPrompt.length());
 
         _agentRunner->run(agentPrompt,
                           historyForApi, fullMessage, _file, this);
     } else {
         // Simple Mode: use streaming for incremental text display
         QString simplePrompt = EditorContext::systemPrompt();
-        if (ffxivMode())
-            simplePrompt += EditorContext::ffxivContext();
+        if (ffxivMode()) {
+            // Low effort → compact prompt to save tokens
+            if (_client->reasoningEffort() == QStringLiteral("low")) {
+                simplePrompt += EditorContext::ffxivContextCompact();
+            } else {
+                bool hasDrums = false, hasGuitar = false;
+                if (_file) {
+                    static const QStringList drumNames = {"Timpani","Bongo","Bass Drum","Snare Drum","Cymbal"};
+                    for (int i = 0; i < _file->numTracks(); i++) {
+                        QString tn = _file->track(i)->name();
+                        if (drumNames.contains(tn)) hasDrums = true;
+                        if (tn.startsWith("ElectricGuitar")) hasGuitar = true;
+                    }
+                    if (fullMessage.contains("drum", Qt::CaseInsensitive) ||
+                        fullMessage.contains("percussion", Qt::CaseInsensitive))
+                        hasDrums = true;
+                    if (fullMessage.contains("guitar", Qt::CaseInsensitive))
+                        hasGuitar = true;
+                    if (_file->numTracks() <= 1) { hasDrums = true; hasGuitar = true; }
+                }
+                simplePrompt += EditorContext::ffxivContext(hasDrums, hasGuitar);
+            }
+        }
         if (!_customFileInstructions.isEmpty())
             simplePrompt += QStringLiteral("\n\n## Per-File Instructions\n") + _customFileInstructions;
 
         // Truncate history if approaching context window limit
         QJsonArray historyForApi = truncateHistory(_conversationHistory,
-                                                    _client->contextWindowForModel());
+                                                    _client->contextWindowForModel(),
+                                                    simplePrompt.length());
 
         _client->sendStreamingRequest(simplePrompt,
                                        historyForApi, fullMessage);
@@ -1526,6 +1581,18 @@ void MidiPilotWidget::setStatus(const QString &text, const QString &color) {
     }
 }
 
+static QString protoPrefix(const QJsonObject &response) {
+    QString src = response["_source"].toString();
+    if (!src.startsWith(QLatin1String("mcp")))
+        return QStringLiteral("MidiPilot");
+
+    // "mcp" -> "MidiPilotMCP", "mcp:ClientName" -> "MidiPilotMCP (ClientName)"
+    int colon = src.indexOf(':');
+    if (colon > 0 && colon + 1 < src.length())
+        return QStringLiteral("MidiPilotMCP (%1)").arg(src.mid(colon + 1));
+    return QStringLiteral("MidiPilotMCP");
+}
+
 QJsonObject MidiPilotWidget::dispatchAction(const QJsonObject &response, bool showBubbles) {
     QString action = response["action"].toString();
 
@@ -1608,7 +1675,8 @@ QJsonObject MidiPilotWidget::applyAiEdits(const QJsonObject &response, bool show
     }
 
     // Start protocol action for undo support (each tool call gets its own undo step)
-    QString protoMsg = QStringLiteral("MidiPilot: Agent insert events — %1 (%2)")
+    QString protoMsg = QStringLiteral("%1: Agent insert events - %2 (%3)")
+                           .arg(protoPrefix(response))
                            .arg(track->name())
                            .arg(events.size());
     _file->protocol()->startNewAction(protoMsg);
@@ -1703,7 +1771,7 @@ QJsonObject MidiPilotWidget::applyAiDeletes(const QJsonObject &response, bool sh
     }
 
     _file->protocol()->startNewAction(
-        QStringLiteral("MidiPilot: Agent delete events (%1)").arg(toDelete.size()));
+        QStringLiteral("%1: Agent delete events (%2)").arg(protoPrefix(response)).arg(toDelete.size()));
 
     // Remove the specified events
     QList<MidiEvent *> remaining;
@@ -1748,7 +1816,7 @@ QJsonObject MidiPilotWidget::applyTrackAction(const QJsonObject &response, bool 
         int channel = response["channel"].toInt(-1);
 
         _file->protocol()->startNewAction(
-            QStringLiteral("MidiPilot: Agent create track — %1").arg(trackName));
+            QStringLiteral("%1: Agent create track - %2").arg(protoPrefix(response)).arg(trackName));
         _file->addTrack();
         MidiTrack *newTrack = _file->tracks()->at(_file->numTracks() - 1);
         newTrack->setName(trackName);
@@ -1759,6 +1827,7 @@ QJsonObject MidiPilotWidget::applyTrackAction(const QJsonObject &response, bool 
 
         result["success"] = true;
         result["trackIndex"] = _file->numTracks() - 1;
+        result["hint"] = QString("Remember to insert a program_change at tick 0 to set the instrument sound.");
 
     } else if (action == "rename_track") {
         int trackIndex = response["trackIndex"].toInt(-1);
@@ -1772,7 +1841,7 @@ QJsonObject MidiPilotWidget::applyTrackAction(const QJsonObject &response, bool 
         }
 
         _file->protocol()->startNewAction(
-            QStringLiteral("MidiPilot: Agent rename track %1 \u2192 %2").arg(trackIndex).arg(newName));
+            QStringLiteral("%1: Agent rename track %2 - %3").arg(protoPrefix(response)).arg(trackIndex).arg(newName));
         _file->track(trackIndex)->setName(newName);
         _file->protocol()->endAction();
 
@@ -1796,7 +1865,7 @@ QJsonObject MidiPilotWidget::applyTrackAction(const QJsonObject &response, bool 
         }
 
         _file->protocol()->startNewAction(
-            QStringLiteral("MidiPilot: Agent set channel — Track %1 \u2192 Ch %2").arg(trackIndex).arg(channel));
+            QStringLiteral("%1: Agent set channel - Track %2 - Ch %3").arg(protoPrefix(response)).arg(trackIndex).arg(channel));
         _file->track(trackIndex)->assignChannel(channel);
         _file->protocol()->endAction();
 
@@ -1870,8 +1939,8 @@ QJsonObject MidiPilotWidget::applyMoveToTrack(const QJsonObject &response, bool 
     MidiTrack *targetTrack = _file->track(targetTrackIndex);
 
     _file->protocol()->startNewAction(
-        QStringLiteral("MidiPilot: Agent move events \u2192 %1 (%2)")
-            .arg(targetTrack->name()).arg(toMove.size()));
+        QStringLiteral("%1: Agent move events - %2 (%3)")
+            .arg(protoPrefix(response)).arg(targetTrack->name()).arg(toMove.size()));
 
     for (MidiEvent *ev : toMove) {
         ev->setTrack(targetTrack, false);
@@ -1908,7 +1977,7 @@ QJsonObject MidiPilotWidget::applyTempoAction(const QJsonObject &response, bool 
     if (tick < 0) tick = 0;
 
     _file->protocol()->startNewAction(
-        QStringLiteral("MidiPilot: Agent set tempo \u2014 %1 BPM").arg(bpm));
+        QStringLiteral("%1: Agent set tempo - %2 BPM").arg(protoPrefix(response)).arg(bpm));
 
     // Check if there's already a tempo event at this tick
     QMultiMap<int, MidiEvent *> *tempoMap = _file->tempoEvents();
@@ -1980,7 +2049,7 @@ QJsonObject MidiPilotWidget::applyTimeSignatureAction(const QJsonObject &respons
     if (tick < 0) tick = 0;
 
     _file->protocol()->startNewAction(
-        QStringLiteral("MidiPilot: Agent set time sig \u2014 %1/%2").arg(num).arg(denomActual));
+        QStringLiteral("%1: Agent set time sig - %2/%3").arg(protoPrefix(response)).arg(num).arg(denomActual));
 
     // Check if there's already a time signature event at this tick
     QMultiMap<int, MidiEvent *> *tsMap = _file->timeSignatureEvents();
@@ -2052,8 +2121,8 @@ QJsonObject MidiPilotWidget::applySelectAndEdit(const QJsonObject &response, boo
     if (channel < 0) channel = NewNoteTool::editChannel();
 
     _file->protocol()->startNewAction(
-        QStringLiteral("MidiPilot: Agent edit events \u2014 %1 (%2)")
-            .arg(targetTrack->name()).arg(events.size()));
+        QStringLiteral("%1: Agent edit events - %2 (%3)")
+            .arg(protoPrefix(response)).arg(targetTrack->name()).arg(events.size()));
 
     // Find and remove existing events in the tick range on this track
     QList<MidiEvent *> *allEvents = _file->eventsBetween(startTick, endTick);
@@ -2128,8 +2197,8 @@ QJsonObject MidiPilotWidget::applySelectAndDelete(const QJsonObject &response, b
     MidiTrack *targetTrack = _file->track(trackIndex);
 
     _file->protocol()->startNewAction(
-        QStringLiteral("MidiPilot: Agent delete events \u2014 %1")
-            .arg(targetTrack->name()));
+        QStringLiteral("%1: Agent delete events - %2")
+            .arg(protoPrefix(response)).arg(targetTrack->name()));
 
     // Find and remove events in the tick range on this track
     QList<MidiEvent *> *allEvents = _file->eventsBetween(startTick, endTick);
@@ -2168,7 +2237,8 @@ QJsonObject MidiPilotWidget::applySelectAndDelete(const QJsonObject &response, b
 
 // === Context Window Management ===
 
-QJsonArray MidiPilotWidget::truncateHistory(const QJsonArray &history, int contextWindow) const
+QJsonArray MidiPilotWidget::truncateHistory(const QJsonArray &history, int contextWindow,
+                                            int systemPromptChars) const
 {
     if (history.isEmpty())
         return history;
@@ -2184,8 +2254,10 @@ QJsonArray MidiPilotWidget::truncateHistory(const QJsonArray &history, int conte
     }
 
     int estimatedTokens = totalChars / 4;
-    // Reserve 30% of context for system prompt + new request + response
-    int maxHistoryTokens = static_cast<int>(contextWindow * 0.7);
+    // Subtract system prompt tokens from budget, then reserve 25% for new request + response
+    int sysPromptTokens = systemPromptChars / 4;
+    int availableTokens = contextWindow - sysPromptTokens;
+    int maxHistoryTokens = static_cast<int>(availableTokens * 0.75);
 
     if (estimatedTokens <= maxHistoryTokens)
         return history; // fits fine

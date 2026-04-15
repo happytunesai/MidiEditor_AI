@@ -42,13 +42,6 @@
     }
     .cl-search input:focus { border-color: var(--accent); }
     .cl-search input::placeholder { color: var(--text-muted); }
-    .cl-search-hl {
-        background: rgba(88, 166, 255, 0.2);
-        color: var(--accent);
-        border-radius: 3px;
-        padding: 0.05em 0.25em;
-        font-weight: 600;
-    }
     .cl-no-results {
         display: none; text-align: center; padding: 3rem 1rem;
         color: var(--text-muted); font-size: 1.1rem;
@@ -225,20 +218,76 @@
 <div class="cl-no-results" id="cl-no-results">No matching releases found.</div>
 
 <div class="cl-timeline">
-<article class="cl-version latest" data-version="1.3.1">
+<article class="cl-version latest" data-version="1.3.2">
+<div class="cl-dot"></div>
+<div class="cl-version-head">
+<h2><a href="https://github.com/happytunesai/MidiEditor_AI/releases/tag/v1.3.2" target="_blank" rel="noopener noreferrer">v1.3.2</a></h2>
+<span class="cl-date">2026-04-15</span>
+<span class="cl-badge-latest">Latest</span>
+</div>
+<div class="cl-title">MCP Server, Documentation System &amp; Prompt Architecture v3</div>
+<ul class="cl-summary">
+<li><strong>MCP Server</strong> - Built-in Model Context Protocol server exposing all MidiEditor AI tools (15 tools) with security, rate limiting, and client identification</li>
+<li><strong>MCP toolbar toggle</strong> - Clickable MCP Server button in the toolbar (green when running, gray when stopped); toggleable in Customize Toolbar; synced with the Settings checkbox</li>
+<li><strong>Centralized Navigation System</strong> - Single-source-of-truth for all doc pages (navigation.js); automatic active page highlighting and easy maintenance</li>
+<li><strong>Global Audio Player System</strong> - Reusable audio player component (audio.css) with browser controls and download links</li>
+<li><strong>Enhanced Manual</strong> - Lightbox on all images/videos, audio demos with players, improved MCP documentation, showcase integration</li>
+<li><strong>Prompt Architecture v3</strong> - FFXIV simplification, token budgeting, conditional sections, retry logic, truncation recovery</li>
+<li><strong>Selection system overhaul</strong> - Fixed empty Event tab on note click, broken box selection, and broken deselect; reverted flawed SEL-001 early-return and O(n) comparison from v1.3.1/v1.3.1.2; <code class="hl">selectedEvents()</code> now returns by value to prevent internal list mutation</li>
+<li><strong>Fixed Lyric Visualizer not displaying during playback</strong> - v1.3.1 P3-008 timer idle stop exposed a latent bug: on Windows, <code class="hl">PlayerThread</code> is destroyed and recreated on each <code class="hl">play()</code>, breaking the <code class="hl">playerStarted</code>/<code class="hl">playerStopped</code> signal connections established at toolbar creation time; now reconnects all three signals in <code class="hl">play()</code> and <code class="hl">record()</code></li>
+<li><strong>Fixed MCP toolbar button showing as text placeholder</strong> - <code class="hl">_mcpServer</code> was created after <code class="hl">setupActions()</code>, so the toolbar widget check (<code class="hl">if _mcpServer</code>) always failed during construction; moved server creation before toolbar build</li>
+<li><strong>Fixed Lyric Timeline not showing after LRC import</strong> - <code class="hl">importLyricsLrc()</code> was missing <code class="hl">_lyricArea-&gt;setVisible(true)</code> that both SRT and plain text import had; the timeline stayed hidden while the Visualizer displayed lyrics correctly</li>
+</ul>
+<button class="cl-toggle" type="button"><span class="arrow">▶</span> Show full changelog</button>
+<div class="cl-details"><div class="cl-cat cat-medium"><h4><span class="cat-badge">🟡 Medium</span> MCP Server (Phase 23.5)</h4><ul><li><strong>Built-in MCP server</strong> - Exposes all MidiEditor AI tools via the Model Context Protocol (2025-03-26), allowing Claude Desktop, VS Code Copilot, Cursor, and other MCP clients to edit MIDI files directly</li><li><strong>Streamable HTTP transport</strong> - Single <code class="hl">/mcp</code> endpoint on localhost (default port 9420) with JSON-RPC 2.0</li><li><strong>MCP Resources</strong> - Three read-only resources: <code class="hl">midi://state</code>, <code class="hl">midi://tracks</code>, <code class="hl">midi://config</code></li><li><strong>Security</strong> - Localhost-only binding, Origin header validation, optional Bearer token auth, rate limiting (100 calls/min), session management with 1-hour expiry</li><li><strong>Settings UI</strong> - Enable/disable, port, auth token generation, and &quot;Copy MCP Config&quot; button for easy client setup</li><li><strong>MCP toolbar toggle</strong> - New <code class="hl">McpToggleWidget</code> adds a clickable MCP Server button to the toolbar; shows <code class="hl">mcp_on.png</code> (green) when the server is running, <code class="hl">mcp_off.png</code> when stopped; click to start/stop without opening Settings; selectable and repositionable in Customize Toolbar dialog; checkbox in Settings stays synced bidirectionally</li><li><strong>Client identification in Protocol panel</strong> - MCP actions show the client name and model (e.g. &quot;MidiPilotMCP (VS Code Copilot Claude Opus 4.6): Agent insert events&quot;) - parsed from <code class="hl">clientInfo</code> sent during MCP <code class="hl">initialize</code></li><li><strong>MCP Documentation</strong> - Setup guide for Claude Desktop, VS Code, Cursor, and Windsurf in the built-in manual; removed unnecessary restart requirement (server starts immediately when toggled)</li><li><strong>MCP Demo</strong> - Metal remix of Mozart&#x27;s Eine kleine Nachtmusik (20 measures with guitar solo) composed via MCP protocol; includes MIDI file, WAV audio with embedded player, and screenshots in both manual and showcase</li></ul></div>
+<div class="cl-cat cat-medium"><h4><span class="cat-badge">🟡 Medium</span> Documentation System</h4><ul><li><strong>Centralized Navigation (navigation.js)</strong> - Single file controls all 17 doc pages; auto-injects doc-subnav on every page with automatic active link highlighting; new pages inherit full nav by including 2 scripts</li><li><strong>Global Audio Player System (audio.css)</strong> - Reusable <code class="hl">.audio-box</code> component with native browser player, download links, and dark theme; added to all 20 pages</li><li><strong>Lightbox on All Pages</strong> - Images and videos click-to-enlarge; automatically excludes tiny icons and video fallbacks; no special markup required</li><li><strong>Showcase Enhancement</strong> - Added MCP demo (webp) as slide 11 in the carousel; now 11 slides showing all major features</li></ul></div>
+<div class="cl-cat cat-medium"><h4><span class="cat-badge">🟡 Medium</span> Prompt Architecture v3 (Phase 23.x)</h4><ul><li><strong>FFXIV prompt simplification</strong> - Streamlined FFXIV context for lower token usage</li><li><strong>Enhanced tool result summaries</strong> - Improved tool output formatting for AI readability</li><li><strong>Token budgeting</strong> - Smart history truncation when approaching context window limits</li><li><strong>Conditional prompt sections</strong> - Only include drum/guitar sections when relevant to the file</li><li><strong>GM program_change reminder</strong> - Strengthened create_track and insert_events tool descriptions</li><li><strong>Retry logic</strong> - Automatic retry on 429/5xx errors with exponential backoff</li><li><strong>Truncation auto-recovery</strong> - Detects and retries when API response is truncated</li><li><strong>Effort-based prompt selection</strong> - Low/medium/high effort selects compact/standard/detailed prompts</li></ul></div>
+<div class="cl-cat cat-fix"><h4><span class="cat-badge">🔧 Fixed</span> Selection System Overhaul (3 compounding bugs)</h4><ul><li><strong>Fixed empty Event tab when clicking a note</strong> - <code class="hl">selectedEvents()</code> now returns by value instead of by reference. Code that previously accumulated events through the reference (EventTool, SelectTool) now builds a local list and calls <code class="hl">setSelection()</code> once. The SEL-001 early-return optimization has been removed entirely.</li><li><strong>Fixed box selection not selecting any events</strong> - <code class="hl">SelectTool::release()</code> called <code class="hl">selectEvent(event, false, false, false)</code> with <code class="hl">setSelection=false</code>, relying on reference mutation to accumulate events. With return-by-value, each call modified a throwaway copy. Rewritten to build a local <code class="hl">QList&lt;MidiEvent*&gt;</code> and call <code class="hl">setSelection()</code> once with the complete list.</li><li><strong>Fixed deselect not updating Event tab</strong> - <code class="hl">EventTool::deselectEvent()</code> removed an event from the local copy but never called <code class="hl">setSelection()</code> to propagate the change. Added <code class="hl">setSelection(selected)</code> after removal.</li><li><strong>Fixed Protocol::endAction() not emitting signals</strong> - <code class="hl">endAction()</code> only emitted <code class="hl">actionFinished()</code> and <code class="hl">protocolChanged()</code> when protocol items were recorded. Since selection changes don&#x27;t record protocol items, the signals never fired and <code class="hl">EventWidget::reload()</code> was never triggered. Now always emits signals and marks file unsaved.</li><li><strong>Reverted v1.3.1.2 O(n) comparison</strong> - The &lt;200 event threshold comparison in <code class="hl">setSelection()</code> is no longer needed since the early-return was removed entirely.</li><li><strong>Files modified:</strong> <code class="hl">Selection.h</code>, <code class="hl">Selection.cpp</code>, <code class="hl">EventTool.cpp</code>, <code class="hl">SelectTool.cpp</code>, <code class="hl">EditorContext.cpp</code>, <code class="hl">MainWindow.cpp</code>, <code class="hl">Protocol.cpp</code></li></ul></div>
+<div class="cl-cat cat-fix"><h4><span class="cat-badge">🔧 Fixed</span> Bug Fixes</h4><ul><li><strong>Fixed Lyric Visualizer not displaying during playback</strong> - The v1.3.1 P3-008 fix (timer stops when idle) exposed a latent bug: on Windows, <code class="hl">MidiPlayer::play()</code> deletes and recreates the <code class="hl">PlayerThread</code> object, breaking the <code class="hl">playerStarted</code>/<code class="hl">playerStopped</code> signal connections established at toolbar creation time. The timer only restarts via <code class="hl">playbackStarted()</code>, which never fired because it was connected to the destroyed object. Before P3-008 the timer ran at 30fps forever, masking the broken connection. Fixed by reconnecting all three visualizer signals (<code class="hl">playerStarted</code>, <code class="hl">playerStopped</code>, <code class="hl">timeMsChanged</code>) in both <code class="hl">play()</code> and <code class="hl">record()</code></li><li><strong>Fixed MCP toolbar button showing as text placeholder</strong> - <code class="hl">_mcpServer</code> was created after <code class="hl">setupActions()</code> built the toolbar, so the check <code class="hl">if (actionId == &quot;mcp_toggle&quot; &amp;&amp; _mcpServer)</code> always failed during construction, falling through to the placeholder text path. Moved <code class="hl">_mcpServer</code> creation to before <code class="hl">setupActions()</code> and removed the duplicate creation at the later location</li><li><strong>Fixed Lyric Timeline not showing after LRC import</strong> - <code class="hl">importLyricsLrc()</code> did not call <code class="hl">_lyricArea-&gt;setVisible(true)</code> or update <code class="hl">_toggleLyricTimeline</code>, so the timeline lane stayed hidden after importing an LRC file. Both <code class="hl">importLyricsSrt()</code> and <code class="hl">importLyricsText()</code> already had this. The Lyric Visualizer in the toolbar displayed lyrics correctly because it doesn&#x27;t depend on <code class="hl">_lyricArea</code> visibility</li></ul></div>
+<div class="cl-cat cat-feature"><h4><span class="cat-badge">✨ Added</span> Files Added/Modified</h4><ul><li><strong>New:</strong> <code class="hl">src/gui/McpToggleWidget.h/.cpp</code> - MCP Server toolbar toggle button widget</li><li><strong>New:</strong> <code class="hl">navigation.js</code> (2.6 KB) - Centralized navigation controller</li><li><strong>New:</strong> <code class="hl">audio.css</code> (620 bytes) - Global audio player styles</li><li><strong>Modified:</strong> All 17 doc pages - Added centralized navigation and audio support</li><li><strong>Modified:</strong> mcp-server.html - Added MCP demo with audio player, updated Quick Start</li><li><strong>Modified:</strong> index.html - Added MCP demo slide to showcase</li><li><strong>Added:</strong> midieditor_ai_MCP.mid, midieditor_ai_MCP.wav (manual demos)</li><li><strong>Added:</strong> Screenshots and webp in manual/screenshots/</li></ul></div></div>
+</article>
+<article class="cl-version" data-version="1.3.1.2">
+<div class="cl-dot"></div>
+<div class="cl-version-head">
+<h2><a href="https://github.com/happytunesai/MidiEditor_AI/releases/tag/v1.3.1.2" target="_blank" rel="noopener noreferrer">v1.3.1.2</a></h2>
+<span class="cl-date">2026-04-12</span>
+</div>
+<div class="cl-title">Hotfix: Selection Regression (superseded by v1.3.2)</div>
+<div class="cl-blockquote">Note:** Both fixes below were reverted in v1.3.2 and replaced by a proper architectural fix (<code class="hl">selectedEvents()</code> returns by value, SEL-001 early-return removed entirely). See v1.3.2 &quot;Selection System Overhaul&quot; for details.</div>
+<ul class="cl-summary">
+<li><strong>Fixed Ctrl+A / large selection freezing the UI</strong> - <code class="hl">batchSelectEvents()</code> obtained a reference to the internal <code class="hl">_selectedEvents</code> list and modified it in-place (clear + append), so <code class="hl">setSelection()</code>&#x27;s equality check (SEL-001) always saw them as identical and returned early - no protocol entry, no EventWidget update, no Ctrl+T. Fixed by building a new local list instead of mutating through the reference.</li>
+<li><strong>Fixed O(n) selection comparison blocking large files</strong> - <code class="hl">setSelection()</code> did an element-by-element <code class="hl">QList::operator==</code> on every call, taking seconds for 4000+ events. Now only performs the full comparison for selections under 200 events; larger selections skip the check entirely.</li>
+</ul>
+</article>
+<article class="cl-version" data-version="1.3.1.1">
+<div class="cl-dot"></div>
+<div class="cl-version-head">
+<h2><a href="https://github.com/happytunesai/MidiEditor_AI/releases/tag/v1.3.1.1" target="_blank" rel="noopener noreferrer">v1.3.1.1</a></h2>
+<span class="cl-date">2026-04-12</span>
+</div>
+<div class="cl-title">Hotfix: Post-Update Changelog</div>
+<ul class="cl-summary">
+<li><strong>Fixed &quot;Could not load patch notes&quot; in post-update and update-available dialogs</strong> - <code class="hl">fetchChangelog()</code> shared the same <code class="hl">QNetworkAccessManager</code> whose <code class="hl">finished</code> signal was already connected to <code class="hl">onResult()</code>, consuming the response before the changelog lambda could read it. Additionally, the GitHub Pages URL redirected to the custom domain, but Qt6 does not follow redirects by default. Fixed by using a separate <code class="hl">QNetworkAccessManager</code>, correcting the URL to <code class="hl">midieditor-ai.de</code>, and adding <code class="hl">NoLessSafeRedirectPolicy</code> as a safety net.</li>
+</ul>
+</article>
+<article class="cl-version" data-version="1.3.1">
 <div class="cl-dot"></div>
 <div class="cl-version-head">
 <h2><a href="https://github.com/happytunesai/MidiEditor_AI/releases/tag/v1.3.1" target="_blank" rel="noopener noreferrer">v1.3.1</a></h2>
 <span class="cl-date">2026-04-12</span>
-<span class="cl-badge-latest">Latest</span>
 </div>
 <div class="cl-title">Bugfix Release</div>
 <ul class="cl-summary">
-<li><strong>15 bug fixes</strong> across AI subsystem, lyric editor, clipboard, selection, FluidSynth export, and FFXIV Channel Fixer - memory leaks, use-after-free, undo spam, overlap prevention, and performance improvements</li>
+<li><strong>16 bug fixes</strong> across AI subsystem, lyric editor, clipboard, selection, FluidSynth export, and FFXIV Channel Fixer - memory leaks, use-after-free, undo spam, overlap prevention, and performance improvements</li>
+<li><strong>Fix FFXIV Channel Fixer undo crash</strong> - Reverting Fix XIV Channels (Tier 2 or Tier 3) caused a crash due to use-after-free; removed incorrect event deletion that conflicted with the Protocol undo system</li>
 <li><strong>Documentation fixes</strong> - Fixed lyrics manual page layout, removed dead CLI argument documentation</li>
-<li><strong>Website UX tweaks</strong> - Showcase carousel videos, 16:9 aspect ratio, darker caption bar, What's New section updates</li>
-<li><strong>Auto-updater enhancement</strong> - Custom update dialogs with changelog display, post-update welcome dialog</li>
+<li><strong>Website UX tweaks</strong> - Showcase carousel videos, 16:9 aspect ratio, darker caption bar, What&#x27;s New section updates</li>
 </ul>
+<button class="cl-toggle" type="button"><span class="arrow">▶</span> Show full changelog</button>
+<div class="cl-details"><div class="cl-cat cat-fix"><h4><span class="cat-badge">🔧 Fixed</span> Bug Fixes (Pass 4 - AI Subsystem &amp; Core)</h4><ul><li><strong>AI cancel safety</strong> — Disconnect network reply signals before <code class="hl">abort()</code> in streaming cancel, preventing potential use-after-free (AI-002)</li><li><strong>Agent cancel after processEvents</strong> — Added <code class="hl">_cancelled</code> check immediately after <code class="hl">QCoreApplication::processEvents()</code> in the tool-call loop (AI-001)</li><li><strong>Conversation store O(1) lookup</strong> — <code class="hl">loadConversation()</code> now uses direct path lookup instead of scanning all JSON files (AI-009)</li><li><strong>FFXIV Channel Fixer memory leaks</strong> — Removed events (ProgChange, CC, PitchBend) are now properly <code class="hl">delete</code>d in the CLEAN phase (AI-010, AI-011)</li><li><strong>Selection undo spam</strong> — <code class="hl">setSelection()</code> returns early when selection is unchanged, avoiding redundant Protocol entries (SEL-001) — <strong>reverted in v1.3.2</strong> (caused empty Event tab; see Selection System Overhaul)</li><li><strong>SharedClipboard dead catch</strong> — Removed <code class="hl">try/catch(...)</code> around <code class="hl">delete</code> (destructors are noexcept in C++11+) (CLIP-001)</li><li><strong>Export temp file cleanup</strong> — <code class="hl">ExportOptions::deleteMidiFileAfterExport</code> flag is now honored; temp MIDI files are deleted after export (FLUID-002)</li><li><strong>Key signature scan</strong> — <code class="hl">captureKeySignature()</code> now only scans channel 18 (meta) instead of all 19 channels (AI-008)</li><li><strong>API log truncation</strong> — Non-streaming request/test logs now truncate body to 4000 chars, matching the streaming pattern (AI-005)</li></ul></div>
+<div class="cl-cat cat-fix"><h4><span class="cat-badge">🔧 Fixed</span> Bug Fixes (Remaining Lyric &amp; AI Bugs)</h4><ul><li><strong>Insert overlap prevention</strong> — Double-click, Insert Before, and Insert After now clamp new blocks to avoid overlapping adjacent blocks (P2-007)</li><li><strong>Split encapsulation</strong> — Split operation now uses <code class="hl">addBlockDirect()</code> instead of calling <code class="hl">insertSorted()</code> + emitting <code class="hl">lyricsChanged()</code> from outside LyricManager (P3-007)</li><li><strong>Visualizer timer idle stop</strong> — <code class="hl">LyricVisualizerWidget</code> timer now stops when not playing and fully faded in, eliminating unnecessary 30fps CPU usage (P3-008)</li><li><strong>Multi-timestamp LRC import</strong> — LRC import now handles karaoke-style multi-timestamp lines like <code class="hl">[00:12.34][01:56.78]Text</code>, creating one block per timestamp (P3-011)</li><li><strong>Truncated response logging</strong> — Truncated API responses now log partial content (up to 500 chars) for debugging before emitting the error (AI-004)</li><li><strong>FFXIV polyphony sort</strong> — <code class="hl">execValidateFFXIV</code> now sorts notes by tick before the polyphony check, ensuring the first reported overlap is chronologically first; inner loop early-breaks for better performance (AI-006)</li></ul></div>
+<div class="cl-cat cat-fix"><h4><span class="cat-badge">🔧 Fixed</span> Documentation Fixes</h4><ul><li><strong>Fixed lyrics manual page</strong> — &quot;Lyric Metadata&quot; section was a mismatch of Customize Toolbar and metadata content. Split into two proper sections: &quot;Customize Toolbar&quot; (toggle Lyric Visualizer on/off) and &quot;Lyric Settings &amp; Metadata&quot; (LRC metadata fields with <code class="hl">lyric_settings.png</code> screenshot)</li><li><strong>Removed dead documentation</strong> — &quot;Larger Playback Toolbar&quot; section in setup.html referenced a <code class="hl">--large-playback-toolbar</code> CLI argument that doesn&#x27;t exist in the codebase. Removed section and screenshot reference</li></ul></div>
+<div class="cl-cat cat-medium"><h4><span class="cat-badge">🟡 Medium</span> Website UX Tweaks</h4><ul><li><strong>Showcase carousel videos</strong> — Replaced static screenshots with webm videos for MidiPilot, Lyric Visualizer, and other features</li><li><strong>Showcase aspect ratio</strong> — All slides now use a fixed 16:9 aspect ratio with <code class="hl">object-fit: cover</code> cropping for a consistent, clean layout; click any slide for the full uncropped view in the lightbox</li><li><strong>Showcase caption bar</strong> — Darker, taller gradient overlay for better text readability</li><li><strong>What&#x27;s New section</strong> — Fixed year (2025 to 2026), updated version to v1.3.1, added bug fix count</li></ul></div></div>
 </article>
 <article class="cl-version" data-version="1.3.0">
 <div class="cl-dot"></div>
@@ -248,14 +297,23 @@
 </div>
 <div class="cl-title">Lyric Editor &amp; Visualizer</div>
 <ul class="cl-summary">
-<li><strong>Lyric Timeline</strong> - New dedicated lane below the piano roll for visual lyric editing (add, delete, move, resize, split, merge, inline text editing)</li>
-<li><strong>Sync Lyrics dialog</strong> - Tap-to-sync: hold Space while each phrase is sung to capture precise timing in real time</li>
-<li><strong>Import/Export</strong> - Import from plain text, SRT subtitles, or MIDI Text/Lyric events; export to SRT or LRC (karaoke) format</li>
-<li><strong>Lyric Visualizer</strong> - Karaoke-style toolbar widget with left-to-right color sweep, two-line display (current + next phrase)</li>
-<li><strong>Full undo/redo</strong> - All lyric operations integrate with the Protocol system for complete undo/redo support</li>
-<li><strong>FluidSynth fixes</strong> - synth.reverb.engine compatibility guard for FluidSynth 2.5.2; bundled SoundFonts survive clean builds</li>
-<li><strong>FFXIV Channel Fixer</strong> - 5 Tier 3 bugs fixed: wrong programs, broken renames, unwanted event migration</li>
+<li><strong>Lyric Timeline</strong> — New dedicated lane below the piano roll for visual lyric editing (add, delete, move, resize, split, merge, inline text editing)</li>
+<li><strong>Sync Lyrics dialog</strong> — Tap-to-sync: hold Space while each phrase is sung to capture precise timing in real time</li>
+<li><strong>Import/Export</strong> — Import from plain text, SRT subtitles, or MIDI Text/Lyric events; export to SRT or LRC (karaoke) format</li>
+<li><strong>Lyric Visualizer</strong> — Karaoke-style toolbar widget with left-to-right color sweep, two-line display (current + next phrase), dynamic sizing (200–600px)</li>
+<li><strong>Full undo/redo</strong> — All lyric operations integrate with the Protocol system for complete undo/redo support</li>
+<li><strong>FluidSynth fixes</strong> — <code class="hl">synth.reverb.engine</code> compatibility guard for FluidSynth 2.5.2; bundled SoundFonts survive clean builds</li>
+<li><strong>FFXIV Channel Fixer — 5 Tier 3 bugs fixed</strong> — wrong programs, broken renames, unwanted event migration; <code class="hl">progAtTick(0)</code> now single source of truth for channel programs</li>
+<li><strong>Website &amp; documentation</strong> — New Lyrics manual page, version bump to 1.3.0 across all pages, GIF→webm migration for bandwidth savings, video lightbox support</li>
 </ul>
+<button class="cl-toggle" type="button"><span class="arrow">▶</span> Show full changelog</button>
+<div class="cl-details"><div class="cl-cat cat-medium"><h4><span class="cat-badge">🟡 Medium</span> Lyric Timeline Widget</h4><ul><li><strong>New Lyric Timeline lane</strong> — A dedicated lane below the piano roll displays lyric blocks</li><li><strong>Full lyric editing</strong> — Add, delete, move, resize, split, and merge lyric blocks directly</li><li><strong>Sync Lyrics dialog</strong> — Tap-to-sync mode: play the song and hold Space while each phrase</li><li><strong>Import lyrics</strong> — Import from plain text (one phrase per line), SRT subtitle files</li><li><strong>Export lyrics</strong> — Export to SRT subtitle format or LRC (karaoke) format. LRC export</li><li><strong>Undo/Redo support</strong> — All lyric operations (add, delete, move, resize, edit, split,</li><li><strong>Context menu</strong> — Right-click any block for Edit Text, Delete, Split at Cursor, Merge</li></ul></div>
+<div class="cl-cat cat-medium"><h4><span class="cat-badge">🟡 Medium</span> Lyric Visualizer (Karaoke Display)</h4><ul><li><strong>Karaoke toolbar widget</strong> — A compact toolbar widget that shows the current lyric phrase</li><li><strong>Dynamic sizing</strong> — The visualizer box dynamically expands (200–600px) based on the</li><li><strong>Always visible</strong> — Stays visible at all times (matching the MIDI Visualizer pattern).</li><li><strong>Full toolbar integration</strong> — Appears in the Customize Toolbar dialog with its own icon,</li><li><strong>Toolbar integration fixes</strong> — Added <code class="hl">lyric_visualizer</code> to all three &quot;single source of</li></ul></div>
+<div class="cl-cat cat-fix"><h4><span class="cat-badge">🔧 Fixed</span> FluidSynth Fixes</h4><ul><li><strong><code class="hl">synth.reverb.engine</code> compatibility</strong> — FluidSynth 2.5.2 doesn&#x27;t support the</li><li><strong>Bundled SoundFonts survive clean builds</strong> — Added CMake post-build rule to copy</li></ul></div>
+<div class="cl-cat cat-tech"><h4><span class="cat-badge">📝 Notes</span> Technical Notes</h4><ul><li><strong>New files:</strong> <code class="hl">src/gui/LyricVisualizerWidget.h/.cpp</code>, <code class="hl">run_environment/graphics/tool/lyric_visualizer.png</code></li><li><strong>Modified files:</strong> <code class="hl">MainWindow.h/.cpp</code> (action registration, 4 toolbar creation sites, 2 migration blocks, signal connections), <code class="hl">LayoutSettingsWidget.cpp</code> (ToolbarActionInfo entry, 3 single-source-of-truth methods, default order/distribution), <code class="hl">resources.qrc</code> (icon), <code class="hl">FluidSynthEngine.cpp</code> (reverb engine guard), <code class="hl">CMakeLists.txt</code> (SoundFont copy rule)</li><li><strong>Lyric Editor files (from Phase 21):</strong> <code class="hl">src/midi/LyricManager.h/.cpp</code>, <code class="hl">src/midi/LyricBlock.h</code>, <code class="hl">src/gui/LyricTimelineWidget.h/.cpp</code>, <code class="hl">src/gui/LyricEditorDialog.h/.cpp</code>, <code class="hl">src/gui/SyncLyricsDialog.h/.cpp</code></li></ul></div>
+<div class="cl-cat cat-medium"><h4><span class="cat-badge">🟡 Medium</span> Website &amp; Documentation</h4><ul><li><strong>New Lyrics manual page</strong> — Full <code class="hl">manual/lyrics.html</code> with 10+ sections: Timeline overview,</li><li><strong>Version bump to 1.3.0</strong> — Updated <code class="hl">CMakeLists.txt</code>, <code class="hl">README.md</code>, <code class="hl">index.html</code> (4 locations),</li><li><strong>README.md updated</strong> — 3 new feature rows, 2 architecture entries, full Lyric Editor section,</li><li><strong>Navigation updated on all pages</strong> — Doc-subnav (🎤 Lyrics link) added to all 16 doc pages;</li><li><strong>GIF→webm migration</strong> — All 11 standalone GIF <code class="hl">&lt;img&gt;</code> tags across 8 HTML pages replaced with</li><li><strong>Video lightbox</strong> — Extended <code class="hl">lightbox.js</code> to support click-to-enlarge on <code class="hl">&lt;video&gt;</code> elements.</li><li><strong>Lightbox added to lyrics page</strong> — Added missing <code class="hl">lightbox.js</code> script include; wrapped</li><li><strong>Fixed mojibake in FFXIV page</strong> — Corrected <code class="hl">â€&quot;</code> (corrupted UTF-8 em dash) to proper <code class="hl">—</code></li><li><strong>Lightbox click-to-close on images</strong> — Fixed enlarged images not closing when clicked (only</li></ul></div>
+<div class="cl-cat cat-fix"><h4><span class="cat-badge">🔧 Fixed</span> FFXIV Channel Fixer — Tier 3 Overhaul (5 bugs)</h4><ul><li><strong>Bug #1:</strong> Reserved guitar channels (from Tier 2) were invisible to rename/switch logic — <code class="hl">allGuitarChs</code> now includes <code class="hl">guitarChToProgram</code> channels</li><li><strong>Bug #2:</strong> Track name was used instead of actual channel program for PC insertion and <code class="hl">chToVariant</code> — now uses <code class="hl">guitarChToProgram</code> as primary source</li><li><strong>Bug #3:</strong> Duplicate guitar track names caused event migration between channels — removed all duplicate logic from Tier 3 (every track keeps its own channel)</li><li><strong>Bug #4:</strong> Rename on switching tracks (notes on multiple channels) was unreliable — now only renames single-channel guitar tracks</li><li><strong>Bug #5:</strong> <code class="hl">guitarChToProgram</code> scan took the first PC at tick 0 instead of the effective one — now uses <code class="hl">channel-&gt;progAtTick(0)</code> (matches channel view display)</li><li><strong>Files modified:</strong> <code class="hl">src/ai/FFXIVChannelFixer.cpp</code></li></ul></div>
+<div class="cl-cat cat-fix"><h4><span class="cat-badge">🔧 Fixed</span> Lyric System Bug Fixes (Pass 3 Audit — 7 fixes)</h4><ul><li><strong>P3-001 (Critical)</strong> — <code class="hl">lyricsChanged</code> signal unconditionally cleared the timeline selection</li><li><strong>P3-002 (High)</strong> — <code class="hl">importLyricsLrc()</code> called <code class="hl">addBlock()</code> in a loop, each creating its own</li><li><strong>P3-003 (Medium)</strong> — Consecutive MIDI Text events at the same tick produced zero-duration</li><li><strong>P3-004 (Medium)</strong> — <code class="hl">LyricTimelineWidget::paintEvent()</code> directly overwrote the <code class="hl">_file</code></li><li><strong>P3-005 (Medium)</strong> — <code class="hl">LyricSyncDialog::onDone()</code> did not re-sort blocks after applying</li><li><strong>P3-006 (Medium)</strong> — <code class="hl">LyricTimelineWidget::setFile()</code> never disconnected the old file&#x27;s</li><li><strong>P3-009 (Low)</strong> — <code class="hl">LyricVisualizerWidget::onLyricsChanged()</code> did not reset</li></ul></div></div>
 </article>
 <article class="cl-version" data-version="1.2.2">
 <div class="cl-dot"></div>
@@ -694,61 +752,14 @@ document.querySelectorAll('.cl-toggle').forEach(btn => {
 const input = document.getElementById('cl-filter');
 const versions = document.querySelectorAll('.cl-version');
 const noResults = document.getElementById('cl-no-results');
-
-function clearHighlights(root) {
-    root.querySelectorAll('mark.cl-search-hl').forEach(m => {
-        const parent = m.parentNode;
-        parent.replaceChild(document.createTextNode(m.textContent), m);
-        parent.normalize();
-    });
-}
-
-function highlightText(node, re) {
-    if (node.nodeType === 3) { /* text node */
-        const match = node.textContent.match(re);
-        if (!match) return;
-        const span = document.createElement('mark');
-        span.className = 'cl-search-hl';
-        const after = node.splitText(match.index);
-        after.textContent = after.textContent.substring(match[0].length);
-        span.textContent = match[0];
-        node.parentNode.insertBefore(span, after);
-        highlightText(after, re); /* continue for remaining matches */
-    } else if (node.nodeType === 1 && node.tagName !== 'MARK') {
-        Array.from(node.childNodes).forEach(c => highlightText(c, re));
-    }
-}
-
-function escapeRegex(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
-
 input.addEventListener('input', () => {
     const q = input.value.toLowerCase().trim();
     let visible = 0;
     versions.forEach(v => {
-        /* Clear previous highlights */
-        const title = v.querySelector('.cl-title');
-        const summary = v.querySelector('.cl-summary');
-        if (title) clearHighlights(title);
-        if (summary) clearHighlights(summary);
-
-        /* Only search version number, title, and visible summary — not hidden details */
-        const head = v.querySelector('.cl-version-head');
-        const searchable = [
-            v.dataset.version || '',
-            head ? head.textContent : '',
-            title ? title.textContent : '',
-            summary ? summary.textContent : ''
-        ].join(' ').toLowerCase();
-        const show = !q || searchable.includes(q);
+        const text = v.textContent.toLowerCase();
+        const show = !q || text.includes(q);
         v.style.display = show ? '' : 'none';
         if (show) visible++;
-
-        /* Highlight matches in visible text */
-        if (q && show) {
-            const re = new RegExp(escapeRegex(q), 'i');
-            if (title) highlightText(title, re);
-            if (summary) highlightText(summary, re);
-        }
     });
     noResults.style.display = visible === 0 ? 'block' : 'none';
 });

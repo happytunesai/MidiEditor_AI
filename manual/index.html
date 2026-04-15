@@ -15,6 +15,7 @@
 <link rel="preconnect" href="https://github.com" crossorigin>
 <meta name="theme-color" content="#0d1117">
 <link rel="stylesheet" href="site.css">
+  <link rel="stylesheet" href="audio.css">
 
 <style>
     /* ---- Inline: Chat Demo (slimmed from manual) ---- */
@@ -152,7 +153,7 @@
     "description": "AI-powered MIDI editor with intelligent copilot, Guitar Pro import, FFXIV bard mode, and FluidSynth playback.",
     "url": "https://midieditor-ai.de",
     "downloadUrl": "https://github.com/happytunesai/MidiEditor_AI/releases/latest",
-    "softwareVersion": "1.3.1",
+    "softwareVersion": "1.3.2",
     "license": "https://github.com/happytunesai/MidiEditor_AI/blob/main/LICENSE",
     "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
 }
@@ -182,6 +183,7 @@
                 <a href="themes.html">Themes &amp; Appearance</a>
                 <a href="lyrics.html">Lyric Editor</a>
                 <a href="soundfont.html">SoundFonts &amp; FluidSynth</a>
+                <a href="mcp-server.html">MCP Server</a>
                 <a href="setup.html">Setup &amp; Installation</a>
             </div>
         </li>
@@ -212,7 +214,7 @@
              onerror="this.parentElement.style.display='none';">
     </div>
 
-    <span class="hero-badge">v1.3.1 &middot; Open Source &middot; Windows</span>
+    <span class="hero-badge">v1.3.2 &middot; Open Source &middot; Windows</span>
 
     <h1 class="hero-title">
         The <span class="text-gradient">AI-Powered</span> MIDI Editor
@@ -224,7 +226,7 @@
 
     <div class="hero-actions">
         <a href="download.html" class="btn btn-primary">
-            &#x2B07; Download v1.3.1
+            &#x2B07; Download v1.3.2
         </a>
         <a href="docs-index.html" class="btn btn-secondary" target="_blank" rel="noopener noreferrer">
             &#x1F4D6; Documentation
@@ -406,6 +408,10 @@
                 </video>
                 <div class="slide-caption">FFXIV Channel Fixer - Preserve mode keeps your original arrangement</div>
             </div>
+            <div class="showcase-slide">
+                <img src="screenshots/midieditor_ai_mcp_test.webp" alt="MCP Server Demo - Metal Mozart Remix" width="1200" loading="lazy">
+                <div class="slide-caption">MCP Server - AI-composed metal remix with MCP protocol control</div>
+            </div>
         </div>
         <button class="showcase-btn prev" aria-label="Previous slide">&#x276E;</button>
         <button class="showcase-btn next" aria-label="Next slide">&#x276F;</button>
@@ -420,6 +426,7 @@
             <button class="dot" aria-label="Slide 8"></button>
             <button class="dot" aria-label="Slide 9"></button>
             <button class="dot" aria-label="Slide 10"></button>
+            <button class="dot" aria-label="Slide 11"></button>
         </div>
     </div>
 </div>
@@ -484,15 +491,14 @@
     </div>
     <div class="whats-new reveal">
         <span class="latest-badge">Latest</span>
-        <h3>v1.3.1 - 2026</h3>
+        <h3>v1.3.2 - April 2026</h3>
         <ul>
-            <li><strong>17 bug fixes</strong> - AI subsystem, lyric editor, clipboard, selection, FluidSynth export, and documentation</li>
-            <li><strong>Lyric Editor</strong> - Full timeline lane with drag, resize, split, merge, inline editing, and multi-select</li>
-            <li><strong>Lyric Visualizer</strong> - Karaoke-style toolbar widget with left-to-right color sweep and two-line display</li>
-            <li><strong>Tap-to-Sync</strong> - Time lyrics to music by holding Space during playback, with teleprompter view</li>
-            <li><strong>Lyric Import/Export</strong> - Plain text, SRT subtitles, LRC karaoke files, and MIDI text events</li>
-            <li><strong>FFXIV Channel Fixer Tier 3</strong> - Complete overhaul with 5 critical bug fixes</li>
-            <li><strong>FluidSynth fixes</strong> - Improved SoundFont handling and FFXIV SoundFont Mode</li>
+            <li><strong>MCP Server</strong> - Built-in Model Context Protocol server exposing 15 tools to Claude Desktop, VS Code Copilot, Cursor, and other MCP clients</li>
+            <li><strong>MCP toolbar toggle</strong> - Clickable toolbar button (green/gray) to start/stop MCP server without opening Settings</li>
+            <li><strong>Documentation System</strong> - Centralized navigation, global audio player, lightbox on all pages</li>
+            <li><strong>Prompt Architecture v3</strong> - Token budgeting, conditional sections, retry logic, truncation recovery</li>
+            <li><strong>Selection system overhaul</strong> - Fixed 3 compounding bugs from v1.3.2 (empty Event tab, broken box selection, broken deselect)</li>
+            <li><strong>4 bug fixes</strong> - Lyric Visualizer playback, MCP toolbar placeholder, Lyric Timeline LRC import, PlayerThread signal reconnection</li>
         </ul>
         <a href="changelog.html" class="changelog-link">View Full Changelog &rarr;</a>
     </div>
@@ -530,6 +536,7 @@
             <tr><td>Context Menu (Move Track/Channel/Transpose)</td><td><span class="cross">&#x2716;</span></td><td><span class="check">&#x2714;</span></td></tr>
             <tr><td>Octave Transpose</td><td><span class="cross">&#x2716;</span></td><td><span class="check">&#x2714;</span></td></tr>
             <tr><td>Lyric Editor &amp; Visualizer</td><td><span class="cross">&#x2716;</span></td><td><span class="check">&#x2714;</span></td></tr>
+            <tr><td>MCP Server (AI Tool Protocol)</td><td><span class="cross">&#x2716;</span></td><td><span class="check">&#x2714;</span></td></tr>
         </tbody>
     </table>
     </div>
@@ -545,7 +552,7 @@
     </div>
     <div class="hero-actions reveal" style="margin-bottom: 1.5rem;">
         <a href="download.html" class="btn btn-primary" style="font-size: 1.15rem; padding: 1rem 2.5rem;">
-            &#x2B07; Download MidiEditor AI v1.3.1
+            &#x2B07; Download MidiEditor AI v1.3.2
         </a>
     </div>
     <p class="reveal" style="color: var(--text-muted); font-size: .9rem;">

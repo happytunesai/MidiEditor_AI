@@ -8,6 +8,7 @@
 <meta name="theme-color" content="#0d1117">
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="site.css">
+  <link rel="stylesheet" href="audio.css">
 <style>
 /* Hero section */
 .hero {
@@ -396,6 +397,7 @@
                 <a href="themes.html">Themes &amp; Appearance</a>
                 <a href="lyrics.html">Lyric Editor</a>
                 <a href="soundfont.html">SoundFonts &amp; FluidSynth</a>
+                <a href="mcp-server.html">MCP Server</a>
                 <a href="setup.html">Setup &amp; Installation</a>
             </div>
         </li>
@@ -407,26 +409,7 @@
 </nav>
 
 
-<!-- doc-subnav:start -->
-<div class="doc-subnav" role="navigation" aria-label="Manual sections">
-    <a href="docs-index.html" class="active"><span class="icon">📖</span>Index</a>
-    <a href="midipilot.html"><span class="icon">🤖</span>MidiPilot</a>
-    <a href="prompt-examples.html"><span class="icon">💬</span>Prompts</a>
-    <a href="ffxiv-channel-fixer.html"><span class="icon">🎮</span>Fix XIV</a>
-    <a href="split-channels.html"><span class="icon">✂️</span>Split</a>
-    <a href="themes.html"><span class="icon">🎨</span>Themes</a>
-    <a href="soundfont.html"><span class="icon">🔊</span>SoundFonts</a>
-    <a href="guitar-pro.html"><span class="icon">🎸</span>Guitar Pro</a>
-    <a href="lyrics.html"><span class="icon">🎤</span>Lyrics</a>
-    <a href="midi-overview.html"><span class="icon">🎹</span>MIDI</a>
-    <a href="editor-and-components.html"><span class="icon">🖥️</span>Editor</a>
-    <a href="setup.html"><span class="icon">⚙️</span>Setup</a>
-    <a href="editing-midi-files.html"><span class="icon">✏️</span>Editing</a>
-    <a href="playback.html"><span class="icon">▶️</span>Playback</a>
-    <a href="export-audio.html"><span class="icon">💾</span>Export</a>
-    <a href="menu-tools.html"><span class="icon">🔧</span>Tools</a>
-</div>
-<!-- doc-subnav:end -->
+<!-- Navigation injected by navigation.js -->
 
 <a href="#main-content" class="skip-link">Skip to main content</a>
 
@@ -436,7 +419,7 @@
 <div class="hero">
 <pre id="ascii-logo" aria-label="MidiEditor AI"></pre>
 <p class="tagline" id="hero-tagline" style="opacity:0">Your complete guide to the AI-powered MIDI editor</p>
-<span class="version-badge" id="hero-badge" style="opacity:0">v1.3.1 &middot; Manual</span>
+<span class="version-badge" id="hero-badge" style="opacity:0">v1.3.2 &middot; Manual</span>
 
 <!-- Fake Chat Demo -->
 <div class="chat-demo" id="chat-demo">
@@ -570,6 +553,21 @@
 <li><a href="export-audio.html#completion">&#x2705; Export Completion</a></li>
 <li><a href="export-audio.html#formats">&#x1F4CB; Format Details</a></li>
 <li><a href="export-audio.html#tips">&#x1F4A1; Tips</a></li>
+</ul>
+</div>
+
+<div class="section-card">
+<h3><span class="icon">&#x1F517;</span> MCP Server</h3>
+<p class="card-desc">Built-in Model Context Protocol server. Connect Claude Desktop, VS Code Copilot, Cursor, or any MCP client to edit MIDI directly.</p>
+<ul>
+<li><a href="mcp-server.html#what-is-mcp">&#x1F4A1; What is MCP?</a></li>
+<li><a href="mcp-server.html#quick-start">&#x1F680; Quick Start</a></li>
+<li><a href="mcp-server.html#client-setup">&#x1F50C; Client Setup (5 clients)</a></li>
+<li><a href="mcp-server.html#tools">&#x1F527; Available Tools (15)</a></li>
+<li><a href="mcp-server.html#resources">&#x1F4C4; MCP Resources</a></li>
+<li><a href="mcp-server.html#protocol-panel">&#x1F4CB; Protocol Panel &amp; Client ID</a></li>
+<li><a href="mcp-server.html#security">&#x1F512; Security</a></li>
+<li><a href="mcp-server.html#troubleshooting">&#x2753; Troubleshooting</a></li>
 </ul>
 </div>
 
@@ -1002,7 +1000,8 @@
 })();
 </script>
 <button class="scroll-top" aria-label="Scroll to top">&#x2191;</button>
-<script src="site.js"></script>
 <script src="lightbox.js"></script>
+<script src="navigation.js"></script>
+<script src="site.js"></script>
 </body>
 </html>

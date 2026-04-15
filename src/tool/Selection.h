@@ -100,9 +100,9 @@ public:
 
     /**
      * \brief Gets the list of currently selected events.
-     * \return Reference to the list of selected MidiEvent pointers
+     * \return Copy of the list of selected MidiEvent pointers
      */
-    QList<MidiEvent *> &selectedEvents();
+    QList<MidiEvent *> selectedEvents();
 
     /**
      * \brief Sets the selection to the given list of events.

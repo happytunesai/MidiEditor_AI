@@ -19,6 +19,7 @@
 #include "SelectTool.h"
 #include "Selection.h"
 #include "../MidiEvent/MidiEvent.h"
+#include "../MidiEvent/OffEvent.h"
 #include "../gui/MatrixWidget.h"
 #include "../gui/Appearance.h"
 #include "../midi/MidiFile.h"
@@ -104,6 +105,9 @@ bool SelectTool::release() {
         clearSelection();
     }
 
+    // Build selection list locally, then set once (selectedEvents() returns by value)
+    QList<MidiEvent *> newSelection = Selection::instance()->selectedEvents();
+
     if (stool_type == SELECTION_TYPE_BOX || stool_type == SELECTION_TYPE_SINGLE) {
         int x_start, y_start, x_end, y_end;
         if (stool_type == SELECTION_TYPE_BOX) {
@@ -129,10 +133,11 @@ bool SelectTool::release() {
         }
         foreach(MidiEvent* event, *(matrixWidget->activeEvents())) {
             if (inRect(event, x_start, y_start, x_end, y_end)) {
-                selectEvent(event, false, false, false);
+                if (!dynamic_cast<OffEvent *>(event) && !event->track()->hidden() && !newSelection.contains(event)) {
+                    newSelection.append(event);
+                }
             }
         }
-        Selection::instance()->setSelection(Selection::instance()->selectedEvents());
     } else if (stool_type == SELECTION_TYPE_RIGHT || stool_type == SELECTION_TYPE_LEFT) {
         int tick = file()->tick(matrixWidget->msOfXPos(mouseX));
         int start, end;
@@ -144,10 +149,13 @@ bool SelectTool::release() {
             start = tick;
         }
         foreach(MidiEvent* event, *(file()->eventsBetween(start, end))) {
-            selectEvent(event, false, false, false);
+            if (!dynamic_cast<OffEvent *>(event) && !event->track()->hidden() && !newSelection.contains(event)) {
+                newSelection.append(event);
+            }
         }
-        Selection::instance()->setSelection(Selection::instance()->selectedEvents());
     }
+
+    Selection::instance()->setSelection(newSelection);
 
     x_rect = 0;
     y_rect = 0;

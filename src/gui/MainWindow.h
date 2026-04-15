@@ -64,6 +64,8 @@ class PostUpdateDialog;
 class MidiPilotWidget;
 class MidiVisualizerWidget;
 class LyricVisualizerWidget;
+class McpToggleWidget;
+class McpServer;
 class QDockWidget;
 class QLabel;
 
@@ -1127,11 +1129,17 @@ private:
     /** \brief MidiPilot AI sidebar widget */
     MidiPilotWidget *_midiPilotWidget = nullptr;
 
+    /** \brief MCP Server for external AI client integration */
+    McpServer *_mcpServer = nullptr;
+
     /** \brief MIDI visualizer in toolbar */
     MidiVisualizerWidget *_visualizer = nullptr;
 
     /** \brief Lyric visualizer (karaoke display) in toolbar */
     LyricVisualizerWidget *_lyricVisualizer = nullptr;
+
+    /** \brief MCP server toggle button in toolbar */
+    McpToggleWidget *_mcpToggleWidget = nullptr;
 
     /** \brief Status bar labels for cursor/selection/chord info */
     QLabel *_statusCursorLabel = nullptr;

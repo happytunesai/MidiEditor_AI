@@ -5,7 +5,82 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 
 ---
 
-## [1.3.1.2] - 2026-04-12 — Hotfix: Selection Regression
+## [1.3.2] - 2026-04-15 — MCP Server, Documentation System & Prompt Architecture v3
+
+### Summary
+* **MCP Server** - Built-in Model Context Protocol server exposing all MidiEditor AI tools (15 tools) with security, rate limiting, and client identification
+* **MCP toolbar toggle** - Clickable MCP Server button in the toolbar (green when running, gray when stopped); toggleable in Customize Toolbar; synced with the Settings checkbox
+* **Centralized Navigation System** - Single-source-of-truth for all doc pages (navigation.js); automatic active page highlighting and easy maintenance
+* **Global Audio Player System** - Reusable audio player component (audio.css) with browser controls and download links
+* **Enhanced Manual** - Lightbox on all images/videos, audio demos with players, improved MCP documentation, showcase integration
+* **Prompt Architecture v3** - FFXIV simplification, token budgeting, conditional sections, retry logic, truncation recovery
+* **Selection system overhaul** - Fixed empty Event tab on note click, broken box selection, and broken deselect; reverted flawed SEL-001 early-return and O(n) comparison from v1.3.1/v1.3.1.2; `selectedEvents()` now returns by value to prevent internal list mutation
+* **Fixed Lyric Visualizer not displaying during playback** - v1.3.1 P3-008 timer idle stop exposed a latent bug: on Windows, `PlayerThread` is destroyed and recreated on each `play()`, breaking the `playerStarted`/`playerStopped` signal connections established at toolbar creation time; now reconnects all three signals in `play()` and `record()`
+* **Fixed MCP toolbar button showing as text placeholder** - `_mcpServer` was created after `setupActions()`, so the toolbar widget check (`if _mcpServer`) always failed during construction; moved server creation before toolbar build
+* **Fixed Lyric Timeline not showing after LRC import** - `importLyricsLrc()` was missing `_lyricArea->setVisible(true)` that both SRT and plain text import had; the timeline stayed hidden while the Visualizer displayed lyrics correctly
+
+<details>
+<summary>Full Changelog - MCP Server + Documentation System + Prompt v3</summary>
+
+### MCP Server (Phase 23.5)
+* **Built-in MCP server** - Exposes all MidiEditor AI tools via the Model Context Protocol (2025-03-26), allowing Claude Desktop, VS Code Copilot, Cursor, and other MCP clients to edit MIDI files directly
+* **Streamable HTTP transport** - Single `/mcp` endpoint on localhost (default port 9420) with JSON-RPC 2.0
+* **MCP Resources** - Three read-only resources: `midi://state`, `midi://tracks`, `midi://config`
+* **Security** - Localhost-only binding, Origin header validation, optional Bearer token auth, rate limiting (100 calls/min), session management with 1-hour expiry
+* **Settings UI** - Enable/disable, port, auth token generation, and "Copy MCP Config" button for easy client setup
+* **MCP toolbar toggle** - New `McpToggleWidget` adds a clickable MCP Server button to the toolbar; shows `mcp_on.png` (green) when the server is running, `mcp_off.png` when stopped; click to start/stop without opening Settings; selectable and repositionable in Customize Toolbar dialog; checkbox in Settings stays synced bidirectionally
+* **Client identification in Protocol panel** - MCP actions show the client name and model (e.g. "MidiPilotMCP (VS Code Copilot Claude Opus 4.6): Agent insert events") - parsed from `clientInfo` sent during MCP `initialize`
+* **MCP Documentation** - Setup guide for Claude Desktop, VS Code, Cursor, and Windsurf in the built-in manual; removed unnecessary restart requirement (server starts immediately when toggled)
+* **MCP Demo** - Metal remix of Mozart's Eine kleine Nachtmusik (20 measures with guitar solo) composed via MCP protocol; includes MIDI file, WAV audio with embedded player, and screenshots in both manual and showcase
+
+### Documentation System
+* **Centralized Navigation (navigation.js)** - Single file controls all 17 doc pages; auto-injects doc-subnav on every page with automatic active link highlighting; new pages inherit full nav by including 2 scripts
+* **Global Audio Player System (audio.css)** - Reusable `.audio-box` component with native browser player, download links, and dark theme; added to all 20 pages
+* **Lightbox on All Pages** - Images and videos click-to-enlarge; automatically excludes tiny icons and video fallbacks; no special markup required
+* **Showcase Enhancement** - Added MCP demo (webp) as slide 11 in the carousel; now 11 slides showing all major features
+
+### Prompt Architecture v3 (Phase 23.x)
+* **FFXIV prompt simplification** - Streamlined FFXIV context for lower token usage
+* **Enhanced tool result summaries** - Improved tool output formatting for AI readability
+* **Token budgeting** - Smart history truncation when approaching context window limits
+* **Conditional prompt sections** - Only include drum/guitar sections when relevant to the file
+* **GM program_change reminder** - Strengthened create_track and insert_events tool descriptions
+* **Retry logic** - Automatic retry on 429/5xx errors with exponential backoff
+* **Truncation auto-recovery** - Detects and retries when API response is truncated
+* **Effort-based prompt selection** - Low/medium/high effort selects compact/standard/detailed prompts
+
+### Selection System Overhaul (3 compounding bugs)
+The v1.3.1 SEL-001 fix (early-return when selection unchanged) and v1.3.1.2 hotfix (O(n) comparison threshold) were both reverted because they masked a deeper architectural issue: `selectedEvents()` returned a reference to the internal `_selectedEvents` list, allowing callers to mutate it directly. This caused the early-return comparison to always see identical lists (the parameter was already the same object), so `setSelection()` never reached `_eventWidget->setEvents()`.
+
+* **Fixed empty Event tab when clicking a note** - `selectedEvents()` now returns by value instead of by reference. Code that previously accumulated events through the reference (EventTool, SelectTool) now builds a local list and calls `setSelection()` once. The SEL-001 early-return optimization has been removed entirely.
+* **Fixed box selection not selecting any events** - `SelectTool::release()` called `selectEvent(event, false, false, false)` with `setSelection=false`, relying on reference mutation to accumulate events. With return-by-value, each call modified a throwaway copy. Rewritten to build a local `QList<MidiEvent*>` and call `setSelection()` once with the complete list.
+* **Fixed deselect not updating Event tab** - `EventTool::deselectEvent()` removed an event from the local copy but never called `setSelection()` to propagate the change. Added `setSelection(selected)` after removal.
+* **Fixed Protocol::endAction() not emitting signals** - `endAction()` only emitted `actionFinished()` and `protocolChanged()` when protocol items were recorded. Since selection changes don't record protocol items, the signals never fired and `EventWidget::reload()` was never triggered. Now always emits signals and marks file unsaved.
+* **Reverted v1.3.1.2 O(n) comparison** - The <200 event threshold comparison in `setSelection()` is no longer needed since the early-return was removed entirely.
+* **Files modified:** `Selection.h`, `Selection.cpp`, `EventTool.cpp`, `SelectTool.cpp`, `EditorContext.cpp`, `MainWindow.cpp`, `Protocol.cpp`
+
+### Bug Fixes
+* **Fixed Lyric Visualizer not displaying during playback** - The v1.3.1 P3-008 fix (timer stops when idle) exposed a latent bug: on Windows, `MidiPlayer::play()` deletes and recreates the `PlayerThread` object, breaking the `playerStarted`/`playerStopped` signal connections established at toolbar creation time. The timer only restarts via `playbackStarted()`, which never fired because it was connected to the destroyed object. Before P3-008 the timer ran at 30fps forever, masking the broken connection. Fixed by reconnecting all three visualizer signals (`playerStarted`, `playerStopped`, `timeMsChanged`) in both `play()` and `record()`
+* **Fixed MCP toolbar button showing as text placeholder** - `_mcpServer` was created after `setupActions()` built the toolbar, so the check `if (actionId == "mcp_toggle" && _mcpServer)` always failed during construction, falling through to the placeholder text path. Moved `_mcpServer` creation to before `setupActions()` and removed the duplicate creation at the later location
+* **Fixed Lyric Timeline not showing after LRC import** - `importLyricsLrc()` did not call `_lyricArea->setVisible(true)` or update `_toggleLyricTimeline`, so the timeline lane stayed hidden after importing an LRC file. Both `importLyricsSrt()` and `importLyricsText()` already had this. The Lyric Visualizer in the toolbar displayed lyrics correctly because it doesn't depend on `_lyricArea` visibility
+
+### Files Added/Modified
+* **New:** `src/gui/McpToggleWidget.h/.cpp` - MCP Server toolbar toggle button widget
+* **New:** `navigation.js` (2.6 KB) - Centralized navigation controller
+* **New:** `audio.css` (620 bytes) - Global audio player styles
+* **Modified:** All 17 doc pages - Added centralized navigation and audio support
+* **Modified:** mcp-server.html - Added MCP demo with audio player, updated Quick Start
+* **Modified:** index.html - Added MCP demo slide to showcase
+* **Added:** midieditor_ai_MCP.mid, midieditor_ai_MCP.wav (manual demos)
+* **Added:** Screenshots and webp in manual/screenshots/
+
+</details>
+
+---
+
+## [1.3.1.2] - 2026-04-12 — Hotfix: Selection Regression (superseded by v1.3.2)
+
+> **Note:** Both fixes below were reverted in v1.3.2 and replaced by a proper architectural fix (`selectedEvents()` returns by value, SEL-001 early-return removed entirely). See v1.3.2 "Selection System Overhaul" for details.
 
 * **Fixed Ctrl+A / large selection freezing the UI** - `batchSelectEvents()` obtained a reference to the internal `_selectedEvents` list and modified it in-place (clear + append), so `setSelection()`'s equality check (SEL-001) always saw them as identical and returned early - no protocol entry, no EventWidget update, no Ctrl+T. Fixed by building a new local list instead of mutating through the reference.
 * **Fixed O(n) selection comparison blocking large files** - `setSelection()` did an element-by-element `QList::operator==` on every call, taking seconds for 4000+ events. Now only performs the full comparison for selections under 200 events; larger selections skip the check entirely.
@@ -34,7 +109,7 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 * **Agent cancel after processEvents** — Added `_cancelled` check immediately after `QCoreApplication::processEvents()` in the tool-call loop (AI-001)
 * **Conversation store O(1) lookup** — `loadConversation()` now uses direct path lookup instead of scanning all JSON files (AI-009)
 * **FFXIV Channel Fixer memory leaks** — Removed events (ProgChange, CC, PitchBend) are now properly `delete`d in the CLEAN phase (AI-010, AI-011)
-* **Selection undo spam** — `setSelection()` returns early when selection is unchanged, avoiding redundant Protocol entries (SEL-001)
+* **Selection undo spam** — `setSelection()` returns early when selection is unchanged, avoiding redundant Protocol entries (SEL-001) — **reverted in v1.3.2** (caused empty Event tab; see Selection System Overhaul)
 * **SharedClipboard dead catch** — Removed `try/catch(...)` around `delete` (destructors are noexcept in C++11+) (CLIP-001)
 * **Export temp file cleanup** — `ExportOptions::deleteMidiFileAfterExport` flag is now honored; temp MIDI files are deleted after export (FLUID-002)
 * **Key signature scan** — `captureKeySignature()` now only scans channel 18 (meta) instead of all 19 channels (AI-008)

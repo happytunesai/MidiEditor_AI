@@ -112,17 +112,18 @@ void Protocol::endAction() {
     // only create the Step when it exists and its size is bigger 0
     if (_currentStep && _currentStep->items() > 0) {
         _undoSteps->append(_currentStep);
-        _currentStep = 0;
-
-        // the file has been changed
-        _file->setSaved(false);
-
-        emit protocolChanged();
-        emit actionFinished();
     } else {
         delete _currentStep;
-        _currentStep = 0;
     }
+
+    // the action is ended so there is no currentStep
+    _currentStep = 0;
+
+    // the file has been changed
+    _file->setSaved(false);
+
+    emit protocolChanged();
+    emit actionFinished();
 }
 
 int Protocol::stepsBack() {

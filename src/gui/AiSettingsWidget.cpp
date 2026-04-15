@@ -9,9 +9,15 @@
 #include <QCheckBox>
 #include <QSpinBox>
 #include <QMessageBox>
+#include <QClipboard>
+#include <QGuiApplication>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QTimer>
 
 #include "../ai/AiClient.h"
 #include "../ai/EditorContext.h"
+#include "../ai/McpServer.h"
 
 AiSettingsWidget::AiSettingsWidget(QSettings *settings, QWidget *parent)
     : SettingsWidget("MidiPilot AI", parent), _settings(settings), _keyVisible(false), _lastProvider() {
@@ -64,7 +70,7 @@ AiSettingsWidget::AiSettingsWidget(QSettings *settings, QWidget *parent)
     layout->addWidget(_apiKeyEdit, row, 1);
 
     _toggleKeyButton = new QPushButton("Show", this);
-    _toggleKeyButton->setFixedWidth(60);
+    _toggleKeyButton->setMinimumWidth(60);
     connect(_toggleKeyButton, &QPushButton::clicked, this, &AiSettingsWidget::onToggleKeyVisibility);
     layout->addWidget(_toggleKeyButton, row, 2);
     row++;
@@ -219,6 +225,97 @@ AiSettingsWidget::AiSettingsWidget(QSettings *settings, QWidget *parent)
 
     layout->addWidget(separator(), row++, 0, 1, 3);
 
+    // --- MCP Server section ---
+    layout->addWidget(new QLabel("<b>MCP Server</b>"), row++, 0, 1, 3);
+
+    layout->addWidget(new QLabel("Enable:"), row, 0);
+    _mcpEnableCheck = new QCheckBox("Start MCP server on launch", this);
+    _mcpEnableCheck->setChecked(_settings->value("MCP/enabled", false).toBool());
+    _mcpEnableCheck->setToolTip("When enabled, MidiEditor exposes its MIDI editing tools via the\n"
+                                "Model Context Protocol (MCP). Any MCP-compatible AI client\n"
+                                "(Claude Desktop, VS Code Copilot, Cursor, etc.) can connect\n"
+                                "and use the tools to edit MIDI files.");
+    connect(_mcpEnableCheck, &QCheckBox::toggled, this, [this](bool checked) {
+        // Live start/stop the MCP server when checkbox changes
+        if (!_mcpServer) return;
+        if (checked) {
+            quint16 port = static_cast<quint16>(_mcpPortSpin->value());
+            QString token = _mcpTokenEdit->text().trimmed();
+            _mcpServer->setAuthToken(token.isEmpty() ? QString() : token);
+            if (!_mcpServer->isRunning() || _mcpServer->port() != port) {
+                _mcpServer->stop();
+                _mcpServer->start(port);
+            }
+        } else {
+            _mcpServer->stop();
+        }
+        updateMcpStatus();
+    });
+    layout->addWidget(_mcpEnableCheck, row, 1, 1, 2);
+    row++;
+
+    layout->addWidget(new QLabel("Port:"), row, 0);
+    _mcpPortSpin = new QSpinBox(this);
+    _mcpPortSpin->setRange(1024, 65535);
+    _mcpPortSpin->setValue(_settings->value("MCP/port", 9420).toInt());
+    _mcpPortSpin->setToolTip("TCP port for the MCP server (localhost only).");
+    layout->addWidget(_mcpPortSpin, row, 1);
+
+    _mcpStatusLabel = new QLabel(this);
+    _mcpStatusLabel->setStyleSheet("color: gray;");
+    _mcpStatusLabel->setText("Stopped");
+    layout->addWidget(_mcpStatusLabel, row, 2);
+    row++;
+
+    layout->addWidget(new QLabel("Auth Token:"), row, 0);
+    _mcpTokenEdit = new QLineEdit(this);
+    _mcpTokenEdit->setEchoMode(QLineEdit::Password);
+    _mcpTokenEdit->setPlaceholderText("(optional - leave empty for no auth)");
+    _mcpTokenEdit->setText(_settings->value("MCP/auth_token").toString());
+    _mcpTokenEdit->setToolTip("Optional Bearer token for authentication.\n"
+                              "If set, MCP clients must include it in the Authorization header.");
+    layout->addWidget(_mcpTokenEdit, row, 1);
+
+    QPushButton *generateTokenBtn = new QPushButton("Generate", this);
+    generateTokenBtn->setMinimumWidth(80);
+    connect(generateTokenBtn, &QPushButton::clicked, this, [this]() {
+        _mcpTokenEdit->setText(McpServer::generateToken());
+        _mcpTokenEdit->setEchoMode(QLineEdit::Normal);
+    });
+    layout->addWidget(generateTokenBtn, row, 2);
+    row++;
+
+    // Copy config button
+    layout->addWidget(new QLabel("Client Config:"), row, 0);
+    _mcpCopyConfigButton = new QPushButton("Copy MCP Config to Clipboard", this);
+    _mcpCopyConfigButton->setToolTip("Copies the JSON config snippet that MCP clients need.\n"
+                                     "Paste it into your client's MCP configuration file.");
+    connect(_mcpCopyConfigButton, &QPushButton::clicked, this, [this]() {
+        int port = _mcpPortSpin->value();
+        QString token = _mcpTokenEdit->text().trimmed();
+
+        QJsonObject config;
+        config["url"] = QString("http://localhost:%1/mcp").arg(port);
+        if (!token.isEmpty()) {
+            QJsonObject headers;
+            headers["Authorization"] = QString("Bearer %1").arg(token);
+            config["headers"] = headers;
+        }
+        QJsonObject wrapper;
+        wrapper["midieditor"] = config;
+        QString json = QJsonDocument(wrapper).toJson(QJsonDocument::Indented);
+
+        QGuiApplication::clipboard()->setText(json);
+        _mcpCopyConfigButton->setText("Copied!");
+        QTimer::singleShot(2000, this, [this]() {
+            _mcpCopyConfigButton->setText("Copy MCP Config to Clipboard");
+        });
+    });
+    layout->addWidget(_mcpCopyConfigButton, row, 1, 1, 2);
+    row++;
+
+    layout->addWidget(separator(), row++, 0, 1, 3);
+
     // Test connection button and status
     _testButton = new QPushButton("Test Connection", this);
     connect(_testButton, &QPushButton::clicked, this, &AiSettingsWidget::onTestConnection);
@@ -231,6 +328,42 @@ AiSettingsWidget::AiSettingsWidget(QSettings *settings, QWidget *parent)
 
     // Spacer
     layout->setRowStretch(row, 1);
+}
+
+void AiSettingsWidget::setMcpServer(McpServer *server) {
+    _mcpServer = server;
+    if (_mcpServer) {
+        connect(_mcpServer, &McpServer::started, this, [this]() {
+            _mcpEnableCheck->blockSignals(true);
+            _mcpEnableCheck->setChecked(true);
+            _mcpEnableCheck->blockSignals(false);
+            updateMcpStatus();
+        });
+        connect(_mcpServer, &McpServer::stopped, this, [this]() {
+            _mcpEnableCheck->blockSignals(true);
+            _mcpEnableCheck->setChecked(false);
+            _mcpEnableCheck->blockSignals(false);
+            updateMcpStatus();
+        });
+    }
+    updateMcpStatus();
+}
+
+void AiSettingsWidget::updateMcpStatus() {
+    bool running = _mcpServer && _mcpServer->isRunning();
+
+    // Sync checkbox with actual server state
+    _mcpEnableCheck->blockSignals(true);
+    _mcpEnableCheck->setChecked(running);
+    _mcpEnableCheck->blockSignals(false);
+
+    if (running) {
+        _mcpStatusLabel->setText(QString("Running on port %1").arg(_mcpServer->port()));
+        _mcpStatusLabel->setStyleSheet("color: green;");
+    } else {
+        _mcpStatusLabel->setText("Stopped");
+        _mcpStatusLabel->setStyleSheet("color: gray;");
+    }
 }
 
 bool AiSettingsWidget::accept() {
@@ -251,6 +384,9 @@ bool AiSettingsWidget::accept() {
     _settings->setValue("AI/ffxiv_mode", _ffxivCheck->isChecked());
     _settings->setValue("AI/max_token_enabled", _tokenLimitCheck->isChecked());
     _settings->setValue("AI/max_token_limit", _tokenLimitSpin->value());
+    _settings->setValue("MCP/enabled", _mcpEnableCheck->isChecked());
+    _settings->setValue("MCP/port", _mcpPortSpin->value());
+    _settings->setValue("MCP/auth_token", _mcpTokenEdit->text().trimmed());
     return true;
 }
 

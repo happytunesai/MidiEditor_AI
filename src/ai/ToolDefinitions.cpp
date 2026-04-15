@@ -116,7 +116,8 @@ QJsonArray ToolDefinitions::toolSchemas() {
         tools.append(makeTool(
             "get_editor_state",
             "Get the current editor state including file info, tracks, cursor position, "
-            "tempo, time signature, and selected events.",
+            "tempo, time signature, and selected events. "
+            "Rate limit: 100 tool calls per minute across all tools.",
             makeParams(QJsonObject(), QJsonArray())));
     }
 
@@ -163,7 +164,11 @@ QJsonArray ToolDefinitions::toolSchemas() {
             {"description", "MIDI channel to assign (0-15)."}};
         tools.append(makeTool(
             "create_track",
-            "Create a new MIDI track with the given name and channel.",
+            "Create a new MIDI track with the given name and channel. "
+            "IMPORTANT: After creating a track, insert a program_change event at tick 0 "
+            "via insert_events to set the GM instrument sound (otherwise it defaults to Piano). "
+            "In FFXIV mode, use setup_channel_pattern instead. "
+            "Up to 100 tracks supported.",
             makeParams(props, {"trackName", "channel"})));
     }
 
@@ -212,7 +217,13 @@ QJsonArray ToolDefinitions::toolSchemas() {
             {"description", "Array of MIDI event objects to insert. Include a program_change event at tick 0 to set the GM instrument."}};
         tools.append(makeTool(
             "insert_events",
-            "Insert new MIDI events into a track without removing existing events.",
+            "Insert new MIDI events into a track without removing existing events. "
+            "Always include a program_change at tick 0 for the first insert on a track "
+            "to set the correct GM instrument sound. "
+            "Limits: max ~2000 events per call for fast response (<500ms), "
+            "up to 10000 events per call (may take several seconds). "
+            "For large compositions, split into chunks of 4-8 measures per call. "
+            "Max request body size: 1MB. Rate limit: 100 calls/min.",
             makeParams(props, {"trackIndex", "channel", "events"})));
     }
 
@@ -235,7 +246,8 @@ QJsonArray ToolDefinitions::toolSchemas() {
         tools.append(makeTool(
             "replace_events",
             "Remove all events in a tick range on a track and insert new events. "
-            "Used for editing/modifying existing passages.",
+            "Used for editing/modifying existing passages. "
+            "Same limits as insert_events: max ~2000 events for fast response, 10000 max.",
             makeParams(props, {"trackIndex", "startTick", "endTick", "events"})));
     }
 
@@ -359,7 +371,8 @@ QJsonArray ToolDefinitions::toolSchemas() {
 QJsonObject ToolDefinitions::executeTool(const QString &toolName,
                                          const QJsonObject &args,
                                          MidiFile *file,
-                                         MidiPilotWidget *widget) {
+                                         MidiPilotWidget *widget,
+                                         const QString &source) {
     // Read-only tools
     if (toolName == "get_editor_state") {
         return execGetEditorState(file);
@@ -373,7 +386,9 @@ QJsonObject ToolDefinitions::executeTool(const QString &toolName,
 
     // Write tools — delegate to widget handlers via executeAction
     if (toolName == "create_track" || toolName == "rename_track" || toolName == "set_channel") {
-        return execWriteAction(toolName, args, widget);
+        QJsonObject a = args;
+        if (!source.isEmpty()) a["_source"] = source;
+        return execWriteAction(toolName, a, widget);
     }
     if (toolName == "insert_events") {
         // Validate events array exists and is non-empty
@@ -383,7 +398,9 @@ QJsonObject ToolDefinitions::executeTool(const QString &toolName,
             result["success"] = false;
             result["recoverable"] = true;
             result["error"] = QString("Events array missing or empty (likely output truncation). "
-                                      "Please retry with the complete events array for this track.");
+                                      "Split the work into smaller chunks (4 measures at a time) and retry. "
+                                      "Use insert_events for each chunk separately.");
+            result["trackIndex"] = args["trackIndex"];
             return result;
         }
         // Map to "edit" action (insert without selection = pure insert)
@@ -395,6 +412,7 @@ QJsonObject ToolDefinitions::executeTool(const QString &toolName,
         if (args.contains("channel"))
             actionObj["channel"] = args["channel"];
         actionObj["explanation"] = QString("Agent: insert events");
+        if (!source.isEmpty()) actionObj["_source"] = source;
         return widget->executeAction(actionObj);
     }
     if (toolName == "replace_events") {
@@ -405,8 +423,12 @@ QJsonObject ToolDefinitions::executeTool(const QString &toolName,
             result["success"] = false;
             result["recoverable"] = true;
             result["error"] = QString("Events array missing or empty (likely output truncation). "
-                                      "Please retry with the complete events array. "
+                                      "Split the tick range into smaller chunks (4 measures) and use "
+                                      "multiple replace_events calls. "
                                       "If you want to delete events instead, use the delete_events tool.");
+            result["trackIndex"] = args["trackIndex"];
+            result["startTick"] = args["startTick"];
+            result["endTick"] = args["endTick"];
             return result;
         }
         // Map to "select_and_edit"
@@ -417,6 +439,7 @@ QJsonObject ToolDefinitions::executeTool(const QString &toolName,
         actionObj["endTick"] = args["endTick"];
         actionObj["events"] = events;
         actionObj["explanation"] = QString("Agent: replace events");
+        if (!source.isEmpty()) actionObj["_source"] = source;
         return widget->executeAction(actionObj);
     }
     if (toolName == "delete_events") {
@@ -427,13 +450,18 @@ QJsonObject ToolDefinitions::executeTool(const QString &toolName,
         actionObj["startTick"] = args["startTick"];
         actionObj["endTick"] = args["endTick"];
         actionObj["explanation"] = QString("Agent: delete events");
+        if (!source.isEmpty()) actionObj["_source"] = source;
         return widget->executeAction(actionObj);
     }
     if (toolName == "set_tempo") {
-        return execWriteAction("set_tempo", args, widget);
+        QJsonObject a = args;
+        if (!source.isEmpty()) a["_source"] = source;
+        return execWriteAction("set_tempo", a, widget);
     }
     if (toolName == "set_time_signature") {
-        return execWriteAction("set_time_signature", args, widget);
+        QJsonObject a = args;
+        if (!source.isEmpty()) a["_source"] = source;
+        return execWriteAction("set_time_signature", a, widget);
     }
     if (toolName == "move_events_to_track") {
         // Select events from source track in range, then move to target
@@ -444,6 +472,7 @@ QJsonObject ToolDefinitions::executeTool(const QString &toolName,
         actionObj["startTick"] = args["startTick"];
         actionObj["endTick"] = args["endTick"];
         actionObj["explanation"] = QString("Agent: move events to track");
+        if (!source.isEmpty()) actionObj["_source"] = source;
         return widget->executeAction(actionObj);
     }
 

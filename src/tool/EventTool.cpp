@@ -68,7 +68,7 @@ void EventTool::selectEvent(MidiEvent *event, bool single, bool ignoreStr, bool 
         return;
     }
 
-    QList<MidiEvent *> &selected = Selection::instance()->selectedEvents();
+    QList<MidiEvent *> selected = Selection::instance()->selectedEvents();
 
     OffEvent *offevent = dynamic_cast<OffEvent *>(event);
     if (offevent) {
@@ -95,8 +95,9 @@ void EventTool::selectEvent(MidiEvent *event, bool single, bool ignoreStr, bool 
 }
 
 void EventTool::deselectEvent(MidiEvent *event) {
-    QList<MidiEvent *> &selected = Selection::instance()->selectedEvents();
+    QList<MidiEvent *> selected = Selection::instance()->selectedEvents();
     selected.removeAll(event);
+    Selection::instance()->setSelection(selected);
 
     if (_mainWindow->eventWidget()->events().contains(event)) {
         _mainWindow->eventWidget()->removeEvent(event);

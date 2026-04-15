@@ -34,7 +34,8 @@ public:
     static QJsonObject executeTool(const QString &toolName,
                                    const QJsonObject &args,
                                    MidiFile *file,
-                                   MidiPilotWidget *widget);
+                                   MidiPilotWidget *widget,
+                                   const QString &source = QString());
 
 private:
     static QJsonObject makeTool(const QString &name,

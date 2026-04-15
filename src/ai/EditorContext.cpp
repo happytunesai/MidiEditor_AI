@@ -70,7 +70,7 @@ QJsonObject EditorContext::captureState(MidiFile *file, MatrixWidget *matrix)
     state[QStringLiteral("activeChannel")] = NewNoteTool::editChannel();
 
     // Selection info
-    QList<MidiEvent *> &selected = Selection::instance()->selectedEvents();
+    QList<MidiEvent *> selected = Selection::instance()->selectedEvents();
     state[QStringLiteral("selectedEventCount")] = selected.size();
 
     // Viewport (visible tick range)
@@ -511,72 +511,62 @@ QString EditorContext::agentSystemPrompt()
     );
 }
 
-QString EditorContext::ffxivContext()
+QString EditorContext::ffxivContext(bool includeDrums, bool includeGuitar)
 {
     if (!s_customFfxivPrompt.isEmpty()) return s_customFfxivPrompt;
-    return QStringLiteral(
+    QString ctx = QStringLiteral(
         "\n"
         "## FFXIV BARD PERFORMANCE MODE (ACTIVE)\n"
         "\n"
         "You are creating/editing MIDI for FFXIV Bard Performance.\n"
-        "Follow these rules STRICTLY — violations will make the file unplayable in-game.\n"
+        "Follow these rules STRICTLY - violations will make the file unplayable in-game.\n"
         "\n"
         "### Hard Constraints\n"
         "- MAXIMUM 8 TRACKS. Never create more than 8 tracks.\n"
-        "- Each track is MONOPHONIC — only ONE note sounding at a time.\n"
+        "- Each track is MONOPHONIC - only ONE note sounding at a time.\n"
         "  Exception: Some instruments support chord simulation (see Polyphony section).\n"
         "- All notes MUST be in C3-C6 (MIDI 48-84).\n"
         "- Track names MUST match valid instrument names EXACTLY.\n"
         "  The track name determines which instrument the bard player equips in-game.\n"
         "- Do NOT use pitch_bend events.\n"
         "- Do NOT edit note velocity.\n"
-        "\n"
-        "### Channel, Program & Guitar Setup\n"
-        "Do NOT manually set channels or insert program_change events.\n"
-        "After creating/renaming all tracks, call the setup_channel_pattern tool ONCE.\n"
-        "It automatically:\n"
-        "- Assigns channels (track N → CH N, percussion → CH9)\n"
-        "- Inserts correct program_change at tick 0 on every track\n"
-        "- Configures all 5 guitar switch channels when any guitar is present\n"
-        "- Moves events to the correct channel\n"
-        "Guitar switches: switch between variants by changing per-note channel.\n"
-        "The tool handles all channel and program_change complexity for you.\n"
+        "- Do NOT manually set channels or insert program_change events.\n"
+        "- After creating/renaming all tracks, call setup_channel_pattern ONCE.\n"
+        "  It handles channels, program changes, and guitar switch setup automatically.\n"
         "\n"
         "### Valid Instrument Track Names\n"
         "Piano, Harp, Fiddle, Lute, Fife, Flute, Oboe, Panpipes, Clarinet, Trumpet,\n"
         "Saxophone, Trombone, Horn, Tuba, Violin, Viola, Cello, Double Bass, Timpani,\n"
         "Bongo, Bass Drum, Snare Drum, Cymbal, ElectricGuitarClean, ElectricGuitarMuted,\n"
         "ElectricGuitarOverdriven, ElectricGuitarPowerChords, ElectricGuitarSpecial\n"
-        "\n"
-        "### Instrument Native Ranges (player transposes from C3-C6)\n"
-        "| Instrument | Native Range | Transpose from C3-C6 |\n"
-        "| Piano | C4-C7 | -1 octave |\n"
-        "| Harp, Clarinet, Trumpet, Saxophone, Violin, Viola, Bongo, Bass Drum, Snare Drum, Cymbal, ElectricGuitarSpecial | C3-C6 | native |\n"
-        "| Fiddle, Lute, Trombone, Horn, Cello, Timpani, ElectricGuitarClean/Muted/Overdriven/PowerChords | C2-C5 | +1 octave |\n"
-        "| Fife | C5-C8 | -2 octaves |\n"
-        "| Flute, Oboe, Panpipes | C4-C7 | -1 octave |\n"
-        "| Tuba, Double Bass | C1-C4 | +2 octaves |\n"
-        "\n"
-        "### Drum Handling\n"
-        "Drums are tonal instruments in FFXIV — each percussion type is a separate track\n"
-        "but they can all share channel 9. The track name determines the drum type.\n"
-        "- Bass Drum: Use note C4 (60) for the main hit.\n"
-        "- Snare Drum: Use note C5 (72), vary +/-1 for ghost notes/flams.\n"
-        "- Cymbal: C5 (72) = crash, C6 (84) = hi-hat, in between = ride/china.\n"
-        "- Timpani: Tonal — can play actual melodic bass patterns.\n"
-        "- Bongo: Tonal — use two-tone rhythmic patterns.\n"
-        "When converting from GM drum tracks, split into separate tracks:\n"
-        "  GM Kick (35-36) → Bass Drum track, note C4\n"
-        "  GM Snare (38,40) → Snare Drum track, note C5\n"
-        "  GM Hi-Hat (42,44,46) → Cymbal track, note C6\n"
-        "  GM Crash (49,57) → Cymbal track, note C5\n"
-        "  GM Toms (41,43,45,47,48,50) → Timpani track, mapped tonally\n"
-        "Tom rolls: add +12 to GM tom notes → MIDI 53-62 on Bass Drum track.\n"
-        "Drum tracks go at the END (highest track indices). Melodic instruments first.\n"
-        "\n"
-        "### Guitar Switches\n"
-        "5 guitar variants can share a track. Switch by changing per-note channel.\n"
-        "The setup_channel_pattern tool configures all guitar channels automatically.\n"
+    );
+
+    if (includeDrums) {
+        ctx += QStringLiteral(
+            "\n"
+            "### Drums\n"
+            "Drums are tonal instruments in FFXIV - each type is a separate track.\n"
+            "- Bass Drum: C4 (60) main hit.\n"
+            "- Snare Drum: C5 (72), vary +/-1 for ghost notes/flams.\n"
+            "- Cymbal: C5 (72) = crash, C6 (84) = hi-hat, in between = ride/china.\n"
+            "- Timpani: Tonal - can play melodic bass patterns.\n"
+            "- Bongo: Tonal - use two-tone rhythmic patterns.\n"
+            "Drum tracks go at the END (highest track indices). Melodic instruments first.\n"
+        );
+    }
+
+    if (includeGuitar) {
+        ctx += QStringLiteral(
+            "\n"
+            "### Guitar Variants\n"
+            "5 guitar variants exist (Clean, Muted, Overdriven, PowerChords, Special).\n"
+            "They can share a track; setup_channel_pattern handles variant switching.\n"
+            "ElectricGuitarSpecial plays sound effects (not normal notes) - each pitch\n"
+            "range triggers a different effect. Use sparingly as accents.\n"
+        );
+    }
+
+    ctx += QStringLiteral(
         "\n"
         "### Polyphony / Chord Simulation\n"
         "Multiple notes at the same tick play as a fast arpeggio = chord effect.\n"
@@ -588,25 +578,15 @@ QString EditorContext::ffxivContext()
         "Dense arrangements (6+ tracks): max 2-note chords.\n"
         "Sparse arrangements (solo/duo): 3-note chords on Lute/Harp add fullness.\n"
         "\n"
-        "### ElectricGuitarSpecial Sound Map\n"
-        "ElectricGuitarSpecial does NOT play normal notes — each pitch range triggers a\n"
-        "different sound effect:\n"
-        "| Range | MIDI | Sound Effect |\n"
-        "| C3-F3 | 48-53 | Low-to-high scratch |\n"
-        "| G3-C4 | 55-60 | Wave scratch |\n"
-        "| D4-G4 | 62-67 | Short scratch |\n"
-        "| A4-E5 | 69-76 | String tap |\n"
-        "| F5-C6 | 77-84 | Metal scream |\n"
-        "Use sparingly as accents via channel override to Special.\n"
-        "\n"
         "### FFXIV Final Validation\n"
         "Before responding, verify:\n"
         "- No more than 8 tracks total\n"
         "- All notes are MIDI 48-84 (C3-C6)\n"
         "- Track names are exact valid instrument names\n"
         "- No pitch_bend events\n"
-        "- No manual channel or program_change — use setup_channel_pattern\n"
+        "- No manual channel or program_change - use setup_channel_pattern\n"
     );
+    return ctx;
 }
 
 QString EditorContext::ffxivContextCompact()
@@ -620,10 +600,11 @@ QString EditorContext::ffxivContextCompact()
         "- MAXIMUM 8 TRACKS. Never create more than 8 tracks.\n"
         "- Tracks are MONOPHONIC unless noted below.\n"
         "- Notes MUST be C3-C6 (MIDI 48-84).\n"
-        "- Track names MUST be exact instrument names — the name determines the instrument.\n"
+        "- Track names MUST be exact instrument names - the name determines the instrument.\n"
         "- No pitch_bend events. No velocity editing (use fixed 100).\n"
         "- After creating/renaming all tracks, call setup_channel_pattern ONCE.\n"
         "  It handles channels, program_change, and guitar switches automatically.\n"
+        "  Do NOT manually set channels or insert program_change events.\n"
         "\n"
         "### Instruments\n"
         "Piano, Harp, Fiddle, Lute, Fife, Flute, Oboe, Panpipes, Clarinet, Trumpet,\n"
@@ -631,18 +612,10 @@ QString EditorContext::ffxivContextCompact()
         "Bongo, Bass Drum, Snare Drum, Cymbal, ElectricGuitarClean, ElectricGuitarMuted,\n"
         "ElectricGuitarOverdriven, ElectricGuitarPowerChords, ElectricGuitarSpecial\n"
         "\n"
-        "### Drums — separate tonal tracks, NOT a kit:\n"
+        "### Drums - separate tonal tracks, NOT a kit:\n"
         "Bass Drum: C4 (60). Snare: C5 (72). Cymbal: C5=crash, C6=hi-hat.\n"
         "Timpani: tonal. Bongo: tonal.\n"
         "Drum tracks go LAST (highest track indices). Melodic instruments first.\n"
-        "Tom rolls for Bass Drum: add +12 to GM tom notes (41-50) -> MIDI 53-62.\n"
-        "\n"
-        "### Guitar Switches\n"
-        "5 guitar variants can share a track. Switch by changing per-note channel.\n"
-        "setup_channel_pattern configures all guitar channels automatically.\n"
-        "Special is NOT a normal instrument — each pitch range is a different effect:\n"
-        "C3-F3=low scratch, G3-C4=wave scratch, D4-G4=short scratch,\n"
-        "A4-E5=string tap, F5-C6=metal scream. Use sparingly as accents.\n"
         "\n"
         "### Polyphony (Chord Simulation)\n"
         "Same-tick notes play as fast arpeggios = chord effect.\n"

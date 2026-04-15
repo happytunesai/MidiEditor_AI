@@ -187,7 +187,8 @@ private:
     void doSaveConversation();
     void showHistoryMenu();
     void loadConversation(const QString &id);
-    QJsonArray truncateHistory(const QJsonArray &history, int contextWindow) const;
+    QJsonArray truncateHistory(const QJsonArray &history, int contextWindow,
+                               int systemPromptChars = 0) const;
     void loadPresetForFile(const QString &midiPath);
     void savePresetForFile();
     QString _customFileInstructions;  // Per-file custom instructions from preset
