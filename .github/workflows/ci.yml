@@ -1,0 +1,242 @@
+name: CI / Release
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+    paths-ignore:
+      - 'manual/**'
+      - 'Planning/**'
+      - 'examples/**'
+      - 'docs/**'
+      - 'README.md'
+      - '.github/workflows/deploy-pages.yml'
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Create a release with this tag (e.g. v1.3.3). Leave empty for build only.'
+        required: false
+        type: string
+
+concurrency:
+  group: build-${{ github.sha }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  # ─────────────────────────────────────────────────────
+  #  Build — always runs
+  # ─────────────────────────────────────────────────────
+  build:
+    name: "\U0001F528 Build"
+    runs-on: windows-latest
+    outputs:
+      is_release: ${{ steps.detect.outputs.is_release }}
+      version: ${{ steps.detect.outputs.version }}
+      tag: ${{ steps.detect.outputs.tag }}
+
+    steps:
+      - name: "\U0001F50D Detect build type"
+        id: detect
+        shell: pwsh
+        run: |
+          $isRelease = "false"
+          $tag = ""
+          $version = ""
+
+          if ("${{ github.ref }}".StartsWith("refs/tags/v")) {
+            $isRelease = "true"
+            $tag = "${{ github.ref_name }}"
+          }
+          elseif ("${{ inputs.release_tag }}" -ne "") {
+            $isRelease = "true"
+            $tag = "${{ inputs.release_tag }}"
+          }
+
+          if ($tag) { $version = $tag -replace '^v','' }
+
+          "is_release=$isRelease" >> $env:GITHUB_OUTPUT
+          "tag=$tag"              >> $env:GITHUB_OUTPUT
+          "version=$version"      >> $env:GITHUB_OUTPUT
+          "BUILD_START=$(Get-Date -UFormat %s)" >> $env:GITHUB_ENV
+
+          # Summary header
+          $icon  = if ($isRelease -eq "true") { "`u{1F680}" } else { "`u{1F528}" }
+          $title = if ($isRelease -eq "true") { "Release Build - $tag" } else { "CI Build" }
+          @"
+          ## $icon $title
+
+          "@ >> $env:GITHUB_STEP_SUMMARY
+
+      # ── Dependencies ──────────────────────────────────
+
+      - name: "\U0001F4E5 Checkout"
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: ${{ steps.detect.outputs.is_release == 'true' && 0 || 1 }}
+          submodules: recursive
+
+      - name: "\U0001F4E6 Install Qt 6.5"
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.5.*'
+          arch: win64_msvc2019_64
+          host: windows
+          target: desktop
+          cache: true
+
+      - name: "\U0001F527 Setup MSVC x64"
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: "\U0001F3B5 Download FluidSynth"
+        shell: pwsh
+        run: |
+          $v = "v2.5.2"
+          $url = "https://github.com/FluidSynth/fluidsynth/releases/download/$v/fluidsynth-$v-win10-x64-cpp11.zip"
+          Invoke-WebRequest $url -OutFile fs.zip
+          Expand-Archive fs.zip -DestinationPath fluidsynth
+          Remove-Item fs.zip
+          "- [x] **Dependencies** - Qt 6.5, MSVC 2019 x64, FluidSynth $v" >> $env:GITHUB_STEP_SUMMARY
+
+      # ── Configure ──────────────────────────────────────
+
+      - name: "\u2699\uFE0F CMake Configure"
+        shell: pwsh
+        run: |
+          $fsDir = "$env:GITHUB_WORKSPACE\fluidsynth\fluidsynth-v2.5.2-win10-x64-cpp11"
+          & cmake -S . -B build -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release "-DFLUIDSYNTH_DIR=$fsDir"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          "- [x] **Configure** - CMake Release, NMake Makefiles" >> $env:GITHUB_STEP_SUMMARY
+
+      # ── Build ──────────────────────────────────────────
+
+      - name: "\U0001F528 CMake Build"
+        shell: pwsh
+        run: |
+          & cmake --build build --config Release
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          "- [x] **Build** - Release" >> $env:GITHUB_STEP_SUMMARY
+
+      # ── Package ────────────────────────────────────────
+
+      - name: "\U0001F4CB Deploy Qt + \U0001F4E6 Package"
+        shell: pwsh
+        run: |
+          & windeployqt build\bin\MidiEditorAI.exe --release --compiler-runtime --no-translations --no-system-d3d-compiler --no-opengl-sw
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+          Copy-Item -Recurse run_environment\graphics build\bin\graphics
+          Copy-Item run_environment\midieditor.ico build\bin\
+          if (Test-Path run_environment\mozart_turkish_march.mid) {
+            Copy-Item run_environment\mozart_turkish_march.mid build\bin\
+          }
+          "- [x] **Package** - Qt deployed, artifact ready" >> $env:GITHUB_STEP_SUMMARY
+
+      - name: "\u2B06\uFE0F Upload artifact"
+        uses: actions/upload-artifact@v7
+        with:
+          name: MidiEditorAI-win64
+          path: build/bin/
+          retention-days: ${{ steps.detect.outputs.is_release == 'true' && 90 || 14 }}
+
+      # ── Summary ────────────────────────────────────────
+
+      - name: "\U0001F4CA Build Summary"
+        if: always()
+        shell: pwsh
+        run: |
+          $mins = [math]::Round(((Get-Date -UFormat %s) - $env:BUILD_START) / 60, 1)
+          $ok = "${{ job.status }}" -eq "success"
+          $icon = if ($ok) { "`u{2705}" } else { "`u{274C}" }
+          $sha = "${{ github.sha }}".Substring(0, 7)
+          @"
+
+          ---
+
+          | | |
+          |---|---|
+          | **Result** | $icon ${{ job.status }} |
+          | **Duration** | ${mins} min |
+          | **Commit** | ``$sha`` |
+          | **Toolchain** | Qt 6.5 - MSVC 2019 x64 - FluidSynth 2.5.2 |
+          "@ >> $env:GITHUB_STEP_SUMMARY
+
+  # ─────────────────────────────────────────────────────
+  #  Release — only on v* tag push or manual dispatch
+  # ─────────────────────────────────────────────────────
+  release:
+    name: "\U0001F680 Release"
+    needs: build
+    if: needs.build.outputs.is_release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: "\U0001F4E5 Download build artifact"
+        uses: actions/download-artifact@v4
+        with:
+          name: MidiEditorAI-win64
+          path: pkg/
+
+      - name: "\U0001F4E6 Create release archive"
+        run: |
+          TAG="${{ needs.build.outputs.tag }}"
+          DIR="MidiEditorAI-${TAG}-win64"
+          mv pkg "$DIR"
+          zip -r "${DIR}.zip" "$DIR"
+          echo "RELEASE_ZIP=${DIR}.zip" >> $GITHUB_ENV
+
+      - name: "\U0001F4DD Extract release notes"
+        run: |
+          # Extract latest version section from CHANGELOG.md
+          awk '/^## \[/{n++} n==1' CHANGELOG.md | sed '/^---$/d' > RELEASE_NOTES.md
+
+          # Fallback to git log if CHANGELOG section is empty
+          if [ ! -s RELEASE_NOTES.md ]; then
+            TAG="${{ needs.build.outputs.tag }}"
+            PREV=$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || echo "")
+            {
+              echo "## Changes"
+              echo ""
+              if [ -n "$PREV" ]; then
+                git log --oneline "${PREV}..${TAG}"
+              else
+                git log --oneline -20
+              fi
+            } > RELEASE_NOTES.md
+          fi
+
+      - name: "\U0001F680 Create GitHub Release"
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.build.outputs.tag }}
+          name: "MidiEditor AI ${{ needs.build.outputs.tag }}"
+          body_path: RELEASE_NOTES.md
+          files: ${{ env.RELEASE_ZIP }}
+          draft: false
+          prerelease: false
+
+      - name: "\U0001F4CA Release Summary"
+        run: |
+          TAG="${{ needs.build.outputs.tag }}"
+          SIZE=$(du -h "${{ env.RELEASE_ZIP }}" | cut -f1)
+          {
+            echo "## :rocket: Release Published"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| **Tag** | \`${TAG}\` |"
+            echo "| **Archive** | \`${{ env.RELEASE_ZIP }}\` (${SIZE}) |"
+            echo "| **Status** | :white_check_mark: Published on GitHub |"
+          } >> $GITHUB_STEP_SUMMARY

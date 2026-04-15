@@ -47,3 +47,24 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5
+
+      - name: "Deployment Summary"
+        if: always()
+        run: |
+          STATUS="${{ job.status }}"
+          if [ "$STATUS" = "success" ]; then
+            ICON=":white_check_mark:"
+            MSG="Deployed"
+          else
+            ICON=":x:"
+            MSG="Failed"
+          fi
+          {
+            echo "## :globe_with_meridians: Manual Deployment"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| **Status** | ${ICON} ${MSG} |"
+            echo "| **URL** | https://midieditor-ai.de |"
+            echo "| **Commit** | \`${{ github.sha }}\` |"
+          } >> $GITHUB_STEP_SUMMARY
