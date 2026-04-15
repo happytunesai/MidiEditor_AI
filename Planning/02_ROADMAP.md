@@ -800,8 +800,8 @@ Phase 19   MidiPilot AI Improvements                      ✅ DONE (19.1-19.7, v
 Phase 20   Audio Export & FluidSynth Hardening            ✅ DONE (20.1-20.8, v1.2.0)
 Phase 21   Lyric Editor                                   ✅ DONE (all sub-phases 21.1–21.9 complete)
 Phase 22   Lyric Visualizer (Karaoke Display)             ✅ DONE
-Phase 23   MidiPilot Tool Call & Model Optimization       ⬜ TODO
-Phase 24   Sheet Music Import (PDF/Image to MIDI via OMR) ⬜ TODO
+Phase 23   MCP Server, Documentation & Prompt v3          ✅ DONE (23.1-23.5, v1.3.2)
+Phase 24   MusicXML Support & Sheet Music to MIDI         ⬜ TODO
 Phase 4.6  Persistent history (SQLite)                    ⬜ TODO (low priority)
 ```
 
@@ -7451,7 +7451,7 @@ Phase 22.7   Dynamic box sizing                                  ✅ DONE
 
 ---
 
-## Phase 23: MidiPilot Tool Call & Model Optimization ✅
+## Phase 23: MCP Server, Documentation System & Prompt Architecture v3 ✅ DONE (v1.3.2)
 
 > Goal: Optimize tool calls, model integration, and FFXIV prompt architecture
 > for better results across all LLM providers. Leaner prompts, smarter tool
@@ -7791,7 +7791,7 @@ Phase 23.3d  Provider abstraction                                ⏭️ SKIPPED 
 
 ---
 
-## Phase 24 - Sheet Music Import (PDF/Image to MIDI via OMR)
+## Phase 24 - MusicXML Support & Sheet Music to MIDI (PDF/Image via OMR)
 
 > **Goal:** Allow users to open a PDF or image of printed sheet music and convert it
 > to editable MIDI inside MidiEditor AI, using Optical Music Recognition (OMR) -
