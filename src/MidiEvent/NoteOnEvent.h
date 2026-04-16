@@ -60,6 +60,16 @@ public:
     NoteOnEvent(NoteOnEvent &other);
 
     /**
+     * \brief Destructor. Removes this instance from the process-wide
+     * `OffEvent::onEvents` pending-open-notes map that the constructor
+     * registered it in (V131-P2-03). Without this, freeing a NoteOnEvent
+     * while it's still unmatched (e.g. SharedClipboard deserialize failure)
+     * would leave a dangling pointer that the next OffEvent constructor
+     * would dereference.
+     */
+    ~NoteOnEvent();
+
+    /**
      * \brief Gets the MIDI note number.
      * \return The note number (0-127, where 60 = Middle C)
      */

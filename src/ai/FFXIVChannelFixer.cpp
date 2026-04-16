@@ -505,8 +505,15 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
 
                 if (!isGuitar(baseNames[t])) continue;
 
-                // Count distinct guitar channels with notes for this track
-                QSet<int> chsWithNotes;
+                // Find the channel of the CHRONOLOGICALLY FIRST NoteOn for
+                // this track across all guitar channels. For single-channel
+                // guitar tracks this is just "their" channel; for switching
+                // tracks this is whichever variant the track starts on —
+                // which is what the track name should reflect per spec.
+                // (Supersedes the v1.3.0 "skip rename for switching tracks"
+                // rule — Bug #4 revisit 2026-04-17.)
+                int firstCh = -1;
+                int firstTick = INT_MAX;
                 for (int ch : allGuitarChs) {
                     MidiChannel *channel = file->channel(ch);
                     if (!channel) continue;
@@ -514,17 +521,17 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
                     for (auto eit = map->begin(); eit != map->end(); ++eit) {
                         if (eit.value()->track() != track) continue;
                         if (!dynamic_cast<NoteOnEvent *>(eit.value())) continue;
-                        chsWithNotes.insert(ch);
-                        break;
+                        if (eit.key() < firstTick) {
+                            firstTick = eit.key();
+                            firstCh = ch;
+                        }
+                        break; // eventMap is sorted by tick; first hit per ch is the earliest on that ch
                     }
                 }
 
-                // Skip rename for switching tracks (notes on >1 guitar channel)
-                if (chsWithNotes.size() != 1) continue;
+                if (firstCh < 0) continue; // no notes on any guitar channel
 
-                int firstCh = *chsWithNotes.constBegin();
-
-                if (firstCh >= 0 && chToVariant.contains(firstCh)) {
+                if (chToVariant.contains(firstCh)) {
                     QString newVariant = chToVariant[firstCh];
                     if (newVariant != baseNames[t]) {
                         QJsonObject entry;

@@ -335,6 +335,13 @@ void EventTool::pasteAction() {
             }
         }
 
+        // Build a NEW local selection list — do NOT rely on selectEvent() mutating
+        // the internal Selection list through a reference. Since v1.3.2,
+        // Selection::selectedEvents() returns by value, so selectEvent(..., setSelection=false)
+        // would only modify throwaway local copies. We accumulate pasted events here and
+        // call setSelection() once at the end. (PASTE-001)
+        QList<MidiEvent *> pastedSelection;
+
         for (auto it = copiedCopiedEvents.rbegin(); it != copiedCopiedEvents.rend(); it++) {
             MidiEvent *event = *it;
 
@@ -373,9 +380,21 @@ void EventTool::pasteAction() {
             event->setTrack(track, false);
             currentFile()->channel(channelNum)->insertEvent(event,
                                                             (int) (tickscale * event->midiTime()) + diff, false);
-            selectEvent(event, false, true, false);
+
+            // Respect channel/track visibility (same rules as selectEvent()); skip OffEvents.
+            if (dynamic_cast<OffEvent *>(event)) {
+                continue;
+            }
+            if (!ChannelVisibilityManager::instance().isChannelVisible(event->channel())) {
+                continue;
+            }
+            if (event->track() && event->track()->hidden()) {
+                continue;
+            }
+            pastedSelection.append(event);
         }
-        Selection::instance()->setSelection(Selection::instance()->selectedEvents());
+        Selection::instance()->setSelection(pastedSelection);
+        _mainWindow->eventWidget()->reportSelectionChangedByTool();
 
         // Put the copied channels from before the event insertion onto the protocol stack
         for (auto channelPair: channelCopies) {
@@ -529,6 +548,10 @@ bool EventTool::pasteFromSharedClipboard() {
         // Clear selection and paste events
         clearSelection();
 
+        // Build a NEW local selection list — do NOT rely on selectEvent() mutating
+        // the internal Selection list through a reference. (PASTE-001)
+        QList<MidiEvent *> pastedSelection;
+
         // Separate tempo/time signature events from regular events first
         QList<MidiEvent *> tempoEvents;
         QList<MidiEvent *> regularEvents;
@@ -625,7 +648,12 @@ bool EventTool::pasteFromSharedClipboard() {
                     currentFile()->channel(16)->insertEvent(event, newTime, false);
                 }
 
-                selectEvent(event, false, true, false);
+                // Accumulate into local selection list (respecting visibility & skipping OffEvents).
+                if (!dynamic_cast<OffEvent *>(event)
+                    && ChannelVisibilityManager::instance().isChannelVisible(event->channel())
+                    && (!event->track() || !event->track()->hidden())) {
+                    pastedSelection.append(event);
+                }
             } catch (...) {
                 delete event;
             }
@@ -664,7 +692,12 @@ bool EventTool::pasteFromSharedClipboard() {
                 // Insert into the target channel at the calculated time
                 currentFile()->channel(targetChannel)->insertEvent(event, newTime, false);
 
-                selectEvent(event, false, true, false);
+                // Accumulate into local selection list (respecting visibility & skipping OffEvents).
+                if (!dynamic_cast<OffEvent *>(event)
+                    && ChannelVisibilityManager::instance().isChannelVisible(event->channel())
+                    && (!event->track() || !event->track()->hidden())) {
+                    pastedSelection.append(event);
+                }
             } catch (...) {
                 delete event;
             }
@@ -687,7 +720,8 @@ bool EventTool::pasteFromSharedClipboard() {
         }
 
         // Update the selection to show the pasted events
-        Selection::instance()->setSelection(Selection::instance()->selectedEvents());
+        Selection::instance()->setSelection(pastedSelection);
+        _mainWindow->eventWidget()->reportSelectionChangedByTool();
 
         currentFile()->protocol()->endAction();
     }

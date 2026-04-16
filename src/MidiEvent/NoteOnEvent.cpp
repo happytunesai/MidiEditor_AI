@@ -35,6 +35,18 @@ NoteOnEvent::NoteOnEvent(NoteOnEvent &other)
     _velocity = other._velocity;
 }
 
+NoteOnEvent::~NoteOnEvent() {
+    // V131-P2-03: symmetric to the constructor's OffEvent::enterOnEvent(this).
+    // Only the original (non-copy) NoteOnEvent registers itself in the static
+    // onEvents map, and the map is drained as OffEvents are matched to their
+    // OnEvents. But if a NoteOnEvent is destroyed before any OffEvent picks it
+    // up (corrupt clipboard payload, truncated file load, cancelled parse),
+    // it would be left dangling in the map and dereferenced by the next
+    // OffEvent ctor on the same line. QMultiMap::remove is a no-op for keys
+    // not present, so this is safe for copies too.
+    OffEvent::removeOnEvent(this);
+}
+
 int NoteOnEvent::note() {
     return _note;
 }

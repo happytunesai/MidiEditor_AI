@@ -165,12 +165,12 @@ QJsonObject EditorContext::captureKeySignature(MidiFile *file, int tick)
     // Determine the key name from tonality
     // tonalityAt returns sharps (positive) or flats (negative)
     // We need to figure out if it's minor from the actual event
-    // Key signature events are on channel 18 alongside time signatures
-    // Use tonality directly
+    // Key signature events live on channel 16 (the meta-event channel for
+    // KeySig, Text, Lyrics, Marker, ...). Time sigs are on ch 18, tempo on ch 17.
     bool isMinor = false;
 
-    // Key signature events live on channel 18 (the meta-event channel)
-    QMultiMap<int, MidiEvent *> *events = file->channelEvents(18);
+    // Key signature events live on channel 16 (AI-008 fix: was 18)
+    QMultiMap<int, MidiEvent *> *events = file->channelEvents(16);
     if (events) {
         for (auto it = events->begin(); it != events->end(); ++it) {
             if (it.key() > tick) break;

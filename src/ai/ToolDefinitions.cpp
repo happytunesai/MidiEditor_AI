@@ -10,6 +10,7 @@
 #include "../MidiEvent/MidiEvent.h"
 #include "../MidiEvent/NoteOnEvent.h"
 #include "../MidiEvent/OffEvent.h"
+#include "../protocol/Protocol.h"
 
 #include <QJsonDocument>
 #include <QSettings>
@@ -901,5 +902,17 @@ static int ffxivProgramNumber(const QString &instrumentName) {
 // ---------------------------------------------------------------------------
 QJsonObject ToolDefinitions::execSetupChannelPattern(MidiFile *file,
                                                       MidiPilotWidget * /*widget*/) {
-    return FFXIVChannelFixer::fixChannels(file);
+    // V131-P2-04: FFXIVChannelFixer::fixChannels() calls
+    // MidiChannel::removeEvent(..., true) in its CLEAN phase, which routes
+    // through Protocol::enterUndoStep(). If no action is open, every undo
+    // item is silently `delete`d and the event leaks (no one still owns it).
+    // The interactive MainWindow path wraps in startNewAction/endAction, but
+    // this AI-tool entry point previously did not. Wrap here so the fix runs
+    // under a Protocol action regardless of caller.
+    if (file && file->protocol())
+        file->protocol()->startNewAction(QStringLiteral("Agent: setup channel pattern"));
+    QJsonObject result = FFXIVChannelFixer::fixChannels(file);
+    if (file && file->protocol())
+        file->protocol()->endAction();
+    return result;
 }

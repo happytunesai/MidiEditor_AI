@@ -58,7 +58,10 @@ void LyricVisualizerWidget::setFile(MidiFile *file)
     _nextText.clear();
     _phraseProgress = 0.0f;
     _lastMs = 0;
-    _fadeIn = 1.0f;
+    // V131-P2-06: start faded-out so the first phrase after setFile() fades
+    // in cleanly. Previously set to 1.0f which skipped the fade-in entirely
+    // when playback began inside an existing block (seek+play case).
+    _fadeIn = 0.0f;
 
     // Connect new
     if (_file && _file->lyricManager()) {
@@ -101,6 +104,12 @@ void LyricVisualizerWidget::onPlaybackPositionChanged(int ms)
 {
     _lastMs = ms;
     updateCurrentLyric(ms);
+    // P3-008 residual: if the timer was stopped by the idle branch in refresh()
+    // and a new playback position arrives (scrub, AI tool play toggle, etc.),
+    // the widget would stay animation-dead until the next showEvent. Restart
+    // defensively so the karaoke sweep resumes.
+    if (!_timer.isActive())
+        _timer.start(REFRESH_MS);
 }
 
 void LyricVisualizerWidget::showEvent(QShowEvent *event)
