@@ -107,6 +107,7 @@ bool SelectTool::release() {
 
     // Build selection list locally, then set once (selectedEvents() returns by value)
     QList<MidiEvent *> newSelection = Selection::instance()->selectedEvents();
+    bool ctrlHeld = QApplication::keyboardModifiers().testFlag(Qt::ControlModifier);
 
     if (stool_type == SELECTION_TYPE_BOX || stool_type == SELECTION_TYPE_SINGLE) {
         int x_start, y_start, x_end, y_end;
@@ -133,7 +134,13 @@ bool SelectTool::release() {
         }
         foreach(MidiEvent* event, *(matrixWidget->activeEvents())) {
             if (inRect(event, x_start, y_start, x_end, y_end)) {
-                if (!dynamic_cast<OffEvent *>(event) && !event->track()->hidden() && !newSelection.contains(event)) {
+                if (dynamic_cast<OffEvent *>(event) || event->track()->hidden()) {
+                    continue;
+                }
+                if (ctrlHeld) {
+                    // Ctrl+drag: deselect events in box
+                    newSelection.removeAll(event);
+                } else if (!newSelection.contains(event)) {
                     newSelection.append(event);
                 }
             }
@@ -149,7 +156,12 @@ bool SelectTool::release() {
             start = tick;
         }
         foreach(MidiEvent* event, *(file()->eventsBetween(start, end))) {
-            if (!dynamic_cast<OffEvent *>(event) && !event->track()->hidden() && !newSelection.contains(event)) {
+            if (dynamic_cast<OffEvent *>(event) || event->track()->hidden()) {
+                continue;
+            }
+            if (ctrlHeld) {
+                newSelection.removeAll(event);
+            } else if (!newSelection.contains(event)) {
                 newSelection.append(event);
             }
         }

@@ -199,12 +199,23 @@ jobs:
 
       - name: "\U0001F4DD Extract release notes"
         run: |
+          TAG="${{ needs.build.outputs.tag }}"
+          VERSION="${TAG#v}"
+
+          # Extract release title from CHANGELOG header
+          # Format: ## [1.3.2.1] - 2026-04-16 — Hotfix: Ctrl+Drag Deselection & CI Workflow
+          TITLE=$(grep -m1 "^## \[${VERSION}\]" CHANGELOG.md | sed 's/^## \['"${VERSION}"'\] - [0-9-]* — //' | sed 's/^## \['"${VERSION}"'\] - [0-9-]* - //')
+          if [ -n "$TITLE" ]; then
+            echo "RELEASE_TITLE=${TAG} - ${TITLE}" >> $GITHUB_ENV
+          else
+            echo "RELEASE_TITLE=MidiEditor AI ${TAG}" >> $GITHUB_ENV
+          fi
+
           # Extract latest version section from CHANGELOG.md
           awk '/^## \[/{n++} n==1' CHANGELOG.md | sed '/^---$/d' > RELEASE_NOTES.md
 
           # Fallback to git log if CHANGELOG section is empty
           if [ ! -s RELEASE_NOTES.md ]; then
-            TAG="${{ needs.build.outputs.tag }}"
             PREV=$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || echo "")
             {
               echo "## Changes"
@@ -221,7 +232,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.build.outputs.tag }}
-          name: "MidiEditor AI ${{ needs.build.outputs.tag }}"
+          name: ${{ env.RELEASE_TITLE }}
           body_path: RELEASE_NOTES.md
           files: ${{ env.RELEASE_ZIP }}
           draft: false

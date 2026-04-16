@@ -5,6 +5,14 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 
 ---
 
+## [1.3.2.1] - 2026-04-16 — Hotfix: Ctrl+Drag Deselection & CI Workflow
+
+* **Fixed Ctrl+drag box deselection not working** - The v1.3.2 selection system rewrite (`SelectTool::release()`) built a local event list but only had code to *add* events - there was no code path to *remove* already-selected events when Ctrl was held. Ctrl+drag box selection over selected notes did nothing instead of deselecting them. Added `ctrlHeld` check: when Ctrl is held, events inside the selection box are removed from the current selection instead of added. Applied to box selection, single selection, and left/right selection tools. **Regression since v1.3.1.**
+* **Added GitHub Actions CI/Release workflow** - New `.github/workflows/ci.yml` automates the full build-and-release pipeline. Triggers on push to `main`, `v*` tag push, or manual dispatch with optional release tag. Build job: checks out repo, installs Qt 6.5 (cached), sets up MSVC x64, downloads FluidSynth 2.5.2, configures and builds via CMake/NMake, deploys Qt with `windeployqt`, uploads build artifact (14-day retention for CI, 90-day for releases). Release job: downloads artifact, creates versioned ZIP, extracts release notes from CHANGELOG.md (falls back to git log), publishes GitHub Release with the ZIP attached. Includes build summary with duration, commit, and toolchain info.
+* **Files modified:** `SelectTool.cpp`, `.github/workflows/ci.yml`
+
+---
+
 ## [1.3.2] - 2026-04-15 — MCP Server, Documentation System & Prompt Architecture v3
 
 ### Summary
