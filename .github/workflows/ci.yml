@@ -184,7 +184,7 @@ jobs:
           fetch-depth: 0
 
       - name: "\U0001F4E5 Download build artifact"
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: MidiEditorAI-win64
           path: pkg/
