@@ -44,11 +44,34 @@ target_link_libraries(test_chord_detector PRIVATE
 )
 add_test(NAME ChordDetector COMMAND test_chord_detector)
 
+# -----------------------------------------------------------------------------
+# test_srt_parser
+# -----------------------------------------------------------------------------
+# Validates the SRT subtitle import/export in src/converter/SrtParser.
+# SrtParser depends on MidiFile only for tick<->ms conversion (two non-virtual
+# methods). To avoid linking the entire MidiFile dep tree, the test provides
+# an ODR shim: it defines its own minimal MidiFile class with the same two
+# member symbols. SrtParser.cpp is compiled here against the real MidiFile.h
+# but never constructs MidiFile, so no vtable / Q_OBJECT machinery is needed.
+add_executable(test_srt_parser
+    test_srt_parser.cpp
+    ../src/converter/SrtParser.cpp
+)
+target_include_directories(test_srt_parser PRIVATE
+    ../src/converter
+    ../src/midi
+)
+target_link_libraries(test_srt_parser PRIVATE
+    Qt6::Core
+    Qt6::Test
+)
+add_test(NAME SrtParser COMMAND test_srt_parser)
+
 # Make Qt DLLs visible to the tests at runtime on Windows.
 if(WIN32)
     get_target_property(_qmake_exe Qt6::qmake IMPORTED_LOCATION)
     get_filename_component(_qt_bin_dir "${_qmake_exe}" DIRECTORY)
-    set_tests_properties(XmlScoreToMidi ChordDetector PROPERTIES
+    set_tests_properties(XmlScoreToMidi ChordDetector SrtParser PROPERTIES
         ENVIRONMENT "PATH=${_qt_bin_dir};$ENV{PATH}"
     )
 endif()

@@ -5,6 +5,27 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 
 ---
 
+## [1.4.1] - 2026-04-19 — Manual Bugfix + SrtParser Tests
+
+### Summary
+* **Fixed stale "What's New" card on the manual landing page (DOC-002)** — the `index.html` What's New block was hardcoded HTML still showing v1.3.2 content even after the v1.4.0 release. The sister `changelog.html` is auto-generated from `CHANGELOG.md` by `scripts/build_changelog.py`, so it had the right content; the landing card was the only place still drifting. `manual/site.js` now fetches `changelog.html` once (a promise shared with the existing dynamic bugfix counter), pulls the first `.cl-version` block, and rewrites the card's heading, italic subtitle, and bullet list at runtime. The static markup in `index.html` was also refreshed to v1.4.0 content as a no-JS fallback, and a small `.whats-new-subtitle` rule was added to `site.css`.
+* **`SrtParser` unit tests (PHASE-25.2)** — new `tests/test_srt_parser.cpp` with 14 cases covering the happy path (two-block CRLF SRT), `.` accepted in place of `,` per the regex, multi-line cue text joined with a single space, final entry without a trailing blank, malformed timing line dropped while parser recovers, UTF-8 BOM stripped from the first line, missing file → empty list, null `MidiFile*` → empty list, full export↔import round-trip, empty / null export rejection, and canonical `HH:MM:SS,mmm` formatting for 1h+ timecodes. ctest is now 3 executables / 41 sub-tests, all green.
+* **`CHANGELOG_TEMPLATE.md` removed from the repo** — added to `.gitignore` and `git rm --cached`'d. The file stays on disk locally as a personal scratch template; it is no longer part of the published source tree.
+
+### Files Modified
+
+* `CMakeLists.txt` — version `1.4.0` → `1.4.1`
+* `manual/site.js` — shared `changelogDocReady` promise; new `populateWhatsNew()` rewrites the landing card from `changelog.html`
+* `manual/index.html` — version bump (4 places); What's New static fallback refreshed to v1.4.0 content with new `.whats-new-subtitle`
+* `manual/site.css` — `.whats-new-subtitle` rule (italic, muted, tight top margin)
+* `manual/changelog.html` — regenerated from `CHANGELOG.md` via `scripts/build_changelog.py`
+* `tests/test_srt_parser.cpp` (new) — 14 unit tests for `SrtParser`
+* `tests/CMakeLists.txt` — register `test_srt_parser` with the Windows DLL-PATH workaround
+* `Planning/06_TEST_CASES.md` — `SrtParser` row ⬜ → ✅; coverage table 2 → 3 executables / 24 → 41 sub-tests
+* `.gitignore` — ignore `CHANGELOG_TEMPLATE.md`
+
+---
+
 ## [1.4.0] - 2026-04-19 — MusicXML & MuseScore Import + C++ Test Harness
 
 ### Summary

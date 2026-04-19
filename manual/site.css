@@ -683,6 +683,12 @@ img { max-width: 100%; height: auto; }
     margin-bottom: 1rem;
     border: none; padding: 0;
 }
+.whats-new .whats-new-subtitle {
+    margin: -0.5rem 0 1rem;
+    color: var(--text-muted);
+    font-style: italic;
+    font-size: 0.95rem;
+}
 .whats-new ul {
     list-style: none; padding: 0;
 }

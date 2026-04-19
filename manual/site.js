@@ -74,28 +74,87 @@
         }
         requestAnimationFrame(step);
     }
+    // Shared parse of changelog.html — used by bugfix counter and What's New card
+    var changelogDocReady = (typeof fetch === 'function')
+        ? fetch('changelog.html')
+            .then(function (r) { return r.ok ? r.text() : Promise.reject(); })
+            .then(function (html) {
+                return new DOMParser().parseFromString(html, 'text/html');
+            })
+            .catch(function () { return null; })
+        : Promise.resolve(null);
+
     // Dynamic bugfix count from changelog
     var bugfixReady = (function loadBugfixCount() {
         var el = document.getElementById('stat-bugfixes');
         if (!el) return Promise.resolve();
-        return fetch('changelog.html')
-            .then(function (r) { return r.text(); })
-            .then(function (html) {
-                var doc = new DOMParser().parseFromString(html, 'text/html');
-                var timeline = doc.querySelector('.cl-timeline');
-                if (!timeline) return;
-                var text = timeline.textContent;
-                var re = /(\d+)\s+bug\s*fix/gi;
-                var total = 0, m;
-                while ((m = re.exec(text)) !== null) {
-                    total += parseInt(m[1], 10);
+        return changelogDocReady.then(function (doc) {
+            if (!doc) return;
+            var timeline = doc.querySelector('.cl-timeline');
+            if (!timeline) return;
+            var text = timeline.textContent;
+            var re = /(\d+)\s+bug\s*fix/gi;
+            var total = 0, m;
+            while ((m = re.exec(text)) !== null) {
+                total += parseInt(m[1], 10);
+            }
+            if (total > 0) {
+                total = Math.ceil(total / 5) * 5;
+                el.setAttribute('data-target', total);
+            }
+        });
+    })();
+
+    // Dynamic "What's New" card from changelog (latest version)
+    (function populateWhatsNew() {
+        var card = document.querySelector('.whats-new');
+        if (!card) return;
+        changelogDocReady.then(function (doc) {
+            if (!doc) return; // keep hardcoded fallback
+            var latest = doc.querySelector('.cl-version');
+            if (!latest) return;
+            var version = latest.getAttribute('data-version') || '';
+            var dateText = (latest.querySelector('.cl-date') || {}).textContent || '';
+            var titleText = (latest.querySelector('.cl-title') || {}).textContent || '';
+            var summaryItems = latest.querySelectorAll('.cl-summary > li');
+            if (!version || !summaryItems.length) return;
+
+            // Format YYYY-MM-DD → "Month YYYY"
+            var months = ['January','February','March','April','May','June',
+                          'July','August','September','October','November','December'];
+            var prettyDate = dateText;
+            var dm = /^(\d{4})-(\d{2})/.exec(dateText);
+            if (dm) prettyDate = months[parseInt(dm[2], 10) - 1] + ' ' + dm[1];
+
+            var heading = 'v' + version + ' \u2014 ' + prettyDate;
+            var ul = document.createElement('ul');
+            summaryItems.forEach(function (li) {
+                var clone = li.cloneNode(true);
+                clone.removeAttribute('class');
+                clone.removeAttribute('style');
+                ul.appendChild(clone);
+            });
+
+            // Replace heading + bullet list, keep badge and "View Full Changelog" link
+            var existingH3 = card.querySelector('h3');
+            if (existingH3) existingH3.textContent = heading;
+            var existingUl = card.querySelector('ul');
+            if (existingUl) {
+                existingUl.replaceWith(ul);
+            } else if (existingH3) {
+                existingH3.insertAdjacentElement('afterend', ul);
+            }
+
+            if (titleText) {
+                var sub = card.querySelector('.whats-new-subtitle');
+                if (!sub) {
+                    sub = document.createElement('p');
+                    sub.className = 'whats-new-subtitle';
+                    if (existingH3) existingH3.insertAdjacentElement('afterend', sub);
                 }
-                if (total > 0) {
-                    total = Math.ceil(total / 5) * 5;
-                    el.setAttribute('data-target', total);
-                }
-            })
-            .catch(function () { /* keep hardcoded fallback */ });
+                sub.textContent = titleText;
+            }
+        });
     })();
 
     var statEls = document.querySelectorAll('.stat-number[data-target]');
