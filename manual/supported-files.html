@@ -1,0 +1,577 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Supported Files | MidiEditor AI Manual</title>
+<link rel="icon" type="image/png" href="favicon.png">
+<meta name="theme-color" content="#0d1117">
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="site.css">
+  <link rel="stylesheet" href="audio.css">
+<style>
+.screenshot-row { display: flex; flex-wrap: wrap; gap: 1.5rem; justify-content: center; margin: 1.5rem 0; }
+.screenshot-row img { border: 1px solid var(--border); border-radius: 8px; }
+.screenshot-single { text-align: center; margin: 1.5rem 0; }
+.screenshot-single img { max-width: 100%; border: 1px solid var(--border); border-radius: 8px; }
+.caption { text-align: center; color: var(--text-muted); font-style: italic; margin-top: 0.5rem; font-size: 0.9rem; }
+.info-table { width: 100%; border-collapse: collapse; margin: 1rem 0 1.5rem; }
+.info-table th, .info-table td { padding: 0.6rem 0.8rem; border: 1px solid var(--border); text-align: left; }
+.info-table th { background: var(--bg-secondary); font-weight: 600; }
+.info-table tr:nth-child(even) td { background: var(--table-alt); }
+.step-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem; margin: 1.5rem 0; }
+.step-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.2rem;
+}
+.step-card h4 { margin-top: 0; border-bottom: none; }
+.step-card p { margin-bottom: 0; font-size: 0.92em; color: var(--text-muted); }
+.highlight-box {
+    background: var(--bg-card);
+    border-left: 4px solid var(--accent);
+    padding: 1rem 1.25rem;
+    margin: 1.5rem 0;
+    border-radius: 0 8px 8px 0;
+}
+.highlight-box p { margin: 0; }
+.format-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.2rem 1.4rem;
+    margin-bottom: 1rem;
+}
+.format-card h4 { margin-top: 0; border-bottom: none; color: var(--accent); }
+.format-card .ext { display: inline-block; background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 4px; padding: 0.1em 0.5em; font-family: monospace; font-size: 0.9em; margin-right: 0.3em; }
+.format-card ul { margin-bottom: 0; }
+.format-toc { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 0.8rem; margin: 1.5rem 0; }
+.format-toc a {
+    display: block;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.2rem;
+    text-decoration: none;
+    color: var(--text);
+    transition: border-color 0.15s;
+}
+.format-toc a:hover { border-color: var(--accent); }
+.format-toc a strong { display: block; color: var(--accent); margin-bottom: 0.25rem; }
+.format-toc a span { font-size: 0.88em; color: var(--text-muted); font-family: monospace; }
+.timeline {
+    position: relative;
+    padding-left: 2rem;
+    margin: 1.5rem 0;
+}
+.timeline::before {
+    content: '';
+    position: absolute;
+    left: 0.6rem;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: var(--border);
+}
+.timeline-item {
+    position: relative;
+    margin-bottom: 1.2rem;
+    padding-left: 0.8rem;
+}
+.timeline-item::before {
+    content: '';
+    position: absolute;
+    left: -1.65rem;
+    top: 0.45em;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--accent);
+    border: 2px solid var(--bg);
+}
+.timeline-item .year { font-weight: 700; color: var(--accent); }
+.timeline-item .desc { color: var(--text-muted); font-size: 0.92em; }
+</style>
+</head>
+<body>
+<nav class="site-nav" role="navigation" aria-label="Main navigation">
+<div class="container">
+    <a href="index.html" class="nav-brand">
+        <span class="brand-icon">&#x1F3B5;</span>
+        <span>MidiEditor AI</span>
+    </a>
+    <button class="nav-hamburger" aria-label="Toggle menu" aria-expanded="false">&#x2630;</button>
+    <ul class="nav-links">
+        <li><a href="index.html#features">Features</a></li>
+        <li><a href="index.html#showcase">Showcase</a></li>
+        <li class="nav-dropdown">
+            <span class="nav-dropdown-trigger active">Docs &#x25BE;</span>
+            <div class="nav-dropdown-menu">
+                <a href="docs-index.html">Manual Overview</a>
+                <a href="midipilot.html">MidiPilot AI</a>
+                <a href="prompt-examples.html">Prompt Examples</a>
+                <a href="ffxiv-channel-fixer.html">FFXIV Channel Fixer</a>
+                <a href="supported-files.html">Supported Files</a>
+                <a href="themes.html">Themes &amp; Appearance</a>
+                <a href="lyrics.html">Lyric Editor</a>
+                <a href="soundfont.html">SoundFonts &amp; FluidSynth</a>
+                <a href="mcp-server.html">MCP Server</a>
+                <a href="setup.html">Setup &amp; Installation</a>
+            </div>
+        </li>
+        <li><a href="changelog.html">Changelog</a></li>
+        <li><a href="https://github.com/happytunesai/MidiEditor_AI" target="_blank" rel="noopener noreferrer">GitHub &#x2197;</a></li>
+        <li><a href="download.html" class="nav-cta">&#x2B07; Download</a></li>
+    </ul>
+</div>
+</nav>
+
+
+<!-- Navigation injected by navigation.js -->
+
+<a href="#main-content" class="skip-link">Skip to main content</a>
+
+<main id="main-content">
+
+<h1>&#x1F4C2; Supported Files</h1>
+
+<p>
+MidiEditor AI can natively open <b>four file-format families</b>: standard MIDI, Guitar Pro tablature, MusicXML scores, and MuseScore project files. Non-MIDI formats are converted to MIDI on-the-fly with tempo, time signature, key signature, and instrument mapping preserved &mdash; no external converter or third-party software required.
+</p>
+
+<div class="highlight-box">
+<p>&#x1F4C2; <b>Open via:</b> <b>File &rarr; Open</b> (Ctrl+O). The file dialog accepts every format below. Format detection is <b>header-based</b> for Guitar Pro and content-based for MusicXML/MuseScore, so even misnamed extensions usually still work.</p>
+</div>
+
+<h2 id="overview">Format Overview</h2>
+
+<div class="format-toc">
+<a href="#midi"><strong>&#x1F3B5; MIDI</strong><span>.mid &middot; .midi</span></a>
+<a href="#guitar-pro"><strong>&#x1F3B8; Guitar Pro</strong><span>.gp .gp3 .gp4 .gp5 .gpx .gtp</span></a>
+<a href="#musicxml"><strong>&#x1F3BC; MusicXML</strong><span>.musicxml &middot; .xml &middot; .mxl</span></a>
+<a href="#musescore"><strong>&#x1F3BB; MuseScore</strong><span>.mscz &middot; .mscx</span></a>
+</div>
+
+<table class="info-table">
+<tr>
+<th>Family</th>
+<th>Extensions</th>
+<th>Source</th>
+<th>Conversion</th>
+<th>Save back as</th>
+</tr>
+<tr>
+<td><b>MIDI</b></td>
+<td><code>.mid</code>, <code>.midi</code></td>
+<td>Native &mdash; Standard MIDI File</td>
+<td>None (loaded directly)</td>
+<td><code>.mid</code></td>
+</tr>
+<tr>
+<td><b>Guitar Pro</b></td>
+<td><code>.gp</code>, <code>.gp3</code>, <code>.gp4</code>, <code>.gp5</code>, <code>.gpx</code>, <code>.gtp</code></td>
+<td>Guitar Pro 1&ndash;8</td>
+<td>Tab &rarr; MIDI on open</td>
+<td><code>.mid</code></td>
+</tr>
+<tr>
+<td><b>MusicXML</b></td>
+<td><code>.musicxml</code>, <code>.xml</code>, <code>.mxl</code></td>
+<td>Finale, Sibelius, MuseScore, Dorico, etc.</td>
+<td>Score &rarr; MIDI on open</td>
+<td><code>.mid</code></td>
+</tr>
+<tr>
+<td><b>MuseScore</b></td>
+<td><code>.mscz</code>, <code>.mscx</code></td>
+<td>MuseScore 3 / 4</td>
+<td>Score &rarr; MIDI on open</td>
+<td><code>.mid</code></td>
+</tr>
+</table>
+
+<div class="highlight-box">
+<p>&#x26A0;&#xFE0F; <b>One-way conversion:</b> Imported files are converted to MIDI in memory. Saving keeps the result as a MIDI file &mdash; the original Guitar Pro / MusicXML / MuseScore document is not modified, and round-trip back to those formats is not supported.</p>
+</div>
+
+<hr>
+
+<h2 id="midi">&#x1F3B5; MIDI</h2>
+
+<p>The native format. Loaded and saved directly without conversion.</p>
+
+<table class="info-table">
+<tr><th>Extensions</th><td><code>.mid</code>, <code>.midi</code></td></tr>
+<tr><th>Type</th><td>Standard MIDI File (SMF) format 0 and format 1</td></tr>
+<tr><th>Tracks</th><td>Up to 32, mapped to 19 channels (16 standard + 3 meta)</td></tr>
+<tr><th>Editing</th><td>Full read/write &mdash; everything MidiEditor AI does ultimately works on MIDI in memory</td></tr>
+</table>
+
+<hr>
+
+<h2 id="guitar-pro">&#x1F3B8; Guitar Pro (GP1&ndash;GP8)</h2>
+
+<p>
+MidiEditor AI natively opens every Guitar Pro format released between 1993 and 2024. Files are converted to MIDI on-the-fly with tempo, time signature, key signature, tuning, and instrument mapping preserved.
+</p>
+
+<h3 id="gp-formats">Supported GP Formats</h3>
+
+<table class="info-table">
+<tr>
+<th>Format</th>
+<th>Extensions</th>
+<th>Version Range</th>
+<th>Parser</th>
+<th>Encoding</th>
+</tr>
+<tr>
+<td><b>GP1</b></td>
+<td><code>.gtp</code></td>
+<td>v1.0 &ndash; v1.04</td>
+<td>Gp12Parser</td>
+<td>Binary (DOS, French header &ldquo;GUITARE&rdquo;)</td>
+</tr>
+<tr>
+<td><b>GP2</b></td>
+<td><code>.gtp</code></td>
+<td>v2.20 &ndash; v2.21</td>
+<td>Gp12Parser</td>
+<td>Binary (DOS, adds triplet feel, repeats, capo)</td>
+</tr>
+<tr>
+<td><b>GP3</b></td>
+<td><code>.gp3</code></td>
+<td>v3.00</td>
+<td>Gp345Parser</td>
+<td>Binary</td>
+</tr>
+<tr>
+<td><b>GP4</b></td>
+<td><code>.gp4</code></td>
+<td>v4.00 &ndash; v4.06</td>
+<td>Gp345Parser</td>
+<td>Binary (adds lyrics, RSE, key signatures)</td>
+</tr>
+<tr>
+<td><b>GP5</b></td>
+<td><code>.gp5</code></td>
+<td>v5.00 &ndash; v5.10</td>
+<td>Gp345Parser</td>
+<td>Binary (adds RSE2, extended note effects)</td>
+</tr>
+<tr>
+<td><b>GP6 / GPX</b></td>
+<td><code>.gpx</code></td>
+<td>v6.x</td>
+<td>Gp678Parser</td>
+<td>BCFZ-compressed GPIF XML</td>
+</tr>
+<tr>
+<td><b>GP7 / GP8</b></td>
+<td><code>.gp</code></td>
+<td>v7.x &ndash; v8.x</td>
+<td>Gp678Parser</td>
+<td>ZIP-packaged GPIF XML</td>
+</tr>
+</table>
+
+<h3 id="gp-history">A Brief History of Guitar Pro</h3>
+
+<div class="timeline">
+<div class="timeline-item">
+<span class="year">1993</span> &mdash; <span class="desc"><b>GP1</b> released as a DOS application in France. Binary format with a French header (&ldquo;FICHIER GUITARE&rdquo;). Basic tablature storage for guitar tracks.</span>
+</div>
+<div class="timeline-item">
+<span class="year">1997</span> &mdash; <span class="desc"><b>GP2</b> adds triplet feel, repeat markers, and capo support. Still a DOS binary format.</span>
+</div>
+<div class="timeline-item">
+<span class="year">1999</span> &mdash; <span class="desc"><b>GP3</b> moves to Windows. New binary format (<code>.gp3</code>) with multi-track support, tempo changes, and text annotations.</span>
+</div>
+<div class="timeline-item">
+<span class="year">2001</span> &mdash; <span class="desc"><b>GP4</b> adds lyrics, Realistic Sound Engine (RSE), and key signatures. Format mostly backward-compatible with GP3.</span>
+</div>
+<div class="timeline-item">
+<span class="year">2005</span> &mdash; <span class="desc"><b>GP5</b> introduces RSE2 with real instrument samples, tablature for bass/banjo/drums, and extended note effects (slides, hammer-on, tremolo bar).</span>
+</div>
+<div class="timeline-item">
+<span class="year">2010</span> &mdash; <span class="desc"><b>GP6</b> completely new format: GPIF XML compressed with the proprietary <b>BCFZ</b> algorithm (custom bit-level LZ77, <i>not</i> zlib). Extension changes to <code>.gpx</code>.</span>
+</div>
+<div class="timeline-item">
+<span class="year">2017</span> &mdash; <span class="desc"><b>GP7</b> switches from BCFZ to standard <b>ZIP</b> packaging around the same GPIF XML. Extension becomes <code>.gp</code>.</span>
+</div>
+<div class="timeline-item">
+<span class="year">2024</span> &mdash; <span class="desc"><b>GP8</b> continues the ZIP+XML format with minor schema additions. Same <code>.gp</code> extension.</span>
+</div>
+</div>
+
+<h3 id="gp-detection">Header-Based Format Detection</h3>
+
+<p>
+MidiEditor AI does <b>not</b> rely on the file extension to determine the GP format. Instead, it reads the <b>magic bytes</b> at the start of each file:
+</p>
+
+<table class="info-table">
+<tr>
+<th>Family</th>
+<th>Detection Method</th>
+</tr>
+<tr>
+<td><b>GP1 / GP2</b></td>
+<td>Header string: <code>FICHIER GUITAR PRO v1</code> or <code>v2</code> (French)</td>
+</tr>
+<tr>
+<td><b>GP3 / GP4 / GP5</b></td>
+<td>Header string: <code>FICHIER GUITAR PRO v3</code>, <code>v4</code>, or <code>v5</code></td>
+</tr>
+<tr>
+<td><b>GP6 (BCFZ)</b></td>
+<td>Magic bytes: <code>BCFZ</code> at offset 0</td>
+</tr>
+<tr>
+<td><b>GP7 / GP8 (ZIP)</b></td>
+<td>ZIP header <code>PK\x03\x04</code> containing <code>Content/score.gpif</code></td>
+</tr>
+</table>
+
+<h3 id="gp-conversion">What Gets Converted</h3>
+
+<div class="step-grid">
+<div class="step-card">
+<h4>&#x1F3B5; Notes &amp; Tabs</h4>
+<p>String/fret tablature is converted to MIDI note numbers using the track&rsquo;s tuning. Note velocity, duration, and timing are preserved.</p>
+</div>
+<div class="step-card">
+<h4>&#x23F1;&#xFE0F; Tempo</h4>
+<p>Tempo changes (BPM markers) are inserted as MIDI tempo meta events at the correct tick positions.</p>
+</div>
+<div class="step-card">
+<h4>&#x1F3BC; Time Signature</h4>
+<p>Time signature changes (e.g., 4/4 &rarr; 6/8) are extracted per measure and inserted as MIDI time signature meta events.</p>
+</div>
+<div class="step-card">
+<h4>&#x266D; Key Signature</h4>
+<p>Key signature markers (GP4+) are converted to MIDI key signature meta events with correct sharps/flats and major/minor mode.</p>
+</div>
+<div class="step-card">
+<h4>&#x1F3B8; Instruments</h4>
+<p>Guitar Pro instrument assignments are mapped to <b>General MIDI program numbers</b>. Track names are preserved. Each track gets its own MIDI channel.</p>
+</div>
+<div class="step-card">
+<h4>&#x1F3A4; Effects</h4>
+<p>Bends, slides, hammer-on/pull-off, vibrato, and harmonics are converted to MIDI pitch bend and controller events where possible.</p>
+</div>
+</div>
+
+<h3 id="gp-architecture">Parser Architecture</h3>
+
+<table class="info-table">
+<tr>
+<th>Parser</th>
+<th>Formats</th>
+<th>Approach</th>
+</tr>
+<tr>
+<td><b>Gp12Parser</b></td>
+<td>GP1, GP2</td>
+<td>Sequential binary reading of DOS-era format. Ported from TuxGuitar&rsquo;s Java reference implementation (<code>GP1InputStream</code>, <code>GP2InputStream</code>).</td>
+</tr>
+<tr>
+<td><b>Gp345Parser</b></td>
+<td>GP3, GP4, GP5</td>
+<td>Inheritance chain: <code>Gp3Parser</code> &rarr; <code>Gp4Parser</code> &rarr; <code>Gp5Parser</code>. Each subclass adds version-specific fields.</td>
+</tr>
+<tr>
+<td><b>Gp678Parser</b></td>
+<td>GP6, GP7, GP8</td>
+<td>First decompresses the container (BCFZ or ZIP), then parses the GPIF XML document. DOM-based XML traversal extracts scores, tracks, bars, voices, beats, and notes.</td>
+</tr>
+</table>
+
+<h3 id="gp-tips">Guitar Pro Tips</h3>
+
+<ul>
+<li><b>Large files:</b> GP files with 200+ measures import in under a second. The parser is single-pass and lightweight.</li>
+<li><b>Missing instruments:</b> If a Guitar Pro instrument has no GM equivalent, it falls back to <b>Acoustic Grand Piano</b> (program 0). You can reassign it manually in the Track Editor.</li>
+<li><b>Drum tracks:</b> Guitar Pro drum tracks are mapped to MIDI Channel 9 with GM percussion mapping.</li>
+<li><b>Effects accuracy:</b> Bends and slides are approximated using MIDI pitch bend. Complex GP effects like palm muting or natural harmonics have no direct MIDI equivalent and are omitted.</li>
+<li><b>Repeat sections:</b> Repeat markers in GP2+ files are unrolled during import &mdash; the resulting MIDI contains the fully expanded arrangement.</li>
+</ul>
+
+<hr>
+
+<h2 id="musicxml">&#x1F3BC; MusicXML</h2>
+
+<p>
+MusicXML is the de-facto interchange format for music notation. MidiEditor AI imports plain XML scores (<code>.musicxml</code>, <code>.xml</code>) and the compressed container variant (<code>.mxl</code>) used by most notation programs to ship a score in a single file.
+</p>
+
+<table class="info-table">
+<tr><th>Extensions</th><td><code>.musicxml</code>, <code>.xml</code>, <code>.mxl</code></td></tr>
+<tr><th>Spec</th><td>MusicXML 3.x and 4.0</td></tr>
+<tr><th>Source apps</th><td>Finale, Sibelius, MuseScore, Dorico, Notion, Capella, NoteFlight, Flat.io, ScoreCloud, &hellip;</td></tr>
+<tr><th>Container</th><td><code>.musicxml</code> / <code>.xml</code> = plain XML &middot; <code>.mxl</code> = ZIP container with embedded score</td></tr>
+<tr><th>Parser</th><td><code>MusicXmlImporter</code> &rarr; <code>XmlScoreToMidi</code> (shared SMF writer)</td></tr>
+</table>
+
+<h3 id="musicxml-coverage">What Gets Imported</h3>
+
+<div class="step-grid">
+<div class="step-card">
+<h4>&#x1F3BC; Parts &amp; Voices</h4>
+<p>Each <code>&lt;part&gt;</code> becomes a MIDI track. Multiple voices inside a staff are merged onto the same channel with correct timing.</p>
+</div>
+<div class="step-card">
+<h4>&#x1F3B5; Notes &amp; Chords</h4>
+<p>Pitch (step + alter + octave), duration, and chord groupings (<code>&lt;chord/&gt;</code> tag) are converted to simultaneous MIDI NoteOn events.</p>
+</div>
+<div class="step-card">
+<h4>&#x23F1;&#xFE0F; Tempo</h4>
+<p><code>&lt;sound tempo="..."&gt;</code> directives become MIDI tempo meta events at the correct tick.</p>
+</div>
+<div class="step-card">
+<h4>&#x1F3BC; Time / Key Sig</h4>
+<p><code>&lt;time&gt;</code> and <code>&lt;key&gt;</code> elements become time-signature and key-signature meta events.</p>
+</div>
+<div class="step-card">
+<h4>&#x1F3B7; Instruments</h4>
+<p><code>&lt;midi-program&gt;</code> and <code>&lt;midi-channel&gt;</code> assignments are honoured. Falls back to GM Piano when missing.</p>
+</div>
+<div class="step-card">
+<h4>&#x1F4DD; Tuplets &amp; Rests</h4>
+<p><code>&lt;time-modification&gt;</code> ratios are applied to durations. Rests advance the cursor without emitting notes.</p>
+</div>
+</div>
+
+<h3 id="musicxml-tips">MusicXML Tips</h3>
+
+<ul>
+<li><b>Compressed vs plain:</b> <code>.mxl</code> is just a ZIP wrapper around <code>.musicxml</code> &mdash; pick whichever your notation app exports more easily.</li>
+<li><b>Lyrics:</b> <code>&lt;lyric&gt;</code> elements are not yet imported as MIDI text events. Use the Lyric Editor to add lyrics after import.</li>
+<li><b>Articulations &amp; dynamics:</b> Slurs, staccato, and dynamic markings are notation-only concepts; they do not currently translate to MIDI velocity changes.</li>
+<li><b>Repeat sections:</b> Repeat barlines and voltas are not yet expanded &mdash; the imported MIDI contains a single linear pass through the score.</li>
+<li><b>One-way:</b> MidiEditor AI saves edits back as MIDI, not MusicXML. To round-trip, re-export from your notation software.</li>
+</ul>
+
+<hr>
+
+<h2 id="musescore">&#x1F3BB; MuseScore</h2>
+
+<p>
+MidiEditor AI reads MuseScore 3/4 project files directly, without going through MuseScore. <code>.mscz</code> is the standard zipped container; <code>.mscx</code> is the underlying plain XML.
+</p>
+
+<table class="info-table">
+<tr><th>Extensions</th><td><code>.mscz</code>, <code>.mscx</code></td></tr>
+<tr><th>MuseScore versions</th><td>3.x and 4.x</td></tr>
+<tr><th>Container</th><td><code>.mscz</code> = ZIP with the <code>.mscx</code> + assets &middot; <code>.mscx</code> = plain XML</td></tr>
+<tr><th>Parser</th><td><code>MsczImporter</code> &rarr; <code>XmlScoreToMidi</code> (shared SMF writer)</td></tr>
+</table>
+
+<h3 id="musescore-coverage">What Gets Imported</h3>
+
+<div class="step-grid">
+<div class="step-card">
+<h4>&#x1F3BC; Parts &amp; Staves</h4>
+<p>Each MuseScore <code>&lt;Part&gt;</code> &rarr; one MIDI track. Multi-staff parts (e.g. piano grand staff) are merged.</p>
+</div>
+<div class="step-card">
+<h4>&#x1F3B5; Voices</h4>
+<p>All voices inside a staff are merged onto the part&rsquo;s channel, preserving tick positions.</p>
+</div>
+<div class="step-card">
+<h4>&#x1F3B6; Chords &amp; Rests</h4>
+<p><code>&lt;Chord&gt;</code> elements with multiple <code>&lt;Note&gt;</code> children become simultaneous MIDI notes. <code>&lt;Rest&gt;</code> advances the cursor.</p>
+</div>
+<div class="step-card">
+<h4>&#x1F4D0; Tuplets &amp; Dotted Notes</h4>
+<p>Tuplet brackets and dotted-note durations are computed correctly using MuseScore&rsquo;s <code>&lt;actualNotes&gt;</code> / <code>&lt;normalNotes&gt;</code> ratio.</p>
+</div>
+<div class="step-card">
+<h4>&#x23F1;&#xFE0F; Tempo / Time / Key</h4>
+<p><code>&lt;Tempo&gt;</code>, <code>&lt;TimeSig&gt;</code>, <code>&lt;KeySig&gt;</code> become MIDI meta events.</p>
+</div>
+<div class="step-card">
+<h4>&#x1F3B9; Grace Notes</h4>
+<p>Grace notes are inserted as short events immediately before the principal note.</p>
+</div>
+</div>
+
+<h3 id="musescore-tips">MuseScore Tips</h3>
+
+<ul>
+<li><b>.mscz vs .mscx:</b> Both are supported. <code>.mscz</code> is what MuseScore saves by default; <code>.mscx</code> is mainly used for diff-friendly version control.</li>
+<li><b>MuseScore 3 vs 4:</b> Both schemas are handled by the same parser. Differences are minor and gracefully fall back to defaults when an element is missing.</li>
+<li><b>Linked parts &amp; instruments:</b> MuseScore&rsquo;s <code>&lt;Instrument&gt;</code> &rarr; <code>&lt;program&gt;</code> mapping is used; otherwise GM Piano.</li>
+<li><b>Lyrics, fingerings, and notation extras:</b> Like MusicXML, these are not yet converted to MIDI. Lyrics can be added via the Lyric Editor after import.</li>
+<li><b>One-way:</b> Saves back as MIDI only.</li>
+</ul>
+
+<hr>
+
+<h2 id="workflow-ffxiv">Workflow: Score &rarr; FFXIV Bard</h2>
+
+<p>A common use case is converting Guitar Pro / MusicXML / MuseScore source material into FFXIV Bard Performance MIDI files. The workflow is identical regardless of source format:</p>
+
+<div class="step-grid">
+<div class="step-card">
+<h4>1&#xFE0F;&#x20E3; Open Source File</h4>
+<p>File &rarr; Open and select your <code>.gp5</code>, <code>.musicxml</code>, <code>.mscz</code>, or any other supported format. Tracks, notes, and tempo are imported automatically.</p>
+</div>
+<div class="step-card">
+<h4>2&#xFE0F;&#x20E3; Review Tracks</h4>
+<p>Check imported tracks in the Track Editor. Rename, delete, or rearrange as needed. Source track names are preserved.</p>
+</div>
+<div class="step-card">
+<h4>3&#xFE0F;&#x20E3; Fix Channels</h4>
+<p>Click <b>Fix X|V Channels</b> <img src="tools/ffxiv_fix.png" alt="Fix X|V" style="height:1.1em;vertical-align:middle;"> to set up the FFXIV channel mapping, program changes, and guitar variant switching automatically.</p>
+</div>
+<div class="step-card">
+<h4>4&#xFE0F;&#x20E3; Save as MIDI</h4>
+<p>Save with File &rarr; Save As (<code>.mid</code>). The file is now ready for MidiBard2 or other FFXIV performance tools.</p>
+</div>
+</div>
+
+<div class="highlight-box">
+<p>&#x1F4A1; <b>Tip:</b> You can also ask <a href="midipilot.html">MidiPilot</a> to help: <i>&ldquo;Convert this import for FFXIV 8-player ensemble, constrain range to C3&ndash;C6, make all tracks monophonic&rdquo;</i></p>
+</div>
+
+<hr>
+
+<h2 id="general-tips">General Tips</h2>
+
+<ul>
+<li><b>One-way conversion:</b> Imported files become MIDI in memory. Editing and saving keeps the result as <code>.mid</code> &mdash; the original file is never overwritten.</li>
+<li><b>Header detection:</b> File extension is a hint, not a hard requirement. Misnamed files are usually still recognized correctly.</li>
+<li><b>After import:</b> The result is a standard MIDI file. All MidiEditor AI tools (Split Channels, Explode Chords, MidiPilot AI, FFXIV Channel Fixer, Lyric Editor, etc.) work on the imported data.</li>
+<li><b>Notation-only data:</b> Articulations, dynamics, slurs, and other purely notational markings are not yet converted to MIDI velocity / controller changes. Future versions may add this.</li>
+<li><b>Lyrics:</b> Embedded lyrics are not yet pulled into MIDI text events. Use the <a href="lyrics.html">Lyric Editor</a> to add lyrics after import.</li>
+</ul>
+
+</main>
+
+<footer class="site-footer">
+    <div class="footer-links">
+        <a href="https://github.com/happytunesai/MidiEditor_AI" target="_blank" rel="noopener noreferrer">GitHub Repo</a>
+        <a href="https://github.com/happytunesai" target="_blank" rel="noopener noreferrer">All Projects</a>
+        <a href="docs-index.html">Documentation</a>
+        <a href="changelog.html">Changelog</a>
+        <a href="https://github.com/happytunesai/MidiEditor_AI/issues" target="_blank" rel="noopener noreferrer">Issues</a>
+        <a href="midipilot.html">MidiPilot</a>
+        <a href="supported-files.html">Supported Files</a>
+        <a href="https://www.happytunes.de" target="_blank" rel="noopener noreferrer">Happy Tunes &#x1F3B6;</a>
+    </div>
+    <p class="footer-copy">
+        MidiEditor AI &copy; 2026 &middot;
+        <a href="https://github.com/happytunesai/MidiEditor_AI/blob/main/LICENSE">License</a>
+        &middot; Made with &#x266A; + &#x1F916;
+        &middot; A <a href="https://www.happytunes.de" target="_blank" rel="noopener noreferrer">Happy Tunes</a> project
+    </p>
+</footer>
+<button class="scroll-top" aria-label="Scroll to top">&#x2191;</button>
+<script src="lightbox.js"></script>
+<script src="navigation.js"></script>
+<script src="site.js"></script>
+</body>
+</html>

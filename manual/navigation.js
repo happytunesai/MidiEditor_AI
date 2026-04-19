@@ -11,7 +11,7 @@
         { href: 'split-channels.html', icon: '✂️', name: 'Split' },
         { href: 'themes.html', icon: '🎨', name: 'Themes' },
         { href: 'soundfont.html', icon: '🔊', name: 'SoundFonts' },
-        { href: 'guitar-pro.html', icon: '🎸', name: 'Guitar Pro' },
+        { href: 'supported-files.html', icon: '📂', name: 'Files' },
         { href: 'lyrics.html', icon: '🎤', name: 'Lyrics' },
         { href: 'mcp-server.html', icon: '🔗', name: 'MCP' },
         { href: 'midi-overview.html', icon: '🎹', name: 'MIDI' },

@@ -148,231 +148,114 @@
     font-weight: 600;
 }
 
-/* Chat demo animation */
+/* ---- Chat Demo (synced with index.html) ---- */
 .chat-demo {
-    max-width: 600px;
-    margin: 1.5rem auto 0;
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    background: #f8f8f6;
-    overflow: hidden;
-    opacity: 0;
-    transform: translateY(15px);
-    transition: opacity 0.5s, transform 0.5s;
+    width: 480px; max-width: 90vw; margin: 1.5rem auto 0;
+    border: 1px solid var(--border); border-radius: 12px;
+    background: #f8f8f6; overflow: hidden;
     text-align: left;
+    opacity: 0; transform: translateY(15px);
+    transition: opacity .5s, transform .5s;
 }
-.chat-demo.visible {
-    opacity: 1;
-    transform: translateY(0);
-}
+.chat-demo.visible { opacity: 1; transform: translateY(0); }
 .chat-demo-header {
-    background: #eee;
-    padding: 0.5rem 0.75rem;
+    background: #eee; padding: 0.45rem 0.75rem;
     border-bottom: 1px solid #ddd;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    font-size: 0.82em;
-    font-weight: 600;
-    color: #333;
+    display: flex; align-items: center; gap: 0.5rem;
+    font-size: .82em; font-weight: 600; color: #333;
 }
-.chat-demo-header .label { color: #555; }
 .chat-demo-body {
-    padding: 0.75rem;
-    min-height: 100px;
-    max-height: 200px;
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-    overflow-y: auto;
-    background: #fff;
+    padding: .75rem; min-height: 140px; max-height: 260px;
+    display: flex; flex-direction: column; gap: .35rem;
+    overflow-y: auto; background: #fff;
 }
+.chat-ts {
+    font-size: .7em; color: #999; margin: 2px 0 1px;
+    opacity: 0; transition: opacity .3s; flex-shrink: 0;
+}
+.chat-ts.visible { opacity: 1; }
+.chat-ts.right { text-align: right; }
 .chat-msg {
-    padding: 6px 10px;
-    border-radius: 8px;
-    font-size: 0.84em;
-    line-height: 1.45;
-    max-width: 85%;
-    opacity: 0;
-    transform: translateY(8px);
-    transition: opacity 0.3s, transform 0.3s;
-    word-wrap: break-word;
+    padding: 5px 10px; border-radius: 8px;
+    font-size: .82em; line-height: 1.4; max-width: 85%;
+    opacity: 0; transform: translateY(8px);
+    transition: opacity .3s, transform .3s;
+    word-wrap: break-word; flex-shrink: 0;
 }
-.chat-msg.visible {
-    opacity: 1;
-    transform: translateY(0);
-}
-.chat-msg .ts {
-    color: #999;
-    font-size: 0.85em;
-    margin-right: 0.3em;
-}
+.chat-msg.visible { opacity: 1; transform: translateY(0); }
 .chat-msg.user {
-    background: #0078D4;
-    color: #fff;
-    align-self: flex-end;
-    margin-left: 40px;
+    background: #00897B; color: #fff;
+    align-self: flex-end; margin-left: 40px;
 }
 .chat-msg.ai {
-    background: #E8E8E8;
-    color: #222;
-    align-self: flex-start;
-    margin-right: 40px;
+    background: #E8E8E8; color: #222;
+    align-self: flex-start; margin-right: 20px;
 }
-.chat-msg.ai .tool-call {
-    color: #6a3dba;
-    font-family: 'Consolas', 'Courier New', monospace;
-    font-size: 0.88em;
+.steps-panel {
+    background: #F5F5F0; border: 1px solid #e0e0dc; border-radius: 8px;
+    margin: 2px 20px 2px 0; font-size: .78em;
+    align-self: flex-start; flex-shrink: 0;
 }
-/* Agent steps container */
-.agent-step {
-    font-size: 0.82em;
-    padding: 4px 10px;
-    background: #F5F5F0;
-    border-radius: 8px;
-    margin-right: 40px;
-    align-self: flex-start;
-    opacity: 0;
-    transform: translateY(8px);
-    transition: opacity 0.3s, transform 0.3s;
-    color: #333;
+.steps-header {
+    padding: 4px 8px; font-weight: 600; color: #333;
+    display: flex; align-items: center; gap: 4px;
+    border-bottom: 1px solid #e0e0dc;
 }
-.agent-step.visible { opacity: 1; transform: translateY(0); }
-.agent-step.pending { color: #CC7700; }
-.agent-step.active { color: #0066CC; font-weight: bold; }
-.agent-step.done { color: #2D8C3C; }
-/* Status bar � matches app's ? ? ? animation */
-.chat-status-bar {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 5px 10px;
-    border-radius: 6px;
-    margin: 0 0.75rem;
-    font-size: 0.78em;
-    font-weight: 600;
-    transition: background 0.3s;
-}
-.chat-status-bar.ready {
-    background: #E8F5E9;
-    color: #2E7D32;
-}
-.chat-status-bar.processing {
-    background: #FFF3E0;
-    color: #E65100;
-}
-.chat-status-bar .status-dots {
-    font-size: 13px;
+.steps-header .arrow { font-size: .8em; }
+.steps-list { padding: 3px 8px 5px; }
+.step-item {
+    padding: 1px 0; color: #666;
     white-space: nowrap;
-    flex-shrink: 0;
 }
-.chat-status-bar.ready .status-dots { color: #4CAF50; }
-.chat-status-bar.processing .status-dots { color: #FF9800; }
-/* Input bar */
+.step-item.done { color: #2D8C3C; }
+.chat-status-bar {
+    display: flex; align-items: center; gap: 6px;
+    padding: 4px 10px; border-radius: 6px;
+    margin: 0 .75rem; font-size: .76em; font-weight: 600;
+}
+.chat-status-bar.ready { background: #E8F5E9; color: #2E7D32; }
+.chat-status-bar.processing { background: #FFF3E0; color: #E65100; }
 .chat-demo-input {
-    border-top: 1px solid #ddd;
-    padding: 0.5rem 0.75rem;
-    background: #f8f8f6;
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-}
-.chat-demo-input .new-chat-btn {
-    background: none;
-    border: none;
-    cursor: default;
-    padding: 2px 4px;
-    display: flex;
-    align-items: center;
-}
-.chat-demo-input .new-chat-btn svg {
-    width: 18px;
-    height: 18px;
-    stroke: #6a3dba;
-}
-.chat-demo-input .mode-select {
-    background: #fff;
-    border: 1px solid #ccc;
-    border-radius: 4px;
-    font-size: 0.75em;
-    padding: 2px 6px;
-    height: 24px;
-    color: #333;
+    border-top: 1px solid #ddd; padding: .4rem .75rem;
+    background: #f8f8f6; display: flex; align-items: center; gap: .4rem;
 }
 .chat-demo-input .input-field {
-    flex: 1;
-    background: #fff;
-    border: 1px solid #ccc;
-    border-radius: 6px;
-    padding: 5px 8px;
-    color: #333;
-    font-size: 0.82em;
-    font-family: inherit;
-    min-height: 1.4em;
-    overflow: hidden;
-    white-space: nowrap;
+    flex: 1; background: #fff; border: 1px solid #ccc;
+    border-radius: 6px; padding: 4px 8px; color: #333;
+    font-size: .78em; font-family: inherit;
 }
-.chat-demo-input .input-field.placeholder {
-    color: #999;
+.chat-demo-input .input-field.placeholder { color: #999; }
+.chat-demo-input .mode-select {
+    background: #fff; border: 1px solid #ccc; border-radius: 4px;
+    font-size: .72em; padding: 2px 6px; height: 22px; color: #333;
+    transition: background .3s, border-color .3s, box-shadow .3s;
+}
+.chat-demo-input .mode-select.highlight {
+    background: #E0F2F1; border-color: #00897B;
+    box-shadow: 0 0 8px rgba(0,137,123,.45);
 }
 .chat-demo-input .send-btn {
-    background: none;
-    border: none;
-    color: #333;
-    padding: 2px 6px;
-    cursor: default;
-    font-size: 1em;
-    opacity: 0.4;
-    transition: opacity 0.2s;
+    background: none; border: none; color: #333; padding: 2px 6px;
+    cursor: default; font-size: 1em; opacity: .4;
 }
-.chat-demo-input .send-btn.active {
-    opacity: 1;
-}
-/* Footer bar � FFXIV checkbox, model, reasoning */
+.chat-demo-input .send-btn.active { opacity: 1; }
 .chat-demo-footer {
-    border-top: 1px solid #eee;
-    padding: 4px 0.75rem;
-    background: #f0f0ee;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    font-size: 0.72em;
-    color: #666;
-}
-.chat-demo-footer .ffxiv-box {
-    display: flex;
-    align-items: center;
-    gap: 3px;
-}
-.chat-demo-footer .ffxiv-box input {
-    margin: 0;
-    accent-color: #6a3dba;
+    border-top: 1px solid #eee; padding: 3px .75rem;
+    background: #f0f0ee; display: flex; align-items: center;
+    gap: .5rem; font-size: .7em; color: #666;
 }
 .chat-demo-footer .spacer { flex: 1; }
-.chat-demo-footer .model-tag {
-    background: #fff;
-    border: 1px solid #ccc;
-    border-radius: 4px;
-    padding: 1px 8px;
-    font-size: 1em;
-    color: #333;
-}
+.chat-demo-footer .model-tag,
 .chat-demo-footer .effort-tag {
-    background: #fff;
-    border: 1px solid #ccc;
-    border-radius: 4px;
-    padding: 1px 8px;
-    font-size: 1em;
-    color: #333;
+    background: #fff; border: 1px solid #ccc;
+    border-radius: 4px; padding: 1px 7px; font-size: 1em; color: #333;
 }
-.chat-demo-footer .settings-btn {
-    background: none;
-    border: none;
-    font-size: 1.1em;
-    color: #888;
-    cursor: default;
-    padding: 0 2px;
+.chat-demo-footer .ffxiv-box {
+    display: flex; align-items: center; gap: 3px;
+    transition: color .3s, font-weight .3s;
 }
+.chat-demo-footer .ffxiv-box input { margin: 0; }
+.chat-demo-footer .ffxiv-box.highlight { color: #00897B; font-weight: 600; }
 </style>
 </head>
 <body>
@@ -393,7 +276,7 @@
                 <a href="midipilot.html">MidiPilot AI</a>
                 <a href="prompt-examples.html">Prompt Examples</a>
                 <a href="ffxiv-channel-fixer.html">FFXIV Channel Fixer</a>
-                <a href="guitar-pro.html">Guitar Pro Import</a>
+                <a href="supported-files.html">Supported Files</a>
                 <a href="themes.html">Themes &amp; Appearance</a>
                 <a href="lyrics.html">Lyric Editor</a>
                 <a href="soundfont.html">SoundFonts &amp; FluidSynth</a>
@@ -419,29 +302,35 @@
 <div class="hero">
 <pre id="ascii-logo" aria-label="MidiEditor AI"></pre>
 <p class="tagline" id="hero-tagline" style="opacity:0">Your complete guide to the AI-powered MIDI editor</p>
-<span class="version-badge" id="hero-badge" style="opacity:0">v1.3.2 &middot; Manual</span>
+<span class="version-badge" id="hero-badge" style="opacity:0">v1.4.0 &middot; Manual</span>
 
 <!-- Fake Chat Demo -->
 <div class="chat-demo" id="chat-demo">
-<div class="chat-demo-header"><span class="label">&#x1F9E0; MidiPilot</span></div>
-<div class="chat-demo-body" id="chat-body"></div>
-<div class="chat-demo-input">
-<span class="new-chat-btn" title="New Chat"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path stroke="none" d="M0 0h24v24H0z" fill="none"/><path d="M8 9h8"/><path d="M8 13h6"/><path d="M12.01 18.594l-4.01 2.406v-3h-2a3 3 0 0 1 -3 -3v-8a3 3 0 0 1 3 -3h12a3 3 0 0 1 3 3v5.5"/><path d="M16 19h6"/><path d="M19 16v6"/></svg></span>
-<select class="mode-select" disabled><option>Agent</option></select>
-<div class="input-field placeholder" id="chat-input">Ask MidiPilot...</div>
-<button class="send-btn" id="chat-send">&#x27A4;</button>
-</div>
-<div class="chat-status-bar ready" id="chat-status">
-<span class="status-dots" id="status-dots">&#x25CF;</span>
-<span class="status-text" id="status-text">Ready</span>
-</div>
-<div class="chat-demo-footer">
-<label class="ffxiv-box"><input type="checkbox" disabled> FFXIV</label>
-<span class="spacer"></span>
-<span class="model-tag">gpt-5.4</span>
-<span class="effort-tag">&#x1F4AD; med</span>
-<span class="settings-btn">&#x2699;</span>
-</div>
+    <div class="chat-demo-header"><span>&#x1F9E0; MidiPilot</span></div>
+    <div class="chat-demo-body" id="chat-body"></div>
+    <div class="chat-demo-input">
+        <div class="input-field placeholder" id="chat-input">Ask MidiPilot... (Enter to send, Shift+Enter for newline)</div>
+    </div>
+    <div style="border-top:1px solid #eee; padding:3px .75rem; background:#f8f8f6; display:flex; align-items:center; gap:.4rem; font-size:.7em; color:#666;">
+        <span>&#x1F4CB;</span>
+        <span>&#x23F1;</span>
+        <label for="mode-select" class="sr-only">MidiPilot Mode</label>
+        <select class="mode-select" disabled style="margin:0;" id="mode-select"><option>Agent</option><option>Simple</option><option>Compo</option></select>
+        <span style="color:#444; font-size:.95em;" id="token-display">&#x25A0; 0 | 0k &#x1F525; / 1M</span>
+        <span class="spacer" style="flex:1;"></span>
+        <button class="send-btn" id="chat-send">&#x25B6;</button>
+    </div>
+    <div class="chat-status-bar ready" id="chat-status">
+        <span id="status-dots">&#x25CF;</span>
+        <span id="status-text">Ready</span>
+    </div>
+    <div class="chat-demo-footer">
+        <label class="ffxiv-box"><input type="checkbox" disabled> FFXIV</label>
+        <span class="model-tag">OpenAI</span>
+        <span class="spacer"></span>
+        <span class="model-tag">gpt-5.4</span>
+        <span class="effort-tag">&#x1F4AD; med</span>
+    </div>
 </div>
 </div>
 
@@ -599,16 +488,16 @@
 </div>
 
 <div class="section-card">
-<h3><span class="icon">&#x1F3B8;</span> Guitar Pro Import</h3>
-<p class="card-desc">Open GP1&ndash;GP8 files directly &mdash; all formats from 1993 DOS-era to 2024 are supported with header-based detection.</p>
+<h3><span class="icon">&#x1F4C2;</span> Supported Files</h3>
+<p class="card-desc">Open MIDI, Guitar Pro (GP1&ndash;GP8), MusicXML, and MuseScore files directly &mdash; one unified reference for every supported input format.</p>
 <ul>
-<li><a href="guitar-pro.html#formats">&#x1F4CB; Supported Formats (GP1&ndash;GP8)</a></li>
-<li><a href="guitar-pro.html#history">&#x1F4C5; History of Guitar Pro</a></li>
-<li><a href="guitar-pro.html#detection">&#x1F50D; Header-Based Detection</a></li>
-<li><a href="guitar-pro.html#conversion">&#x1F3B5; What Gets Converted</a></li>
-<li><a href="guitar-pro.html#architecture">&#x2699;&#xFE0F; Parser Architecture</a></li>
-<li><a href="guitar-pro.html#workflow">&#x1F3AE; GP to FFXIV Workflow</a></li>
-<li><a href="guitar-pro.html#tips">&#x1F4A1; Tips</a></li>
+<li><a href="supported-files.html#overview">&#x1F4CB; Format Overview</a></li>
+<li><a href="supported-files.html#midi">&#x1F3B5; MIDI</a></li>
+<li><a href="supported-files.html#guitar-pro">&#x1F3B8; Guitar Pro (GP1&ndash;GP8)</a></li>
+<li><a href="supported-files.html#musicxml">&#x1F3BC; MusicXML &amp; MXL</a></li>
+<li><a href="supported-files.html#musescore">&#x1F3BB; MuseScore (.mscz / .mscx)</a></li>
+<li><a href="supported-files.html#workflow-ffxiv">&#x1F3AE; Score &rarr; FFXIV Workflow</a></li>
+<li><a href="supported-files.html#general-tips">&#x1F4A1; Tips</a></li>
 </ul>
 </div>
 
@@ -725,7 +614,7 @@
         <a href="changelog.html">Changelog</a>
         <a href="https://github.com/happytunesai/MidiEditor_AI/issues" target="_blank" rel="noopener noreferrer">Issues</a>
         <a href="midipilot.html">MidiPilot</a>
-        <a href="guitar-pro.html">Guitar Pro</a>
+        <a href="supported-files.html">Supported Files</a>
         <a href="https://www.happytunes.de" target="_blank" rel="noopener noreferrer">Happy Tunes &#x1F3B6;</a>
     </div>
     <p class="footer-copy">
@@ -760,59 +649,100 @@
         'Composing at the speed of thought...', 'Aligning the notes...'
     ];
 
-    // Chat conversation pairs
+    // Chat conversation pairs (synced with index.html)
     var CHATS = [
         {
-            prompt: 'Compose a 4-bar piano melody in C major at 120 BPM',
+            mode: 'Agent',
+            prompt: 'Create a simple melody',
             steps: [
-                { icon: '\u2705', text: 'set_tempo(bpm=120)', state: 'done' },
-                { icon: '\u2705', text: 'create_notes(track=1, notes=[C4, E4, G4, ...])', state: 'done' }
+                'Query events \u2014 Track 1',
+                'Rename track \u2014 Track 1 \u2192 Simple Melody',
+                'Insert events \u2014 Track 1 (17 events)'
             ],
-            response: '\u2705 Created 16 notes on Track 1, Channel 0\nC major melody \u2022 120 BPM \u2022 4 bars'
+            response: 'Created a simple 4-bar melody on the existing track and renamed it to **Simple Melody**.\n\nWhat I added:\n- **GM program:** Piano\n- **Style:** ascending/descending C major phrase\n- **Range:** C4\u2013C5\n- **Length:** 4 measures starting at tick 0'
         },
         {
-            prompt: 'Transpose all notes up by a perfect fifth',
-            steps: [
-                { icon: '\u2705', text: 'transpose_notes(semitones=7)', state: 'done' }
-            ],
-            response: '\u2705 Transposed 42 notes by +7 semitones\nC major \u2192 G major'
+            mode: 'Simple',
+            prompt: 'What key is this in?',
+            steps: null,
+            response: 'Based on the notes in Track 1, the piece is in **C Major**.\n\nThe melody uses C, D, E, F, G, A, B with no accidentals \u2014 a clean C Major / A minor tonality.'
         },
         {
-            prompt: 'Convert this for FFXIV Bard performance (3 octaves)',
+            mode: 'Agent',
+            prompt: 'Add drums to this track',
             steps: [
-                { icon: '\u2705', text: 'get_all_notes()', state: 'done' },
-                { icon: '\u2705', text: 'constrain_range(min=48, max=84)', state: 'done' }
+                'Query events \u2014 Track 1',
+                'Detect tempo \u2014 120 BPM',
+                'Create track \u2014 Drums',
+                'Set channel \u2014 Track 2 \u2192 Ch 9 (Drums)',
+                'Insert events \u2014 Track 2 (48 events)'
             ],
-            response: '\u2705 Mapped to C3\u2013C6 range, split chords to arpeggios\n6 notes adjusted \u2022 Bard-ready'
+            response: 'Added a drum pattern on Track 2 (Ch 9).\n\n- **Style:** pop/rock groove\n- **Pattern:** kick + snare + hi-hat\n- **Length:** 4 bars matching Track 1'
         },
         {
-            prompt: 'Add a walking bass line following the chord progression',
+            mode: 'Agent',
+            prompt: 'Fix this for FFXIV Bard (3 octave range)',
             steps: [
-                { icon: '\u2705', text: 'create_track(name="Bass")', state: 'done' },
-                { icon: '\u2705', text: 'create_notes(track=2, channel=1, ...)', state: 'done' }
+                'Query events \u2014 all tracks',
+                'Analyze range \u2014 min=36, max=96',
+                'Constrain range \u2014 min=48, max=84'
             ],
-            response: '\u2705 Generated bass on Track 2, Channel 1\nQuarter notes \u2022 following root motion'
+            response: 'Mapped all notes to the C3\u2013C6 bard range.\n\n- **8 notes** transposed up from below C3\n- **3 notes** transposed down from above C6\n\nThe piece is now FFXIV bard-ready!'
+        },
+        {
+            mode: 'Agent',
+            prompt: 'Add a walking bass line',
+            steps: [
+                'Query events \u2014 Track 1',
+                'Analyze key \u2014 C Major detected',
+                'Create track \u2014 Walking Bass',
+                'Set channel \u2014 Track 2 \u2192 Ch 1',
+                'Set program \u2014 Acoustic Bass',
+                'Insert events \u2014 Track 2 (32 events)'
+            ],
+            response: 'Created a walking bass on Track 2.\n\n- **Instrument:** Acoustic Bass\n- **Pattern:** quarter notes following root motion\n- **Key:** C Major \u2022 110 BPM'
+        },
+        {
+            mode: 'Simple',
+            prompt: 'Transpose everything up by a 5th',
+            steps: null,
+            response: 'Done! Transposed all **49 notes** on Track 1 up by a perfect 5th (+7 semitones).\n\nThe piece is now in **G Major**.'
+        },
+        {
+            mode: 'Compo',
+            prompt: 'Compose a jazz intro in Dm7',
+            steps: [
+                'Set tempo \u2014 110 BPM',
+                'Set time signature \u2014 4/4',
+                'Rename track \u2014 Track 1 \u2192 Jazz Piano',
+                'Set program \u2014 Acoustic Grand Piano',
+                'Insert events \u2014 Track 1 (24 events)'
+            ],
+            response: 'Created a 4-bar jazz intro on Track 1.\n\n- **Progression:** Dm7 \u2192 G7 \u2192 Cmaj7 \u2192 Fmaj7\n- **Style:** voiced chords + walking melody line\n- **Tempo:** 110 BPM, 4/4\n\nA classic ii-V-I-IV turnaround with jazz voicings.'
         }
     ];
 
-    var logoEl = document.getElementById('ascii-logo');
+    var logoEl   = document.getElementById('ascii-logo');
     var taglineEl = document.getElementById('hero-tagline');
-    var badgeEl = document.getElementById('hero-badge');
+    var badgeEl  = document.getElementById('hero-badge');
     var chatDemo = document.getElementById('chat-demo');
     var chatBody = document.getElementById('chat-body');
     var chatInput = document.getElementById('chat-input');
-    var sendBtn = document.getElementById('chat-send');
+    var sendBtn  = document.getElementById('chat-send');
     var statusBar = document.getElementById('chat-status');
     var statusDots = document.getElementById('status-dots');
     var statusText = document.getElementById('status-text');
+    var modeSelect = document.getElementById('mode-select');
+    var tokenDisplay = document.getElementById('token-display');
+    var ffxivCheckbox = document.querySelector('.ffxiv-box input');
+    var ffxivLabel = document.querySelector('.ffxiv-box');
+    var tokenCount = 0;
 
-    // --- Timestamp helper ---
     function ts() {
         var d = new Date();
-        var h = String(d.getHours()).padStart(2, '0');
-        var m = String(d.getMinutes()).padStart(2, '0');
-        var s = String(d.getSeconds()).padStart(2, '0');
-        return '[' + h + ':' + m + ':' + s + ']';
+        return String(d.getHours()).padStart(2,'0') + ':' +
+               String(d.getMinutes()).padStart(2,'0') + ':' +
+               String(d.getSeconds()).padStart(2,'0');
     }
 
     // --- Typewriter for ASCII logo ---
@@ -832,160 +762,170 @@
         }, 8);
     }
 
-    // --- Fade in element ---
     function fadeIn(el, cb) {
         el.style.transition = 'opacity 0.5s';
         el.style.opacity = '1';
         setTimeout(cb || function(){}, 500);
     }
 
-    // --- Status bar: set to ready ---
-    function setStatusReady() {
+    function updateTokens(add) {
+        tokenCount += add;
+        var k = (tokenCount / 1000).toFixed(1);
+        tokenDisplay.innerHTML = '&#x25A0; ' + tokenCount + ' | ' + k + 'k &#x1F525; / 1M';
+    }
+
+    var dotTimer, msgTimer;
+    function setReady() {
+        if (dotTimer) clearInterval(dotTimer);
+        if (msgTimer) clearInterval(msgTimer);
         statusBar.className = 'chat-status-bar ready';
         statusDots.textContent = '\u25CF';
         statusText.textContent = 'Ready';
     }
-
-    // --- Status bar: animated processing (? ? ? cycling) ---
-    var dotTimer = null;
-    var msgTimer = null;
-    function setStatusProcessing() {
+    function setProcessing() {
         statusBar.className = 'chat-status-bar processing';
-        var frames = ['\u25CF \u25CB \u25CB', '\u25CB \u25CF \u25CB', '\u25CB \u25CB \u25CF', '\u25CB \u25CF \u25CB'];
-        var fi = 0;
-        statusDots.textContent = frames[0];
-        statusText.textContent = STATUS_MSGS[Math.floor(Math.random() * STATUS_MSGS.length)];
-        dotTimer = setInterval(function() {
-            fi = (fi + 1) % frames.length;
-            statusDots.textContent = frames[fi];
-        }, 400);
-        msgTimer = setInterval(function() {
-            statusText.textContent = STATUS_MSGS[Math.floor(Math.random() * STATUS_MSGS.length)];
+        var f = ['\u25CB \u25CF \u25CB','\u25CF \u25CB \u25CB','\u25CB \u25CB \u25CF'], fi = 0;
+        statusDots.textContent = f[0];
+        statusText.textContent = STATUS_MSGS[Math.floor(Math.random()*STATUS_MSGS.length)];
+        dotTimer = setInterval(function(){ fi=(fi+1)%f.length; statusDots.textContent=f[fi]; }, 400);
+        msgTimer = setInterval(function(){
+            statusText.textContent = STATUS_MSGS[Math.floor(Math.random()*STATUS_MSGS.length)];
         }, 2400);
     }
-    function stopStatusProcessing() {
-        if (dotTimer) { clearInterval(dotTimer); dotTimer = null; }
-        if (msgTimer) { clearInterval(msgTimer); msgTimer = null; }
-        setStatusReady();
-    }
 
-    // --- Typewriter for input field ---
-    function typeInInput(text, cb) {
-        var i = 0;
-        chatInput.textContent = '';
-        chatInput.classList.remove('placeholder');
-        sendBtn.classList.remove('active');
-        var timer = setInterval(function() {
-            chatInput.textContent += text.charAt(i);
-            i++;
-            if (i >= text.length) {
-                clearInterval(timer);
-                sendBtn.classList.add('active');
-                setTimeout(cb || function(){}, 600);
-            }
-        }, 45);
-    }
-
-    // --- Add user message bubble ---
-    function addUserMsg(text, cb) {
-        chatInput.textContent = 'Ask MidiPilot...';
-        chatInput.classList.add('placeholder');
-        sendBtn.classList.remove('active');
-        var msg = document.createElement('div');
-        msg.className = 'chat-msg user';
-        var stamp = document.createElement('span');
-        stamp.className = 'ts';
-        stamp.textContent = ts();
-        msg.appendChild(stamp);
-        msg.appendChild(document.createTextNode(text));
-        chatBody.appendChild(msg);
-        void msg.offsetWidth;
-        msg.classList.add('visible');
-        setTimeout(cb || function(){}, 350);
-    }
-
-    // --- Show agent steps one by one ---
-    function showSteps(steps, idx, cb) {
-        if (idx >= steps.length) { if (cb) cb(); return; }
-        var s = steps[idx];
+    function addTimestamp(align, cb) {
         var el = document.createElement('div');
-        el.className = 'agent-step active';
-        el.textContent = '\uD83D\uDD04 ' + s.text;
+        el.className = 'chat-ts' + (align === 'right' ? ' right' : '');
+        el.textContent = ts();
         chatBody.appendChild(el);
-        void el.offsetWidth;
-        el.classList.add('visible');
-        setTimeout(function() {
-            el.className = 'agent-step done visible';
-            el.textContent = s.icon + ' ' + s.text;
-            setTimeout(function() {
-                showSteps(steps, idx + 1, cb);
-            }, 500);
-        }, 900);
+        void el.offsetWidth; el.classList.add('visible');
+        setTimeout(cb || function(){}, 100);
     }
 
-    // --- Add AI response bubble ---
-    function addAiMsg(text, cb) {
-        var msg = document.createElement('div');
-        msg.className = 'chat-msg ai';
-        var stamp = document.createElement('span');
-        stamp.className = 'ts';
-        stamp.textContent = ts();
-        msg.appendChild(stamp);
-        var lines = text.split('\n');
-        for (var i = 0; i < lines.length; i++) {
-            if (i > 0) msg.appendChild(document.createElement('br'));
-            msg.appendChild(document.createTextNode(lines[i]));
+    function typeIn(text, cb) {
+        var i=0; chatInput.textContent=''; chatInput.classList.remove('placeholder');
+        sendBtn.style.opacity = '0.4';
+        var t = setInterval(function(){
+            chatInput.textContent += text.charAt(i++);
+            if (i>=text.length) { clearInterval(t); sendBtn.style.opacity = '1'; setTimeout(cb,625); }
+        }, 50);
+    }
+
+    function addMsg(cls, text, cb) {
+        if (cls === 'user') {
+            chatInput.textContent='Ask MidiPilot... (Enter to send, Shift+Enter for newline)';
+            chatInput.classList.add('placeholder');
+            sendBtn.style.opacity = '0.4';
         }
-        chatBody.appendChild(msg);
-        void msg.offsetWidth;
-        msg.classList.add('visible');
-        setTimeout(cb || function(){}, 900);
+        var el=document.createElement('div'); el.className='chat-msg '+cls;
+        var html = text.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+        html = html.replace(/\n/g, '<br>');
+        el.innerHTML = html;
+        chatBody.appendChild(el); void el.offsetWidth; el.classList.add('visible');
+        chatBody.scrollTop = chatBody.scrollHeight;
+        if (cls === 'user') updateTokens(Math.floor(Math.random()*200)+100);
+        if (cls === 'ai') updateTokens(Math.floor(Math.random()*800)+400);
+        setTimeout(cb||function(){}, 375);
     }
 
-    // --- Clear chat body for next round ---
+    function showSteps(steps, cb) {
+        var panel = document.createElement('div');
+        panel.className = 'steps-panel';
+        var header = document.createElement('div');
+        header.className = 'steps-header';
+        header.innerHTML = '<span class="arrow">\u25BC</span> \uD83D\uDD04 Steps (0/' + steps.length + ')';
+        panel.appendChild(header);
+        var list = document.createElement('div');
+        list.className = 'steps-list';
+        panel.appendChild(list);
+        chatBody.appendChild(panel);
+        chatBody.scrollTop = chatBody.scrollHeight;
+
+        var done = 0;
+        function nextStep(idx) {
+            if (idx >= steps.length) { if(cb)cb(); return; }
+            var item = document.createElement('div');
+            item.className = 'step-item';
+            item.textContent = '\uD83D\uDD04 ' + steps[idx];
+            list.appendChild(item);
+            chatBody.scrollTop = chatBody.scrollHeight;
+            setTimeout(function(){
+                done++;
+                item.className = 'step-item done';
+                item.textContent = '\u2705 ' + steps[idx];
+                header.innerHTML = '<span class="arrow">\u25BC</span> ' +
+                    (done === steps.length ? '\u2705' : '\uD83D\uDD04') +
+                    ' Steps (' + done + '/' + steps.length + ')';
+                chatBody.scrollTop = chatBody.scrollHeight;
+                setTimeout(function(){ nextStep(idx+1); }, 440);
+            }, 875);
+        }
+        nextStep(0);
+    }
+
     function clearChat(cb) {
-        var children = chatBody.children;
-        for (var i = 0; i < children.length; i++) {
-            children[i].style.opacity = '0';
-            children[i].style.transform = 'translateY(-8px)';
-        }
-        setTimeout(function() {
-            chatBody.innerHTML = '';
-            if (cb) cb();
-        }, 400);
+        Array.from(chatBody.children).forEach(function(c){ c.style.opacity='0'; c.style.transform='translateY(-8px)'; });
+        setTimeout(function(){ chatBody.innerHTML=''; if(cb)cb(); }, 350);
     }
 
-    // --- Run one chat conversation ---
+    var lastMode = 'Agent';
+    function highlightMode() {
+        modeSelect.classList.add('highlight');
+        setTimeout(function(){ modeSelect.classList.remove('highlight'); }, 1200);
+    }
+
     function runChat(idx, cb) {
-        var chat = CHATS[idx];
-        typeInInput(chat.prompt, function() {
-            addUserMsg(chat.prompt, function() {
-                setStatusProcessing();
-                // Simulate thinking time, then show agent steps
-                setTimeout(function() {
-                    showSteps(chat.steps, 0, function() {
-                        stopStatusProcessing();
-                        addAiMsg(chat.response, function() {
-                            setTimeout(function() {
-                                clearChat(cb);
-                            }, 4000);
-                        });
-                    });
-                }, 2400);
+        var c = CHATS[idx];
+        var newMode = c.mode || 'Agent';
+        if (newMode !== lastMode) {
+            modeSelect.value = newMode;
+            highlightMode();
+            lastMode = newMode;
+        } else {
+            modeSelect.value = newMode;
+        }
+        var isFFXIV = c.prompt.toLowerCase().indexOf('ffxiv') !== -1;
+        if (ffxivCheckbox.checked !== isFFXIV) {
+            ffxivCheckbox.checked = isFFXIV;
+            ffxivLabel.classList.add('highlight');
+            setTimeout(function(){ ffxivLabel.classList.remove('highlight'); }, 1200);
+        }
+        typeIn(c.prompt, function(){
+            addTimestamp('right', function(){
+                addMsg('user', c.prompt, function(){
+                    setProcessing();
+                    setTimeout(function(){
+                        if (c.steps) {
+                            showSteps(c.steps, function(){
+                                setReady();
+                                addTimestamp('left', function(){
+                                    addMsg('ai', c.response, function(){
+                                        setTimeout(cb||function(){}, 3100);
+                                    });
+                                });
+                            });
+                        } else {
+                            setTimeout(function(){
+                                setReady();
+                                addTimestamp('left', function(){
+                                    addMsg('ai', c.response, function(){
+                                        setTimeout(cb||function(){}, 3100);
+                                    });
+                                });
+                            }, 1000);
+                        }
+                    }, 750);
+                });
             });
         });
     }
 
-    // --- Cycle through all chats ---
-    function cycleChats() {
-        var idx = 0;
-        function next() {
-            runChat(idx, function() {
-                idx = (idx + 1) % CHATS.length;
-                next();
-            });
+    function runLoop(idx) {
+        if (idx >= CHATS.length) {
+            setTimeout(function(){ clearChat(function(){ tokenCount = 0; updateTokens(0); lastMode = 'Agent'; ffxivCheckbox.checked = false; runLoop(0); }); }, 3100);
+            return;
         }
-        next();
+        runChat(idx, function(){ runLoop(idx+1); });
     }
 
     // --- Start the animation sequence ---
@@ -993,7 +933,7 @@
         fadeIn(taglineEl, function() {
             fadeIn(badgeEl, function() {
                 chatDemo.classList.add('visible');
-                setTimeout(cycleChats, 600);
+                setTimeout(function(){ runLoop(0); }, 600);
             });
         });
     });

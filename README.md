@@ -16,7 +16,7 @@
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-0078D6?logo=windows)](https://github.com/happytunesai/MidiEditor_AI/releases)
 
-**Version:** 1.3.2.2
+**Version:** 1.4.0
 **Status:** Release
 
 📥 **[Download Latest Release](https://github.com/happytunesai/MidiEditor_AI/releases/latest)**
@@ -64,6 +64,8 @@ MidiPilot is the AI brain embedded directly in MidiEditor AI. Open the sidebar, 
 | 🔀 **Split Channels to Tracks** | Convert single-track multi-channel GM MIDI files into one track per instrument with auto-naming |
 | 💥 **Explode Chords to Tracks** | Split polyphonic chords into separate monophonic tracks — one note per track, ideal for FFXIV ensemble prep |
 | 🎼 **Guitar Pro Import** | Open GP1–GP8 files (.gp, .gp3, .gp4, .gp5, .gpx, .gtp) directly — header-based format detection, tempo/time-sig/key extraction |
+| 🎼 **MusicXML Import** | Open `.musicxml`, `.xml`, and compressed `.mxl` scores from Finale, Sibelius, MuseScore, Dorico, etc. — auto-converted to MIDI on open |
+| 🎼 **MuseScore Import** | Open `.mscz` (zipped) and `.mscx` (plain XML) files from MuseScore 3/4 directly |
 | 🔊 **Built-in FluidSynth** | Play MIDI without external softsynth — load SF2/SF3 SoundFonts, SoundFont stacking, enable/disable checkboxes, FFXIV SoundFont Mode |
 | 🎶 **Audio Export** | Export MIDI to WAV, FLAC, OGG Vorbis, or MP3 using loaded SoundFonts — built-in LAME 3.100 encoder, no external tools needed |
 | 📊 **MIDI Visualizer** | Real-time 16-channel equalizer bars in the toolbar with velocity-based color and smooth decay animation |

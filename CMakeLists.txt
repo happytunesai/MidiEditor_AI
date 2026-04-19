@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20 FATAL_ERROR)
 
-set(MIDIEDITOR_RELEASE_VERSION_STRING "1.3.2.2")
+set(MIDIEDITOR_RELEASE_VERSION_STRING "1.4.0")
 project(MidiEditorAI VERSION ${MIDIEDITOR_RELEASE_VERSION_STRING} LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -305,6 +305,7 @@ target_include_directories(MidiEditorAI PRIVATE
     src/converter
     src/converter/GuitarPro
     src/converter/MML
+    src/converter/MusicXml
 )
 message(STATUS "Added project include directories")
 
@@ -339,6 +340,7 @@ file(GLOB SOURCES_AI "src/ai/*.cpp")
 file(GLOB SOURCES_CONVERTER_BASE "src/converter/*.cpp")
 file(GLOB SOURCES_CONVERTER "src/converter/GuitarPro/*.cpp")
 file(GLOB SOURCES_CONVERTER_MML "src/converter/MML/*.cpp")
+file(GLOB SOURCES_CONVERTER_MUSICXML "src/converter/MusicXml/*.cpp")
 
 # If GP678_SUPPORT is not available, exclude GP6/7/8 parser files that need zlib
 if(NOT GP678_ENABLED)
@@ -361,6 +363,7 @@ set(SOURCES
     ${SOURCES_CONVERTER_BASE}
     ${SOURCES_CONVERTER}
     ${SOURCES_CONVERTER_MML}
+    ${SOURCES_CONVERTER_MUSICXML}
 )
 
 # Add only main rtmidi files if they exist (not tests/docs/examples)
@@ -392,6 +395,8 @@ file(GLOB HEADERS_PROTOCOL "src/protocol/*.h")
 file(GLOB HEADERS_TOOL "src/tool/*.h")
 file(GLOB HEADERS_AI "src/ai/*.h")
 file(GLOB HEADERS_CONVERTER "src/converter/GuitarPro/*.h")
+file(GLOB HEADERS_CONVERTER_MML "src/converter/MML/*.h")
+file(GLOB HEADERS_CONVERTER_MUSICXML "src/converter/MusicXml/*.h")
 
 # For midi directory, be selective to avoid test files
 file(GLOB HEADERS_MIDI "src/midi/*.h")
@@ -406,6 +411,8 @@ set(HEADERS
     ${HEADERS_TOOL}
     ${HEADERS_AI}
     ${HEADERS_CONVERTER}
+    ${HEADERS_CONVERTER_MML}
+    ${HEADERS_CONVERTER_MUSICXML}
 )
 
 if(EXISTS "${CMAKE_SOURCE_DIR}/src/midi/rtmidi/RtMidi.h")
@@ -585,6 +592,15 @@ if(WIN32)
             COMMENT "Copying updater.bat"
         )
     endif()
+endif()
+
+# ---------------------------------------------------------------------------
+# Optional unit tests (Qt Test based) — opt-in via -DBUILD_TESTING=ON
+# ---------------------------------------------------------------------------
+option(BUILD_TESTING "Build MidiEditorAI unit tests" OFF)
+if(BUILD_TESTING)
+    enable_testing()
+    add_subdirectory(tests)
 endif()
 
 # Installation

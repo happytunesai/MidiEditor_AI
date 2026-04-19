@@ -5,6 +5,76 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 
 ---
 
+## [1.4.0] - 2026-04-19 — MusicXML & MuseScore Import + C++ Test Harness
+
+### Summary
+* **MusicXML import** — open `.musicxml`, `.xml`, and compressed `.mxl` scores from Finale, Sibelius, MuseScore, Dorico, and any notation tool that exports MusicXML; parts, voices, chords, rests, tuplets, dotted notes, time/key signatures, tempo, and instrument program changes are converted to MIDI on the fly (PHASE-24.1)
+* **MuseScore import** — open `.mscz` (zipped) and `.mscx` (plain XML) files from MuseScore 3/4 directly, with the same coverage as MusicXML plus grace notes (PHASE-24.2)
+* **Shared SMF writer** — extracted `XmlScoreToMidi` so MusicXML and MuseScore importers emit Standard MIDI File bytes through a single, unit-tested code path instead of duplicating delta-time and meta-event logic in two places (PHASE-24.3)
+* **Format-aware error dialogs** — failed file opens now report the actual format ("MusicXML import failed", "MuseScore .mscz import failed") instead of a generic "load failed", making it obvious whether the user picked the wrong file or a real parser error occurred (UX-OPEN-001)
+* **First C++ unit test harness** — opt-in Qt Test executables under `tests/` (`-DBUILD_TESTING=ON`), runnable via `build_tests.bat`. Initial coverage: `XmlScoreToMidi` (6 cases) and `ChordDetector` (18 cases). See `Planning/06_TEST_CASES.md` for the test roadmap (PHASE-25.1)
+* **Manual reorganization** — Guitar Pro Import page replaced by a unified **Supported Files** page covering MIDI, Guitar Pro, MusicXML, and MuseScore in one place; old URL redirects automatically (DOC-001)
+* **`CHANGELOG_TEMPLATE.md`** — new top-level template documenting the canonical changelog entry format (Summary + `<details>` + Bug Fixes + Files Modified) so future entries stay consistent
+
+<details>
+<summary>Full Changelog — MusicXML & MuseScore Import + Test Harness</summary>
+
+### New Features
+
+* **MusicXML / MXL importer (PHASE-24.1)** — `src/converter/MusicXml/MusicXmlImporter.{h,cpp}` is a full XML → MIDI converter for the standard interchange format used by Finale, Sibelius, MuseScore, Dorico, and most notation software. Single-file `.musicxml` / `.xml` files are parsed directly via `QXmlStreamReader`; `.mxl` containers are auto-detected via the ZIP signature, unpacked through `QuaZip`, and the embedded `META-INF/container.xml` is read to locate the rootfile. The parser walks each `<part>`'s measures, tracking the running divisions value, time/key signature changes, tempo metas (`<sound tempo="…">` and `<direction>` BPM hints), and per-voice cursors so chords and grace notes accumulate at the correct tick. Output goes through the shared `XmlScoreToMidi` writer, producing one MIDI track per part with correct delta times. Sample files committed under the workspace root (`BeetAnGeSample.musicxml`, `MozartTrio.musicxml`, `il-vento-doro-giornos-theme.mxl`).
+* **MuseScore `.mscz` / `.mscx` importer (PHASE-24.2)** — `src/converter/MusicXml/MsczImporter.{h,cpp}` is a native parser for MuseScore's own format. `.mscx` plain XML is read directly; `.mscz` containers are unzipped (the embedded `.mscx` is found by extension scan, since the inner filename varies). The parser handles MuseScore's part / staff / voice hierarchy, durationType strings (`whole`, `half`, …, `64th`), dotted notes via `<dots>`, tuplets via `<actualNotes>`/`<normalNotes>`, chord groupings via the `<Chord>` wrapper, instrument program changes via `<Channel><program value="…"/></Channel>`, and grace notes via the `<grace…>` element family. Tempo, time signature, and key signature metas land on the correct meta channels. Same `XmlScoreToMidi` back-end as the MusicXML path.
+* **Shared SMF writer (PHASE-24.3)** — `src/converter/MusicXml/XmlScoreToMidi.{h,cpp}` is the single back-end used by both importers. Takes a `XmlScore` model (parts → events with absolute ticks and channels) and emits a complete Standard MIDI File: header chunk (format 1, division = 480 PPQ), one track per part, default tempo (500000 µs / quarter = 120 BPM) and time signature (4/4) inserted on track 0 when the score has none, correct VLQ delta times between events, and an explicit end-of-track meta on every track. Avoiding two parallel SMF emitters means parser bugs only have to be fixed in one place; it is also the first piece of the import pipeline with real unit tests.
+* **Format-aware error dialogs (UX-OPEN-001)** — `MainWindow::openFile()` previously delegated to a generic "load failed" message regardless of which importer rejected the file. Now the open path inspects the file extension and produces "MusicXML import failed: <reason>", "MuseScore .mscz import failed: <reason>", or "Guitar Pro import failed: <reason>" so users immediately know whether the file was malformed or whether they accidentally pointed the importer at the wrong format.
+* **Unified `manual/supported-files.html` (DOC-001)** — single reference page documenting every input format MidiEditor AI can open: MIDI (`.mid` / `.midi`), Guitar Pro (`.gp` / `.gp3` / `.gp4` / `.gp5` / `.gpx` / `.gtp`), MusicXML (`.musicxml` / `.xml` / `.mxl`), and MuseScore (`.mscz` / `.mscx`). Replaces the old Guitar-Pro-only page; `manual/guitar-pro.html` is now a meta-refresh redirect to `supported-files.html#guitar-pro` so existing bookmarks and external links still resolve.
+
+### Test Harness (PHASE-25.1)
+
+* **`tests/CMakeLists.txt`** — registers Qt Test executables behind a top-level `BUILD_TESTING` option (default OFF, opt-in via `-DBUILD_TESTING=ON`). Applies the Windows DLL-path workaround (`add_test … set_tests_properties(... PROPERTIES ENVIRONMENT "PATH=…")`) required for `ctest` to find Qt 6 at runtime; without it every test executable would fail to launch with `qt6Core.dll` not found.
+* **`tests/test_xml_score_to_midi.cpp`** — six cases covering the SMF writer's invariants: `MThd` header bytes, expected track count for a multi-part score, NoteOn ordering when two events share a tick, presence of a default tempo meta on track 0 when none was supplied, presence of a default 4/4 time-sig meta, and the explicit end-of-track marker on every track.
+* **`tests/test_chord_detector.cpp`** — eighteen cases covering pitch-class naming, major/minor triads, dominant/major/minor sevenths, suspended chords, all three triadic inversions, and the unknown-pattern fallback. Authored by the new `test-author` agent.
+* **`build_tests.bat`** — convenience script that reconfigures with `-DBUILD_TESTING=ON`, builds all test targets, and runs `ctest --output-on-failure`. Useful both locally and from CI.
+* **`tests/data/`** — local-only fixture directory (gitignored). Tests that need real-world files read the `MIDIEDITOR_FIXTURES` env var and `QSKIP` when the file is missing, so the suite stays green for contributors who do not have the proprietary tab files. Policy documented in `tests/data/README.md`.
+* **`Planning/06_TEST_CASES.md`** — living test roadmap (gitignored under `Planning/`). Module inventory with per-module status, prioritized backlog, and conventions. Maintained by the `test-author` agent on every test addition.
+
+### Documentation
+
+* **`manual/supported-files.html` (new)** — comprehensive file-format reference with anchor sections `#midi`, `#guitar-pro`, `#musicxml`, `#musescore`, `#workflow-ffxiv`, `#general-tips`. Documents what each format supports, known limitations (e.g. MusicXML lyrics not yet imported, MuseScore tempo text without BPM hint not parsed), and which converter is invoked for which extension.
+* **`manual/guitar-pro.html`** — replaced with a minimal meta-refresh redirect stub pointing at `supported-files.html#guitar-pro`, preserving deep links from prior releases.
+* **Sidebar / dropdown / sitemap link migration** — every manual page's nav, footer, and the global `navigation.js` doc-subnav now point to the new Supported Files page instead of Guitar Pro Import. `sitemap.xml` URL updated. Landing-page feature card relabelled "Score & Tab Import" with the new copy.
+* **Manual version display bumped to v1.4.0** — `index.html` (schema.org `softwareVersion`, hero badge, two download CTAs), `download.html` (current-release banner, download buttons, ZIP filename, GitHub release link), and `docs-index.html` (manual hero badge).
+* **Docs landing chat-demo widget synced with marketing landing** — `docs-index.html`'s decorative MidiPilot chat widget now uses the same markup as `index.html`'s newer version (token display, three-mode select, status bar, model tags) instead of the older single-mode layout.
+* **`CHANGELOG_TEMPLATE.md` (new, top-level)** — canonical template for future changelog entries. Documents the Summary + `<details>` + Bug Fixes + Files Modified pattern with rules and reference entries (`[1.3.2.2]`, `[1.3.2]`, `[1.2.1]`).
+
+### Files Modified
+
+* `CMakeLists.txt` — version `1.3.2.2` → `1.4.0`; opt-in `BUILD_TESTING` option + `add_subdirectory(tests)`; new `MusicXml/` source files added to the editor target
+* `README.md` — version bump; Features table now lists MusicXML and MuseScore alongside Guitar Pro
+* `src/gui/MainWindow.cpp` — file-open filter extended to include `*.musicxml *.xml *.mxl *.mscz *.mscx`; `openFile()` rewrite with format-aware error dialogs (UX-OPEN-001)
+* `src/converter/MusicXml/MusicXmlImporter.{h,cpp}` — new MusicXML / MXL parser (PHASE-24.1)
+* `src/converter/MusicXml/MsczImporter.{h,cpp}` — new MuseScore .mscz / .mscx parser (PHASE-24.2)
+* `src/converter/MusicXml/XmlScoreToMidi.{h,cpp}` — new shared SMF writer (PHASE-24.3)
+* `src/converter/MusicXml/MusicXmlModels.h` — shared score data model (parts, voices, events, metas)
+* `tests/CMakeLists.txt` — new test harness configuration with Qt 6 DLL-path workaround
+* `tests/test_xml_score_to_midi.cpp` — 6 unit tests for the shared SMF writer
+* `tests/test_chord_detector.cpp` — 18 unit tests for `ChordDetector`
+* `tests/data/README.md`, `tests/data/.gitkeep` — fixture directory policy + placeholder
+* `build_tests.bat` (new) — reconfigure + build + ctest convenience script
+* `.gitignore` — ignore `tests/data/*` real fixtures, keep `README.md` + `.gitkeep`
+* `manual/supported-files.html` (new) — unified import-format reference
+* `manual/guitar-pro.html` — replaced with meta-refresh redirect stub
+* `manual/index.html` — version bump (4 places); Score & Tab Import feature card
+* `manual/download.html` — version bump (4 places); Score & Tab features item; meta description
+* `manual/docs-index.html` — manual hero badge → v1.4.0; Supported Files section card; chat-demo widget synced with `index.html`
+* `manual/editor-and-components.html` — File → Open description updated for new formats
+* `manual/navigation.js` — doc-subnav entry: Guitar Pro → Supported Files
+* `manual/sitemap.xml` — `guitar-pro.html` → `supported-files.html`
+* 6 other manual pages — sidebar/footer link migration to Supported Files
+* `CHANGELOG_TEMPLATE.md` (new, top-level) — canonical entry template
+
+</details>
+
+---
+
 ## [1.3.2.2] - 2026-04-17 — Hotfix: Paste Selection + v1.3.1 Audit Fallout
 
 ### Summary

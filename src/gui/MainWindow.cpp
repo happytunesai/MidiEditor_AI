@@ -125,6 +125,8 @@
 #include "FFXIVFixerDialog.h"
 #include "../converter/GuitarPro/GpImporter.h"
 #include "../converter/MML/MmlImporter.h"
+#include "../converter/MusicXml/MusicXmlImporter.h"
+#include "../converter/MusicXml/MsczImporter.h"
 
 #include "../MidiEvent/MidiEvent.h"
 #include "../MidiEvent/NoteOnEvent.h"
@@ -1458,13 +1460,17 @@ void MainWindow::load() {
     QString gp   = "*.gtp *.gp3 *.gp4 *.gp5";
 #endif
     QString mml  = "*.mml *.3mle";
+    QString xml  = "*.musicxml *.xml *.mxl";
+    QString msc  = "*.mscz *.mscx";
     QString filter = QString(
-        "Music Files (%1 %2 %3);;"
+        "Music Files (%1 %2 %3 %4 %5);;"
         "MIDI Files (%1);;"
         "Guitar Pro Files (%2);;"
         "MML Files (%3);;"
+        "MusicXML Files (%4);;"
+        "MuseScore Files (%5);;"
         "All Files (*)")
-        .arg(midi, gp, mml);
+        .arg(midi, gp, mml, xml, msc);
 
     QString newPath = QFileDialog::getOpenFileName(this, tr("Open file"), dir, filter);
 
@@ -1536,6 +1542,11 @@ void MainWindow::openFile(QString filePath) {
         mf = GpImporter::loadFile(filePath, &ok);
     } else if (lowerPath.endsWith(".mml") || lowerPath.endsWith(".3mle")) {
         mf = MmlImporter::loadFile(filePath, &ok);
+    } else if (lowerPath.endsWith(".musicxml") || lowerPath.endsWith(".xml") ||
+               lowerPath.endsWith(".mxl")) {
+        mf = MusicXmlImporter::loadFile(filePath, &ok);
+    } else if (lowerPath.endsWith(".mscz") || lowerPath.endsWith(".mscx")) {
+        mf = MsczImporter::loadFile(filePath, &ok);
     } else {
         mf = new MidiFile(useAutoSave ? autoPath : filePath, &ok);
     }
@@ -1553,7 +1564,29 @@ void MainWindow::openFile(QString filePath) {
         }
         updateRecentPathsList();
     } else {
-        QMessageBox::warning(this, tr("Error"), QString(tr("The file is damaged and cannot be opened. ")));
+        QString detail;
+        if (lowerPath.endsWith(".musicxml") || lowerPath.endsWith(".xml") ||
+            lowerPath.endsWith(".mxl")) {
+            detail = tr("The MusicXML file could not be imported. "
+                        "It may be malformed, empty, or use unsupported features.");
+        } else if (lowerPath.endsWith(".mscz") || lowerPath.endsWith(".mscx")) {
+            detail = tr("The MuseScore file could not be imported. "
+                        "It may be malformed, password-protected, or use an "
+                        "unsupported version.");
+        } else if (lowerPath.endsWith(".gtp") || lowerPath.endsWith(".gp3") ||
+                   lowerPath.endsWith(".gp4") || lowerPath.endsWith(".gp5") ||
+                   lowerPath.endsWith(".gp6") || lowerPath.endsWith(".gp7") ||
+                   lowerPath.endsWith(".gp8") || lowerPath.endsWith(".gpx") ||
+                   lowerPath.endsWith(".gp")) {
+            detail = tr("The Guitar Pro file could not be imported. "
+                        "It may be damaged or use an unsupported version.");
+        } else if (lowerPath.endsWith(".mml") || lowerPath.endsWith(".3mle")) {
+            detail = tr("The MML file could not be imported. "
+                        "It may contain syntax errors.");
+        } else {
+            detail = tr("The file is damaged and cannot be opened.");
+        }
+        QMessageBox::warning(this, tr("Error"), detail);
     }
 }
 
