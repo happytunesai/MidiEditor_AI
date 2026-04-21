@@ -201,6 +201,26 @@ void PerformanceSettingsWidget::setupUI() {
 
     mainLayout->addWidget(autoSaveGroup);
 
+    // Playback Behavior Group (UX-PLAY-001)
+    QGroupBox *playbackGroup = new QGroupBox(tr("Playback"), this);
+    QGridLayout *playbackLayout = new QGridLayout(playbackGroup);
+
+    _lockPanelsDuringPlayback = new QCheckBox(tr("Lock side panels during playback"), this);
+    _lockPanelsDuringPlayback->setChecked(_settings->value("playback/lock_panels", false).toBool());
+    _lockPanelsDuringPlayback->setToolTip(tr("When enabled, the Tracks, Channels, Event and Protocol panels are disabled while a MIDI file is playing (legacy behaviour). Disable to keep them interactive so you can toggle track/channel visibility live."));
+    connect(_lockPanelsDuringPlayback, &QCheckBox::toggled, this, [this](bool enabled) {
+        if (_isLoading) return;
+        _settings->setValue("playback/lock_panels", enabled);
+    });
+    playbackLayout->addWidget(_lockPanelsDuringPlayback, 0, 0, 1, 2);
+
+    QLabel *playbackDesc = new QLabel(tr("Off (default): you can show/hide tracks and channels while the song is playing.\nOn: panels are read-only during playback (matches MidiEditor 1.4.1 and earlier)."), this);
+    playbackDesc->setWordWrap(true);
+    playbackDesc->setStyleSheet("color: gray; font-size: 11px; margin-left: 10px;");
+    playbackLayout->addWidget(playbackDesc, 1, 0, 1, 2);
+
+    mainLayout->addWidget(playbackGroup);
+
     // Reset button
     QPushButton *resetButton = new QPushButton(tr("Reset to Default"), this);
     connect(resetButton, &QPushButton::clicked, this, &PerformanceSettingsWidget::resetToDefaults);
@@ -245,6 +265,9 @@ void PerformanceSettingsWidget::loadSettings() {
     _enableAutoSave->setChecked(_settings->value("autosave_enabled", true).toBool());
     _autoSaveIntervalSpin->setValue(_settings->value("autosave_interval", 120).toInt());
     _autoSaveIntervalSpin->setEnabled(_enableAutoSave->isChecked());
+
+    // Load playback behavior setting (UX-PLAY-001)
+    _lockPanelsDuringPlayback->setChecked(_settings->value("playback/lock_panels", false).toBool());
 
     // Clear loading flag - change events can now be processed normally
     _isLoading = false;
@@ -442,4 +465,7 @@ void PerformanceSettingsWidget::resetToDefaults() {
     _enableAutoSave->setChecked(true);
     _autoSaveIntervalSpin->setValue(120);
     _autoSaveIntervalSpin->setEnabled(true);
+
+    // Playback behavior defaults (UX-PLAY-001): unlocked
+    _lockPanelsDuringPlayback->setChecked(false);
 }

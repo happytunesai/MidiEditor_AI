@@ -148,9 +148,9 @@ void TestXmlScoreToMidi::noteOff_orderedBeforeNoteOnAtSameTick() {
         quint8 status = (quint8)trk[pos++];
         if (status == 0xFF) {
             // meta: type + len + body
-            ++pos; // type
+            quint8 metaType = (quint8)trk[pos++];
             int len = readVarLen(trk, pos);
-            if (status == 0xFF && (quint8)trk[pos - 1 - len - 1] == 0x2F) break;
+            if (metaType == 0x2F) break;     // End-of-Track
             pos += len;
             continue;
         }

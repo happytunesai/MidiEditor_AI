@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20 FATAL_ERROR)
 
-set(MIDIEDITOR_RELEASE_VERSION_STRING "1.4.1")
+set(MIDIEDITOR_RELEASE_VERSION_STRING "1.4.2")
 project(MidiEditorAI VERSION ${MIDIEDITOR_RELEASE_VERSION_STRING} LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -599,7 +599,7 @@ endif()
 # ---------------------------------------------------------------------------
 option(BUILD_TESTING "Build MidiEditorAI unit tests" OFF)
 if(BUILD_TESTING)
-    enable_testing()
+    include(CTest)  # calls enable_testing() and generates DartConfiguration.tcl
     add_subdirectory(tests)
 endif()
 

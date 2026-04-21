@@ -1786,11 +1786,17 @@ void MatrixWidget::contextMenuEvent(QContextMenuEvent *event) {
 
     // Move to Track submenu
     QMenu *trackMenu = menu.addMenu(tr("Move to Track"));
+    // Eye icons indicate which tracks/channels are currently visible in the
+    // editor, so the user can pick the right destination even when nothing has
+    // been renamed yet (cosmetic helper for VIS-MENU-001).
+    QIcon visibleIcon(":/run_environment/graphics/tool/all_visible.png");
+    QIcon hiddenIcon(":/run_environment/graphics/tool/all_invisible.png");
     int numTracks = file->numTracks();
     for (int i = 0; i < numTracks; i++) {
         MidiTrack *trk = file->track(i);
         QString label = QString::number(i) + ": " + trk->name();
         QAction *a = trackMenu->addAction(label);
+        a->setIcon(trk->hidden() ? hiddenIcon : visibleIcon);
         a->setData(i);
         connect(a, &QAction::triggered, this, [mw, a]() {
             mw->moveSelectedEventsToTrack(a);
@@ -1809,6 +1815,7 @@ void MatrixWidget::contextMenuEvent(QContextMenuEvent *event) {
         if (i == 9 && !label.contains("("))
             label += " (Drums)";
         QAction *a = channelMenu->addAction(label);
+        a->setIcon(file->channel(i)->visible() ? visibleIcon : hiddenIcon);
         a->setData(i);
         connect(a, &QAction::triggered, this, [mw, a]() {
             mw->moveSelectedEventsToChannel(a);

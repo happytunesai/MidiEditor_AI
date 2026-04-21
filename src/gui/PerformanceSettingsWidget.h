@@ -233,6 +233,9 @@ private:
     /** \brief Checkbox for unlocking widget minimum sizes */
     QCheckBox *_unlockWidgetSizes;
 
+    /** \brief Checkbox for locking the side panels (tracks/channels/event/protocol) during playback (UX-PLAY-001) */
+    QCheckBox *_lockPanelsDuringPlayback;
+
     // === Auto-Save Controls ===
 
     /** \brief Checkbox for enabling auto-save */

@@ -1718,8 +1718,23 @@ void MidiFile::setMaxLengthMs(int ms) {
     if (midiTicks < oldTicks) {
         // remove events after maxTick
         QList<MidiEvent *> *ev = eventsBetween(midiTicks, oldTicks);
+        // BULK-OP UNDO: snapshot every touched channel ONCE, then call
+        // removeEvent with toProtocol=false. Otherwise each per-event call
+        // deep-copies the channel's full QMultiMap and pushes a ProtocolItem
+        // (O(events) channel clones -> multi-GB RAM on heavy files).
+        // See FFXIVChannelFixer fix 2026-04-21 for the matching pattern.
+        QSet<int> touchedChannels;
+        for (MidiEvent *event : *ev) touchedChannels.insert(event->channel());
+        QHash<int, ProtocolEntry *> channelSnapshots;
+        for (int ch : touchedChannels) {
+            MidiChannel *c = channel(ch);
+            if (c) channelSnapshots.insert(ch, c->copy());
+        }
         foreach(MidiEvent* event, *ev) {
-            channel(event->channel())->removeEvent(event);
+            channel(event->channel())->removeEvent(event, false);
+        }
+        for (auto it = channelSnapshots.constBegin(); it != channelSnapshots.constEnd(); ++it) {
+            channel(it.key())->protocol(it.value(), channel(it.key()));
         }
         delete ev;
     }
@@ -1776,6 +1791,22 @@ bool MidiFile::removeTrack(MidiTrack *track) {
 
     ProtocolEntry *toCopy = copy();
 
+    // BULK-OP UNDO: take a single snapshot of each channel BEFORE any event
+    // removal. The default removeEvent(ev, true) path deep-clones the
+    // channel's full QMultiMap and pushes a ProtocolItem per call -- on a
+    // brass track with thousands of Breath Controller (MSB) CCs that
+    // materialises tens of thousands of full-channel clones in the open
+    // undo action (40-50 GB RAM, multi-minute stalls). With toProtocol=false
+    // on the inner loop and one channel ProtocolItem per touched channel
+    // committed at the end, peak RAM collapses to ~19 channel snapshots
+    // regardless of event count. Undo semantics are identical: replaying
+    // the action restores _tracks (file snapshot) + every touched channel.
+    // See FFXIVChannelFixer fix 2026-04-21 for the matching pattern.
+    QVector<ProtocolEntry *> channelSnapshots(19, nullptr);
+    for (int i = 0; i < 19; i++) {
+        if (channels[i]) channelSnapshots[i] = channels[i]->copy();
+    }
+
     QMultiMap<int, MidiEvent *> allEvents = QMultiMap<int, MidiEvent *>();
     for (int i = 0; i < 19; i++) {
         QMultiMap<int, MidiEvent *>::iterator it = channels[i]->eventMap()->begin();
@@ -1791,11 +1822,17 @@ bool MidiFile::removeTrack(MidiTrack *track) {
     while (it != allEvents.end()) {
         MidiEvent *event = it.value();
         if (event->track() == track) {
-            if (!channels[event->channel()]->removeEvent(event)) {
+            if (!channels[event->channel()]->removeEvent(event, false)) {
                 event->setTrack(_tracks->first());
             }
         }
         it++;
+    }
+
+    // Commit one ProtocolItem per channel -- single coarse-grained undo step.
+    for (int i = 0; i < 19; i++) {
+        if (channelSnapshots[i])
+            channels[i]->protocol(channelSnapshots[i], channels[i]);
     }
 
     // remove links from pasted tracks
@@ -2015,6 +2052,11 @@ void MidiFile::deleteMeasures(int from, int to) {
     meterAt(tickTo, &num, &denom, &lastTimeSig);
     ProtocolEntry *toCopy = copy();
 
+    // BULK-OP UNDO: same pattern as removeTrack -- snapshot per channel
+    // once, mutate fast (toProtocol=false), commit one ProtocolItem per
+    // touched channel at the end. Avoids O(events) channel-map deep clones.
+    QVector<ProtocolEntry *> deleteMeasuresSnapshots(19, nullptr);
+
     // Delete all events. For notes, only delete if starting within the given tick range.
     for (int ch = 0; ch < 19; ch++) {
         QMultiMap<int, MidiEvent *>::Iterator it = channel(ch)->eventMap()->begin();
@@ -2036,9 +2078,15 @@ void MidiFile::deleteMeasures(int from, int to) {
             it++;
         }
 
+        if (!toRemove.isEmpty() && channel(ch))
+            deleteMeasuresSnapshots[ch] = channel(ch)->copy();
         foreach(MidiEvent* event, toRemove) {
-            channel(ch)->removeEvent(event);
+            channel(ch)->removeEvent(event, false);
         }
+    }
+    for (int ch = 0; ch < 19; ch++) {
+        if (deleteMeasuresSnapshots[ch])
+            channel(ch)->protocol(deleteMeasuresSnapshots[ch], channel(ch));
     }
 
     // All remaining events after the end tick have to be shifted. Note: off events that still

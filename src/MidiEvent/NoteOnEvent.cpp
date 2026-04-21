@@ -55,14 +55,21 @@ int NoteOnEvent::velocity() {
     return _velocity;
 }
 
-void NoteOnEvent::setVelocity(int v) {
-    ProtocolEntry *toCopy = copy();
+void NoteOnEvent::setVelocity(int v, bool toProtocol) {
     if (v < 0) {
         v = 0;
     }
     if (v > 127) {
         v = 127;
     }
+    if (!toProtocol) {
+        // Bulk-op fast path: caller (e.g. FFXIVChannelFixer) has already
+        // snapshotted the owning channel, so per-event copy()+protocol()
+        // would only burn memory.
+        _velocity = v;
+        return;
+    }
+    ProtocolEntry *toCopy = copy();
     _velocity = v;
     protocol(toCopy, this);
 }

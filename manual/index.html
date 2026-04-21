@@ -153,7 +153,7 @@
     "description": "AI-powered MIDI editor with intelligent copilot, Guitar Pro import, FFXIV bard mode, and FluidSynth playback.",
     "url": "https://midieditor-ai.de",
     "downloadUrl": "https://github.com/happytunesai/MidiEditor_AI/releases/latest",
-    "softwareVersion": "1.4.1",
+    "softwareVersion": "1.4.2",
     "license": "https://github.com/happytunesai/MidiEditor_AI/blob/main/LICENSE",
     "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
 }
@@ -214,7 +214,7 @@
              onerror="this.parentElement.style.display='none';">
     </div>
 
-    <span class="hero-badge">v1.4.1 &middot; Open Source &middot; Windows</span>
+    <span class="hero-badge">v1.4.2 &middot; Open Source &middot; Windows</span>
 
     <h1 class="hero-title">
         The <span class="text-gradient">AI-Powered</span> MIDI Editor
@@ -226,7 +226,7 @@
 
     <div class="hero-actions">
         <a href="download.html" class="btn btn-primary">
-            &#x2B07; Download v1.4.0
+            &#x2B07; Download v1.4.2
         </a>
         <a href="docs-index.html" class="btn btn-secondary" target="_blank" rel="noopener noreferrer">
             &#x1F4D6; Documentation
@@ -491,15 +491,14 @@
     </div>
     <div class="whats-new reveal">
         <span class="latest-badge">Latest</span>
-        <h3>v1.4.1 &mdash; April 2026</h3>
-        <p class="whats-new-subtitle">MusicXML &amp; MuseScore Import + C++ Test Harness</p>
+        <h3>v1.4.2 &mdash; April 2026</h3>
+        <p class="whats-new-subtitle">Bulk-Op Memory/Perf Fixes + Test Harness Expansion + Live Playback Panels</p>
         <ul>
-            <li><strong>MusicXML / MXL importer</strong> &mdash; open <code>.musicxml</code>, <code>.xml</code>, and compressed <code>.mxl</code> scores from Finale, Sibelius, MuseScore, Dorico, and any tool that exports MusicXML</li>
-            <li><strong>MuseScore importer</strong> &mdash; open <code>.mscz</code> (zipped) and <code>.mscx</code> (plain XML) files directly</li>
-            <li><strong>Shared SMF writer</strong> &mdash; both importers emit Standard MIDI File bytes through a single, unit-tested code path</li>
-            <li><strong>Format-aware error dialogs</strong> &mdash; failed opens now report the actual format ("MusicXML import failed", "MuseScore .mscz import failed") instead of a generic "load failed"</li>
-            <li><strong>First C++ unit test harness</strong> &mdash; opt-in Qt Test executables under <code>tests/</code>, runnable via <code>build_tests.bat</code></li>
-            <li><strong>Manual reorganisation</strong> &mdash; Guitar Pro Import page replaced by a unified Supported Files page covering MIDI, Guitar Pro, MusicXML, and MuseScore</li>
+            <li><strong>Live side panels during playback</strong> &mdash; Tracks, Channels, Event and Protocol panels stay interactive while the song is playing; opt back into the legacy lock via <em>Settings &rarr; System &amp; Performance &rarr; Playback</em></li>
+            <li><strong>Visibility eye icons in the Matrix context menu</strong> &mdash; right-click a note: the <em>Move to Track</em> and <em>Move to Channel</em> submenus now show which entries are currently visible</li>
+            <li><strong>Track deletion no longer eats 40&ndash;50 GB of RAM</strong> on heavy/CC-dense tracks &mdash; bulk-snapshot pattern applied to <code>removeTrack</code>, <code>deleteMeasures</code> and <code>setMaxLengthMs</code></li>
+            <li><strong>FFXIV Channel Fixer Tier 2</strong> dropped from ~5 minutes / ~64 GB to seconds with bounded RAM</li>
+            <li><strong>C++ test harness grown 3 → 19 executables / 41 → 229 sub-tests</strong> &mdash; full ctest run green in ~14 s; surfaced two latent bugs queued for 1.4.3</li>
         </ul>
         <a href="changelog.html" class="changelog-link">View Full Changelog &rarr;</a>
     </div>
@@ -553,7 +552,7 @@
     </div>
     <div class="hero-actions reveal" style="margin-bottom: 1.5rem;">
         <a href="download.html" class="btn btn-primary" style="font-size: 1.15rem; padding: 1rem 2.5rem;">
-            &#x2B07; Download MidiEditor AI v1.4.0
+            &#x2B07; Download MidiEditor AI v1.4.2
         </a>
     </div>
     <p class="reveal" style="color: var(--text-muted); font-size: .9rem;">

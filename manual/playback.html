@@ -134,6 +134,28 @@
 </p>
 
 
+<h3 id="live-side-panels">Live Side Panels During Playback <span style="font-size:0.7em; color:var(--text-muted); font-weight:normal;">(new in v1.4.2)</span></h3>
+<p>
+  In MidiEditor 1.4.1 and earlier, the <b>Tracks</b>, <b>Channels</b>, <b>Event</b> and
+  <b>Protocol</b> side panels were disabled for the entire duration of playback and recording.
+  As of v1.4.2 they stay <b>fully interactive</b> by default &mdash; you can toggle channel
+  or track visibility, browse the protocol log, and inspect events in the Event tab while
+  the song is playing.
+</p>
+<div style="text-align:center; margin:1.5rem 0;">
+<a href="screenshots/playback_side_panel_lock.png" class="lightbox-link">
+<img src="screenshots/playback_side_panel_lock.png" alt="System &amp; Performance settings showing the new Lock side panels during playback toggle" style="max-width:640px; border:1px solid var(--border); border-radius:8px;" loading="lazy">
+</a>
+<p style="text-align:center; color:var(--text-muted); font-style:italic; margin-top:0.5rem; font-size:0.9rem;">Settings &rarr; System &amp; Performance &rarr; Playback &mdash; opt back into the legacy lock-during-playback behaviour.</p>
+</div>
+<p>
+  If you preferred the old behaviour (e.g. to avoid accidental edits while listening),
+  open <b>Settings &rarr; System &amp; Performance &rarr; Playback</b> and tick
+  <b>&ldquo;Lock side panels during playback&rdquo;</b>. The setting is stored under
+  <code>playback/lock_panels</code> and applies immediately to the next play/record session.
+</p>
+
+
 <h3 id="metronome">Metronome</h3>
 <img src="tools/metronome.png" align="right" width="40" height="40" hspace="10" vspace="10"/>
 <p>

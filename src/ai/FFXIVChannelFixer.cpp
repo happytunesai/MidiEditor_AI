@@ -8,9 +8,11 @@
 #include "../MidiEvent/OffEvent.h"
 #include "../MidiEvent/ProgChangeEvent.h"
 #include "../MidiEvent/TextEvent.h"
+#include "../protocol/ProtocolEntry.h"
 
 #include <QRegularExpression>
 #include <QSet>
+#include <QVector>
 #include <algorithm>
 #include <climits>
 
@@ -383,12 +385,43 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
     }
 
     // -----------------------------------------------------------------------
-    // 2. CLEAN â€” remove program_change events
+    // 2. CLEAN â€" remove program_change events
     //    Tier 2: remove ALL PCs (full rebuild)
     //    Tier 3: only remove PCs on guitar channels (non-guitar untouched)
     // -----------------------------------------------------------------------
 
     reportProgress(35, QStringLiteral("Removing old program changes..."));
+
+    // -----------------------------------------------------------------------
+    // BULK-OP UNDO STRATEGY â€" snapshot once, mutate fast, commit at end.
+    //
+    //   Background (perf bug fixed 2026-04-21):
+    //   The default Protocol path of every mutating MidiChannel/MidiEvent
+    //   call (removeEvent, insertEvent, moveToChannel, setVelocity) does a
+    //   full deep copy() of the affected event/channel and pushes a
+    //   ProtocolItem onto the open undo action. On a 20-track / >100k-event
+    //   FFXIV file Tier 2 used to allocate one clone per touched event in
+    //   each of CLEAN, MIGRATE, SWITCH and VELOCITY â€" easily 64 GB peak RSS
+    //   and several minutes to finish.
+    //
+    //   Fix: take a single MidiChannel::copy() per channel and one
+    //   MidiTrack::copy() per track BEFORE any mutation, then call the
+    //   per-event APIs with toProtocol=false. After all phases finish we
+    //   register one ProtocolItem per snapshot â€" so undo restores the full
+    //   pre-fix state of every channel and track in one shot. RAM cost
+    //   collapses from O(events Ã— mutations) to O(tracks + 16).
+    // -----------------------------------------------------------------------
+
+    QVector<ProtocolEntry *> trackSnapshots(trackCount, nullptr);
+    QVector<ProtocolEntry *> channelSnapshots(16, nullptr);
+    for (int t = 0; t < trackCount; t++) {
+        MidiTrack *track = file->track(t);
+        if (track) trackSnapshots[t] = track->copy();
+    }
+    for (int ch = 0; ch < 16; ch++) {
+        MidiChannel *channel = file->channel(ch);
+        if (channel) channelSnapshots[ch] = channel->copy();
+    }
 
     int removedPcCount = 0;
     for (int ch = 0; ch < 16; ch++) {
@@ -404,13 +437,13 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
                 toRemove.append(it.value());
         }
         for (MidiEvent *ev : toRemove) {
-            channel->removeEvent(ev);
+            channel->removeEvent(ev, false);
         }
         removedPcCount += toRemove.size();
     }
 
     // -----------------------------------------------------------------------
-    // 2b. CLEAN — remove non-essential events (Tier 2 only)
+    // 2b. CLEAN â€" remove non-essential events (Tier 2 only)
     //     FFXIV doesn't use CC, PitchBend, etc.  Keep Text (lyrics) and notes.
     // -----------------------------------------------------------------------
 
@@ -430,7 +463,7 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
                 toRemoveExtra.append(ev);
             }
             for (MidiEvent *ev : toRemoveExtra) {
-                channel->removeEvent(ev);
+                channel->removeEvent(ev, false);
             }
             removedExtraCount += toRemoveExtra.size();
         }
@@ -469,7 +502,7 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
 
             for (const auto &info : trackEvents) {
                 if (info.currentCh == targetCh) continue;
-                info.ev->moveToChannel(targetCh);
+                info.ev->moveToChannel(targetCh, false);
             }
 
             track->assignChannel(targetCh);
@@ -593,7 +626,7 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
         MidiTrack *track = file->track(t);
         for (const auto &cp : channelPrograms) {
             auto *pc = new ProgChangeEvent(cp.channel, cp.program, track);
-            file->channel(cp.channel)->insertEvent(pc, 0);
+            file->channel(cp.channel)->insertEvent(pc, 0, false);
         }
     }
 
@@ -653,7 +686,7 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
                         int prog = programNumber(variant);
                         if (prog >= 0) {
                             auto *pc = new ProgChangeEvent(n.channel, prog, track);
-                            file->channel(n.channel)->insertEvent(pc, n.tick);
+                            file->channel(n.channel)->insertEvent(pc, n.tick, false);
                             switchCount++;
                         }
                     }
@@ -678,7 +711,7 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
         for (auto it = map->begin(); it != map->end(); ++it) {
             NoteOnEvent *noteOn = dynamic_cast<NoteOnEvent *>(it.value());
             if (noteOn && noteOn->velocity() > 0 && noteOn->velocity() != 127) {
-                noteOn->setVelocity(127);
+                noteOn->setVelocity(127, false);
                 velocityChangedCount++;
             }
         }
@@ -689,6 +722,19 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
     // -----------------------------------------------------------------------
 
     reportProgress(100, QStringLiteral("Done!"));
+
+    // Commit the bulk-op snapshots taken before phase 2. One ProtocolItem
+    // per touched track + one per touched channel â€" the entire edit becomes
+    // a single coarse-grained undo step regardless of how many events were
+    // mutated above.
+    for (int t = 0; t < trackCount; t++) {
+        if (trackSnapshots[t])
+            file->track(t)->protocol(trackSnapshots[t], file->track(t));
+    }
+    for (int ch = 0; ch < 16; ch++) {
+        if (channelSnapshots[ch])
+            file->channel(ch)->protocol(channelSnapshots[ch], file->channel(ch));
+    }
 
     int tier = isPreserveMode ? 3 : 2;
 

@@ -1026,14 +1026,21 @@ void MainWindow::play() {
             matrixWidget->timeMsChanged(file->msOfTick(file->cursorTick()), true);
         }
 
-        _miscWidgetContainer->setEnabled(false);
-        channelWidget->setEnabled(false);
-        protocolWidget->setEnabled(false);
+        // UX-PLAY-001: keep tracks/channels/event/protocol panels live during playback
+        // by default so the user can toggle visibility while listening. Opt-out via
+        // System & Performance settings ("Lock side panels during playback").
+        const bool lockPanelsDuringPlayback =
+            _settings->value("playback/lock_panels", false).toBool();
+        if (lockPanelsDuringPlayback) {
+            _miscWidgetContainer->setEnabled(false);
+            channelWidget->setEnabled(false);
+            protocolWidget->setEnabled(false);
+            _trackWidget->setEnabled(false);
+            eventWidget()->setEnabled(false);
+        }
         // PERFORMANCE: Don't disable matrix widget during playback to allow mouse wheel scrolling
         // The widget itself handles playback state checks for editing operations
         // _matrixWidgetContainer->setEnabled(false);
-        _trackWidget->setEnabled(false);
-        eventWidget()->setEnabled(false);
 
         MidiPlayer::play(file);
         connect(MidiPlayer::playerThread(), SIGNAL(playerStopped()), this, SLOT(stop()));
@@ -1089,14 +1096,19 @@ void MainWindow::record() {
                 matrixWidget->timeMsChanged(file->msOfTick(file->cursorTick()), true);
             }
 
-            _miscWidgetContainer->setEnabled(false);
-            channelWidget->setEnabled(false);
-            protocolWidget->setEnabled(false);
+            // UX-PLAY-001: see play() — same opt-out toggle gates panel locking here.
+            const bool lockPanelsDuringPlayback =
+                _settings->value("playback/lock_panels", false).toBool();
+            if (lockPanelsDuringPlayback) {
+                _miscWidgetContainer->setEnabled(false);
+                channelWidget->setEnabled(false);
+                protocolWidget->setEnabled(false);
+                _trackWidget->setEnabled(false);
+                eventWidget()->setEnabled(false);
+            }
             // PERFORMANCE: Don't disable matrix widget during playback to allow mouse wheel scrolling
             // The widget itself handles playback state checks for editing operations
             // _matrixWidgetContainer->setEnabled(false);
-            _trackWidget->setEnabled(false);
-            eventWidget()->setEnabled(false);
             MidiPlayer::play(file);
             MidiInput::startInput();
             connect(MidiPlayer::playerThread(), SIGNAL(playerStopped()), this, SLOT(stop()));

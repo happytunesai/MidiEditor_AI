@@ -5,6 +5,95 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 
 ---
 
+## [1.4.2] - 2026-04-21 — Bulk-Op Memory/Perf Fixes + Test Harness Expansion + Live Playback Panels
+
+### Summary
+* **Side panels stay live during playback by default (UX-PLAY-001)** — `MainWindow::play()` and `record()` previously hard-disabled the Tracks, Channels, Event and Protocol panels for the entire duration of playback / recording, blocking visibility toggling and event inspection mid-song. Now unlocked by default; legacy lock-during-playback behaviour can be restored via **Settings → System & Performance → Playback → "Lock side panels during playback"** (`playback/lock_panels`, default `false`).
+* **Eye icons in the Matrix "Move to Track" / "Move to Channel" context-menu submenus (UX-CTX-001)** — right-clicking a note now shows a quick-glance visibility cue next to every entry in both submenus (`all_visible.png` for visible / unmuted, `all_invisible.png` for hidden), so you can see at a glance which tracks/channels are currently shown without having to scroll the side panels.
+* **Track deletion no longer eats 40–50 GB of RAM on heavy/CC-dense tracks (PERF-DEL-001)** — `MidiFile::removeTrack` deep-cloned the full channel `QMultiMap` once per removed event; brass tracks with thousands of Breath-Controller CCs blew the open undo step into tens of GB.
+* **`MidiFile::deleteMeasures` and `MidiFile::setMaxLengthMs` got the same treatment (PERF-DEL-002, PERF-DEL-003)** — same per-event-protocol explosion in the two sibling mass-delete paths.
+* **FFXIV Channel Fixer Tier 2 dropped from ~5 minutes / ~64 GB to seconds / bounded RAM (PERF-FFXIV-001)** — five hot mutation sites in `FFXIVChannelFixer::fixChannels()` were each cloning the full track + channel state per call.
+* **`NoteOnEvent::setVelocity(int, bool toProtocol = true)` overload (API-002)** — needed by the FFXIV bulk-op refactor so the velocity-normalisation pass can skip the per-event Protocol clone; default behaviour unchanged for existing callers.
+* **C++ test harness grown from 3 executables / 41 sub-tests to 19 / 229 (PHASE-25.3)** — new coverage across `MidiTrack`, `MidiChannel`, `MidiFile`, `Protocol`, `ProtocolItem`, `Selection`, `EventTool`, `LyricManager`, `LyricBlock`, `MidiEvent`, channel events, `SysExEvent`, and `MmlConverter`. Full ctest run: `100% tests passed, 0 tests failed out of 19` in ~14 s.
+* **Two latent bugs surfaced by the new tests, logged for 1.4.3 (TEST-001, TEST-002)** — `MidiTrack` copy ctor missing `_assignedChannel`/`_muted`/`_audible`, and `SysExEvent::save()` missing the SMF VLQ length prefix.
+
+<details>
+<summary>Full Changelog — Bulk-Op Memory/Perf Fixes + Test Harness Expansion + Live Playback Panels</summary>
+
+### New Features
+
+* **Live side panels during playback (UX-PLAY-001)** — historical MidiEditor behaviour was to call `setEnabled(false)` on `_miscWidgetContainer`, `channelWidget`, `protocolWidget`, `_trackWidget` and `eventWidget()` for the duration of every play/record session, then re-enable them in `stop()`. The intent was to prevent the user from mutating state mid-playback, but in practice it also blocked harmless interactions like toggling channel/track visibility, inspecting an event in the Event tab, or scrolling the Protocol log while listening. The disables are now gated on `_settings->value("playback/lock_panels", false).toBool()`, defaulting to **off** — panels remain interactive throughout playback. A new **"Lock side panels during playback"** checkbox under **Settings → System & Performance → Playback** restores the legacy behaviour for users who relied on it. The `stop()` re-enable path is unchanged (it's a safe no-op when the panels were never disabled in the first place).
+* **Eye icons on the Matrix context-menu "Move to…" submenus (UX-CTX-001)** — `MatrixWidget::contextMenuEvent()` now sets a per-entry icon on every action inside the **Move to Track** and **Move to Channel** submenus, mirroring the visibility/audibility state from `MidiTrack::hidden()` and `MidiChannel::visible()`: visible entries get `:/run_environment/graphics/tool/all_visible.png`, hidden entries get `all_invisible.png`. Saves a trip to the side panel when you're trying to remember which channels are currently muted before reassigning a note.
+
+### Bug Fixes
+
+* **Fixed track deletion ballooning RAM to 40–50 GB on CC-dense brass tracks (PERF-DEL-001)** — `MidiFile::removeTrack` (`src/midi/MidiFile.cpp`) iterated every event on every channel and called `channels[ch]->removeEvent(event)` with the default `toProtocol=true`. That path runs `MidiChannel::copy()`, which deep-clones the channel's full `QMultiMap<int, MidiEvent*>` into a fresh `ProtocolItem` — so a Trumpet track with thousands of "Breath Controller (MSB)" CC events produced thousands of full-channel clones piling up inside one open undo step. On the user's reference file peak RSS hit ~50 GB and the UI stalled for minutes. Replaced with the proven bulk-snapshot pattern: one `channel->copy()` per touched channel **before** the event-removal loop, `removeEvent(ev, false)` inside the loop, then one `channels[i]->protocol(snap, channels[i])` commit per channel after. Undo semantics are identical because `MidiChannel::reloadState()` swaps the `_events` pointer back wholesale — a single pre-mutation snapshot covers any number of fine-grained mutations. Peak RAM during a track delete now scales with channel count (~19), not event count.
+* **Fixed `MidiFile::deleteMeasures` having the same per-event clone explosion (PERF-DEL-002)** — same root cause as PERF-DEL-001 in the "Delete Measures" path: each `channel(ch)->removeEvent(event)` defaulted to `toProtocol=true` and cloned the full channel map. Rewritten to snapshot only the channels that actually have events to delete (skipping the snapshot when `toRemove` is empty), pass `false` to `removeEvent`, and commit the snapshots at the end.
+* **Fixed `MidiFile::setMaxLengthMs` truncating long files via per-event protocol calls (PERF-DEL-003)** — `setMaxLengthMs` is called when a SoundFont/audio export needs to clip the tail; on long files the trailing-event delete loop produced the same blow-up. Reworked to use a `QHash<int, ProtocolEntry*> channelSnapshots` keyed by channel: snapshot lazily on first deletion in a channel, mutate fast, commit at the end.
+* **Fixed FFXIV Channel Fixer Tier 2 taking ~5 minutes and ~64 GB on 20-track guitar files (PERF-FFXIV-001)** — `FFXIVChannelFixer::fixChannels()` (`src/ai/FFXIVChannelFixer.cpp`) had five hot mutation sites all defaulting to `toProtocol=true`: `MidiChannel::removeEvent` in the CLEAN phase, `MidiChannel::insertEvent` for relocated CCs/PCs, `MidiEvent::moveToChannel` during MIGRATE, `NoteOnEvent::setVelocity` during the velocity-normalisation pass, and the per-event `setTrack` calls. On a heavy file each call deep-cloned the whole channel + track snapshot, producing tens of thousands of clones inside the single open undo action. Now snapshots every touched track + channel **once** before the CLEAN/MIGRATE phases (`QVector<ProtocolEntry*> trackSnapshots`, `QVector<ProtocolEntry*> channelSnapshots`), runs all mutations with `toProtocol=false`, and commits the snapshots via `entry->protocol(snap, current)` before the JSON result is built. User confirmed: same file that previously took ~5 minutes now completes in seconds with bounded RAM.
+* **Added `NoteOnEvent::setVelocity(int v, bool toProtocol = true)` overload (API-002)** — the FFXIV bulk-op refactor needs to mutate velocity without firing the per-event protocol path. Header (`src/MidiEvent/NoteOnEvent.h`) declares the overload with `toProtocol` defaulted to `true`, body (`src/MidiEvent/NoteOnEvent.cpp`) takes the fast path `if (!toProtocol) { _velocity = v; return; }` before reaching the existing copy/protocol calls. All existing call sites compile unchanged.
+
+### Test Harness (PHASE-25.3)
+
+* **Sixteen new test executables** added under `tests/`, bringing ctest to 19 executables / 229 sub-tests (was 3 / 41 in v1.4.1):
+  * `tests/test_midi_track.cpp` — `MidiTrack` ctor / copy ctor / accessors. **Uncovered TEST-001.**
+  * `tests/test_midi_channel.cpp` — `MidiChannel` event insertion, removal, `progAtTick`, `eventMap` invariants.
+  * `tests/test_midi_file.cpp` — `MidiFile` open/save round-trip, `pasteTrack`, `removeTrack`, `deleteMeasures`, `msOfTick` boundary cases.
+  * `tests/test_protocol.cpp` and `tests/test_protocol_item.cpp` — `Protocol` action lifecycle, `goTo` undo/redo navigation, `ProtocolItem` reverse-action correctness.
+  * `tests/test_selection.cpp` — `Selection` singleton return-by-value invariant (since v1.3.2), `setSelection` no-op detection, signal emission.
+  * `tests/test_event_tool.cpp` — `EventTool` selection helpers, paste path local-list construction.
+  * `tests/test_lyric_manager.cpp` and `tests/test_lyric_block.cpp` — block insert/sort/split/merge, overlap clamping.
+  * `tests/test_midi_event.cpp` — base-class accessors and meta-channel routing.
+  * `tests/test_channel_events.cpp` — save round-trips for `ControlChangeEvent`, `PitchBendEvent`, `ProgChangeEvent`, `ChannelPressureEvent`, `KeyPressureEvent` (status-byte / channel-nibble correctness).
+  * `tests/test_sysex_event.cpp` — F0/F7 framing and length encoding round-trip. **Uncovered TEST-002.**
+  * `tests/test_mml_converter.cpp` — MML scale/tempo/length/dot/octave/tie/sharp/flat/instrument/garbage/empty cases (14 sub-tests).
+* **TEST-001 — `MidiTrack` copy constructor incomplete** — the copy ctor only mirrored `name`, `number`, and `color`, leaving `_assignedChannel`, `_muted`, and `_audible` at their default-constructed values. Any code path that copies a track (e.g. `MidiFile::pasteTrack`, undo of a rename) silently un-mutes the new track and resets its assigned channel. Caught by `tests/test_midi_track.cpp`. Logged in `Planning/03_bugs.md`; fix scheduled for 1.4.3.
+* **TEST-002 — `SysExEvent::save()` missing variable-length-quantity length prefix** — the SMF spec requires SysEx event payloads to be preceded by a VLQ length count between the leading 0xF0 and the trailing 0xF7. The current `save()` writes `F0 <data> F7` directly, so a saved file fails to round-trip back through `MidiEvent::loadMidiEvent()`. Caught by `tests/test_sysex_event.cpp`. Logged in `Planning/03_bugs.md`; fix scheduled for 1.4.3.
+
+### Technical Notes — The Bulk-Snapshot Pattern
+
+The four perf fixes in this release all apply the same proven pattern (already in use by `MidiChannel::insertNote()` and the upstream `MidiEditor_meow` reference):
+
+1. **Snapshot once, before any mutation:** `ProtocolEntry *snap = obj->copy()` deep-clones the full state into a fresh `ProtocolItem`.
+2. **Mutate fast:** every per-event call (`removeEvent`, `insertEvent`, `moveToChannel`, `setVelocity`) is invoked with `toProtocol = false`, skipping the per-call clone.
+3. **Commit once at the end:** `obj->protocol(snap, obj)` records exactly one `ProtocolItem` per touched object.
+
+Undo correctness is preserved because `MidiChannel::reloadState()` does a pointer-swap of `_events` — restoring one snapshot at the start fully covers any number of fine-grained mutations made between snapshot and commit. Undo becomes one coarse step instead of thousands of fine steps, which is also the better UX.
+
+### Files Modified
+
+* `CMakeLists.txt` — version `1.4.1` → `1.4.2`
+* `src/gui/MainWindow.cpp` — `play()` and `record()` panel-disable blocks gated behind `playback/lock_panels` QSettings key, default off (UX-PLAY-001)
+* `src/gui/PerformanceSettingsWidget.h` / `.cpp` — new "Playback" group with **"Lock side panels during playback"** checkbox; persisted under `playback/lock_panels`; reset to unchecked in `resetToDefaults()` (UX-PLAY-001)
+* `src/gui/MatrixWidget.cpp` — `contextMenuEvent()` sets visibility eye icons on every entry of the **Move to Track** and **Move to Channel** submenus (UX-CTX-001)
+* `manual/editor-and-components.html` — new "Context Menu" subsection documenting the visibility eye icons (UX-CTX-001)
+* `manual/playback.html` — new "Live Side Panels During Playback" subsection documenting the new default and the opt-out toggle (UX-PLAY-001)
+* `manual/index.html` / `manual/download.html` — version bump 1.4.1 → 1.4.2; What's New card updated
+* `manual/changelog.html` — regenerated from `CHANGELOG.md` via `scripts/build_changelog.py`
+* `src/MidiEvent/NoteOnEvent.h` / `.cpp` — new `setVelocity(int, bool toProtocol = true)` overload with fast-path skip (API-002)
+* `src/ai/FFXIVChannelFixer.cpp` — bulk-snapshot pattern applied to all five hot mutation sites, plus required `#include "../protocol/ProtocolEntry.h"` and `<QVector>` (PERF-FFXIV-001)
+* `src/midi/MidiFile.cpp` — `removeTrack` snapshots all 19 channels, mutates with `removeEvent(ev, false)`, commits per-channel (PERF-DEL-001); `deleteMeasures` lazy-snapshots only channels with deletions (PERF-DEL-002); `setMaxLengthMs` uses `QHash<int, ProtocolEntry*>` lazy-snapshot map (PERF-DEL-003)
+* `tests/CMakeLists.txt` — registered 16 additional test executables with the Qt 6 DLL-PATH workaround
+* `tests/test_midi_track.cpp` (new) — uncovered TEST-001
+* `tests/test_midi_channel.cpp` (new)
+* `tests/test_midi_file.cpp` (new)
+* `tests/test_protocol.cpp` (new)
+* `tests/test_protocol_item.cpp` (new)
+* `tests/test_selection.cpp` (new)
+* `tests/test_event_tool.cpp` (new)
+* `tests/test_lyric_manager.cpp` (new)
+* `tests/test_lyric_block.cpp` (new)
+* `tests/test_midi_event.cpp` (new)
+* `tests/test_channel_events.cpp` (new) — covers CC, PC, PitchBend, ChannelPressure, KeyPressure save round-trips
+* `tests/test_sysex_event.cpp` (new) — uncovered TEST-002
+* `tests/test_mml_converter.cpp` (new)
+* `Planning/03_bugs.md` — TEST-001 and TEST-002 entries added; PERF-DEL-001/002/003 and PERF-FFXIV-001 noted as fixed in 1.4.2
+* `Planning/06_TEST_CASES.md` — coverage table updated 3 → 19 executables / 41 → 229 sub-tests
+
+</details>
+
+---
+
 ## [1.4.1] - 2026-04-19 — Manual Bugfix + SrtParser Tests
 
 ### Summary

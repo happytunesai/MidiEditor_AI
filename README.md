@@ -16,7 +16,7 @@
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-0078D6?logo=windows)](https://github.com/happytunesai/MidiEditor_AI/releases)
 
-**Version:** 1.4.0
+**Version:** 1.4.2
 **Status:** Release
 
 📥 **[Download Latest Release](https://github.com/happytunesai/MidiEditor_AI/releases/latest)**
@@ -76,7 +76,11 @@ MidiPilot is the AI brain embedded directly in MidiEditor AI. Open the sidebar, 
 | 🔄 **Auto-Updater** | In-app updates from GitHub Releases — Update Now, After Exit, or Download Manual |
 | � **Lyric Editor** | Full lyric timeline with drag, resize, split, merge, inline text editing, and tap-to-sync dialog |
 | 🎤 **Lyric Visualizer** | Karaoke-style toolbar widget with left-to-right color sweep, two-line current/next phrase display |
-| 🎤 **Lyric Import/Export** | Import plain text, SRT subtitles, or LRC karaoke files — export to SRT, LRC, or MIDI text events || 🔌 **MCP Server** | Built-in Model Context Protocol server — Claude Desktop, VS Code Copilot, Cursor, and any MCP client can edit MIDI directly || �🎵 **Quantization** | Event quantization and control change visualization |
+| 🎤 **Lyric Import/Export** | Import plain text, SRT subtitles, or LRC karaoke files — export to SRT, LRC, or MIDI text events |
+| 🔌 **MCP Server** | Built-in Model Context Protocol server — Claude Desktop, VS Code Copilot, Cursor, and any MCP client can edit MIDI directly |
+| 👁️ **Live Side Panels During Playback** | Tracks, Channels, Event and Protocol panels stay interactive while a song is playing — toggle visibility live; opt back into the legacy lock via Settings → System & Performance |
+| 🖱️ **Visibility Eye Icons in Context Menu** | Right-click a note: the *Move to Track* / *Move to Channel* submenus now show eye icons indicating which entries are currently visible vs. hidden |
+| 🎵 **Quantization** | Event quantization and control change visualization |
 | 🎤 **MIDI Recording** | Record from connected MIDI devices (keyboards, digital pianos) |
 
 ## 🏗️ Architecture
