@@ -34,7 +34,34 @@ jobs:
           python-version: '3.12'
 
       - name: Build changelog.html from CHANGELOG.md
-        run: python scripts/build_changelog.py
+        id: build_changelog
+        run: |
+          set -e
+          OUTPUT=$(python scripts/build_changelog.py)
+          echo "$OUTPUT"
+
+          # Echo full output into the run summary so it's visible at a glance
+          {
+            echo "## :scroll: Changelog & Manual Regeneration"
+            echo ""
+            echo "Ran \`scripts/build_changelog.py\` against \`CHANGELOG.md\`:"
+            echo ""
+            echo '```'
+            echo "$OUTPUT"
+            echo '```'
+            echo ""
+            # Highlight which manual files actually changed in this run
+            CHANGED=$(git status --porcelain manual/ | sed 's/^/  /' || true)
+            if [ -n "$CHANGED" ]; then
+              echo "**Regenerated / patched files:**"
+              echo ""
+              echo '```'
+              echo "$CHANGED"
+              echo '```'
+            else
+              echo "_All manual artifacts were already up to date._"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Setup Pages
         uses: actions/configure-pages@v6
@@ -67,4 +94,5 @@ jobs:
             echo "| **Status** | ${ICON} ${MSG} |"
             echo "| **URL** | https://midieditor-ai.de |"
             echo "| **Commit** | \`${{ github.sha }}\` |"
+            echo "| **Changelog** | regenerated from \`CHANGELOG.md\` via \`scripts/build_changelog.py\` |"
           } >> $GITHUB_STEP_SUMMARY
