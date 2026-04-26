@@ -562,7 +562,7 @@ def main():
 
     # Generic version pattern: matches x.y.z version strings
     # We replace any old version with the latest one in known contexts
-    for page in ("index.html", "download.html"):
+    for page in ("index.html", "download.html", "docs-index.html"):
         filepath = manual_dir / page
         if not filepath.exists():
             continue
