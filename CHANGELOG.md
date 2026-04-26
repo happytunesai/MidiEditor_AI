@@ -5,7 +5,7 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 
 ---
 
-## [1.5.0] - Unreleased — Live Agent Streaming, Dynamic Models, Prompt Profiles, Agent Conductor & GPT-5.5 Isolation
+## [1.5.0] - 2026-04-21 — Live Agent Streaming, Dynamic Models, Prompt Profiles, Agent Conductor & GPT-5.5 Isolation
 
 ### Summary
 
