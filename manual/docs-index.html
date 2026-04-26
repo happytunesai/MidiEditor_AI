@@ -165,7 +165,7 @@
     font-size: .82em; font-weight: 600; color: #333;
 }
 .chat-demo-body {
-    padding: .75rem; min-height: 140px; max-height: 260px;
+    padding: .75rem; min-height: 140px; max-height: 360px;
     display: flex; flex-direction: column; gap: .35rem;
     overflow-y: auto; background: #fff;
 }
@@ -191,6 +191,28 @@
     background: #E8E8E8; color: #222;
     align-self: flex-start; margin-right: 20px;
 }
+.thinking-card {
+    align-self: flex-start;
+    max-width: 88%;
+    background: #FFF4E1;
+    border-left: 3px solid #FF9800;
+    color: #222;
+    font-size: .74em;
+    font-style: italic;
+    line-height: 1.35;
+    padding: 6px 10px 7px;
+    margin: 2px 20px 3px 0;
+    opacity: 0;
+    transform: translateY(8px);
+    transition: opacity .25s, transform .25s;
+    flex-shrink: 0;
+}
+.thinking-card.visible { opacity: 1; transform: translateY(0); }
+.thinking-title {
+    font-weight: 600; margin-bottom: 5px;
+}
+.thinking-body { min-height: 3.2em; }
+.thinking-foot { margin-top: 6px; color: #333; }
 .steps-panel {
     background: #F5F5F0; border: 1px solid #e0e0dc; border-radius: 8px;
     margin: 2px 20px 2px 0; font-size: .78em;
@@ -302,7 +324,7 @@
 <div class="hero">
 <pre id="ascii-logo" aria-label="MidiEditor AI"></pre>
 <p class="tagline" id="hero-tagline" style="opacity:0">Your complete guide to the AI-powered MIDI editor</p>
-<span class="version-badge" id="hero-badge" style="opacity:0">v1.4.0 &middot; Manual</span>
+    <span class="version-badge" id="hero-badge" style="opacity:0">v1.5.0 &middot; Manual</span>
 
 <!-- Fake Chat Demo -->
 <div class="chat-demo" id="chat-demo">
@@ -352,7 +374,7 @@
 
 <div class="section-card">
 <h3><span class="icon">&#x1F4AC;</span> MidiPilot &mdash; AI Copilot</h3>
-<p class="card-desc">The integrated AI brain that composes, edits, transforms, and analyzes your MIDI data via natural language.</p>
+<p class="card-desc">The integrated AI brain with live Agent streaming, provider model refresh, favourites, and natural-language MIDI editing.</p>
 <ul>
 <li><a href="midipilot.html#features">&#x2B50; Key Features</a></li>
 <li><a href="midipilot.html#chat-panel">&#x1F4AC; Chat Panel</a></li>
@@ -360,6 +382,9 @@
 <li><a href="midipilot.html#agent-mode">&#x1F3AF; Agent Mode (Multi-Step)</a></li>
 <li><a href="midipilot.html#ffxiv-mode">&#x1F3AE; FFXIV Bard Mode</a></li>
 <li><a href="midipilot.html#mode-comparison">&#x2696;&#xFE0F; Mode Comparison</a></li>
+<li><a href="midipilot.html#streaming">&#x26A1; Live Agent Streaming</a></li>
+<li><a href="midipilot.html#model-management">&#x1F504; Model Refresh &amp; Favourites</a></li>
+<li><a href="midipilot.html#conversation-history">&#x1F4DC; Conversation History</a></li>
 <li><a href="midipilot.html#token-tracking">&#x1F525; Token Tracking</a></li>
 <li><a href="midipilot.html#settings">&#x2699;&#xFE0F; AI Settings</a></li>
 <li><a href="midipilot.html#system-prompts">&#x270F;&#xFE0F; Custom System Prompts</a></li>
@@ -863,6 +888,65 @@
         nextStep(0);
     }
 
+    function showThinking(c, cb) {
+        if (!c.steps) { if (cb) cb(); return; }
+        var notes = [
+            {
+                title: 'Checking event range',
+                body: 'I am looking at the current notes, track layout, and timing before choosing the edit range.',
+                foot: 'Step 1: ' + c.steps[0]
+            },
+            {
+                title: c.mode === 'Compo' ? 'Planning composition pass' : 'Planning note edits',
+                body: c.mode === 'Compo'
+                    ? 'I am deciding the tempo, instrument setup, and phrase shape before writing the new events.'
+                    : 'I am keeping the change focused so the generated notes fit the existing arrangement.',
+                foot: 'Next: run the remaining tools'
+            }
+        ];
+
+        function typeText(target, text, done) {
+            var i = 0;
+            var timer = setInterval(function(){
+                target.textContent += text.charAt(i++);
+                chatBody.scrollTop = chatBody.scrollHeight;
+                if (i >= text.length) {
+                    clearInterval(timer);
+                    setTimeout(done || function(){}, 260);
+                }
+            }, 17);
+        }
+
+        function addThinkingCard(note, done) {
+            var card = document.createElement('div');
+            card.className = 'thinking-card';
+            card.innerHTML =
+                '<div class="thinking-title"></div>' +
+                '<div class="thinking-body"></div>' +
+                '<div class="thinking-foot"></div>';
+            chatBody.appendChild(card);
+            var title = card.querySelector('.thinking-title');
+            var body = card.querySelector('.thinking-body');
+            var foot = card.querySelector('.thinking-foot');
+            chatBody.scrollTop = chatBody.scrollHeight;
+            void card.offsetWidth; card.classList.add('visible');
+            typeText(title, note.title, function(){
+                typeText(body, note.body, function(){
+                    typeText(foot, note.foot, function(){
+                        card.classList.add('done');
+                        setTimeout(done || function(){}, 320);
+                    });
+                });
+            });
+        }
+
+        addThinkingCard(notes[0], function(){
+            addThinkingCard(notes[1], function(){
+                if (cb) cb();
+            });
+        });
+    }
+
     function clearChat(cb) {
         Array.from(chatBody.children).forEach(function(c){ c.style.opacity='0'; c.style.transform='translateY(-8px)'; });
         setTimeout(function(){ chatBody.innerHTML=''; if(cb)cb(); }, 350);
@@ -896,11 +980,13 @@
                     setProcessing();
                     setTimeout(function(){
                         if (c.steps) {
-                            showSteps(c.steps, function(){
-                                setReady();
-                                addTimestamp('left', function(){
-                                    addMsg('ai', c.response, function(){
-                                        setTimeout(cb||function(){}, 3100);
+                            showThinking(c, function(){
+                                showSteps(c.steps, function(){
+                                    setReady();
+                                    addTimestamp('left', function(){
+                                        addMsg('ai', c.response, function(){
+                                            setTimeout(cb||function(){}, 3100);
+                                        });
                                     });
                                 });
                             });

@@ -203,12 +203,11 @@ private slots:
         QCOMPARE(clone->hidden(), true);
         QCOMPARE(clone->muted(), true);
         QCOMPARE(clone->file(), &file);
-        // BUG SURFACED: MidiTrack's copy ctor does NOT copy `_assignedChannel`
-        // and the field is not default-initialised either, so clone
-        // ->assignedChannel() reads uninitialised memory. We deliberately do
-        // NOT assert a specific value here — see Planning/06_TEST_CASES.md
-        // "Bugs surfaced" entry. The other four protocol-tracked fields
-        // (number, hidden, muted, file) are correctly cloned.
+        // TEST-001 (fixed): the copy ctor now propagates `_assignedChannel`.
+        // Before the fix this field was left uninitialised, so the clone
+        // returned garbage (e.g. 513 in one observed run). After the fix we
+        // must see the source value.
+        QCOMPARE(clone->assignedChannel(), 7);
 
         delete clone;
     }
@@ -220,6 +219,7 @@ private slots:
         track.setNumber(2);
         track.setHidden(false);
         track.setMuted(false);
+        track.assignChannel(5);
 
         // Snapshot the "old" state.
         ProtocolEntry *snapshot = track.copy();
@@ -228,9 +228,11 @@ private slots:
         track.setNumber(99);
         track.setHidden(true);
         track.setMuted(true);
+        track.assignChannel(12);
         QCOMPARE(track.number(), 99);
         QCOMPARE(track.hidden(), true);
         QCOMPARE(track.muted(), true);
+        QCOMPARE(track.assignedChannel(), 12);
 
         // Restore.
         track.reloadState(snapshot);
@@ -238,6 +240,7 @@ private slots:
         QCOMPARE(track.hidden(), false);
         QCOMPARE(track.muted(), false);
         QCOMPARE(track.file(), &file);
+        QCOMPARE(track.assignedChannel(), 5); // TEST-001
 
         delete snapshot;
     }

@@ -16,14 +16,14 @@
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-0078D6?logo=windows)](https://github.com/happytunesai/MidiEditor_AI/releases)
 
-**Version:** 1.4.2
+**Version:** 1.5.0
 **Status:** Release
 
 📥 **[Download Latest Release](https://github.com/happytunesai/MidiEditor_AI/releases/latest)**
 
 ---
 
-![MidiEditor AI](manual/screenshots/MidiPilot_Agent_run.gif)
+![MidiEditor AI](manual/screenshots/midieditor_ai_gpt55_streaming_nosound.webp)
 
 ## ✨ Overview
 
@@ -50,13 +50,14 @@ MidiPilot is the AI brain embedded directly in MidiEditor AI. Open the sidebar, 
 
 | Feature | Description |
 |---------|-------------|
-| 🤖 **MidiPilot AI Copilot** | Compose, edit, and transform MIDI via natural language chat |
+| 🤖 **MidiPilot AI Copilot** | Compose, edit, and transform MIDI via natural language chat with live Agent streaming |
 | 🎨 **Dark & Light Themes** | 7 QSS themes (Dark, Light, Sakura, AMOLED, Material Dark, System, Classic) with 10 color presets |
 | 🎹 **Full MIDI Editor** | Edit, record, and play MIDI files with track/channel/event editing |
 | 🎯 **Agent Mode** | Multi-step agentic loop — AI calls tools iteratively, with granular per-tool-call undo |
 | 💬 **Simple Mode** | Single request/response with real-time SSE streaming for quick edits and small tasks |
 | 📜 **Conversation History** | Auto-saved conversations as JSON — browse, resume, and reload past chats across sessions |
-| 🌊 **Response Streaming** | Server-Sent Events (SSE) streaming in Simple mode — text appears word by word in real time |
+| 🌊 **Response Streaming** | Server-Sent Events (SSE) streaming in Simple and Agent mode — thoughts, text, and tool progress appear live |
+| 🔄 **Dynamic Model Lists** | Refresh provider model lists, cache context windows, filter non-chat models, and manage per-provider favourites |
 | 💾 **Per-File AI Presets** | Save provider, model, mode, FFXIV, effort, and custom instructions per MIDI file as a sidecar `.midipilot.json` |
 | 📏 **Context Window Management** | Sliding-window truncation prevents exceeding model context limits, with usage warnings at 80% |
 | 🎮 **FFXIV Bard Mode** | Enforces Final Fantasy XIV Performance constraints (8 tracks, monophonic, C3–C6) |
@@ -93,7 +94,7 @@ MidiEditor AI
 │   ├── AiClient         → OpenAI-compatible API client (SSE streaming)
 │   ├── ConversationStore → Persistent history (JSON save/load/resume)
 │   ├── EditorContext     → Musical context extraction for AI
-│   ├── ToolDefinitions   → 13 MIDI manipulation tools for AI
+│   ├── ToolDefinitions   → 15 MIDI manipulation tools (12 base + 3 FFXIV)
 │   └── SystemPrompts     → Customizable per-mode AI instructions
 ├── Appearance           → 7 QSS themes, 10 color presets, dark title bar, icon adaptation
 ├── Lyric Editor         → Timeline lane, inline editing, split/merge, tap-to-sync, SRT/LRC import/export

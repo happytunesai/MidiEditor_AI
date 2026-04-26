@@ -13,7 +13,34 @@
 .screenshot-row { display: flex; flex-wrap: wrap; gap: 1.5rem; justify-content: center; margin: 1.5rem 0; }
 .screenshot-row img { border: 1px solid var(--border); border-radius: 8px; }
 .screenshot-single { text-align: center; margin: 1.5rem 0; }
-.screenshot-single img { max-width: 100%; border: 1px solid var(--border); border-radius: 8px; }
+.screenshot-single img,
+.screenshot-single video {
+    max-width: 100%;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--panel);
+}
+.screenshot-single video { height: auto; aspect-ratio: 2074 / 926; }
+.screenshot-row img.crop-square-thumb,
+.screenshot-row img.fit-square-thumb {
+    width: min(320px, 42vw);
+    height: min(320px, 42vw);
+    margin: 1rem 0;
+}
+.screenshot-row img.crop-square-thumb { object-fit: cover; }
+.screenshot-row img.fit-square-thumb {
+    object-fit: contain;
+    background: var(--bg-card);
+}
+.screenshot-row img.crop-model-refresh { object-position: 78% 50%; }
+.screenshot-row img.crop-preset-load { object-position: 100% 50%; }
+@media (max-width: 700px) {
+    .screenshot-row img.crop-square-thumb,
+    .screenshot-row img.fit-square-thumb {
+        width: min(320px, 86vw);
+        height: min(320px, 86vw);
+    }
+}
 .caption { text-align: center; color: var(--text-muted); font-style: italic; margin-top: 0.5rem; font-size: 0.9rem; }
 .feature-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; margin: 1.5rem 0; }
 .feature-card {
@@ -96,11 +123,10 @@ MidiPilot is the AI brain embedded directly in MidiEditor AI. Open the sidebar p
 </p>
 
 <div class="screenshot-single">
-<video autoplay loop muted playsinline loading="lazy" width="900" aria-label="MidiPilot Agent mode in action">
-    <source src="screenshots/MidiPilot_Agent_run.webm" type="video/webm">
-    <img src="screenshots/MidiPilot_Agent_run.gif" alt="MidiPilot Agent mode in action" width="900" loading="lazy">
+<video autoplay loop muted playsinline loading="lazy" width="900" aria-label="MidiPilot Agent mode streaming live with GPT-5.5">
+    <source src="screenshots/midieditor_ai_gpt55_streaming.webm" type="video/webm">
 </video>
-<div class="caption">MidiPilot Agent mode composing a full arrangement from a single prompt</div>
+<div class="caption">MidiPilot Agent mode composing a full arrangement from a single prompt &mdash; live streaming with GPT-5.5 (Responses API)</div>
 </div>
 
 <hr>
@@ -145,7 +171,12 @@ MidiPilot is the AI brain embedded directly in MidiEditor AI. Open the sidebar p
 </a>
 <a class="feature-card" href="#streaming">
 <h4>&#x26A1; Response Streaming</h4>
-<p>Simple mode streams text in real time via SSE. Watch the response appear word by word instead of waiting.</p>
+<p>Simple and Agent mode stream live via SSE, including reasoning summaries, assistant text, and tool-call progress where providers support it.</p>
+<span class="card-arrow">Learn more &rarr;</span>
+</a>
+<a class="feature-card" href="#model-management">
+<h4>&#x1F504; Model Management</h4>
+<p>Refresh provider model lists, filter non-chat models, pin favourites, and retry temporarily blocked streaming models without restarting.</p>
 <span class="card-arrow">Learn more &rarr;</span>
 </a>
 <a class="feature-card" href="#presets">
@@ -160,14 +191,14 @@ MidiPilot is the AI brain embedded directly in MidiEditor AI. Open the sidebar p
 <h2 id="chat-panel">Chat Panel</h2>
 
 <p>
-The MidiPilot panel features a clean chat interface with context-aware track info, mode selection (Agent / Simple), and model switching &mdash; all accessible without leaving the editor.
+The MidiPilot panel features a clean chat interface with context-aware track info, mode selection (Agent / Simple), and model switching &mdash; all accessible without leaving the editor. Assistant bubbles and the live reasoning stream render <b>Markdown</b> (bold, italic, lists, fenced code, links); user and system bubbles stay plain text.
 </p>
 
 <div class="screenshot-row">
-<img src="screenshots/midipilot-panel.png" alt="MidiPilot chat panel" width="380">
-<img src="screenshots/midipilot-panel-alt.png" alt="MidiPilot with different provider" width="380">
+<img src="screenshots/midipilot-panel.png" alt="MidiPilot chat panel in light theme" width="380">
+<img src="screenshots/midipilot-panel-alt.png" alt="MidiPilot chat panel in dark theme" width="380">
 </div>
-<div class="caption">Docked panel with Gemini 2.5 Flash (left) &mdash; Gemini 3.1 Pro (right)</div>
+<div class="caption">Docked MidiPilot panel side by side &mdash; Light theme (left) and Dark theme (right)</div>
 
 <p>
 The input bar at the bottom provides quick access to everything you need:
@@ -190,7 +221,7 @@ The input bar at the bottom provides quick access to everything you need:
 <li><b>Reasoning level</b> &mdash; Adjust thinking effort (when supported by the model)</li>
 <li><b>Token counter</b> &mdash; Shows session usage vs. context window size</li>
 <li><b>Send / Stop</b> &mdash; Send your prompt or cancel an in-progress Agent run</li>
-<li><b>Settings gear</b> &mdash; Open AI settings or save per-file AI presets</li>
+<li><b>Settings gear</b> &mdash; Open MidiPilot Settings&hellip; or save per-file AI presets</li>
 <li><b>Status indicator</b> &mdash; Shows Ready, Thinking, or error states in real time</li>
 </ul>
 
@@ -232,6 +263,13 @@ Simple mode sends a <b>single API call</b> to the AI model containing your instr
 If MidiPilot detects a truncated response (<code>finish_reason: "length"</code>), it will display a warning suggesting you switch to Agent mode for the task.
 </p>
 
+<div class="screenshot-single">
+<video autoplay loop muted playsinline loading="lazy" width="900" aria-label="Simple Mode one-shot response from GPT-5.5">
+    <source src="screenshots/midieditor_ai_gpt_simple_gpt55.webm" type="video/webm">
+</video>
+<div class="caption">Simple Mode &mdash; one-shot response from GPT-5.5 streaming text and the resulting JSON action into the editor</div>
+</div>
+
 <hr>
 
 <h2 id="agent-mode">Agent Mode (Multi-Step)</h2>
@@ -263,8 +301,16 @@ Agent mode is the powerhouse for complex compositions and large-scale edits. Ins
 <h3>Agent Steps Panel</h3>
 
 <p>
-During an Agent run, a collapsible <b>Agent Steps</b> panel appears below the chat showing real-time progress: each tool call, its parameters, and results. Step indicators use theme-aware colors that adapt to dark and light mode (&#x23F3; pending, &#x1F504; active, &#x2705; done, &#x26A0; retrying, &#x274C; failed).
+During an Agent run, a collapsible <b>Agent Steps</b> panel appears below the chat showing real-time progress: each tool call, its parameters, and results. The agent loop can also stream live reasoning summaries, assistant text, and tool-call argument progress while the step is still being generated. Step indicators use theme-aware colors that adapt to dark and light mode (&#x23F3; pending, &#x1F504; active, &#x2705; done, &#x26A0; retrying, &#x274C; failed).
 </p>
+
+<div class="screenshot-single">
+<video autoplay loop muted playsinline loading="lazy" width="900" poster="screenshots/midieditor_ai_gemini_streaming_poster.jpg" aria-label="Gemini 3.1 agent streaming with live thoughts">
+    <source src="screenshots/midieditor_ai_gemini_31_streaming.webm" type="video/webm">
+    <img src="screenshots/midieditor_ai_gemini_streaming_poster.jpg" alt="Gemini agent streaming with live thought summaries and tool progress" width="900" loading="lazy">
+</video>
+<div class="caption">Gemini 3.1 native streaming with live thought summaries and Agent tool progress</div>
+</div>
 
 <h3>When to Use Agent Mode</h3>
 
@@ -283,6 +329,34 @@ During an Agent run, a collapsible <b>Agent Steps</b> panel appears below the ch
 <tr><td><b>Agent Max Steps</b></td><td>Maximum tool calls per request (5&ndash;100, default 50). Increase for very large compositions.</td></tr>
 <tr><td><b>Token Limit</b></td><td>Optional output cap. Agent mode is less sensitive to this since each call is smaller, but very low limits can still truncate individual steps.</td></tr>
 </table>
+
+<h3>Agent Conductor &amp; Working State</h3>
+
+<p>
+The agent loop is wrapped by a lightweight <b>conductor</b> that owns a compact, program-managed <b>working state</b>: the user goal, the inferred task type, a list of <i>confirmed facts</i> (what the model has already accomplished), the last tool result, the active constraints (e.g. FFXIV rules), and a counter of consecutive failed write attempts.
+</p>
+
+<ul>
+<li>After every successful tool call, the conductor distils a one-line confirmation into the working state (e.g. <i>&ldquo;Tempo set to 82 BPM&rdquo;</i>, <i>&ldquo;8 tracks created&rdquo;</i>) so the model resumes from real progress instead of re-deriving it from raw tool output.</li>
+<li>After a rejected write (validation error, FFXIV violation, capability error&hellip;), the conductor injects a short, <b>positive</b> rejection guidance &mdash; describing what should be tried next instead of restating what failed.</li>
+<li>If two consecutive write attempts fail without making progress, the conductor performs a <b>bounded-failure stop</b> and reports the remaining problem in plain language instead of looping forever.</li>
+</ul>
+
+<h3>GPT-5.5 model-isolation policy</h3>
+
+<p>
+For OpenAI <code>gpt-5.5*</code>, MidiPilot applies a small set of model-specific mitigations through a central policy table &mdash; <b>nothing else is touched</b>. Currently:
+</p>
+
+<ul>
+<li><b>Schema-light tools</b> &mdash; the <code>insert_events</code> / <code>replace_events</code> JSON schema drops the <code>pitch_bend</code> branch that this model frequently mis-emits.</li>
+<li><b>Sanitised, positive rejection guidance</b> &mdash; rejection messages avoid phrasing the model is known to over-react to.</li>
+<li><b>Serial tool calls + low reasoning effort</b> on the OpenAI Responses API (<code>parallel_tool_calls: false</code>, <code>reasoning.effort: "low"</code>).</li>
+</ul>
+
+<p>
+On OpenRouter, only the schema-light tools and prompt sanitisation apply (no Responses-API knobs). On every other model, including all current OpenAI <code>gpt-5*</code>/<code>gpt-4o</code>/<code>o-series</code>, Pitch Bend and parallel tool calls remain unchanged.
+</p>
 
 <hr>
 
@@ -345,7 +419,7 @@ before/after screenshots, and tips.
 <tr><td><b>Token Limit Risk</b></td><td>High for complex tasks</td><td>Low &mdash; work is split</td></tr>
 <tr><td><b>Truncation Handling</b></td><td>Warns, suggests Agent mode</td><td>Per-step, can continue</td></tr>
 <tr><td><b>Speed</b></td><td>Fast (single round-trip)</td><td>Slower (multiple round-trips)</td></tr>
-<tr><td><b>UI Feedback</b></td><td>Streaming text (real-time)</td><td>Agent Steps panel (live)</td></tr>
+<tr><td><b>UI Feedback</b></td><td>Streaming text or action preview</td><td>Live thoughts, assistant text, and Agent Steps panel</td></tr>
 <tr><td><b>Undo</b></td><td>Per action</td><td>Granular &mdash; one Ctrl+Z per tool call</td></tr>
 <tr><td><b>Ideal For</b></td><td>Quick edits, small changes</td><td>Complex compositions, multi-track</td></tr>
 </table>
@@ -414,15 +488,49 @@ Configure your AI connection from <b>Settings &rarr; MidiPilot AI</b>. Select a 
 <tr><td><b>Provider</b></td><td>OpenAI, OpenRouter, Google Gemini, or Custom</td></tr>
 <tr><td><b>Base URL</b></td><td>Auto-filled per provider, or enter your own endpoint</td></tr>
 <tr><td><b>API Key</b></td><td>Your provider API key &mdash; get one from <a href="https://platform.openai.com/settings/organization/api-keys" target="_blank" rel="noopener noreferrer">OpenAI</a>, <a href="https://openrouter.ai/settings/keys" target="_blank" rel="noopener noreferrer">OpenRouter</a>, or <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Google Gemini</a></td></tr>
-<tr><td><b>Model</b></td><td>Dropdown of popular models + custom entry</td></tr>
+<tr><td><b>Model</b></td><td>Editable dropdown populated from the active provider's cached model list. If no cache exists, MidiPilot falls back to a small built-in starter list.</td></tr>
+<tr><td><b>Refresh Models</b></td><td>Fetches the live provider model list from <code>/models</code>, normalizes provider-specific fields, filters obvious non-chat models, and stores the result in <code>&lt;userdata&gt;/midipilot_models.json</code>.</td></tr>
+<tr><td><b>Manage favourites&hellip;</b></td><td>Pick the models that should stay visible per provider. If no favourites are selected, all cached chat-capable models are shown.</td></tr>
+<tr><td><b>Force Streaming for This Model</b></td><td>Appears when the selected provider/model failed streaming during the current app session. Clears the temporary warning so the next request tries live streaming again.</td></tr>
 <tr><td><b>Token Limit</b></td><td>Optional cap on output tokens to control costs</td></tr>
 <tr><td><b>Thinking</b></td><td>Enable reasoning for o-series and GPT-5.x models</td></tr>
 <tr><td><b>Reasoning Effort</b></td><td>None / Low / Medium / High / Extra High</td></tr>
+<tr><td><b>Live Streaming</b></td><td>Streams both Simple and Agent responses live (text, reasoning summaries, and tool-call arguments) when the provider supports it. Failed paths automatically fall back to non-streaming for the rest of the session.</td></tr>
+<tr><td><b>Prompt Profiles&hellip;</b></td><td>Open the <a href="#prompt-profiles">Prompt Profiles</a> dialog to attach custom system prompts to specific provider/model combinations.</td></tr>
 <tr><td><b>Context Range</b></td><td>Measures before/after cursor sent as musical context (0&ndash;50)</td></tr>
 <tr><td><b>FFXIV Mode</b></td><td>Enable Bard Performance rule enforcement</td></tr>
 <tr><td><b>Agent Max Steps</b></td><td>Maximum tool calls per Agent request (5&ndash;100)</td></tr>
 <tr><td><b>Test Connection</b></td><td>Verify your API key and model work correctly</td></tr>
 </table>
+
+<h3 id="model-management">Model Refresh &amp; Favorites</h3>
+
+<p>
+MidiEditor AI can fetch provider model lists directly instead of relying on a fixed dropdown. The refresh button is available both in <b>Settings &rarr; MidiPilot AI</b> and in the MidiPilot footer, so you can update models without leaving the chat panel. Refreshed models are cached for seven days and used for context-window estimates.
+</p>
+
+<div class="screenshot-row">
+<img class="crop-square-thumb crop-model-refresh" src="screenshots/model_refresh.png" alt="Refreshing provider model list" width="420">
+<img class="fit-square-thumb" src="screenshots/model_favorites.png" alt="Model favorites dialog" width="420">
+</div>
+<div class="caption">Refresh provider models, then keep the dropdown focused with per-provider favourites</div>
+
+<p>
+When the footer refresh completes, MidiPilot reports the result in the chat/status area so you know whether the cache was updated or the provider rejected the request.
+</p>
+
+<div class="screenshot-single">
+<img src="screenshots/model_update_chat.png" alt="Model update status in MidiPilot chat" width="520">
+<div class="caption">Model update feedback after a successful refresh</div>
+</div>
+
+<p>
+If a model fails live streaming but still works without streaming, MidiPilot retries automatically and marks that model with a warning icon for the current app session. The mark is <b>scoped per mode</b> &mdash; Simple Mode (no tools) and Agent Mode (with tools) are tracked independently, because some models support live streaming in only one of the two paths. The dropdown shows which mode is blocked: <code>&#x26A0; &lt;model&gt; (Simple)</code>, <code>(Agent)</code>, or <code>(Simple+Agent)</code>. Use <b>Force Streaming for This Model</b> to clear the temporary mark after switching providers, updating the model, or testing a fixed endpoint.
+</p>
+
+<p>
+<b>Capability-aware error handling</b> &mdash; if the active provider returns HTTP&nbsp;404 with <i>&ldquo;No endpoints found that support tool use&rdquo;</i> (or any equivalent &ldquo;tools not supported&rdquo; error), MidiPilot stops retrying immediately, posts a clear <i>&ldquo;Model does not support tool calling &mdash; pick a different model in Settings &rarr; AI, or switch to Simple mode for this request&rdquo;</i> bubble, and remembers the flag per <code>provider:model</code> for the rest of the session. Picking a different model re-enables Agent Mode automatically.
+</p>
 
 <hr>
 
@@ -447,6 +555,35 @@ Click <b>Edit System Prompts&hellip;</b> in settings to open the built-in editor
 <p>
 Prompts are saved as <code>system_prompts.json</code> in the application directory. If no custom file exists, MidiPilot uses the hardcoded defaults.
 </p>
+
+<p>
+<b>Looking for per-model overrides?</b> The newer <a href="#prompt-profiles">Prompt Profiles</a> dialog lets you attach a dedicated system prompt to one or more <code>provider:model</code> combinations &mdash; great for guiding a single &ldquo;quirky&rdquo; model without touching the global mode prompts.
+</p>
+
+<hr>
+
+<h2 id="prompt-profiles">Prompt Profiles (Per-Model System Prompts)</h2>
+
+<p>
+Open <b>Settings &rarr; AI &rarr; Prompt Profiles&hellip;</b> to manage profiles. A profile binds a custom system prompt to one or more model patterns and decides whether the profile <i>replaces</i> or <i>appends to</i> the default mode prompt.
+</p>
+
+<table>
+<tr><th>Field</th><th>Description</th></tr>
+<tr><td><b>Name</b></td><td>Free-text label shown in the profile list (e.g. &ldquo;GPT-5.5 Decisive&rdquo;, &ldquo;Claude Strict JSON&rdquo;).</td></tr>
+<tr><td><b>Model patterns</b></td><td>One or more <code>provider:model</code> entries with optional glob suffix, e.g. <code>openai:gpt-5.5*</code>, <code>openrouter:openai/gpt-5.5*</code>, <code>gemini:gemini-2.5-pro</code>. The first matching profile wins.</td></tr>
+<tr><td><b>System prompt</b></td><td>The prompt text that should be sent for matching models. Markdown is allowed.</td></tr>
+<tr><td><b>Append to default</b></td><td>When checked, the profile is appended to the active mode prompt (Simple/Agent/FFXIV) instead of replacing it &mdash; useful for adding small, model-specific guardrails.</td></tr>
+</table>
+
+<p>
+MidiPilot ships with one built-in profile: <b>GPT-5.5 Decisive</b>, bound to <code>openai:gpt-5.5*</code> and <code>openrouter:openai/gpt-5.5*</code>. It nudges the model to commit to a tool call instead of asking clarifying questions, which is a known weak spot of that family. You can edit, duplicate, or disable it like any other profile.
+</p>
+
+<div class="screenshot-single">
+<img src="screenshots/midipilot_promt_profiles.png" alt="Prompt Profiles dialog showing the built-in GPT-5.5 Decisive profile, model patterns, append-to-default toggle, and system prompt editor" width="700">
+<div class="caption">Prompt Profiles dialog with the built-in <b>GPT-5.5 Decisive</b> profile bound to <code>openai:gpt-5.5*</code> and <code>openrouter:openai/gpt-5.5*</code></div>
+</div>
 
 <hr>
 
@@ -570,6 +707,7 @@ MidiPilot automatically saves every conversation as a JSON file. You can browse,
 <li><b>Auto-save</b> &mdash; After every assistant response, the conversation is saved (debounced 2 seconds) to <code>AppData/MidiPilotHistory/</code></li>
 <li><b>Associated with MIDI file</b> &mdash; Each conversation records which MIDI file it was working on</li>
 <li><b>History button</b> &mdash; Click the &#x1F4DC; history icon in the toolbar (next to New Chat) to browse past conversations</li>
+<li><b>Turn metadata</b> &mdash; Agent reasoning, executed steps, latency, provider, model, and token counts are stored with each assistant turn</li>
 <li><b>Resume</b> &mdash; Click any past conversation to load it back into the chat and continue where you left off</li>
 <li><b>Persistent across sessions</b> &mdash; Conversations survive app restarts</li>
 </ul>
@@ -577,7 +715,7 @@ MidiPilot automatically saves every conversation as a JSON file. You can browse,
 <h3>Conversation File Format</h3>
 
 <p>
-Each conversation is stored as a single JSON file containing the full message history, model/provider info, token usage, and the associated MIDI file path. Files are human-readable and can be exported or shared.
+Each conversation is stored as a single JSON file containing the full message history, model/provider info, token usage, per-turn metadata, and the associated MIDI file path. Files are human-readable and can be exported or shared.
 </p>
 
 <div class="screenshot-single">
@@ -589,16 +727,18 @@ Each conversation is stored as a single JSON file containing the full message hi
 <h2 id="streaming">Response Streaming</h2>
 
 <p>
-In Simple mode, MidiPilot uses <b>Server-Sent Events (SSE)</b> to stream text responses in real time. Instead of waiting for the entire response to complete, you see text appear word by word as the model generates it.
+MidiPilot uses <b>Server-Sent Events (SSE)</b> to stream responses in real time. Instead of waiting for the entire response to complete, Simple mode can show text or action composition immediately, and Agent mode can show live reasoning, assistant text, and tool-call progress while each step is still being generated.
 </p>
 
 <h3>How It Works</h3>
 
 <ul>
-<li><b>Streaming bubble</b> &mdash; A chat bubble appears immediately and grows as text arrives</li>
-<li><b>Final replacement</b> &mdash; Once the response is complete, the streaming bubble is replaced with a properly styled chat bubble</li>
-<li><b>JSON actions</b> &mdash; When the model returns a JSON action response (edits, deletes, etc.), streaming is suppressed and the actions are executed after the full response arrives</li>
-<li><b>Token capture</b> &mdash; Usage statistics are captured from the final <code>[DONE]</code> SSE chunk</li>
+<li><b>Simple text</b> &mdash; A chat bubble appears immediately and grows as text arrives</li>
+<li><b>Simple actions</b> &mdash; JSON action responses show a subdued composing indicator, then execute once the complete payload is available</li>
+<li><b>Agent thoughts</b> &mdash; Reasoning summaries stream into the grey italic thought block when the provider exposes them</li>
+<li><b>Agent tools</b> &mdash; Tool calls are reconstructed from streamed deltas, then dispatched through the same undo-safe tool path as non-streaming Agent mode</li>
+<li><b>Fallback</b> &mdash; Broken streams automatically retry without streaming and mark the model temporarily for the current app session</li>
+<li><b>Token capture</b> &mdash; Usage statistics are captured from the final SSE event when the provider reports them</li>
 </ul>
 
 <h3>When Streaming Is Used</h3>
@@ -606,12 +746,41 @@ In Simple mode, MidiPilot uses <b>Server-Sent Events (SSE)</b> to stream text re
 <table>
 <tr><th>Mode</th><th>Streaming</th><th>Reason</th></tr>
 <tr><td>Simple &mdash; text response</td><td>&#x2705; Yes</td><td>Reduces perceived latency</td></tr>
-<tr><td>Simple &mdash; JSON actions</td><td>&#x274C; No</td><td>Needs complete JSON to execute</td></tr>
-<tr><td>Agent &mdash; tool calls</td><td>&#x274C; No</td><td>Tool call JSON must be complete</td></tr>
+<tr><td>Simple &mdash; JSON actions</td><td>&#x2705; Preview</td><td>Shows action composition, then executes after complete JSON arrives</td></tr>
+<tr><td>Agent &mdash; Chat Completions</td><td>&#x2705; Yes</td><td>Streams assistant text and tool-call argument deltas when the provider supports them</td></tr>
+<tr><td>Agent &mdash; OpenAI Responses API</td><td>&#x2705; Yes</td><td>Streams text, reasoning summaries, and function-call arguments for GPT-5-family tool use</td></tr>
+<tr><td>Agent &mdash; Gemini native</td><td>&#x2705; Yes</td><td>Streams thought summaries and whole function calls via <code>:streamGenerateContent</code></td></tr>
+<tr><td>Broken provider/model stream</td><td>&#x26A0; Fallback</td><td>Retries non-streaming and marks the model for the current app session</td></tr>
 </table>
 
+<div class="screenshot-row">
+<video autoplay loop muted playsinline loading="lazy" width="440" style="width:440px; max-width:48%; height:auto; border:1px solid var(--border); border-radius:8px;" aria-label="OpenAI GPT-5.4 streaming in Material Dark theme">
+    <source src="screenshots/midieditor_ai_gpt54_streaming_material_dark.webm" type="video/webm">
+</video>
+<video autoplay loop muted playsinline loading="lazy" width="440" style="width:440px; max-width:48%; height:auto; border:1px solid var(--border); border-radius:8px;" poster="screenshots/midieditor_ai_gemini_streaming_poster.jpg" aria-label="Gemini 3.1 streaming with thought summaries">
+    <source src="screenshots/midieditor_ai_gemini_31_streaming.webm" type="video/webm">
+    <img src="screenshots/midieditor_ai_gemini_streaming_poster.jpg" alt="Gemini streaming with thought summaries and Agent steps" width="440" loading="lazy">
+</video>
+</div>
+<div class="caption">OpenAI GPT-5.4 (Chat Completions, Material Dark) and Gemini 3.1 native streaming side by side &mdash; see the top of this page for the GPT-5.5 Responses-API run</div>
+
 <div class="screenshot-single">
-<img src="screenshots/streaming_response.png" alt="Streaming response in action" width="380">
+<img src="screenshots/midipilot_model_no_streaming.png" alt="Model dropdown showing a model marked with the warning icon and a (Simple) suffix after a streaming failure" width="520">
+<div class="caption">Mode-scoped streaming fallback &mdash; failed paths are marked <code>(Simple)</code>, <code>(Agent)</code>, or <code>(Simple+Agent)</code> in the model dropdown until you re-enable streaming for that model</div>
+</div>
+
+<h3>Non-Streaming Reference Run</h3>
+
+<p>
+For comparison, here is the same Agent loop running <b>without</b> live streaming &mdash; either because the provider does not support it, the user disabled <i>Live Streaming</i> in settings, or a previous request hit the per-session streaming-fallback marker. Tool calls and assistant text still arrive correctly, just in one chunk per round-trip instead of progressively.
+</p>
+
+<div class="screenshot-single">
+<video autoplay loop muted playsinline loading="lazy" width="900" aria-label="MidiPilot Agent mode without streaming">
+    <source src="screenshots/MidiPilot_Agent_run.webm" type="video/webm">
+    <img src="screenshots/MidiPilot_Agent_run.gif" alt="MidiPilot Agent mode without streaming" width="900" loading="lazy">
+</video>
+<div class="caption">Non-streaming Agent run &mdash; same multi-step composition flow, batched tool results per round-trip</div>
 </div>
 
 <hr>
@@ -646,8 +815,8 @@ Different MIDI files may need different AI settings. A 16-track orchestral arran
 <img src="screenshots/preset_save_dialog_1.png" alt="Gear menu with Save AI preset option" width="380">
 </div>
 <div class="screenshot-row">
-<img src="screenshots/preset_save_dialog_2.png" alt="Preset saved confirmation" width="380">
-<img src="screenshots/preset_save_dialog_3.png" alt="Preset auto-loaded on file reopen" width="380">
+<img class="fit-square-thumb" src="screenshots/preset_save_dialog_2.png" alt="Preset saved confirmation" width="380">
+<img class="crop-square-thumb crop-preset-load" src="screenshots/preset_save_dialog_3.png" alt="Preset auto-loaded on file reopen" width="380">
 </div>
 
 <h3>Sidecar File</h3>

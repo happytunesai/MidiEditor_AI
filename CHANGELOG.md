@@ -5,6 +5,129 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 
 ---
 
+## [1.5.0] - Unreleased — Live Agent Streaming, Dynamic Models, Prompt Profiles, Agent Conductor & GPT-5.5 Isolation
+
+### Summary
+
+* **Live agent streaming on every provider (Phase 25 + 27)** — the Agent loop streams assistant text, tool-call arguments and reasoning live for OpenAI Chat-Completions, OpenAI Responses-API (`gpt-5*`), OpenRouter Chat-Completions and native Gemini (`:streamGenerateContent?alt=sse` with `thinkingConfig.includeThoughts:true`). A single `extractReasoningFromJson()` covers Responses-API reasoning items, Chat-Completions `reasoning_content`, Gemini `parts[].thought` and Anthropic `thinking` blocks, so the MidiPilot 💭 thought block renders live everywhere. Gemini 3.x's mandatory `part.thoughtSignature` is captured during streaming and echoed back on the follow-up `functionCall`, so multi-step Gemini agent loops no longer 400 with *"missing thought_signature"*.
+* **GPT-5-family Responses-API routing (Phase 27.8)** — OpenAI `gpt-5*` reasoning models with tools route through `/v1/responses` consistently, including reasoning summaries, tool-call argument reassembly, usage normalisation and a stable `prompt_cache_key` for repeated requests.
+* **Per-session streaming fallback with Force Streaming override (Phase 27.7 + 31.1)** — every streaming request is armed with a non-streaming retry; on HTTP 4xx/5xx, network error, or HTTP 200 with no parsable content/tool calls, MidiPilot transparently retries via `sendRequest` / `sendMessages` and marks the `(provider, model, mode)` triple with a warning icon for the rest of the session — Simple Mode and Agent Mode are tracked separately so a streaming failure in one mode never poisons the other. The Settings model dropdown, MidiPilot footer dropdown and the **Force Streaming for This Model** button show which mode is blocked: `⚠ <model> (Simple)` / `(Agent)` / `(Simple+Agent)`.
+* **Dynamic provider model list with favourites & non-LLM filter (Phase 26)** — model dropdowns drop their hardcoded entries; a 🔄 refresh button queries the active provider's `/models` endpoint, normalises the four response shapes (OpenAI / OpenRouter / Gemini / Custom) into `<userdata>/midipilot_models.json` (7-day TTL) and feeds `AiClient::contextWindowForModel` cache-first. Every cached model runs through `ModelFavorites::isLikelyChatModel` to drop image/audio/embedding/tts entries, and a new **Settings → AI → "Manage favourites…"** dialog persists per-provider favourites at `AI/favorites/<provider>` and shows favourites-only when any are pinned.
+* **Persistent per-turn metadata + scrollable history popup (Phase 27.5 + 27.6)** — `MidiPilotHistory/<id>.json` now stores a `turns[]` array (reasoning text, agent steps, latency, provider, model, token counts) alongside `messages[]`; `loadConversation()` re-renders saved 💭 thoughts and `🔧 Steps` summaries so reopened conversations look like they did live. The history dropdown is a frameless `QDialog` with `QLineEdit` search, date-grouped scroll list and per-row Load / Delete buttons that stays usable past hundreds of conversations.
+* **OpenRouter robustness (Phase 28)** — *transient upstream errors* (`"provider returned error"` / `"provider_name"` / HTTP 400 + openrouter) are reclassified as `RetryKind::Network` and ride the existing 3-attempt back-off so the retry routes to a different upstream. *Capability-aware* HTTP 404 *"No endpoints found that support tool use"* (and the generic *"does not support tools / function calling"* family) is now caught up-front: `AiClient::markToolsIncapableForCurrentModel` persists the flag at `AI/incapable_tools/<provider>:<model>`, MidiPilot posts a clear "Model does not support tool calling — pick a different model or switch to Simple mode" bubble instead of burning three retries on a permanent gap, and `onSendMessage` short-circuits the agent loop until the user changes model.
+* **Per-Model Prompt Profiles (Phase 29)** — new `PromptProfileStore` and **Settings → AI → "Prompt Profiles…"** dialog let the user (or a built-in profile) attach a custom system prompt to one or more `provider:model` entries via checkbox, with optional glob suffixes (`gpt-5.5*`) and an "append to default" flag. Resolution runs in `MidiPilotWidget::buildSystemPrompt()` before the default is emitted; sidebar status shows *Prompt: <name>* whenever a profile is active. Ships read-only with **GPT-5.5 Decisive**, bound to `openai:gpt-5.5*` / `openrouter:openai/gpt-5.5*`, that appends explicit "commit after one short analysis paragraph; treat editor_state as pre-existing" rules.
+* **Lightweight Agent Conductor & Working State (Phase 30)** — `AgentRunner` keeps a compact program-owned `AgentWorkingState` (goal, taskType, confirmedState, lastToolResult, activeConstraints, nextStepHint, repeatedFailureCount). A heuristic classifier tags every run as `composition` / `edit` / `analysis` / `repair`; tool results are summarised into confirmed facts (e.g. *"Tempo set to 82 BPM; 8 tracks created; bars 1-16 inserted"*) without growing `_messages`. Before each request a synthetic high-priority `Current Agent State` developer-layer is injected request-locally so the model resumes from confirmed facts after rejections instead of re-deriving them. Bounded-failure stop after 2 consecutive incomplete writes preserves partial progress and surfaces an actionable explanation.
+* **GPT-5.5 model-isolation policy (Phase 31)** — central `AgentToolPolicy` table gates every GPT-5.5 mitigation behind `isGpt55Model(model, provider)`, so non-GPT-5.5 runs are byte-identical to the previous behaviour. For `gpt-5.5*` composition/edit on OpenAI-native: schema-light tools (no `pitch_bend` branch in `insert_events` / `replace_events`), positive-only rejection guidance that never echoes the `pitch_bend` token back into context, per-request `parallel_tool_calls:false` + `reasoning.effort:low` overrides on the Responses API, and a bounded-failure stop after two consecutive incomplete writes. OpenRouter passthrough of `gpt-5.5` keeps the schema/prompt mitigations but skips the API-body fields. Pitch Bend remains fully supported for every other model.
+* **MidiPilot UX polish** — chat bubbles render Markdown (`**bold**`, `*italic*`, lists, fenced code, links) for both the live reasoning stream and the final assistant bubble; agent step outcomes are colour-coded `OK → green` / `retrying → orange` / `failed → red` in the bottom status pill, with the dot-pulse + cycling fun-message animation kept alive while the agent loop is in flight; a Braille spinner replaces the underscore blink on the live thought label; the final assistant bubble now sits above the Agent Steps widget; the footer ⚙ menu's "AI Settings…" entry is renamed to **"MidiPilot Settings…"** to avoid implying an OpenAI-specific action.
+* **Fixed `MidiTrack` copy ctor / `reloadState` losing `_assignedChannel` (TEST-001, legacy bug)** — the default ctor initialises `_assignedChannel = -1`, but the copy ctor (`src/midi/MidiTrack.cpp`) and `reloadState()` only mirrored `_number`, `_nameEvent`, `_file`, `_hidden`, `_muted`. Because every `setNumber()/setNameEvent()/setHidden()/setMuted()` snapshots the track via `copy()` for the protocol stack, every track-attribute change produced a snapshot whose `_assignedChannel` was uninitialised heap memory; a subsequent undo would then `reloadState()` from that snapshot and overwrite the live track's channel assignment with garbage, silently corrupting FFXIV-channel routing across the undo stack. Discovered by `tests/test_midi_track.cpp` (which observed `513` in one run). Fixed by adding `_assignedChannel = other._assignedChannel;` to both methods; regression-tested.
+
+### Test Coverage
+
+* `tests/test_streaming_fallback.cpp` — covers the per-session, mode-aware streaming fallback surface (`streamingDisabledForCurrentModel` / `streamingBlockedForSession` / `markStreamingUnsupportedForCurrentModel` / `clearStreamingBlocklist`) and the `retrying` signal used by the MidiPilot UI.
+* `tests/test_model_favorites.cpp` — chat-model heuristic, QSettings round-trip, and `visibleModels()` filter behaviour with and without favourites set.
+* `tests/test_prompt_profiles.cpp` — glob resolution, replace-vs-append flag, disabled profiles, persistence round-trip, built-in immutability and ordering between user custom / profile / default.
+* `tests/test_agent_runner_state.cpp` — task classification, working-state updates from successful tool results, request-local state-layer injection (does not permanently grow `_messages`), failure-to-steering conversion.
+* `tests/test_agent_tool_policy.cpp` — `isGpt55Model` matrix, schema-light branch gating, sanitised rejection guidance and Responses-API overrides for every covered `(provider, model)` pair.
+* `tests/test_provider_matrix.cpp` — live-API smoke runner that exercises all four `AiClient` code paths (non-stream / stream × no tools / +tools) for OpenAI, OpenRouter and Gemini; each provider is **skipped** unless its `MIDIPILOT_TEST_<PROVIDER>_KEY` env var is set.
+
+<details>
+<summary>Full Changelog — Live Agent Streaming, Dynamic Models, Prompt Profiles, Agent Conductor & GPT-5.5 Isolation</summary>
+
+### Bug Fixes (Legacy)
+
+* **TEST-001 — `MidiTrack` copy constructor / `reloadState` did not propagate `_assignedChannel`** — the default ctor initialises `_assignedChannel = -1`, but the copy ctor (`src/midi/MidiTrack.cpp` lines 36–43) only mirrored `_number`, `_nameEvent`, `_file`, `_hidden`, `_muted`. The same omission was present in `reloadState()`. Because every `setNumber()/setNameEvent()/setHidden()/setMuted()` call snapshots the track via `copy()` for the protocol stack, every track-attribute change produced a snapshot whose `_assignedChannel` was uninitialised heap memory. A subsequent undo would then `reloadState()` from that snapshot and overwrite the live track's channel assignment with garbage — silent FFXIV-channel-routing corruption that survived since the field was added. Fix: add `_assignedChannel = other._assignedChannel;` to both methods. `tests/test_midi_track.cpp::copy_clonesNumberHiddenMutedAndFile` now actively asserts `clone->assignedChannel() == 7`, and `reloadState_fromMidiTrackEntry_restoresAllFields` was extended to mutate and restore `assignedChannel` as well.
+
+### New Features
+
+* **Phase 25 + 27 — Live agent-loop streaming everywhere** — `AiClient::sendStreamingMessages(messages, tools)` mirrors the existing `sendMessages` but with `stream:true`. The OpenAI-CC parser handles `choices[0].delta.tool_calls[*].function.{name,arguments}` deltas: per-call accumulators keyed by `tool_calls[i].index` collect `id` + `name` from the first chunk and append `arguments` JSON fragments from subsequent chunks. New signals `streamAssistantTextDelta`, `streamReasoningDelta`, `streamToolCallStarted`, `streamToolCallArgsDelta`, `streamToolCallArgsDone` flow through the agent loop; the reassembled assistant message is emitted via the existing `responseReceived` signal so `AgentRunner::onApiResponse` is unchanged. Per-provider routing:
+  * **OpenAI Chat-Completions / OpenRouter** — OpenAI-CC SSE shape, full text + tool-args + (OpenRouter only) `delta.reasoning` deltas.
+  * **OpenAI Responses-API** (Phase 27.8) — `sendStreamingMessagesResponses` + `onResponsesStreamDataAvailable` parses event-typed SSE (`response.output_text.delta`, `response.reasoning_summary_text.delta`, `response.function_call_arguments.delta`, `response.completed`) and reassembles a synthetic Chat-Completions payload so AgentRunner is unchanged. Used for `gpt-5*` reasoning models when tools are present; reasoning summaries stream live.
+  * **Native Gemini** — `sendStreamingMessagesGemini` posts to `https://generativelanguage.googleapis.com/v1beta/models/<model>:streamGenerateContent?alt=sse&key=<KEY>` because Google's OpenAI-compat endpoint rejects `stream:true + tools` with HTTP 400. Helpers convert OpenAI-shape `messages[]` → Gemini `contents[]` + `systemInstruction` (with a `tool_call_id → name` lookup so Gemini receives function names, not opaque OpenAI ids) and OpenAI tools → `tools[0].functionDeclarations[]`. `generationConfig.thinkingConfig.includeThoughts:true` is enabled on Gemini 2.5+/3.x with `thinkingBudget` mapped from the existing `reasoning_effort` (low=2048, medium=8192, high=24576, off=0, default=auto). Thought parts (`parts[].thought == true`) emit `streamReasoningDelta`; whole `functionCall` parts get a synthetic call id (`gemini_<n>`) so AgentRunner reassembly stays uniform. Gemini 3.x's mandatory `part.thoughtSignature` is captured per `StreamToolCall::thoughtSignature` and written back onto the `functionCall` on the next request via the synthetic `_gemini_thought_signature` field.
+  * **Universal reasoning extractor** — `AiClient::extractReasoningFromJson(QJsonObject)` walks every known shape (Responses-API reasoning items, Chat-Completions `reasoning_content` / `reasoning`, Gemini `parts[].thought`, Anthropic `content[].type == "thinking"`, plus generic `reasoning` / `thoughts` fallbacks), so the 💭 thought block UI lambda is provider-agnostic.
+  * **Gemini schema sanitiser** — `sanitizeSchemaForGemini()` strips OpenAPI-3.0-incompatible fields (`additionalProperties`, `$schema`, `$id`, `$ref`, `definitions`, `strict`) and removes integer `enum`s, so MidiPilot's strict-mode tool schemas no longer trip Gemini's validator with HTTP 400.
+  * Setting: `AI/streaming_mode` (default `"on"`) gates the path in `AgentRunner::sendNextRequest`; checkbox **Settings → AI → Live Streaming → "Stream agent responses live (text + tool-call arguments)"**.
+
+* **Phase 27.7 + 31.1 — Per-session streaming fallback safety net (mode-aware)** — every streaming request arms a per-request retry context (`armStreamingRetryAgent` / `armStreamingRetrySimple`) before the POST. Each streaming finished-lambda inspects the outcome via `shouldFallbackToNonStreaming(httpStatus, netError, gotContent, gotToolCalls)` and, when true, `tryStreamingFallback(reason)` dispatches to the regular `sendRequest` / `sendMessages` path and emits the new `retrying(QString)` signal so the UI can show the reason. The offending entry is persisted via `markStreamingUnsupportedForCurrentModel(reason)` keyed by `(provider, model, mode)` — Simple Mode (`tools=0`) and Agent Mode (`tools=1`) are tracked separately so a streaming failure in one mode never disables streaming for the other. Public 2-arg helpers (`streamingBlockedForSession(provider, model)`, `clearStreamingBlockForSession`) keep their meaning by OR-ing both modes. Wired into all four streaming entry points (Chat-Completions agent + simple, Responses-API agent, Gemini native). Explicitly **not** retried: `QNetworkReply::OperationCanceledError` (user pressed Cancel) and Gemini semantic finish reasons `SAFETY`, `RECITATION`, `MAX_TOKENS`, `MALFORMED_FUNCTION_CALL`. UI: Settings model dropdown, MidiPilot footer dropdown and **Force Streaming for This Model** button show `⚠ <model> (Simple)` / `(Agent)` / `(Simple+Agent)` with matching tooltips and button labels.
+
+* **Phase 26 — Dynamic provider model list with favourites & non-LLM filter** — drops hardcoded `_modelCombo->addItem(…)` from `AiSettingsWidget::populateModelsForProvider` and `MidiPilotWidget::populateFooterModels`. New components:
+  * `src/ai/ModelListCache.{h,cpp}` — JSON cache file at `<AppDataLocation>/midipilot_models.json` (versioned schema, 7-day TTL, per-provider entries with `id`, `displayName`, `contextWindow`, `supportsTools`, `supportsReasoning`).
+  * `src/ai/ModelListFetcher.{h,cpp}` — single-shot `QNetworkAccessManager` worker that hits the per-provider `/models` endpoint, normalises four response shapes (OpenAI `data[].id`, OpenRouter `data[].{id,name,context_length,architecture,supported_parameters}`, Gemini `models[].{name,inputTokenLimit,supportedGenerationMethods,displayName}`, Custom `data[].id`) into the cache schema, filters out embedding/audio/image/legacy/preview entries, and emits `finished(provider, array)` or `failed(provider, error)`.
+  * `AiClient::contextWindowForModel` consults `ModelListCache::contextWindowFor()` first, falls back to the hardcoded prefix-match table only when the cache has no entry.
+  * UI: 🔄 button next to the model combo in both `AiSettingsWidget` and the MidiPilot footer; settings dialog shows a small "Models updated 2 days ago" status line. Combos remain editable so the user can still type a not-yet-published model id.
+  * **`ModelFavorites` + non-LLM filter** — every cached model runs through `isLikelyChatModel` to drop image/audio/embedding/tts entries; **Settings → AI → "Manage favourites…"** dialog persists per-provider favourites at `AI/favorites/<provider>` and shows favourites-only when any are pinned.
+
+* **Phase 27.5 + 27.6 — Persistent per-turn metadata + scrollable history popup**
+  * `MidiPilotHistory/<id>.json` now persists a `turns[]` array alongside `messages[]`. Each turn anchors to its assistant message via `assistantIndex` and stores `reasoning`, `steps[]` (`{step, tool, success, recoverable}`), `streamed`, `latencyMs`, `effort`, `provider`, `model`, `promptTokens`, `completionTokens`, `status`. `MidiPilotWidget::resetTurnState()` snapshots provider/model/effort + start time at user-send; `streamReasoningDelta` and `streamAssistantTextDelta` lambdas accumulate the reasoning text and flip `_turnStreamed`; `onAgentStepCompleted` appends a compact step record; `finalizeTurn()` is called from `onAgentFinished` / `onAgentError` / `onResponseReceived` and seals the record. `loadConversation()` re-indexes `turns[]` by `assistantIndex` and re-renders the saved 💭 thought block above and the `🔧 Steps: ✓ tool1, ✗ tool2` summary below each assistant bubble.
+  * `showHistoryMenu` rewritten from `QMenu` to a frameless `QDialog` with `QLineEdit` search, `QScrollArea` body capped at ~500 px, conversations grouped by date bucket (Today / Yesterday / weekday / Month Year), per-row Load + Delete buttons. Live filter hides non-matching rows and collapses now-empty section headers.
+
+* **Phase 28 — OpenRouter robustness & capability-aware error handling**
+  * **28.1 Transient-upstream classifier** — `AgentRunner::classifyError` and `MidiPilotWidget::onErrorOccurred::isRetriable` treat `"provider returned error"`, `"provider_name"` and `HTTP 400 + openrouter` as `RetryKind::Network`, so the existing self-healing retry kicks in (3 attempts, exponential back-off). Reuses `AI/agent_max_retries` / `AI/simple_max_retries`.
+  * **28.2 Capability-aware error surfacing (HTTP 404 — no tool support)** — `AiClient::errorIndicatesNoToolSupport(error)` heuristic catches the OpenRouter HTTP 404 *"No endpoints found that support tool use"* family plus generic *"does not support tools / function calling is not supported"* variants. `AgentRunner::onApiError` checks this **before** the retry classifier, calls `markToolsIncapableForCurrentModel(reason)` and surfaces *"Model does not support tool calling — pick a different model in Settings → AI, or switch to Simple mode for this request."* The flag is persisted at `AI/incapable_tools/<provider>:<model>` via `toolsIncapableForCurrentModel()` / `markToolsIncapableForCurrentModel()` / `clearToolsIncapableFlag()` (mirrors the streaming-blocklist API). `MidiPilotWidget::onSendMessage` (agent branch) consults the flag **before** spinning up the agent loop and posts a friendly system bubble instead of round-tripping. Per-`(provider,model)`, so picking a different model re-enables agent mode automatically.
+
+* **Phase 29 — Per-Model System Prompt Profiles**
+  * `src/ai/PromptProfileStore.{h,cpp}` + `src/ai/PromptProfile.h` — store keyed under `AI/prompt_profiles/<id>/{name, system, append_to_default, builtin, models[], enabled}` plus `AI/prompt_profiles/order`. `models[]` is an array of `<provider>:<modelId>` entries with `*` glob suffixes (e.g. `openai:gpt-5.5*`). Resolution in `resolvePromptForModel(provider, model, defaultPrompt, userCustom)`:
+    1. enabled profile whose `models[]` glob matches → if `append_to_default`, return `defaultPrompt + "\n\n" + profile.system`; else return `profile.system`.
+    2. no profile match → existing behaviour: user custom OR default.
+  * `src/gui/PromptProfilesDialog.{h,cpp}` — list with checkbox enable, Add/Duplicate/Delete; right pane has name, append-to-default flag, monospace prompt editor with token count, and the Provider → Model `QTreeWidget` from `ModelFavoritesDialog` for binding. Built-ins show a lock icon and can only be duplicated. Reachable from **Settings → AI → "Prompt Profiles…"** and the MidiPilot ⚙ menu.
+  * `MidiPilotWidget::buildSystemPrompt()` calls `_profileStore->resolvePromptForModel(...)` at the existing custom-vs-default decision point; sidebar status line shows *"Prompt: <name> (auto-bound)"* when a profile resolved.
+  * **Built-in: GPT-5.5 Decisive** — `builtin=true`, bound to `openai:gpt-5.5*` and `openrouter:openai/gpt-5.5*`, `append_to_default=true`. Body adds: commit after one short analysis paragraph; treat `editor_state` events as pre-existing user data; do not re-derive `ticksPerQuarter` / `timeSignature` across turns; do not "redo" or "fix" successful tool calls unless the user explicitly says so.
+
+* **Phase 30 — Lightweight Agent Conductor & Working State**
+  * `AgentRunner::AgentWorkingState` — `{goal, taskType, confirmedState, lastToolResult, activeConstraints, nextStepHint, repeatedFailureCount}`, kept under ~1200 chars by coalescing older facts (e.g. *"Tracks created: Piano, Bass, Drums, Lead"*).
+  * `classifyTask(userMessage, systemPrompt)` — heuristic classifier produces `composition` / `edit` / `analysis` / `repair`; result steers cadence and policy.
+  * **Working-state updates from tool results** (`updateWorkingStateFromToolResult`) — `create_track` / `set_tempo` / `insert_events` / `replace_events` successes append confirmed facts; `query_events` / `get_editor_state` summarise counts (not payload); rejected writes set `lastToolResult` and a corrective `nextStepHint`; duplicate-write rejections increment `repeatedFailureCount`.
+  * **Dynamic state-layer injection** — `messagesForNextRequest()` clones `_messages` and inserts one synthetic high-priority `Current Agent State` message immediately after the developer/system prompt; the layer is regenerated every turn from `AgentWorkingState`. `_messages` itself never grows from this — it stays the canonical protocol transcript.
+  * **Composition cadence** — for `taskType == composition`, `nextStepHint` favours one substantial `insert_events` / `replace_events` per track or section over inspect-after-every-phrase loops.
+  * **Bounded-failure stop** — if `repeatedFailureCount >= 2`, the loop halts with an actionable user-facing explanation; partial successful changes remain in the protocol stack.
+  * Diagnostics: every turn logs `[AGENT-STATE] step=N task=... confirmed="..." last="..." next="..."`.
+
+* **Phase 31 — GPT-5.5 model-isolation policy**
+  * `src/ai/AgentToolPolicy.{h,cpp}` — central policy table; every GPT-5.5 mitigation is gated behind `isGpt55Model(model, provider)`, so non-GPT-5.5 runs are byte-identical to the previous behaviour.
+  * For `gpt-5.5*` composition/edit on **OpenAI-native**:
+    * **Schema-light tools** — `insert_events` / `replace_events` are emitted without the `pitch_bend` event branch in their JSON schemas, removing the placeholder anti-pattern from the model's available actions for this model only.
+    * **Sanitised rejection guidance** — `AgentRunner::processToolCalls` rewrites failure guidance to positive-only language and never echoes the `pitch_bend` token back into context.
+    * **Per-request API overrides** — `parallel_tool_calls:false` + `reasoning.effort:low` injected into the Responses-API body to cap reasoning explosions on long composition prompts.
+    * **Bounded-failure stop** — same 2-incomplete-write threshold as Phase 30, with model-specific guidance.
+  * **OpenRouter passthrough of `gpt-5.5`** keeps the schema/prompt mitigations but skips the API-body fields (Responses-API specific).
+  * **Pitch Bend is unchanged for every other model** — no schema diff, no rejection logic, no behaviour change.
+
+* **MidiPilot UX polish**
+  * Chat bubbles render Markdown (`Qt::MarkdownText` on the final assistant bubble, the live streaming bubble and the reasoning 💭 stream label, including loaded conversations). User and system bubbles stay `Qt::PlainText`.
+  * Bottom status pill colour-codes step outcomes — `OK → green`, `retrying → orange`, `failed → red` — and the dot-pulse + cycling fun-message animation stays alive while the agent loop is in flight regardless of colour. A successful step's green flash auto-reverts to `Thinking…` (orange) after 700 ms so the bar never appears to freeze on `Step N: OK`.
+  * Braille spinner (`⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏`, ~8 fps) on the live thought label, replacing the underscore blink.
+  * `onAgentFinished` / `onAgentError` lift the Steps widget out of the dock so the order in chat becomes `[thoughts] → [final response] → [steps]`.
+  * Footer ⚙ menu's "AI Settings…" entry renamed to **"MidiPilot Settings…"** (and three matching streaming-block tooltip strings) — the old label looked like an OpenAI-specific action.
+
+### New Files
+
+* `src/ai/ModelListCache.{h,cpp}`, `src/ai/ModelListFetcher.{h,cpp}`
+* `src/ai/ModelFavorites.{h,cpp}`, `src/gui/ModelFavoritesDialog.{h,cpp}`
+* `src/ai/PromptProfile.h`, `src/ai/PromptProfileStore.{h,cpp}`, `src/gui/PromptProfilesDialog.{h,cpp}`
+* `src/ai/AgentToolPolicy.{h,cpp}`
+* `tests/test_streaming_fallback.cpp`, `tests/test_model_favorites.cpp`, `tests/test_prompt_profiles.cpp`, `tests/test_agent_runner_state.cpp`, `tests/test_agent_tool_policy.cpp`, `tests/test_provider_matrix.cpp`
+
+### Files Modified
+
+* `src/midi/MidiTrack.cpp` — copy ctor and `reloadState()` now copy `_assignedChannel` (TEST-001)
+* `tests/test_midi_track.cpp` — `copy_clonesNumberHiddenMutedAndFile` flipped from "document gap" to active assertion; `reloadState_fromMidiTrackEntry_restoresAllFields` extended to cover `assignedChannel`
+* `src/ai/AiClient.{h,cpp}` — streaming entry points for Chat-Completions, Responses-API and native Gemini; SSE parsers; mode-aware streaming-blocklist API; tools-incapable flag API; `contextWindowForModel` cache lookup
+* `src/ai/AgentRunner.{h,cpp}` — streaming path selection, working-state conductor, task classifier, request-local state-layer injection, capability-aware error handling
+* `src/ai/ToolDefinitions.{h,cpp}` — per-policy schema-light branch for `insert_events` / `replace_events`
+* `src/gui/AiSettingsWidget.{h,cpp}` — model combo + 🔄 refresh button + status label; "Live Streaming" checkbox; "Manage favourites…" + "Prompt Profiles…" buttons; mode-aware streaming-block status
+* `src/gui/MidiPilotWidget.{h,cpp}` — footer model combo + 🔄 button; per-turn metadata; history dialog; capability-aware send guard; Markdown chat bubbles; status pill colour coding; spinner; rename to "MidiPilot Settings…"
+* `Planning/03_bugs.md` — TEST-001 marked **FIXED**
+* `Planning/02_ROADMAP.md` — Phases 26, 27, 28.1, 28.2, 29, 30, 31 marked **DONE**
+
+### Notes
+
+* Version bumped to **1.5.0** in `CMakeLists.txt`. TEST-002 (SysExEvent VLQ length prefix) remains open in `Planning/03_bugs.md` — reader and writer are paired non-spec-conformant, fix needs a tolerant loader plus spec-conformant writer plus real third-party SysEx fixtures and is therefore deferred.
+* Phase 26 keeps the existing hardcoded model lists as a fallback so a fresh install or an offline user still sees a populated picker. Refresh is opt-in (user clicks 🔄); we explicitly do **not** auto-refresh on app launch to avoid a network call on every startup.
+* Phase 28 sub-phases 28.3 (per-model capability cache from `/models`), 28.4 (provider-pinning UI), 28.5 (upstream attribution in chat) and 28.6 (long-timeout awareness for reasoning models) remain on the roadmap for a later release.
+
+</details>
+
+---
+
 ## [1.4.2] - 2026-04-21 — Bulk-Op Memory/Perf Fixes + Test Harness Expansion + Live Playback Panels
 
 ### Summary
@@ -15,7 +138,6 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 * **FFXIV Channel Fixer Tier 2 dropped from ~5 minutes / ~64 GB to seconds / bounded RAM (PERF-FFXIV-001)** — five hot mutation sites in `FFXIVChannelFixer::fixChannels()` were each cloning the full track + channel state per call.
 * **`NoteOnEvent::setVelocity(int, bool toProtocol = true)` overload (API-002)** — needed by the FFXIV bulk-op refactor so the velocity-normalisation pass can skip the per-event Protocol clone; default behaviour unchanged for existing callers.
 * **C++ test harness grown from 3 executables / 41 sub-tests to 19 / 229 (PHASE-25.3)** — new coverage across `MidiTrack`, `MidiChannel`, `MidiFile`, `Protocol`, `ProtocolItem`, `Selection`, `EventTool`, `LyricManager`, `LyricBlock`, `MidiEvent`, channel events, `SysExEvent`, and `MmlConverter`. Full ctest run: `100% tests passed, 0 tests failed out of 19` in ~14 s.
-* **Two latent bugs surfaced by the new tests, logged for 1.4.3 (TEST-001, TEST-002)** — `MidiTrack` copy ctor missing `_assignedChannel`/`_muted`/`_audible`, and `SysExEvent::save()` missing the SMF VLQ length prefix.
 
 <details>
 <summary>Full Changelog — Bulk-Op Memory/Perf Fixes + Test Harness Expansion + Live Playback Panels</summary>
@@ -36,7 +158,7 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 ### Test Harness (PHASE-25.3)
 
 * **Sixteen new test executables** added under `tests/`, bringing ctest to 19 executables / 229 sub-tests (was 3 / 41 in v1.4.1):
-  * `tests/test_midi_track.cpp` — `MidiTrack` ctor / copy ctor / accessors. **Uncovered TEST-001.**
+  * `tests/test_midi_track.cpp` — `MidiTrack` ctor / copy ctor / accessors.
   * `tests/test_midi_channel.cpp` — `MidiChannel` event insertion, removal, `progAtTick`, `eventMap` invariants.
   * `tests/test_midi_file.cpp` — `MidiFile` open/save round-trip, `pasteTrack`, `removeTrack`, `deleteMeasures`, `msOfTick` boundary cases.
   * `tests/test_protocol.cpp` and `tests/test_protocol_item.cpp` — `Protocol` action lifecycle, `goTo` undo/redo navigation, `ProtocolItem` reverse-action correctness.
@@ -45,10 +167,8 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
   * `tests/test_lyric_manager.cpp` and `tests/test_lyric_block.cpp` — block insert/sort/split/merge, overlap clamping.
   * `tests/test_midi_event.cpp` — base-class accessors and meta-channel routing.
   * `tests/test_channel_events.cpp` — save round-trips for `ControlChangeEvent`, `PitchBendEvent`, `ProgChangeEvent`, `ChannelPressureEvent`, `KeyPressureEvent` (status-byte / channel-nibble correctness).
-  * `tests/test_sysex_event.cpp` — F0/F7 framing and length encoding round-trip. **Uncovered TEST-002.**
+  * `tests/test_sysex_event.cpp` — F0/F7 framing and length encoding round-trip.
   * `tests/test_mml_converter.cpp` — MML scale/tempo/length/dot/octave/tie/sharp/flat/instrument/garbage/empty cases (14 sub-tests).
-* **TEST-001 — `MidiTrack` copy constructor incomplete** — the copy ctor only mirrored `name`, `number`, and `color`, leaving `_assignedChannel`, `_muted`, and `_audible` at their default-constructed values. Any code path that copies a track (e.g. `MidiFile::pasteTrack`, undo of a rename) silently un-mutes the new track and resets its assigned channel. Caught by `tests/test_midi_track.cpp`. Logged in `Planning/03_bugs.md`; fix scheduled for 1.4.3.
-* **TEST-002 — `SysExEvent::save()` missing variable-length-quantity length prefix** — the SMF spec requires SysEx event payloads to be preceded by a VLQ length count between the leading 0xF0 and the trailing 0xF7. The current `save()` writes `F0 <data> F7` directly, so a saved file fails to round-trip back through `MidiEvent::loadMidiEvent()`. Caught by `tests/test_sysex_event.cpp`. Logged in `Planning/03_bugs.md`; fix scheduled for 1.4.3.
 
 ### Technical Notes — The Bulk-Snapshot Pattern
 
@@ -74,7 +194,7 @@ Undo correctness is preserved because `MidiChannel::reloadState()` does a pointe
 * `src/ai/FFXIVChannelFixer.cpp` — bulk-snapshot pattern applied to all five hot mutation sites, plus required `#include "../protocol/ProtocolEntry.h"` and `<QVector>` (PERF-FFXIV-001)
 * `src/midi/MidiFile.cpp` — `removeTrack` snapshots all 19 channels, mutates with `removeEvent(ev, false)`, commits per-channel (PERF-DEL-001); `deleteMeasures` lazy-snapshots only channels with deletions (PERF-DEL-002); `setMaxLengthMs` uses `QHash<int, ProtocolEntry*>` lazy-snapshot map (PERF-DEL-003)
 * `tests/CMakeLists.txt` — registered 16 additional test executables with the Qt 6 DLL-PATH workaround
-* `tests/test_midi_track.cpp` (new) — uncovered TEST-001
+* `tests/test_midi_track.cpp` (new)
 * `tests/test_midi_channel.cpp` (new)
 * `tests/test_midi_file.cpp` (new)
 * `tests/test_protocol.cpp` (new)
@@ -85,9 +205,9 @@ Undo correctness is preserved because `MidiChannel::reloadState()` does a pointe
 * `tests/test_lyric_block.cpp` (new)
 * `tests/test_midi_event.cpp` (new)
 * `tests/test_channel_events.cpp` (new) — covers CC, PC, PitchBend, ChannelPressure, KeyPressure save round-trips
-* `tests/test_sysex_event.cpp` (new) — uncovered TEST-002
+* `tests/test_sysex_event.cpp` (new)
 * `tests/test_mml_converter.cpp` (new)
-* `Planning/03_bugs.md` — TEST-001 and TEST-002 entries added; PERF-DEL-001/002/003 and PERF-FFXIV-001 noted as fixed in 1.4.2
+* `Planning/03_bugs.md` — PERF-DEL-001/002/003 and PERF-FFXIV-001 noted as fixed in 1.4.2
 * `Planning/06_TEST_CASES.md` — coverage table updated 3 → 19 executables / 41 → 229 sub-tests
 
 </details>

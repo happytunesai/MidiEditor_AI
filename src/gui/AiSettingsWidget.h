@@ -40,10 +40,16 @@ private slots:
     void onToggleKeyVisibility();
     void onProviderChanged(int index);
     void onEditSystemPrompts();
+    void onRefreshModels();
+    void onModelsFetched(const QString &provider, const QJsonArray &models);
+    void onModelsFetchFailed(const QString &provider, const QString &error);
+    void onForceStreamingForCurrentModel();
     void updateMcpStatus();
 
 private:
     void populateModelsForProvider(const QString &provider);
+    void updateModelsStatusLabel(const QString &provider);
+    void updateStreamingBlockStatus();
 
     QSettings *_settings;
     QComboBox *_providerCombo;
@@ -51,11 +57,15 @@ private:
     QLabel *_apiKeyLabel;
     QLineEdit *_apiKeyEdit;
     QComboBox *_modelCombo;
+    QPushButton *_refreshModelsButton;
+    QPushButton *_forceStreamingButton = nullptr;
+    QLabel *_modelsStatusLabel;
     QCheckBox *_tokenLimitCheck;
     QSpinBox *_tokenLimitSpin;
     QCheckBox *_thinkingCheck;
     QComboBox *_effortCombo;
     QLabel *_effortLabel;
+    QCheckBox *_streamingCheck;
     QPushButton *_testButton;
     QLabel *_statusLabel;
     QPushButton *_toggleKeyButton;

@@ -422,6 +422,117 @@ private slots:
         }
         QFAIL("set_time_signature tool not found");
     }
+
+    // -----------------------------------------------------------------
+    // NOTE: pre-Phase-31 there were two cases here that asserted
+    // executeTool("insert_events"|"replace_events", ...) rejected a
+    // pitch_bend-only payload at the dispatch layer. Phase 31 moved that
+    // guard into AgentRunner (where it is gated on `gpt-5.5*` only) and
+    // ToolDefinitions::executeTool now passes such payloads through to
+    // widget->executeAction. The dispatch-layer rejection no longer exists,
+    // so those tests were removed. The pitch_bend-only *detection* helper
+    // (`isPitchBendOnlyPayload`) is still covered above.
+
+    // -----------------------------------------------------------------
+    // Phase 31 — schema-light overload: when ToolSchemaOptions opts out of
+    // pitch_bend, the events.anyOf branch in insert_events / replace_events
+    // must contain note / cc / program_change but NOT pitch_bend, AND the
+    // tool description must not mention "pitch_bend" either.
+    void toolSchemas_schemaLight_omitsPitchBendBranch() {
+        ToolDefinitions::ToolSchemaOptions opts;
+        opts.includePitchBend = false;
+        QJsonArray tools = ToolDefinitions::toolSchemas(opts);
+
+        auto findEventsAnyOfTypes = [&](const QString &toolName) -> QStringList {
+            QStringList types;
+            for (const QJsonValue &v : tools) {
+                QJsonObject fn = v.toObject().value(QStringLiteral("function")).toObject();
+                if (fn.value(QStringLiteral("name")).toString() != toolName)
+                    continue;
+                QJsonObject params = fn.value(QStringLiteral("parameters")).toObject();
+                QJsonObject props = params.value(QStringLiteral("properties")).toObject();
+                QJsonObject events = props.value(QStringLiteral("events")).toObject();
+                QJsonObject items = events.value(QStringLiteral("items")).toObject();
+                QJsonArray anyOf = items.value(QStringLiteral("anyOf")).toArray();
+                for (const QJsonValue &branch : anyOf) {
+                    QJsonObject bp = branch.toObject().value(QStringLiteral("properties")).toObject();
+                    QJsonObject typeProp = bp.value(QStringLiteral("type")).toObject();
+                    QJsonArray enumVals = typeProp.value(QStringLiteral("enum")).toArray();
+                    for (const QJsonValue &e : enumVals)
+                        types << e.toString();
+                }
+            }
+            return types;
+        };
+
+        QStringList ins = findEventsAnyOfTypes(QStringLiteral("insert_events"));
+        QStringList rep = findEventsAnyOfTypes(QStringLiteral("replace_events"));
+
+        QVERIFY(ins.contains(QStringLiteral("note")));
+        QVERIFY(ins.contains(QStringLiteral("cc")));
+        QVERIFY(ins.contains(QStringLiteral("program_change")));
+        QVERIFY(!ins.contains(QStringLiteral("pitch_bend")));
+
+        QVERIFY(rep.contains(QStringLiteral("note")));
+        QVERIFY(!rep.contains(QStringLiteral("pitch_bend")));
+
+        // Description text on the schema-light variant must not advertise
+        // pitch_bend either, otherwise the model will still try to emit it.
+        for (const QJsonValue &v : tools) {
+            QJsonObject fn = v.toObject().value(QStringLiteral("function")).toObject();
+            const QString name = fn.value(QStringLiteral("name")).toString();
+            if (name != QStringLiteral("insert_events") && name != QStringLiteral("replace_events"))
+                continue;
+            const QString desc = fn.value(QStringLiteral("description")).toString();
+            QVERIFY2(!desc.contains(QStringLiteral("pitch_bend")),
+                     qPrintable(QStringLiteral("schema-light %1 description leaks 'pitch_bend': %2")
+                                .arg(name, desc)));
+        }
+    }
+
+    // Default no-arg toolSchemas() must remain fully byte-identical to the
+    // includePitchBend=true overload (MCP-server contract).
+    void toolSchemas_default_equalsExplicitTrue() {
+        QJsonArray a = ToolDefinitions::toolSchemas();
+        ToolDefinitions::ToolSchemaOptions opts;
+        opts.includePitchBend = true;
+        QJsonArray b = ToolDefinitions::toolSchemas(opts);
+        QCOMPARE(a, b);
+    }
+
+    // -----------------------------------------------------------------
+    // Phase 31 — public isPitchBendOnlyPayload helper used by AgentRunner.
+    void isPitchBendOnlyPayload_detectsAllPitchBend() {
+        QJsonArray evs;
+        QJsonObject pb;
+        pb[QStringLiteral("type")] = QStringLiteral("pitch_bend");
+        pb[QStringLiteral("tick")] = 0;
+        pb[QStringLiteral("value")] = 8192;
+        evs.append(pb);
+        evs.append(pb);
+        QVERIFY(ToolDefinitions::isPitchBendOnlyPayload(evs));
+    }
+
+    void isPitchBendOnlyPayload_falseForEmpty() {
+        QVERIFY(!ToolDefinitions::isPitchBendOnlyPayload(QJsonArray{}));
+    }
+
+    void isPitchBendOnlyPayload_falseWhenMixedWithNote() {
+        QJsonArray evs;
+        QJsonObject pb;
+        pb[QStringLiteral("type")] = QStringLiteral("pitch_bend");
+        pb[QStringLiteral("tick")] = 0;
+        pb[QStringLiteral("value")] = 8192;
+        evs.append(pb);
+        QJsonObject note;
+        note[QStringLiteral("type")] = QStringLiteral("note");
+        note[QStringLiteral("tick")] = 0;
+        note[QStringLiteral("pitch")] = 60;
+        note[QStringLiteral("velocity")] = 100;
+        note[QStringLiteral("duration")] = 240;
+        evs.append(note);
+        QVERIFY(!ToolDefinitions::isPitchBendOnlyPayload(evs));
+    }
 };
 
 QTEST_APPLESS_MAIN(TestToolDefinitions)

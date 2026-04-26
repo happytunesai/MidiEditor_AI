@@ -7980,3 +7980,1076 @@ Phase 24.3b  Unit tests (XmlScoreToMidi)                         ✅ DONE
   `SettingsDialog.cpp` (OMR settings section)
 - **Shipped:** `onnxruntime.dll` (MIT), OpenCV statically linked
 - **Downloaded at runtime:** `omr_models/segnet.onnx`, `omr_models/encoder.onnx`, `omr_models/decoder.onnx`
+
+---
+
+## Phase 25: Live Streaming Everywhere + Reasoning Summary (Planned)
+
+> **Goal:** Make the Agent Mode feel like Copilot — text streams as it's generated,
+> tool-call arguments stream as they're being constructed, and (where supported)
+> a Reasoning Summary is displayed live. Behaviour is **opt-in/opt-out** via a
+> toggle in the MidiPilot footer so users on slow links or with strict providers
+> can still pick the legacy "wait for full response" path.
+
+### Motivation
+
+Today's state ([`AiClient::sendStreamingRequest`](../src/ai/AiClient.cpp), Agent path):
+
+* ✅ Simple-mode plain text already streams (SSE → `streamDelta` → live render).
+* ✅ Token usage is captured from the final SSE chunk via `stream_options.include_usage`.
+* ✅ Agent loop emits `stepsPlanned` / `stepStarted` / `stepCompleted` so the UI shows
+  per-tool status — but only **after** each round-trip completes.
+* ❌ Agent Mode itself does **not** stream — `AgentRunner::sendNextRequest()` calls the
+  non-streaming `_client->sendMessages(_messages, _tools)` path, so when the model is
+  composing a long tool-call argument blob the user stares at "thinking..." for the
+  whole round-trip.
+* ❌ No Reasoning Summary surface anywhere. We send `reasoning_effort` but never
+  request `reasoning.summary: "auto"` and have no UI to display it.
+* ❌ The OpenAI Responses API is declared (`RESPONSES_API_URL`) but never used — all
+  traffic goes through Chat Completions. That's fine for streaming text + tool-call
+  deltas, but blocks first-class Reasoning Summaries on `gpt-5*` / `o*` models.
+
+### Scope
+
+**25.1 — Stream the Agent loop** — **DONE in 1.5.0** (incl. native Gemini path with live thought summaries via `streamGenerateContent?alt=sse` + `thinkingConfig.includeThoughts`)
+* Add `AiClient::sendStreamingMessages(messages, tools)` mirroring the existing
+  `sendMessages` API but with `stream: true` and SSE parsing for the
+  `tool_calls[].function.arguments` deltas (Chat Completions returns them under
+  `choices[0].delta.tool_calls[*].function.arguments` as incremental strings; assemble
+  per-call by `id`).
+* Emit new signals: `toolCallStarted(callId, toolName)`,
+  `toolCallArgumentsDelta(callId, jsonFragment)`, `toolCallArgumentsDone(callId)`.
+* `AgentRunner` consumes these and forwards a third per-step phase
+  ("filling arguments") to `MidiPilotWidget` so the Steps panel shows
+  `Insert events — Track 3 (composing…)` while the JSON is still arriving, and only
+  flips to the existing labelled form when `arguments_done` fires.
+* Existing non-streaming agent path stays as fallback.
+
+**25.2 — Reasoning Summary surface**
+* For OpenAI `gpt-5*` / `o*` and Gemini "thinking" models, send
+  `reasoning: { summary: "auto", effort: <current>}` (Responses API) or the
+  `reasoning_effort` field plus the appropriate `reasoning.summary` shim
+  (Chat Completions where supported).
+* Parse the `response.reasoning_summary.delta` event (Responses API) or the
+  `choices[0].delta.reasoning_content` field (some Chat Completions providers)
+  and emit `reasoningSummaryDelta(text)` / `reasoningSummaryDone()`.
+* MidiPilotWidget renders a collapsed "💭 Thinking…" disclosure above the
+  assistant bubble; expanding shows the live summary stream. Empty/null summary
+  hides the disclosure entirely.
+
+**25.3 — Opt-in/out toggle in the MidiPilot footer**
+* Add a toolbar action next to the existing reasoning-effort combo:
+  **`📡 Live Stream`** — three-state combo `Off` / `Text only` / `Text + tool args`.
+* Default: `Text + tool args` for OpenAI / OpenRouter / Gemini (the providers we
+  control), `Text only` for Custom (since exotic OpenAI-compatible servers may
+  not implement tool-call delta streaming correctly).
+* Persist under `AI/streaming_mode` in `QSettings`.
+* When `Off`, agent path uses the existing non-streaming `sendMessages` and the
+  simple chat path skips `sendStreamingRequest` for the legacy `sendRequest` flow.
+* Hovering the combo shows a tooltip explaining the trade-off ("Live shows tokens
+  as they arrive but uses an open HTTP connection; turn off if your network is
+  flaky or your provider rejects SSE").
+
+**25.4 — Settings opt-out for Reasoning Summary**
+* Under **Settings → AI → Reasoning**, new checkbox **"Show reasoning summary
+  when available"** (default on). Persisted under `AI/reasoning_summary_visible`.
+* When unchecked, MidiPilotWidget never asks the API for a summary
+  (`summary: null` instead of `"auto"`), saving a few hundred output tokens per
+  reply on supported models.
+
+### Provider Capability Matrix
+
+> Researched 2026-04-22 against official docs. Where two row entries appear
+> (e.g. "Chat Completions / Responses API"), MidiEditor will prefer the first
+> for compatibility and only use the second when the user explicitly enables
+> Reasoning Summary on a supported model.
+
+| Provider | Stream text | Stream tool-call args | Reasoning surface | Request shape | Notes / gotchas |
+|---|---|---|---|---|---|
+| **OpenAI — Chat Completions** | ✅ `choices[0].delta.content` | ✅ `choices[0].delta.tool_calls[*].function.arguments` (delta) | ❌ Not exposed in CC | `stream: true`, `reasoning_effort: low/medium/high` | First chunk has `id` + `function.name`, subsequent chunks only `arguments`. Index identifies the call across chunks. |
+| **OpenAI — Responses API** | ✅ `response.output_text.delta` | ✅ `response.function_call_arguments.delta/done` | ✅ `response.reasoning.delta/done` (summary, not raw thoughts) | `stream: true`, `reasoning: { effort, summary: "auto" }` | Required for first-class summaries on `gpt-5*`/`o*`. Different event-typed SSE schema than CC. |
+| **OpenRouter — Chat Completions (default)** | ✅ same as OpenAI CC | ✅ same as OpenAI CC | ✅ `delta.reasoning` chunks when `reasoning: { enabled: true }` or `include_reasoning: true` is set | `stream: true`, `reasoning: { effort: "..." }` or legacy `include_reasoning: true` | Reasoning support depends on routed underlying model (DeepSeek R1, Gemini Thinking, GPT-5, Claude with interleaved thinking, etc.). For Anthropic models routed via OpenRouter the first tool-call chunk omits `function.name` — known parser pitfall. |
+| **OpenRouter — Responses API Beta** | ✅ same event names as OpenAI Responses | ✅ same event names | ✅ `response.reasoning.delta` | mirrors OpenAI Responses | Beta — fall back to CC path if a 4xx comes back. |
+| **Google Gemini — `:streamGenerateContent?alt=sse`** | ✅ each SSE chunk = `candidates[0].content.parts[*].text` fragment | ⚠️ **No arg-level deltas** — `parts[*].functionCall` arrives whole when the tool call is finalised | ✅ Thought summaries via `generationConfig.thinkingConfig.includeThoughts: true` → chunks carry `parts[*].thought == true` text parts | `POST .../models/<model>:streamGenerateContent?alt=sse&key=...` with `thinkingConfig.thinkingBudget` (–1 = auto, 0 = off, or fixed budget) | Native Gemini API — NOT OpenAI-shape. We need a second SSE parser path (or use the OpenRouter Gemini route to keep the OpenAI shape and lose thought-summary granularity). Tool calls are not streamed incrementally — UI shows "composing tool call…" then jumps to the full args at once. |
+| **Custom — Ollama (`/api/chat`)** | ✅ NDJSON line-stream of `message.content` chunks | ✅ Streamed since the 2025 "streaming-tool" release — chunks carry `message.tool_calls[*]` (whole tool-call objects, not arg-deltas) | ❌ Only model-defined `<think>...</think>` text (model-specific, not standardised) | `stream: true`, `tools: [...]` | NDJSON, **not** SSE. Need an alternate framer (split on `\n`, parse each line). |
+| **Custom — Ollama OpenAI-compat (`/v1/chat/completions`)** | ✅ same shape as OpenAI CC | ✅ same shape as OpenAI CC | ❌ | `stream: true` | Known bug ([ollama#15457](https://github.com/ollama/ollama/issues/15457)): with multiple tool calls, `tool_calls[].index` is always 0 — we must fall back to identifying calls by `id` instead. |
+| **Custom — LM Studio / vLLM / LocalAI / Lemonade** | ✅ OpenAI-CC compatible | ✅ OpenAI-CC compatible (recent versions) | ❌ Varies | as OpenAI CC | LM Studio added proper tool-call delta streaming in 2025; older builds emit one chunk per tool call. vLLM is the most spec-conformant of the three. |
+
+### Implementation Strategy Implied by the Matrix
+
+1. **Two SSE/stream parsers, not three.** OpenAI-CC, OpenRouter-CC, OpenAI-Responses, OpenRouter-Responses, and all OpenAI-compatible custom servers (Ollama-compat, LM Studio, vLLM, LocalAI) share the OpenAI SSE shape. Gemini native + Ollama native each need their own framer (`alt=sse` for Gemini, NDJSON for Ollama). We can keep MidiEditor on the OpenAI-CC path universally by routing Gemini through OpenRouter (`google/gemini-2.5-pro`) — at the cost of losing per-thought-summary fidelity. Default policy: OpenAI-CC parser everywhere, optional Gemini-native parser only if the user explicitly picks the Gemini provider.
+2. **Tool-call streaming is not universal.** Gemini and Ollama emit whole tool calls (no per-character arg deltas). The UI's "composing arguments…" phase therefore needs a graceful degradation: show the spinner, then jump straight to the labelled call when the whole `function_call`/`tool_calls` part arrives. The streaming-mode combo's "Text + tool args" setting is a hint, not a guarantee — providers that can't stream args still show plain step events.
+3. **Reasoning surface is provider-specific:**
+   * OpenAI `gpt-5*`/`o*` → Responses API + `reasoning.summary: "auto"` (only proper summary path).
+   * OpenRouter → CC with `reasoning: { effort, enabled: true }` (or legacy `include_reasoning: true`); supported for DeepSeek R1, Gemini Thinking via OR, GPT-5 via OR, Claude with interleaved thinking. We render `delta.reasoning` chunks the same way as OpenAI's `response.reasoning.delta`.
+   * Gemini native → `thinkingConfig.includeThoughts: true`; thought parts arrive interleaved with text parts inside the SSE stream (we filter on `parts[i].thought == true`).
+   * Custom / Ollama → no standardised reasoning channel. Some models emit `<think>...</think>` inline in the text stream — we offer a per-provider regex extractor as a 25.5 follow-up only if users ask for it.
+4. **Settings telemetry:** the streaming-mode combo's effective resolution is computed at request time as `min(user_setting, provider_capability)`. UI shows the resolved value as a tooltip ("Set to 'Text + tool args', current provider supports 'Text only' — falling back").
+
+### Files
+
+- **Modified:** `src/ai/AiClient.h/.cpp` (add `sendStreamingMessages`, parse
+  `tool_calls[].function.arguments` deltas, emit new signals; opt-in
+  Reasoning Summary parsing for Responses-API-capable models),
+  `src/ai/AgentRunner.h/.cpp` (consume streaming signals, three-phase step
+  display), `src/gui/MidiPilotWidget.h/.cpp` (footer streaming combo +
+  reasoning summary disclosure widget), `src/gui/AiSettingsWidget.h/.cpp`
+  ("Show reasoning summary" checkbox), `tests/test_ai_client.cpp` (new — SSE
+  delta assembly + tool-call argument reassembly fixtures).
+
+### Out of Scope
+
+* Migrating the entire transport to the Responses API. Chat Completions SSE
+  already covers 95 % of what we want; Responses API is only used as a fallback
+  for first-class Reasoning Summaries on supported OpenAI models.
+* Streaming for the Custom provider beyond `Text only` — too many implementation
+  variants in the wild to claim "tool args delta works".
+
+---
+
+## Phase 26: Dynamic Provider Model List (DONE in 1.5.0)
+
+> **Goal:** Drop the hardcoded `_modelCombo->addItem("gpt-5.4", …)` lists in
+> [`AiSettingsWidget`](../src/gui/AiSettingsWidget.cpp) and
+> [`MidiPilotWidget::populateFooterModels`](../src/gui/MidiPilotWidget.cpp). Fetch
+> the current model list from the active provider's `/models` endpoint, cache
+> to a JSON file under the user data dir, and refresh on user demand. Stops
+> the situation where new models (gpt-5.5, claude-4.1, gemini-3.5, …) ship and
+> the user has to type the name manually until we cut a release.
+
+### Motivation
+
+* Every provider hardcoded today already drifts: `gpt-4o`, `gpt-4.1*`, `gpt-5*`
+  variants are pinned in source; new releases require a recompile.
+* All four supported providers expose a model-list endpoint:
+
+| Provider | Endpoint | Auth | Notes |
+|---|---|---|---|
+| OpenAI | `GET https://api.openai.com/v1/models` | `Authorization: Bearer <key>` | Returns `data[].id` |
+| OpenRouter | `GET https://openrouter.ai/api/v1/models` | optional | Public; with key returns user-allowed models + per-call pricing |
+| Google Gemini | `GET https://generativelanguage.googleapis.com/v1beta/models?key=<KEY>` | API key in query | Returns `models[].name` (`models/gemini-2.5-flash` → strip prefix) |
+| Custom (OpenAI-compatible: Ollama, LM Studio, vLLM) | `GET <base>/v1/models` | per-server | Already partially scoped in Phase 8 for local providers — this phase generalises it |
+
+### Scope
+
+**26.1 — `AiClient::fetchModelList(provider, callback)`**
+* New method per provider returning `QJsonArray` of `{ id, displayName,
+  contextWindow, capabilities }` objects. Provider-specific shims normalise
+  the four response shapes into one schema.
+* Filters: drop embedding/audio/image-only/legacy models. For OpenAI we keep
+  ids matching `gpt-*`, `o[1-9]*`, `chatgpt-*`. For OpenRouter we keep entries
+  whose `architecture.modality` includes `text->text`. For Gemini we keep
+  `supportedGenerationMethods` containing `generateContent`.
+* On success, emit `modelListFetched(provider, jsonArray)`. On failure, emit
+  `modelListFetchFailed(provider, error)` and fall back to whatever is on
+  disk; if disk cache is also empty, fall back to the existing hardcoded
+  list (kept as last-resort safety net so a network outage doesn't strand
+  the user).
+
+**26.2 — Disk cache: `<userdata>/midipilot_models.json`**
+* Schema:
+```json
+{
+  "version": 1,
+  "providers": {
+    "openai":     { "fetched_at": "2026-04-22T18:00:00Z", "models": [ { "id": "gpt-5.4", "context": 1000000, "supports_tools": true, "supports_reasoning": true } ] },
+    "openrouter": { "fetched_at": "...", "models": [ ... ] },
+    "gemini":     { "fetched_at": "...", "models": [ ... ] },
+    "custom":     { "fetched_at": "...", "models": [ ... ], "base_url": "..." }
+  }
+}
+```
+* TTL: 7 days. On first load of the AI settings dialog, if the cached
+  `fetched_at` is stale or missing, kick off a background refresh
+  (non-blocking, falls through to whatever's already cached).
+* Also drives `AiClient::contextWindowForModel()` — replaces the hardcoded
+  prefix-match table; falls back to it only when the model id is not in
+  the cache.
+
+**26.3 — UI: refresh + manual entry kept**
+* `AiSettingsWidget` and `MidiPilotWidget` footer combo:
+  * Populate from the cache for the current provider.
+  * Add a small **🔄** refresh icon-button next to the model combo that
+    triggers `AiClient::fetchModelList(currentProvider)`. Tooltip:
+    "Refresh model list from provider".
+  * Combo stays editable (existing behaviour) so the user can still type
+    a not-yet-published model id; if a typed id resolves successfully on
+    first request, it's auto-added to the cache for that provider.
+* Status indicator: greyed-out timestamp under the combo
+  ("models updated 2 days ago").
+
+**26.4 — Custom provider: discoverable via base URL**
+* For the Custom provider, the refresh button calls `<base>/v1/models` so
+  Ollama / LM Studio / LocalAI / vLLM users get their currently-loaded
+  models without manual typing. This is the part already
+  scoped in Phase 8 for "Local providers" — folded into 26 so all four
+  providers share one code path.
+
+### Files
+
+- **New:** `src/ai/ModelListFetcher.h/.cpp` (per-provider fetch + normalise),
+  `src/ai/ModelListCache.h/.cpp` (load/save/TTL of the JSON cache),
+  `tests/test_model_list_fetcher.cpp` (response-shape normalisation fixtures
+  using stubbed QNAM replies).
+- **Modified:** `src/ai/AiClient.h/.cpp` (delegate `contextWindowForModel`
+  to `ModelListCache`; new `fetchModelList` method + signals),
+  `src/gui/AiSettingsWidget.h/.cpp` (drop hardcoded `populateModelsForProvider`
+  body, replace with cache lookup; add refresh button),
+  `src/gui/MidiPilotWidget.h/.cpp` (same in `populateFooterModels`),
+  `manual/midipilot.html` (document model refresh + cache location).
+
+### Out of Scope
+
+* Pricing display in the model combo. OpenRouter's response does carry
+  per-token cost, but surfacing it touches MidiPilot UX considerably and
+  belongs in a follow-up.
+* Auto-refresh on app launch. We refresh lazily (when the AI settings
+  dialog opens or the user clicks 🔄) to stay out of the user's network
+  on every startup.
+
+---
+
+## Phase 27: MidiPilot UX Polish — Universal Thoughts, Responses-API Streaming, History UX & Persistent Turns ✅ DONE (Unreleased)
+
+> **Goal:** Round out Phase 25's streaming work so live thoughts work for
+> *every* provider, OpenAI's Responses API streams as smoothly as Gemini,
+> the conversation-history dropdown stays usable past 30 chats, and
+> reopened conversations reproduce the live 💭/🔧 visual that the user
+> just saw — not just the bare assistant text.
+
+### Scope (all DONE)
+
+**27.1 — Universal reasoning extractor**
+* `AiClient::extractReasoningFromJson(QJsonObject)` walks every known
+  thought/reasoning shape: OpenAI Responses (`output[].content[]` reasoning
+  items), OpenAI Chat-Completions (`reasoning_content` / `reasoning`),
+  Gemini (`parts[].thought == true`), Anthropic (`content[].type == "thinking"`),
+  plus generic `reasoning` / `thoughts` fallbacks.
+* Single `streamReasoningDelta(QString)` signal — the UI lambda is
+  provider-agnostic.
+
+**27.2 — OpenAI Responses-API live SSE**
+* New `sendStreamingMessagesResponses` + `onResponsesStreamDataAvailable`
+  in `AiClient`. Parses Responses-API typed events
+  (`response.output_text.delta`, `response.reasoning_summary_text.delta`,
+  `response.function_call_arguments.delta`, `response.completed`, …) and
+  reassembles a synthetic Chat-Completions payload so `AgentRunner` is
+  unchanged.
+* Routing: `gpt-5.x` (or any model gated to the Responses API) + tools now
+  streams instead of falling back to the non-streaming path.
+
+**27.3 — Gemini thought-signature replay**
+* `StreamToolCall::thoughtSignature` captures `part.thoughtSignature` from
+  Gemini SSE and writes it back onto the `functionCall` part on the next
+  request via `_gemini_thought_signature` on the synthetic tool_call.
+* Fixes HTTP 400 *"missing thought_signature"* on Gemini 3.x multi-step
+  tool loops.
+
+**27.4 — Visual polish**
+* Rotating Braille spinner (`⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏`, ~8 fps) on the live thought
+  label, replacing the underscore blink.
+* `onAgentFinished` / `onAgentError` lift the Steps widget out of the dock
+  so the order in chat becomes `[thoughts] → [final response] → [steps]`.
+
+**27.5 — Scrollable date-grouped history popup**
+* `showHistoryMenu` rewritten from `QMenu` to a frameless `QDialog` with
+  `QLineEdit` search, `QScrollArea` body capped at ~500 px, conversations
+  grouped by date bucket (Today / Yesterday / weekday / Month Year), and
+  per-row dedicated **Load** + **Delete** buttons.
+* Live filter hides non-matching rows and collapses now-empty section
+  headers.
+
+**27.6 — Persistent per-turn metadata in `MidiPilotHistory/<id>.json`**
+* New `turns[]` array alongside `messages[]`. Each turn anchors to its
+  assistant message via `assistantIndex` and stores `reasoning`, `steps[]`
+  (`{step, tool, success, recoverable}`), `streamed`, `latencyMs`,
+  `effort`, `provider`, `model`, `promptTokens`, `completionTokens`,
+  `status`.
+* `MidiPilotWidget`:
+  * `resetTurnState()` snapshots provider/model/effort + start time at user-send.
+  * `streamReasoningDelta` and `streamAssistantTextDelta` lambdas accumulate
+    the reasoning text and flip `_turnStreamed`.
+  * `onAgentStepCompleted` appends a compact step record.
+  * `finalizeTurn()` is called from `onAgentFinished`, `onAgentError` and
+    `onResponseReceived` (simple mode) and seals the record.
+  * `loadConversation()` re-indexes `turns[]` by `assistantIndex` and renders
+    the saved 💭 thought block above and the `🔧 Steps: ✓ tool1, ✗ tool2`
+    summary below each assistant bubble — reopened conversations look like
+    they did live.
+
+### Files Modified
+* `src/ai/AiClient.{h,cpp}`
+* `src/gui/MidiPilotWidget.{h,cpp}`
+
+### Out of Scope
+* Persisting full tool argument/result payloads (kept compact: name +
+  success only). A future "replay" feature could store them, but they
+  bloat the history JSON quickly.
+
+**27.7 — Streaming-fallback safety net for unknown providers** ✅ DONE
+* Problem: third-party / OpenAI-compat endpoints often advertise SSE but
+  either return HTTP 4xx for `stream:true` or stream a 200 OK with an
+  event shape we don't parse, leaving the user staring at an empty bubble.
+* `AiClient` now arms a per-request retry context
+  (`armStreamingRetryAgent` / `armStreamingRetrySimple`) before each
+  streaming POST. Every streaming finished-lambda inspects the outcome via
+  `shouldFallbackToNonStreaming(httpStatus, netError, gotContent, gotToolCalls)`
+  and, when true, calls `tryStreamingFallback(reason)` which dispatches to
+  the regular `sendRequest` / `sendMessages` path and emits a new
+  `retrying(QString)` signal so the UI can show the reason.
+* The offending `<provider>:<model>` is persisted via
+  `markStreamingUnsupportedForCurrentModel(reason)` into
+  `QSettings("AI/streaming_blocklist/<provider>:<model>", true)` so the
+  very next request skips the broken streaming code path immediately.
+  `clearStreamingBlocklist(provider, model)` re-enables streaming when the
+  user picks a different model in Settings.
+* Wired into all four streaming entry points:
+  * `sendStreamingMessages` (Chat-Completions agent loop)
+  * `sendStreamingRequest` (Chat-Completions simple-mode)
+  * `sendStreamingMessagesResponses` (OpenAI Responses-API agent)
+  * `sendStreamingMessagesGemini` (Google native `streamGenerateContent`)
+* Explicitly **not** retried:
+  * `QNetworkReply::OperationCanceledError` (user pressed Cancel)
+  * Gemini semantic finish reasons `SAFETY`, `RECITATION`, `MAX_TOKENS`,
+    `MALFORMED_FUNCTION_CALL` — the regular endpoint would return the same
+    error, retrying just wastes a request.
+
+### Files Modified (27.7)
+* `src/ai/AiClient.{h,cpp}` — public helpers + 6 private members + 6
+  helper functions + 4 streaming finished-lambda fallback wires.
+
+---
+
+## Phase 28: OpenRouter Robustness & Capability-Aware Error Handling — 1.5.0
+
+> **Goal:** Make the OpenRouter pathway as reliable as the OpenAI-native one.
+> The OpenAI Chat-Completions schema is shared between providers, but OpenRouter
+> proxies to ~50 upstream providers (Novita, Fireworks, Together, DeepInfra, …),
+> each with different capabilities and reliability. Model-specific failures
+> (no tool support, upstream timeouts, blocked providers) currently surface as
+> opaque "HTTP 4xx" errors with no recovery and no actionable feedback.
+>
+> Fix this in three layers: **(a)** classify provider/upstream failures so we
+> retry the recoverable ones; **(b)** detect non-recoverable model limitations
+> up-front and surface them in the UI; **(c)** let users pin upstream providers
+> when they want predictability.
+
+### Background — Why OpenRouter is harder than OpenAI
+
+* OpenRouter exposes one `/api/v1/chat/completions` endpoint that *fans out*
+  to upstream providers. Every model card has a `top_provider`, but actual
+  routing is decided per-request based on price/latency/availability.
+* The request schema is OpenAI-compatible, but **capabilities are per-model**:
+  * Tool calling — many models (e.g. `x-ai/grok-multi-agent`, most older
+    Llama derivatives) do not support `tools[]` at all and the API returns
+    `HTTP 404 "No endpoints found that support tool use"`.
+  * Streaming — some upstream providers refuse `stream:true`. Already
+    handled by 27.7's streaming-fallback blocklist.
+  * `reasoning` / thinking summaries — provider-dependent.
+  * `response_format: json_object` / `json_schema` — provider-dependent.
+* Upstream providers periodically reject requests with `HTTP 400`
+  `{"message":"Provider returned error","metadata":{"provider_name":"Novita"}}`.
+  This is **transient**: a re-issue routes to a different upstream and
+  usually succeeds. Currently captured (28.1 below already shipped in
+  1.5.0-rc as a hot-fix).
+
+### Observed real-world log (2026-04-24)
+
+| Time | Model | Result | Root cause |
+|------|-------|--------|------------|
+| 19:32 | `anthropic/claude-opus-4.6-fast` | ✅ 5 toolCalls | OK |
+| 19:33 | `x-ai/grok-4.20-multi-agent` | ❌ HTTP 404 *"No endpoints support tool use"* | **Model lacks tools** — bubble up |
+| 19:33 | `x-ai/grok-4.20` | ⚠ second turn `chars=0 toolCalls=0` | Empty response — already retried by 27.7 + agent self-heal |
+| 19:34 | `openai/gpt-5.4-pro` | ✅ (~8 min Reasoning) | OK |
+| earlier | `moonshotai/kimi-k2` | ❌ HTTP 400 *"Provider returned error" / Novita* | **Upstream rejected** — retry routes elsewhere |
+
+### Scope
+
+**28.1 — Transient-upstream classifier (DONE in 1.5.0-rc)**
+* `AgentRunner::classifyError` and `MidiPilotWidget::onErrorOccurred::isRetriable`
+  now treat `"provider returned error"`, `"provider_name"` and `HTTP 400 + openrouter`
+  as `RetryKind::Network` so the existing self-healing retry kicks in
+  (3 attempts, exponential back-off). On retry OpenRouter selects a
+  different upstream.
+* No new settings; reuses `AI/agent_max_retries` / `AI/simple_max_retries`.
+
+**28.2 — Capability-aware error surfacing (HTTP 404 — no tool support)** ✅ DONE
+* New `AiClient::errorIndicatesNoToolSupport(error)` heuristic catches the
+  OpenRouter HTTP 404 *"No endpoints found that support tool use"* family
+  plus generic *"does not support tools / function calling is not supported"*
+  variants from other gateways.
+* `AgentRunner::onApiError` checks this **before** the retry classifier
+  (so we don't waste 3 attempts on a permanent capability gap), calls
+  `AiClient::markToolsIncapableForCurrentModel(reason)` and surfaces a
+  clear, actionable message:
+  > Model does not support tool calling — pick a different model in
+  > Settings → AI, or switch to Simple mode for this request.
+* `AiClient` persists the flag at `AI/incapable_tools/<provider>:<model>`
+  via `toolsIncapableForCurrentModel()` /
+  `markToolsIncapableForCurrentModel()` /
+  `clearToolsIncapableFlag()` (mirrors the streaming-blocklist API
+  introduced in 27.7).
+* `MidiPilotWidget::onSendMessage` (agent branch) consults the flag
+  **before** spinning up the agent loop. If set, it skips the API
+  round-trip entirely and posts a friendly system bubble instead. The
+  flag is per-(provider,model) so picking a different model in the
+  Settings → AI dropdown re-enables agent mode automatically.
+
+**28.3 — Per-model capability cache from `/models` list** — **TODO**
+* `ModelListFetcher::normaliseOpenRouter` already parses the model list. Extend
+  the parser to also capture:
+  * `supported_parameters` array (`tools`, `tool_choice`, `response_format`,
+    `reasoning`, `structured_outputs`, …).
+  * `architecture.modality` (`text`, `text+image`, …).
+  * `top_provider.context_length` and `pricing.{prompt,completion}`.
+* Store as a sidecar JSON `~/.midieditor/openrouter_models.json` keyed by
+  model id. `MidiPilotWidget` consults this cache before sending; if
+  `tools` ∉ `supported_parameters`, fall back to Simple mode automatically
+  (with a one-line info bubble) instead of provoking the HTTP 404.
+
+**28.4 — Optional provider-pinning for OpenRouter** — **TODO**
+* OpenRouter accepts an extra `provider` block in the request body:
+  ```json
+  "provider": {
+    "order": ["Anthropic", "Together"],
+    "allow_fallbacks": false,
+    "data_collection": "deny",
+    "require_parameters": true
+  }
+  ```
+* Add a small "Provider routing" group inside Settings → AI (visible only
+  when provider == openrouter):
+  * Multi-select list of preferred upstreams (populated from the model
+    list's `top_provider` info, falling back to a static curated list).
+  * Toggle "Allow fallbacks" (default ON for resilience, OFF for
+    reproducibility).
+  * Toggle "Require parameters" (rejects providers that silently drop
+    unsupported params — recommended ON when using `reasoning` /
+    `tool_choice`).
+  * Toggle "Deny data collection" (privacy preset).
+* Settings keys:
+  * `AI/openrouter/provider_order` (`QStringList`)
+  * `AI/openrouter/allow_fallbacks` (`bool`, default true)
+  * `AI/openrouter/require_parameters` (`bool`, default true)
+  * `AI/openrouter/data_collection` (`"allow"`/`"deny"`, default `"allow"`)
+* `AiClient::buildRequestBody()` (or wherever the chat-completions body is
+  composed) injects the `provider` object only when `_provider == "openrouter"`
+  AND any of the above settings is non-default.
+
+**28.5 — Surfaced provider attribution in chat (lightweight)** — **TODO**
+* When `usage` / response carries an upstream `provider_name` or
+  `models_used` field, append it to the per-turn metadata stored by 27.6
+  (`turns[].upstream`) and render it in the existing 🔧 Steps line:
+  > 🔧 Steps: ✓ create_track, ✓ insert_events · via Together
+* Helps the user understand *why* a request was slow / cheap / failed.
+
+**28.6 — Long-timeout awareness for reasoning models** — **TODO**
+* OpenAI Responses API + OpenRouter both expose long-running reasoning
+  models (`o1`, `o3`, `gpt-5.x-pro`) that legitimately take 5–10 minutes.
+  Confirm `QNetworkAccessManager` per-reply timeout is **disabled** (or
+  ≥15 min) for these requests, and surface a *"Reasoning model — this can
+  take several minutes…"* hint in the live status label whenever
+  `reasoning` is requested.
+
+### Out of Scope
+
+* **Per-provider price awareness / budget caps** — interesting but a
+  bigger feature; defer to Phase 29.
+* **Replacing OpenAI client routing** — the OpenAI-native path stays the
+  one-true-path for OpenAI models; OpenRouter remains opt-in.
+
+### Files to Modify
+
+| File | Section |
+|------|---------|
+| `src/ai/AgentRunner.{h,cpp}` | 28.2 — `RetryKind::ModelIncapable` + handler |
+| `src/gui/MidiPilotWidget.{h,cpp}` | 28.2 — friendly bubble + incapable flag check before send; 28.5 — render upstream attribution |
+| `src/ai/ModelListFetcher.{h,cpp}` | 28.3 — extended OpenRouter parser + capability sidecar JSON |
+| `src/ai/AiClient.{h,cpp}` | 28.4 — inject `provider` block; 28.6 — confirm no per-reply timeout for reasoning models |
+| `src/gui/AiSettingsWidget.{h,cpp}` | 28.4 — Provider routing group (OpenRouter only) |
+| `src/ai/ConversationStore.{h,cpp}` | 28.5 — `turns[].upstream` field |
+
+### Acceptance Criteria for 1.5.0
+
+1. Picking `x-ai/grok-4.20-multi-agent` (or any tools-incapable model)
+   produces a clear, actionable chat message instead of a raw HTTP 404, AND
+   blocks subsequent tool requests until the user changes model.
+2. A run that hits `Provider returned error` from one OpenRouter upstream
+   completes successfully via the existing retry within ≤3 attempts.
+3. Settings → AI shows a Provider Routing group when OpenRouter is the
+   active provider; the chosen `provider.order` is round-tripped into
+   the request body and visible in `midipilot_api.log`.
+4. Reasoning models do not trigger a network timeout for runs ≤10 minutes.
+5. No regression in OpenAI-native, Gemini-native, Anthropic, or Custom
+   provider paths.
+
+---
+
+## Phase 29: Per-Model System Prompt Profiles — target 1.5.0
+
+### Why
+
+GPT-5.5 (`gpt-5.5*`, `gpt-5.5-pro-*`) gets stuck in 30+ step "I'll plan
+the melody / actually let me reconsider the ticks / wait, did I just
+insert pitch bends?" reasoning loops on prompts that all other tested
+models (GPT-5.4, Gemini 2.x, Claude 3.x, Qwen 3.x, DeepSeek, OpenRouter
+generics, ...) handle in 2–4 steps with the current default system
+prompt. Reproduced 2026-04-25 with `midipilot_api.log` showing 38
+consecutive `[STREAM-RESPONSES-DONE] chars=0 toolCalls=1` turns and zero
+notes inserted. The reasoning text ("I mistakenly inserted pitch bends")
+shows the model misreads pre-existing `editor_state` events as its own
+prior tool output.
+
+We do **not** want to bloat the default prompt with GPT-5.5-specific
+caveats — every extra rule costs every other model tokens and may
+regress them. Instead we let the user (and us, via shipped defaults)
+attach a **prompt profile** to one or more models. Profile resolution
+runs in `MidiPilotWidget::buildSystemPrompt()` before the default is
+emitted.
+
+This phase intentionally mirrors the 1.5.0 **Model Favorites** UX
+(Phase 26) so it's discoverable: "the same provider/model picker, but
+checkboxes attach a prompt profile instead of pinning to favorites".
+
+### Goals
+
+- Author a custom system prompt once; bind it to N models via checkbox.
+- When a bound model is active, its profile prompt is used (replaces or
+  appends to default — per-profile flag).
+- Default prompt and user "personal" custom prompt both remain valid
+  fallbacks; profiles are an optional layer on top.
+- Ship one read-only built-in profile: **GPT-5.5 Decisive** bound to
+  `gpt-5.5*` glob, appending an explicit "commit after one short
+  analysis paragraph; treat editor_state events as pre-existing" rule.
+
+### Non-Goals (this phase)
+
+- Per-message dynamic prompt switching (chat-time A/B comparisons).
+- Profile import/export between machines (later, sync feature).
+- Per-tool prompt overrides (way out of scope).
+
+### 29.1 — Data Model & Persistence
+
+`QSettings("MidiEditor","NONE")` keyed under `AI/prompt_profiles/`:
+
+```
+AI/prompt_profiles/<id>/name              = "GPT-5.5 Decisive"
+AI/prompt_profiles/<id>/system            = "<full prompt text>"
+AI/prompt_profiles/<id>/append_to_default = true | false
+AI/prompt_profiles/<id>/builtin           = true | false
+AI/prompt_profiles/<id>/models            = JSON array of "<provider>:<modelId>"
+                                            (supports "*" suffix glob)
+AI/prompt_profiles/<id>/enabled           = true | false
+AI/prompt_profiles/order                  = JSON array of <id> (sort)
+```
+
+**Mirrors Phase 26 favorites** — same `provider:model` key shape, same
+glob pattern, same per-provider grouping. New class:
+
+```cpp
+src/ai/PromptProfileStore.{h,cpp}   // analogous to ModelFavorites
+```
+
+Public API:
+
+```cpp
+QList<PromptProfile> profiles() const;
+PromptProfile resolveForModel(const QString &provider, const QString &model) const;
+QString resolvePromptForModel(const QString &provider, const QString &model,
+                              const QString &defaultPrompt,
+                              const QString &userCustom) const;
+void upsert(const PromptProfile &p);
+void remove(const QString &id);
+```
+
+Resolution order in `resolvePromptForModel`:
+1. Enabled profile whose `models[]` glob matches → if `append_to_default`,
+   return `defaultPrompt + "\n\n" + profile.system`; else return
+   `profile.system`.
+2. No profile match → existing behaviour: user custom OR default.
+
+### 29.2 — UI: Prompt Profiles Dialog
+
+New dialog `src/gui/PromptProfilesDialog.{h,cpp}` modelled exactly on
+`ModelFavoritesDialog` (1.5.0):
+
+- **Left pane**: profile list with checkboxes (enabled), Add/Duplicate/
+  Delete buttons. Built-ins appear with a lock icon and cannot be
+  deleted/edited (only duplicated).
+- **Right pane (top)**: name field, "append to default" checkbox,
+  monospace prompt editor with token-count footer (reuses the
+  Model Favorites token preview helpers).
+- **Right pane (bottom)**: model picker — same `QTreeWidget`
+  Provider → Model layout as Model Favorites, with a search box and
+  per-row checkbox to bind to this profile. Models already shown in
+  Model Favorites cache are reused (no extra fetch).
+
+Reachable from:
+- Settings → AI tab → button **"Prompt Profiles…"** below the existing
+  "Custom system prompt" textarea.
+- MidiPilot sidebar → ⚙ menu → **"Prompt Profiles…"** (same shortcut
+  as Model Favorites).
+
+### 29.3 — Integration in `MidiPilotWidget::buildSystemPrompt()`
+
+Single line change at the existing custom-vs-default decision point:
+
+```cpp
+QString prompt = _profileStore->resolvePromptForModel(
+    aiClient->provider(), aiClient->model(),
+    /*default*/ DEFAULT_SYSTEM_PROMPT,
+    /*userCustom*/ _customPromptEdit->toPlainText());
+```
+
+Sidebar status line shows: *"Prompt: GPT-5.5 Decisive (auto-bound)"*
+when a profile resolved, else *"Prompt: Default"* / *"Prompt: Custom"*.
+
+### 29.4 — Built-in Profile: GPT-5.5 Decisive
+
+Shipped read-only with `builtin=true`. Bound to `openai:gpt-5.5*` and
+`openrouter:openai/gpt-5.5*`. `append_to_default=true`. Body:
+
+```
+GPT-5.5 OPERATING MODE:
+- After at most ONE short analysis paragraph (≤3 sentences), you MUST
+  emit a tool call with concrete arguments. Do not re-analyze.
+- Treat events already present in `editor_state` as pre-existing user
+  data. Do NOT assume they are output of your previous tool calls.
+- If you are unsure about ticks per measure, read it ONCE from
+  `editor_state.ticksPerQuarter` and `timeSignature` and commit; do
+  not re-derive it across turns.
+- When a previous tool returned successfully, the change is applied —
+  do not "redo" or "fix" it unless the user explicitly says so.
+```
+
+This is exactly the rule set the 38-step log proves the model needs,
+and it does not affect any other model.
+
+### 29.5 — Tests
+
+`tests/test_prompt_profiles.cpp` (new, mirrors
+`test_model_favorites.cpp`):
+
+1. `resolve_returnsDefaultWhenNoProfileMatches`
+2. `resolve_returnsProfileBodyWhenMatching` (replace mode)
+3. `resolve_appendsToDefaultWhenAppendFlagSet`
+4. `resolve_globMatch_gpt55StarMatchesGpt55ProDated`
+5. `resolve_disabledProfileIsIgnored`
+6. `persist_roundTripsAcrossStoreInstances`
+7. `builtin_cannotBeDeleted` (delete returns false, store unchanged)
+8. `userCustomTakesPrecedenceOverDefaultButNotOverProfile` ordering
+
+Plus a smoke test that the **GPT-5.5 Decisive** built-in is registered
+on first launch and resolves for `openai:gpt-5.5-pro-2026-04-23`.
+
+### 29.6 — Files to Add / Modify
+
+| File | Section |
+|------|---------|
+| `src/ai/PromptProfileStore.{h,cpp}` | NEW — 29.1 store + glob resolve |
+| `src/ai/PromptProfile.h` | NEW — POD struct |
+| `src/gui/PromptProfilesDialog.{h,cpp}` | NEW — 29.2 dialog (mirrors Model Favorites) |
+| `src/gui/MidiPilotWidget.{h,cpp}` | 29.3 — resolve hook + sidebar status |
+| `src/gui/AiSettingsWidget.{h,cpp}` | 29.2 — "Prompt Profiles…" button |
+| `tests/test_prompt_profiles.cpp` | NEW — 29.5 test target |
+| `tests/CMakeLists.txt` | NEW test target wiring |
+| `Planning/02_ROADMAP.md` | this entry |
+| `CHANGELOG.md` | Phase 29 line under 1.5.0 |
+| `manual/midipilot.html` | short "Prompt Profiles" subsection |
+
+### Acceptance Criteria for 1.5.0 (additive)
+
+1. With `AI/prompt_profiles/` empty (fresh install except the
+   built-in), GPT-5.5 produces ≤6 reasoning turns and at least one
+   `insert_events` for the same prompt that hit 38 turns / 0 notes
+   pre-feature. Reproduced from the 2026-04-25 log.
+2. Disabling the built-in profile restores the old behaviour (proves
+   it's the profile that fixes it, not unrelated changes).
+3. Switching from a bound model (`gpt-5.5-pro-2026-04-23`) to an
+   unbound one (`gpt-5.4`) on the same conversation reverts to the
+   default prompt for the next turn.
+4. Sidebar status updates live when the model is changed.
+5. No regression in tests for `ModelFavorites`, `StreamingFallback`,
+   `ProviderMatrix`.
+
+---
+
+## Phase 30: Lightweight Agent Conductor & Working State — DONE in 1.5.x
+
+**Implemented:** `AgentRunner` now keeps a compact program-owned working state,
+classifies each run as composition/edit/analysis/repair, injects a request-local
+`Current Agent State` developer/system layer before every model round, converts
+pitch-bend-only and duplicate-write rejections into next-turn steering, and logs
+the state as `[AGENT-STATE]`. Added `tests/test_agent_runner_state.cpp` covering
+classification, successful tool summaries, pitch-bend rejection steering,
+duplicate-write failure tracking, and non-growing request-local injection.
+
+### Why
+
+Phase 29 proved that per-model prompt profiles help, but the GPT-5.5
+Agent Mode failure is not only a prompt wording problem. Real logs from
+2026-04-25 show a split behaviour:
+
+- **Simple Mode succeeds:** GPT-5.5 can generate a dense, multi-track FFXIV
+  lofi arrangement in one large response when it gets a stable one-shot JSON
+  task.
+- **Agent Mode fails:** the same model can enter multi-turn tool loops,
+  forget freshly returned tool results, and emit placeholder-like
+  `pitch_bend`-only write calls despite explicit instructions.
+
+This means the model is strong as a composer/planner but weak as a repeated
+tool-loop executor when the context is just an ever-growing chat transcript.
+The next hardening step should therefore be a small runtime conductor around
+the existing `AgentRunner`, not a larger model-specific tool API.
+
+The design borrows the useful parts of a dynamic prompt-layer / dual-agent
+architecture, but keeps MidiPilot maintainable:
+
+- keep the existing tools and schemas;
+- keep Pitch Bend supported;
+- do not build a new special API for GPT-5.5;
+- add a compact, program-owned working state that is injected before every
+  agent round;
+- make composition tasks use fewer, more coherent tool rounds.
+
+### Weaknesses Found in the Current Agent Loop
+
+`AgentRunner` currently stores only `_messages`, `_tools`, `_currentStep`,
+retry counters, and a duplicate-write signature. That is enough to replay the
+API protocol, but not enough to actively steer a brittle model.
+
+Observed weak spots:
+
+1. **No program-owned working memory.** Tool results are appended as raw
+  `role:"tool"` messages, but there is no compact authoritative state like
+  "tempo set", "tracks created", "track 1 write rejected", or "bars 1-16
+  completed". GPT-5.5 can therefore re-derive or ignore recent facts.
+2. **Tool feedback is too local.** Rejections contain guidance, but the next
+  request has no separate high-priority layer that says "last action was
+  rejected; choose a different valid action". The model may continue from its
+  older internal plan.
+3. **Loop history grows but does not summarize.** The agent transcript gains
+  assistant/tool messages, including long reasoning and large event payloads,
+  but does not distill progress into a small stable summary.
+4. **Composition tasks are over-decomposed.** Simple Mode shows GPT-5.5 can
+  create large coherent musical blocks. Agent Mode often asks it to perform
+  many small execution rounds, which increases the chance of drift.
+5. **Prompt profiles are static.** Phase 29 profiles are selected by model,
+  but they do not adapt to current task type, last tool result, or failure
+  history.
+6. **Safety guards are reactive.** Duplicate-call and pitch-bend-only guards
+  prevent damage, but they do not yet convert the failure into a stronger
+  next-step frame.
+
+### Design Goal
+
+Add a lightweight conductor layer inside `AgentRunner`:
+
+```cpp
+struct AgentWorkingState {
+   QString goal;
+   QString taskType;          // composition / edit / analysis / repair
+   QString confirmedState;    // program-owned facts from successful tools
+   QString lastToolResult;    // compact result or rejection summary
+   QString activeConstraints; // current hard rules for the next step
+   QString nextStepHint;      // one short steering sentence
+   int repeatedFailureCount = 0;
+};
+```
+
+Before each model request, the conductor injects a short dynamic layer above
+the rolling conversation:
+
+```text
+## Current Agent State
+Goal: Create a 2-minute FFXIV lofi octet.
+Task type: composition.
+Confirmed state: tempo set to 82 BPM; 8 tracks created; bars 1-16 inserted.
+Last tool result: replace_events on Track 3 succeeded, inserted 384 events.
+Active constraints: do not repeat a rejected write call; Pitch Bend is allowed
+only when musically requested and must not be used as a placeholder.
+Next step: continue with bars 17-32 for strings and flute, or finish if complete.
+```
+
+This layer is not trusted user text; it is generated by the app from tool
+results and editor state. It gives GPT-5.5 the same kind of stable execution
+context that robust agent systems use, without requiring a second model by
+default.
+
+### Non-Goals
+
+- No new special-purpose GPT-5.5 API.
+- No removal of `pitch_bend` from event schemas.
+- No mandatory dual-agent architecture in 1.5.x.
+- No large prompt hierarchy UI in this phase.
+- No full deterministic MIDI composer replacing the model.
+
+Dual-agent routing remains a possible future Phase 31 if the lightweight
+conductor is not enough: GPT-5.5 could become the composer/planner while a
+more reliable model such as GPT-5.4 compiles tool calls. Phase 30 should first
+test whether stronger orchestration fixes the issue with one model.
+
+### 30.1 — Task Classification
+
+Add a small heuristic classifier at agent-run start:
+
+| Task Type | Examples | Steering Policy |
+|-----------|----------|-----------------|
+| `composition` | compose, create song, arrange, generate lofi, FFXIV octet | fewer rounds, substantial writes per section/track |
+| `edit` | change notes, add bassline, transpose, humanize | inspect only if needed, one corrected write per target |
+| `analysis` | what key, what chords, explain track | prefer query/info tools, finish with text |
+| `repair` | fix channels, validate FFXIV, clean drums | deterministic tools first, validate after |
+
+Implementation:
+
+- Add a private `classifyTask(userMessage, systemPrompt)` helper in
+  `AgentRunner`.
+- Seed `AgentWorkingState.goal` from the current user message.
+- Store the task type in logs as `[AGENT-STATE] task=composition ...`.
+
+### 30.2 — Working-State Updates from Tool Results
+
+After each `ToolDefinitions::executeTool(...)` result, update the working
+state with compact program-owned facts:
+
+- `create_track` success -> append `Created track <index> "<name>"`.
+- `set_tempo` success -> append `Tempo set to <bpm> BPM`.
+- `insert_events` / `replace_events` success -> append track index and inserted
+  event count; for composition tasks also infer tick range when present.
+- `query_events` / `get_editor_state` success -> summarize counts, not payload.
+- rejected pitch-bend-only write -> set `lastToolResult` and
+  `nextStepHint = "Replace the rejected write with program_change + note events; do not retry pitch_bend-only."`.
+- duplicate write rejection -> increment `repeatedFailureCount` and force a
+  different next action.
+
+Keep this summary small: target <1200 characters total. Older facts can be
+coalesced (e.g. `Tracks created: Piano, Bass, Drums, Lead`) instead of growing
+forever.
+
+### 30.3 — Dynamic State-Layer Injection
+
+Do not permanently append state layers to `_messages`, or the conversation will
+balloon. Instead, build a request-local message array:
+
+```cpp
+QJsonArray AgentRunner::messagesForNextRequest() const;
+```
+
+Flow:
+
+1. `_messages` remains the canonical protocol transcript.
+2. `sendNextRequest()` calls `messagesForNextRequest()`.
+3. The helper copies `_messages` and inserts one synthetic high-priority state
+  message immediately after the developer/system prompt.
+4. The synthetic state layer is regenerated every turn from
+  `AgentWorkingState`.
+
+For reasoning models where the first message role is `developer`, the state
+layer should also use `developer` (or be folded into the first developer
+message) so it is not treated as user-provided content.
+
+### 30.4 — Composition Cadence Policy
+
+For `taskType == composition`, change the steering from "many small tool
+turns" to "few coherent sections":
+
+- Prefer one substantial `insert_events` or `replace_events` call per track or
+  per musical section.
+- Avoid inspect-after-every-phrase loops unless a previous tool failed.
+- After all requested tracks/sections are confirmed, ask for a final summary
+  instead of another write.
+- If output size is at risk, write the smallest complete coherent version
+  rather than an incomplete long one.
+
+This preserves the successful Simple Mode behaviour while still using Agent
+Mode tools for actual editor changes.
+
+### 30.5 — Failure-to-Steering Conversion
+
+Turn reactive guards into active next-turn steering:
+
+- Pitch-bend-only rejection becomes a state-layer constraint for the next turn,
+  not only a raw tool result.
+- Duplicate write rejection states the exact blocked signature and requires a
+  different tool call or final answer.
+- Empty response / malformed tool retry hints should include the current
+  working-state summary so the model resumes from confirmed facts.
+- If `repeatedFailureCount >= 2`, stop with a useful user-facing explanation
+  and preserve the partial successful changes under the existing protocol
+  behaviour.
+
+### 30.6 — Diagnostics & Tests
+
+Add logs that make the conductor inspectable:
+
+```text
+[AGENT-STATE] step=4 task=composition confirmed="tempo 82; tracks 1-4" last="insert_events ok track=1 count=96" next="write bass track"
+```
+
+Tests:
+
+1. Unit test `classifyTask` for composition/edit/analysis/repair phrases.
+2. Unit test working-state update from representative tool result objects.
+3. Unit test pitch-bend-only rejection updates `nextStepHint` without removing
+  Pitch Bend support from schemas.
+4. Unit test request-local state injection does not permanently grow
+  `_messages`.
+5. Regression scenario from the 2026-04-25 GPT-5.5 log: after a rejected
+  pitch-bend-only write, the next request contains the state-layer rejection
+  summary and corrected-action hint.
+
+### Files to Modify
+
+| File | Section |
+|------|---------|
+| `src/ai/AgentRunner.h` | `AgentWorkingState`, task type enum, helper declarations |
+| `src/ai/AgentRunner.cpp` | classify task, update state from tool results, inject state layer |
+| `src/ai/ToolDefinitions.cpp` | optional: expose compact result fields consistently for state summarization |
+| `src/ai/PromptProfileStore.cpp` | optional: reduce GPT-5.5 profile once dynamic state layer carries runtime rules |
+| `tests/test_agent_runner_state.cpp` | new pure unit tests for classifier/state/injection helpers |
+| `Planning/02_ROADMAP.md` | this phase |
+
+### Acceptance Criteria
+
+1. GPT-5.5 Agent Mode no longer loops on the reproduced 2026-04-25
+  composition prompt: it either creates real note events or stops after a
+  bounded corrective attempt with an actionable explanation.
+2. After any rejected write call, the next API request includes a concise
+  `Current Agent State` layer with the rejection and a different next-step
+  hint.
+3. Successful tool calls are summarized into confirmed state; the model is not
+  forced to infer progress only from raw tool-result JSON.
+4. Composition tasks use fewer, larger coherent write rounds than before and
+  do not inspect redundantly after every phrase.
+5. Pitch Bend remains present and supported in event schemas; only
+  pitch-bend-only placeholder writes are rejected.
+6. No regression in `test_tool_definitions`, `test_prompt_profiles`,
+  `test_streaming_fallback`, or provider streaming paths.
+
+---
+
+## Phase 31: GPT-5.5 Model-Isolation Policy — DONE in 1.5.0
+
+> **Goal:** After Phase 30's lightweight conductor proved that GPT-5.5 still
+> needs *additional* mitigations beyond a generic state layer, isolate **all**
+> GPT-5.5-specific behaviour behind one central policy table so every other
+> model is byte-identical to the previous behaviour. No more sprinkled
+> `if (model.startsWith("gpt-5.5"))` branches across the agent code path.
+
+### Background
+
+Phase 29 (Prompt Profiles) and Phase 30 (Conductor + Working State) reduced
+GPT-5.5's failure rate on long composition prompts but did not eliminate two
+specific anti-patterns: it still occasionally emits `pitch_bend`-only writes
+as placeholders, and on the OpenAI Responses API it still launches
+parallel-tool-call fan-outs whose reasoning trees explode past the
+context window. The root cause is model-specific (a known GPT-5.5 trait that
+GPT-5.4 / Gemini / Claude / OpenRouter generics do not share), so the fix
+should be model-specific too — and reversible the moment OpenAI ships a
+fixed checkpoint.
+
+Earlier prototypes had `gpt-5.5*` checks scattered across `ToolDefinitions`,
+`AgentRunner` and `AiClient`. That is brittle (easy to add a new mitigation
+that forgets one of the call sites) and risks regressing every other model
+when a conditional is over-broad. Phase 31 collapses it into one table.
+
+### 31.1 — `AgentToolPolicy` central table
+
+`src/ai/AgentToolPolicy.{h,cpp}` is the single source of truth:
+
+```cpp
+struct AgentToolPolicy {
+    bool schemaLightWriteEvents      = false; // drop pitch_bend branch in insert/replace_events
+    bool sanitizeRejectionGuidance   = false; // never echo "pitch_bend" back into context
+    bool forceSerialToolCalls        = false; // parallel_tool_calls:false on Responses API
+    bool forceLowReasoningEffort     = false; // reasoning.effort:low on Responses API
+    int  boundedFailureStop          = 2;     // halt after N consecutive incomplete writes
+};
+
+bool isGpt55Model(const QString &model, const QString &provider);
+AgentToolPolicy policyForModel(const QString &model, const QString &provider);
+```
+
+Resolution rules:
+* `provider == "openai"` AND `model.startsWith("gpt-5.5")` → all five mitigations on.
+* `provider == "openrouter"` AND model is `openai/gpt-5.5*` → schema-light + sanitised
+  guidance + bounded-failure stop on; the two API-body fields (`parallel_tool_calls`,
+  `reasoning.effort`) stay off because they are Responses-API specific and OpenRouter
+  proxies through Chat-Completions.
+* All other models → default-constructed policy = no-op = byte-identical to the
+  pre-Phase-31 behaviour.
+
+### 31.2 — Wiring
+
+Single consumer per concern:
+
+| Mitigation | Consumer | Where |
+|------------|----------|-------|
+| `schemaLightWriteEvents` | `ToolDefinitions::buildAgentTools(policy)` | called once when agent loop starts; `insert_events` / `replace_events` schemas drop the `pitch_bend` `oneOf` branch |
+| `sanitizeRejectionGuidance` | `AgentRunner::processToolCalls` | rewrites failure guidance to positive-only language; never includes the literal token `pitch_bend` |
+| `forceSerialToolCalls` + `forceLowReasoningEffort` | `AiClient::sendStreamingMessagesResponses` / `sendMessages` (Responses path) | injected into the request body just before the POST |
+| `boundedFailureStop` | `AgentRunner` (Phase 30 conductor uses the same threshold) | already in place; policy provides the value |
+
+### 31.3 — Mode-scoped streaming-block UI (sub-phase 31.1 in CHANGELOG)
+
+Independent fall-out from real-world testing of `gpt-5.5-pro-2026-04-23`:
+the model streams cleanly in Agent Mode but Simple Mode falls through to
+`/v1/chat/completions` and gets HTTP 404. The previous Phase 27.7
+session-blocklist was global and therefore poisoned Agent Mode too.
+
+`AiClient` now keys the streaming-block by `(provider, model, mode)` where
+mode ∈ `{simple, agent}` (`tools=0` / `tools=1`). Public 2-arg helpers
+keep their meaning by OR-ing both modes; new 3-arg overloads
+(`streamingBlockedForSession(provider, model, withTools)`,
+`markStreamingUnsupported(provider, model, withTools, reason)`) drive the
+per-mode logic. Both Agent and Simple sender pre-checks query the
+mode-aware variant; `tryStreamingFallback` records the block as
+`withTools = !wasSimple`.
+
+UI (Settings model dropdown, MidiPilot footer dropdown, Force Streaming
+button) shows which mode is blocked: `⚠ <model> (Simple)` / `(Agent)` /
+`(Simple+Agent)` with matching tooltips and button labels.
+
+### 31.4 — Tests
+
+`tests/test_agent_tool_policy.cpp` — 13 cases:
+1. `isGpt55Model_openai_gpt55ProDated_returnsTrue`
+2. `isGpt55Model_openai_gpt54_returnsFalse`
+3. `isGpt55Model_openrouter_gpt55_returnsTrue`
+4. `isGpt55Model_openrouter_gpt54_returnsFalse`
+5. `isGpt55Model_anthropic_anyModel_returnsFalse`
+6. `policyForModel_nonGpt55_isDefaultConstructed`
+7. `policyForModel_openai_gpt55_allMitigationsOn`
+8. `policyForModel_openrouter_gpt55_apiBodyFieldsOff`
+9. `schemaLightWriteEvents_dropsPitchBendBranch`
+10. `schemaLightWriteEvents_keepsNoteOnNoteOffBranches`
+11. `sanitizedGuidance_neverContainsPitchBendToken`
+12. `responsesApiBody_includesParallelToolCallsFalse_onPolicy`
+13. `responsesApiBody_includesReasoningEffortLow_onPolicy`
+
+Plus 4 schema-light cases in `tests/test_tool_definitions.cpp` and a
+`QSKIP`'d historical entry in `tests/test_agent_runner_state.cpp` for the
+removed pre-Phase-31 universal `pitch_bend`-only working-state branch.
+
+### Acceptance Criteria (met)
+
+1. Non-GPT-5.5 runs are byte-identical to v1.4.x behaviour — Pitch Bend
+   stays in schemas, no rejection-guidance rewriting, no API-body overrides.
+2. GPT-5.5 on OpenAI-native completes the reproduced 2026-04-25 composition
+   prompt with bounded reasoning depth (≤6 turns) and inserts real notes
+   instead of `pitch_bend`-only placeholders.
+3. GPT-5.5 on OpenRouter benefits from the schema/prompt mitigations
+   without the Responses-API-specific body fields being sent (which
+   OpenRouter would reject).
+4. Streaming failure on `gpt-5.5-pro-2026-04-23` Simple Mode no longer
+   disables streaming for Agent Mode on the same model.
+
+### Files
+
+* `src/ai/AgentToolPolicy.{h,cpp}` — NEW
+* `src/ai/ToolDefinitions.{h,cpp}` — `buildAgentTools(policy)` overload
+* `src/ai/AgentRunner.{h,cpp}` — `_policy` member, `sanitizeRejectionGuidance` consumer
+* `src/ai/AiClient.{h,cpp}` — Responses-API body injection; mode-aware streaming-block API
+* `src/gui/AiSettingsWidget.cpp` / `src/gui/MidiPilotWidget.cpp` — per-mode warning markers
+* `tests/test_agent_tool_policy.cpp` — NEW
+

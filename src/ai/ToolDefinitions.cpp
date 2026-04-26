@@ -47,8 +47,11 @@ static QJsonObject makeParams(const QJsonObject &properties,
     return params;
 }
 
-// Helper: build the MIDI event schema as a discriminated union (anyOf)
-static QJsonObject makeEventSchema() {
+// Helper: build the MIDI event schema as a discriminated union (anyOf).
+// `includePitchBend` controls whether the `pitch_bend` branch is exposed.
+// Default = true preserves the pre-Phase-31 shape for the MCP server and
+// every model other than gpt-5.5*.
+static QJsonObject makeEventSchema(bool includePitchBend = true) {
     // note (compact format with duration)
     QJsonObject noteProps;
     noteProps["type"] = QJsonObject{{"type", "string"}, {"enum", QJsonArray{"note"}}};
@@ -58,7 +61,7 @@ static QJsonObject makeEventSchema() {
     noteProps["duration"] = QJsonObject{{"type", "integer"}, {"description", "Duration in ticks."}};
     noteProps["channel"] = QJsonObject{
         {"anyOf", QJsonArray{QJsonObject{{"type", "integer"}}, QJsonObject{{"type", "null"}}}},
-        {"description", "Per-note MIDI channel override (0-15). Use null for default track channel. Set to a specific channel for FFXIV guitar switches."}};
+        {"description", "Required by the schema. Use null for the default track channel. Use an integer 0-15 only for an intentional per-note channel override such as FFXIV guitar switches."}};
     QJsonObject noteSchema;
     noteSchema["type"] = QString("object");
     noteSchema["properties"] = noteProps;
@@ -81,7 +84,7 @@ static QJsonObject makeEventSchema() {
     QJsonObject pbProps;
     pbProps["type"] = QJsonObject{{"type", "string"}, {"enum", QJsonArray{"pitch_bend"}}};
     pbProps["tick"] = QJsonObject{{"type", "integer"}, {"description", "Tick position."}};
-    pbProps["value"] = QJsonObject{{"type", "integer"}, {"description", "Pitch bend value (0-16383, center=8192)."}};
+    pbProps["value"] = QJsonObject{{"type", "integer"}, {"description", "Pitch bend amount as a 14-bit unsigned integer. Advanced/rare: only use when the user explicitly asks for bends, vibrato, or pitch automation. Never use as a standalone placeholder for notes."}};
     QJsonObject pbSchema;
     pbSchema["type"] = QString("object");
     pbSchema["properties"] = pbProps;
@@ -100,14 +103,67 @@ static QJsonObject makeEventSchema() {
     pcSchema["additionalProperties"] = false;
 
     QJsonObject eventSchema;
-    eventSchema["anyOf"] = QJsonArray{noteSchema, ccSchema, pbSchema, pcSchema};
+    QJsonArray branches;
+    branches.append(noteSchema);
+    branches.append(ccSchema);
+    if (includePitchBend)
+        branches.append(pbSchema);
+    branches.append(pcSchema);
+    eventSchema["anyOf"] = branches;
     return eventSchema;
 }
+
+bool ToolDefinitions::isPitchBendOnlyPayload(const QJsonArray &events) {
+    if (events.isEmpty())
+        return false;
+
+    int pitchBendCount = 0;
+    int otherCount = 0;
+    for (const QJsonValue &eventValue : events) {
+        const QString type = eventValue.toObject().value(QStringLiteral("type")).toString();
+        if (type == QStringLiteral("pitch_bend"))
+            ++pitchBendCount;
+        else if (!type.isEmpty())
+            ++otherCount;
+    }
+
+    return pitchBendCount > 0 && otherCount == 0;
+}
+
+// NOTE: a pre-Phase-31 universal pitch_bend-only rejection lived here
+// (`isPitchBendOnlyWrite` + `makePitchBendOnlyRejectedResult`). Phase 31
+// moved that guard into `AgentRunner::processToolCalls` where it now runs
+// only for `gpt-5.5*` (the sole model that ever produced the placeholder
+// pattern), via `ToolDefinitions::isPitchBendOnlyPayload`. For every other
+// model — and for direct executeTool calls (MCP / scripts) — pitch_bend-only
+// writes are valid input and pass through to widget->executeAction.
+//
+// Keep `isPitchBendOnlyPayload` exported as the single source of truth so
+// the AgentRunner gate stays trivial.
 
 // ---------------------------------------------------------------------------
 // toolSchemas — returns the full QJsonArray of tool definitions
 // ---------------------------------------------------------------------------
 QJsonArray ToolDefinitions::toolSchemas() {
+    return toolSchemas(ToolSchemaOptions{});
+}
+
+QJsonArray ToolDefinitions::toolSchemas(const ToolSchemaOptions &options) {
+    const bool includePitchBend = options.includePitchBend;
+
+    // Description suffix for `events` — when pitch_bend is structurally
+    // absent (Phase 31 schema-light for gpt-5.5*), do not mention the
+    // word at all so we do not re-anchor the model on the forbidden
+    // token. When it is present, keep the negative reminder so models
+    // that historically misuse it are warned.
+    const QString insertEventsDesc = includePitchBend
+        ? QStringLiteral("Array of MIDI event objects to insert. Include a program_change event at tick 0 to set the GM instrument. For notes, use channel:null unless overriding the track channel. Do not send pitch_bend-only arrays; they are rejected unless accompanied by actual note/program material and explicitly requested.")
+        : QStringLiteral("Array of MIDI event objects to insert. Include a program_change event at tick 0 to set the GM instrument, then note objects with explicit pitch, velocity, duration, and tick. Use channel:null on notes unless overriding the track channel.");
+
+    const QString replaceEventsDesc = includePitchBend
+        ? QStringLiteral("New events to insert after removing existing ones in the range. For melody/composition edits, include program_change plus note events. Do not send pitch_bend-only arrays; they are rejected unless pitch automation was explicitly requested.")
+        : QStringLiteral("New events to insert after removing existing ones in the range. For melody/composition edits, include program_change plus note objects with explicit pitch, velocity, duration, and tick.");
+
     QJsonArray tools;
 
     // --- Read-only tools ---
@@ -214,8 +270,8 @@ QJsonArray ToolDefinitions::toolSchemas() {
             {"description", "MIDI channel for the events (0-15). Required."}};
         props["events"] = QJsonObject{
             {"type", "array"},
-            {"items", makeEventSchema()},
-            {"description", "Array of MIDI event objects to insert. Include a program_change event at tick 0 to set the GM instrument."}};
+            {"items", makeEventSchema(includePitchBend)},
+            {"description", insertEventsDesc}};
         tools.append(makeTool(
             "insert_events",
             "Insert new MIDI events into a track without removing existing events. "
@@ -242,8 +298,8 @@ QJsonArray ToolDefinitions::toolSchemas() {
             {"description", "End tick of the range to replace (inclusive)."}};
         props["events"] = QJsonObject{
             {"type", "array"},
-            {"items", makeEventSchema()},
-            {"description", "New events to insert after removing existing ones in the range."}};
+            {"items", makeEventSchema(includePitchBend)},
+            {"description", replaceEventsDesc}};
         tools.append(makeTool(
             "replace_events",
             "Remove all events in a tick range on a track and insert new events. "

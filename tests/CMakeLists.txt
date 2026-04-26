@@ -298,6 +298,144 @@ target_link_libraries(test_tool_definitions PRIVATE
 add_test(NAME ToolDefinitions COMMAND test_tool_definitions)
 
 # -----------------------------------------------------------------------------
+# test_agent_tool_policy
+# -----------------------------------------------------------------------------
+# Pure unit test for the Phase 31 model-isolation policy table in
+# src/ai/AgentToolPolicy. AgentToolPolicy.cpp depends only on Qt Core, so
+# this executable is fully self-contained.
+add_executable(test_agent_tool_policy
+    test_agent_tool_policy.cpp
+    ../src/ai/AgentToolPolicy.cpp
+)
+target_include_directories(test_agent_tool_policy PRIVATE
+    ../src/ai
+)
+target_link_libraries(test_agent_tool_policy PRIVATE
+    Qt6::Core
+    Qt6::Test
+)
+add_test(NAME AgentToolPolicy COMMAND test_agent_tool_policy)
+
+# -----------------------------------------------------------------------------
+# test_model_favorites
+# -----------------------------------------------------------------------------
+# Pure unit test for the ModelFavorites helper: chat-model heuristic, QSettings
+# round-trip, visibleModels() filter behaviour. No network, no GUI.
+add_executable(test_model_favorites
+    test_model_favorites.cpp
+    ../src/ai/ModelFavorites.cpp
+)
+target_include_directories(test_model_favorites PRIVATE ../src/ai)
+target_link_libraries(test_model_favorites PRIVATE
+    Qt6::Core
+    Qt6::Test
+)
+add_test(NAME ModelFavorites COMMAND test_model_favorites)
+
+# -----------------------------------------------------------------------------
+# test_prompt_profiles
+# -----------------------------------------------------------------------------
+# Pure unit test for PromptProfileStore: glob match, resolution layering,
+# QSettings round-trip, and the read-only "GPT-5.5 Decisive" built-in.
+# No GUI, no network. Sandboxes through QStandardPaths::setTestModeEnabled.
+add_executable(test_prompt_profiles
+    test_prompt_profiles.cpp
+    ../src/ai/PromptProfileStore.cpp
+)
+target_include_directories(test_prompt_profiles PRIVATE ../src/ai)
+target_link_libraries(test_prompt_profiles PRIVATE
+    Qt6::Core
+    Qt6::Test
+)
+add_test(NAME PromptProfiles COMMAND test_prompt_profiles)
+# Make sure ctest finds Qt6Cored.dll / Qt6Testd.dll even when invoked from
+# a shell that doesn't have Qt's bin on PATH (VS Code's CMake Tools spawns
+# ctest with a minimal env). Other tests rely on the developer's outer
+# PATH; this one ships its own.
+if(WIN32)
+    get_target_property(_qt_core_loc Qt6::Core LOCATION)
+    get_filename_component(_qt_bin_dir "${_qt_core_loc}" DIRECTORY)
+    set_tests_properties(PromptProfiles PROPERTIES
+        ENVIRONMENT "PATH=${_qt_bin_dir};$ENV{PATH}")
+endif()
+
+# -----------------------------------------------------------------------------
+# test_agent_runner_state
+# -----------------------------------------------------------------------------
+# Pure unit tests for the lightweight AgentRunner conductor helpers: task
+# classification, compact working-state updates, pitch-bend rejection steering,
+# and request-local state injection. The exercised helpers do not touch network
+# or editor state, so no AiClient / MidiPilotWidget source is linked.
+add_executable(test_agent_runner_state
+    test_agent_runner_state.cpp
+    ../src/ai/AiClient.h
+    ../src/ai/AgentRunner.cpp
+    ../src/ai/AgentToolPolicy.cpp
+)
+target_include_directories(test_agent_runner_state PRIVATE ../src/ai)
+target_link_libraries(test_agent_runner_state PRIVATE
+    Qt6::Core
+    Qt6::Network
+    Qt6::Widgets
+    Qt6::Test
+)
+add_test(NAME AgentRunnerState COMMAND test_agent_runner_state)
+
+# -----------------------------------------------------------------------------
+# test_provider_matrix
+# -----------------------------------------------------------------------------
+# Live-API smoke test that exercises the four AiClient code paths
+# (non-stream / stream  ×  no tools / +tools) for OpenAI, OpenRouter and
+# Gemini. Each provider is SKIPPED unless the matching env var is set:
+#   MIDIPILOT_TEST_OPENAI_KEY / MIDIPILOT_TEST_OPENROUTER_KEY /
+#   MIDIPILOT_TEST_GEMINI_KEY
+# Uses MidiPilot's QSettings store but snapshots+restores the touched keys.
+# Not added to add_test() by default to avoid slow/network-dependent CI runs;
+# configure with -DMIDIPILOT_ENABLE_LIVE_API_TESTS=ON, then run manually:
+#   ctest -R ProviderMatrix --output-on-failure
+option(MIDIPILOT_ENABLE_LIVE_API_TESTS "Register live provider API smoke tests" OFF)
+add_executable(test_provider_matrix
+    test_provider_matrix.cpp
+    ../src/ai/AiClient.cpp
+    ../src/ai/ModelListCache.cpp
+)
+target_include_directories(test_provider_matrix PRIVATE ../src/ai)
+target_link_libraries(test_provider_matrix PRIVATE
+    Qt6::Core
+    Qt6::Network
+    Qt6::Test
+)
+if(MIDIPILOT_ENABLE_LIVE_API_TESTS)
+    add_test(NAME ProviderMatrix COMMAND test_provider_matrix)
+    set_tests_properties(ProviderMatrix PROPERTIES
+        LABELS "live-api;slow"
+        TIMEOUT 600
+    )
+endif()
+
+# -----------------------------------------------------------------------------
+# test_streaming_fallback
+# -----------------------------------------------------------------------------
+# Unit-tests the per-(provider,model) streaming blocklist that backs the
+# auto-fallback to the non-streaming AiClient path (PHASE-27.7). Pure
+# QSettings + AiClient public API — no network, no live keys required.
+# Sandboxes its own provider/model names with a per-PID suffix and restores
+# AI/api_key + AI/provider + AI/model around the run, so the user's
+# MidiPilot config is never touched.
+add_executable(test_streaming_fallback
+    test_streaming_fallback.cpp
+    ../src/ai/AiClient.cpp
+    ../src/ai/ModelListCache.cpp
+)
+target_include_directories(test_streaming_fallback PRIVATE ../src/ai)
+target_link_libraries(test_streaming_fallback PRIVATE
+    Qt6::Core
+    Qt6::Network
+    Qt6::Test
+)
+add_test(NAME StreamingFallback COMMAND test_streaming_fallback)
+
+# -----------------------------------------------------------------------------
 # test_channel_visibility_manager
 # -----------------------------------------------------------------------------
 # Validates the in-memory ChannelVisibilityManager singleton (defaults, the
@@ -555,9 +693,17 @@ if(WIN32)
         ChannelEvents
         MidiEventBase
         MmlConverter
+        ModelFavorites
+        AgentRunnerState
+        AgentToolPolicy
+        StreamingFallback
         PROPERTIES
             ENVIRONMENT "PATH=${_qt_bin_dir};$ENV{PATH}"
     )
+    if(MIDIPILOT_ENABLE_LIVE_API_TESTS)
+        set_tests_properties(ProviderMatrix PROPERTIES
+            ENVIRONMENT "PATH=${_qt_bin_dir};$ENV{PATH}")
+    endif()
     if(TARGET test_gp_unzip)
         set_tests_properties(GpUnzip PROPERTIES
             ENVIRONMENT "PATH=${_qt_bin_dir};$ENV{PATH}")

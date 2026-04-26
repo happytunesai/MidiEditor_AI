@@ -4,6 +4,7 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QPushButton>
+#include <QStyle>
 #include <QScrollArea>
 #include <QScrollBar>
 #include <QJsonDocument>
@@ -13,6 +14,7 @@
 #include <QFrame>
 #include <QTime>
 #include <QTimer>
+#include <QPointer>
 #include <QSet>
 #include <QSettings>
 #include <QKeyEvent>
@@ -22,6 +24,10 @@
 #include <QCheckBox>
 #include <QMessageBox>
 #include <QMenu>
+#include <QDialog>
+#include <QLineEdit>
+#include <QScreen>
+#include <QDateTime>
 #include <QClipboard>
 #include <QFile>
 #include <QFileDialog>
@@ -38,6 +44,11 @@
 #include "../ai/EditorContext.h"
 #include "../ai/MidiEventSerializer.h"
 #include "../ai/ConversationStore.h"
+#include "../ai/ModelFavorites.h"
+#include "../ai/ModelListCache.h"
+#include "../ai/ModelListFetcher.h"
+#include "../ai/PromptProfileStore.h"
+#include "PromptProfilesDialog.h"
 #include "../tool/Selection.h"
 #include "../tool/NewNoteTool.h"
 #include "../midi/MidiFile.h"
@@ -120,7 +131,7 @@ public:
         layout->setContentsMargins(8, 6, 8, 6);
         layout->setSpacing(0);
 
-        bool dark = Appearance::isDarkModeEnabled();
+        bool dark = Appearance::shouldUseDarkMode();
 
         // Header with collapse/expand toggle
         _headerBtn = new QPushButton(this);
@@ -154,7 +165,7 @@ public:
 
     void addStep(int step, const QString &label) {
         if (_stepLabels.contains(step)) return;  // Already planned
-        bool dark = Appearance::isDarkModeEnabled();
+        bool dark = Appearance::shouldUseDarkMode();
         QLabel *lbl = new QLabel(
             QString("\xE2\x8F\xB3 %1").arg(label), _stepsContainer);  // ⏳
         lbl->setStyleSheet(
@@ -175,7 +186,7 @@ public:
 
     void markActive(int step) {
         if (!_stepLabels.contains(step)) return;
-        bool dark = Appearance::isDarkModeEnabled();
+        bool dark = Appearance::shouldUseDarkMode();
         QLabel *label = _stepLabels[step];
         QString name = _stepNames[step];
         label->setText(QString("\xF0\x9F\x94\x84 %1").arg(name));  // 🔄
@@ -186,7 +197,7 @@ public:
 
     void completeStep(int step, bool success, bool recoverable = false) {
         if (!_stepLabels.contains(step)) return;
-        bool dark = Appearance::isDarkModeEnabled();
+        bool dark = Appearance::shouldUseDarkMode();
         QLabel *label = _stepLabels[step];
         QString name = _stepNames[step];
         if (success) {
@@ -251,11 +262,17 @@ private:
 
 MidiPilotWidget::MidiPilotWidget(MainWindow *mainWindow, QWidget *parent)
     : QWidget(parent), _mainWindow(mainWindow), _file(nullptr),
-      _isAgentRunning(false), _agentStepsWidget(nullptr), _streamBubble(nullptr),
-      _streamIsJson(false) {
+      _isAgentRunning(false), _agentStepsWidget(nullptr),
+      _agentDockArea(nullptr), _streamBubble(nullptr),
+      _streamIsJson(false),
+      _simpleRetryCount(0), _simpleMaxRetries(3),
+      _thoughtLabel(nullptr), _thoughtCursorTimer(nullptr),
+      _thoughtCursorOn(true), _thoughtCursorFrame(0),
+      _turnStartMs(0), _turnStreamed(false) {
 
     _client = new AiClient(this);
     _agentRunner = new AgentRunner(_client, this);
+    _profileStore = new PromptProfileStore(this);
 
     _saveTimer = new QTimer(this);
     _saveTimer->setSingleShot(true);
@@ -272,12 +289,115 @@ MidiPilotWidget::MidiPilotWidget(MainWindow *mainWindow, QWidget *parent)
     connect(_client, &AiClient::streamDelta, this, &MidiPilotWidget::onStreamDelta);
     connect(_client, &AiClient::streamFinished, this, &MidiPilotWidget::onStreamFinished);
 
+    // Agent-mode live text streaming. Reuses _streamBubble — most agent
+    // round-trips return tool_calls only (no text), so in practice the
+    // bubble only fills up during the final summarising round. The bubble
+    // is removed in onAgentFinished / onAgentError before the proper final
+    // assistant bubble is rendered.
+    connect(_client, &AiClient::streamAssistantTextDelta, this,
+            [this](const QString &text) {
+        if (!_isAgentRunning) return;
+        if (!_streamBubble) {
+            bool dark = Appearance::shouldUseDarkMode();
+            _streamBubble = new QLabel(_chatContainer);
+            _streamBubble->setWordWrap(true);
+            // Render assistant streaming as Markdown so **bold**, *italics*,
+            // `code`, fenced blocks and bullet lists appear formatted instead
+            // of as raw asterisks. QLabel re-parses on every setText() call so
+            // incremental streaming updates render correctly.
+            _streamBubble->setTextFormat(Qt::MarkdownText);
+            _streamBubble->setStyleSheet(
+                QString("background-color: %1; color: %2; padding: 10px 14px; "
+                        "border-radius: 12px; font-size: 13px; margin-right: 40px;")
+                    .arg(dark ? "#2A2A2A" : "#F5F5F0",
+                         dark ? "#DDD" : "#333"));
+            _chatLayout->addWidget(_streamBubble);
+        }
+        _streamBubble->setText(_streamBubble->text() + text);
+        _turnStreamed = true;
+        QTimer::singleShot(10, this, [this]() {
+            _chatScroll->verticalScrollBar()->setValue(
+                _chatScroll->verticalScrollBar()->maximum());
+        });
+    });
+
+    // Live "thought" / reasoning streaming. Rendered as gray italic text
+    // inline in the chat (NOT a speech bubble) with a rotating spinner
+    // ("thinking" animation) while new chunks keep arriving. Persists in
+    // chat history after the agent finishes — only the pointer is reset
+    // on the next user send so the next request gets a fresh label.
+    _thoughtCursorTimer = new QTimer(this);
+    _thoughtCursorTimer->setInterval(120); // ~8 fps for smooth rotation
+    _thoughtCursorFrame = 0;
+    connect(_thoughtCursorTimer, &QTimer::timeout, this, [this]() {
+        if (!_thoughtLabel) return;
+        // Braille spinner: smoother than ASCII | / - \ and renders well in Qt.
+        static const QStringList kFrames = {
+            QStringLiteral("⠋"), QStringLiteral("⠙"), QStringLiteral("⠹"), QStringLiteral("⠸"),
+            QStringLiteral("⠼"), QStringLiteral("⠴"), QStringLiteral("⠦"), QStringLiteral("⠧"),
+            QStringLiteral("⠇"), QStringLiteral("⠏")
+        };
+        _thoughtCursorFrame = (_thoughtCursorFrame + 1) % kFrames.size();
+        _thoughtLabel->setText(_thoughtBaseText
+                               + QStringLiteral(" ")
+                               + kFrames.at(_thoughtCursorFrame));
+    });
+
+    connect(_client, &AiClient::streamReasoningDelta, this,
+            [this](const QString &text) {
+        if (text.isEmpty()) return;
+        if (!_thoughtLabel) {
+            bool dark = Appearance::shouldUseDarkMode();
+            _thoughtLabel = new QLabel(_chatContainer);
+            _thoughtLabel->setWordWrap(true);
+            // Render reasoning text as Markdown so the model's section
+            // headers like **Planning chord measures** do not leak as raw
+            // asterisks. The trailing braille spinner glyph is harmless to
+            // the Markdown parser.
+            _thoughtLabel->setTextFormat(Qt::MarkdownText);
+            // Dark mode used to be #888 on near-black which was barely
+            // readable. Bump to #C8C8C8 text + #707070 border for a clear
+            // "secondary text" contrast that still reads as italic/quiet.
+            _thoughtLabel->setStyleSheet(
+                QString("background: transparent; color: %1; "
+                        "font-style: italic; font-size: 12px; "
+                        "padding: 4px 8px; margin: 2px 40px 2px 8px; "
+                        "border-left: 2px solid %2;")
+                    .arg(dark ? "#C8C8C8" : "#666",
+                         dark ? "#707070" : "#CCC"));
+            _thoughtBaseText = QStringLiteral("💭 ");
+            _chatLayout->addWidget(_thoughtLabel);
+            _thoughtCursorOn = true;
+            _thoughtCursorFrame = 0;
+            _thoughtCursorTimer->start();
+        }
+        _thoughtBaseText += text;
+        _turnReasoning += text;
+        _turnStreamed = true;
+        _thoughtCursorOn = true;
+        _thoughtLabel->setText(_thoughtBaseText + QStringLiteral(" ⠋"));
+        QTimer::singleShot(10, this, [this]() {
+            _chatScroll->verticalScrollBar()->setValue(
+                _chatScroll->verticalScrollBar()->maximum());
+        });
+    });
     connect(_agentRunner, &AgentRunner::stepsPlanned, this, &MidiPilotWidget::onAgentStepsPlanned);
     connect(_agentRunner, &AgentRunner::stepStarted, this, &MidiPilotWidget::onAgentStepStarted);
     connect(_agentRunner, &AgentRunner::stepCompleted, this, &MidiPilotWidget::onAgentStepCompleted);
     connect(_agentRunner, &AgentRunner::finished, this, &MidiPilotWidget::onAgentFinished);
     connect(_agentRunner, &AgentRunner::errorOccurred, this, &MidiPilotWidget::onAgentError);
     connect(_agentRunner, &AgentRunner::stepLimitReached, this, &MidiPilotWidget::onAgentStepLimitReached);
+    connect(_agentRunner, &AgentRunner::agentRetrying, this,
+            [this](int attempt, int maxAttempts, const QString &reason) {
+        // Surface self-healing retries to the user as a system bubble so
+        // the chat doesn't look frozen while the agent recovers.
+        QString shortReason = reason;
+        if (shortReason.length() > 160) shortReason = shortReason.left(157) + QStringLiteral("...");
+        addChatBubble(QStringLiteral("system"),
+                      QStringLiteral("\u26A0 Agent self-healing retry %1/%2: %3")
+                          .arg(attempt).arg(maxAttempts).arg(shortReason));
+        setStatus(QString("Retrying (%1/%2)...").arg(attempt).arg(maxAttempts), "orange");
+    });
     connect(_agentRunner, &AgentRunner::tokenUsageUpdated, this, [this](int pt, int ct, int /*tt*/) {
         _lastPromptTokens = pt;
         _lastCompletionTokens = ct;
@@ -331,6 +451,17 @@ void MidiPilotWidget::setupUi() {
 
     _chatScroll->setWidget(_chatContainer);
     mainLayout->addWidget(_chatScroll, 1);
+
+    // === Anchored "Agent Steps" dock (between chat scroll and input) ===
+    // The AgentStepsWidget is placed here instead of inside _chatLayout so it
+    // stays pinned at the bottom of the chat area while the thoughts/messages
+    // scroll above it.
+    _agentDockArea = new QWidget(this);
+    QVBoxLayout *dockLayout = new QVBoxLayout(_agentDockArea);
+    dockLayout->setContentsMargins(4, 0, 4, 0);
+    dockLayout->setSpacing(0);
+    _agentDockArea->setVisible(false);
+    mainLayout->addWidget(_agentDockArea);
 
     // === Setup Prompt (shown when no API key, overlaps chat area) ===
     _setupWidget = new QWidget(this);
@@ -611,6 +742,14 @@ void MidiPilotWidget::setupUi() {
             this, &MidiPilotWidget::onModelComboChanged);
     footerLayout->addWidget(_modelCombo);
 
+    _refreshModelsButton = new QPushButton(this);
+    _refreshModelsButton->setIcon(style()->standardIcon(QStyle::SP_BrowserReload));
+    _refreshModelsButton->setIconSize(QSize(14, 14));
+    _refreshModelsButton->setToolTip(tr("Refresh model list from provider"));
+    _refreshModelsButton->setFixedSize(22, 20);
+    connect(_refreshModelsButton, &QPushButton::clicked, this, &MidiPilotWidget::onRefreshModels);
+    footerLayout->addWidget(_refreshModelsButton);
+
     _effortCombo = new QComboBox(this);
     _effortCombo->addItem(QString::fromUtf8("\xF0\x9F\x92\xAD off"), "none");
     _effortCombo->addItem(QString::fromUtf8("\xF0\x9F\x92\xAD low"), "low");
@@ -632,7 +771,12 @@ void MidiPilotWidget::setupUi() {
     settingsBtn->setFlat(true);
     settingsBtn->setStyleSheet("font-size: 14px;");
     QMenu *settingsMenu = new QMenu(settingsBtn);
-    settingsMenu->addAction("Open AI Settings...", this, &MidiPilotWidget::onSettingsClicked);
+    settingsMenu->addAction("MidiPilot Settings...", this, &MidiPilotWidget::onSettingsClicked);
+    settingsMenu->addSeparator();
+    settingsMenu->addAction(tr("Prompt Profiles\u2026"), this, [this]() {
+        PromptProfilesDialog dlg(_profileStore, this);
+        dlg.exec();
+    });
     settingsMenu->addSeparator();
     settingsMenu->addAction("Save AI preset for this file...", this, &MidiPilotWidget::savePresetForFile);
     connect(settingsBtn, &QPushButton::clicked, settingsBtn, [settingsBtn, settingsMenu]() {
@@ -687,33 +831,120 @@ void MidiPilotWidget::populateFooterModels() {
     _modelCombo->clear();
     QString provider = _client->provider();
 
+    auto addModel = [this, &provider](const QString &label, const QString &id) {
+        QString itemLabel = label.isEmpty() ? id : label;
+        const bool simpleBlocked = AiClient::streamingBlockedForSession(provider, id, false);
+        const bool agentBlocked  = AiClient::streamingBlockedForSession(provider, id, true);
+        if (simpleBlocked || agentBlocked) {
+            QString suffix;
+            QString tip;
+            if (simpleBlocked && agentBlocked) {
+                suffix = tr(" (Simple+Agent)");
+                tip = tr("Live streaming failed for this model in both Simple and Agent mode this session. Open MidiPilot Settings and click Force Streaming to try again.");
+            } else if (simpleBlocked) {
+                suffix = tr(" (Simple)");
+                tip = tr("Live streaming failed in Simple Mode this session. Agent Mode still streams. Open MidiPilot Settings and click Force Streaming to retry.");
+            } else {
+                suffix = tr(" (Agent)");
+                tip = tr("Live streaming failed in Agent Mode this session. Simple Mode still streams. Open MidiPilot Settings and click Force Streaming to retry.");
+            }
+            itemLabel = tr("⚠ %1%2").arg(itemLabel, suffix);
+            _modelCombo->addItem(itemLabel, id);
+            _modelCombo->setItemData(_modelCombo->count() - 1, tip, Qt::ToolTipRole);
+        } else {
+            _modelCombo->addItem(itemLabel, id);
+        }
+    };
+
+    // Phase 26: prefer cached entries from <userdata>/midipilot_models.json
+    // Phase 26.1: ModelFavorites filters non-LLM models out and, if the user
+    // has selected favourites, restricts the visible set to those.
+    QJsonArray cached = ModelListCache::models(provider);
+    QJsonArray visible = ModelFavorites::visibleModels(provider, cached);
+    if (!visible.isEmpty()) {
+        for (const QJsonValue &v : visible) {
+            QJsonObject m = v.toObject();
+            QString id = m.value(QStringLiteral("id")).toString();
+            QString display = m.value(QStringLiteral("displayName")).toString();
+            if (id.isEmpty())
+                continue;
+            addModel(display, id);
+        }
+        return;
+    }
+
+    // Fallback: built-in hardcoded list
     if (provider == "openrouter") {
-        _modelCombo->addItem("openai/gpt-5.4", "openai/gpt-5.4");
-        _modelCombo->addItem("openai/gpt-4.1", "openai/gpt-4.1");
-        _modelCombo->addItem("anthropic/claude-sonnet-4", "anthropic/claude-sonnet-4");
-        _modelCombo->addItem("google/gemini-2.5-pro", "google/gemini-2.5-pro");
-        _modelCombo->addItem("google/gemini-2.5-flash", "google/gemini-2.5-flash");
+        addModel("openai/gpt-5.4", "openai/gpt-5.4");
+        addModel("openai/gpt-4.1", "openai/gpt-4.1");
+        addModel("anthropic/claude-sonnet-4", "anthropic/claude-sonnet-4");
+        addModel("google/gemini-2.5-pro", "google/gemini-2.5-pro");
+        addModel("google/gemini-2.5-flash", "google/gemini-2.5-flash");
     } else if (provider == "gemini") {
-        _modelCombo->addItem("gemini-2.5-flash", "gemini-2.5-flash");
-        _modelCombo->addItem("gemini-2.5-flash-lite", "gemini-2.5-flash-lite");
-        _modelCombo->addItem("gemini-2.5-pro", "gemini-2.5-pro");
-        _modelCombo->addItem("gemini-3-flash", "gemini-3-flash-preview");
-        _modelCombo->addItem("gemini-3.1-flash-lite", "gemini-3.1-flash-lite-preview");
-        _modelCombo->addItem("gemini-3.1-pro", "gemini-3.1-pro-preview");
+        addModel("gemini-2.5-flash", "gemini-2.5-flash");
+        addModel("gemini-2.5-flash-lite", "gemini-2.5-flash-lite");
+        addModel("gemini-2.5-pro", "gemini-2.5-pro");
+        addModel("gemini-3-flash", "gemini-3-flash-preview");
+        addModel("gemini-3.1-flash-lite", "gemini-3.1-flash-lite-preview");
+        addModel("gemini-3.1-pro", "gemini-3.1-pro-preview");
     } else {
         // OpenAI or custom — show OpenAI models
-        _modelCombo->addItem("gpt-4o-mini", "gpt-4o-mini");
-        _modelCombo->addItem("gpt-4o", "gpt-4o");
-        _modelCombo->addItem("gpt-4.1-nano", "gpt-4.1-nano");
-        _modelCombo->addItem("gpt-4.1-mini", "gpt-4.1-mini");
-        _modelCombo->addItem("gpt-4.1", "gpt-4.1");
-        _modelCombo->addItem("gpt-5", "gpt-5");
-        _modelCombo->addItem("gpt-5-mini", "gpt-5-mini");
-        _modelCombo->addItem("gpt-5.4", "gpt-5.4");
-        _modelCombo->addItem("gpt-5.4-mini", "gpt-5.4-mini");
-        _modelCombo->addItem("gpt-5.4-nano", "gpt-5.4-nano");
-        _modelCombo->addItem("o4-mini", "o4-mini");
+        addModel("gpt-4o-mini", "gpt-4o-mini");
+        addModel("gpt-4o", "gpt-4o");
+        addModel("gpt-4.1-nano", "gpt-4.1-nano");
+        addModel("gpt-4.1-mini", "gpt-4.1-mini");
+        addModel("gpt-4.1", "gpt-4.1");
+        addModel("gpt-5", "gpt-5");
+        addModel("gpt-5-mini", "gpt-5-mini");
+        addModel("gpt-5.4", "gpt-5.4");
+        addModel("gpt-5.4-mini", "gpt-5.4-mini");
+        addModel("gpt-5.4-nano", "gpt-5.4-nano");
+        addModel("o4-mini", "o4-mini");
     }
+}
+
+void MidiPilotWidget::onRefreshModels()
+{
+    QString provider = _client->provider();
+    QString apiKey = _client->apiKey();
+    QString baseUrl = _client->apiBaseUrl();
+
+    if (_refreshModelsButton)
+        _refreshModelsButton->setEnabled(false);
+    setStatus(tr("Fetching models from %1\xE2\x80\xA6").arg(provider), "gray");
+
+    auto *fetcher = new ModelListFetcher(this);
+    connect(fetcher, &ModelListFetcher::finished,
+            this, &MidiPilotWidget::onModelsFetched);
+    connect(fetcher, &ModelListFetcher::failed,
+            this, &MidiPilotWidget::onModelsFetchFailed);
+    fetcher->fetch(provider, apiKey, baseUrl);
+}
+
+void MidiPilotWidget::onModelsFetched(const QString &provider, const QJsonArray &models)
+{
+    ModelListCache::store(provider, models);
+    if (_refreshModelsButton)
+        _refreshModelsButton->setEnabled(true);
+
+    if (_client->provider() == provider) {
+        QString currentText = _modelCombo->currentText();
+        populateFooterModels();
+        int idx = _modelCombo->findData(currentText);
+        if (idx >= 0)
+            _modelCombo->setCurrentIndex(idx);
+        else
+            _modelCombo->setEditText(currentText);
+    }
+    setStatus(tr("Models updated (%1 entries)").arg(models.size()), "green");
+}
+
+void MidiPilotWidget::onModelsFetchFailed(const QString &provider, const QString &error)
+{
+    Q_UNUSED(provider);
+    if (_refreshModelsButton)
+        _refreshModelsButton->setEnabled(true);
+    setStatus(tr("Model refresh failed: %1").arg(error), "red");
 }
 
 void MidiPilotWidget::refreshContext() {
@@ -782,6 +1013,7 @@ void MidiPilotWidget::onNewChat() {
     _saveTimer->stop();
     doSaveConversation();
     _conversationId.clear();
+    _turns = QJsonArray();
     AiClient::clearLog();
 
     // Reset token counters
@@ -861,6 +1093,12 @@ void MidiPilotWidget::onSendMessage() {
 
     QString fullMessage = QJsonDocument(userPayload).toJson(QJsonDocument::Compact);
 
+    // Begin a fresh per-turn metadata record. resetTurnState() captures
+    // the start timestamp, current model/provider/effort and clears the
+    // reasoning + steps accumulators. The record is sealed by
+    // finalizeTurn() in onAgentFinished/onAgentError or onResponseReceived.
+    resetTurnState();
+
     // Store in conversation history
     ConversationEntry entry;
     entry.role = "user";
@@ -876,6 +1114,23 @@ void MidiPilotWidget::onSendMessage() {
     _sendButton->setEnabled(false);
 
     if (currentMode() == "agent") {
+        // Pre-flight capability check — if we previously observed that
+        // the chosen model has no tool-calling support, don't even try
+        // (would just return HTTP 404 again). Surface a friendly bubble
+        // and bail out cleanly.
+        if (_client->toolsIncapableForCurrentModel()) {
+            setStatus("Model does not support tools", "red");
+            _inputField->setEnabled(true);
+            _sendButton->setEnabled(true);
+            addChatBubble(QStringLiteral("system"),
+                tr("⚠ The selected model does not support tool calling and "
+                   "cannot be used in Agent mode.\n\n"
+                   "Pick a different model in Settings → AI (look for "
+                   "tool/function-calling support), or switch this chat "
+                   "to Simple mode."));
+            return;
+        }
+
         // Agent Mode: use AgentRunner with tool-calling loop
         // Add user message to history (AgentRunner reads it from there)
         QJsonObject userMsg;
@@ -888,12 +1143,37 @@ void MidiPilotWidget::onSendMessage() {
         _sendButton->setVisible(false);
         _stopButton->setVisible(true);
 
-        // Create collapsible steps widget in chat area
-        AgentStepsWidget *stepsWidget = new AgentStepsWidget(_chatContainer);
+        // Reset the thought label pointer so the next streamReasoningDelta
+        // creates a fresh label for THIS request. The previous request's
+        // thought label stays in the chat layout as part of history.
+        _thoughtLabel = nullptr;
+        _thoughtBaseText.clear();
+        _thoughtCursorOn = true;
+
+        // Create collapsible steps widget — anchored at the bottom of the
+        // chat area (in _agentDockArea) so it stays visible while thoughts
+        // and messages scroll above it.
+        AgentStepsWidget *stepsWidget = new AgentStepsWidget(_agentDockArea);
         _agentStepsWidget = stepsWidget;
-        _chatLayout->addWidget(stepsWidget);
+        _agentDockArea->layout()->addWidget(stepsWidget);
+        _agentDockArea->setVisible(true);
 
         QString agentPrompt = EditorContext::agentSystemPrompt();
+        // Phase 29: layer per-model prompt profile (e.g. GPT-5.5 Decisive)
+        // on top. resolveForModel returns an empty profile when nothing
+        // matches, in which case agentPrompt stays unchanged. We pass the
+        // already-customised editor prompt as BOTH default and userCustom
+        // so the resolve helper preserves the user's custom prompt as the
+        // base for append-mode profiles.
+        {
+            const PromptProfile pp = _profileStore->resolveForModel(
+                _client->provider(), _client->model());
+            if (!pp.id.isEmpty()) {
+                agentPrompt = pp.appendToDefault
+                                  ? agentPrompt + QStringLiteral("\n\n") + pp.system
+                                  : pp.system;
+            }
+        }
         if (ffxivMode()) {
             // Detect which optional sections the file needs
             bool hasDrums = false, hasGuitar = false;
@@ -928,6 +1208,16 @@ void MidiPilotWidget::onSendMessage() {
     } else {
         // Simple Mode: use streaming for incremental text display
         QString simplePrompt = EditorContext::systemPrompt();
+        // Phase 29: per-model prompt profile layered on top.
+        {
+            const PromptProfile pp = _profileStore->resolveForModel(
+                _client->provider(), _client->model());
+            if (!pp.id.isEmpty()) {
+                simplePrompt = pp.appendToDefault
+                                  ? simplePrompt + QStringLiteral("\n\n") + pp.system
+                                  : pp.system;
+            }
+        }
         if (ffxivMode()) {
             // Low effort → compact prompt to save tokens
             if (_client->reasoningEffort() == QStringLiteral("low")) {
@@ -961,6 +1251,15 @@ void MidiPilotWidget::onSendMessage() {
 
         _client->sendStreamingRequest(simplePrompt,
                                        historyForApi, fullMessage);
+        // Stash for self-healing retry on transient errors.
+        _lastSimpleSystemPrompt = simplePrompt;
+        _lastSimpleHistory = historyForApi;
+        _lastSimpleMessage = fullMessage;
+        _simpleRetryCount = 0;
+        QSettings _retrySettings(QStringLiteral("MidiEditor"), QStringLiteral("NONE"));
+        _simpleMaxRetries = _retrySettings.value(QStringLiteral("AI/simple_max_retries"), 3).toInt();
+        if (_simpleMaxRetries < 0) _simpleMaxRetries = 0;
+        if (_simpleMaxRetries > 10) _simpleMaxRetries = 10;
         // Add user message to history AFTER constructing the request
         QJsonObject userMsg;
         userMsg["role"] = "user";
@@ -972,6 +1271,10 @@ void MidiPilotWidget::onSendMessage() {
 void MidiPilotWidget::onResponseReceived(const QString &content, const QJsonObject &fullResponse) {
     // Ignore AiClient signals during Agent Mode (AgentRunner handles them)
     if (_isAgentRunning) return;
+
+    // Successful response — reset the simple-mode self-healing retry counter.
+    _simpleRetryCount = 0;
+    _lastSimpleMessage.clear();
 
     // Extract token usage
     QJsonObject usage = fullResponse["usage"].toObject();
@@ -1005,6 +1308,8 @@ void MidiPilotWidget::onResponseReceived(const QString &content, const QJsonObje
     assistantMsg["role"] = "assistant";
     assistantMsg["content"] = content;
     _conversationHistory.append(assistantMsg);
+
+    finalizeTurn(content, QStringLiteral("ok"));
 
     // Strip markdown JSON fencing if present (```json ... ```)
     QString cleaned = content.trimmed();
@@ -1092,16 +1397,18 @@ void MidiPilotWidget::onStreamDelta(const QString &text) {
     // Ignore during Agent mode
     if (_isAgentRunning) return;
 
-    // On first delta, detect if the response is a JSON action — if so, suppress
-    // visual streaming and let onStreamFinished dispatch it.
-    if (!_streamBubble && !_streamIsJson) {
+    // On first delta, detect if the response is a JSON action so we can
+    // render it in a subdued monospace "composing" bubble (vs. a regular
+    // text bubble for natural-language replies). Either way we now show
+    // live streaming feedback — matching agent-mode parity.
+    if (!_streamBubble) {
         QString trimmed = text.trimmed();
-        if (trimmed.startsWith('{') || trimmed.startsWith('[') || trimmed.startsWith("```")) {
-            _streamIsJson = true;
-            return;
-        }
+        bool looksJson = trimmed.startsWith('{')
+                      || trimmed.startsWith('[')
+                      || trimmed.startsWith("```");
+        _streamIsJson = looksJson;
 
-        // Remove "Thinking..." indicator if present
+        // Remove "Thinking..." indicator if present (text + JSON paths)
         if (_chatLayout->count() > 1) {
             QLayoutItem *lastItem = _chatLayout->itemAt(_chatLayout->count() - 1);
             if (lastItem && lastItem->widget()) {
@@ -1114,24 +1421,44 @@ void MidiPilotWidget::onStreamDelta(const QString &text) {
             }
         }
 
-        // Create streaming bubble for text responses
-        bool dark = Appearance::isDarkModeEnabled();
+        bool dark = Appearance::shouldUseDarkMode();
         _streamBubble = new QLabel(_chatContainer);
         _streamBubble->setWordWrap(true);
-        _streamBubble->setTextFormat(Qt::PlainText);
-        _streamBubble->setStyleSheet(
-            QString("background-color: %1; color: %2; padding: 10px 14px; "
-                    "border-radius: 12px; font-size: 13px; margin-right: 40px;")
-                .arg(dark ? "#2A2A2A" : "#F5F5F0",
-                     dark ? "#DDD" : "#333"));
+        // For non-JSON streamed text we want Markdown rendering. The JSON
+        // branch below replaces the styling but keeps the format flag so the
+        // raw payload is still shown verbatim if needed (it is hidden via
+        // styling anyway and replaced on completion).
+        _streamBubble->setTextFormat(looksJson ? Qt::PlainText : Qt::MarkdownText);
+        if (looksJson) {
+            // Subdued "preparing action" indicator — JSON payload is NOT
+            // shown to the user; the parsed action result replaces this
+            // bubble in onStreamFinished.
+            _streamBubble->setStyleSheet(
+                QString("background-color: %1; color: %2; padding: 6px 10px; "
+                        "border-radius: 8px; font-size: 12px; margin-right: 40px; "
+                        "font-style: italic; border-left: 2px solid %3;")
+                    .arg(dark ? "#1E1E1E" : "#F0F0F0",
+                         dark ? "#888"    : "#666",
+                         dark ? "#444"    : "#CCC"));
+            _streamBubble->setText(QStringLiteral("⚙ Composing actions…"));
+        } else {
+            _streamBubble->setStyleSheet(
+                QString("background-color: %1; color: %2; padding: 10px 14px; "
+                        "border-radius: 12px; font-size: 13px; margin-right: 40px;")
+                    .arg(dark ? "#2A2A2A" : "#F5F5F0",
+                         dark ? "#DDD" : "#333"));
+        }
         _chatLayout->addWidget(_streamBubble);
     }
 
-    // JSON action mode — buffer silently
-    if (_streamIsJson) return;
+    if (!_streamBubble) return;
 
-    if (_streamBubble)
+    if (_streamIsJson) {
+        // JSON action mode — keep static "Composing actions…" indicator,
+        // do NOT leak raw payload into the chat.
+    } else {
         _streamBubble->setText(_streamBubble->text() + text);
+    }
 
     // Auto-scroll to bottom
     QTimer::singleShot(10, this, [this]() {
@@ -1185,6 +1512,73 @@ void MidiPilotWidget::onErrorOccurred(const QString &errorMessage) {
         _streamBubble = nullptr;
     }
 
+    // Self-healing retry for simple mode — mirror agent-mode classification.
+    // Recoverable categories: malformed/empty/MAX_TOKENS/network. We retry
+    // by replaying the stashed request with exponential backoff.
+    auto isRetriable = [](const QString &err) {
+        QString l = err.toLower();
+        return l.contains(QStringLiteral("malformed"))
+            || l.contains(QStringLiteral("max_tokens"))
+            || l.contains(QStringLiteral("max tokens"))
+            || l.contains(QStringLiteral("cut off"))
+            || l.contains(QStringLiteral("truncated"))
+            || l.contains(QStringLiteral("empty response"))
+            || l.contains(QStringLiteral("ended without output"))
+            || l.contains(QStringLiteral("no text and no tool call"))
+            || l.contains(QStringLiteral("timeout"))
+            || l.contains(QStringLiteral("timed out"))
+            || l.contains(QStringLiteral("connection"))
+            || l.contains(QStringLiteral("network"))
+            || l.contains(QStringLiteral("http 5"))
+            || l.contains(QStringLiteral("500"))
+            || l.contains(QStringLiteral("502"))
+            || l.contains(QStringLiteral("503"))
+            || l.contains(QStringLiteral("504"))
+            || l.contains(QStringLiteral("429"))
+            // OpenRouter routes to a different provider on retry — its
+            // "Provider returned error" / provider_name HTTP 400s are
+            // effectively transient.
+            || l.contains(QStringLiteral("provider returned error"))
+            || l.contains(QStringLiteral("provider_name"))
+            || (l.contains(QStringLiteral("http 400"))
+                && l.contains(QStringLiteral("openrouter")));
+    };
+
+    if (!_lastSimpleMessage.isEmpty()
+        && _simpleRetryCount < _simpleMaxRetries
+        && isRetriable(errorMessage)) {
+        _simpleRetryCount++;
+        QString shortReason = errorMessage;
+        if (shortReason.length() > 160) shortReason = shortReason.left(157) + QStringLiteral("...");
+        addChatBubble(QStringLiteral("system"),
+                      QStringLiteral("\u26A0 Self-healing retry %1/%2: %3")
+                          .arg(_simpleRetryCount).arg(_simpleMaxRetries).arg(shortReason));
+        setStatus(QString("Retrying (%1/%2)...").arg(_simpleRetryCount).arg(_simpleMaxRetries), "orange");
+
+        // Remove the user message we appended on the original send so
+        // the replay doesn't double-append it.
+        if (!_conversationHistory.isEmpty()) {
+            QJsonObject last = _conversationHistory.last().toObject();
+            if (last.value(QStringLiteral("role")).toString() == QStringLiteral("user")
+                && last.value(QStringLiteral("content")).toString() == _lastSimpleMessage) {
+                _conversationHistory.removeLast();
+            }
+        }
+
+        int delayMs = qMin(4000, 500 * (1 << (_simpleRetryCount - 1)));
+        QString sysP = _lastSimpleSystemPrompt;
+        QJsonArray hist = _lastSimpleHistory;
+        QString msg = _lastSimpleMessage;
+        QTimer::singleShot(delayMs, this, [this, sysP, hist, msg]() {
+            _client->sendStreamingRequest(sysP, hist, msg);
+            QJsonObject userMsg;
+            userMsg["role"] = "user";
+            userMsg["content"] = msg;
+            _conversationHistory.append(userMsg);
+        });
+        return;
+    }
+
     // Remove "thinking" indicator if present (check text before removing)
     if (_chatLayout->count() > 1) {
         QLayoutItem *last = _chatLayout->itemAt(_chatLayout->count() - 1);
@@ -1202,7 +1596,12 @@ void MidiPilotWidget::onErrorOccurred(const QString &errorMessage) {
     _inputField->setEnabled(true);
     _sendButton->setEnabled(true);
 
-    addChatBubble("system", "Error: " + errorMessage);
+    QString surfaced = errorMessage;
+    if (_simpleRetryCount > 0)
+        surfaced = QStringLiteral("%1 (after %2 retry attempts)").arg(errorMessage).arg(_simpleRetryCount);
+    addChatBubble("system", "Error: " + surfaced);
+    _simpleRetryCount = 0;
+    _lastSimpleMessage.clear();
 }
 
 void MidiPilotWidget::onSettingsClicked() {
@@ -1359,6 +1758,33 @@ void MidiPilotWidget::onAgentStepsPlanned(int firstStep, const QStringList &tool
 void MidiPilotWidget::onAgentStepStarted(int step, const QString &toolName) {
     setStatus(QString("Agent step %1: %2...").arg(step).arg(toolName), "orange");
 
+    // "Seal" the current thought block (if any) by appending a footer that
+    // links it to the tool call it triggered, then drop the pointer so the
+    // NEXT reasoning delta starts a fresh, separately framed thought block.
+    // This makes it visually obvious which thoughts led to which step.
+    if (_thoughtLabel) {
+        if (_thoughtCursorTimer) _thoughtCursorTimer->stop();
+        QString footer = QStringLiteral("\n\n→ Step %1: %2").arg(step).arg(toolName);
+        _thoughtBaseText += footer;
+        _thoughtLabel->setText(_thoughtBaseText);
+        // Re-style the now-finalized thought block to highlight it.
+        // Dark mode: tint matches the green Steps panel below for visual
+        // grouping ("this thinking → these steps") and uses a bright
+        // off-white text colour so the italic prose stays readable.
+        // Light mode keeps the warm amber tint that worked there.
+        bool dark = Appearance::shouldUseDarkMode();
+        _thoughtLabel->setStyleSheet(
+            QString("background: %1; color: %2; "
+                    "font-style: italic; font-size: 12px; "
+                    "padding: 4px 8px; margin: 2px 40px 2px 8px; "
+                    "border-left: 3px solid %3;")
+                .arg(dark ? "rgba(76,175,80,0.10)" : "rgba(255,165,0,0.12)",
+                     dark ? "#ECECEC" : "#444",
+                     dark ? "#4CAF50" : "#E68A00"));
+        _thoughtLabel = nullptr;
+        _thoughtBaseText.clear();
+    }
+
     // Mark step as active (🔄) — it was already added by stepsPlanned
     if (_agentStepsWidget) {
         AgentStepsWidget *sw = static_cast<AgentStepsWidget *>(_agentStepsWidget);
@@ -1371,7 +1797,45 @@ void MidiPilotWidget::onAgentStepCompleted(int step, const QString &toolName, co
     Q_UNUSED(toolName);
     bool success = result["success"].toBool(true);
     bool recoverable = result["recoverable"].toBool(false);
-    setStatus(QString("Step %1: %2").arg(step).arg(success ? "OK" : (recoverable ? "retrying" : "failed")), "orange");
+    // Color-code the footer status to match the step outcome:
+    //   OK       → green   (matches the green check in the Steps widget)
+    //   retrying → orange  (still in progress)
+    //   failed   → red     (terminal failure)
+    QString label;
+    QString color;
+    if (success) {
+        label = QStringLiteral("OK");
+        color = QStringLiteral("green");
+    } else if (recoverable) {
+        label = QStringLiteral("retrying");
+        color = QStringLiteral("orange");
+    } else {
+        label = QStringLiteral("failed");
+        color = QStringLiteral("red");
+    }
+    setStatus(QString("Step %1: %2").arg(step).arg(label), color);
+
+    // For a successful step, the green flash is informational — if the
+    // agent loop is still in flight, return to the orange "Thinking…"
+    // status after a short delay so the user sees the cycling messages
+    // resume immediately and knows the loop is still progressing.
+    if (success) {
+        QPointer<MidiPilotWidget> self(this);
+        QTimer::singleShot(700, this, [self]() {
+            if (!self || !self->_isAgentRunning) return;
+            self->setStatus(QStringLiteral("Thinking\xE2\x80\xA6"), QStringLiteral("orange"));
+        });
+    }
+
+    // Record step in the per-turn metadata so it is persisted with the
+    // conversation. We only keep a compact summary (no large arg/result
+    // payloads) to keep the history file small.
+    QJsonObject stepEntry;
+    stepEntry[QStringLiteral("step")] = step;
+    stepEntry[QStringLiteral("tool")] = toolName;
+    stepEntry[QStringLiteral("success")] = success;
+    if (recoverable) stepEntry[QStringLiteral("recoverable")] = true;
+    _turnSteps.append(stepEntry);
 
     // Check off the step in the checklist
     if (_agentStepsWidget) {
@@ -1383,10 +1847,31 @@ void MidiPilotWidget::onAgentStepCompleted(int step, const QString &toolName, co
 void MidiPilotWidget::onAgentFinished(const QString &finalMessage) {
     _isAgentRunning = false;
 
-    // Mark steps widget as finished
+    // Stop the thought-cursor pulse and freeze the thought label at its
+    // final accumulated text (drop the trailing blinking cursor glyph).
+    if (_thoughtCursorTimer) _thoughtCursorTimer->stop();
+    if (_thoughtLabel) _thoughtLabel->setText(_thoughtBaseText);
+
+    // Remove the live-streaming bubble — about to be replaced by the proper
+    // final assistant bubble.
+    if (_streamBubble) {
+        _chatLayout->removeWidget(_streamBubble);
+        _streamBubble->deleteLater();
+        _streamBubble = nullptr;
+    }
+
+    // Mark steps widget as finished, then move it from the anchored dock
+    // back into the scrolling chat history. We insert it AFTER the final
+    // assistant bubble (below) so the reading order in the history is:
+    //   [thoughts]  →  [final response]  →  [steps]
+    // which matches the visual flow the user expects.
+    AgentStepsWidget *swToMove = nullptr;
     if (_agentStepsWidget) {
-        AgentStepsWidget *sw = static_cast<AgentStepsWidget *>(_agentStepsWidget);
-        sw->setFinished(true);
+        swToMove = static_cast<AgentStepsWidget *>(_agentStepsWidget);
+        swToMove->setFinished(true);
+        _agentDockArea->layout()->removeWidget(swToMove);
+        swToMove->setParent(_chatContainer);
+        _agentDockArea->setVisible(false);
         _agentStepsWidget = nullptr;
     }
 
@@ -1400,11 +1885,20 @@ void MidiPilotWidget::onAgentFinished(const QString &finalMessage) {
 
     addChatBubble("assistant", finalMessage);
 
+    // Now drop the steps widget in below the freshly added assistant bubble,
+    // still before the trailing stretch so it sticks to the bottom of history.
+    if (swToMove) {
+        int insertAt = _chatLayout->count() > 0 ? _chatLayout->count() - 1 : 0;
+        _chatLayout->insertWidget(insertAt, swToMove);
+    }
+
     // Store in conversation history
     QJsonObject assistantMsg;
     assistantMsg["role"] = "assistant";
     assistantMsg["content"] = finalMessage;
     _conversationHistory.append(assistantMsg);
+
+    finalizeTurn(finalMessage, QStringLiteral("ok"));
 
     ConversationEntry entry;
     entry.role = "assistant";
@@ -1419,10 +1913,28 @@ void MidiPilotWidget::onAgentFinished(const QString &finalMessage) {
 void MidiPilotWidget::onAgentError(const QString &error) {
     _isAgentRunning = false;
 
-    // Mark steps widget as failed
+    // Stop the thought-cursor pulse and freeze the thought label at its
+    // final accumulated text.
+    if (_thoughtCursorTimer) _thoughtCursorTimer->stop();
+    if (_thoughtLabel) _thoughtLabel->setText(_thoughtBaseText);
+
+    // Drop the in-flight live-streaming bubble (if any) before the error bubble.
+    if (_streamBubble) {
+        _chatLayout->removeWidget(_streamBubble);
+        _streamBubble->deleteLater();
+        _streamBubble = nullptr;
+    }
+
+    // Mark steps widget as failed, then move it from the anchored dock
+    // back into the scrolling chat history. Insert AFTER the error bubble
+    // so the reading order is [thoughts] → [error] → [steps].
+    AgentStepsWidget *swToMove = nullptr;
     if (_agentStepsWidget) {
-        AgentStepsWidget *sw = static_cast<AgentStepsWidget *>(_agentStepsWidget);
-        sw->setFinished(false);
+        swToMove = static_cast<AgentStepsWidget *>(_agentStepsWidget);
+        swToMove->setFinished(false);
+        _agentDockArea->layout()->removeWidget(swToMove);
+        swToMove->setParent(_chatContainer);
+        _agentDockArea->setVisible(false);
         _agentStepsWidget = nullptr;
     }
 
@@ -1435,6 +1947,14 @@ void MidiPilotWidget::onAgentError(const QString &error) {
     _sendButton->setEnabled(true);
 
     addChatBubble("system", "Agent error: " + error);
+
+    finalizeTurn(error, QStringLiteral("error"));
+    scheduleSave();
+
+    if (swToMove) {
+        int insertAt = _chatLayout->count() > 0 ? _chatLayout->count() - 1 : 0;
+        _chatLayout->insertWidget(insertAt, swToMove);
+    }
 }
 
 void MidiPilotWidget::onAgentStepLimitReached(int currentStep, int maxSteps) {
@@ -1460,7 +1980,7 @@ void MidiPilotWidget::onAgentStepLimitReached(int currentStep, int maxSteps) {
 }
 
 void MidiPilotWidget::addChatBubble(const QString &role, const QString &text) {
-    bool dark = Appearance::isDarkModeEnabled();
+    bool dark = Appearance::shouldUseDarkMode();
 
     // Timestamp label — small outlined pill above the bubble
     QString timestamp = QTime::currentTime().toString("HH:mm:ss");
@@ -1492,6 +2012,17 @@ void MidiPilotWidget::addChatBubble(const QString &role, const QString &text) {
     bubble->setWordWrap(true);
     bubble->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
     bubble->setContentsMargins(10, 6, 10, 6);
+    // Assistant replies often contain Markdown (bold, italics, bullet
+    // lists, inline `code`). Render them as Markdown so the visual output
+    // matches the rest of the app instead of leaking raw `**` and `*`
+    // tokens. User and system bubbles stay plain text — the user typed
+    // it themselves and system messages are short status strings.
+    if (role == QStringLiteral("assistant")) {
+        bubble->setTextFormat(Qt::MarkdownText);
+        bubble->setOpenExternalLinks(true);
+    } else {
+        bubble->setTextFormat(Qt::PlainText);
+    }
 
     // Custom styled context menu (Copy / Select All)
     bubble->setContextMenuPolicy(Qt::CustomContextMenu);
@@ -1569,7 +2100,11 @@ void MidiPilotWidget::setStatus(const QString &text, const QString &color) {
     _statusDots->setStyleSheet(
         QString("font-size: 13px; color: %1;").arg(dotColor));
 
-    if (isProcessing) {
+    // Keep the animated dots + cycling fun-messages running while either an
+    // explicit "processing" status is set OR the agent loop is still in
+    // flight (so a green "Step N: OK" flash does not freeze the bar between
+    // steps).
+    if (isProcessing || _isAgentRunning) {
         if (!_statusTimer->isActive()) {
             _dotPhase = 0;
             _msgPhase = 0;
@@ -2306,6 +2841,53 @@ QJsonArray MidiPilotWidget::truncateHistory(const QJsonArray &history, int conte
 
 // === Persistent Conversation History ===
 
+void MidiPilotWidget::resetTurnState()
+{
+    _turnReasoning.clear();
+    _turnSteps = QJsonArray();
+    _turnStartMs = QDateTime::currentMSecsSinceEpoch();
+    _turnStreamed = false;
+    _turnEffort = _client ? _client->reasoningEffort() : QString();
+    _turnProvider = _client ? _client->provider() : QString();
+    _turnModel = _client ? _client->model() : QString();
+}
+
+void MidiPilotWidget::finalizeTurn(const QString &finalText, const QString &status)
+{
+    Q_UNUSED(finalText);
+    // Anchor the turn to the just-appended assistant message so that on
+    // reload we know which message in `messages[]` it belongs to.
+    int assistantIndex = _conversationHistory.size() - 1;
+    if (assistantIndex < 0)
+        return;
+
+    QJsonObject turn;
+    turn[QStringLiteral("assistantIndex")] = assistantIndex;
+    turn[QStringLiteral("status")] = status;
+    if (!_turnReasoning.isEmpty())
+        turn[QStringLiteral("reasoning")] = _turnReasoning;
+    if (!_turnSteps.isEmpty())
+        turn[QStringLiteral("steps")] = _turnSteps;
+    turn[QStringLiteral("streamed")] = _turnStreamed;
+    if (_turnStartMs > 0) {
+        qint64 elapsed = QDateTime::currentMSecsSinceEpoch() - _turnStartMs;
+        if (elapsed >= 0)
+            turn[QStringLiteral("latencyMs")] = static_cast<qint64>(elapsed);
+    }
+    if (!_turnEffort.isEmpty()) turn[QStringLiteral("effort")] = _turnEffort;
+    if (!_turnProvider.isEmpty()) turn[QStringLiteral("provider")] = _turnProvider;
+    if (!_turnModel.isEmpty()) turn[QStringLiteral("model")] = _turnModel;
+    turn[QStringLiteral("promptTokens")] = _lastPromptTokens;
+    turn[QStringLiteral("completionTokens")] = _lastCompletionTokens;
+    _turns.append(turn);
+
+    // Reset accumulators so a stray late callback can't pollute the next turn.
+    _turnReasoning.clear();
+    _turnSteps = QJsonArray();
+    _turnStartMs = 0;
+    _turnStreamed = false;
+}
+
 void MidiPilotWidget::scheduleSave()
 {
     if (_conversationHistory.isEmpty())
@@ -2350,56 +2932,274 @@ void MidiPilotWidget::doSaveConversation()
     usage[QStringLiteral("completion")] = _totalCompletionTokens;
     data[QStringLiteral("tokenUsage")] = usage;
 
+    // Persist per-turn metadata (reasoning text, agent steps, latency,
+    // streaming flag, effort, provider/model) so reopening a conversation
+    // shows the live thoughts and tool steps that produced each answer.
+    if (!_turns.isEmpty())
+        data[QStringLiteral("turns")] = _turns;
+
     ConversationStore::saveConversation(data);
 }
 
+// Lightweight scrollable, date-grouped popup for conversation history.
+// Uses a frameless QDialog anchored near the triggering button so it
+// behaves like a popup but is fully scrollable and supports search.
+// Conversations are grouped by human-readable date buckets (Today /
+// Yesterday / weekday / Month Year). Each row has a title, metadata line,
+// Load button, and a trash icon. A search box filters rows in real time.
 void MidiPilotWidget::showHistoryMenu()
 {
     QList<ConversationStore::ConversationMeta> conversations = ConversationStore::listConversations();
 
-    QMenu menu(this);
+    bool dark = Appearance::shouldUseDarkMode();
+    const QString bgCol      = dark ? QStringLiteral("#2D2D30") : QStringLiteral("#FFFFFF");
+    const QString fgCol      = dark ? QStringLiteral("#E0E0E0") : QStringLiteral("#222222");
+    const QString dimCol     = dark ? QStringLiteral("#999999") : QStringLiteral("#666666");
+    const QString borderCol  = dark ? QStringLiteral("#3F3F46") : QStringLiteral("#CFCFCF");
+    const QString hoverCol   = dark ? QStringLiteral("#3E3E42") : QStringLiteral("#F0F0F0");
+    const QString accentCol  = dark ? QStringLiteral("#4EC9B0") : QStringLiteral("#0B6E5C");
+    const QString headerBg   = dark ? QStringLiteral("#252526") : QStringLiteral("#F6F6F6");
+
+    QDialog *dlg = new QDialog(this, Qt::Popup);
+    dlg->setAttribute(Qt::WA_DeleteOnClose);
+    dlg->setFixedSize(420, 480);
+    dlg->setStyleSheet(QString("QDialog { background-color: %1; border: 1px solid %2; }")
+                       .arg(bgCol, borderCol));
+
+    QVBoxLayout *rootLayout = new QVBoxLayout(dlg);
+    rootLayout->setContentsMargins(0, 0, 0, 0);
+    rootLayout->setSpacing(0);
+
+    // ---- Header with title + search -------------------------------------
+    QWidget *header = new QWidget(dlg);
+    header->setStyleSheet(QString("background-color: %1; border-bottom: 1px solid %2;")
+                          .arg(headerBg, borderCol));
+    QVBoxLayout *headerLayout = new QVBoxLayout(header);
+    headerLayout->setContentsMargins(10, 8, 10, 8);
+    headerLayout->setSpacing(6);
+
+    QLabel *title = new QLabel(tr("Conversation history"), header);
+    title->setStyleSheet(QString("color: %1; font-weight: bold; font-size: 13px;").arg(fgCol));
+    headerLayout->addWidget(title);
+
+    QLineEdit *search = new QLineEdit(header);
+    search->setPlaceholderText(tr("Search…"));
+    search->setStyleSheet(QString(
+        "QLineEdit { background-color: %1; color: %2; border: 1px solid %3; "
+        "            border-radius: 3px; padding: 4px 6px; font-size: 12px; }"
+        "QLineEdit:focus { border: 1px solid %4; }")
+        .arg(bgCol, fgCol, borderCol, accentCol));
+    headerLayout->addWidget(search);
+    rootLayout->addWidget(header);
+
+    // ---- Scrollable list -------------------------------------------------
+    QScrollArea *scroll = new QScrollArea(dlg);
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setStyleSheet(QString("QScrollArea { background-color: %1; }").arg(bgCol));
+    QWidget *listContainer = new QWidget(scroll);
+    QVBoxLayout *listLayout = new QVBoxLayout(listContainer);
+    listLayout->setContentsMargins(0, 0, 0, 0);
+    listLayout->setSpacing(0);
 
     if (conversations.isEmpty()) {
-        menu.addAction("No saved conversations")->setEnabled(false);
+        QLabel *empty = new QLabel(tr("No saved conversations"), listContainer);
+        empty->setAlignment(Qt::AlignCenter);
+        empty->setStyleSheet(QString("color: %1; padding: 40px 10px; font-style: italic;").arg(dimCol));
+        listLayout->addWidget(empty);
+        listLayout->addStretch();
     } else {
-        for (const auto &conv : conversations) {
-            QString label = conv.title;
-            if (label.isEmpty()) label = QStringLiteral("(untitled)");
-            label += QStringLiteral("  \xe2\x80\x94  ") + conv.updated.toString(QStringLiteral("MMM d, hh:mm"));
-            if (!conv.model.isEmpty())
-                label += QStringLiteral("  [") + conv.model + QStringLiteral("]");
-            label += QStringLiteral("  (") + QString::number(conv.messageCount) + QStringLiteral(" msgs)");
+        // Group conversations by date bucket. Keep insertion order by using
+        // a vector of (bucket, list). Buckets are produced sequentially as
+        // we walk the (already newest-first) conversation list.
+        auto bucketForDate = [](const QDateTime &dt) -> QString {
+            QDate today = QDate::currentDate();
+            QDate d = dt.date();
+            if (d == today) return QObject::tr("Today");
+            if (d == today.addDays(-1)) return QObject::tr("Yesterday");
+            if (d >= today.addDays(-6)) return dt.toString(QStringLiteral("dddd"));
+            if (d.year() == today.year()) return dt.toString(QStringLiteral("MMMM"));
+            return dt.toString(QStringLiteral("MMMM yyyy"));
+        };
 
-            // Use a submenu per conversation so user can load or delete
-            QMenu *subMenu = menu.addMenu(label);
-            QString convId = conv.id;
-            QAction *loadAction = subMenu->addAction("Load conversation");
-            connect(loadAction, &QAction::triggered, this, [this, convId]() {
-                loadConversation(convId);
-            });
-            subMenu->addSeparator();
-            QAction *deleteAction = subMenu->addAction("Delete conversation");
-            connect(deleteAction, &QAction::triggered, this, [this, convId]() {
-                ConversationStore::deleteConversation(convId);
-            });
+        struct Bucket {
+            QString name;
+            QList<ConversationStore::ConversationMeta> items;
+        };
+        QList<Bucket> buckets;
+        for (const auto &conv : conversations) {
+            QString b = bucketForDate(conv.updated);
+            if (buckets.isEmpty() || buckets.last().name != b)
+                buckets.append({ b, {} });
+            buckets.last().items.append(conv);
         }
 
-        menu.addSeparator();
-        QAction *clearAll = menu.addAction("Clear all history...");
-        connect(clearAll, &QAction::triggered, this, [this]() {
-            QMessageBox msgBox(this);
-            msgBox.setIcon(QMessageBox::Warning);
-            msgBox.setWindowTitle("Clear History");
-            msgBox.setText("Delete all saved conversations?");
-            msgBox.setInformativeText("This cannot be undone.");
-            msgBox.setStandardButtons(QMessageBox::Yes | QMessageBox::Cancel);
-            msgBox.setDefaultButton(QMessageBox::Cancel);
-            if (msgBox.exec() == QMessageBox::Yes)
-                ConversationStore::deleteAll();
+        // Store rows so the search filter can show/hide them. Each row also
+        // tracks its parent header so empty headers can be hidden.
+        struct Row { QWidget *widget; QLabel *headerLabel; QString hay; };
+        QList<Row> rows;
+        QList<QLabel *> allHeaders;
+
+        for (const Bucket &b : buckets) {
+            QLabel *hdr = new QLabel(b.name.toUpper(), listContainer);
+            hdr->setStyleSheet(QString(
+                "color: %1; background-color: %2; font-size: 10px; "
+                "font-weight: bold; letter-spacing: 1px; "
+                "padding: 8px 12px 4px 12px;")
+                .arg(dimCol, headerBg));
+            listLayout->addWidget(hdr);
+            allHeaders.append(hdr);
+
+            for (const auto &conv : b.items) {
+                QString convId = conv.id;
+                QString convTitle = conv.title.isEmpty()
+                    ? QStringLiteral("(untitled)") : conv.title;
+
+                QWidget *row = new QWidget(listContainer);
+                row->setStyleSheet(QString(
+                    "QWidget#histRow { border-bottom: 1px solid %1; }"
+                    "QWidget#histRow:hover { background-color: %2; }")
+                    .arg(borderCol, hoverCol));
+                row->setObjectName(QStringLiteral("histRow"));
+
+                QHBoxLayout *rowLayout = new QHBoxLayout(row);
+                rowLayout->setContentsMargins(12, 6, 8, 6);
+                rowLayout->setSpacing(8);
+
+                QVBoxLayout *textLayout = new QVBoxLayout();
+                textLayout->setContentsMargins(0, 0, 0, 0);
+                textLayout->setSpacing(1);
+
+                QLabel *titleLbl = new QLabel(convTitle, row);
+                titleLbl->setStyleSheet(QString("color: %1; font-size: 12px;").arg(fgCol));
+                titleLbl->setToolTip(convTitle);
+                // Truncate very long titles so the row doesn't blow up.
+                QFontMetrics fm(titleLbl->font());
+                QString elided = fm.elidedText(convTitle, Qt::ElideRight, 300);
+                titleLbl->setText(elided);
+                textLayout->addWidget(titleLbl);
+
+                QString meta = conv.updated.toString(QStringLiteral("HH:mm"));
+                if (!conv.model.isEmpty())
+                    meta += QStringLiteral(" · ") + conv.model;
+                meta += QStringLiteral(" · ") + tr("%1 msgs").arg(conv.messageCount);
+                QLabel *metaLbl = new QLabel(meta, row);
+                metaLbl->setStyleSheet(QString("color: %1; font-size: 10px;").arg(dimCol));
+                textLayout->addWidget(metaLbl);
+                rowLayout->addLayout(textLayout, 1);
+
+                // Primary action — load conversation. Styled as a subtle
+                // text button so the row stays lightweight.
+                QPushButton *loadBtn = new QPushButton(tr("Open"), row);
+                loadBtn->setCursor(Qt::PointingHandCursor);
+                loadBtn->setFlat(true);
+                loadBtn->setFixedHeight(24);
+                loadBtn->setStyleSheet(QString(
+                    "QPushButton { background: transparent; color: %1; "
+                    "              border: 1px solid %2; border-radius: 3px; "
+                    "              padding: 2px 10px; font-size: 11px; }"
+                    "QPushButton:hover { background-color: %1; color: %3; }")
+                    .arg(accentCol, borderCol, bgCol));
+                rowLayout->addWidget(loadBtn);
+
+                QPushButton *deleteBtn = new QPushButton(row);
+                deleteBtn->setText(QStringLiteral("🗑"));
+                deleteBtn->setFixedSize(24, 24);
+                deleteBtn->setCursor(Qt::PointingHandCursor);
+                deleteBtn->setToolTip(tr("Delete conversation"));
+                deleteBtn->setFlat(true);
+                deleteBtn->setStyleSheet(QString(
+                    "QPushButton { background: transparent; color: %1; border: none; "
+                    "              font-size: 13px; border-radius: 3px; }"
+                    "QPushButton:hover { background-color: #C94545; color: white; }")
+                    .arg(dimCol));
+                rowLayout->addWidget(deleteBtn);
+
+                QObject::connect(loadBtn, &QPushButton::clicked, dlg,
+                                 [this, convId, dlg]() {
+                    loadConversation(convId);
+                    dlg->close();
+                });
+                QObject::connect(deleteBtn, &QPushButton::clicked, dlg,
+                                 [convId, row]() {
+                    ConversationStore::deleteConversation(convId);
+                    row->hide();
+                    row->deleteLater();
+                });
+
+                listLayout->addWidget(row);
+                rows.append({ row, hdr,
+                              (convTitle + QStringLiteral(" ") + meta).toLower() });
+            }
+        }
+
+        listLayout->addStretch();
+
+        // Live filtering: hide non-matching rows; hide headers whose rows
+        // are all filtered out.
+        QObject::connect(search, &QLineEdit::textChanged, dlg,
+                         [rows, allHeaders](const QString &q) {
+            QString needle = q.trimmed().toLower();
+            QHash<QLabel *, int> visibleCount;
+            for (QLabel *h : allHeaders) visibleCount[h] = 0;
+            for (const auto &r : rows) {
+                bool match = needle.isEmpty() || r.hay.contains(needle);
+                r.widget->setVisible(match);
+                if (match) visibleCount[r.headerLabel]++;
+            }
+            for (QLabel *h : allHeaders)
+                h->setVisible(visibleCount.value(h, 0) > 0);
         });
     }
 
-    menu.exec(QCursor::pos());
+    scroll->setWidget(listContainer);
+    rootLayout->addWidget(scroll, 1);
+
+    // ---- Footer with "Clear all" ----------------------------------------
+    if (!conversations.isEmpty()) {
+        QWidget *footer = new QWidget(dlg);
+        footer->setStyleSheet(QString("background-color: %1; border-top: 1px solid %2;")
+                              .arg(headerBg, borderCol));
+        QHBoxLayout *footerLayout = new QHBoxLayout(footer);
+        footerLayout->setContentsMargins(10, 6, 10, 6);
+        footerLayout->addStretch();
+        QPushButton *clearAll = new QPushButton(tr("Clear all history"), footer);
+        clearAll->setCursor(Qt::PointingHandCursor);
+        clearAll->setStyleSheet(QString(
+            "QPushButton { background: transparent; color: %1; border: none; "
+            "              font-size: 11px; padding: 4px 8px; }"
+            "QPushButton:hover { color: #C94545; text-decoration: underline; }")
+            .arg(dimCol));
+        footerLayout->addWidget(clearAll);
+        rootLayout->addWidget(footer);
+
+        QObject::connect(clearAll, &QPushButton::clicked, dlg, [this, dlg]() {
+            QMessageBox msgBox(this);
+            msgBox.setIcon(QMessageBox::Warning);
+            msgBox.setWindowTitle(tr("Clear History"));
+            msgBox.setText(tr("Delete all saved conversations?"));
+            msgBox.setInformativeText(tr("This cannot be undone."));
+            msgBox.setStandardButtons(QMessageBox::Yes | QMessageBox::Cancel);
+            msgBox.setDefaultButton(QMessageBox::Cancel);
+            if (msgBox.exec() == QMessageBox::Yes) {
+                ConversationStore::deleteAll();
+                dlg->close();
+            }
+        });
+    }
+
+    // Position the popup near the cursor (which is at the button).
+    QPoint pos = QCursor::pos();
+    // Anchor so the popup opens upward if near the bottom of the screen.
+    QRect screen = QApplication::primaryScreen()->availableGeometry();
+    int x = qBound(screen.left() + 4, pos.x() - dlg->width() + 20,
+                   screen.right() - dlg->width() - 4);
+    int y = pos.y() + 8;
+    if (y + dlg->height() > screen.bottom())
+        y = pos.y() - dlg->height() - 8;
+    dlg->move(x, y);
+    dlg->show();
+    search->setFocus();
 }
 
 void MidiPilotWidget::loadConversation(const QString &id)
@@ -2424,11 +3224,21 @@ void MidiPilotWidget::loadConversation(const QString &id)
 
     _conversationId = id;
     _conversationHistory = data[QStringLiteral("messages")].toArray();
+    _turns = data[QStringLiteral("turns")].toArray();
 
     QJsonObject tokUsage = data[QStringLiteral("tokenUsage")].toObject();
     _totalPromptTokens = tokUsage[QStringLiteral("prompt")].toInt();
     _totalCompletionTokens = tokUsage[QStringLiteral("completion")].toInt();
     updateTokenLabel();
+
+    // Index turns by assistantIndex so we can render the persisted
+    // reasoning/steps next to the assistant message they belong to.
+    QHash<int, QJsonObject> turnByIdx;
+    for (const QJsonValue &v : std::as_const(_turns)) {
+        QJsonObject t = v.toObject();
+        int idx = t.value(QStringLiteral("assistantIndex")).toInt(-1);
+        if (idx >= 0) turnByIdx.insert(idx, t);
+    }
 
     for (int i = 0; i < _conversationHistory.size(); i++) {
         QJsonObject msg = _conversationHistory[i].toObject();
@@ -2449,7 +3259,58 @@ void MidiPilotWidget::loadConversation(const QString &id)
                         displayText = instr;
                 }
             }
+
+            // Render the persisted reasoning block (if any) BEFORE the
+            // assistant bubble so the reload visual matches the live order.
+            if (role == QStringLiteral("assistant") && turnByIdx.contains(i)) {
+                const QJsonObject t = turnByIdx.value(i);
+                QString reasoning = t.value(QStringLiteral("reasoning")).toString();
+                if (!reasoning.isEmpty()) {
+                    bool dark = Appearance::shouldUseDarkMode();
+                    QLabel *thoughts = new QLabel(_chatContainer);
+                    thoughts->setWordWrap(true);
+                    thoughts->setTextFormat(Qt::MarkdownText);
+                    // Match the live-streaming dark-mode contrast bump.
+                    thoughts->setStyleSheet(
+                        QString("background: transparent; color: %1; "
+                                "font-style: italic; font-size: 12px; "
+                                "padding: 4px 8px; margin: 2px 40px 2px 8px; "
+                                "border-left: 2px solid %2;")
+                            .arg(dark ? "#C8C8C8" : "#666",
+                                 dark ? "#707070" : "#CCC"));
+                    thoughts->setText(QStringLiteral("💭 ") + reasoning);
+                    _chatLayout->addWidget(thoughts);
+                }
+            }
+
             addChatBubble(role, displayText);
+
+            // Steps + per-turn metadata footer go AFTER the assistant bubble.
+            if (role == QStringLiteral("assistant") && turnByIdx.contains(i)) {
+                const QJsonObject t = turnByIdx.value(i);
+                QJsonArray steps = t.value(QStringLiteral("steps")).toArray();
+                if (!steps.isEmpty()) {
+                    QStringList parts;
+                    for (const QJsonValue &sv : std::as_const(steps)) {
+                        QJsonObject s = sv.toObject();
+                        bool ok = s.value(QStringLiteral("success")).toBool(true);
+                        parts << QString::fromUtf8(ok ? "\xe2\x9c\x93 " : "\xe2\x9c\x97 ")
+                                + s.value(QStringLiteral("tool")).toString();
+                    }
+                    bool dark = Appearance::shouldUseDarkMode();
+                    QLabel *stepsLbl = new QLabel(_chatContainer);
+                    stepsLbl->setWordWrap(true);
+                    stepsLbl->setTextFormat(Qt::PlainText);
+                    stepsLbl->setStyleSheet(
+                        QString("background: transparent; color: %1; "
+                                "font-size: 11px; padding: 2px 8px; "
+                                "margin: 0 40px 4px 8px;")
+                            .arg(dark ? "#888" : "#666"));
+                    stepsLbl->setText(QStringLiteral("🔧 Steps: ") + parts.join(QStringLiteral(", ")));
+                    _chatLayout->addWidget(stepsLbl);
+                }
+            }
+
             ConversationEntry entry;
             entry.role = role;
             entry.message = displayText;

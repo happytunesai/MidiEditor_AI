@@ -35,7 +35,7 @@
         font-size: .82em; font-weight: 600; color: #333;
     }
     .chat-demo-body {
-        padding: .75rem; min-height: 140px; max-height: 260px;
+        padding: .75rem; min-height: 140px; max-height: 360px;
         display: flex; flex-direction: column; gap: .35rem;
         overflow-y: auto; background: #fff;
     }
@@ -61,6 +61,28 @@
         background: #E8E8E8; color: #222;
         align-self: flex-start; margin-right: 20px;
     }
+    .thinking-card {
+        align-self: flex-start;
+        max-width: 88%;
+        background: #FFF4E1;
+        border-left: 3px solid #FF9800;
+        color: #222;
+        font-size: .74em;
+        font-style: italic;
+        line-height: 1.35;
+        padding: 6px 10px 7px;
+        margin: 2px 20px 3px 0;
+        opacity: 0;
+        transform: translateY(8px);
+        transition: opacity .25s, transform .25s;
+        flex-shrink: 0;
+    }
+    .thinking-card.visible { opacity: 1; transform: translateY(0); }
+    .thinking-title {
+        font-weight: 600; margin-bottom: 5px;
+    }
+    .thinking-body { min-height: 3.2em; }
+    .thinking-foot { margin-top: 6px; color: #333; }
     .steps-panel {
         background: #F5F5F0; border: 1px solid #e0e0dc; border-radius: 8px;
         margin: 2px 20px 2px 0; font-size: .78em;
@@ -153,7 +175,7 @@
     "description": "AI-powered MIDI editor with intelligent copilot, Guitar Pro import, FFXIV bard mode, and FluidSynth playback.",
     "url": "https://midieditor-ai.de",
     "downloadUrl": "https://github.com/happytunesai/MidiEditor_AI/releases/latest",
-    "softwareVersion": "1.4.2",
+    "softwareVersion": "1.5.0",
     "license": "https://github.com/happytunesai/MidiEditor_AI/blob/main/LICENSE",
     "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
 }
@@ -214,7 +236,7 @@
              onerror="this.parentElement.style.display='none';">
     </div>
 
-    <span class="hero-badge">v1.4.2 &middot; Open Source &middot; Windows</span>
+    <span class="hero-badge">v1.5.0 &middot; Open Source &middot; Windows</span>
 
     <h1 class="hero-title">
         The <span class="text-gradient">AI-Powered</span> MIDI Editor
@@ -226,7 +248,7 @@
 
     <div class="hero-actions">
         <a href="download.html" class="btn btn-primary">
-            &#x2B07; Download v1.4.2
+            &#x2B07; Download v1.5.0
         </a>
         <a href="docs-index.html" class="btn btn-secondary" target="_blank" rel="noopener noreferrer">
             &#x1F4D6; Documentation
@@ -279,8 +301,8 @@
         <div class="feature-card">
             <span class="card-icon">&#x1F916;</span>
             <h3>MidiPilot AI Copilot</h3>
-            <p>15 AI tools, Agent &amp; Simple mode, natural language MIDI editing.
-               Compose melodies, add harmonies, fix arrangements &mdash; just ask.</p>
+                <p>15 AI tools, live Agent streaming, provider model refresh, favourites,
+                    and natural language MIDI editing. Compose, harmonize, fix, and refine &mdash; just ask.</p>
         </div>
         <div class="feature-card">
             <span class="card-icon">&#x1F4C2;</span>
@@ -356,6 +378,24 @@
                 <div class="slide-caption">MidiPilot Agent Mode - Multi-step AI composition in action</div>
             </div>
             <div class="showcase-slide">
+                <video autoplay loop muted playsinline loading="lazy" aria-label="MidiPilot GPT-5.4 streaming in Material Dark">
+                    <source src="screenshots/midieditor_ai_gpt54_streaming_material_dark.webm" type="video/webm">
+                </video>
+                <div class="slide-caption">MidiPilot GPT-5.4 Streaming - Live Agent feedback in Material Dark</div>
+            </div>
+            <div class="showcase-slide">
+                <video autoplay loop muted playsinline loading="lazy" aria-label="MidiPilot GPT-5.5 streaming via Responses API">
+                    <source src="screenshots/midieditor_ai_gpt55_streaming_nosound.webm" type="video/webm">
+                </video>
+                <div class="slide-caption">MidiPilot GPT-5.5 Streaming - Responses API with serial tool calls and low reasoning effort</div>
+            </div>
+            <div class="showcase-slide">
+                <video autoplay loop muted playsinline loading="lazy" aria-label="MidiPilot Gemini 3.1 streaming">
+                    <source src="screenshots/midieditor_ai_gemini_31_streaming.webm" type="video/webm">
+                </video>
+                <div class="slide-caption">MidiPilot Gemini 3.1 Streaming - Thought summaries and Agent steps</div>
+            </div>
+            <div class="showcase-slide">
                 <video autoplay loop muted playsinline loading="lazy" aria-label="FFXIV Channel Fixer">
                     <source src="screenshots/ffxiv_channel_fix_rebuild.webm" type="video/webm">
                     <img src="screenshots/ffxiv_channel_fix_rebuild.gif" alt="FFXIV Channel Fixer" width="1920" height="1080" loading="lazy">
@@ -427,6 +467,9 @@
             <button class="dot" aria-label="Slide 9"></button>
             <button class="dot" aria-label="Slide 10"></button>
             <button class="dot" aria-label="Slide 11"></button>
+            <button class="dot" aria-label="Slide 12"></button>
+            <button class="dot" aria-label="Slide 13"></button>
+            <button class="dot" aria-label="Slide 14"></button>
         </div>
     </div>
 </div>
@@ -491,14 +534,15 @@
     </div>
     <div class="whats-new reveal">
         <span class="latest-badge">Latest</span>
-        <h3>v1.4.2 &mdash; April 2026</h3>
-        <p class="whats-new-subtitle">Bulk-Op Memory/Perf Fixes + Test Harness Expansion + Live Playback Panels</p>
+        <h3>v1.5.0 &mdash; April 2026</h3>
+        <p class="whats-new-subtitle">Live Agent Streaming, Dynamic Models, Prompt Profiles, Agent Conductor &amp; GPT-5.5 Isolation</p>
         <ul>
-            <li><strong>Live side panels during playback</strong> &mdash; Tracks, Channels, Event and Protocol panels stay interactive while the song is playing; opt back into the legacy lock via <em>Settings &rarr; System &amp; Performance &rarr; Playback</em></li>
-            <li><strong>Visibility eye icons in the Matrix context menu</strong> &mdash; right-click a note: the <em>Move to Track</em> and <em>Move to Channel</em> submenus now show which entries are currently visible</li>
-            <li><strong>Track deletion no longer eats 40&ndash;50 GB of RAM</strong> on heavy/CC-dense tracks &mdash; bulk-snapshot pattern applied to <code>removeTrack</code>, <code>deleteMeasures</code> and <code>setMaxLengthMs</code></li>
-            <li><strong>FFXIV Channel Fixer Tier 2</strong> dropped from ~5 minutes / ~64 GB to seconds with bounded RAM</li>
-            <li><strong>C++ test harness grown 3 → 19 executables / 41 → 229 sub-tests</strong> &mdash; full ctest run green in ~14 s; surfaced two latent bugs queued for 1.4.3</li>
+            <li><strong>Live agent streaming everywhere</strong> &mdash; OpenAI Chat-Completions, OpenAI Responses-API (<code>gpt-5*</code>), OpenRouter and native Gemini all stream assistant text, tool-call arguments and reasoning into the MidiPilot bubble live</li>
+            <li><strong>Dynamic provider model list with favourites</strong> &mdash; click 🔄 to refresh the live model list per provider, pin favourites, auto-filter image/audio/embedding entries</li>
+            <li><strong>Per-Model Prompt Profiles</strong> &mdash; attach a custom system prompt to one or more <em>provider:model</em> entries via <em>Settings &rarr; AI &rarr; Prompt Profiles&hellip;</em>; ships with a built-in <em>GPT-5.5 Decisive</em> profile</li>
+            <li><strong>Lightweight Agent Conductor</strong> &mdash; the agent loop now keeps a compact working state (goal, confirmed facts, next-step hint) so the model resumes from real progress instead of re-deriving it after every rejection</li>
+            <li><strong>OpenRouter robustness</strong> &mdash; transient upstream errors auto-retry on a different provider; HTTP 404 &ldquo;no tool support&rdquo; surfaces a clear pick-a-different-model message instead of burning three retries</li>
+            <li><strong>Per-session, mode-aware streaming fallback</strong> &mdash; on streaming failure MidiPilot transparently retries non-streaming and marks the offending model with <code>(Simple)</code> / <code>(Agent)</code> / <code>(Simple+Agent)</code>; <em>Force Streaming for This Model</em> clears the mark</li>
         </ul>
         <a href="changelog.html" class="changelog-link">View Full Changelog &rarr;</a>
     </div>
@@ -552,7 +596,7 @@
     </div>
     <div class="hero-actions reveal" style="margin-bottom: 1.5rem;">
         <a href="download.html" class="btn btn-primary" style="font-size: 1.15rem; padding: 1rem 2.5rem;">
-            &#x2B07; Download MidiEditor AI v1.4.2
+            &#x2B07; Download MidiEditor AI v1.5.0
         </a>
     </div>
     <p class="reveal" style="color: var(--text-muted); font-size: .9rem;">
@@ -796,6 +840,65 @@
         nextStep(0);
     }
 
+    function showThinking(c, cb) {
+        if (!c.steps) { if (cb) cb(); return; }
+        var notes = [
+            {
+                title: 'Checking event range',
+                body: 'I am looking at the current notes, track layout, and timing before choosing the edit range.',
+                foot: 'Step 1: ' + c.steps[0]
+            },
+            {
+                title: c.mode === 'Compo' ? 'Planning composition pass' : 'Planning note edits',
+                body: c.mode === 'Compo'
+                    ? 'I am deciding the tempo, instrument setup, and phrase shape before writing the new events.'
+                    : 'I am keeping the change focused so the generated notes fit the existing arrangement.',
+                foot: 'Next: run the remaining tools'
+            }
+        ];
+
+        function typeText(target, text, done) {
+            var i = 0;
+            var timer = setInterval(function(){
+                target.textContent += text.charAt(i++);
+                chatBody.scrollTop = chatBody.scrollHeight;
+                if (i >= text.length) {
+                    clearInterval(timer);
+                    setTimeout(done || function(){}, 260);
+                }
+            }, 17);
+        }
+
+        function addThinkingCard(note, done) {
+            var card = document.createElement('div');
+            card.className = 'thinking-card';
+            card.innerHTML =
+                '<div class="thinking-title"></div>' +
+                '<div class="thinking-body"></div>' +
+                '<div class="thinking-foot"></div>';
+            chatBody.appendChild(card);
+            var title = card.querySelector('.thinking-title');
+            var body = card.querySelector('.thinking-body');
+            var foot = card.querySelector('.thinking-foot');
+            chatBody.scrollTop = chatBody.scrollHeight;
+            void card.offsetWidth; card.classList.add('visible');
+            typeText(title, note.title, function(){
+                typeText(body, note.body, function(){
+                    typeText(foot, note.foot, function(){
+                        card.classList.add('done');
+                        setTimeout(done || function(){}, 320);
+                    });
+                });
+            });
+        }
+
+        addThinkingCard(notes[0], function(){
+            addThinkingCard(notes[1], function(){
+                if (cb) cb();
+            });
+        });
+    }
+
     function clearChat(cb) {
         Array.from(chatBody.children).forEach(function(c){ c.style.opacity='0'; c.style.transform='translateY(-8px)'; });
         setTimeout(function(){ chatBody.innerHTML=''; if(cb)cb(); }, 350);
@@ -831,11 +934,13 @@
                     setProcessing();
                     setTimeout(function(){
                         if (c.steps) {
-                            showSteps(c.steps, function(){
-                                setReady();
-                                addTimestamp('left', function(){
-                                    addMsg('ai', c.response, function(){
-                                        setTimeout(cb||function(){}, 3100);
+                            showThinking(c, function(){
+                                showSteps(c.steps, function(){
+                                    setReady();
+                                    addTimestamp('left', function(){
+                                        addMsg('ai', c.response, function(){
+                                            setTimeout(cb||function(){}, 3100);
+                                        });
                                     });
                                 });
                             });

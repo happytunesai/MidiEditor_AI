@@ -20,6 +20,7 @@ class QComboBox;
 class MidiFile;
 class AiClient;
 class AgentRunner;
+class PromptProfileStore;
 class MainWindow;
 
 /**
@@ -103,6 +104,9 @@ private slots:
     void onEffortComboChanged(int index);
     void onStreamDelta(const QString &text);
     void onStreamFinished(const QString &fullContent, const QJsonObject &fullResponse);
+    void onRefreshModels();
+    void onModelsFetched(const QString &provider, const QJsonArray &models);
+    void onModelsFetchFailed(const QString &provider, const QString &error);
 
 private:
     struct ConversationEntry {
@@ -135,10 +139,31 @@ private:
 
     // Agent steps UI
     QWidget *_agentStepsWidget;  // Actually AgentStepsWidget*, stored as QWidget* to avoid header dep
+    QWidget *_agentDockArea;     // Anchored container below the chat scroll, holds the steps widget
 
     // Streaming bubble for incremental display
     QLabel *_streamBubble;
-    bool _streamIsJson;  // true = response is JSON action, suppress display
+    bool _streamIsJson;  // true = response is JSON action; render in subdued monospace preview style
+
+    // Simple-mode self-healing retry state \u2014 stashed so we can replay
+    // the same request after a transient failure (network blip, empty
+    // stream, MAX_TOKENS, etc.). Reset on successful response.
+    QString _lastSimpleSystemPrompt;
+    QJsonArray _lastSimpleHistory;
+    QString _lastSimpleMessage;
+    int _simpleRetryCount;
+    int _simpleMaxRetries;
+
+    // Live reasoning / "thought" display. Rendered as plain gray italic
+    // text inline in the chat (not a speech bubble). Lazy-created on first
+    // streamReasoningDelta and reset to nullptr on each new send so a fresh
+    // label is allocated per request — but the previous one stays in the
+    // chat history.
+    QLabel *_thoughtLabel;
+    QString _thoughtBaseText;        // accumulated text without trailing cursor
+    QTimer *_thoughtCursorTimer;     // blinks the trailing cursor while thinking
+    bool _thoughtCursorOn;           // current visibility of the cursor glyph
+    int _thoughtCursorFrame;         // current spinner frame index
 
     // Context bar
     QLabel *_contextLabel;
@@ -164,6 +189,7 @@ private:
     int _msgPhase;
     QComboBox *_providerCombo;
     QComboBox *_modelCombo;
+    QPushButton *_refreshModelsButton = nullptr;
     QComboBox *_effortCombo;
     QCheckBox *_ffxivCheck;
 
@@ -183,6 +209,21 @@ private:
     // Persistent conversation history
     QString _conversationId;
     QTimer *_saveTimer;
+    // Per-turn metadata accumulator. One entry is appended to _turns when
+    // the assistant turn completes (agent finished/error or simple-mode
+    // response received) and persisted as part of the conversation JSON
+    // so the live thoughts, steps, latency, effort and provider/model used
+    // for that turn survive a reload.
+    QJsonArray _turns;
+    QString _turnReasoning;
+    QJsonArray _turnSteps;
+    qint64 _turnStartMs;
+    bool _turnStreamed;
+    QString _turnEffort;
+    QString _turnProvider;
+    QString _turnModel;
+    void resetTurnState();
+    void finalizeTurn(const QString &finalText, const QString &status);
     void scheduleSave();
     void doSaveConversation();
     void showHistoryMenu();
@@ -192,6 +233,12 @@ private:
     void loadPresetForFile(const QString &midiPath);
     void savePresetForFile();
     QString _customFileInstructions;  // Per-file custom instructions from preset
+
+    // Phase 29: Per-model system prompt profiles. Resolves <provider:model>
+    // → optional override / append to the default agent or simple prompt.
+    // Owned by the widget; the dialog opens a temporary view on the same
+    // QSettings-backed store.
+    PromptProfileStore *_profileStore = nullptr;
 };
 
 #endif // MIDIPILOTWIDGET_H

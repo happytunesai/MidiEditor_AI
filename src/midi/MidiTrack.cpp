@@ -41,6 +41,7 @@ MidiTrack::MidiTrack(MidiTrack &other)
     _file = other._file;
     _hidden = other._hidden;
     _muted = other._muted;
+    _assignedChannel = other._assignedChannel; // TEST-001: was silently re-initialised to -1 on every undo/redo snapshot
 }
 
 MidiTrack::~MidiTrack() {
@@ -109,6 +110,7 @@ void MidiTrack::reloadState(ProtocolEntry *entry) {
     _file = other->_file;
     _hidden = other->_hidden;
     _muted = other->_muted;
+    _assignedChannel = other->_assignedChannel; // TEST-001
 }
 
 void MidiTrack::setHidden(bool hidden) {

@@ -1,11 +1,14 @@
 #include "AiSettingsWidget.h"
 #include "SystemPromptDialog.h"
-
+#include "ModelFavoritesDialog.h"
+#include "PromptProfilesDialog.h"
+#include "../ai/PromptProfileStore.h"
 #include <QGridLayout>
 #include <QLabel>
 #include <QLineEdit>
 #include <QComboBox>
 #include <QPushButton>
+#include <QStyle>
 #include <QCheckBox>
 #include <QSpinBox>
 #include <QMessageBox>
@@ -18,7 +21,9 @@
 #include "../ai/AiClient.h"
 #include "../ai/EditorContext.h"
 #include "../ai/McpServer.h"
-
+#include "../ai/ModelFavorites.h"
+#include "../ai/ModelListCache.h"
+#include "../ai/ModelListFetcher.h"
 AiSettingsWidget::AiSettingsWidget(QSettings *settings, QWidget *parent)
     : SettingsWidget("MidiPilot AI", parent), _settings(settings), _keyVisible(false), _lastProvider() {
 
@@ -90,7 +95,60 @@ AiSettingsWidget::AiSettingsWidget(QSettings *settings, QWidget *parent)
     } else {
         _modelCombo->setEditText(currentModel);
     }
-    layout->addWidget(_modelCombo, row, 1, 1, 2);
+    layout->addWidget(_modelCombo, row, 1);
+
+    _refreshModelsButton = new QPushButton(this);
+    _refreshModelsButton->setIcon(style()->standardIcon(QStyle::SP_BrowserReload));
+    _refreshModelsButton->setToolTip(tr("Refresh model list from provider"));
+    _refreshModelsButton->setFixedWidth(32);
+    connect(_refreshModelsButton, &QPushButton::clicked, this, &AiSettingsWidget::onRefreshModels);
+    layout->addWidget(_refreshModelsButton, row, 2);
+    row++;
+
+        _forceStreamingButton = new QPushButton(tr("Streaming OK"), this);
+        _forceStreamingButton->setToolTip(tr("Clears the temporary streaming fallback block for the selected model and tries live streaming again on the next request."));
+        _forceStreamingButton->setEnabled(false);
+        connect(_forceStreamingButton, &QPushButton::clicked,
+            this, &AiSettingsWidget::onForceStreamingForCurrentModel);
+        layout->addWidget(_forceStreamingButton, row, 1, 1, 2);
+        row++;
+
+    // ⭐ Favourites button
+    auto *favBtn = new QPushButton(tr("Manage favourites\u2026"), this);
+    favBtn->setToolTip(tr("Pick the models that should appear in the dropdowns.\n"
+                          "Image / audio / video / embedding models are filtered out automatically."));
+    connect(favBtn, &QPushButton::clicked, this, [this]() {
+        ModelFavoritesDialog dlg(this);
+        if (dlg.exec() == QDialog::Accepted) {
+            QString p = _providerCombo->currentData().toString();
+            QString currentText = _modelCombo->currentText();
+            populateModelsForProvider(p);
+            int idx = _modelCombo->findData(currentText);
+            if (idx >= 0) _modelCombo->setCurrentIndex(idx);
+            else if (_modelCombo->count() > 0) _modelCombo->setCurrentIndex(0);
+        }
+    });
+    layout->addWidget(favBtn, row, 1, 1, 2);
+    row++;
+
+    // Phase 29: Prompt profiles button.
+    auto *promptBtn = new QPushButton(tr("Prompt Profiles\u2026"), this);
+    promptBtn->setToolTip(tr("Bind a custom system prompt to specific models.\n"
+                             "Useful when one model needs different rules than others\n"
+                             "(e.g. the shipped 'GPT-5.5 Decisive' built-in)."));
+    connect(promptBtn, &QPushButton::clicked, this, [this]() {
+        PromptProfileStore store;
+        PromptProfilesDialog dlg(&store, this);
+        dlg.exec();
+    });
+    layout->addWidget(promptBtn, row, 1, 1, 2);
+    row++;
+
+    // Models status label (e.g. "updated 2 days ago" / "never refreshed")
+    _modelsStatusLabel = new QLabel(this);
+    _modelsStatusLabel->setStyleSheet("color: gray; font-size: 11px;");
+    updateModelsStatusLabel(currentProvider);
+    layout->addWidget(_modelsStatusLabel, row, 1, 1, 2);
     row++;
 
     // Output token limit
@@ -115,8 +173,11 @@ AiSettingsWidget::AiSettingsWidget(QSettings *settings, QWidget *parent)
     // Connect provider changes (after _modelCombo is created)
     connect(_providerCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &AiSettingsWidget::onProviderChanged);
+        connect(_modelCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &AiSettingsWidget::updateStreamingBlockStatus);
     // Apply current provider state (hides API key for local, sets URL)
     onProviderChanged(_providerCombo->currentIndex());
+        updateStreamingBlockStatus();
 
     // Thinking / Reasoning toggle
     layout->addWidget(new QLabel("Thinking:"), row, 0);
@@ -148,6 +209,20 @@ AiSettingsWidget::AiSettingsWidget(QSettings *settings, QWidget *parent)
     };
     connect(_thinkingCheck, &QCheckBox::toggled, this, updateEffortVisibility);
     updateEffortVisibility();
+
+    // Live streaming for the agent loop (Phase 25.1)
+    layout->addWidget(new QLabel("Live Streaming:"), row, 0);
+    _streamingCheck = new QCheckBox(
+        "Stream agent responses live (text + tool-call arguments)", this);
+    _streamingCheck->setToolTip(
+        "When enabled, MidiPilot streams the AI's response token-by-token "
+        "instead of waiting for the full reply. Recommended; turn off only "
+        "if your network is flaky or your provider's SSE implementation is "
+        "buggy.");
+    QString streamMode = _settings->value("AI/streaming_mode", "on").toString();
+    _streamingCheck->setChecked(streamMode != "off");
+    layout->addWidget(_streamingCheck, row, 1, 1, 2);
+    row++;
 
     layout->addWidget(separator(), row++, 0, 1, 3);
 
@@ -379,6 +454,8 @@ bool AiSettingsWidget::accept() {
     _settings->setValue("AI/model", model);
     _settings->setValue("AI/thinking_enabled", _thinkingCheck->isChecked());
     _settings->setValue("AI/reasoning_effort", _effortCombo->currentData().toString());
+    _settings->setValue("AI/streaming_mode",
+        _streamingCheck->isChecked() ? "on" : "off");
     _settings->setValue("AI/context_measures", _contextMeasuresSpin->value());
     _settings->setValue("AI/agent_max_steps", _agentMaxStepsSpin->value());
     _settings->setValue("AI/ffxiv_mode", _ffxivCheck->isChecked());
@@ -475,43 +552,196 @@ void AiSettingsWidget::onProviderChanged(int /*index*/) {
         // Select first model for the new provider
         if (_modelCombo->count() > 0)
             _modelCombo->setCurrentIndex(0);
+        updateModelsStatusLabel(provider);
     }
 }
 
 void AiSettingsWidget::populateModelsForProvider(const QString &provider) {
     _modelCombo->clear();
 
+    auto addModel = [this, &provider](const QString &label, const QString &id) {
+        QString itemLabel = label.isEmpty() ? id : label;
+        const bool simpleBlocked = AiClient::streamingBlockedForSession(provider, id, false);
+        const bool agentBlocked  = AiClient::streamingBlockedForSession(provider, id, true);
+        if (simpleBlocked || agentBlocked) {
+            QString suffix;
+            QString tip;
+            if (simpleBlocked && agentBlocked) {
+                suffix = tr(" (Simple+Agent)");
+                tip = tr("Live streaming failed for this model in both Simple and Agent mode this session. Select it and click Force Streaming to try again.");
+            } else if (simpleBlocked) {
+                suffix = tr(" (Simple)");
+                tip = tr("Live streaming failed in Simple Mode this session. Agent Mode still streams. Select it and click Force Streaming to retry Simple Mode.");
+            } else {
+                suffix = tr(" (Agent)");
+                tip = tr("Live streaming failed in Agent Mode this session. Simple Mode still streams. Select it and click Force Streaming to retry Agent Mode.");
+            }
+            itemLabel = tr("⚠ %1%2").arg(itemLabel, suffix);
+            _modelCombo->addItem(itemLabel, id);
+            _modelCombo->setItemData(_modelCombo->count() - 1, tip, Qt::ToolTipRole);
+        } else {
+            _modelCombo->addItem(itemLabel, id);
+        }
+    };
+
+    // Phase 26: prefer cached entries from <userdata>/midipilot_models.json
+    // Phase 26.1: filter via ModelFavorites (drops non-LLM models, restricts
+    // to favourites if any are set).
+    QJsonArray cached = ModelListCache::models(provider);
+    QJsonArray visible = ModelFavorites::visibleModels(provider, cached);
+    if (!visible.isEmpty()) {
+        for (const QJsonValue &v : visible) {
+            QJsonObject m = v.toObject();
+            QString id = m.value(QStringLiteral("id")).toString();
+            QString display = m.value(QStringLiteral("displayName")).toString();
+            if (id.isEmpty())
+                continue;
+            addModel(display, id);
+        }
+        updateStreamingBlockStatus();
+        return;
+    }
+
+    // Fallback: built-in hardcoded list (kept as last-resort safety net so a
+    // first-run/offline user still gets a usable model picker).
     if (provider == "openai") {
-        _modelCombo->addItem("gpt-4o-mini", "gpt-4o-mini");
-        _modelCombo->addItem("gpt-4o", "gpt-4o");
-        _modelCombo->addItem("gpt-4.1-nano", "gpt-4.1-nano");
-        _modelCombo->addItem("gpt-4.1-mini", "gpt-4.1-mini");
-        _modelCombo->addItem("gpt-4.1", "gpt-4.1");
-        _modelCombo->addItem("gpt-5", "gpt-5");
-        _modelCombo->addItem("gpt-5-mini", "gpt-5-mini");
-        _modelCombo->addItem("gpt-5.4", "gpt-5.4");
-        _modelCombo->addItem("gpt-5.4-mini", "gpt-5.4-mini");
-        _modelCombo->addItem("gpt-5.4-nano", "gpt-5.4-nano");
-        _modelCombo->addItem("o4-mini", "o4-mini");
+        addModel("gpt-4o-mini", "gpt-4o-mini");
+        addModel("gpt-4o", "gpt-4o");
+        addModel("gpt-4.1-nano", "gpt-4.1-nano");
+        addModel("gpt-4.1-mini", "gpt-4.1-mini");
+        addModel("gpt-4.1", "gpt-4.1");
+        addModel("gpt-5", "gpt-5");
+        addModel("gpt-5-mini", "gpt-5-mini");
+        addModel("gpt-5.4", "gpt-5.4");
+        addModel("gpt-5.4-mini", "gpt-5.4-mini");
+        addModel("gpt-5.4-nano", "gpt-5.4-nano");
+        addModel("o4-mini", "o4-mini");
     } else if (provider == "openrouter") {
-        _modelCombo->addItem("openai/gpt-5.4", "openai/gpt-5.4");
-        _modelCombo->addItem("openai/gpt-4.1", "openai/gpt-4.1");
-        _modelCombo->addItem("anthropic/claude-sonnet-4", "anthropic/claude-sonnet-4");
-        _modelCombo->addItem("anthropic/claude-3.5-sonnet", "anthropic/claude-3.5-sonnet");
-        _modelCombo->addItem("google/gemini-2.5-pro", "google/gemini-2.5-pro");
-        _modelCombo->addItem("google/gemini-2.5-flash", "google/gemini-2.5-flash");
-        _modelCombo->addItem("meta-llama/llama-4-maverick", "meta-llama/llama-4-maverick");
+        addModel("openai/gpt-5.4", "openai/gpt-5.4");
+        addModel("openai/gpt-4.1", "openai/gpt-4.1");
+        addModel("anthropic/claude-sonnet-4", "anthropic/claude-sonnet-4");
+        addModel("anthropic/claude-3.5-sonnet", "anthropic/claude-3.5-sonnet");
+        addModel("google/gemini-2.5-pro", "google/gemini-2.5-pro");
+        addModel("google/gemini-2.5-flash", "google/gemini-2.5-flash");
+        addModel("meta-llama/llama-4-maverick", "meta-llama/llama-4-maverick");
     } else if (provider == "gemini") {
-        _modelCombo->addItem("gemini-2.5-flash", "gemini-2.5-flash");
-        _modelCombo->addItem("gemini-2.5-flash-lite", "gemini-2.5-flash-lite");
-        _modelCombo->addItem("gemini-2.5-pro", "gemini-2.5-pro");
-        _modelCombo->addItem("gemini-3-flash", "gemini-3-flash-preview");
-        _modelCombo->addItem("gemini-3.1-flash-lite", "gemini-3.1-flash-lite-preview");
-        _modelCombo->addItem("gemini-3.1-pro", "gemini-3.1-pro-preview");
+        addModel("gemini-2.5-flash", "gemini-2.5-flash");
+        addModel("gemini-2.5-flash-lite", "gemini-2.5-flash-lite");
+        addModel("gemini-2.5-pro", "gemini-2.5-pro");
+        addModel("gemini-3-flash", "gemini-3-flash-preview");
+        addModel("gemini-3.1-flash-lite", "gemini-3.1-flash-lite-preview");
+        addModel("gemini-3.1-pro", "gemini-3.1-pro-preview");
     } else {
         // Custom provider — no presets, user types the model
-        _modelCombo->addItem("(enter model name)", "");
+        addModel("(enter model name)", "");
     }
+    updateStreamingBlockStatus();
+}
+
+void AiSettingsWidget::updateStreamingBlockStatus()
+{
+    if (!_forceStreamingButton || !_modelCombo || !_providerCombo)
+        return;
+    QString provider = _providerCombo->currentData().toString();
+    QString model = _modelCombo->currentData().toString();
+    if (model.isEmpty())
+        model = _modelCombo->currentText().trimmed();
+    const bool simpleBlocked = AiClient::streamingBlockedForSession(provider, model, false);
+    const bool agentBlocked  = AiClient::streamingBlockedForSession(provider, model, true);
+    const bool blocked = simpleBlocked || agentBlocked;
+    _forceStreamingButton->setEnabled(blocked);
+    if (!blocked) {
+        _forceStreamingButton->setText(tr("Streaming OK"));
+        _forceStreamingButton->setToolTip(QString());
+    } else if (simpleBlocked && agentBlocked) {
+        _forceStreamingButton->setText(tr("Force Streaming (Simple + Agent blocked)"));
+        _forceStreamingButton->setToolTip(tr("Streaming was disabled for this model in both Simple and Agent mode this session."));
+    } else if (simpleBlocked) {
+        _forceStreamingButton->setText(tr("Force Streaming (Simple Mode blocked)"));
+        _forceStreamingButton->setToolTip(tr("Streaming was disabled for Simple Mode this session. Agent Mode still streams."));
+    } else {
+        _forceStreamingButton->setText(tr("Force Streaming (Agent Mode blocked)"));
+        _forceStreamingButton->setToolTip(tr("Streaming was disabled for Agent Mode this session. Simple Mode still streams."));
+    }
+}
+
+void AiSettingsWidget::onForceStreamingForCurrentModel()
+{
+    QString provider = _providerCombo->currentData().toString();
+    QString model = _modelCombo->currentData().toString();
+    if (model.isEmpty())
+        model = _modelCombo->currentText().trimmed();
+    if (model.isEmpty())
+        return;
+
+    AiClient::clearStreamingBlockForSession(provider, model);
+    populateModelsForProvider(provider);
+    int idx = _modelCombo->findData(model);
+    if (idx >= 0)
+        _modelCombo->setCurrentIndex(idx);
+    else
+        _modelCombo->setEditText(model);
+    updateStreamingBlockStatus();
+}
+
+void AiSettingsWidget::updateModelsStatusLabel(const QString &provider)
+{
+    if (!_modelsStatusLabel)
+        return;
+    QDateTime ts = ModelListCache::lastFetched(provider);
+    if (!ts.isValid()) {
+        _modelsStatusLabel->setText(tr("Models: built-in list (click \xF0\x9F\x94\x84 to fetch from provider)"));
+        return;
+    }
+    qint64 days = ts.daysTo(QDateTime::currentDateTimeUtc());
+    QString rel;
+    if (days <= 0) rel = tr("today");
+    else if (days == 1) rel = tr("yesterday");
+    else rel = tr("%1 days ago").arg(days);
+    QString staleHint = ModelListCache::isStale(provider) ? tr(" — refresh recommended") : QString();
+    _modelsStatusLabel->setText(tr("Models updated %1%2").arg(rel, staleHint));
+}
+
+void AiSettingsWidget::onRefreshModels()
+{
+    QString provider = _providerCombo->currentData().toString();
+    QString apiKey = _apiKeyEdit->text().trimmed();
+    QString baseUrl = _baseUrlEdit->text().trimmed();
+
+    _refreshModelsButton->setEnabled(false);
+    _modelsStatusLabel->setText(tr("Fetching models from %1\xE2\x80\xA6").arg(provider));
+
+    auto *fetcher = new ModelListFetcher(this);
+    connect(fetcher, &ModelListFetcher::finished,
+            this, &AiSettingsWidget::onModelsFetched);
+    connect(fetcher, &ModelListFetcher::failed,
+            this, &AiSettingsWidget::onModelsFetchFailed);
+    fetcher->fetch(provider, apiKey, baseUrl);
+}
+
+void AiSettingsWidget::onModelsFetched(const QString &provider, const QJsonArray &models)
+{
+    ModelListCache::store(provider, models);
+    _refreshModelsButton->setEnabled(true);
+
+    QString activeProvider = _providerCombo->currentData().toString();
+    if (activeProvider == provider) {
+        QString currentText = _modelCombo->currentText();
+        populateModelsForProvider(provider);
+        int idx = _modelCombo->findData(currentText);
+        if (idx >= 0)
+            _modelCombo->setCurrentIndex(idx);
+        else
+            _modelCombo->setEditText(currentText);
+        updateModelsStatusLabel(provider);
+    }
+}
+
+void AiSettingsWidget::onModelsFetchFailed(const QString &provider, const QString &error)
+{
+    Q_UNUSED(provider);
+    _refreshModelsButton->setEnabled(true);
+    _modelsStatusLabel->setText(tr("Refresh failed: %1").arg(error));
 }
 
 void AiSettingsWidget::onEditSystemPrompts()
