@@ -257,6 +257,7 @@ signals:
     void exportProgress(int percent);
     void exportFinished(bool success, const QString &outputPath);
     void exportCancelled();
+    void ffxivSoundFontModeChanged(bool enabled);
 
 private:
     FluidSynthEngine();

@@ -820,8 +820,12 @@ bool FluidSynthEngine::chorusEnabled() const {
 }
 
 void FluidSynthEngine::setFfxivSoundFontMode(bool enabled) {
+    bool changed = (_ffxivSoundFontMode != enabled);
     _ffxivSoundFontMode = enabled;
     applyChannelMode();
+    if (changed) {
+        emit ffxivSoundFontModeChanged(enabled);
+    }
 }
 
 void FluidSynthEngine::applyChannelMode() {

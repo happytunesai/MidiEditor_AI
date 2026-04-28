@@ -1,4 +1,4 @@
-/*
+﻿/*
  * MidiEditor
  * Copyright (C) 2010  Markus Schwenk
  *
@@ -94,6 +94,7 @@
 #include "MidiVisualizerWidget.h"
 #include "LyricVisualizerWidget.h"
 #include "McpToggleWidget.h"
+#include "FfxivToggleWidget.h"
 #include "AiSettingsWidget.h"
 
 #include "../ai/McpServer.h"
@@ -224,14 +225,14 @@ MainWindow::MainWindow(QString initFile)
     connect(MidiPlayer::playerThread(), SIGNAL(playerStopped()), Metronome::instance(), SLOT(playbackStopped()));
     connect(MidiPlayer::playerThread(), SIGNAL(playerStarted()), Metronome::instance(), SLOT(playbackStarted()));
 
-    // MIDI visualizer — register a plain QAction for the toolbar customize list.
+    // MIDI visualizer â€” register a plain QAction for the toolbar customize list.
     // The actual widget is created fresh in each toolbar build (see createCustomToolbar/
     // updateToolbarContents) because QWidgetAction::setDefaultWidget() reparents the
     // widget to the toolbar, causing it to be destroyed on toolbar rebuild.
     _visualizer = nullptr;  // Created on-demand in toolbar build
     QAction *visualizerAction = new QAction(this);
     visualizerAction->setText(tr("MIDI Visualizer"));
-    visualizerAction->setToolTip(tr("MIDI activity visualizer — shows per-channel velocity during playback"));
+    visualizerAction->setToolTip(tr("MIDI activity visualizer â€” shows per-channel velocity during playback"));
     _actionMap["midi_visualizer"] = visualizerAction;
 
     _lyricVisualizer = nullptr;  // Created on-demand in toolbar build
@@ -245,6 +246,12 @@ MainWindow::MainWindow(QString initFile)
     mcpToggleAction->setText(tr("MCP Server"));
     mcpToggleAction->setToolTip(tr("Toggle MCP Server on/off"));
     _actionMap["mcp_toggle"] = mcpToggleAction;
+
+    _ffxivToggleWidget = nullptr;  // Created on-demand in toolbar build
+    QAction *ffxivToggleAction = new QAction(this);
+    ffxivToggleAction->setText(tr("FFXIV SoundFont Mode"));
+    ffxivToggleAction->setToolTip(tr("Toggle FFXIV SoundFont Mode on/off"));
+    _actionMap["ffxiv_toggle"] = ffxivToggleAction;
 
     startDirectory = QDir::homePath();
 
@@ -1096,7 +1103,7 @@ void MainWindow::record() {
                 matrixWidget->timeMsChanged(file->msOfTick(file->cursorTick()), true);
             }
 
-            // UX-PLAY-001: see play() — same opt-out toggle gates panel locking here.
+            // UX-PLAY-001: see play() â€” same opt-out toggle gates panel locking here.
             const bool lockPanelsDuringPlayback =
                 _settings->value("playback/lock_panels", false).toBool();
             if (lockPanelsDuringPlayback) {
@@ -1567,7 +1574,7 @@ void MainWindow::openFile(QString filePath) {
         stop();
         if (useAutoSave) {
             mf->setPath(filePath);   // Point to original file path
-            mf->setSaved(false);     // Mark as dirty — user should save explicitly
+            mf->setSaved(false);     // Mark as dirty â€” user should save explicitly
         }
         setFile(mf);
         if (useAutoSave) {
@@ -2130,7 +2137,7 @@ void MainWindow::fixFFXIVChannels() {
         html += QStringLiteral("<p style='font-size:10px; color:gray; margin-top:8px;'>Press Ctrl+Z to undo all changes.</p>");
 
         QMessageBox infoBox(this);
-        infoBox.setWindowTitle(tr("Fix X|V Channels — Result"));
+        infoBox.setWindowTitle(tr("Fix X|V Channels â€” Result"));
         infoBox.setTextFormat(Qt::RichText);
         infoBox.setText(html);
         infoBox.setIcon(QMessageBox::Information);
@@ -2765,9 +2772,9 @@ void MainWindow::convertPitchBendToNotes() {
     // Prompt user for pitch bend range
     bool ok;
     QStringList items;
-    items << tr("Â±2 semitones (General MIDI default)")
-          << tr("Â±12 semitones (Guitar/Bass VSTs)")
-          << tr("Â±24 semitones (Extreme pitch modulation)")
+    items << tr("Ã‚Â±2 semitones (General MIDI default)")
+          << tr("Ã‚Â±12 semitones (Guitar/Bass VSTs)")
+          << tr("Ã‚Â±24 semitones (Extreme pitch modulation)")
           << tr("Custom...");
     
     QString item = QInputDialog::getItem(this, 
@@ -2790,7 +2797,7 @@ void MainWindow::convertPitchBendToNotes() {
     } else { // Custom
         bendRangeSemis = QInputDialog::getDouble(this,
                                                   tr("Custom Pitch Bend Range"),
-                                                  tr("Enter pitch bend range in semitones (Â±):"),
+                                                  tr("Enter pitch bend range in semitones (Ã‚Â±):"),
                                                   2.0, 1.0, 96.0, 1, &ok);
         if (!ok) {
             return; // User cancelled
@@ -3096,7 +3103,7 @@ void MainWindow::splitChannelsToTracks() {
         return;
     }
 
-    // Phase 1: Analyze — collect channel info for events on the source track
+    // Phase 1: Analyze â€” collect channel info for events on the source track
     QList<SplitChannelsDialog::ChannelInfo> activeChannels;
 
     for (int ch = 0; ch < 16; ++ch) {
@@ -3137,7 +3144,7 @@ void MainWindow::splitChannelsToTracks() {
 
     if (activeChannels.size() <= 1) {
         QMessageBox::information(this, tr("Split Channels to Tracks"),
-            tr("This track only uses one channel — nothing to split."));
+            tr("This track only uses one channel â€” nothing to split."));
         return;
     }
 
@@ -3344,10 +3351,10 @@ QString MainWindow::autoSavePath() const {
     if (!file) return QString();
 
     if (!file->path().isEmpty() && QFile::exists(file->path())) {
-        // Named file → sidecar: "MySong.mid" → "MySong.mid.autosave"
+        // Named file â†’ sidecar: "MySong.mid" â†’ "MySong.mid.autosave"
         return file->path() + ".autosave";
     } else {
-        // Untitled → stable path in AppData
+        // Untitled â†’ stable path in AppData
         QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
                     + "/autosave";
         QDir().mkpath(dir);
@@ -3408,7 +3415,7 @@ void MainWindow::checkAutoSaveRecovery() {
         if (ok) {
             stop();
             setFile(mf);
-            mf->setPath(QString());   // Clear path — this is an untitled recovered doc
+            mf->setPath(QString());   // Clear path â€” this is an untitled recovered doc
             mf->setSaved(false);
             setWindowTitle(QApplication::applicationName() + " v" +
                 QApplication::applicationVersion() + tr(" - Recovered Document[*]"));
@@ -3420,7 +3427,7 @@ void MainWindow::checkAutoSaveRecovery() {
         }
     }
 
-    // Declined or failed — delete the stale backup
+    // Declined or failed â€” delete the stale backup
     QFile::remove(untitledPath);
 }
 
@@ -5129,7 +5136,7 @@ void MainWindow::checkForUpdates(bool silent) {
                     _autoUpdater->downloadUpdate(zipDownloadUrl, zipSize);
                 }
             }
-            // else: Skip — do nothing
+            // else: Skip â€” do nothing
         });
         connect(_updateChecker, &UpdateChecker::noUpdateAvailable, this, [this](){
             if (!_silentUpdateCheck) {
@@ -5200,7 +5207,7 @@ void MainWindow::restartForThemeChange() {
     // Save current file if modified
     if (file && !file->saved()) {
         if (!saveBeforeClose()) {
-            return; // User cancelled — abort restart
+            return; // User cancelled â€” abort restart
         }
     }
 
@@ -5435,6 +5442,15 @@ QWidget *MainWindow::createCustomToolbar(QWidget *parent) {
             if (!enabledActions.contains("mcp_toggle"))
                 enabledActions << "mcp_toggle";
         }
+        if (!actionOrder.contains("ffxiv_toggle")) {
+            int mcpIdx = actionOrder.indexOf("mcp_toggle");
+            if (mcpIdx >= 0)
+                actionOrder.insert(mcpIdx + 1, "ffxiv_toggle");
+            else
+                actionOrder << "ffxiv_toggle";
+            if (!enabledActions.contains("ffxiv_toggle"))
+                enabledActions << "ffxiv_toggle";
+        }
     }
 
     // Only prepend essential actions for single row mode
@@ -5645,6 +5661,12 @@ QWidget *MainWindow::createCustomToolbar(QWidget *parent) {
                 currentToolBar->addWidget(_mcpToggleWidget);
                 continue;
             }
+            // Special handling for ffxiv_toggle: create FFXIV SoundFont Mode toggle widget
+            if (actionId == "ffxiv_toggle") {
+                _ffxivToggleWidget = new FfxivToggleWidget(currentToolBar);
+                currentToolBar->addWidget(_ffxivToggleWidget);
+                continue;
+            }
 
             if (action) {
                 try {
@@ -5772,6 +5794,18 @@ QWidget *MainWindow::createCustomToolbar(QWidget *parent) {
             if (actionId == "mcp_toggle" && _mcpServer) {
                 _mcpToggleWidget = new McpToggleWidget(_mcpServer, toolBar);
                 toolBar->addWidget(_mcpToggleWidget);
+                continue;
+            }
+            // Special handling for ffxiv_toggle: create FFXIV SoundFont Mode toggle widget
+            if (actionId == "ffxiv_toggle") {
+                _ffxivToggleWidget = new FfxivToggleWidget(toolBar);
+                toolBar->addWidget(_ffxivToggleWidget);
+                continue;
+            }
+            // Special handling for ffxiv_toggle: create FFXIV SoundFont Mode toggle widget
+            if (actionId == "ffxiv_toggle") {
+                _ffxivToggleWidget = new FfxivToggleWidget(toolBar);
+                toolBar->addWidget(_ffxivToggleWidget);
                 continue;
             }
 
@@ -5918,6 +5952,15 @@ void MainWindow::updateToolbarContents(QWidget *toolbarWidget, QGridLayout *btnL
                 actionOrder << "mcp_toggle";
             if (!enabledActions.contains("mcp_toggle"))
                 enabledActions << "mcp_toggle";
+        }
+        if (!actionOrder.contains("ffxiv_toggle")) {
+            int mcpIdx = actionOrder.indexOf("mcp_toggle");
+            if (mcpIdx >= 0)
+                actionOrder.insert(mcpIdx + 1, "ffxiv_toggle");
+            else
+                actionOrder << "ffxiv_toggle";
+            if (!enabledActions.contains("ffxiv_toggle"))
+                enabledActions << "ffxiv_toggle";
         }
     }
 
@@ -6107,6 +6150,12 @@ void MainWindow::updateToolbarContents(QWidget *toolbarWidget, QGridLayout *btnL
                 currentToolBar->addWidget(_mcpToggleWidget);
                 continue;
             }
+            // Special handling for ffxiv_toggle: create FFXIV SoundFont Mode toggle widget
+            if (actionId == "ffxiv_toggle") {
+                _ffxivToggleWidget = new FfxivToggleWidget(currentToolBar);
+                currentToolBar->addWidget(_ffxivToggleWidget);
+                continue;
+            }
 
             if (action) {
                 try {
@@ -6212,6 +6261,12 @@ void MainWindow::updateToolbarContents(QWidget *toolbarWidget, QGridLayout *btnL
             if (actionId == "mcp_toggle" && _mcpServer) {
                 _mcpToggleWidget = new McpToggleWidget(_mcpServer, toolBar);
                 toolBar->addWidget(_mcpToggleWidget);
+                continue;
+            }
+            // Special handling for ffxiv_toggle: create FFXIV SoundFont Mode toggle widget
+            if (actionId == "ffxiv_toggle") {
+                _ffxivToggleWidget = new FfxivToggleWidget(toolBar);
+                toolBar->addWidget(_ffxivToggleWidget);
                 continue;
             }
 
@@ -6582,7 +6637,7 @@ void MainWindow::updateRenderingMode() {
 
 void MainWindow::rebuildToolbarFromSettings() {
     // Dedicated method for rebuilding toolbar when settings change
-    // Reentrancy guard only — no time-based debounce, because
+    // Reentrancy guard only â€” no time-based debounce, because
     // refreshColors() needs this to run synchronously on every theme switch.
     static bool isRebuilding = false;
 
@@ -7253,8 +7308,8 @@ void MainWindow::startExport(const ExportOptions &opts) {
 
     connect(engine, &FluidSynthEngine::exportProgress, this, [this](int pct) {
         if (_exportProgressDialog) {
-            // For MP3: WAV render is 0–70%, LAME encode is 70–100%
-            // For others: 0–100% directly
+            // For MP3: WAV render is 0â€“70%, LAME encode is 70â€“100%
+            // For others: 0â€“100% directly
             _exportProgressDialog->setValue(pct);
         }
     });
@@ -7270,7 +7325,7 @@ void MainWindow::startExport(const ExportOptions &opts) {
 
     if (isMp3) {
 #ifdef LAME_SUPPORT
-        // MP3 pipeline: render WAV to temp → encode MP3 → delete temp
+        // MP3 pipeline: render WAV to temp â†’ encode MP3 â†’ delete temp
         ExportOptions wavOpts = opts;
         wavOpts.fileType = "wav";
         wavOpts.sampleFormat = "s16"; // LAME needs 16-bit PCM
@@ -7279,7 +7334,7 @@ void MainWindow::startExport(const ExportOptions &opts) {
         QString finalMp3Path = opts.outputFilePath;
         int mp3Bitrate = opts.mp3Bitrate;
 
-        // Override progress to scale WAV phase to 0–70%
+        // Override progress to scale WAV phase to 0â€“70%
         disconnect(engine, &FluidSynthEngine::exportProgress, nullptr, nullptr);
         connect(engine, &FluidSynthEngine::exportProgress, this, [this](int pct) {
             if (_exportProgressDialog) {
@@ -7297,7 +7352,7 @@ void MainWindow::startExport(const ExportOptions &opts) {
                 return;
             }
 
-            // Phase 2: encode WAV → MP3 in background
+            // Phase 2: encode WAV â†’ MP3 in background
             if (_exportProgressDialog) {
                 _exportProgressDialog->setLabelText(tr("Encoding MP3..."));
                 _exportProgressDialog->setValue(70);
@@ -7307,7 +7362,7 @@ void MainWindow::startExport(const ExportOptions &opts) {
             QThreadPool::globalInstance()->start([this, tempWav, finalMp3Path, mp3Bitrate]() {
                 bool ok = LameEncoder::encode(tempWav, finalMp3Path, mp3Bitrate,
                     [this](int pct) {
-                        // Scale LAME progress 0–100 to dialog 70–100
+                        // Scale LAME progress 0â€“100 to dialog 70â€“100
                         int scaled = 70 + pct * 30 / 100;
                         QMetaObject::invokeMethod(this, [this, scaled]() {
                             if (_exportProgressDialog) {

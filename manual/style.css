@@ -138,8 +138,13 @@ img[src*="tools/"] {
     filter: invert(1);
 }
 /* Colored icons that should not be inverted */
-img[src*="ffxiv_fix"], img[src*="channel_split"] {
+img[src*="ffxiv_fix"], img[src*="channel_split"], img[src*="XIV_on"] {
     filter: drop-shadow(0 0 1px rgba(255,255,255,0.5));
+}
+/* Wide toolbar buttons (XIV on/off are 72x25 native) */
+img[src*="XIV_on"], img[src*="XIV_off"] {
+    max-width: 72px;
+    max-height: 25px;
 }
 
 /* Tables */

@@ -45,6 +45,7 @@
 #include "../midi/FluidSynthEngine.h"
 #include "../midi/MidiOutput.h"
 #include "DownloadSoundFontDialog.h"
+#include "FfxivSoundFontHelper.h"
 #include "MainWindow.h"
 #endif
 
@@ -559,7 +560,17 @@ void MidiSettingsWidget::onChorusToggled(bool enabled) {
 }
 
 void MidiSettingsWidget::onFfxivModeToggled(bool enabled) {
-    FluidSynthEngine::instance()->setFfxivSoundFontMode(enabled);
+    if (enabled) {
+        if (!FfxivSoundFontHelper::requestEnable(window())) {
+            // User cancelled (e.g. declined the download). Revert UI.
+            _ffxivModeCheckBox->blockSignals(true);
+            _ffxivModeCheckBox->setChecked(false);
+            _ffxivModeCheckBox->blockSignals(false);
+        }
+    } else {
+        FfxivSoundFontHelper::requestDisable(window());
+    }
+    refreshSoundFontList();
 }
 
 void MidiSettingsWidget::refreshSoundFontList() {

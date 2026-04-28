@@ -185,7 +185,93 @@
   FFXIV and General MIDI SoundFonts.
 </p>
 
-<!-- â”€â”€â”€â”€â”€â”€â”€â”€â”€ FFXIV SoundFont Mode â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
+<!-- ───────── FFXIV Toolbar Toggle ───────── -->
+<h4 id="ffxiv-toolbar-toggle">FFXIV SoundFont Mode &mdash; Toolbar Toggle</h4>
+
+<p>
+  A dedicated <b>XIV</b> button sits next to the <b>MCP</b> button on the main toolbar
+  and flips <a href="#ffxiv-mode">FFXIV SoundFont Mode</a> on or off without opening the
+  Settings dialog. The icon is highlighted
+  (<img src="tools/XIV_on.png" height="20" alt="XIV on" style="vertical-align:middle"/>)
+  when the mode is active and dimmed
+  (<img src="tools/XIV_off.png" height="20" alt="XIV off" style="vertical-align:middle"/>)
+  when it is off. The button stays in sync with the checkbox under
+  <i>MIDI Settings &rarr; FluidSynth &rarr; FFXIV SoundFont Mode</i> &mdash;
+  flipping one updates the other.
+</p>
+
+<p>
+  The button can be hidden, re-ordered, or restored to defaults via
+  <i>View &rarr; Customize Toolbar</i> (action id <code>ffxiv_toggle</code>).
+</p>
+
+<h5>Smart Enable Behaviour</h5>
+
+<p>
+  Clicking the button to <b>turn FFXIV SoundFont Mode ON</b> performs a small
+  setup routine so playback always sounds correct afterwards:
+</p>
+
+<ol>
+  <li>
+    <b>Snapshot</b> &mdash; the currently enabled non-FFXIV SoundFonts are saved to
+    settings (<code>FFXIV/savedEnabledSoundFonts</code>) so they can be restored later.
+  </li>
+  <li>
+    <b>Locate the FFXIV SoundFont</b> &mdash; first check whether one is already in the
+    FluidSynth stack, then look in the <code>soundfonts/</code> folder next to
+    <code>MidiEditorAI.exe</code>. SoundFonts whose filename contains <code>ff14</code>
+    or <code>ffxiv</code> (case-insensitive) are recognized as FFXIV bard SoundFonts.
+  </li>
+  <li>
+    <b>Auto-download if missing</b> &mdash; if no FFXIV SoundFont is found, you are
+    prompted to download one. Choosing <i>Yes</i> opens the
+    <a href="#download">Download SoundFonts</a> dialog; after the download finishes the
+    file is automatically loaded into the engine and selected. Cancelling the download
+    leaves the toggle in the OFF state &mdash; no half-configured mode.
+  </li>
+  <li>
+    <b>Activate</b> &mdash; the FFXIV SoundFont is enabled, all other SoundFonts are
+    temporarily disabled, and FFXIV SoundFont Mode is switched on.
+  </li>
+</ol>
+
+<h5>Smart Disable / Fallback</h5>
+
+<p>
+  Clicking the button to <b>turn FFXIV SoundFont Mode OFF</b> restores whatever was
+  active before:
+</p>
+
+<ol>
+  <li>
+    All FFXIV SoundFonts in the stack are unchecked.
+  </li>
+  <li>
+    The snapshot taken on enable is restored verbatim &mdash; SoundFonts that were
+    unloaded in the meantime are re-loaded so the previous selection is recreated.
+  </li>
+  <li>
+    If the snapshot is empty (e.g. fresh installation, FFXIV was the first SoundFont
+    you ever activated), the first non-FFXIV SoundFont in the stack is enabled as a
+    sane fallback so playback keeps working.
+  </li>
+  <li>
+    <b>Microsoft GS Wavetable Synth fallback</b> &mdash; if the FluidSynth SoundFont
+    stack is completely empty after step&nbsp;3, the active MIDI output is switched
+    to <i>Microsoft GS Wavetable Synth</i> (or whichever <i>Microsoft &hellip; Synth</i>
+    port is available). You'll see a short info dialog noting the switch.
+  </li>
+</ol>
+
+<p>
+  This means you can install MidiEditor AI on a fresh machine, click the
+  <b>XIV</b> button once, accept the download prompt, and be ready to play FFXIV
+  bard files &mdash; and clicking the button again returns you to your previous
+  General MIDI setup, or to Microsoft GS as a guaranteed last-resort output.
+</p>
+
+<!-- ─────────── FFXIV SoundFont Mode ─────────── -->
 <h3 id="ffxiv-mode">FFXIV SoundFont Mode</h3>
 
 <p>

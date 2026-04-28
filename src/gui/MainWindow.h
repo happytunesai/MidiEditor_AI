@@ -1140,6 +1140,7 @@ private:
 
     /** \brief MCP server toggle button in toolbar */
     McpToggleWidget *_mcpToggleWidget = nullptr;
+    class FfxivToggleWidget *_ffxivToggleWidget = nullptr;
 
     /** \brief Status bar labels for cursor/selection/chord info */
     QLabel *_statusCursorLabel = nullptr;

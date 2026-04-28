@@ -57,7 +57,10 @@ MatrixWidget::MatrixWidget(QSettings *settings, QWidget *parent)
     : PaintWidget(parent), _settings(settings) {
     screen_locked = false;
     startTimeX = 0;
-    startLineY = 50;
+    // Default vertical scroll: center on the C3..C6 range (lines 43..79,
+    // midpoint ~61) so a freshly opened editor lands in the playable middle
+    // octaves instead of way up at C7+ or down at C1.
+    startLineY = 40;
     endTimeX = 0;
     endLineY = 0;
     file = 0;
@@ -1168,8 +1171,9 @@ void MatrixWidget::setFile(MidiFile *f) {
     scaleY = 1;
 
     startTimeX = 0;
-    // Roughly vertically center on Middle C.
-    startLineY = 50;
+    // Provisional default; refined below once we know whether the file has
+    // any notes and how tall the viewport currently is.
+    startLineY = 40;
 
     connect(file->protocol(), SIGNAL(actionFinished()), this, SLOT(registerRelayout()));
     connect(file->protocol(), SIGNAL(actionFinished()), this, SLOT(update()));
@@ -1195,6 +1199,21 @@ void MatrixWidget::setFile(MidiFile *f) {
 
     if (maxNote - 5 > 0) {
         startLineY = maxNote - 5;
+    } else {
+        // Empty file: center the viewport on the C3..C6 range (lines 43..79
+        // with line == 127 - midiNote, so midpoint == line 61) so the user
+        // immediately sees the playable middle octaves and can start drawing
+        // notes without scrolling.
+        const int kC3C6Center = 61;
+        int linesInView = endLineY - startLineY;
+        if (linesInView <= 0) {
+            // Fallback if calcSizes() couldn't compute a viewport yet.
+            linesInView = 50;
+        }
+        startLineY = kC3C6Center - linesInView / 2;
+        if (startLineY < 0) {
+            startLineY = 0;
+        }
     }
 
     calcSizes();

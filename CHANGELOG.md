@@ -5,6 +5,72 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 
 ---
 
+## [1.5.2] - 2026-04-28 — QoL Update: FFXIV SoundFont Toolbar Toggle & Auto-Setup
+
+### Summary
+
+* **One-click FFXIV SoundFont Mode toolbar toggle** — new `XIV` button next to the existing `MCP` button flips FFXIV SoundFont Mode on/off without opening Settings, stays in sync with the checkbox via a new `ffxivSoundFontModeChanged(bool)` signal, and is registered as a customisable toolbar action `ffxiv_toggle` (FFXIV-TOGGLE-001).
+* **Auto-download + snapshot/restore orchestration** — toggling FFXIV Mode on auto-locates the FFXIV SoundFont (stack → disk → `DownloadSoundFontDialog`), snapshots the previous non-FFXIV selection to `QSettings("FFXIV/savedEnabledSoundFonts")`, and restores it verbatim on disable, with a Microsoft GS Wavetable Synth fallback when the FluidSynth stack ends up empty (FFXIV-AUTO-001).
+* **Piano roll opens centred on C3..C6 by default** — empty/new files now position the matrix viewport so the playable middle octaves sit in the visible centre regardless of window height, instead of dropping the user at C7+ or C1- (QOL-VIEW-001).
+* **Dark-mode tinting bug for the green `mcp_on` toolbar icon** — the *MCP server running* indicator was painted gray-on-gray in dark themes; added `mcp_on` to the `Appearance::adjustIconForDarkMode` skip list so coloured "active" icons render verbatim (DARKMODE-MCP-001).
+* **Generic dark-mode artwork override via `<name>_dark.png`** — `Appearance::adjustIconForDarkMode(QString)` now auto-uses an explicit `*_dark.png` sibling when one exists, fixing the gold-text `ffxiv_fix` icon and giving every future icon a drop-in dark variant path (DARKMODE-VARIANT-001).
+* **Manual updates for the new toolbar toggle** — added a Tools row in `manual/menu-tools.html` and a new "FFXIV SoundFont Mode — Toolbar Toggle" section in `manual/soundfont.html` with inline `XIV_on/off` previews and matching CSS exceptions in `manual/style.css` (DOC-XIV-001).
+
+<details>
+<summary>Full Changelog — FFXIV SoundFont Toolbar Toggle & Auto-Setup</summary>
+
+### New Features
+
+* **FFXIV-TOGGLE-001 — Toolbar toggle for FFXIV SoundFont Mode** — new dedicated `XIV` button next to the existing `MCP` toolbar button so the mode can be flipped with a single click instead of opening *MIDI Settings → FluidSynth → FFXIV SoundFont Mode* every time. Implemented as `FfxivToggleWidget` ([src/gui/FfxivToggleWidget.cpp](src/gui/FfxivToggleWidget.cpp)) using the same paint/hover idiom as `McpToggleWidget`: two preloaded pixmaps (`XIV_on.png` / `XIV_off.png` in [run_environment/graphics/tool/](run_environment/graphics/tool)) swapped per state, no opacity dim, fixed 40×40 px so the toolbar layout stays uniform. Stays in sync with the Settings checkbox via the new `FluidSynthEngine::ffxivSoundFontModeChanged(bool)` signal (only emitted on actual value change). Registered as a customisable toolbar action `ffxiv_toggle` in [src/gui/LayoutSettingsWidget.cpp](src/gui/LayoutSettingsWidget.cpp) with own default-list entry, so it survives toolbar customisation and *Reset to Defaults*.
+* **FFXIV-AUTO-001 — Auto-download of the FFXIV SoundFont on first enable** — toggling FFXIV Mode on (button or checkbox) now goes through the new `FfxivSoundFontHelper` ([src/gui/FfxivSoundFontHelper.cpp](src/gui/FfxivSoundFontHelper.cpp)). Resolution order: FFXIV SF already in the FluidSynth stack → on disk in `<appDir>/soundfonts/` → otherwise the user is asked *"Download FFXIV SoundFont now?"* and the existing `DownloadSoundFontDialog` opens scoped to the FFXIV entry. The downloaded file is auto-loaded into the engine and selected, all other SoundFonts are disabled, and the engine flag flips on. If the user cancels the download the toggle reverts to OFF — no half-state. SF detection is by basename match (`ff14*` or `ffxiv*`, case-insensitive).
+* **FFXIV-AUTO-001 — Snapshot + restore of the previous SoundFont selection** — before enabling FFXIV Mode the helper snapshots all currently enabled non-FFXIV SoundFonts to `QSettings("FFXIV/savedEnabledSoundFonts")`. On disable, the snapshot is restored verbatim (re-loading any SF that was unloaded in the meantime). If the snapshot is empty or all snapshotted files are gone, the first non-FFXIV SF in the stack is enabled as a sane fallback.
+* **FFXIV-AUTO-001 — Microsoft GS Wavetable Synth fallback** — if disabling FFXIV Mode leaves the FluidSynth stack with zero enabled SoundFonts (clean install / freshly cleared list), the helper switches the active MIDI output to the system *"Microsoft GS Wavetable Synth"* port (matched by name) and shows a one-line info dialog so playback keeps working out of the box.
+* **QOL-VIEW-001 — Piano roll opens centred on the C3..C6 range** — when MidiEditor AI starts with an empty file (or any file with no notes) the matrix viewport is now positioned so that the playable middle octaves (lines 43..79, midpoint line 61) sit in the centre of the visible area regardless of window height. Implemented in [src/gui/MatrixWidget.cpp](src/gui/MatrixWidget.cpp) `setFile()`: when the existing `maxNote - 5` heuristic reports no notes, `startLineY = 61 - linesInView/2` (clamped to 0). Files that contain notes keep the previous "scroll to the highest note in the song" behaviour byte-identically — only the empty-file QoL case changes, so the user can start drawing immediately without scrolling.
+
+### Bug Fixes
+
+* **DARKMODE-MCP-001 — Dark mode tinted the green `mcp_on` toolbar icon to gray** — `Appearance::adjustIconForDarkMode` paints a `(180,180,180)` overlay over every non-skipped icon to lift black artwork against dark backgrounds, but the MCP "active" icon is intentionally green and was missing from the `skipIcons` list. Result: the *MCP server running* state looked the same medium-gray as the *stopped* state in dark themes — original v1.4.0 oversight when the MCP toolbar toggle was first introduced. Added `mcp_on` (and the new `XIV_on`) to the skip list in [src/gui/Appearance.cpp](src/gui/Appearance.cpp) so coloured "active" toolbar icons render verbatim in every theme. Regression since v1.4.0.
+* **DARKMODE-VARIANT-001 — Dark mode tinted the gold-text `ffxiv_fix` Tools icon** — the FFXIV Channel Fixer icon has a black harp glyph (hard to read on dark backgrounds) **and** gold lettering (which the gray overlay flattens). Solved generically: `Appearance::adjustIconForDarkMode(QString iconPath)` now looks for an explicit `<name>_dark.png` variant next to the original and, if present, returns it verbatim (no tinting, no inversion). Shipped `run_environment/graphics/tool/ffxiv_fix_dark.png` as the first variant. The same pattern works for any future icon — drop a `*_dark.png` next to the file and it is picked up automatically in dark mode.
+* **DARKMODE-XIV-001 — `XIV_off` toolbar icon was unreadable in dark mode** — the new OFF state is intentionally black, but the `FfxivToggleWidget` constructor was loading the pixmap directly via `QPixmap(...)` instead of going through `Appearance::adjustIconForDarkMode`, so it stayed black on a dark toolbar. Routed both `XIV_on` and `XIV_off` through `Appearance::adjustIconForDarkMode(QPixmap, name)` (mirroring `McpToggleWidget`); the `mcp_on`/`XIV_on` skip-list entry above keeps the green ON variant untouched while the OFF variant is lifted to light gray for dark themes.
+
+### Documentation
+
+* **DOC-XIV-001 — Manual entries for the new FFXIV SoundFont toolbar toggle** — added a *FFXIV SoundFont Mode toggle* row to [manual/menu-tools.html](manual/menu-tools.html) (right under the FFXIV Channel Fixer entry, with inline `XIV_on/off` previews) and a new *"FFXIV SoundFont Mode — Toolbar Toggle"* section to [manual/soundfont.html](manual/soundfont.html) (`#ffxiv-toolbar-toggle`) covering Smart Enable (snapshot → locate → auto-download → activate) and Smart Disable / Fallback (restore snapshot → first non-FFXIV SF → Microsoft GS Wavetable Synth). [manual/style.css](manual/style.css) gained a CSS exception for `XIV_on`/`XIV_off` (no inversion, native 72×25 size) so the inline previews render correctly in dark themes.
+
+### Notes
+
+* Version bumped to **1.5.2** in `CMakeLists.txt`.
+* The FFXIV download URL is the existing release asset at `https://github.com/happytunesai/MidiEditor_AI/releases/download/soundfonts/FF14-c3c6-fixed.sf2`, already wired into `DownloadSoundFontDialog`.
+* No agent / AI behaviour changes in this release.
+
+### Files Added
+
+* `src/gui/FfxivToggleWidget.h` — toolbar widget header for the new `XIV` button.
+* `src/gui/FfxivToggleWidget.cpp` — toolbar widget implementation (paint/hover/click, syncs to `FluidSynthEngine::ffxivSoundFontModeChanged`).
+* `src/gui/FfxivSoundFontHelper.h` — public namespace API for enable/disable orchestration.
+* `src/gui/FfxivSoundFontHelper.cpp` — auto-download + snapshot/restore + Microsoft GS Wavetable Synth fallback logic.
+* `run_environment/graphics/tool/XIV_on.png` — green ON-state toolbar icon (72×25 native).
+* `run_environment/graphics/tool/XIV_off.png` — neutral OFF-state toolbar icon (72×25 native).
+* `run_environment/graphics/tool/ffxiv_fix_dark.png` — explicit dark-mode variant of the FFXIV Channel Fixer icon (first user of the new `<name>_dark.png` lookup).
+* `manual/tools/XIV_on.png` / `manual/tools/XIV_off.png` — manual copies of the toolbar icons for inline previews.
+
+### Files Modified
+
+* `src/midi/FluidSynthEngine.h` / `.cpp` — added `ffxivSoundFontModeChanged(bool)` signal, emitted only on actual value change to avoid feedback loops with the toolbar widget.
+* `src/gui/MainWindow.h` / `.cpp` — created `ffxivToggleAction`, registered it in the action map, special-cased the toolbar widget instantiation in all four toolbar code paths, and seeded two action-order lists.
+* `src/gui/LayoutSettingsWidget.cpp` — registered `ffxiv_toggle` in the toolbar registry and appended it to all five default action-order lists.
+* `src/gui/MidiSettingsWidget.cpp` — `onFfxivModeToggled` now routes through `FfxivSoundFontHelper::requestEnable/Disable` and reverts the checkbox if the user cancels the download dialog.
+* `src/gui/MatrixWidget.cpp` — empty-file branch in `setFile()` centres the viewport on the C3..C6 range (line 61); files with notes are unchanged.
+* `src/gui/Appearance.cpp` — extended `skipIcons` with `XIV_on` + `mcp_on`; added automatic `<name>_dark.png` lookup in `adjustIconForDarkMode(QString)`.
+* `resources.qrc` — registered `XIV_on.png`, `XIV_off.png`, `ffxiv_fix_dark.png`.
+* `manual/menu-tools.html` — added the FFXIV SoundFont Mode toggle row with inline icon previews.
+* `manual/soundfont.html` — added the new `#ffxiv-toolbar-toggle` section covering enable/disable orchestration.
+* `manual/style.css` — added CSS exception so the wide `XIV_on/off` icons render at native 72×25 size and the green ON variant is not inverted in dark themes.
+
+</details>
+
+---
+
 ## [1.5.1] - 2026-04-28 — FFXIV SoundFont Mapping Fixes
 
 ### Bug Fixes

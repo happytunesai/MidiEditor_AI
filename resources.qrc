@@ -20,6 +20,7 @@
         <file>run_environment/graphics/tool/eraser.png</file>
         <file>run_environment/graphics/tool/explode_chords_to_tracks.png</file>
         <file>run_environment/graphics/tool/ffxiv_fix.png</file>
+        <file>run_environment/graphics/tool/ffxiv_fix_dark.png</file>
         <file>run_environment/graphics/tool/forward.png</file>
         <file>run_environment/graphics/tool/forward_marker.png</file>
         <file>run_environment/graphics/tool/glue.png</file>
@@ -71,6 +72,8 @@
         <file>run_environment/graphics/tool/lyric_visualizer.png</file>
         <file>run_environment/graphics/tool/mcp_on.png</file>
         <file>run_environment/graphics/tool/mcp_off.png</file>
+        <file>run_environment/graphics/tool/XIV_on.png</file>
+        <file>run_environment/graphics/tool/XIV_off.png</file>
         <file>run_environment/graphics/tool/new_chat.png</file>
         <file>run_environment/graphics/tool/history.png</file>
         <file>run_environment/graphics/channelwidget/loud.png</file>

@@ -1651,7 +1651,7 @@ QPixmap Appearance::adjustIconForDarkMode(const QPixmap &original, const QString
 
     // List of icons that don't need color adjustment (they're not black or are intentionally colored)
     QStringList skipIcons = {"load", "new", "redo", "undo", "save", "saveas", "stop_record", "icon", "midieditor",
-                             "explode_chords_to_tracks", "channel_split_28", "ffxiv_fix", "midipilot"};
+                             "explode_chords_to_tracks", "channel_split_28", "ffxiv_fix", "midipilot", "XIV_on", "mcp_on"};
 
     // Extract just the filename from the path for comparison
     QString fileName = iconName;
@@ -1685,11 +1685,33 @@ QIcon Appearance::adjustIconForDarkMode(const QString &iconPath) {
     // Bypass QPixmapCache to ensure we get pristine, unmodified icon files.
     // Qt caches QPixmap loads by filename, which can poison dynamic colors on theme flips.
     QImage img;
-    if (!img.load(iconPath)) {
+
+    // Prefer an explicit dark-mode variant ("<name>_dark.png") if one exists
+    // alongside the original. Such variants are used as-is (no tinting) so
+    // intentionally coloured artwork survives the dark-mode pass.
+    QString effectivePath = iconPath;
+    bool useDarkVariant = false;
+    if (shouldUseDarkMode()) {
+        int dot = iconPath.lastIndexOf('.');
+        if (dot > 0) {
+            QString candidate = iconPath.left(dot) + "_dark" + iconPath.mid(dot);
+            if (QFile::exists(candidate)) {
+                effectivePath = candidate;
+                useDarkVariant = true;
+            }
+        }
+    }
+
+    if (!img.load(effectivePath)) {
         return QIcon(); // Return empty icon instead of crashing
     }
 
     QPixmap original = QPixmap::fromImage(img);
+
+    if (useDarkVariant) {
+        // Dark variant is already tuned for dark backgrounds — return verbatim.
+        return QIcon(original);
+    }
 
     // Extract filename from path for icon name detection
     QString fileName = iconPath;

@@ -298,6 +298,24 @@
 		</td>
 	</tr>
 	<tr>
+		<td valign="top"><img src="tools/XIV_off.png" width="40px" height="20px"/></td>
+		<td>
+			<i>FFXIV SoundFont Mode toggle</i><br>
+			Toolbar button that turns <b>FFXIV SoundFont Mode</b> on or off in a single click,
+			mirroring the checkbox under <i>MIDI Settings &rarr; FluidSynth &rarr; FFXIV SoundFont Mode</i>.
+			Shows <img src="tools/XIV_on.png" height="20" alt="XIV on" style="vertical-align:middle"/>
+			(highlighted) when active and
+			<img src="tools/XIV_off.png" height="20" alt="XIV off" style="vertical-align:middle"/>
+			when off.
+			On <b>enable</b>: snapshots the currently active non-FFXIV SoundFont selection, then activates the
+			FFXIV bard SoundFont &mdash; if no FFXIV SoundFont is installed locally, the
+			<i>Download SoundFonts</i> dialog opens automatically so it can be fetched in one step.
+			On <b>disable</b>: restores the snapshotted SoundFonts, falling back to <i>Microsoft GS Wavetable Synth</i>
+			if the FluidSynth stack is empty.
+			<a href="soundfont.html#ffxiv-toolbar-toggle">Click here for details</a>
+		</td>
+	</tr>
+	<tr>
 		<td valign="top"><img src="tools/channel_split_28.png" width="20px" height="20px"/></td>
 		<td>
 			<i>Split Channels to Tracks</i><br>
