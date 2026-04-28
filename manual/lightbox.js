@@ -88,6 +88,14 @@
         // Skip <img> fallbacks inside <video> elements
         if (img.parentElement && img.parentElement.tagName === 'VIDEO') continue;
 
+        // Skip images wrapped in a non-lightbox <a> link (external links)
+        var imgParentAnchor = img.parentElement && img.parentElement.closest
+            ? img.parentElement.closest('a')
+            : null;
+        if (imgParentAnchor && !imgParentAnchor.classList.contains('lightbox-link')) {
+            continue;
+        }
+
         // Skip the lightbox's own enlarged image element
         if (img === lbImg) continue;
 
@@ -112,10 +120,19 @@
         })(links[j]);
     }
 
-    // Attach to inline <video> elements (click to enlarge)
+    // Attach to inline <video> elements (click to enlarge).
+    // Skip videos wrapped in a non-lightbox <a> link (e.g. the Happy Tunes
+    // easter-egg logo opens an external site in a new tab and must not be
+    // hijacked by the lightbox).
     var videos = document.querySelectorAll('video[autoplay]');
     for (var v = 0; v < videos.length; v++) {
         var vid = videos[v];
+        var parentAnchor = vid.parentElement && vid.parentElement.closest
+            ? vid.parentElement.closest('a')
+            : null;
+        if (parentAnchor && !parentAnchor.classList.contains('lightbox-link')) {
+            continue;
+        }
         vid.classList.add('lightbox-thumb');
         (function (el) {
             el.addEventListener('click', function (e) {
