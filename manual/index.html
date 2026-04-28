@@ -175,7 +175,7 @@
     "description": "AI-powered MIDI editor with intelligent copilot, Guitar Pro import, FFXIV bard mode, and FluidSynth playback.",
     "url": "https://midieditor-ai.de",
     "downloadUrl": "https://github.com/happytunesai/MidiEditor_AI/releases/latest",
-    "softwareVersion": "1.5.0",
+    "softwareVersion": "1.5.1",
     "license": "https://github.com/happytunesai/MidiEditor_AI/blob/main/LICENSE",
     "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
 }
@@ -236,7 +236,7 @@
              onerror="this.parentElement.style.display='none';">
     </div>
 
-    <span class="hero-badge">v1.5.0 &middot; Open Source &middot; Windows</span>
+    <span class="hero-badge">v1.5.1 &middot; Open Source &middot; Windows</span>
 
     <h1 class="hero-title">
         The <span class="text-gradient">AI-Powered</span> MIDI Editor
@@ -248,7 +248,7 @@
 
     <div class="hero-actions">
         <a href="download.html" class="btn btn-primary">
-            &#x2B07; Download v1.5.0
+            &#x2B07; Download v1.5.1
         </a>
         <a href="docs-index.html" class="btn btn-secondary" target="_blank" rel="noopener noreferrer">
             &#x1F4D6; Documentation
@@ -534,15 +534,11 @@
     </div>
     <div class="whats-new reveal">
         <span class="latest-badge">Latest</span>
-        <h3>v1.5.0 &mdash; April 2026</h3>
-        <p class="whats-new-subtitle">Live Agent Streaming, Dynamic Models, Prompt Profiles, Agent Conductor &amp; GPT-5.5 Isolation</p>
+        <h3>v1.5.1 &mdash; April 2026</h3>
+        <p class="whats-new-subtitle">FFXIV SoundFont Mapping Fixes</p>
         <ul>
-            <li><strong>Live agent streaming everywhere</strong> &mdash; OpenAI Chat-Completions, OpenAI Responses-API (<code>gpt-5*</code>), OpenRouter and native Gemini all stream assistant text, tool-call arguments and reasoning into the MidiPilot bubble live</li>
-            <li><strong>Dynamic provider model list with favourites</strong> &mdash; click 🔄 to refresh the live model list per provider, pin favourites, auto-filter image/audio/embedding entries</li>
-            <li><strong>Per-Model Prompt Profiles</strong> &mdash; attach a custom system prompt to one or more <em>provider:model</em> entries via <em>Settings &rarr; AI &rarr; Prompt Profiles&hellip;</em>; ships with a built-in <em>GPT-5.5 Decisive</em> profile</li>
-            <li><strong>Lightweight Agent Conductor</strong> &mdash; the agent loop now keeps a compact working state (goal, confirmed facts, next-step hint) so the model resumes from real progress instead of re-deriving it after every rejection</li>
-            <li><strong>OpenRouter robustness</strong> &mdash; transient upstream errors auto-retry on a different provider; HTTP 404 &ldquo;no tool support&rdquo; surfaces a clear pick-a-different-model message instead of burning three retries</li>
-            <li><strong>Per-session, mode-aware streaming fallback</strong> &mdash; on streaming failure MidiPilot transparently retries non-streaming and marks the offending model with <code>(Simple)</code> / <code>(Agent)</code> / <code>(Simple+Agent)</code>; <em>Force Streaming for This Model</em> clears the mark</li>
+            <li><strong>FFXIV SoundFont &mdash; Acoustic Guitar (nylon) silently played as Piano</strong> &mdash; the FFXIV instrument&nbsp;&rarr;&nbsp;GM-program tables used the wrong numbers for Lute (24&nbsp;&rarr;&nbsp;25), Snare Drum (115&nbsp;&rarr;&nbsp;118) and Cymbal (127&nbsp;&rarr;&nbsp;119), so Program Changes landed on empty preset slots and FluidSynth fell back to Piano</li>
+            <li><strong>FluidSynth &mdash; GM program fallback when running with the FFXIV SoundFont</strong> &mdash; old or imported MIDIs that send Acoustic Guitar nylon (24) or jazz (26) are now remapped to Lute (25) and Clean Guitar (27) when FFXIV SoundFont Mode is on, so they stop collapsing to Piano</li>
         </ul>
         <a href="changelog.html" class="changelog-link">View Full Changelog &rarr;</a>
     </div>
@@ -596,7 +592,7 @@
     </div>
     <div class="hero-actions reveal" style="margin-bottom: 1.5rem;">
         <a href="download.html" class="btn btn-primary" style="font-size: 1.15rem; padding: 1rem 2.5rem;">
-            &#x2B07; Download MidiEditor AI v1.5.0
+            &#x2B07; Download MidiEditor AI v1.5.1
         </a>
     </div>
     <p class="reveal" style="color: var(--text-muted); font-size: .9rem;">

@@ -218,12 +218,24 @@
 <div class="cl-no-results" id="cl-no-results">No matching releases found.</div>
 
 <div class="cl-timeline">
-<article class="cl-version latest" data-version="1.5.0">
+<article class="cl-version latest" data-version="1.5.1">
+<div class="cl-dot"></div>
+<div class="cl-version-head">
+<h2><a href="https://github.com/happytunesai/MidiEditor_AI/releases/tag/v1.5.1" target="_blank" rel="noopener noreferrer">v1.5.1</a></h2>
+<span class="cl-date">2026-04-28</span>
+<span class="cl-badge-latest">Latest</span>
+</div>
+<div class="cl-title">FFXIV SoundFont Mapping Fixes</div>
+<ul class="cl-summary">
+<li><strong>FFXIV SoundFont — Acoustic Guitar (nylon) silently played as Piano</strong> — <code class="hl">FF14-c3c6-fixed.sf2</code> exposes Lute on GM program <strong>25</strong> (Acoustic Guitar steel slot), not 24, and <code class="hl">Snare Drum</code> / <code class="hl">Cymbal</code> on <strong>118 / 119</strong> rather than 115 / 127. The FFXIV instrument → GM-program tables in <a href="src/ai/FFXIVChannelFixer.cpp" target="_blank" rel="noopener noreferrer">src/ai/FFXIVChannelFixer.cpp</a> and <a href="src/ai/ToolDefinitions.cpp" target="_blank" rel="noopener noreferrer">src/ai/ToolDefinitions.cpp</a> used the old (wrong) numbers, so the FFXIV Channel Fixer and the AI agent emitted Program Changes onto empty preset slots; FluidSynth then silently fell back to bank 0 / prog 0 (= Piano). Verified against the SF2 <code class="hl">phdr</code> chunk and corrected to 25 / 118 / 119.</li>
+<li><strong>FluidSynth — GM program fallback when running with the FFXIV SoundFont</strong> — old or imported MIDIs (e.g. Guitar Pro, MusicXML) frequently send Program Change 24 (Acoustic Guitar nylon) or 26 (Acoustic Guitar jazz). The FFXIV SoundFont contains no preset for those slots, so they collapsed to Piano. Added a small remap in <code class="hl">FluidSynthEngine::sendMidiData()</code> (only active when <strong>FFXIV SoundFont Mode</strong> is on): <code class="hl">24 → 25</code> (Lute), <code class="hl">26 → 27</code> (Clean Guitar). The remap is logged via <code class="hl">qDebug</code> as <code class="hl">prog 24 → 25 (FFXIV fallback)</code>. All other programs are passed through unchanged.</li>
+</ul>
+</article>
+<article class="cl-version" data-version="1.5.0">
 <div class="cl-dot"></div>
 <div class="cl-version-head">
 <h2><a href="https://github.com/happytunesai/MidiEditor_AI/releases/tag/v1.5.0" target="_blank" rel="noopener noreferrer">v1.5.0</a></h2>
 <span class="cl-date">2026-04-21</span>
-<span class="cl-badge-latest">Latest</span>
 </div>
 <div class="cl-title">Live Agent Streaming, Dynamic Models, Prompt Profiles, Agent Conductor &amp; GPT-5.5 Isolation</div>
 <ul class="cl-summary">

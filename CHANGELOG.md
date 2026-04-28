@@ -5,6 +5,15 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 
 ---
 
+## [1.5.1] - 2026-04-28 — FFXIV SoundFont Mapping Fixes
+
+### Bug Fixes
+
+* **FFXIV SoundFont — Acoustic Guitar (nylon) silently played as Piano** — `FF14-c3c6-fixed.sf2` exposes Lute on GM program **25** (Acoustic Guitar steel slot), not 24, and `Snare Drum` / `Cymbal` on **118 / 119** rather than 115 / 127. The FFXIV instrument → GM-program tables in [src/ai/FFXIVChannelFixer.cpp](src/ai/FFXIVChannelFixer.cpp) and [src/ai/ToolDefinitions.cpp](src/ai/ToolDefinitions.cpp) used the old (wrong) numbers, so the FFXIV Channel Fixer and the AI agent emitted Program Changes onto empty preset slots; FluidSynth then silently fell back to bank 0 / prog 0 (= Piano). Verified against the SF2 `phdr` chunk and corrected to 25 / 118 / 119.
+* **FluidSynth — GM program fallback when running with the FFXIV SoundFont** — old or imported MIDIs (e.g. Guitar Pro, MusicXML) frequently send Program Change 24 (Acoustic Guitar nylon) or 26 (Acoustic Guitar jazz). The FFXIV SoundFont contains no preset for those slots, so they collapsed to Piano. Added a small remap in `FluidSynthEngine::sendMidiData()` (only active when **FFXIV SoundFont Mode** is on): `24 → 25` (Lute), `26 → 27` (Clean Guitar). The remap is logged via `qDebug` as `prog 24 → 25 (FFXIV fallback)`. All other programs are passed through unchanged.
+
+---
+
 ## [1.5.0] - 2026-04-21 — Live Agent Streaming, Dynamic Models, Prompt Profiles, Agent Conductor & GPT-5.5 Isolation
 
 ### Summary

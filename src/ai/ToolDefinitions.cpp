@@ -936,16 +936,19 @@ static int ffxivProgramNumber(const QString &instrumentName) {
     QRegularExpression suffixRe("[+-]\\d+$");
     base.remove(suffixRe);
 
+    // NOTE: program numbers must match the actual presets in the FFXIV
+    // SoundFont (FF14-c3c6-fixed.sf2). Mismatches cause silent fallback to
+    // bank 0 / prog 0 (= Piano). Verified 2026-04-28 against phdr chunk.
     static const QHash<QString, int> map = {
         {"Piano", 0},       {"Harp", 46},       {"Fiddle", 45},
-        {"Lute", 24},       {"Fife", 72},        {"Flute", 73},
+        {"Lute", 25},       {"Fife", 72},        {"Flute", 73},
         {"Oboe", 68},       {"Panpipes", 75},    {"Clarinet", 71},
         {"Trumpet", 56},    {"Saxophone", 65},   {"Trombone", 57},
         {"Horn", 60},       {"Tuba", 58},
         {"Violin", 40},     {"Viola", 41},       {"Cello", 42},
         {"Double Bass", 43},
         {"Timpani", 47},    {"Bongo", 116},      {"Bass Drum", 117},
-        {"Snare Drum", 115}, {"Cymbal", 127},
+        {"Snare Drum", 118}, {"Cymbal", 119},
         {"ElectricGuitarClean", 27},       {"ElectricGuitarMuted", 28},
         {"ElectricGuitarOverdriven", 29},  {"ElectricGuitarPowerChords", 30},
         {"ElectricGuitarSpecial", 31}

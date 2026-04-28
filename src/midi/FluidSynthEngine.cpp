@@ -460,15 +460,38 @@ void FluidSynthEngine::sendMidiData(const QByteArray &data) {
     case 0xC0: // Program Change
         if (data.size() >= 2) {
             int program = static_cast<unsigned char>(data[1]);
+            int origProgram = program;
             // In melodic mode, force bank 0 on ALL channels so FFXIV
             // SoundFont presets are always found (they only exist in bank 0)
             if (_ffxivSoundFontMode) {
                 fluid_synth_bank_select(_synth, channel, 0);
+                // GM-program → FFXIV-SF2 fallback. The FFXIV SoundFont is
+                // sparse: any GM program with no preset silently falls back
+                // to bank 0 / prog 0 (= Piano), so e.g. an Acoustic Guitar
+                // (nylon) track plays as piano. Remap the most common
+                // missing slots to the closest FFXIV instrument so old or
+                // imported MIDIs (Guitar Pro, MusicXML, …) still sound
+                // sensible. Verified against FF14-c3c6-fixed.sf2 phdr
+                // chunk on 2026-04-28.
+                static const QHash<int, int> ffxivProgramFallback = {
+                    {24, 25},  // Acoustic Guitar (nylon) → Lute
+                    {26, 27},  // Acoustic Guitar (jazz)  → Clean Guitar
+                };
+                auto it = ffxivProgramFallback.constFind(program);
+                if (it != ffxivProgramFallback.constEnd()) {
+                    program = it.value();
+                }
             }
             fluid_synth_program_change(_synth, channel, program);
-            qDebug() << "FluidSynth: Program change ch" << channel
-                     << "prog" << program
-                     << ((_ffxivSoundFontMode) ? "(FFXIV mode/bank0)" : "");
+            if (_ffxivSoundFontMode && program != origProgram) {
+                qDebug() << "FluidSynth: Program change ch" << channel
+                         << "prog" << origProgram << "→" << program
+                         << "(FFXIV fallback)";
+            } else {
+                qDebug() << "FluidSynth: Program change ch" << channel
+                         << "prog" << program
+                         << ((_ffxivSoundFontMode) ? "(FFXIV mode/bank0)" : "");
+            }
         }
         break;
 
