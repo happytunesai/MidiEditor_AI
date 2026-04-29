@@ -232,6 +232,49 @@
   <li><b>FFXIV SoundFont Mode:</b> If you have <a href="soundfont.html#ffxiv-mode">FFXIV SoundFont Mode</a> enabled, the export respects it &mdash; your bard arrangements will sound correct.</li>
 </ul>
 
+<!-- ───────── Stem export via mute / solo (1.5.3) ───────── -->
+<h3 id="stems">Exporting Stems &mdash; Mute &amp; Solo</h3>
+
+<p>
+  Since <b>1.5.3</b>, audio export honours the same <b>mute</b> and <b>solo</b> state as live playback,
+  on both the channel list and the track list. This lets you bounce stems &mdash; one instrument at a
+  time &mdash; without re-arranging the file. The behaviour is <b>format-agnostic</b>: it works for
+  WAV, FLAC, OGG and MP3 alike, because the mute / solo filtering happens before FluidSynth's encoder
+  stage.
+</p>
+
+<table>
+<tr><th>Goal</th><th>How</th></tr>
+<tr>
+  <td><b>Export only one channel</b></td>
+  <td>In the <b>Channels</b> panel (right side), <kbd>Solo</kbd> the channel you want, then
+      <kbd>Ctrl+Shift+E</kbd>. The MP3/WAV will contain only the soloed channel.</td>
+</tr>
+<tr>
+  <td><b>Export everything except a channel</b></td>
+  <td>Mute the channels you don&rsquo;t want, then export. Muted channels are dropped from the render.</td>
+</tr>
+<tr>
+  <td><b>Export only one track</b></td>
+  <td>In the <b>Tracks</b> panel, mute every other track (or just mute the ones you want gone).
+      Per-track mute state is now respected by the renderer, even when several tracks share a MIDI channel.</td>
+</tr>
+<tr>
+  <td><b>Export a quick drum stem</b></td>
+  <td>Mute everything except your drum tracks. In FFXIV SoundFont Mode each named percussion track
+      (Bass Drum, Snare Drum, Timpani, Bongo, Cymbal &mdash; with optional <code>+N</code>/<code>-N</code>
+      octave suffix) is routed to the matching FFXIV bard percussion preset automatically, so the
+      stem matches what you hear during playback.</td>
+</tr>
+</table>
+
+<p>
+  Behind the scenes the export writes a temporary MIDI file with muted tracks stripped to empty
+  <code>MTrk</code> chunks and forwards the channel mute / solo bitmask to the FluidSynth render
+  callback, which drops every channel-bound message for masked channels. Same behaviour applies to
+  <kbd>Export Selection&hellip;</kbd>.
+</p>
+
 </main>
 
 <footer class="site-footer">

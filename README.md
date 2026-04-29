@@ -13,7 +13,7 @@
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-0078D6?logo=windows)](https://github.com/happytunesai/MidiEditor_AI/releases)
 
-**Version:** 1.5.1
+**Version:** 1.5.3
 **Status:** Release
 
 📥 **[Download Latest Release](https://github.com/happytunesai/MidiEditor_AI/releases/latest)**
@@ -73,8 +73,8 @@ MidiPilot is the AI brain embedded directly in MidiEditor AI. Open the sidebar, 
 | 🎼 **Guitar Pro Import** | Open GP1–GP8 files (.gp, .gp3, .gp4, .gp5, .gpx, .gtp) directly — header-based format detection, tempo/time-sig/key extraction |
 | 🎼 **MusicXML Import** | Open `.musicxml`, `.xml`, and compressed `.mxl` scores from Finale, Sibelius, MuseScore, Dorico, etc. — auto-converted to MIDI on open |
 | 🎼 **MuseScore Import** | Open `.mscz` (zipped) and `.mscx` (plain XML) files from MuseScore 3/4 directly |
-| 🔊 **Built-in FluidSynth** | Play MIDI without external softsynth — load SF2/SF3 SoundFonts, SoundFont stacking, enable/disable checkboxes, FFXIV SoundFont Mode |
-| 🎶 **Audio Export** | Export MIDI to WAV, FLAC, OGG Vorbis, or MP3 using loaded SoundFonts — built-in LAME 3.100 encoder, no external tools needed |
+| 🔊 **Built-in FluidSynth** | Play MIDI without external softsynth — load SF2/SF3 SoundFonts, SoundFont stacking, enable/disable checkboxes, FFXIV SoundFont Mode with bard-accurate playback (dry, 16-voice cap, perceptual cubic CC7·CC11 curve, per-instrument min note length) |
+| 🎶 **Audio Export** | Export MIDI to WAV, FLAC, OGG Vorbis, or MP3 using loaded SoundFonts — built-in LAME 3.100 encoder, no external tools needed. Honours channel mute/solo and per-track mute, and auto-routes named FFXIV percussion tracks to the correct bard preset |
 | 📊 **MIDI Visualizer** | Real-time 16-channel equalizer bars in the toolbar with velocity-based color and smooth decay animation |
 | 🔌 **Multi-Provider** | OpenAI, OpenRouter, Google Gemini, or any OpenAI-compatible endpoint |
 | 🧠 **Reasoning Support** | Configurable thinking/reasoning effort (None → Extra High) |

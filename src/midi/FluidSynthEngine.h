@@ -23,6 +23,7 @@
 
 #include <QObject>
 #include <QList>
+#include <QElapsedTimer>
 #include <QPair>
 #include <QSet>
 #include <QString>
@@ -49,6 +50,8 @@ struct ExportOptions {
     int endTick = -1;           ///< Last tick to include (-1 = until end)
     int mp3Bitrate = 192;       ///< MP3 CBR bitrate in kbps (128, 192, 256, 320)
     bool deleteMidiFileAfterExport = false; ///< Delete midiFilePath after export (for temp files)
+    quint32 mutedChannelsMask = 0; ///< Bit i set = drop all events on MIDI channel i during export.
+                                   ///< Mirrors the live-playback behaviour of `MidiFile::channelMuted()`.
 };
 
 /**
@@ -208,6 +211,19 @@ public:
      */
     int drumProgramForTrackName(const QString &trackName) const;
 
+    /**
+     * \brief Returns the FFXIV SF2 program number for a GM percussion key.
+     *
+     * Used when an arbitrary GM drum-kit channel (typically CH9) plays
+     * many different drum sounds (kick, snare, toms, hats, crashes) and
+     * we want to route each individual hit to the closest FFXIV bard
+     * percussion preset. Only active while FFXIV SoundFont mode is on.
+     *
+     * \param gmNote The MIDI key from the NoteOn (35..81 cover GM drum kit)
+     * \return Program number (0-127) or -1 if no FFXIV match is appropriate
+     */
+    static int ffxivDrumProgramForGmNote(int gmNote);
+
     // === Audio Settings ===
 
     void setAudioDriver(const QString &driver);
@@ -217,6 +233,22 @@ public:
     void setReverbEnabled(bool enabled);
     void setChorusEnabled(bool enabled);
     void setFfxivSoundFontMode(bool enabled);
+
+    /**
+     * \brief Toggles "bard accuracy" playback shaping for FFXIV SoundFont mode.
+     *
+     * When enabled (default) AND FFXIV SoundFont mode is active, FluidSynthEngine:
+     *  - disables FluidSynth reverb and chorus (FF14 samples are dry in-game),
+     *  - caps polyphony at 16 voices (matches BMP / LightAmp Siren),
+     *  - forces NoteOn velocity to 127 (in-game bards have fixed attack),
+     *  - applies a cubic (vol*expr)³ volume curve via CC7/CC11 (matches BMP),
+     *  - lengthens too-short NoteOffs to per-instrument minima
+     *    (e.g. Harp ≥ 1.13 s, Piano ≥ 1.53 s) so staccatos don't click.
+     *
+     * No effect while FFXIV SoundFont mode is OFF.
+     */
+    void setBardAccurateMode(bool enabled);
+    bool bardAccurateMode() const;
 
     bool ffxivSoundFontMode() const;
     QString audioDriver() const;
@@ -269,6 +301,44 @@ private:
 
     void applyChannelMode();
 
+    // === Bard-accuracy helpers (FFXIV SoundFont + bardAccurateMode) ===
+    /// Apply runtime synth state for current ffxiv/bard combination.
+    void applyBardAccuracySettings();
+    /// Map MIDI program number to LightAmp's FFXIV instrument index (1..28).
+    /// Returns -1 if program isn't a known FFXIV bard instrument.
+    static int bardInstrumentIndexForProgram(int program);
+    /// Minimum note length in milliseconds for a given instrument index and MIDI key.
+    /// Returns 0 when no minimum applies. \a duration is the natural duration that
+    /// should be returned when no register-specific floor applies.
+    static qint64 bardMinNoteLengthMs(int instrumentIndex, int midiKey, qint64 duration);
+    /// Reset all per-channel/per-key bard state (note-on times, held flags, generations).
+    void resetBardNoteState();
+    /// Cubic-curve recomputation for one channel (CC7 · CC11)^3, sent as CC7 to synth.
+    void applyBardVolumeCurve(int channel);
+
+    /// Per-program loudness trim in centibels (positive = additional
+    /// attenuation). Compensates for the FFXIV SoundFont presets being
+    /// sampled at uneven levels (e.g. ElectricGuitarClean is noticeably
+    /// quieter than Lute / Harp / Piano). Applied as an additive
+    /// `GEN_ATTENUATION` per channel in bard mode.
+    static int bardProgramAttenuationCb(int program);
+
+    /// fluid_player_t playback callback used by exportAudio() so offline
+    /// rendering applies the same FFXIV bank-select / program-fallback as
+    /// live playback. \a data is the export fluid_synth_t*.
+    static int exportPlaybackCallback(void *data, fluid_midi_event_t *event);
+
+    /// Per-export state read by the playback callback. Set in exportAudio()
+    /// before the player runs and reset on completion. Only safe for one
+    /// concurrent export (which is the only mode the engine supports).
+    static quint32 _exportMutedChannelsMask;
+    static bool    _exportBardActive;
+    // Per-channel "the file already gave us an explicit Program Change".
+    // Used by the export callback so the GM-drum-key fallback on CH9
+    // doesn't overwrite the program a Snare Drum / Bass Drum track
+    // already requested via an injected PC.
+    static bool    _exportExplicitPC[16];
+
     fluid_settings_t *_settings;
     fluid_synth_t *_synth;
     fluid_audio_driver_t *_audioDriver;
@@ -295,6 +365,16 @@ private:
     bool _reverbEnabled;
     bool _chorusEnabled;
     bool _ffxivSoundFontMode;
+    bool _bardAccurateMode;
+
+    // === Bard-accuracy runtime state ===
+    QElapsedTimer _bardClock;             // time base for note-on timestamps
+    int _bardCurrentProgram[16];          // last program number seen per channel
+    int _bardCC7[16];                     // last CC7 value per channel (default 127)
+    int _bardCC11[16];                    // last CC11 value per channel (default 127)
+    qint64 _bardNoteOnMs[16][128];        // ms timestamp of last NoteOn per (ch,key)
+    bool _bardNoteHeld[16][128];          // true while a NoteOn for (ch,key) is sounding
+    quint32 _bardNoteGen[16][128];        // generation counter to invalidate pending offs
 
     // Export cancel flag (thread-safe)
     std::atomic<bool> _cancelExport{false};

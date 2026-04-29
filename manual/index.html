@@ -175,7 +175,7 @@
     "description": "AI-powered MIDI editor with intelligent copilot, Guitar Pro import, FFXIV bard mode, and FluidSynth playback.",
     "url": "https://midieditor-ai.de",
     "downloadUrl": "https://github.com/happytunesai/MidiEditor_AI/releases/latest",
-    "softwareVersion": "1.5.2",
+    "softwareVersion": "1.5.3",
     "license": "https://github.com/happytunesai/MidiEditor_AI/blob/main/LICENSE",
     "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
 }
@@ -236,7 +236,7 @@
              onerror="this.parentElement.style.display='none';">
     </div>
 
-    <span class="hero-badge">v1.5.2 &middot; Open Source &middot; Windows</span>
+    <span class="hero-badge">v1.5.3 &middot; Open Source &middot; Windows</span>
 
     <h1 class="hero-title">
         The <span class="text-gradient">AI-Powered</span> MIDI Editor
@@ -248,7 +248,7 @@
 
     <div class="hero-actions">
         <a href="download.html" class="btn btn-primary">
-            &#x2B07; Download v1.5.2
+            &#x2B07; Download v1.5.3
         </a>
         <a href="docs-index.html" class="btn btn-secondary" target="_blank" rel="noopener noreferrer">
             &#x1F4D6; Documentation
@@ -534,11 +534,14 @@
     </div>
     <div class="whats-new reveal">
         <span class="latest-badge">Latest</span>
-        <h3>v1.5.2 &mdash; April 2026</h3>
-        <p class="whats-new-subtitle">FFXIV SoundFont Mapping Fixes</p>
+        <h3>v1.5.3 &mdash; April 2026</h3>
+        <p class="whats-new-subtitle">Bard-Accurate Playback &amp; Mute-Aware Audio Export</p>
         <ul>
-            <li><strong>FFXIV SoundFont &mdash; Acoustic Guitar (nylon) silently played as Piano</strong> &mdash; the FFXIV instrument&nbsp;&rarr;&nbsp;GM-program tables used the wrong numbers for Lute (24&nbsp;&rarr;&nbsp;25), Snare Drum (115&nbsp;&rarr;&nbsp;118) and Cymbal (127&nbsp;&rarr;&nbsp;119), so Program Changes landed on empty preset slots and FluidSynth fell back to Piano</li>
-            <li><strong>FluidSynth &mdash; GM program fallback when running with the FFXIV SoundFont</strong> &mdash; old or imported MIDIs that send Acoustic Guitar nylon (24) or jazz (26) are now remapped to Lute (25) and Clean Guitar (27) when FFXIV SoundFont Mode is on, so they stop collapsing to Piano</li>
+            <li><strong>FFXIV bard-accurate playback mode</strong> &mdash; FluidSynth now reshapes its output to sound much closer to the in-game bard: dry (no reverb/chorus), 16-voice cap, 48&nbsp;kHz default, per-instrument minimum-note-length tables, and a perceptual cubic <em>(CC7&middot;CC11)<sup>3</sup></em> volume curve with velocity pinned to 127</li>
+            <li><strong>FFXIV percussion routing for GM drum tracks</strong> &mdash; GM Standard-Kit keys (kick / snare / toms / hats / cymbals / hand drums) are mapped to the closest FFXIV bard percussion preset, so single-channel GM drum tracks finally route each hit individually</li>
+            <li><strong>Mute- and solo-aware audio export (all formats)</strong> &mdash; Export Audio now honours both channel mute/solo and per-track mute. Solo a single channel or mute a single track and the rendered <strong>WAV / FLAC / OGG / MP3</strong> contains exactly that &mdash; same behaviour as live playback</li>
+            <li><strong>FFXIV percussion routing in audio export</strong> &mdash; named percussion tracks (Bass Drum / Snare Drum / Timpani / Bongo / Cymbal) are auto-routed to the matching FFXIV bard percussion preset in the offline render, format-agnostic</li>
+            <li><strong>Live-parity FFXIV remap in audio export (all formats)</strong> &mdash; the offline renderer applies the same bank-select forcing, program-fallback table and per-program loudness trim as live playback, so exported files match what you hear</li>
         </ul>
         <a href="changelog.html" class="changelog-link">View Full Changelog &rarr;</a>
     </div>
@@ -592,7 +595,7 @@
     </div>
     <div class="hero-actions reveal" style="margin-bottom: 1.5rem;">
         <a href="download.html" class="btn btn-primary" style="font-size: 1.15rem; padding: 1rem 2.5rem;">
-            &#x2B07; Download MidiEditor AI v1.5.2
+            &#x2B07; Download MidiEditor AI v1.5.3
         </a>
     </div>
     <p class="reveal" style="color: var(--text-muted); font-size: .9rem;">

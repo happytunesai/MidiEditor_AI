@@ -7236,15 +7236,57 @@ void MainWindow::exportAudio() {
 
     ExportOptions opts = dlg.exportOptions();
 
+    // Mirror live-playback mute behaviour (MidiFile::channelMuted handles
+    // both per-channel mute and solo): build a bitmask of channels the
+    // export should drop. Without this, exporting with some channels
+    // muted still produces all instruments in the rendered file.
+    quint32 mutedMask = 0;
+    for (int ch = 0; ch < 16; ++ch) {
+        if (file->channelMuted(ch)) mutedMask |= (1u << ch);
+    }
+    opts.mutedChannelsMask = mutedMask;
+
+    // If any *track* is muted we must rewrite a temp MIDI file with
+    // those track events stripped, because the offline FluidSynth
+    // player loses track identity once it's flat events on channels.
+    bool anyTrackMuted = false;
+    if (file->tracks()) {
+        for (MidiTrack *t : *file->tracks()) {
+            if (t && t->muted()) { anyTrackMuted = true; break; }
+        }
+    }
+
+    // Build a drum-track-name → FFXIV percussion program map. When
+    // FFXIV mode is on, MidiFile::save() injects a CH9 PC before each
+    // NoteOn from a track in this map so the offline render hits the
+    // correct percussion preset (mirrors the live MidiOutput per-note
+    // PC injection). Fixes "Snare Drum exports as Bongo" when snare
+    // hits don't sit on the GM standard keys.
+    QHash<QString, int> drumProgramMap;
+#ifdef FLUIDSYNTH_SUPPORT
+    const bool ffxivOn = FluidSynthEngine::instance() &&
+                         FluidSynthEngine::instance()->ffxivSoundFontMode();
+    if (ffxivOn && file->tracks()) {
+        for (MidiTrack *t : *file->tracks()) {
+            if (!t) continue;
+            int prog = FluidSynthEngine::instance()->drumProgramForTrackName(t->name());
+            if (prog >= 0) drumProgramMap.insert(t->name(), prog);
+        }
+    }
+#else
+    const bool ffxivOn = false;
+#endif
+    const bool needTempFile = anyTrackMuted || !drumProgramMap.isEmpty();
+
     // FluidSynth needs a standard MIDI file. If the loaded file is a Guitar Pro
     // or other non-MIDI format, save the in-memory data to a temp .mid first.
     QString filePath = file->path();
     QString ext = QFileInfo(filePath).suffix().toLower();
-    if (ext == "mid" || ext == "midi") {
+    if ((ext == "mid" || ext == "midi") && !needTempFile) {
         opts.midiFilePath = filePath;
     } else {
         QString tempMidi = QDir::tempPath() + "/midieditor_export_temp.mid";
-        if (!file->save(tempMidi)) {
+        if (!file->save(tempMidi, /*skipMutedTrackEvents=*/anyTrackMuted, drumProgramMap)) {
             QMessageBox::critical(this, tr("Export Failed"),
                                   tr("Could not prepare MIDI data for export."));
             return;
@@ -7277,13 +7319,44 @@ void MainWindow::exportAudioSelection() {
 
     ExportOptions opts = dlg.exportOptions();
 
+    // Mirror live-playback mute behaviour: drop muted (or solo'd-out)
+    // channels from the rendered audio.
+    quint32 mutedMask = 0;
+    for (int ch = 0; ch < 16; ++ch) {
+        if (file->channelMuted(ch)) mutedMask |= (1u << ch);
+    }
+    opts.mutedChannelsMask = mutedMask;
+
+    bool anyTrackMuted = false;
+    if (file->tracks()) {
+        for (MidiTrack *t : *file->tracks()) {
+            if (t && t->muted()) { anyTrackMuted = true; break; }
+        }
+    }
+
+    QHash<QString, int> drumProgramMap;
+#ifdef FLUIDSYNTH_SUPPORT
+    const bool ffxivOn = FluidSynthEngine::instance() &&
+                         FluidSynthEngine::instance()->ffxivSoundFontMode();
+    if (ffxivOn && file->tracks()) {
+        for (MidiTrack *t : *file->tracks()) {
+            if (!t) continue;
+            int prog = FluidSynthEngine::instance()->drumProgramForTrackName(t->name());
+            if (prog >= 0) drumProgramMap.insert(t->name(), prog);
+        }
+    }
+#else
+    const bool ffxivOn = false;
+#endif
+    const bool needTempFile = anyTrackMuted || !drumProgramMap.isEmpty();
+
     QString filePath = file->path();
     QString ext = QFileInfo(filePath).suffix().toLower();
-    if (ext == "mid" || ext == "midi") {
+    if ((ext == "mid" || ext == "midi") && !needTempFile) {
         opts.midiFilePath = filePath;
     } else {
         QString tempMidi = QDir::tempPath() + "/midieditor_export_temp.mid";
-        if (!file->save(tempMidi)) {
+        if (!file->save(tempMidi, /*skipMutedTrackEvents=*/anyTrackMuted, drumProgramMap)) {
             QMessageBox::critical(this, tr("Export Failed"),
                                   tr("Could not prepare MIDI data for export."));
             return;

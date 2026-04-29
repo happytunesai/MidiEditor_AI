@@ -26,8 +26,13 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QHash>
+#include <QPointer>
 #include <QRegularExpression>
 #include <QSettings>
+#include <QTimer>
+#include <QtMath>
+#include <cmath>
+#include <cstring>
 
 // ============================================================================
 // Singleton
@@ -47,10 +52,21 @@ FluidSynthEngine::FluidSynthEngine()
       _audioDriverName(),
       _reverbEngine("fdn"),
       _gain(0.5),
-      _sampleRate(44100.0),
+      _sampleRate(48000.0),
       _reverbEnabled(true),
       _chorusEnabled(true),
-      _ffxivSoundFontMode(false) {
+      _ffxivSoundFontMode(false),
+      _bardAccurateMode(true) {
+    for (int ch = 0; ch < 16; ++ch) {
+        _bardCurrentProgram[ch] = 0;
+        _bardCC7[ch] = 127;
+        _bardCC11[ch] = 127;
+        for (int k = 0; k < 128; ++k) {
+            _bardNoteOnMs[ch][k] = 0;
+            _bardNoteHeld[ch][k] = false;
+            _bardNoteGen[ch][k] = 0;
+        }
+    }
 }
 
 FluidSynthEngine::~FluidSynthEngine() {
@@ -136,6 +152,12 @@ bool FluidSynthEngine::initialize() {
     qDebug() << "  Sample rate:" << _sampleRate;
     qDebug() << "  Gain:" << _gain;
 
+    // Start the bard-mode time base
+    if (!_bardClock.isValid()) {
+        _bardClock.start();
+    }
+    resetBardNoteState();
+
     // Load any pending SoundFonts from saved settings
     // (must happen BEFORE channel mode setup, because sfload with
     //  reset_presets=1 calls program_reset which overrides channel types)
@@ -148,6 +170,10 @@ bool FluidSynthEngine::initialize() {
 
     // Apply channel mode AFTER SoundFont loading
     applyChannelMode();
+
+    // Apply runtime bard-accuracy state (reverb/chorus/polyphony) after
+    // SoundFonts are loaded so we override any sf_init defaults.
+    applyBardAccuracySettings();
 
     return true;
 }
@@ -409,6 +435,41 @@ int FluidSynthEngine::drumProgramForTrackName(const QString &trackName) const {
     return drumMap.value(base, -1);
 }
 
+int FluidSynthEngine::ffxivDrumProgramForGmNote(int gmNote) {
+    // Note: callers (live MidiOutput, exportPlaybackCallback) gate this
+    // on FFXIV mode being active, so we don't re-check _ffxivSoundFontMode
+    // here (which would also block the static export-callback path).
+    // GM Standard Drum Kit (key 35..81). Map each common drum to the
+    // closest FFXIV bard percussion preset in our SoundFont:
+    //   117 Bass Drum, 118 Snare Drum, 47 Timpani (toms),
+    //   119 Cymbal (hats / cymbals / cowbell), 116 Bongo (hand drums / blocks).
+    switch (gmNote) {
+    // Kick / bass
+    case 35: case 36:
+        return 117;
+    // Snares + rim
+    case 37: case 38: case 40:
+        return 118;
+    // Toms (LightAmp also routes toms to Timpani)
+    case 41: case 43: case 45: case 47: case 48: case 50:
+        return 47;
+    // Hi-hats + cymbals
+    case 42: case 44: case 46:                       // hi-hats
+    case 49: case 51: case 52: case 53: case 55:
+    case 57: case 59:                                // crashes / rides / splash
+        return 119;
+    // Hand drums / wood / agogo / cabasa / claves / blocks (percussive, short)
+    case 60: case 61: case 62: case 63: case 64:     // hi/lo bongo, conga family
+    case 65: case 66: case 67: case 68:              // timbale / agogo
+    case 69: case 70: case 71: case 72: case 73:     // cabasa / maracas / whistle
+    case 74: case 75: case 76: case 77:              // guiro / claves / wood blocks
+    case 78: case 79: case 80: case 81:              // cuica / triangle
+        return 116;
+    default:
+        return -1;
+    }
+}
+
 // ============================================================================
 // MIDI Message Routing
 // ============================================================================
@@ -443,9 +504,53 @@ void FluidSynthEngine::sendMidiData(const QByteArray &data) {
             int key = static_cast<unsigned char>(data[1]);
             int vel = static_cast<unsigned char>(data[2]);
             if (vel == 0) {
-                fluid_synth_noteoff(_synth, channel, key);
+                // velocity-0 note-on is a note-off — route through the same path
+                bool bardActive = _ffxivSoundFontMode && _bardAccurateMode;
+                if (!bardActive || !_bardNoteHeld[channel][key]) {
+                    fluid_synth_noteoff(_synth, channel, key);
+                    if (bardActive) _bardNoteHeld[channel][key] = false;
+                } else {
+                    qint64 elapsed = _bardClock.isValid()
+                        ? (_bardClock.elapsed() - _bardNoteOnMs[channel][key])
+                        : 0;
+                    int instIdx = bardInstrumentIndexForProgram(_bardCurrentProgram[channel]);
+                    qint64 minLen = bardMinNoteLengthMs(instIdx, key, elapsed);
+                    if (instIdx < 0 || elapsed >= minLen) {
+                        fluid_synth_noteoff(_synth, channel, key);
+                        _bardNoteHeld[channel][key] = false;
+                    } else {
+                        qint64 remaining = minLen - elapsed;
+                        quint32 gen = _bardNoteGen[channel][key];
+                        QPointer<FluidSynthEngine> guard(this);
+                        QTimer::singleShot(static_cast<int>(remaining), this,
+                            [guard, channel, key, gen]() {
+                                if (!guard) return;
+                                if (!guard->_initialized || !guard->_synth) return;
+                                if (guard->_bardNoteGen[channel][key] != gen) return;
+                                if (!guard->_bardNoteHeld[channel][key]) return;
+                                fluid_synth_noteoff(guard->_synth, channel, key);
+                                guard->_bardNoteHeld[channel][key] = false;
+                            });
+                    }
+                }
             } else {
+                bool bardActive = _ffxivSoundFontMode && _bardAccurateMode;
+                if (bardActive) {
+                    // If a previous note for (ch,key) is still held by min-length,
+                    // flush it now so the synth retriggers cleanly.
+                    if (_bardNoteHeld[channel][key]) {
+                        fluid_synth_noteoff(_synth, channel, key);
+                        _bardNoteHeld[channel][key] = false;
+                    }
+                    // Force max velocity; dynamics flow through CC7/CC11 (cubic curve)
+                    vel = 127;
+                }
                 fluid_synth_noteon(_synth, channel, key, vel);
+                if (bardActive) {
+                    _bardNoteOnMs[channel][key] = _bardClock.isValid() ? _bardClock.elapsed() : 0;
+                    _bardNoteHeld[channel][key] = true;
+                    _bardNoteGen[channel][key]++;
+                }
             }
         }
         break;
@@ -453,7 +558,34 @@ void FluidSynthEngine::sendMidiData(const QByteArray &data) {
     case 0x80: // Note Off
         if (data.size() >= 3) {
             int key = static_cast<unsigned char>(data[1]);
-            fluid_synth_noteoff(_synth, channel, key);
+            bool bardActive = _ffxivSoundFontMode && _bardAccurateMode;
+            if (!bardActive || !_bardNoteHeld[channel][key]) {
+                fluid_synth_noteoff(_synth, channel, key);
+                if (bardActive) _bardNoteHeld[channel][key] = false;
+                break;
+            }
+            qint64 elapsed = _bardClock.isValid()
+                ? (_bardClock.elapsed() - _bardNoteOnMs[channel][key])
+                : 0;
+            int instIdx = bardInstrumentIndexForProgram(_bardCurrentProgram[channel]);
+            qint64 minLen = bardMinNoteLengthMs(instIdx, key, elapsed);
+            if (instIdx < 0 || elapsed >= minLen) {
+                fluid_synth_noteoff(_synth, channel, key);
+                _bardNoteHeld[channel][key] = false;
+            } else {
+                qint64 remaining = minLen - elapsed;
+                quint32 gen = _bardNoteGen[channel][key];
+                QPointer<FluidSynthEngine> guard(this);
+                QTimer::singleShot(static_cast<int>(remaining), this,
+                    [guard, channel, key, gen]() {
+                        if (!guard) return;
+                        if (!guard->_initialized || !guard->_synth) return;
+                        if (guard->_bardNoteGen[channel][key] != gen) return;
+                        if (!guard->_bardNoteHeld[channel][key]) return;
+                        fluid_synth_noteoff(guard->_synth, channel, key);
+                        guard->_bardNoteHeld[channel][key] = false;
+                    });
+            }
         }
         break;
 
@@ -483,6 +615,13 @@ void FluidSynthEngine::sendMidiData(const QByteArray &data) {
                 }
             }
             fluid_synth_program_change(_synth, channel, program);
+            _bardCurrentProgram[channel] = program;
+            // In bard mode, normalise per-preset loudness via additive
+            // initialAttenuation (gen 48 = GEN_ATTENUATION, in cB).
+            if (_ffxivSoundFontMode && _bardAccurateMode) {
+                fluid_synth_set_gen(_synth, channel, GEN_ATTENUATION,
+                                    static_cast<float>(bardProgramAttenuationCb(program)));
+            }
             if (_ffxivSoundFontMode && program != origProgram) {
                 qDebug() << "FluidSynth: Program change ch" << channel
                          << "prog" << origProgram << "→" << program
@@ -503,6 +642,14 @@ void FluidSynthEngine::sendMidiData(const QByteArray &data) {
             // to force bank 0 — FFXIV SoundFont only has bank 0 presets
             if (_ffxivSoundFontMode && (ctrl == 0 || ctrl == 32)) {
                 value = 0;
+            }
+            // In bard accuracy mode, reshape volume (CC7) and expression (CC11)
+            // through a cubic perceptual curve and send the result on CC7 only.
+            if (_ffxivSoundFontMode && _bardAccurateMode && (ctrl == 7 || ctrl == 11)) {
+                if (ctrl == 7)  _bardCC7[channel]  = value;
+                else            _bardCC11[channel] = value;
+                applyBardVolumeCurve(channel);
+                break;
             }
             fluid_synth_cc(_synth, channel, ctrl, value);
         }
@@ -607,6 +754,27 @@ void FluidSynthEngine::exportAudio(const ExportOptions &options) {
         }
     }
 
+    // Match the live-playback voicing in offline render so the MP3/WAV
+    // sounds the same as what the user just heard. When FFXIV+bard mode
+    // is active we run the export synth dry, capped to 16 voices; the
+    // cubic CC7·CC11 curve and per-instrument min-note-length still
+    // happen at the live-playback layer (live MidiOutput) — for offline
+    // export we only need to fix what fluid_player_t would otherwise do
+    // wrong: bank select must stay 0 and program changes must honour
+    // our FFXIV fallback table (24→25, 26→27).
+    if (_ffxivSoundFontMode && _bardAccurateMode) {
+        fluid_synth_set_reverb_on(expSynth, 0);
+        fluid_synth_set_chorus_on(expSynth, 0);
+        fluid_synth_set_polyphony(expSynth, 16);
+        // Seed per-program loudness trim for the default program 0
+        // on every channel so tracks that never send a PC still get
+        // the same attenuation as live playback.
+        for (int ch = 0; ch < 16; ++ch) {
+            fluid_synth_set_gen(expSynth, ch, GEN_ATTENUATION,
+                                static_cast<float>(bardProgramAttenuationCb(0)));
+        }
+    }
+
     // Create MIDI player and load the file
     fluid_player_t *player = new_fluid_player(expSynth);
     if (!player) {
@@ -614,6 +782,23 @@ void FluidSynthEngine::exportAudio(const ExportOptions &options) {
         delete_fluid_settings(expSettings);
         emit exportFinished(false, options.outputFilePath);
         return;
+    }
+
+    // Install a playback callback when FFXIV mode is active so program
+    // changes get the same fallback remap and bank-select forcing that
+    // live playback applies via sendMidiData(). Without this the
+    // sparse FFXIV SoundFont silently falls back to bank 0 / preset 0
+    // (= Piano) for any GM program it doesn't ship — e.g. Acoustic
+    // Guitar (nylon, prog 24) plays as piano in the exported MP3 even
+    // though it sounded right during live playback.
+    // The callback also drops events for muted channels (mirroring
+    // MidiFile::channelMuted()) and applies the per-program loudness
+    // trim (bardProgramAttenuationCb) when bard mode is active.
+    _exportMutedChannelsMask = options.mutedChannelsMask;
+    _exportBardActive = (_ffxivSoundFontMode && _bardAccurateMode);
+    for (int ch = 0; ch < 16; ++ch) _exportExplicitPC[ch] = false;
+    if (_ffxivSoundFontMode || _exportMutedChannelsMask != 0) {
+        fluid_player_set_playback_callback(player, &FluidSynthEngine::exportPlaybackCallback, expSynth);
     }
 
     if (fluid_player_add(player, options.midiFilePath.toUtf8().constData()) != FLUID_OK) {
@@ -734,6 +919,120 @@ void FluidSynthEngine::cancelExport() {
     _cancelExport.store(true);
 }
 
+// Offline-render playback callback. Mirrors the FFXIV remapping that
+// sendMidiData() does for live playback so MP3/WAV exports voice the
+// same instruments as the user just heard. Forwards everything else
+// untouched to the default handler.
+int FluidSynthEngine::exportPlaybackCallback(void *data, fluid_midi_event_t *event) {
+    fluid_synth_t *synth = static_cast<fluid_synth_t *>(data);
+    if (!synth || !event) return FLUID_OK;
+
+    int type = fluid_midi_event_get_type(event);
+    int channel = fluid_midi_event_get_channel(event);
+
+    // Drop all channel-bound events on muted channels so exporting with
+    // some channels muted produces only the audible voices, just like
+    // playback would. We still let meta / sysex events through (they
+    // typically don't carry a meaningful channel value here).
+    const bool isChannelMsg = (type == 0x80 || type == 0x90 || type == 0xA0 ||
+                               type == 0xB0 || type == 0xC0 || type == 0xD0 ||
+                               type == 0xE0);
+    if (isChannelMsg && channel >= 0 && channel < 16 &&
+        (_exportMutedChannelsMask & (1u << channel)) != 0) {
+        return FLUID_OK;
+    }
+
+    // Per-note drum program injection on CH9 — mirrors the live
+    // MidiOutput::sendCommand path. The standard GM convention puts
+    // every percussion hit on channel 9 with the *MIDI key* selecting
+    // which drum sound plays. The FFXIV SoundFont instead exposes
+    // each percussion sound as its own program, so we have to switch
+    // program right before each NoteOn based on the GM key. Without
+    // this the player keeps whatever program was last set on CH9
+    // (often 0 = Piano), which is exactly the "snare exports as
+    // piano" bug the user reported.
+    if (_exportBardActive && channel == 9 && type == 0x90) {
+        int vel = fluid_midi_event_get_velocity(event);
+        int key = fluid_midi_event_get_key(event);
+        if (vel > 0) {
+            // Only run the GM-drum-key fallback when the file did NOT
+            // already inject an explicit PC for this channel. With
+            // injected PCs (Snare/Bass-Drum/Cymbal tracks recognised by
+            // name), the program is already correct — falling back
+            // here would clobber it (e.g. Snare key 60 → Bongo).
+            if (!_exportExplicitPC[channel]) {
+                int prog = ffxivDrumProgramForGmNote(key);
+                if (prog >= 0) {
+                    fluid_synth_bank_select(synth, channel, 0);
+                    fluid_synth_program_change(synth, channel, prog);
+                    fluid_synth_set_gen(synth, channel, GEN_ATTENUATION,
+                                        static_cast<float>(bardProgramAttenuationCb(prog)));
+                }
+            }
+            // Trigger the note directly (mirrors live `fluid_synth_noteon`)
+            // instead of forwarding via handle_midi_event, which can
+            // re-interpret the channel as a drum channel and silently
+            // route the event into a non-existent percussion bank.
+            fluid_synth_noteon(synth, channel, key, vel);
+        } else {
+            fluid_synth_noteoff(synth, channel, key);
+        }
+        return FLUID_OK;
+    }
+    if (_exportBardActive && channel == 9 && type == 0x80) {
+        int key = fluid_midi_event_get_key(event);
+        fluid_synth_noteoff(synth, channel, key);
+        return FLUID_OK;
+    }
+
+    // Bank select (CC#0 MSB or CC#32 LSB) → force 0; FFXIV SoundFont
+    // only ships bank 0 presets, any other selection silently falls
+    // back to a wrong preset.
+    if (type == 0xB0) {
+        int ctrl = fluid_midi_event_get_control(event);
+        if (ctrl == 0 || ctrl == 32) {
+            fluid_midi_event_set_value(event, 0);
+        }
+        return fluid_synth_handle_midi_event(synth, event);
+    }
+
+    // Program change → apply same fallback table as live playback.
+    if (type == 0xC0) {
+        int program = fluid_midi_event_get_program(event);
+        // Keep this list in lockstep with sendMidiData()'s
+        // ffxivProgramFallback hash. Verified against
+        // FF14-c3c6-fixed.sf2 phdr chunk.
+        switch (program) {
+        case 24: program = 25; break; // Acoustic Guitar (nylon) → Lute
+        case 26: program = 27; break; // Acoustic Guitar (jazz)  → Clean Guitar
+        default: break;
+        }
+        // Force bank 0 first so the (possibly remapped) program
+        // resolves into the FFXIV SoundFont rather than whatever
+        // bank the MIDI file requested earlier.
+        fluid_synth_bank_select(synth, channel, 0);
+        fluid_synth_program_change(synth, channel, program);
+        // Mirror the live per-program loudness trim so muted-mix and
+        // exported mix have the same balance across instruments.
+        if (_exportBardActive) {
+            fluid_synth_set_gen(synth, channel, GEN_ATTENUATION,
+                                static_cast<float>(bardProgramAttenuationCb(program)));
+        }
+        // Remember that the file gave us an explicit program for this
+        // channel so the CH9 GM-key fallback above doesn't overwrite
+        // it on the next NoteOn.
+        if (channel >= 0 && channel < 16) _exportExplicitPC[channel] = true;
+        return FLUID_OK;
+    }
+
+    return fluid_synth_handle_midi_event(synth, event);
+}
+
+// Per-export state — only one offline render runs at a time.
+quint32 FluidSynthEngine::_exportMutedChannelsMask = 0;
+bool    FluidSynthEngine::_exportBardActive = false;
+bool    FluidSynthEngine::_exportExplicitPC[16] = {false};
+
 // ============================================================================
 // Audio Settings
 // ============================================================================
@@ -823,9 +1122,23 @@ void FluidSynthEngine::setFfxivSoundFontMode(bool enabled) {
     bool changed = (_ffxivSoundFontMode != enabled);
     _ffxivSoundFontMode = enabled;
     applyChannelMode();
+    applyBardAccuracySettings();
     if (changed) {
         emit ffxivSoundFontModeChanged(enabled);
     }
+}
+
+void FluidSynthEngine::setBardAccurateMode(bool enabled) {
+    if (_bardAccurateMode == enabled) {
+        return;
+    }
+    _bardAccurateMode = enabled;
+    applyBardAccuracySettings();
+    qDebug() << "FluidSynth: Bard accurate mode" << (enabled ? "ON" : "OFF");
+}
+
+bool FluidSynthEngine::bardAccurateMode() const {
+    return _bardAccurateMode;
 }
 
 void FluidSynthEngine::applyChannelMode() {
@@ -854,6 +1167,199 @@ void FluidSynthEngine::applyChannelMode() {
             }
         }
         qDebug() << "FluidSynth: GM channel mode restored (ch9=drum, bank 128)";
+    }
+}
+
+// ============================================================================
+// Bard-accuracy helpers (FFXIV SoundFont + bardAccurateMode)
+//
+// These shape playback so it sounds like the in-game FFXIV bard performance
+// (and like LightAmp's "Song Preview"):
+//   * Reverb + chorus disabled (FFXIV samples are dry in-game).
+//   * Polyphony capped at 16 voices, voice-stealing handled by FluidSynth.
+//   * Velocity forced to 127, dynamics carried by CC7 / CC11.
+//   * (CC7 * CC11)^3 cubic curve approximates perceptual loudness.
+//   * Per-instrument minimum NoteOff length stretches staccatos to the
+//     natural sustain of the FFXIV samples (no clicks on short Harp/Piano).
+//
+// Numbers ported verbatim from LightAmp:
+//   BardMusicPlayer.Siren/Utils/Utils.cs MinimumLength()
+// ============================================================================
+
+void FluidSynthEngine::applyBardAccuracySettings() {
+    if (!_initialized || !_synth) {
+        return;
+    }
+    bool active = _ffxivSoundFontMode && _bardAccurateMode;
+
+    // Reverb / chorus: forced off in bard mode, otherwise honour user setting
+    fluid_synth_set_reverb_on(_synth, active ? 0 : (_reverbEnabled ? 1 : 0));
+    fluid_synth_set_chorus_on(_synth, active ? 0 : (_chorusEnabled ? 1 : 0));
+
+    // Polyphony cap: 16 voices in bard mode, otherwise FluidSynth default (256)
+    fluid_synth_set_polyphony(_synth, active ? 16 : 256);
+
+    // Reset cubic-curve state so we don't keep stale values when toggling
+    if (active) {
+        for (int ch = 0; ch < 16; ++ch) {
+            _bardCC7[ch] = 127;
+            _bardCC11[ch] = 127;
+            // push neutral CC11 so any prior expression doesn't bleed through
+            fluid_synth_cc(_synth, ch, 11, 127);
+            // Apply per-program loudness trim for whatever program is
+            // currently active on the channel (defaults to 0 if no PC
+            // has arrived yet, which gives the "loud" attenuation since
+            // program 0 = Piano in our table).
+            fluid_synth_set_gen(_synth, ch, GEN_ATTENUATION,
+                                static_cast<float>(bardProgramAttenuationCb(_bardCurrentProgram[ch])));
+        }
+    } else {
+        // Leaving bard mode: clear our additive attenuation so non-bard
+        // playback is back to the SoundFont's baked level.
+        for (int ch = 0; ch < 16; ++ch) {
+            fluid_synth_set_gen(_synth, ch, GEN_ATTENUATION, 0.0f);
+        }
+    }
+
+    qDebug() << "FluidSynth: Bard accuracy" << (active ? "ON" : "OFF")
+             << "(ffxiv=" << _ffxivSoundFontMode
+             << "bardAccurate=" << _bardAccurateMode << ")";
+}
+
+int FluidSynthEngine::bardInstrumentIndexForProgram(int program) {
+    // Maps GM/FFXIV program numbers to LightAmp's 1..28 instrument index.
+    // Includes both LightAmp's reference programs and the program numbers our
+    // FFXIV SoundFont actually uses (drum SnareDrum=118, Cymbal=119, etc).
+    switch (program) {
+    case 46: return 1;   // Harp
+    case 0:  return 2;   // Piano
+    case 24: case 25: return 3;  // Lute (24 = nylon → remapped to 25 in FFXIV mode)
+    case 45: return 4;   // Fiddle
+    case 73: return 5;   // Flute
+    case 68: return 6;   // Oboe
+    case 71: return 7;   // Clarinet
+    case 72: return 8;   // Fife
+    case 75: return 9;   // Panpipes
+    case 47: return 10;  // Timpani
+    case 116: return 11; // Bongo
+    case 117: return 12; // Bass Drum
+    case 115: case 118: return 13; // Snare Drum (LA=115, our SF2=118)
+    case 119: case 127: return 14; // Cymbal (LA=127, our SF2=119)
+    case 56: return 15;  // Trumpet
+    case 57: return 16;  // Trombone
+    case 58: return 17;  // Tuba
+    case 60: return 18;  // Horn
+    case 65: return 19;  // Saxophone
+    case 40: return 20;  // Violin
+    case 41: return 21;  // Viola
+    case 42: return 22;  // Cello
+    case 43: return 23;  // Double Bass
+    case 29: return 24;  // ElectricGuitar Overdriven
+    case 27: return 25;  // ElectricGuitar Clean (also our 26→27 fallback target)
+    case 28: return 26;  // ElectricGuitar Muted
+    case 30: return 27;  // ElectricGuitar PowerChords
+    case 31: return 28;  // ElectricGuitar Special
+    default: return -1;
+    }
+}
+
+qint64 FluidSynthEngine::bardMinNoteLengthMs(int instrumentIndex, int midiKey, qint64 duration) {
+    // LightAmp's MinimumLength() uses (midiKey - 48) as the register offset.
+    int n = midiKey - 48;
+    if (n < 0) n = 0;
+    switch (instrumentIndex) {
+    case 1: // Harp
+        if (n <= 19) return 1338;
+        if (n <= 28) return 1334;
+        return 1136;
+    case 2: // Piano
+        if (n <= 25) return 1531;
+        if (n <= 28) return 1332;
+        return 1531;
+    case 3: // Lute
+        if (n <= 14) return 1728;
+        if (n <= 28) return 1727;
+        return 1528;
+    case 4: // Fiddle
+        return 634;
+    case 5: case 6: case 7: case 8: case 9: // Flute / Oboe / Clarinet / Fife / Panpipes
+        return duration > 4500 ? 4500 : (duration < 500 ? 500 : duration);
+    case 10: // Timpani
+        if (n <= 15) return 1193;
+        if (n <= 23) return 1355;
+        return 1309;
+    case 11: // Bongo
+        if (n <= 7)  return 720;
+        if (n <= 21) return 544;
+        return 275;
+    case 12: // Bass Drum
+        if (n <= 6)  return 448;
+        if (n <= 11) return 335;
+        if (n <= 23) return 343;
+        return 254;
+    case 13: return 260; // Snare Drum
+    case 14: return 700; // Cymbal
+    case 15: case 16: case 17: case 18: case 19: // Brass
+    case 20: case 21: case 22: case 23: // Strings
+    case 24: case 25: case 27:          // E-Guitar Overdriven/Clean/PowerChords
+        return duration > 4500 ? 4500 : (duration < 300 ? 300 : duration);
+    case 26: // ElectricGuitar Muted
+        if (n <= 18) return 186;
+        if (n <= 21) return 158;
+        return 174;
+    case 28: // ElectricGuitar Special
+        return 1500;
+    default:
+        return 0;
+    }
+}
+
+void FluidSynthEngine::resetBardNoteState() {
+    for (int ch = 0; ch < 16; ++ch) {
+        _bardCurrentProgram[ch] = 0;
+        _bardCC7[ch] = 127;
+        _bardCC11[ch] = 127;
+        for (int k = 0; k < 128; ++k) {
+            _bardNoteOnMs[ch][k] = 0;
+            _bardNoteHeld[ch][k] = false;
+            // Bump generation so any pending QTimer NoteOff lambdas drop their work.
+            _bardNoteGen[ch][k]++;
+        }
+    }
+}
+
+void FluidSynthEngine::applyBardVolumeCurve(int channel) {
+    if (!_initialized || !_synth) return;
+    if (channel < 0 || channel >= 16) return;
+    double v = (_bardCC7[channel] / 127.0) * (_bardCC11[channel] / 127.0);
+    v = v * v * v;
+    int cubed = qBound(0, int(std::lround(v * 127.0)), 127);
+    fluid_synth_cc(_synth, channel, 7, cubed);
+    // Push a neutral expression so FluidSynth doesn't multiply the curve again.
+    fluid_synth_cc(_synth, channel, 11, 127);
+}
+
+int FluidSynthEngine::bardProgramAttenuationCb(int program) {
+    // Centibels of additional attenuation (positive = quieter).
+    // Reference (0 cB) is the quietest preset the user noticed:
+    // ElectricGuitarClean (program 27). All other bard presets are
+    // pulled down so the perceived loudness matches.
+    // +20 cB ≈ -2 dB ≈ 25 % perceived loudness drop.
+    switch (program) {
+    case 27: return 0;   // ElectricGuitarClean (reference)
+    case 28: return 0;   // ElectricGuitarSpecial / PowerChords
+    case 29: case 30:    // Overdriven / Distortion guitar slot
+    case 31:             // Muted electric
+        return 0;
+    // Loud/bright FFXIV bard presets — attenuate to match clean guitar
+    case 0:  case 1:  case 2:  case 3:                  // Piano family
+    case 24: case 25:                                   // Harp / Lute
+    case 26:                                            // Acoustic guitar fallback
+    case 46: case 47:                                   // Harp / Timpani
+        return 20;                                      // ≈ -2 dB
+    default:
+        // Slight pull-down for everything else so the mix stays balanced.
+        return 12;                                      // ≈ -1.2 dB
     }
 }
 
@@ -922,6 +1428,7 @@ void FluidSynthEngine::saveSettings(QSettings *settings) {
     settings->setValue("reverbEnabled", _reverbEnabled);
     settings->setValue("chorusEnabled", _chorusEnabled);
     settings->setValue("ffxivSoundFontMode", _ffxivSoundFontMode);
+    settings->setValue("bardAccurateMode", _bardAccurateMode);
 
     // Save SoundFont paths in priority order (first = highest priority)
     QStringList fontPaths = allSoundFontPaths(); // includes disabled
@@ -942,12 +1449,13 @@ void FluidSynthEngine::loadSettings(QSettings *settings) {
     _audioDriverName = settings->value("audioDriver", "").toString();
     _reverbEngine = settings->value("reverbEngine", "fdn").toString();
     _gain = settings->value("gain", 0.5).toDouble();
-    _sampleRate = settings->value("sampleRate", 44100.0).toDouble();
+    _sampleRate = settings->value("sampleRate", 48000.0).toDouble();
     _reverbEnabled = settings->value("reverbEnabled", true).toBool();
     _chorusEnabled = settings->value("chorusEnabled", true).toBool();
     // Read new key, fall back to old key for backward compatibility
     _ffxivSoundFontMode = settings->value("ffxivSoundFontMode",
         settings->value("allChannelsMelodic", false)).toBool();
+    _bardAccurateMode = settings->value("bardAccurateMode", true).toBool();
 
     QStringList fontPaths = settings->value("soundFontPaths").toStringList();
     QStringList disabledPaths = settings->value("disabledSoundFontPaths").toStringList();

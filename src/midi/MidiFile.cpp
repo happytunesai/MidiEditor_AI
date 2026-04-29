@@ -24,6 +24,7 @@
 #include "../MidiEvent/ControlChangeEvent.h"
 #include "../MidiEvent/KeySignatureEvent.h"
 #include "../MidiEvent/MidiEvent.h"
+#include "../MidiEvent/NoteOnEvent.h"
 #include "../MidiEvent/OffEvent.h"
 #include "../MidiEvent/OnEvent.h"
 #include "../MidiEvent/ProgChangeEvent.h"
@@ -1558,7 +1559,8 @@ void MidiFile::setPauseTick(int tick) {
     _pauseTick = tick;
 }
 
-bool MidiFile::save(QString path) {
+bool MidiFile::save(QString path, bool skipMutedTrackEvents,
+                    const QHash<QString, int> &drumProgramByTrackName) {
     QFile f(path);
 
     if (!f.open(QIODevice::WriteOnly)) {
@@ -1622,7 +1624,31 @@ bool MidiFile::save(QString path) {
             MidiEvent *event = it.value();
             int tick = it.key();
 
-            if (_tracks->at(num) == event->track()) {
+            if (_tracks->at(num) == event->track() &&
+                !(skipMutedTrackEvents && _tracks->at(num)->muted())) {
+                // Inject a CH9 Program Change before the very first
+                // CH9 NoteOn from a known-percussion track so offline
+                // FluidSynth resolves the right FFXIV drum preset
+                // even when the MIDI key isn't on the GM drum kit
+                // map (e.g. Snare Drum hits living on key 60 would
+                // otherwise fall through to the Bongo preset).
+                if (!drumProgramByTrackName.isEmpty()) {
+                    NoteOnEvent *noteOn = dynamic_cast<NoteOnEvent *>(event);
+                    if (noteOn && noteOn->channel() == 9 && noteOn->velocity() > 0) {
+                        const QString tname = _tracks->at(num)->name();
+                        auto it = drumProgramByTrackName.constFind(tname);
+                        if (it != drumProgramByTrackName.constEnd() && it.value() >= 0) {
+                            // delta-time 0 PC right before the NoteOn
+                            QByteArray dt = writeDeltaTime(tick - currentTick);
+                            numBytes += dt.size();
+                            data.append(dt);
+                            data.append(static_cast<char>(0xC9));
+                            data.append(static_cast<char>(it.value() & 0x7F));
+                            numBytes += 2;
+                            currentTick = tick;
+                        }
+                    }
+                }
                 // write the deltaTime before the event
                 int time = tick - currentTick;
                 QByteArray deltaTime = writeDeltaTime(time);

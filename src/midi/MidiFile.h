@@ -23,6 +23,7 @@
 #include "../protocol/ProtocolEntry.h"
 
 // Qt includes
+#include <QHash>
 #include <QMultiMap>
 #include <QObject>
 
@@ -97,9 +98,22 @@ public:
     /**
      * \brief Saves the MIDI file to the specified path.
      * \param path File path to save to
+     * \param skipMutedTrackEvents When true, tracks marked as muted are
+     *        written as empty track chunks (header + end-of-track only).
+     *        Used by the audio export path so muted tracks are silent in
+     *        the rendered file, mirroring live-playback mute behaviour.
+     * \param drumProgramByTrackName When non-empty, every NoteOn on
+     *        channel 9 from a track whose name is a key in this map is
+     *        prefixed with a Program Change event (channel 9, value =
+     *        the mapped program). Used by the audio export path so
+     *        offline FluidSynth picks the same FFXIV percussion preset
+     *        for each drum track that the live MidiOutput injects per
+     *        NoteOn — without this a Snare Drum track whose hits land
+     *        on a non-GM key would fall through to the bongo preset.
      * \return True if save was successful, false otherwise
      */
-    bool save(QString path);
+    bool save(QString path, bool skipMutedTrackEvents = false,
+              const QHash<QString, int> &drumProgramByTrackName = QHash<QString, int>());
 
     /**
      * \brief Writes a delta time value to a byte array.

@@ -81,12 +81,23 @@ void MidiOutput::sendCommand(MidiEvent *e) {
         // When FFXIV SoundFont Mode is active, all drums share CH9.
         // Before each NoteOn on CH9, send a Program Change matching the
         // track's FFXIV percussion instrument so FluidSynth uses the
-        // correct SoundFont preset.
+        // correct SoundFont preset.  When the track name is unknown
+        // (typical for GM-style drum tracks that pack kick/snare/toms/
+        // cymbals on a single channel), fall back to mapping the GM
+        // drum key to the closest FFXIV percussion preset.
         if (isFluidSynthOutput() && e->channel() == 9) {
             NoteOnEvent *noteOn = dynamic_cast<NoteOnEvent *>(e);
-            if (noteOn && noteOn->velocity() > 0 && e->track()) {
-                int prog = FluidSynthEngine::instance()->drumProgramForTrackName(
-                    e->track()->name());
+            if (noteOn && noteOn->velocity() > 0) {
+                int prog = -1;
+                if (e->track()) {
+                    prog = FluidSynthEngine::instance()->drumProgramForTrackName(
+                        e->track()->name());
+                }
+                if (prog < 0 &&
+                    FluidSynthEngine::instance()->ffxivSoundFontMode()) {
+                    prog = FluidSynthEngine::ffxivDrumProgramForGmNote(
+                        noteOn->note());
+                }
                 if (prog >= 0) {
                     QByteArray pc;
                     pc.append(static_cast<char>(0xC9)); // Program Change CH9
