@@ -10675,775 +10675,6 @@ rule in `AGENTS.md`).
  *  --success:        #2CEAA3
  */
 
-/* ─── Global ─────────────────────────────────────────────────────────── */
-
-QWidget {
-    background-color: #0B1020;
-    color: #EAF3FF;
-    font-family: "Segoe UI", sans-serif;
-    font-size: 9pt;
-    selection-background-color: #064B6E;
-    selection-color: #F6FBFF;
-}
-
-QWidget:disabled {
-    color: #51657A;
-}
-
-/* ─── Main Window & Central Widget ───────────────────────────────────── */
-
-QMainWindow {
-    background-color: #0B1020;
-}
-
-QMainWindow::separator {
-    background-color: #293A55;
-    width: 1px;
-    height: 1px;
-}
-
-/* ─── Menu Bar ───────────────────────────────────────────────────────── */
-
-QMenuBar {
-    background-color: #10192A;
-    color: #EAF3FF;
-    border-bottom: 1px solid #293A55;
-    padding: 2px 0px;
-}
-
-QMenuBar::item {
-    background: transparent;
-    padding: 4px 10px;
-    border-radius: 5px;
-    margin: 1px 1px;
-}
-
-QMenuBar::item:selected {
-    background-color: #162238;
-    color: #25D6FF;
-}
-
-QMenuBar::item:pressed {
-    background-color: #073C58;
-    color: #EAF3FF;
-}
-
-/* ─── Menus ──────────────────────────────────────────────────────────── */
-
-QMenu {
-    background-color: #162238;
-    color: #EAF3FF;
-    border: 1px solid #293A55;
-    border-radius: 8px;
-    padding: 4px 0px;
-}
-
-QMenu::item {
-    padding: 6px 28px 6px 20px;
-    border-radius: 5px;
-    margin: 1px 4px;
-}
-
-QMenu::item:selected {
-    background-color: #073C58;
-    color: #25D6FF;
-}
-
-QMenu::item:disabled {
-    color: #51657A;
-}
-
-QMenu::separator {
-    height: 1px;
-    background-color: #293A55;
-    margin: 4px 8px;
-}
-
-QMenu::indicator {
-    width: 14px;
-    height: 14px;
-    margin-left: 6px;
-}
-
-/* ─── Toolbar ────────────────────────────────────────────────────────── */
-
-QToolBar {
-    background-color: #10192A;
-    border-bottom: 1px solid #293A55;
-    spacing: 2px;
-    padding: 3px 5px;
-}
-
-QToolBar::separator {
-    background-color: #293A55;
-    width: 1px;
-    margin: 4px 4px;
-}
-
-QToolButton {
-    background: transparent;
-    color: #EAF3FF;
-    border: 1px solid transparent;
-    border-radius: 6px;
-    padding: 3px;
-    margin: 1px;
-}
-
-QToolButton:hover {
-    background-color: #162238;
-    border: 1px solid #293A55;
-    color: #25D6FF;
-}
-
-QToolButton:pressed {
-    background-color: #073C58;
-}
-
-QToolButton:checked {
-    background-color: rgba(0, 184, 255, 0.16);
-    border: 1px solid #00B8FF;
-    color: #25D6FF;
-}
-
-QToolButton[popupMode="1"] {
-    padding-right: 16px;
-}
-
-QToolButton::menu-button {
-    border-left: 1px solid #293A55;
-    border-top-right-radius: 6px;
-    border-bottom-right-radius: 6px;
-    width: 14px;
-}
-
-/* ─── Tab Widget ─────────────────────────────────────────────────────── */
-
-QTabWidget::pane {
-    background-color: #0B1020;
-    border: 1px solid #293A55;
-    border-radius: 6px;
-    top: -1px;
-}
-
-QTabBar {
-    background: transparent;
-}
-
-QTabBar::tab {
-    background-color: #10192A;
-    color: #8FA3B8;
-    border: 1px solid #293A55;
-    border-bottom: none;
-    border-top-left-radius: 6px;
-    border-top-right-radius: 6px;
-    padding: 5px 14px;
-    margin-right: 2px;
-    min-width: 60px;
-}
-
-QTabBar::tab:selected {
-    background-color: #0B1020;
-    color: #EAF3FF;
-    border-bottom: 2px solid #00B8FF;
-}
-
-QTabBar::tab:hover:!selected {
-    background-color: #162238;
-    color: #EAF3FF;
-}
-
-/* ─── Dock Widget / Side Panels ──────────────────────────────────────── */
-
-QDockWidget {
-    color: #EAF3FF;
-    titlebar-close-icon: none;
-    titlebar-normal-icon: none;
-}
-
-QDockWidget::title {
-    background-color: #10192A;
-    border: 1px solid #293A55;
-    border-radius: 6px;
-    padding: 6px 8px;
-    text-align: left;
-}
-
-QDockWidget::close-button,
-QDockWidget::float-button {
-    background: transparent;
-    border: none;
-    padding: 2px;
-}
-
-QDockWidget::close-button:hover,
-QDockWidget::float-button:hover {
-    background-color: #162238;
-    border-radius: 4px;
-}
-
-/* ─── Scroll Bars ────────────────────────────────────────────────────── */
-
-QScrollBar:vertical {
-    background-color: transparent;
-    width: 10px;
-    margin: 0;
-    border: none;
-}
-
-QScrollBar::handle:vertical {
-    background-color: #334760;
-    border-radius: 4px;
-    min-height: 30px;
-    margin: 2px;
-}
-
-QScrollBar::handle:vertical:hover {
-    background-color: #00B8FF;
-}
-
-QScrollBar::handle:vertical:pressed {
-    background-color: #25D6FF;
-}
-
-QScrollBar::add-line:vertical,
-QScrollBar::sub-line:vertical {
-    height: 0px;
-}
-
-QScrollBar::add-page:vertical,
-QScrollBar::sub-page:vertical {
-    background: transparent;
-}
-
-QScrollBar:horizontal {
-    background-color: transparent;
-    height: 10px;
-    margin: 0;
-    border: none;
-}
-
-QScrollBar::handle:horizontal {
-    background-color: #334760;
-    border-radius: 4px;
-    min-width: 30px;
-    margin: 2px;
-}
-
-QScrollBar::handle:horizontal:hover {
-    background-color: #00B8FF;
-}
-
-QScrollBar::handle:horizontal:pressed {
-    background-color: #25D6FF;
-}
-
-QScrollBar::add-line:horizontal,
-QScrollBar::sub-line:horizontal {
-    width: 0px;
-}
-
-QScrollBar::add-page:horizontal,
-QScrollBar::sub-page:horizontal {
-    background: transparent;
-}
-
-/* ─── Buttons ────────────────────────────────────────────────────────── */
-
-QPushButton {
-    background-color: #162238;
-    color: #EAF3FF;
-    border: 1px solid #293A55;
-    border-radius: 6px;
-    padding: 5px 16px;
-    min-height: 20px;
-}
-
-QPushButton:hover {
-    background-color: #1B2B47;
-    border-color: #00B8FF;
-    color: #F6FBFF;
-}
-
-QPushButton:pressed {
-    background-color: #0E1626;
-}
-
-QPushButton:disabled {
-    color: #51657A;
-    background-color: #10192A;
-    border-color: #1B2B47;
-}
-
-QPushButton:default {
-    border-color: #00B8FF;
-}
-
-QPushButton[class="primary"] {
-    background-color: #00B8FF;
-    border-color: #25D6FF;
-    color: #06101F;
-    font-weight: 600;
-}
-
-QPushButton[class="primary"]:hover {
-    background-color: #25D6FF;
-    border-color: #7CE8FF;
-}
-
-QPushButton[class="ai"] {
-    background-color: #7C5CFF;
-    border-color: #9A82FF;
-    color: #FFFFFF;
-    font-weight: 600;
-}
-
-QPushButton[class="ai"]:hover {
-    background-color: #9277FF;
-    border-color: #B6A7FF;
-}
-
-/* ─── Inputs ─────────────────────────────────────────────────────────── */
-
-QLineEdit, QTextEdit, QPlainTextEdit {
-    background-color: #0E1626;
-    color: #EAF3FF;
-    border: 1px solid #293A55;
-    border-radius: 6px;
-    padding: 4px 8px;
-    selection-background-color: #064B6E;
-    selection-color: #F6FBFF;
-}
-
-QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus {
-    border-color: #00B8FF;
-}
-
-QLineEdit:disabled, QTextEdit:disabled, QPlainTextEdit:disabled {
-    color: #51657A;
-    background-color: #10192A;
-}
-
-QLineEdit[role="search"] {
-    border-radius: 12px;
-    padding-left: 10px;
-}
-
-/* ─── Spin Boxes ─────────────────────────────────────────────────────── */
-
-QSpinBox, QDoubleSpinBox {
-    background-color: #0E1626;
-    color: #EAF3FF;
-    border: 1px solid #293A55;
-    border-radius: 6px;
-    padding: 3px 6px;
-}
-
-QSpinBox:focus, QDoubleSpinBox:focus {
-    border-color: #00B8FF;
-}
-
-QSpinBox::up-button, QDoubleSpinBox::up-button {
-    subcontrol-origin: border;
-    subcontrol-position: top right;
-    border-left: 1px solid #293A55;
-    border-top-right-radius: 6px;
-    width: 18px;
-    background-color: #162238;
-}
-
-QSpinBox::down-button, QDoubleSpinBox::down-button {
-    subcontrol-origin: border;
-    subcontrol-position: bottom right;
-    border-left: 1px solid #293A55;
-    border-bottom-right-radius: 6px;
-    width: 18px;
-    background-color: #162238;
-}
-
-QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover,
-QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {
-    background-color: #1B2B47;
-}
-
-QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {
-    image: none;
-    border-left: 4px solid transparent;
-    border-right: 4px solid transparent;
-    border-bottom: 5px solid #8FA3B8;
-    width: 0px;
-    height: 0px;
-}
-
-QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {
-    image: none;
-    border-left: 4px solid transparent;
-    border-right: 4px solid transparent;
-    border-top: 5px solid #8FA3B8;
-    width: 0px;
-    height: 0px;
-}
-
-/* ─── Combo Box ──────────────────────────────────────────────────────── */
-
-QComboBox {
-    background-color: #162238;
-    color: #EAF3FF;
-    border: 1px solid #293A55;
-    border-radius: 6px;
-    padding: 4px 8px;
-    min-height: 20px;
-}
-
-QComboBox:hover {
-    border-color: #00B8FF;
-}
-
-QComboBox:focus {
-    border-color: #25D6FF;
-}
-
-QComboBox::drop-down {
-    subcontrol-origin: padding;
-    subcontrol-position: center right;
-    width: 20px;
-    border: none;
-}
-
-QComboBox::down-arrow {
-    image: none;
-    border-left: 4px solid transparent;
-    border-right: 4px solid transparent;
-    border-top: 5px solid #8FA3B8;
-    width: 0px;
-    height: 0px;
-    margin-right: 6px;
-}
-
-QComboBox QAbstractItemView {
-    background-color: #162238;
-    color: #EAF3FF;
-    border: 1px solid #293A55;
-    border-radius: 6px;
-    selection-background-color: #064B6E;
-    selection-color: #25D6FF;
-    padding: 2px;
-    outline: none;
-}
-
-/* ─── Check Box & Radio Button ───────────────────────────────────────── */
-
-QCheckBox, QRadioButton {
-    color: #EAF3FF;
-    spacing: 6px;
-}
-
-QCheckBox::indicator {
-    width: 16px;
-    height: 16px;
-    border: 2px solid #4B6380;
-    border-radius: 4px;
-    background-color: #10192A;
-}
-
-QCheckBox::indicator:hover {
-    border-color: #00B8FF;
-}
-
-QCheckBox::indicator:checked {
-    background-color: #00B8FF;
-    border-color: #00B8FF;
-}
-
-QCheckBox::indicator:disabled {
-    border-color: #293A55;
-    background-color: #0B1020;
-}
-
-QRadioButton::indicator {
-    width: 16px;
-    height: 16px;
-    border: 2px solid #4B6380;
-    border-radius: 8px;
-    background-color: #10192A;
-}
-
-QRadioButton::indicator:hover {
-    border-color: #00B8FF;
-}
-
-QRadioButton::indicator:checked {
-    background-color: #10192A;
-    border: 5px solid #00B8FF;
-    border-radius: 10px;
-}
-
-QRadioButton::indicator:disabled {
-    border-color: #293A55;
-    background-color: #0B1020;
-}
-
-/* ─── Slider ─────────────────────────────────────────────────────────── */
-
-QSlider::groove:horizontal {
-    background-color: #162238;
-    height: 6px;
-    border-radius: 3px;
-}
-
-QSlider::handle:horizontal {
-    background-color: #00B8FF;
-    border: none;
-    width: 14px;
-    height: 14px;
-    border-radius: 7px;
-    margin: -4px 0;
-}
-
-QSlider::handle:horizontal:hover {
-    background-color: #25D6FF;
-}
-
-QSlider::sub-page:horizontal {
-    background-color: #00B8FF;
-    border-radius: 3px;
-}
-
-QSlider::groove:vertical {
-    background-color: #162238;
-    width: 6px;
-    border-radius: 3px;
-}
-
-QSlider::handle:vertical {
-    background-color: #00B8FF;
-    border: none;
-    width: 14px;
-    height: 14px;
-    border-radius: 7px;
-    margin: 0 -4px;
-}
-
-QSlider::handle:vertical:hover {
-    background-color: #25D6FF;
-}
-
-QSlider::sub-page:vertical {
-    background-color: #00B8FF;
-    border-radius: 3px;
-}
-
-/* ─── Progress Bar ───────────────────────────────────────────────────── */
-
-QProgressBar {
-    background-color: #162238;
-    border: 1px solid #293A55;
-    border-radius: 6px;
-    text-align: center;
-    color: #EAF3FF;
-    height: 18px;
-}
-
-QProgressBar::chunk {
-    background-color: #00B8FF;
-    border-radius: 5px;
-}
-
-QProgressBar[class="ai"]::chunk {
-    background-color: #7C5CFF;
-}
-
-/* ─── Group Box ──────────────────────────────────────────────────────── */
-
-QGroupBox {
-    color: #EAF3FF;
-    border: 1px solid #293A55;
-    border-radius: 8px;
-    margin-top: 8px;
-    padding-top: 14px;
-}
-
-QGroupBox::title {
-    subcontrol-origin: margin;
-    subcontrol-position: top left;
-    left: 12px;
-    padding: 0 6px;
-    color: #25D6FF;
-}
-
-/* ─── Splitter ───────────────────────────────────────────────────────── */
-
-QSplitter::handle {
-    background-color: #293A55;
-}
-
-QSplitter::handle:hover {
-    background-color: #00B8FF;
-}
-
-QSplitter::handle:horizontal {
-    width: 2px;
-}
-
-QSplitter::handle:vertical {
-    height: 2px;
-}
-
-/* ─── Status Bar ─────────────────────────────────────────────────────── */
-
-QStatusBar {
-    background-color: #10192A;
-    color: #8FA3B8;
-    border-top: 1px solid #293A55;
-    min-height: 22px;
-}
-
-QStatusBar::item {
-    border: none;
-}
-
-QStatusBar QLabel {
-    color: #8FA3B8;
-    padding: 0 4px;
-}
-
-QSizeGrip {
-    background-color: transparent;
-}
-
-/* ─── Dialogs & Message Boxes ────────────────────────────────────────── */
-
-QDialog {
-    background-color: #0B1020;
-    color: #EAF3FF;
-}
-
-QMessageBox {
-    background-color: #0B1020;
-}
-
-QMessageBox QLabel {
-    color: #EAF3FF;
-}
-
-/* ─── Tooltip ────────────────────────────────────────────────────────── */
-
-QToolTip {
-    background-color: #162238;
-    color: #EAF3FF;
-    border: 1px solid #00B8FF;
-    border-radius: 6px;
-    padding: 4px 8px;
-}
-
-/* ─── List / Tree / Table Views ──────────────────────────────────────── */
-
-QListView, QListWidget, QTreeView, QTreeWidget, QTableView, QTableWidget {
-    background-color: #0E1626;
-    color: #EAF3FF;
-    border: 1px solid #293A55;
-    border-radius: 6px;
-    outline: none;
-    alternate-background-color: #10192A;
-}
-
-QListView::item, QListWidget::item,
-QTreeView::item, QTreeWidget::item {
-    padding: 3px 4px;
-    border-radius: 4px;
-}
-
-QListView::item:selected, QListWidget::item:selected,
-QTreeView::item:selected, QTreeWidget::item:selected,
-QTableView::item:selected, QTableWidget::item:selected {
-    background-color: #064B6E;
-    color: #F6FBFF;
-}
-
-QListView::item:hover, QListWidget::item:hover,
-QTreeView::item:hover, QTreeWidget::item:hover {
-    background-color: #162238;
-}
-
-QHeaderView::section {
-    background-color: #10192A;
-    color: #8FA3B8;
-    border: none;
-    border-right: 1px solid #293A55;
-    border-bottom: 1px solid #293A55;
-    padding: 4px 8px;
-    font-weight: 600;
-}
-
-QHeaderView::section:hover {
-    background-color: #162238;
-    color: #EAF3FF;
-}
-
-/* ─── Labels / Frames ───────────────────────────────────────────────── */
-
-QLabel {
-    background: transparent;
-    color: #EAF3FF;
-}
-
-QLabel[class="muted"] {
-    color: #8FA3B8;
-}
-
-QLabel[class="accent"] {
-    color: #00B8FF;
-}
-
-QLabel[class="ai"] {
-    color: #7C5CFF;
-}
-
-QFrame[frameShape="4"],
-QFrame[frameShape="5"] {
-    color: #293A55;
-}
-
-/* ─── MidiEditor AI specific utility classes ─────────────────────────── */
-
-QWidget[class="card"] {
-    background-color: #162238;
-    border: 1px solid #293A55;
-    border-radius: 10px;
-}
-
-QWidget[class="panel"] {
-    background-color: #10192A;
-    border: 1px solid #293A55;
-    border-radius: 8px;
-}
-
-QWidget[class="midipilot"] {
-    background-color: #0E1626;
-    border: 1px solid #293A55;
-    border-radius: 10px;
-}
-
-QLabel[class="badge"] {
-    background-color: rgba(0, 184, 255, 0.14);
-    color: #25D6FF;
-    border: 1px solid rgba(0, 184, 255, 0.45);
-    border-radius: 8px;
-    padding: 2px 8px;
-}
-
-QLabel[class="badge-ai"] {
-    background-color: rgba(124, 92, 255, 0.16);
-    color: #B6A7FF;
-    border: 1px solid rgba(124, 92, 255, 0.48);
-    border-radius: 8px;
-    padding: 2px 8px;
-}
-
-QFrame[class="accent-line"] {
-    background-color: #00B8FF;
-    border: none;
-    min-height: 1
-
 
 <file>src/gui/themes/midieditorai_brand.qss</file>
 
@@ -11458,3 +10689,215 @@ Palet:
 #25D6FF  Cyan Hover
 #7C5CFF  AI Violet
 #293A55  Border
+---
+
+## Phase 38: Upstream Triage - Meowchestra Sync Window (post 1.6.0)
+
+> Snapshot taken 2026-05-02. Upstream Meowchestra/MidiEditor pushed
+> 32 commits in the 14 days leading up to our v1.6.0 cut. This phase
+> tracks which of those commits we want to absorb into MidiEditor AI,
+> what we deliberately skip, and why. Every Tier-1/2 item still needs
+> a real code review before merging - the buckets below are triage
+> only, not pre-approval.
+
+### 38.1 - Tier 1: Low-conflict bug fixes (target 1.6.1)
+
+| Upstream SHA | Title | Files | Why pull |
+|---|---|---|---|
+| 35f1ee | Preserve Unmatched Percussion on Channel 9 | src/support/FFXIVChannelFixer.cpp (+26/-1) | Direct bugfix in a code path we own. FFXIV-relevant, isolated, low risk. |
+| e2d107f | SoundFont Update - SGM Pro 13 | src/gui/DownloadSoundFontDialog.cpp (3 lines) | Trivial URL bump, keeps the download dialog pointing at the current asset. |
+| 8997ad7 | Improve pixmap subpixel antialiasing with fractional scaling | MatrixWidget.cpp, ProtocolWidget.cpp (+9/-3) | Closes upstream #53. Pure rendering quality fix at HiDPI / 125% / 150% scaling. |
+| 366a92f | Option to disable startup update check | MainWindow.cpp, PerformanceSettingsWidget.{h,cpp} (+37/-3) | Closes upstream #52. Adds a setting; doesn't change defaults. Useful QoL. |
+| Crash-fix slice from 21fe86b | Crash when deleting tempo+timesig event if it's the only event in the file | Subset of MainWindow.cpp / MidiTrack.cpp | Real crash. Pull just the guard, not the focus-tracking refactor (see Tier 3). |
+
+**Process for 38.1:**
+1. For each row, run git show <sha> against meow, then map to our tree.
+2. Build + run the affected tests after each cherry-pick.
+3. Write one commit per upstream SHA with Co-authored-by attribution.
+4. Bundle into 1.6.1 release once all five are reviewed and green.
+
+### 38.2 - Tier 2: Bigger features worth porting (target 1.7.0)
+
+| Upstream SHA | Title | Files | Notes |
+|---|---|---|---|
+| 169605 | File Duration Improvements & Trim Start Tool | 9 files (+416/-19), brand-new TrimStartDialog.{h,cpp} | Self-contained new tool. Easy adoption; check our keybinds for collisions. |
+| 80f3732 (memory-fix slice) | NoteOnEvent memory cleanup, SplitChannels Force Split option | NoteOnEvent.{h,cpp}, SplitChannelsDialog.{h,cpp} | Pull only the memory cleanup + Force Split; skip the Bard Metal Preset (we have our own FFXIV preset family). |
+| 21fe86b (focus-tracking slice) | Channel/track focus follows cursor + program-change attribution | Subset of MainWindow.cpp, ChannelListWidget, MatrixWidget | UX upgrade. Conflicts likely with our context-menu / track-tab work; needs a careful manual port. |
+
+### 38.3 - Tier 3: High-conflict refactors (skip unless we hit the underlying bug)
+
+| Upstream SHA | Title | Why we hold off |
+|---|---|---|
+| dfa4593 | Improve Selection Performance & Delete Overlaps (+405/-189 across MatrixWidget, SelectTool, EventMoveTool, SizeChangeTool, Selection) | Touches the same code paths we re-architected for the v1.3.2 by-value Selection regression. Re-merging risks reintroducing that bug. Only revisit if we can prove a perf problem in our own code. |
+| dde3fda | Improve Hit Detection & Piano Glissando (MatrixWidget.cpp +132) | Will conflict with our matrix-overlay extensions (chord highlighter, voice lane, lyric lane). Not worth a six-hour merge for a glissando feature we don't ship. |
+| c288713 | Sequential (FIFO) Event Reading Order (MidiChannel, MidiFile) | Changes the multimap iteration semantics. Our AI tools, MCP server, and undo log all assume the current ordering; flipping it silently is a regression magnet. |
+| 93ea466 | Change FluidSynth Defaults (WASAPI + 48 kHz) | Default changes break existing user setups. Our FFXIV SoundFont Mode already overrides defaults. No-pull. |
+
+### 38.4 - Already in 1.6.x or out of scope (no-pull, recorded for completeness)
+
+* 64cae2f Export Audio Formats - shipped in our 1.2.0.
+* 849c18e MusicXML & MuseScore Converter - shipped in our 1.4.0.
+* 81bc83f Text Encoding Fallback / uchardet / Remove QMake - we keep
+  QMake as reference and don't bundle uchardet.
+* 47390a Theme Presets,  f62353 Airy Theme - we run our own
+  ThemeManager + brand theme (Phase 37.2).
+* d116783 Velocity Tool, Track Context Menu - we have UX-CTX-001
+  and our own Move-to / Octave context menu.
+* d4e8cf FFXIV Track Rename Presets, 253b159 FFXIV Condense -
+  shipped in our 1.2.x FFXIV Channel Fixer.
+* c8d1e6c Toggleable Toolbar - we expose this through our own
+  toolbar customisation already.
+* 4adbfd4 / 1954e7b Marker / glissando UX - not part of our
+  workflow; revisit only if user-requested.
+
+### 38.5 - Open questions / decisions to make per item
+
+1. **Cherry-pick vs manual port?** Whenever upstream touches a file
+   we have already heavily diverged on (MainWindow.cpp,
+   MatrixWidget.cpp), prefer manual port - the diff stays cleaner
+   and intent is preserved.
+2. **License + attribution?** Same GPL-2.0; cherry-picks must keep
+   `--author` and we add `Co-authored-by: Meowchestra ...` in
+   the commit trailer.
+3. **Test coverage?** Tier-1 fixes should each get at least one
+   regression test in our 	ests/ harness before landing.
+4. **Release cadence:** Tier 1 = 1.6.1 hotfix. Tier 2 = 1.7.0
+   feature release. Tier 3 = on demand only.
+
+
+---
+
+## Phase 39: FFXIV SoundFont Equalizer (Per-Instrument Volume Mixer)
+
+> Status: Planned, no code yet. Target: 1.7.0 alongside Tier-2
+> upstream pulls.
+>
+> Goal: replace the current "tweak FluidSynth gain in Settings"
+> workflow with a dedicated, instrument-level mixer that ships with
+> a curated default preset and lets every user save their own.
+
+### 39.1 - User-facing entry point
+
+* **Midi menu -> FFXIV Mode -> SoundFont Equalizer...**
+  Visible only when FFXIV SoundFont Mode is active (mirrors the
+  Voice Limiter and Channel Fixer entries).
+* Optional toolbar button next to the existing FFXIV gauge for
+  one-click reopen during a session.
+
+### 39.2 - Equalizer dialog UX
+
+* One row per instrument exposed by the loaded SoundFont (Lute,
+  Harp, Piano, Flute, Oboe, Clarinet, Trumpet, Trombone, Horn,
+  Saxophone, Violin, Viola, Cello, Bass, Timpani, Drum kits, ...).
+* Each row:
+  * Instrument name + GM family icon
+  * Horizontal slider 0..200 percent (default 100 percent)
+  * Numeric spinbox bound to the slider
+  * Mute toggle (S/M style)
+  * Reset-this-row button (to default-preset value)
+* Header strip:
+  * Preset selector (combo): "FFXIV Default", user presets, "+ New..."
+  * Save / Save As / Delete preset buttons
+  * Master gain slider 0..200 percent (multiplied on top of per-instr.)
+  * Search box to filter the instrument list
+* Bottom bar:
+  * Live preview toggle (auditions changes against the playing file)
+  * Apply / Cancel / Reset to default preset
+
+### 39.3 - Storage model
+
+* Presets persisted as JSON under
+  `QSettings("MidiEditor", "NONE")/FFXIV/equalizerPresets/<name>`
+  with payload:
+
+```json
+{
+  "name": "FFXIV Default",
+  "masterGain": 1.0,
+  "tracks": {
+    "Lute":   { "gain": 1.00, "muted": false },
+    "Harp":   { "gain": 0.85, "muted": false },
+    "Piano":  { "gain": 0.90, "muted": false }
+  },
+  "createdBy": "builtin",
+  "version": 1
+}
+```
+
+* Active preset key: `FFXIV/equalizerActivePreset` (string).
+* Built-in **FFXIV Default** preset shipped read-only in the
+  binary; user copies become editable.
+
+### 39.4 - Audio path integration
+
+* New service `FfxivEqualizerService` (`src/midi/FfxivEqualizerService.{h,cpp}`):
+  * Owns the active preset.
+  * Maps GM-program / drum-kit -> gain factor.
+  * Exposes `gainFor(program, isDrum) -> float`.
+* `FluidSynthEngine`:
+  * On every NoteOn, multiply velocity by `service->gainFor(...)`
+    *before* sending to FluidSynth.
+  * Respect mute by skipping the NoteOn entirely.
+* `AudioExporter` (WAV/FLAC/MP3) reads from the same
+  `FfxivEqualizerService` so the rendered file matches what the user
+  hears live - no surprises.
+* All hooks gated by `FFXIV SoundFont Mode is on` so non-FFXIV users
+  pay zero overhead.
+
+### 39.5 - Default preset philosophy
+
+* Curate the shipped FFXIV Default preset based on what
+  sounds balanced in-game. The defaults should:
+  * Tame the drum kit roughly -3 dB (it overwhelms melodic tracks).
+  * Leave Lute/Harp at 100 percent (reference tracks).
+  * Trim brass +/- a few percent for parity with strings.
+* Document the curated values in `Planning/06_FFXIV_Equalizer.md`
+  so future preset bumps are explainable.
+
+### 39.6 - Files & touchpoints
+
+* New:
+  * `src/midi/FfxivEqualizerService.{h,cpp}`
+  * `src/gui/FfxivEqualizerDialog.{h,cpp}`
+  * `tests/test_ffxiv_equalizer_service.cpp`
+  * `manual/ffxiv-equalizer.html`
+  * `Planning/06_FFXIV_Equalizer.md` (default-preset rationale)
+* Modified:
+  * `src/midi/FluidSynthEngine.{h,cpp}` (NoteOn gain hook)
+  * `src/midi/AudioExporter.cpp` (export uses same service)
+  * `src/gui/MainWindow.cpp` (Midi menu entry, dialog launcher)
+  * `src/ai/ToolDefinitions.cpp` (optional read-only AI tool: see 39.8)
+
+### 39.7 - Safety / edge cases
+
+* Velocity clamp: scaled velocity must stay within 1..127
+  (zero becomes 1 to keep the NoteOn alive; mute uses the dedicated
+  mute path).
+* Live preview must debounce slider drags (~100 ms) so FluidSynth
+  doesn't get spammed.
+* Renaming or deleting the active preset gracefully falls back to
+  "FFXIV Default".
+* Backup-on-overwrite for user presets (one-level undo via QSettings).
+
+### 39.8 - Optional AI tool (post-MVP)
+
+* nalyze_mix_balance(start_tick, end_tick) - read-only report
+  that compares average velocity per channel to the active
+  Equalizer preset and flags channels likely to clip or get drowned
+  out.
+* Useful for AI-assisted mixing prompts: *"the lead lute is too
+  quiet vs the drums - suggest preset adjustments."*
+
+### 39.9 - Open decisions for review
+
+1. **Per-channel vs per-instrument vs per-program?** Recommendation:
+   per-program (so the same Lute on CH1 and CH5 shares a slider).
+   Cleaner UX and matches how the SoundFont is actually structured.
+2. **Should presets travel with the .mid file?** No - keep them
+   per-install. A .mid file is shared between users; the mix
+   preference is personal.
+3. **Future: A/B comparison?** Keep two slots and let the user
+   toggle between them. Defer to 1.7.x if MVP lands well.
+4. **FFXIV Mode coupling?** Auto-disable the dialog when FFXIV Mode
+   is off, mirroring the Voice Limiter auto-bind from 1.6.0.
+

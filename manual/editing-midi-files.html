@@ -278,6 +278,67 @@
   at the time where you want the copied events to start and press CRTL+V which will paste the events at the wished position.
 </p>
 
+<p>
+  The clipboard works <b>both within the same MidiEditor window and across two windows</b>.
+  Copy a selection in one instance, switch to another instance (or another file in the same
+  instance) and paste - the events arrive at the cursor position. The two flows behave
+  slightly differently:
+</p>
+<ul>
+  <li><b>Same-file paste</b> - events are pasted onto the current edit track / channel
+    (or whatever <i>Paste options</i> dictates). This is the classic Ctrl+C / Ctrl+V loop.</li>
+  <li><b>Cross-instance paste</b> - the source file's track names and channel layout travel
+    with the clipboard, so MidiEditor can offer to recreate that structure in the target
+    file via the new <a href="#paste-special">Paste Special&hellip;</a> dialog.</li>
+</ul>
+
+<h3 id="paste-special">Paste Special (Cross-Instance Paste)</h3>
+<p>
+  When the clipboard contains events copied from another MidiEditor instance (or from a
+  different file in the same instance), pressing <kbd>Ctrl</kbd>+<kbd>V</kbd> opens the
+  <b>Paste Special&hellip;</b> dialog instead of collapsing everything onto the current edit
+  track. You can also reach it any time via <b>Edit &rarr; Paste Special&hellip;</b>.
+</p>
+<p>
+  The dialog header shows a one-line summary -
+  <i>&ldquo;Clipboard: N event(s), M source track(s), C channel(s), D of music&rdquo;</i> -
+  followed by three target-assignment modes:
+</p>
+<ul>
+  <li><b>Create new tracks per source</b> (default) - every distinct source track becomes a
+    fresh track in the current file, named <code>Pasted: &lt;original name&gt;</code>. Channels
+    are preserved 1:1. Best when you are merging arrangements and want each contributor on
+    its own track.</li>
+  <li><b>Preserve source track + channel mapping (1:1)</b> - reuses target tracks whose names
+    match the source, otherwise creates them with the original name. Channels are kept as-is.
+    Best when both files already share a track structure and you just want events to land
+    where they came from.</li>
+  <li><b>Paste to current edit track + channel (legacy)</b> - the pre-1.6 behaviour. All events
+    collapse onto the current <i>edit track</i> and <i>edit channel</i>. Useful for quick
+    one-off paste of a single phrase.</li>
+</ul>
+<p>
+  Two checkboxes at the bottom control how often the dialog appears:
+</p>
+<ul>
+  <li><b>Don&rsquo;t ask again this session</b> - subsequent <kbd>Ctrl</kbd>+<kbd>V</kbd> presses
+    silently reuse the chosen mode until MidiEditor is closed.</li>
+  <li><b>Make this the new default</b> - persists the chosen mode across restarts (only
+    enabled when the &ldquo;don&rsquo;t ask&rdquo; box is also ticked).</li>
+</ul>
+<p>
+  <b>Single undo step.</b> Track creation and event insertion happen in the same protocol
+  action, so one <kbd>Ctrl</kbd>+<kbd>Z</kbd> rewinds both the pasted events <em>and</em> any
+  freshly-created tracks. The original same-file Ctrl+C / Ctrl+V fast-path is unchanged.
+</p>
+
+<div style="text-align:center; margin:1.5rem 0;">
+<a href="screenshots/paste_special.png" class="lightbox-link">
+<img src="screenshots/paste_special.png" alt="Paste Special dialog with the three target-assignment modes" style="max-width:520px; border:1px solid var(--border); border-radius:8px;" loading="lazy">
+</a>
+<p style="text-align:center; color:var(--text-muted); font-style:italic; margin-top:0.5rem; font-size:0.9rem;">Paste Special opens automatically when the clipboard came from another MidiEditor instance.</p>
+</div>
+
 <h3 id="timing">Editing Tempo and Meter</h3>
 <p>
   Tempo and meter can be changed using the according tools. Tempo can also be changed using the <a href="#controls-and-velocities">control editor</a> below the event view.

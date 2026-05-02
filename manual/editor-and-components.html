@@ -145,11 +145,15 @@ structured within the following submenus. For the <b>Tools</b> menu, see the
 </tr>
 <tr>
 <td><img src="tools/paste.png" width="20" height="20"></td>
-<td><i>Paste events</i><br>Paste copied events from the clipboard. The first event starts at the cursor position. Use <b>Paste options</b> to control target track and channel.</td>
+<td><i>Paste events</i><br>Paste copied events from the clipboard. The first event starts at the cursor position. Use <b>Paste options</b> to control target track and channel. When the clipboard contains events from another MidiEditor instance, the <a href="editing-midi-files.html#paste-special"><i>Paste Special&hellip;</i></a> dialog opens automatically so you can choose how source tracks and channels are mapped onto the current file.</td>
 </tr>
 <tr>
 <td></td>
 <td><i>Paste options&hellip;</i><br>Choose whether pasted events keep their original track/channel or get assigned to a fixed track/channel.</td>
+</tr>
+<tr>
+<td></td>
+<td><i>Paste Special&hellip;</i><br>Opens the <a href="editing-midi-files.html#paste-special">cross-instance paste dialog</a>. Pick <i>Create new tracks per source</i>, <i>Preserve source mapping (1:1)</i>, or <i>Paste to current edit track + channel</i>. One Ctrl+Z reverts the paste <em>and</em> any newly created tracks together.</td>
 </tr>
 <tr>
 <td><img src="tools/config.png" width="20" height="20"></td>
