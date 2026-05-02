@@ -9053,3 +9053,2408 @@ removed pre-Phase-31 universal `pitch_bend`-only working-state branch.
 * `src/gui/AiSettingsWidget.cpp` / `src/gui/MidiPilotWidget.cpp` — per-mode warning markers
 * `tests/test_agent_tool_policy.cpp` — NEW
 
+---
+
+## Phase 32: FFXIV Voice Limiter / Awareness — DONE in 1.6.0
+
+**Implemented:** Headless `FfxivVoiceAnalyzer` (per-file cache, debounced
+re-analysis on `Protocol::actionFinished`) backing two visualisers — the
+toolbar `FfxivVoiceGaugeWidget` (24-segment stereo-style LED meter, fixed
+left `N/16` readout, reserved `+N` overflow slot, dedicated tick mark at the
+documented 16-voice ceiling) and the piano-roll `FfxivVoiceLaneWidget`
+(auto-scaled Y-axis, soft / red threshold colouring, per-channel rate
+hot-spot strip, dashed red ceiling line drawn on top with halo + `16` tag).
+Sample-tail simulation in `FfxivVoiceLoadCore::sampleTailMs()` extends each
+NoteOn..NoteOff window by an estimated audible release per GM family / drum
+pitch so the voice count matches in-game / MogNotate observations instead of
+under-reporting on plucked instruments. Visual thresholds (`green ≤18`,
+`yellow 19–23`, `red ≥24`) are intentionally relaxed from the documented
+hard ceiling per empirical in-game testing; the analyser still reports the
+raw count and overflow against `16` for the AI tool. The Phase-32.2 matrix
+tint overlay was removed in v1.6.0 because it was visually unreadable on
+dense scores; the lane below the velocity lane is the primary visualiser.
+Agent-side `analyze_voice_load` tool wired through `ToolDefinitions`
+(test-stubbed via `TOOLDEFINITIONS_TEST_STUB_FFXIV` so
+`test_tool_definitions` links without the full Qt analyser stack).
+
+> *"Note: numbered as a new top-level Phase rather than `31.x` because Phase 31
+> sub-sections (`31.1`–`31.4`) are already taken by the GPT-5.5 model-isolation
+> work. Topically unrelated; deserves its own phase."*
+
+### Why
+
+In FFXIV's *Performance Mode* (Bard ensembles) the in-game audio engine has
+hard, observable ceilings that silently truncate or drop notes from the player's
+arrangement. The MIDI looks fine; what comes out of the game does not. Three
+constraints matter for arranging:
+
+| Constraint | Limit | Source | Symptom in-game |
+|------------|-------|--------|-----------------|
+| **Polyphony / voice ceiling** | **16 active voices total**, across the whole ensemble (not per player) | `https://ffxiv.consolegameswiki.com/wiki/Performance_Actions`; community confirmation (Reddit, BMP) | Older notes get cut off; wind/brass becomes inaudible during dense passages |
+| **Note rate** | **≤ 14 notes / second per channel**, ~50 ms minimum interval (locked-60 fps assumption) | Same wiki page | Notes beyond the rate are dropped or merged |
+| **Range** | **C3..C6** (MIDI 48..84) | Same wiki page | Out-of-range notes are auto-transposed by the client |
+| **No native chords** | One key press = one note; arpeggiate or use Power Chord instruments | Same wiki page | Stacked notes on the same key collapse |
+
+We already enforce **range** in the FFXIV Channel Fixer + bard accuracy path
+(BARD-DRY-001 + Phase 3 percussion). What's missing is **predictive feedback**
+on the polyphony ceiling and the note-rate ceiling *while the user is editing*,
+so they can see where the arrangement would be silently degraded by the game
+client before they ever upload it.
+
+This phase introduces the **FFXIV Voice Limiter** (working name; alias
+*FFXIV Voice Awareness*) — a passive analyser + two visualisers that surface
+voice-count and note-rate hot-spots in real time, in the same idiom as the
+existing **MIDI Visualizer** and **Lyric Visualizer** toolbar widgets and the
+existing piano-roll *Show Program Markers* / *Show Control Markers* /
+*Show Text Events* overlays.
+
+### What it does — feature surface
+
+#### 32.1 — Toolbar widget: live voice gauge
+
+Companion to `MidiVisualizerWidget` and `LyricVisualizerWidget`. Lives in the
+toolbar, registers as a customisable action (`ffxiv_voice_gauge`) in
+`LayoutSettingsWidget`.
+
+* Compact ~120×25 px widget with two areas:
+  * **Left**: large coloured pill / LED — green when current playhead voice
+    count ≤ 16, red when > 16.
+  * **Right**: numeric overflow count, e.g. `+0` (green) or `+3` (red) meaning
+    "3 notes over the 16-voice ceiling at the playhead".
+* Tooltip: `Voices: 14 / 16 (max in piece: 22 at bar 17 beat 3.2)`.
+* During playback: updates at the playback timer's repaint cadence (already
+  ~30 Hz). When stopped: tracks `MatrixWidget`'s playhead / cursor position so
+  hovering / clicking reveals voice load at any tick.
+* Click toggles the piano-roll *voice-load lane* (32.3 below).
+* Honours the existing FFXIV mode toggle: hidden / disabled when FFXIV
+  SoundFont Mode is off (matches `XIV` toolbar widget pattern from 1.5.2).
+
+#### 32.2 — Inline matrix overlay (per-bar tinting)
+
+Same toggle pattern as `MatrixWidget::_div_program_visible` /
+`_div_control_visible` / `_div_text_visible`:
+
+* **View → Show Voice Load** (action id `view_voice_load`, persisted under
+  `View/showVoiceLoad`).
+* When enabled, `MatrixWidget::paintEvent()` tints the background of each bar
+  (or each rendered tick column at high zoom) with a translucent green / red
+  gradient based on peak voice count in that bar.
+* Two tint thresholds:
+  * **Green** (≤ 12 voices) — comfortable headroom.
+  * **Yellow** (13..16 voices) — at the limit but legal.
+  * **Red** (> 16 voices) — game will drop notes.
+* Optional second pass for **note-rate hot-spots**: any 250 ms window with
+  > 14 notes on the same channel gets a thin red vertical hatch overlay.
+
+#### 32.3 — Voice-load lane (graph under the piano roll)
+
+Companion lane to the velocity lane. Toggled from the toolbar widget click and
+from the View menu (action `view_voice_lane`, persisted under
+`View/showVoiceLane`).
+
+* Renders a 16-row bar chart sampled per pixel column (or per beat, whichever
+  is finer at the current zoom):
+  * 16 vertical bars, one per simultaneous voice slot.
+  * Bars filled green when total ≤ 16.
+  * Bars 17+ stack above the 16-row ceiling marker, painted **red**.
+  * Optional thin numeric label for any column with overflow ("18", "22", …).
+* Click on a column scrolls / cursors the matrix to that tick — same idiom as
+  the protocol panel's "Jump to event" entries.
+
+#### 32.4 — Analyzer engine (`FfxivVoiceAnalyzer`)
+
+The headless engine that backs all three visualisers. Lives in
+`src/ai/` next to `FFXIVChannelFixer.{h,cpp}`.
+
+* **Inputs**: `MidiFile *file`, optional `int previewWindowMs` (default 250 ms).
+* **Outputs** (cached per file, invalidated on edit):
+  * `QVector<int> voiceCountAtTick` — sparse, only at tick boundaries where
+    NoteOn/NoteOff land. Built once via a single pass:
+    1. Walk every NoteOn / OffEvent across all 16 standard channels (skip 16/17/18 meta channels).
+    2. Increment / decrement a running counter at each event tick.
+    3. Snapshot `(tick, count)` pairs.
+  * `QVector<int> peakInBar(barIndex)` — convenience derived from the above.
+  * `QVector<RateHotspot>` — `{channel, startTick, endTick, notesPerSecond}`
+    entries for any 250 ms window exceeding 14 notes/s.
+  * `int globalPeak` — overall maximum.
+* **Update strategy**: connect to `Protocol::actionFinished` (existing signal).
+  Re-analyse async on a `QTimer::singleShot(0, ...)` debounced 100 ms so a
+  multi-event paste / agent tool call only triggers one rebuild. Keep results
+  in a `QHash<MidiFile*, AnalysisResult>` cache cleared on file close.
+* **Note-rate detection**: per-channel sliding window. Uses a `std::deque<int>`
+  of NoteOn ticks per channel; on each new NoteOn, drop entries older than
+  `(currentTick - 250 ms)` and check `size()`.
+* **Drum-channel handling**: CH9 voice-counting follows the same rules — a kick
+  + snare hit *is* two simultaneous voices in the in-game engine, not one.
+
+#### 32.5 — Settings + thresholds
+
+**Settings → MIDI → FFXIV → "Voice Limiter"** group:
+
+* `[x]` Enable Voice Awareness widgets — default `true`. **Auto-bound to
+  FFXIV SoundFont Mode**: enabling FFXIV Mode flips this on (and shows the
+  toolbar gauge + matrix tint + voice lane); disabling FFXIV Mode flips it
+  off (and hides the widgets and stops the analyser entirely so non-FFXIV
+  users pay zero perf cost). Wired the same way as the bard-accurate-mode
+  auto-bind from 1.5.3 (BARD-MODE-001): `FluidSynthEngine::ffxivSoundFontModeChanged(bool)`
+  drives `setVoiceAwarenessEnabled(on)`. The user can still override:
+  manually unchecking this box while FFXIV Mode is on persists the OFF
+  choice (`FFXIV/voiceLimiter/userOverride = "off"`) and the auto-bind
+  no longer flips it back; clearing the override (or a fresh install /
+  reset-to-defaults) restores the auto-bound behaviour.
+* Voice ceiling: `16` (read-only number; matches game)
+* Yellow-warn threshold: `13` (spinner 1..15)
+* Note-rate ceiling: `14 notes/s` (read-only)
+* Note-rate window: `250 ms` (spinner 100..1000)
+* Persisted under `FFXIV/voiceLimiter/*`.
+
+#### 32.6 — Optional: agent-side awareness
+
+Stretch goal — not required for shipping the visualiser:
+
+* New read-only AI tool `analyze_voice_load(start_tick, end_tick)` that returns
+  `{globalPeak, overflowRanges[], rateHotspots[]}`. Lets the agent self-check
+  its compositions against the 16-voice ceiling and rewrite dense passages
+  without the user having to ask.
+* Wire into `AgentWorkingState.activeConstraints` when FFXIV mode is on:
+  `"FFXIV: ≤16 voices, ≤14 notes/s/channel, C3..C6"` so the model is reminded
+  every turn.
+
+### Implementation plan — files
+
+* `src/ai/FfxivVoiceAnalyzer.{h,cpp}` — NEW headless engine (32.4)
+* `src/gui/FfxivVoiceGaugeWidget.{h,cpp}` — NEW toolbar widget (32.1)
+* `src/gui/MatrixWidget.{h,cpp}` — `_voice_load_visible` flag + tint pass + new
+  voice-load lane below the existing velocity lane (32.2 + 32.3)
+* `src/gui/MainWindow.{h,cpp}` — register `view_voice_load` /
+  `view_voice_lane` / `ffxiv_voice_gauge` actions, wire into View menu and
+  toolbar; persist under `View/show*`
+* `src/gui/LayoutSettingsWidget.cpp` — register `ffxiv_voice_gauge` in toolbar
+  registry + default order
+* `src/gui/MidiSettingsWidget.{h,cpp}` — new "Voice Limiter" group (32.5)
+* `src/ai/ToolDefinitions.{h,cpp}` — optional `analyze_voice_load` tool (32.6)
+* `src/ai/AgentRunner.{h,cpp}` — optional `activeConstraints` wiring (32.6)
+* `tests/test_ffxiv_voice_analyzer.cpp` — NEW: deterministic fixtures
+  * single-channel monophonic stays at 1 voice
+  * 17-note simultaneous chord triggers `globalPeak == 17`, `overflow == 1`
+  * fast 16-note arpeggio at 60 BPM 1/32 → 32 notes/s on one channel triggers
+    a rate hotspot
+  * NoteOn / NoteOff pairs straddling bar boundaries count correctly
+  * empty file returns `globalPeak == 0` and no hotspots
+* `manual/ffxiv-voice-limiter.html` — NEW manual page
+* `manual/menu-view.html` — add `Show Voice Load` / `Show Voice Lane` rows
+* `manual/menu-tools.html` — add the toolbar gauge row
+* `manual/soundfont.html` — cross-link from the FFXIV Mode section
+
+### Acceptance criteria
+
+1. Loading a known-overflowing MIDI (e.g. dense Lute trio) shows the gauge
+   widget pulsing red and the matrix tinted red in the dense bars without the
+   user enabling anything beyond FFXIV Mode.
+2. Toggling **View → Show Voice Load** off restores the matrix to the current
+   1.5.3 appearance byte-identically (no perf or paint regression on files
+   with no overflow).
+3. Editing a single note (delete the top voice in the dense bar) re-analyses
+   within ~100 ms and the bar flips from red to yellow / green live.
+4. The voice-load lane stays in sync with horizontal scroll / zoom, same as
+   the velocity lane.
+5. With FFXIV Mode **off**, none of the new widgets are visible and the
+   analyser does not run (zero perf impact for non-FFXIV users).
+6. Headless analyser passes the test fixtures listed above.
+7. Note-rate detection correctly flags a single channel hitting > 14 NoteOns
+   in any 250 ms window; does **not** flag the cross-channel total
+   (game limit is per-channel rate, ensemble-wide voice ceiling).
+
+### Open questions / deferred
+
+* **Power Chord instruments** (Bongo, Snare, Cymbal — the FFXIV percussion
+  presets that play chords from a single key) — should those count as 1 voice
+  or as the chord size in the analyser? Default: count as 1, matching what the
+  game engine reports.
+* **Multi-bard ensembles** — the 16-voice ceiling is *ensemble-wide* in the
+  game, but in the editor we only see one player's MIDI. Document that the
+  analyser shows the **per-file** ceiling and that real multi-bard sessions
+  divide the budget across players.
+* **Animation-mismatch** (newer client renders fluid animations not matching
+  audio rate) is purely visual in-game and not addressable from the editor —
+  out of scope.
+* **Frame-rate dependency** of the 50 ms input interval (locked 60 fps
+  assumption) — surface as a tooltip note rather than a hard analyser rule.
+
+### Working names
+
+* **FFXIV Voice Limiter** (preferred — matches FFXIV Channel Fixer naming).
+* **FFXIV Voice Awareness** (alias — softer, emphasises the passive nature).
+
+---
+
+### 32.7 — Empirical voice-load model (v1.6.0 follow-up)
+
+After the first build of 32.4 shipped a strict NoteOn..NoteOff voice
+counter, in-game testing revealed two systematic problems:
+
+1. **Counter under-reports vs. MogNotate.** The MIDI editor counted
+   ~6–8 voices on dense Harp/Lute passages where MogNotate showed
+   18–22 active voices.  Reason: a "voice" in the FFXIV mixer keeps
+   ringing for the *full sample release tail* after NoteOff (plucked
+   strings ~0.5 – 1 s), but our counter dropped voices the moment the
+   user released the key.
+2. **Visual thresholds were too strict.** Even after fixing (1), the
+   gauge / lane painted entire arrangements solid red while those same
+   arrangements played cleanly in-game with no audible cut-offs.  The
+   documented "16 active voices" ceiling appears to be the *eviction
+   trigger*, not the *audibility breakpoint*.
+
+#### Sources consulted
+
+| Source | Finding | Used for |
+|--------|---------|----------|
+| Square-Enix patch 4.15 notes | "Each action corresponds to one musical note." | Confirms no native chords |
+| Square-Enix patch 5.1 notes | Ensemble Mode delays party member instruments | Confirms global delay, no ms figure |
+| FFXIV ConsoleGames Wiki | Range C3–C6, ≤14 notes/s, 50 ms min interval @ 60 fps | Per-channel rate limit + range |
+| Square-Enix forum bugreport | "Game allows only 16 active voices; sustained Flute/Brass cut off when Harp/Lute/Drum exceed it" | 16-voice eviction threshold |
+| User-suggestion in same report | Forum users propose 32–64 as a "better" limit | Hint that ~32 is the practical breakage point |
+| MidiBard2 Q&A (GitHub) | Excess notes are *queued and delayed*, not silently dropped | Eviction is graceful → headroom above 16 is acceptable |
+| AllaganHarp (GitHub) | 35 ms aggressive / 50 ms safe arpeggio spacing; reverb tails are MIDI-length-independent | Audible tail ≠ sample length; arpeggio presets |
+| LightAmp / BMP `MinimumLength()` table | Per-instrument *playback sample lengths* (1.1 – 1.7 s) | NOT directly usable as voice tails — these extend short MIDI notes so the sample plays out, they are not perceptual decay times |
+
+#### Threshold model adopted in v1.6.0
+
+The documented 16-voice ceiling is preserved as a reference (dashed
+red line in the lane, `16` denominator in the gauge tooltip), but the
+visual colour bands reflect *practical audibility* derived from the
+sources above:
+
+| Band | Voices | Meaning | Rationale |
+|------|--------|---------|-----------|
+| **Green** | ≤ 18 (gauge) / ≤ 18 (lane) | Safe in practice | ~10 % headroom over docs; MidiBard2 queue compensates |
+| **Yellow** | 19–23 (gauge) / 19–23 (lane) | Over docs but typically clean | Bugreport: cut-off only when *sustained* notes coexist with continuous high load |
+| **Red** | ≥ 24 (gauge & lane) | Likely audible voice drops | ~1.5× over docs; community consensus on practical breakage |
+
+Constants live in:
+* `FfxivVoiceGaugeWidget.cpp` → `kVisualGreen=18`, `kVisualYellow=23`
+* `FfxivVoiceLaneWidget.cpp` → `kSoftWarn=19`, `kRedThreshold=24`
+
+These can be tuned without touching the analyser or schemas.
+
+#### Audible-tail model (`FfxivVoiceLoad::sampleTailMs`)
+
+Each voice is counted as active from NoteOn until
+`max(noteEnd, noteOn + sampleTailMs(program, pitch, isDrum, durationMs))`.
+The tail values are **estimated audible release** (~time to drop below
+−40 dB), roughly half of BMP's `MinimumLength` because BMP's table
+extends sample *playback*, not perceptual decay.
+
+| Family | GM Range | Audible tail (ms) |
+|--------|----------|-------------------|
+| Piano | 0–7 | 500 – 700 |
+| Chromatic perc. | 8–15 | 500 |
+| Organ | 16–23 | max(noteLen, 400) |
+| Lute / Acoustic Guitar | 24–31 | 700 – 900 (pitch-dependent) |
+| Bass | 32–39 | 700 |
+| Bowed strings | 40–45 | max(noteLen, 300), capped 4500 |
+| Orchestral Harp | 46 | 600 – 800 (pitch-dependent) |
+| Timpani | 47 | 700 – 800 |
+| Ensemble strings | 48–55 | max(noteLen, 300), capped 4500 |
+| Brass | 56–63 | max(noteLen, 300), capped 4500 |
+| Reed | 64–71 | max(noteLen, 500), capped 4500 |
+| Pipe / Flute | 72–79 | max(noteLen, 500), capped 4500 |
+| Synth lead/pad | 80–95 | max(noteLen, 400) |
+| Percussive (96–119) | 112–119 | 500 |
+| SFX | 120–127 | 350 |
+| Drums (ch 9) | per-pitch | Kick 300, Snare 200, Tom 280, ClosedHat 250, OpenHat 600, Cymbal 1200, Bongo 350 |
+
+These are heuristic starting values, **not measured**.  A future Phase
+32.8 should record per-instrument samples in-game and re-derive them
+empirically (RMS / peak vs. −40 dB threshold).
+
+#### What 32.7 did not change
+
+* The **range check** (C3..C6) and **per-channel rate detection**
+  (≤14 notes/s) are unchanged from 32.4 — they are well-documented
+  limits that match in-game behaviour.
+* The **agent-side `analyze_voice_load` tool** (32.6) keeps reporting
+  the raw voice count and `globalPeak` so AI-generated music is
+  judged against the documented limit, not the relaxed visual band.
+* The **matrix tint overlay** (originally 32.2) is removed in v1.6.0 —
+  it was visually unreadable on dense scores; the lane below the
+  velocity lane is the primary visualiser.
+
+#### Future work (32.8 — measurement-based calibration)
+
+1. Record one note per FFXIV instrument from the in-game performance
+   mode at known volume.
+2. Compute the time until each sample drops below −40 dB / −60 dB.
+3. Build per-key-region tables (low/mid/high) and re-emit
+   `sampleTailMs` from real data.
+4. Add a "Calibration" panel in Settings → MIDI → FFXIV that lets
+   advanced users override the heuristic table.
+
+---
+
+## Phase 33: Time-Preserving Tempo Conversion — DONE in 1.6.0
+
+### Why
+
+Today the user has two separate operations and no good way to combine them:
+
+* **"Change BPM"** — flips the tempo meta but leaves note ticks alone, so the
+  music plays back at a different speed and a different musical length.
+* **"Scale notes"** — multiplies tick positions but leaves the tempo alone,
+  so the music plays back at the same speed but takes longer / shorter in
+  real time and re-aligns to different bars.
+
+Neither does what the common user case needs: take a vocal MIDI recorded at
+**90 BPM** and re-target it to a project that runs at **180 BPM** so the
+vocal plays back **at the same real-time speed** as the original *and* lines
+up with the 180 BPM grid (so quarter notes become half notes, the tempo meta
+is 180 BPM, and the audible result is identical).
+
+This is technically *event-tick scaling* + *tempo replacement* in one atomic
+operation. We expose it as a single, clearly-named command so the user
+doesn't have to combine two existing tools and get the maths wrong.
+
+### Core formula
+
+```
+scale = target_bpm / source_bpm
+
+new_tick     = round(old_tick     * scale)
+new_duration = round(old_duration * scale)
+
+tempo_meta := target_bpm
+```
+
+Worked example — 90 → 180 (`scale = 2.0`):
+
+| Quantity              | Before        | After           |
+|-----------------------|---------------|-----------------|
+| `note.start`          | 480 ticks     | 960 ticks       |
+| `note.length`         | 240 ticks     | 480 ticks       |
+| `tempo`               | 90 BPM        | 180 BPM         |
+| Real-time start (s)   | 0.333 s       | 0.333 s         |
+| Real-time length (s)  | 0.167 s       | 0.167 s         |
+
+Real playback duration is preserved; the file now lives in the host project's
+180 BPM grid.
+
+### Feature surface
+
+#### 33.1 — Menu entry + dialog
+
+**Tools → Tempo Tools → Convert Tempo, Preserve Duration…**
+
+Action id `convert_tempo_preserve_duration`, registered in
+`MainWindow::createMenus()` next to the existing tempo / quantization tools.
+
+#### 33.1a — Right-click entry points
+
+The same action is also exposed via context menus so the user can apply it
+to exactly the track or channel they right-clicked, without having to first
+open the Tools menu *and* re-pick the scope manually:
+
+* **Tracks panel (`TrackListWidget`)** — right-click on a track row adds
+  *Convert Tempo, Preserve Duration…* to the existing context menu
+  (alongside Mute / Solo / Rename). When invoked this way:
+  * Scope is pre-set to *Selected tracks*.
+  * The chip strip is pre-filled with the right-clicked track plus any
+    other tracks that were already multi-selected in the panel.
+  * If multiple tracks are selected and the user right-clicks one of them,
+    all of them are pre-filled (matches the existing Mute/Solo behaviour).
+* **Channels panel (`ChannelListWidget`)** — same pattern. Right-click adds
+  *Convert Tempo, Preserve Duration…*; scope pre-set to *Selected channels*
+  with the right-clicked channel pre-filled.
+* **Matrix / piano-roll (`MatrixWidget`)** — when at least one event is
+  selected, the existing right-click menu adds *Convert Tempo, Preserve
+  Duration…* with scope pre-set to *Selected events*. (Mirrors the
+  current Quantize selection behaviour so the muscle memory transfers.)
+
+All three entry points route to the same `MainWindow::onConvertTempoPreserveDuration(ScopeHint hint)`
+slot; `ScopeHint` is a small POD `{ Scope scope; QSet<int> tracks; QSet<int> channels; }`
+used only to seed the dialog's initial state. The dialog itself remains the
+source of truth — the user can still change scope or chips before clicking
+OK.
+
+Dialog (`TempoConversionDialog`):
+
+* **Source BPM** — `QDoubleSpinBox`, default = `currentTempoAtTick0()`
+  (auto-detected; shows `(detected)` suffix in the label).
+* **Target BPM** — `QDoubleSpinBox`, default = current project tempo (or the
+  same value as Source if user hasn't changed the project tempo).
+* **Scope** — `QComboBox`:
+  * *Whole project* (default when nothing else applies)
+  * *Selected tracks* (default + auto-prefilled when launched from the
+    Tracks panel context menu — see 33.1a; the selected track ids are
+    captured at launch time and shown as a chip strip below the combo, e.g.
+    `[Track 3 "Lead Vocal"]  [Track 5 "Backing Vox"]  [×]`)
+  * *Selected channels* (default + auto-prefilled when launched from the
+    Channels panel context menu — see 33.1a; same chip strip,
+    e.g. `[Ch 0]  [Ch 9]`)
+  * *Selected events* (default when `Selection::instance()->selectedEvents()`
+    is non-empty)
+
+  The chip strip is editable: clicking the `×` on a chip removes that
+  track / channel from the scope; an `+ Add…` chip opens a small picker
+  populated from `file->tracks()` / `file->channels()`. This lets the user
+  refine the scope without closing the dialog and re-launching from a
+  different right-click.
+* **Tempo handling** — `QComboBox`:
+  * *Replace tempo map with target tempo* (Mode A — MVP default)
+  * *Scale existing tempo map* (Mode B — v2, greyed out in MVP with a
+    "Coming in v2" tooltip)
+  * *Keep tempo map, scale events only* (Mode C)
+* **Include** checkboxes (all default `true` for the MVP):
+  * Notes (NoteOn / OffEvent)
+  * Controllers (CC)
+  * Pitch bend
+  * Program changes
+  * Channel pressure / poly aftertouch
+  * Lyrics & text events (channel 16)
+  * Markers (channel 16, `MARKER_TEXT` subtype)
+  * Time signatures (channel 18) — *unchecked* by default; warning tooltip
+    "Scaling time signatures is rarely what you want — leave unchecked
+    unless you know why."
+* **Quantize after conversion** checkbox — default off; when on, runs the
+  existing quantize tool with the project's current grid.
+* **Live preview pane** (read-only labels, recomputed on every field change):
+  * `Original duration: 0:42.18`
+  * `New duration: 0:42.18  (Δ +0.00 s ✓)` or `(Δ -2.13 s ⚠)` in red when
+    Mode C scales but tempo isn't touched
+  * `Scale factor: 2.000×`
+  * `Affected events: 1247`
+  * `Tempo events found in source: 1 (at tick 0)` — turns into a yellow
+    warning row when > 1 (`"This file contains 4 tempo changes. Replace
+    will collapse them to a single tempo at the target BPM."`)
+
+#### 33.2 — Headless engine
+
+`src/converter/TempoConversionService.{h,cpp}` (lives next to existing
+converters like `MusicXMLImporter`):
+
+```cpp
+struct TempoConversionOptions {
+    double sourceBpm = 0.0;            // 0 = auto-detect at tick 0
+    double targetBpm = 0.0;            // required
+    enum Scope { WholeProject, SelectedTracks, SelectedChannels, SelectedEvents };
+    Scope scope = WholeProject;
+    QSet<int> trackIds;                // used when scope == SelectedTracks
+    QSet<int> channelIds;              // used when scope == SelectedChannels
+    enum TempoMode { ReplaceFixed, ScaleTempoMap, EventsOnly };
+    TempoMode tempoMode = ReplaceFixed;
+    bool includeNotes        = true;
+    bool includeControllers  = true;
+    bool includePitchBend    = true;
+    bool includeProgramChange = true;
+    bool includeAftertouch   = true;
+    bool includeLyricsText   = true;
+    bool includeMarkers      = true;
+    bool includeTimeSignature = false;  // off by default — see dialog
+    bool quantizeAfter       = false;
+};
+
+struct TempoConversionResult {
+    int      affectedEvents = 0;
+    int      tempoEventsRemoved = 0;
+    qint64   oldDurationMs = 0;
+    qint64   newDurationMs = 0;
+    double   scaleFactor = 1.0;
+    QString  warning;       // empty on success
+    bool     ok = false;
+};
+
+class TempoConversionService {
+public:
+    static TempoConversionResult preview(MidiFile *file,
+                                         const TempoConversionOptions &opts);
+    static TempoConversionResult convert(MidiFile *file,
+                                         const TempoConversionOptions &opts);
+};
+```
+
+#### 33.3 — Implementation rules
+
+1. **Always scale at the absolute-tick layer.** MidiEditor already stores
+   events with absolute ticks in `MidiChannel`'s `QMultiMap<tick, MidiEvent*>`
+   so we never need to touch delta-time encoding — the existing
+   `MidiFile::save()` writer already converts to deltas on export.
+2. **Preserve NoteOn ↔ OffEvent pairing.** `OffEvent::onEvents` is a static
+   `QMap` keyed by `(channel, key)` that links each `NoteOnEvent` to its
+   matching `OffEvent`. The scaler must:
+   * For each `NoteOnEvent`, retrieve its paired `OffEvent` via
+     `noteOn->offEvent()`.
+   * Scale `noteOn->midiTime()` and `offEvent->midiTime()` together so the
+     pair stays consistent.
+   * Never touch the `OffEvent` independently of its pair.
+3. **Reuse the protocol stack** — wrap the entire operation in
+   `Protocol::startNewAction("Convert tempo (preserve duration): X→Y BPM")`
+   so a single Ctrl+Z reverts every event move + tempo-map rewrite.
+4. **Tempo handling per mode**:
+   * **ReplaceFixed (MVP default)** — collect all `TempoChangeEvent` on
+     channel 17, remove them via `MidiChannel::removeEvent(ev, true)` inside
+     the protocol action, then `MidiChannel::insertEvent(new TempoChangeEvent(...), 0)`
+     with the target BPM at tick 0. Set `MidiFile::_initBpm = targetBpm`.
+   * **ScaleTempoMap (v2)** — keep tempo events, but scale their tick
+     positions by `scale` and *invert*-scale their BPM values
+     (`new_bpm = old_bpm * scale`) so the real-time tempo curve is
+     preserved; the resulting file plays back with the same time-stretched
+     curve at the new musical-tick rate. Greyed out in MVP.
+   * **EventsOnly** — do not touch tempo events; just scale event ticks.
+     Useful for half-time / double-time corrections inside an existing
+     project that already runs at the correct musical tempo.
+5. **Rounding** — `qint64 newTick = qRound64(double(oldTick) * scale);`.
+   Document that round-trip 90 → 180 → 90 may introduce ≤ 1-tick drift per
+   event; provide an "After conversion: snap to grid" checkbox for users who
+   want exact alignment.
+6. **Negative ticks / pickup notes** — MidiEditor doesn't currently support
+   negative ticks. After scaling, find `min(newTick)` across the affected
+   set; if it's < 0 (only possible if the user manually edited the tempo
+   table to non-zero start), shift everything by `-min` and warn.
+7. **Scope filtering** — `collectEvents(opts.scope, opts.trackIds, opts.channelIds)`:
+   * `WholeProject` → every event in every channel of `file->channels()`,
+     respecting the `include*` flags.
+   * `SelectedTracks` → events whose `MidiEvent::track()` is in the explicit
+     `opts.trackIds` set seeded by the dialog (which in turn is seeded by
+     either the Tracks panel selection or the right-click target).
+   * `SelectedChannels` → events whose `MidiEvent::channel()` is in the
+     explicit `opts.channelIds` set. **Important nuance**: meta channels
+     (16 lyrics/text, 17 tempo, 18 time-sig) are *never* included implicitly
+     — if the user picks Channel 0, only Channel 0's notes/CC/PB move; the
+     project's tempo map and time signatures stay put. Mode A's
+     `ReplaceFixed` is *disabled* in the dialog when scope is
+     `SelectedChannels` because rewriting the project tempo from a single
+     channel's local conversion would silently retime every other channel —
+     the dialog footer explains this and forces the user into
+     `EventsOnly` mode (or `ScaleTempoMap` once v2 ships).
+   * `SelectedEvents` → exactly `Selection::instance()->selectedEvents()`,
+     by-value semantics from v1.3.2.
+8. **Drum / FFXIV percussion safety** — CH9 PC injection from the live
+   playback path (BARD-DRUM-001) reads `noteOn->midiTime()` directly and
+   doesn't cache; safe to scale.
+
+#### 33.4 — UI live preview without committing
+
+The dialog calls `TempoConversionService::preview(file, opts)` on every
+field change with a 100 ms debounce. `preview` runs the full collection +
+durationMs computation but **does not modify the file**; it returns the
+counts and the projected duration delta. Cheap (one full-file walk on a
+typical MIDI takes < 5 ms).
+
+#### 33.5 — AI-tool integration (stretch, post-MVP)
+
+New tool in `ToolDefinitions`:
+
+```cpp
+{
+  "name": "convert_tempo_preserve_duration",
+  "description": "Scale all event ticks and replace the tempo map "
+                 "so the file plays back at the same real-time duration "
+                 "but lives in a different musical tempo.",
+  "parameters": {
+    "source_bpm":   { "type": "number" },
+    "target_bpm":   { "type": "number" },
+    "scope":        { "type": "string", "enum": ["whole", "selected_tracks", "selected_channels", "selected_events"] },
+    "track_ids":    { "type": "array", "items": { "type": "integer" }, "description": "Required when scope == selected_tracks." },
+    "channel_ids":  { "type": "array", "items": { "type": "integer" }, "description": "Required when scope == selected_channels (0–15)." },
+    "tempo_mode":   { "type": "string", "enum": ["replace", "scale_map", "events_only"] }
+  }
+}
+```
+
+Wired through `AgentRunner` so the user can say *"convert this 90 BPM vocal
+to fit my 180 BPM project"* and the agent picks `target_bpm` from
+`editor_state.tempo` automatically.
+
+#### 33.6 — Edge cases & warnings
+
+| Case | Behaviour |
+|------|-----------|
+| Scope = SelectedChannels + tempoMode = ReplaceFixed | Disabled in dialog. Footer: *"Replacing the project tempo from a single-channel scope would retime every other channel. Switch to Events-only or pick Whole project."* |
+| Right-click on a track row in Tracks panel | Opens dialog with Scope = Selected tracks pre-filled with that track (+ any other tracks already multi-selected). |
+| Right-click on a channel row in Channels panel | Opens dialog with Scope = Selected channels pre-filled with that channel. |
+| > 1 tempo event in source, mode = ReplaceFixed | Yellow warning in dialog: *"Source contains N tempo changes — they will be collapsed to a single tempo at the target BPM."* |
+| `sourceBpm == targetBpm` | Disable OK button, dialog footer: *"Source and target tempo are identical — nothing to do."* |
+| Scope returns 0 events | Disable OK button, *"No events in scope."* |
+| Round-trip drift | After-action toast: *"1247 events scaled. Round-trip back to source BPM may differ by ≤ 1 tick per event."* (only when `qFloor != qRound` for any event) |
+| Time signatures unchecked but selection includes them | They stay at their original tick — visually the bar lines move relative to the notes. Warning shown. |
+| `Selection::instance()->selectedEvents()` includes TimeSig / TempoChange | Honour the `includeTimeSignature` / `tempoMode` flags rather than blindly scaling — those are the user's explicit overrides. |
+
+#### 33.7 — Tests (`tests/test_tempo_conversion_service.cpp`)
+
+1. **Simple note** — 480/240 at 90 BPM → 960/480 at 180 BPM; real-time
+   start/end identical to the second decimal.
+2. **NoteOn / OffEvent pair integrity** — after conversion, every NoteOn's
+   `offEvent()` still resolves to the correct OffEvent on the right tick.
+3. **Multi-channel alignment** — three notes on three channels at the same
+   tick stay on the same tick after conversion.
+4. **CC automation** — pitch-bend and CC11 events between two notes keep
+   their relative position to the surrounding notes (compute ratio
+   `(cc.tick - note1.start) / (note2.start - note1.start)` before and after).
+5. **Lyrics on channel 16** — lyric event at tick 480 with vocal note at
+   480 stays paired after conversion.
+6. **Round-trip 90 → 180 → 90** — every event tick within ±1 of the
+   original.
+7. **Mode A vs Mode C** — same input file, Mode A produces a file whose
+   `durationInMs()` matches the original; Mode C produces a file whose
+   musical bar count matches the original but `durationInMs()` differs by
+   the inverse of `scale`.
+8. **Empty selection** — `convert(file, {scope=SelectedEvents})` with no
+   selection returns `ok=false, affectedEvents=0`.
+9. **Protocol round-trip** — undo restores byte-identical `MidiFile::save()`
+   output.
+10. **Single-track scope** — vocal on track 3 at 90 BPM, drums on track 4
+    at 180 BPM (untouched). Convert with `scope=SelectedTracks, trackIds={3}, tempoMode=EventsOnly`.
+    Track 3 events scale by 2.0×; track 4 events untouched; tempo map
+    untouched; project still plays back at 180 BPM with vocal now aligned.
+11. **Single-channel scope** — same setup but the vocal is on channel 0 and
+    drums on channel 9. `scope=SelectedChannels, channelIds={0}, tempoMode=EventsOnly`.
+    Only channel 0 events move. Dialog must refuse `ReplaceFixed` for this
+    scope.
+12. **Right-click seeding** — simulate the Tracks-panel right-click slot
+    with two tracks pre-selected; dialog opens with both chip-strip entries
+    populated and Scope = Selected tracks.
+
+#### 33.8 — File list
+
+* `src/converter/TempoConversionService.{h,cpp}` — NEW headless engine
+* `src/gui/TempoConversionDialog.{h,cpp}` / `.ui` — NEW dialog with live preview
+* `src/gui/MainWindow.{h,cpp}` — register `convert_tempo_preserve_duration`
+  action under **Tools → Tempo Tools**, add to action map for keyboard /
+  toolbar customisation, plus the `onConvertTempoPreserveDuration(ScopeHint)`
+  slot used by all three context-menu entry points
+* `src/gui/TrackListWidget.{h,cpp}` — add the entry to the existing
+  context menu; emit a signal carrying the right-clicked + multi-selected
+  track ids
+* `src/gui/ChannelListWidget.{h,cpp}` — same for channels
+* `src/gui/MatrixWidget.{h,cpp}` — add the entry to the existing
+  selection-aware right-click menu (Scope = Selected events)
+* `src/MidiEvent/NoteOnEvent.h` / `OffEvent.h` — verify (no change expected)
+  the existing `noteOn->offEvent()` accessor pattern works for our needs
+* `src/ai/ToolDefinitions.{h,cpp}` — add the agent tool (33.5, post-MVP)
+* `src/ai/AgentRunner.{h,cpp}` — route the new tool to the service (33.5)
+* `tests/test_tempo_conversion_service.cpp` — NEW
+* `manual/tempo-conversion.html` — NEW manual page (with the worked example)
+* `manual/menu-tools.html` — add the Tempo Tools row
+* `CHANGELOG.md` — feature entry under 1.6.0
+
+### Acceptance criteria
+
+1. Loading a 90 BPM vocal MIDI, opening the dialog with target = 180 and
+   defaults, and clicking OK produces a file whose `durationInMs()` is
+   within ±2 ms of the original *and* whose tempo meta is 180 BPM.
+2. Pasting that converted file into a 180 BPM project lines up bar-for-bar
+   with the project's grid.
+3. Single Ctrl+Z reverts the entire operation — every event tick + the
+   tempo map go back exactly.
+4. Test 6 (round-trip drift) passes with ≤ 1-tick per event.
+5. Tempo Tools menu entry shows the dialog; preview labels update without
+   committing changes; Cancel discards everything.
+6. With 0 events in scope, OK is disabled and the dialog footer explains
+   why.
+7. Right-clicking a track in the Tracks panel and choosing *Convert Tempo,
+   Preserve Duration…* opens the dialog with Scope = Selected tracks and
+   the chip strip pre-filled with that track. Same for Channels panel and
+   Selected channels.
+8. Converting a single track / channel with `tempoMode=EventsOnly` leaves
+   every event outside that track / channel byte-identical (verified via
+   `MidiFile::save()` diff).
+
+### Working names
+
+* **Convert Tempo, Preserve Duration** (preferred — verb-first, descriptive).
+* **Time-Preserving Tempo Conversion** (alias — formal).
+* **Re-anchor BPM** (rejected — too clever, hides what it actually does).
+
+### Deferred to later phases
+
+* **Mode B (Scale tempo map)** — keeps the tempo *curve* and just shifts the
+  tick grid underneath it; mathematically straightforward but the dialog
+  needs a mini visualiser of "before / after tempo curve" to be usable.
+  v2.
+* **Batch conversion** — *"Convert all loaded files to project BPM"* via
+  the Recent Files panel. v3.
+* **Auto-prompt on file open** — *"This MIDI is at 90 BPM, your project is
+  at 180 BPM. Convert while preserving duration?"*. Safer once the MVP has
+  shipped and we've had user feedback on edge cases. v3.
+* **Negative-tick / pickup-note support** — depends on the broader
+  pickup-bar work tracked in [Planning/03_bugs.md](03_bugs.md).
+* **Reference projects** for the implementer:
+  * [mido](https://github.com/mido/mido) — Python; clearest illustration of
+    delta-time vs tempo meta-event semantics. Read `mido/midifiles/tracks.py`
+    for the tick→seconds conversion the test plan relies on.
+  * [miditoolkit](https://github.com/YatingMusic/miditoolkit) — tick-based
+    rather than seconds-based. Closest to MidiEditor's internal model and
+    the right reference for the scaling pass.
+  * [pretty_midi](https://github.com/craffel/pretty_midi) — seconds-based;
+    useful for the regression-test harness *only* (verify durations
+    match), not for the implementation itself.
+
+---
+
+## Phase 34: Cross-Instance Paste — Track / Channel Assignment Dialog — DONE in 1.6.0
+
+### Why
+
+`SharedClipboard` (Phase 25, v1.4.x) lets the user copy events in one
+MidiEditor instance and paste them into another, or between two MIDI files
+opened in tabs. The serialization preserves the original track and channel
+of every event — but at paste time
+[EventTool::pasteFromSharedClipboard()](MidiEditor_AI/src/tool/EventTool.cpp)
+**discards** that information and forces every regular event onto the
+current `NewNoteTool::editChannel()` / `editTrack()` instead.
+
+Result: a multi-track Lute-Bass-Drums copy from instance A pastes into
+instance B as one homogeneous blob on the active edit track + channel. The
+notes immediately become the current selection, but as soon as the user
+clicks anywhere else the selection is lost — and now they can't easily tell
+which pasted notes belonged to which source track. They have to guess by
+pitch range, manually box-select, and shove them onto separate tracks one
+at a time.
+
+This is a long-standing footgun and becomes a *blocker* in combination with
+Phase 33 ("Convert Tempo, Preserve Duration"): the typical Phase-33 workflow
+is *"copy a vocal MIDI from another instance, paste it into this project,
+re-tempo it, line it up"* — and Phase 33 itself is much less useful if the
+paste step destroys the per-track structure first.
+
+### Scope
+
+* **Apply only** to the cross-instance / cross-file paste path
+  (`EventTool::pasteFromSharedClipboard`) and the in-instance cross-file
+  paste path when `_copiedTicksPerQuarter`-source != current file.
+* **Do not** change the same-file paste path's default behaviour. Pasting
+  inside the same file with the same edit context already does the right
+  thing (collapse onto current edit track) and changing it would surprise
+  every existing user. The dialog can still be reached via the Edit menu's
+  *Paste Special…* entry.
+* **Do not** change `SharedClipboard`'s wire format (`ClipboardHeader`
+  already carries source channel + track-id metadata; we just stopped
+  using it).
+
+### 34.1 — Paste-Special dialog
+
+`PasteSpecialDialog` (new), modal, opened automatically the first time
+`pasteFromSharedClipboard()` runs in a session and on demand from
+**Edit → Paste Special…** thereafter.
+
+Three radio buttons:
+
+1. **Create new tracks for pasted events** *(default — recommended for
+   cross-instance paste)*
+   * Creates one new `MidiTrack` per *distinct source track* in the
+     clipboard.
+   * Pasted track names use the source's `MidiTrack::name()` if present,
+     prefixed with `"Pasted: "` (e.g. `Pasted: Lead Vocal`); fall back to
+     `Pasted Track <N>` when the source had no name.
+   * Channel is preserved from the source (so a source-CH9 drum stays on
+     CH9).
+   * Avoids merging into existing tracks → user can audition the pasted
+     material in isolation, then drag-merge afterwards if desired.
+2. **Preserve source track + channel mapping (1:1)**
+   * Reuses the source's track index when an existing target track has a
+     matching name; otherwise creates a new one with that name.
+   * Source channels are preserved verbatim. Useful when copying between
+     two arrangements of the same song.
+   * If the source used CH9 drums and the target's CH9 already has notes,
+     the dialog shows a yellow *"CH9 will be merged with existing drums"*
+     warning row before commit.
+3. **Paste to current edit track + channel (legacy)**
+   * Today's behaviour: every regular event collapsed onto
+     `NewNoteTool::editTrack()` / `editChannel()`. Kept for users who liked
+     the old flow and for very-small same-pattern paste cases.
+   * Meta events (tempo/time-sig/key-sig/lyrics) keep their dedicated
+     channels (16/17/18) regardless of mode — same as today.
+
+Below the radios:
+
+* A small **scope summary** read from the clipboard header:
+  *"Clipboard: 247 events, 3 source tracks (Lead, Bass, Drums), 3 channels
+  (0, 1, 9), 4.2 s of music."*
+* Checkbox **Don't ask again — use this for the rest of the session**
+  *(default off)* — sets a `QSettings` value that survives the current
+  session only (cleared on app exit so the next launch shows the dialog
+  once again, since the safe behaviour for a brand-new session is "verify
+  user intent").
+* Checkbox **Make this the new default** — only enabled when "Don't ask
+  again" is also checked — persists the choice under
+  `Editing/pasteSpecialDefault` so the dialog stops appearing across
+  launches. The dialog is still reachable via Edit → Paste Special… so
+  the user is never locked into one mode.
+
+### 34.2 — Engine
+
+Extend `EventTool::pasteFromSharedClipboard()` (or factor into a new
+`PasteSpecialService` if the function grows past ~250 lines):
+
+```cpp
+enum class PasteAssignment {
+    NewTracksPerSource,    // 34.1 option 1
+    PreserveSourceMapping, // 34.1 option 2
+    CurrentEditTarget      // 34.1 option 3 (current behaviour)
+};
+
+struct PasteSpecialOptions {
+    PasteAssignment assignment = PasteAssignment::NewTracksPerSource;
+    bool applyTempoConversion  = true;        // existing flag
+    int  targetCursorTick      = 0;
+};
+```
+
+Implementation steps inside the existing `Protocol::startNewAction(...)`
+block:
+
+1. Read clipboard header → `QHash<int /*sourceTrackId*/, QString /*name*/>`
+   and per-event `(sourceTrackId, sourceChannel)` from
+   `SharedClipboard::getOriginalTiming()`-equivalent expanded accessor
+   (extend that helper to also return track id + channel — already in the
+   serialized payload, just not surfaced).
+2. Build a target-track map according to `assignment`:
+   * `NewTracksPerSource` → for each unique sourceTrackId create
+     `currentFile()->addTrack()` with the prefixed name; map source→target.
+   * `PreserveSourceMapping` → for each unique sourceTrackId, look up an
+     existing track by name; create one if missing.
+   * `CurrentEditTarget` → singleton map: every source track maps to
+     `NewNoteTool::editTrack()`; every regular event's channel is
+     overwritten with `NewNoteTool::editChannel()`.
+3. For each pasted event, set `event->setTrack(map[sourceTrack], false)`
+   and (in the first two modes) keep its source channel; insert into
+   `currentFile()->channel(targetChannel)->insertEvent(...)` exactly as
+   today.
+4. The new tracks created in modes 1 / 2 are themselves part of the
+   protocol action — so a single Ctrl+Z removes both the tracks and the
+   pasted events.
+
+### 34.3 — Edit-menu integration
+
+* **Edit → Paste** (existing, Ctrl+V) — keeps current behaviour:
+  * Same-file paste → unchanged.
+  * Cross-instance paste → first time per session pops the dialog; after
+    the user picks "Don't ask again", silently uses the chosen mode.
+* **Edit → Paste Special…** *(new, no shortcut)* — always opens the dialog.
+  Disabled when the shared clipboard is empty.
+* `MainWindow::updatePasteActionState()` extended to also enable / disable
+  the new Paste Special action.
+
+### 34.4 — Open questions
+
+* **Track ordering** — when option 1 creates 3 new tracks, should they
+  appear at the end of the track list, or interleaved next to the active
+  edit track? *Decision:* always append at the end so the existing
+  protocol panel's "added track N" entry order is predictable; user can
+  drag-reorder afterwards.
+* **Empty source-track names** — fall back to `Pasted Track <N>` where N
+  is a zero-based counter unique within this paste action.
+* **Cross-format paste from a future MusicXML clipboard** — out of scope;
+  Phase 34 only covers `SharedClipboard`.
+
+### 34.5 — Tests (`tests/test_paste_special.cpp`)
+
+1. **NewTracksPerSource** — clipboard with 3 source tracks → file gains
+   exactly 3 new tracks with the expected `Pasted: <name>` names; events
+   distributed accordingly; CH9 events stay on CH9.
+2. **PreserveSourceMapping name match** — target file already has a track
+   named "Bass"; clipboard contains a "Bass" source track → events land on
+   the existing target Bass track, no new track created.
+3. **PreserveSourceMapping no match** — new track is created with the
+   source's name (no `Pasted:` prefix in this mode).
+4. **CurrentEditTarget** — byte-identical to today's pre-Phase-34 paste
+   output.
+5. **Single Ctrl+Z** — undo restores both the new tracks and the pasted
+   events; track list count returns to original.
+6. **Don't-ask-again session-scoped** — set the flag, paste twice, verify
+   the dialog only appears once; restart simulated by clearing the
+   in-memory flag, dialog appears again.
+7. **Make-this-the-default persistent** — verify
+   `QSettings("Editing/pasteSpecialDefault")` round-trips and is
+   honoured by `pasteFromSharedClipboard()` even on a fresh session.
+
+### 34.6 — File list
+
+* `src/gui/PasteSpecialDialog.{h,cpp}` / `.ui` — NEW
+* `src/tool/EventTool.{h,cpp}` — extend `pasteFromSharedClipboard()` with
+  `PasteSpecialOptions`; add `pasteWithOptions(opts)` overload
+* `src/tool/SharedClipboard.{h,cpp}` — surface source track id + name +
+  channel via an extended `getOriginalTiming(index)` returning a small
+  POD struct (existing `QPair<int,int>` becomes a `PasteSourceInfo` or
+  similar; old call sites updated)
+* `src/gui/MainWindow.{h,cpp}` — register `paste_special` action under
+  Edit menu; update `updatePasteActionState()`
+* `src/tool/NewNoteTool.h` — no change (reads still return current edit
+  context)
+* `tests/test_paste_special.cpp` — NEW
+* `manual/menu-edit.html` — add the Paste Special row
+* `manual/clipboard.html` *(new, or extend an existing copy/paste page)*
+  — explain the three modes and when to pick each
+* `CHANGELOG.md` — feature entry under 1.6.0
+
+### Acceptance criteria
+
+1. Copying a 3-track arrangement from instance A and pasting into a fresh
+   instance B opens the dialog; with the default option the target file
+   gains 3 newly-named tracks containing the right notes on the right
+   channels — no manual track-shoving needed.
+2. The "current edit target" radio produces output byte-identical to the
+   current 1.5.x behaviour (regression test).
+3. Ctrl+Z removes every new track and every pasted event in a single step.
+4. Subsequent pastes in the same session honour the "Don't ask again"
+   choice silently.
+5. Edit → Paste Special… always opens the dialog regardless of the
+   session flag.
+6. No regression in same-file paste (Ctrl+V inside one tab does not pop
+   the dialog and behaves exactly like 1.5.x).
+
+### Working names
+
+* **Cross-Instance Paste Assignment** (formal).
+* **Paste Special** (UX label — matches Office tradition; short, familiar).
+
+---
+
+## Phase 35: Auto-Fit Voice Load — PLANNED for 1.6.x
+
+### Why
+
+Phase 32 gave the user (and the agent) a read-only voice-load report:
+`globalPeak`, `overflowRanges`, `rateHotspots`. In practice the next
+question is always the same:
+
+> *"OK, the file overflows in 7 places — now what?"*
+
+Today the answer is "manually box-select the offending bars, decide which
+chord notes to drop, repeat 7×, hope you didn't kill the lead line." That's
+fine for a single song but it doesn't scale to imported scores or AI-generated
+arrangements that routinely produce 20-voice peaks.
+
+Phase 35 adds the *action* counterpart to Phase 32's *analysis* — a single
+operation (and matching AI tool) that thins every overflow range down to the
+16-voice ceiling using a deterministic, musically-defensible policy, inside
+one undoable protocol step.
+
+### Scope
+
+* **Apply only** to FFXIV mode files (the 16-voice ceiling is FFXIV-specific).
+  Non-FFXIV files keep the existing behaviour (no auto-fit; the analyzer
+  still shows the lane in case the user enables FFXIV later).
+* **Apply only** to NoteOn / NoteOff event pairs. Tempo / time signature /
+  text / lyric events are never thinned.
+* **Do not** change the ceiling itself — the value `16` lives in
+  `FfxivVoiceAnalyzer` and stays the single source of truth.
+* **Do not** auto-run during playback. The user (or the agent) explicitly
+  invokes the action.
+
+### 35.1 — Thinning policy
+
+For every tick `t` where `voiceCount(t) > 16`, compute a removal set so
+`voiceCount(t) <= 16` afterwards. Removal priority (highest = removed first):
+
+1. **Duplicates** — same `(channel, key, octave-equivalent)` overlapping
+   within ≤ 10 ticks. Pick the shorter / quieter copy.
+2. **Inner chord voices** — voices that are not the lowest *or* highest
+   pitch of the chord on their channel at this tick. Drum channels (CH9)
+   are exempt — every drum hit is musically load-bearing.
+3. **Quietest velocity** — among remaining candidates, drop the lowest
+   `velocity()` first.
+4. **Shortest duration** — tiebreak on `duration()` (shorter goes first;
+   long sustains carry the harmonic skeleton).
+5. **Lowest channel index** — final stable tiebreak so the result is
+   deterministic across reruns.
+
+Drum channels (CH9 in standard mode, the FFXIV percussion channels in
+FFXIV mode) are **never** thinned — the rate ceiling there is 14 notes/sec
+(rate-hotspot territory), not voice count.
+
+### 35.2 — Tool surface
+
+* **AI tool** `auto_fit_voice_load` (read-write, FFXIV-mode only):
+  * Parameters: `startTick` *(int|null)*, `endTick` *(int|null)*,
+    `dryRun` *(bool, default `false`)*, `targetCeiling` *(int|null,
+    default 16, hard-clamped to `[2, 32]`)*.
+  * Returns `{removedCount, remainingPeak, removedEvents:[{tick,
+    channel, key, velocity, reason}]}`. With `dryRun=true` the file is
+    not modified; the agent can preview the impact and ask the user
+    before committing.
+  * Wrapped in a single `Protocol::startNewAction("Auto-fit voice load")`
+    so a single Ctrl+Z restores every removed note.
+
+* **Menu** *MidiPilot → Tools → Auto-Fit Voice Load…* (next to the
+  existing *Analyze Voice Load*). Opens a small confirmation dialog
+  showing the dry-run summary (*"Will remove 47 notes across 7 ranges;
+  peak 21 → 16"*) with **Apply** / **Cancel**, plus a *"Preview as
+  selection"* button that selects the events that would be removed
+  without committing.
+
+* **Right-click on the voice-load lane** — the existing red overflow
+  rectangles get a *"Auto-fit this range"* context-menu entry that
+  pre-fills `startTick`/`endTick` from the rectangle's bounds.
+
+### 35.3 — Engine
+
+`src/converter/AutoFitVoiceLoadService.{h,cpp}` — pure, headless,
+testable in isolation (mirrors the Phase 33 `TempoConversionService`
+pattern):
+
+```cpp
+struct AutoFitOptions {
+    int startTick = -1;     // -1 → file start
+    int endTick   = -1;     // -1 → file end
+    int targetCeiling = 16;
+    bool dryRun = false;
+};
+
+struct AutoFitResult {
+    int removedCount = 0;
+    int remainingPeak = 0;
+    QList<RemovedNote> removed;  // (tick, channel, key, velocity, reason)
+};
+
+AutoFitResult AutoFitVoiceLoadService::apply(MidiFile *file,
+                                             const AutoFitOptions &opts);
+```
+
+Implementation steps:
+
+1. Reuse `FfxivVoiceLoadCore::analyze()` to obtain `overflowRanges`.
+2. For each range, walk a sweep-line over the per-tick voice set and
+   apply the priority list from §35.1 until the count fits.
+3. Mark each victim NoteOn (and its paired OffEvent) for deletion.
+4. Outside `dryRun`: `currentFile()->protocol()->startNewAction(...)`,
+   `removeEvent(victim, true)` per victim, `endAction()`. Inside
+   `dryRun`: skip the protocol block; populate the result and return.
+
+### 35.4 — Tests (`tests/test_auto_fit_voice_load.cpp`)
+
+1. **No-overflow** — file with `globalPeak ≤ 16` returns
+   `removedCount == 0`, no protocol entry created.
+2. **Single 17-voice chord** — 17 notes at one tick, `targetCeiling=16`
+   → removes exactly 1, the quietest inner voice; outer (lowest +
+   highest) pitches survive.
+3. **Drum exemption** — 17 simultaneous CH9 NoteOns are *not* thinned;
+   `removedCount == 0`.
+4. **Range scoping** — `startTick`/`endTick` respected; events outside
+   are not touched even if they overflow.
+5. **Dry-run** — `dryRun=true` returns the same result struct as the
+   live run but `currentFile()->protocol()->stepCount()` is unchanged.
+6. **Determinism** — running the same input twice produces byte-identical
+   `removedEvents` lists.
+
+### 35.5 — File list
+
+* `src/converter/AutoFitVoiceLoadService.{h,cpp}` — NEW.
+* `src/ai/ToolDefinitions.cpp` — register `auto_fit_voice_load` next to
+  `analyze_voice_load`; gated on `AI/ffxiv_mode`.
+* `src/gui/MainWindow.cpp` — register the new menu action, scoped
+  context-menu entry on the voice-load lane.
+* `src/gui/MatrixWidget.cpp` — context-menu hook for the red overflow
+  rectangles in the voice-load lane.
+* `tests/test_auto_fit_voice_load.cpp` — NEW (Qt Test, headless;
+  follows the same ODR-shim layout as `test_tempo_conversion_service`
+  to stay decoupled from the GUI).
+* `manual/menu-tools.html` + `manual/voice-load.html` *(extend or new)*
+  — document the priority list and the dry-run flow.
+* `CHANGELOG.md` — feature entry under the next 1.6.x.
+
+### Acceptance criteria
+
+1. A 21-voice peak from a real Guitar Pro import is reduced to ≤ 16
+   in one undoable step; outer voices and lead lines survive.
+2. CH9 / FFXIV percussion is never auto-thinned.
+3. `dryRun=true` returns an identical result struct without touching
+   the file or the protocol stack.
+4. The agent can call `auto_fit_voice_load` after `analyze_voice_load`
+   without the user leaving the chat.
+5. Same input → same removal set across runs (deterministic order).
+6. No regression in non-FFXIV files (the menu entry is disabled and
+   the agent tool is not registered).
+
+### Working names
+
+* **Auto-Fit Voice Load** (formal + UX).
+* `auto_fit_voice_load` (AI tool id).
+
+
+## Phase 36: Copy to Track / Copy to Channel -- DONE in 1.6.x
+
+### 36.1 -- Goal
+
+A pair of new editing actions, **Copy to Track...** and **Copy to
+Channel...**, that mirror the existing *Move to Track* / *Move to Channel*
+flow but **duplicate** the current selection in place onto a chosen
+target track / channel instead of moving it.
+
+The duplicated events keep:
+
+* The same `midiTime()` and length (1:1 timing -- no shift, no quantise).
+* The same pitch / velocity / controller value / pitch-bend amount.
+* For NoteOn/Off pairs: their pairing (each duplicated NoteOn gets a
+  duplicated paired OffEvent at the same off-tick).
+* Their visibility -- the originals stay where they were and the
+  **new copies become the selection** so the user can immediately
+  transpose by an octave, change velocity, recolour, etc.
+
+The action is independent of the playhead, the cursor tick, the
+clipboard, and the active edit track/channel. It only depends on the
+current `Selection::instance()->selectedEvents()` and the chosen
+target.
+
+### 36.2 -- Entry points
+
+1. **Tools menu** -> `Tools -> Copy events to track...` and
+   `Tools -> Copy events to channel...`. Disabled when the selection is
+   empty (registered in `_activateWithSelections`).
+2. **Matrix context menu** (right-click on a selected event) -> same two
+   submenus appear next to the existing *Move to* entries. Cascading
+   submenus listing every track / every channel (0-15), with the
+   selection's current track / channel grayed out as a no-op (still
+   selectable; falls through to a copy-onto-self which is allowed but
+   warned-once via status bar).
+3. **No new keyboard shortcut** in the first cut -- Ctrl+V semantics are
+   already taken by Phase 34's Paste Special and we want to avoid
+   surprising users who have muscle memory for *Move to*.
+
+### 36.3 -- Engine spec
+
+New static helpers on `EventTool` (consistent with `pasteAction()` /
+`pasteFromSharedClipboard()`):
+
+```cpp
+static bool copySelectionToTrack(MidiTrack *target);
+static bool copySelectionToChannel(int channel /*0..15*/);
+```
+
+Both wrap a single `Protocol::startNewAction("Copy to Track ...")`
+block and:
+
+1. Snapshot the current selection via
+   `Selection::instance()->selectedEvents()` (returns by value since
+   v1.3.2).
+2. For each event, `MidiEvent *dup = ev->copy();` (deep clone via the
+   existing virtual `copy()`).
+3. Re-home the duplicate:
+   * `dup->setTrack(target, /*toProtocol=*/false)` for *Copy to Track*.
+   * For *Copy to Channel*, look up the matching channel on the same
+     `MidiFile` and reattach via the channel's `insertEvent(...)`
+     equivalent. Meta channels (16/17/18) refuse the operation -- the
+     menu entry is hidden for any meta-channel selection because
+     "channel" doesn't apply.
+4. NoteOn handling: if `dup` is a `NoteOnEvent`, duplicate its paired
+   `OffEvent` too (look up via `OffEvent::onEvents` static map for the
+   original) and re-home the off-event identically. Both share the
+   same new track/channel.
+5. Insert each duplicate via the channel's
+   `insertEvent(dup, dup->midiTime())` so the `QMultiMap<tick, ev*>`
+   stays sorted and the event tree picks it up.
+6. After all inserts: `Selection::instance()->setSelection(<dups>)` so
+   the new copies become the live selection. Originals are deselected
+   in the process -- that is the explicit UX choice ("the copy is what
+   you just made, so you keep editing the copy").
+7. `Protocol::endAction()`.
+
+Edge cases:
+
+* Empty selection -> no-op, no protocol entry.
+* Target track is the same track for every selected event AND the
+  user picked *Copy to Track* on the same track -> duplicates are
+  inserted at the same tick on the same track; result is two
+  overlapping notes (intentional; matches the LightAmp-style "double
+  the line" workflow).
+* Selection contains events from multiple source tracks -> all of them
+  are copied to the single target track (same as *Move to Track*).
+* `dup->copy()` returning `nullptr` for any event aborts the action
+  cleanly via `Protocol::cancelAction()` and shows a status-bar
+  warning; nothing in the file changes.
+
+### 36.4 -- Files
+
+* `src/tool/EventTool.{h,cpp}` -- add `copySelectionToTrack()` and
+  `copySelectionToChannel()` plus a small private helper
+  `cloneEventOnto(MidiEvent*, MidiTrack*, int targetChannel)` that
+  centralises the NoteOn/Off pairing logic.
+* `src/gui/MainWindow.{h,cpp}` -- two new submenus
+  `_copyToTrackMenu` / `_copyToChannelMenu`, populated lazily in the
+  same place that already populates `_pasteToTrackMenu` /
+  `_pasteToChannelMenu`. Slots `copySelectedToTrack(QAction*)` and
+  `copySelectedToChannel(QAction*)` parse the action's `setData(...)`
+  payload and forward to `EventTool::copySelectionTo*()`.
+* `src/gui/MatrixWidget.cpp` -- extend the right-click menu builder
+  next to the existing *Move to* entries with the new *Copy to*
+  cascades.
+* `tests/test_copy_to_track_channel.cpp` -- NEW (Qt Test, headless,
+  ODR-shim layout from `test_tempo_conversion_service.cpp`).
+
+### 36.5 -- Tests (`tests/test_copy_to_track_channel.cpp`)
+
+1. **Track copy preserves timing** -- two notes on track 1 at ticks
+   480 / 960, copy to track 3 -> track 1 still owns the originals,
+   track 3 owns two new notes at the same ticks/pitches, channel
+   unchanged.
+2. **Channel copy preserves timing** -- three CH0 notes copied to CH4
+   -> originals stay on CH0, three new CH4 notes exist at the same
+   ticks/pitches, track unchanged.
+3. **NoteOn/Off pairing** -- copy a single NoteOn whose Off is at
+   tick+240 -> exactly one new NoteOn AND one new Off appear on the
+   target; `OffEvent::onEvents` map contains the new pair; the new
+   pair sits on the target track/channel.
+4. **Selection switches to copies** -- after the action,
+   `Selection::instance()->selectedEvents()` contains exactly the
+   newly-created events (same count as the source selection, including
+   paired Off events if they were selected).
+5. **Single undo** -- `Protocol::stepCount()` increases by exactly 1;
+   one Ctrl+Z restores the file byte-identically (same event count,
+   same selection as before the action -- verified via a serializer
+   round-trip).
+6. **Empty selection** -- no-op; `stepCount()` unchanged; no log spam.
+7. **Meta-channel guard** -- calling `copySelectionToChannel(16)`
+   (or 17 / 18) returns `false` and performs no edits; tested via
+   the public helper directly.
+8. **Cross-track selection -> single target track** -- selection spans
+   tracks 1 + 2, *Copy to Track 3* -> all duplicates land on track 3
+   on the same channels they had originally.
+
+### Acceptance criteria
+
+1. *Copy to Track / Copy to Channel* leaves the original notes in
+   place and creates byte-identical duplicates on the target.
+2. The duplicated events become the active selection; the user can
+   immediately apply *Octave Up*, velocity edits, etc., and only the
+   copies are affected.
+3. The whole action is a single undoable step.
+4. Drum / FFXIV CH9 selections are not specialcased -- they copy
+   verbatim like every other channel; voice-load impact is the user's
+   responsibility (Phase 35 helps here when paired).
+5. Available from both the Tools menu and the matrix context menu;
+   disabled when the selection is empty.
+6. No regression in *Move to Track / Move to Channel* -- those keep
+   their existing behaviour.
+
+### Working names
+
+* **Copy to Track...** / **Copy to Channel...** (formal + UX).
+* `EventTool::copySelectionToTrack()` / `copySelectionToChannel()`
+  (engine).
+
+
+## Phase 37: Rebrand to "MidiEditor AI" -- Logo, Theme, Repo Rename
+
+### 37.0 -- Goal & Strategy
+
+Re-skin the project around the new **"MidiEditor AI"** brand identity
+(see `Midieditor-ai_logo.png` / `Midieditor-ai_logo_blk.png` and the
+brand sheet attached to the planning thread). The rebrand has four
+*independent but ordered* tracks:
+
+1. **37.1 -- Logo & icon swap** (lowest risk, cosmetic only).
+2. **37.2 -- Brand theme `MidiEditor AI Brand`** (new QSS, palette
+   below; existing themes stay shipped untouched).
+3. **37.3 -- Manual & web doc rebrand** (banner, favicons, color
+   accents in the generated HTML).
+4. **37.4 -- GitHub repo rename `MidiEditor_AI` -> `MidiEditor-AI`
+   + fallback / dummy-repo strategy** (executed LAST, only after the
+   1.6.0 release that contains 37.1-37.3 ships and the auto-update
+   ping is verified pointing at the new URL).
+
+> Order rule: 37.1 -> 37.2 -> 37.3 -> 1.6.0 release with the rebrand
+> baked in -> only THEN 37.4 (rename) so existing 1.5.x / pre-1.6.0
+> clients still resolve the old repo URL until they self-update.
+> See `Planning/08_REPO_RENAME.md` for the full URL inventory that
+> 37.4 will consume.
+
+The ASCII logo in `README.md` and on console banners stays as-is --
+it is part of the project's terminal personality.
+
+---
+
+### 37.1 -- Logo & icon swap
+
+**Source files (already in repo):**
+
+```
+Midieditor-ai_logo.ico                  <- Windows app icon (multi-res)
+Midieditor-ai_logo_blk.ico              <- Black/dark variant
+run_environment/graphics/Midieditor-ai_logo.png      <- 1024px primary
+run_environment/graphics/Midieditor-ai_logo_blk.png  <- 1024px black/dark
+manual/Midieditor-ai_banner.png         <- web/manual banner
+manual/Midieditor-ai_banner_blk.png     <- web/manual banner (dark)
+```
+
+**Files that need updating:**
+
+| File | Change |
+|---|---|
+| `midieditor.rc` | Swap `IDI_ICON1 ICON "..."` to point at `Midieditor-ai_logo.ico`. |
+| `resources.qrc` | Add `<file>graphics/Midieditor-ai_logo.png</file>` and `<file>graphics/Midieditor-ai_logo_blk.png</file>`. Keep the old `midieditor.png` resource alias for backward compatibility (existing dialogs reference it). |
+| `src/main.cpp` | `QApplication::setWindowIcon(QIcon(":/graphics/Midieditor-ai_logo.png"));` -- pick the dark variant when `palette().window().color().lightness() > 128` so it stays visible on light themes. |
+| `src/gui/AboutDialog.cpp` | Replace the title-image with the new banner; theme-aware variant (use `_blk` on light backgrounds). |
+| `src/gui/SplashScreen.*` *(if present)* | Same banner swap. |
+| `packaging/org.midieditor.midieditor/meta/package.xml` | `<DisplayName>MidiEditor AI</DisplayName>` confirm; install icon path updated. |
+| `scripts/packaging/windows/config.xml` | `<TargetDir>` / `<Icon>` references. |
+| `scripts/packaging/debian/MidiEditor.desktop` | `Icon=midieditor-ai` + ship the PNG into `usr/share/pixmaps/midieditor-ai.png`. |
+| `manual/index.html` JSON-LD | `"image"` field -> new banner URL. |
+
+**Backward-compat shim:** keep `midieditor.png` and `icon.png` in
+`run_environment/graphics/` for one release as alias resources (the
+`.qrc` keeps emitting them). Existing third-party scripts / shortcuts
+that hard-code those paths keep working until 1.7.x.
+
+**Acceptance criteria 37.1:**
+
+1. `MidiEditorAI.exe` shows the new icon in Explorer / taskbar / Alt+Tab.
+2. About dialog shows the new logo + version under both `dark.qss`
+   and `light.qss`.
+3. Old themes still render without missing-resource warnings.
+4. Built ZIP retains a working start-menu shortcut on Windows install.
+
+---
+
+### 37.2 -- Brand theme `MidiEditor AI Brand`
+
+NEW QSS file: `src/gui/themes/midieditorai_brand.qss`. Loaded the
+same way as the existing `dark.qss` / `materialdark.qss` -- via
+`ThemeManager::applyTheme()` and registered in the *View -> Theme*
+submenu (insert as the FIRST entry so it becomes the visible default
+for new installs; existing users' theme choice in `QSettings` is
+respected).
+
+**Palette (single source of truth):**
+
+| Token | Hex | Usage |
+|---|---|---|
+| `--bg`            | `#0B1020` | Window background, central widget |
+| `--bg-secondary`  | `#10192A` | Toolbars, menubar, side panels |
+| `--bg-card`       | `#162238` | Menus, popovers, tooltips, group boxes |
+| `--bg-input`      | `#0E1626` | QLineEdit / QSpinBox / QComboBox surfaces |
+| `--text`          | `#EAF3FF` | Primary text |
+| `--text-muted`    | `#8FA3B8` | Secondary text, disabled mid-state |
+| `--text-disabled` | `#51657A` | Disabled text |
+| `--accent`        | `#00B8FF` | Brand cyan -- focus rings, primary buttons |
+| `--accent-hover`  | `#25D6FF` | Hover/active accent |
+| `--accent-violet` | `#7C5CFF` | AI-specific surfaces (MidiPilot header, agent badges) |
+| `--border`        | `#293A55` | Separators, outlines, splitter handles |
+| `--danger`        | `#FF4D6D` | Errors, destructive actions |
+| `--success`       | `#2CEAA3` | Confirmations, "saved" indicators |
+
+**Components covered (mirroring the existing `dark.qss` coverage so
+nothing regresses):**
+
+`QWidget`, `QMainWindow`, `QMenuBar`, `QMenu`, `QToolBar`,
+`QToolButton`, `QTabWidget`, `QTabBar`, `QPushButton`, `QLineEdit`,
+`QSpinBox`, `QDoubleSpinBox`, `QComboBox`, `QListView`, `QTreeView`,
+`QTableView`, `QHeaderView`, `QGroupBox`, `QScrollBar`, `QSlider`,
+`QProgressBar`, `QStatusBar`, `QToolTip`, `QSplitter`, `QDockWidget`,
+`QCheckBox`, `QRadioButton`, `QDialog`, `QMessageBox`. Custom widgets:
+`MatrixWidget` background, `MidiPilotWidget` header (uses `--accent-violet`
+for the AI banner), `LyricTimelineWidget` track color, velocity lane
+backdrop.
+
+**Accessibility:**
+
+* Contrast ratio for text-on-bg: `#EAF3FF` on `#0B1020` = 16.4:1 (AAA).
+* Accent-on-bg: `#00B8FF` on `#0B1020` = 7.8:1 (AAA for normal text,
+  AAA for UI components).
+* Disabled text `#51657A` on `#0B1020` = 4.6:1 (AA, just above the
+  WCAG floor for non-decorative text).
+
+**Files:**
+
+* `src/gui/themes/midieditorai_brand.qss` -- NEW.
+* `resources.qrc` -- register the new QSS.
+* `src/gui/ThemeManager.{h,cpp}` -- add the enum entry +
+  `tr("MidiEditor AI Brand")` label; pin as "recommended default"
+  *only* when no `Appearance/theme` key exists in QSettings (do not
+  forcibly override existing user choice).
+* `src/gui/SettingsDialog.cpp` -- the theme dropdown picks it up
+  automatically once registered.
+
+**Tests (`tests/test_theme_manager.cpp` -- extend existing):**
+
+1. `applyTheme("MidiEditor AI Brand")` succeeds and the loaded QSS
+   string contains all 11 palette hex codes.
+2. Switching back to `dark.qss` clears all brand-specific styles
+   (no leftover `:focus` accent rings).
+3. New install (empty QSettings) returns `MidiEditor AI Brand` from
+   `ThemeManager::defaultThemeName()`.
+
+**Acceptance criteria 37.2:**
+
+1. Every shipped widget renders without unstyled fallbacks.
+2. Theme switch is instant (no relaunch needed) -- same as the other
+   themes.
+3. The MidiPilot header uses the violet accent so users can immediately
+   tell it apart from the matrix background.
+4. The AI agent badge in the chat tab gets the violet accent.
+
+---
+
+### 37.3 -- Manual & web doc rebrand
+
+The HTML manual lives under `manual/` and is regenerated by
+`scripts/build_changelog.py`. The brand swap consists of:
+
+1. **Banner / hero image:**
+   * `manual/index.html` -- replace `<img src="midieditor.png">` with
+     `<picture>` containing both `Midieditor-ai_banner.png` (default)
+     and `Midieditor-ai_banner_blk.png` (`prefers-color-scheme: light`).
+2. **Favicon:**
+   * Generate `manual/favicon-16.png`, `favicon-32.png`,
+     `favicon-180.png` (apple-touch) from `Midieditor-ai_logo.png` --
+     ship as static assets, link from every `<head>`.
+3. **Color accents in CSS (`scripts/build_changelog.py`):**
+   * Update the `HTML_HEAD` constant -- swap link / nav accent from
+     the current orange-ish to `#00B8FF`, hover to `#25D6FF`.
+   * Update the footer separator color to `#293A55`.
+4. **JSON-LD metadata:**
+   * `"name"`, `"image"`, `"url"`, `"sameAs"` blocks in
+     `manual/index.html` updated to the new brand + URL set.
+5. **Re-run `python scripts/build_changelog.py`** to regenerate all
+   `manual/*.html` in one shot. Do not hand-edit individual HTML
+   files -- the script overwrites them.
+
+**Acceptance criteria 37.3:**
+
+1. `https://midieditor-ai.de/` shows the new banner above the fold
+   on both light and dark OS settings.
+2. Browser tab shows the new favicon.
+3. All 21 manual pages have consistent accent colors matching the
+   in-app brand theme.
+4. JSON-LD validates via Google Rich Results test.
+
+---
+
+### 37.4 -- GitHub repo rename + fallback strategy
+
+**Trigger:** only after 1.6.0 ships with 37.1-37.3 baked in AND the
+in-app *Help -> Check for updates* path has been smoke-tested against
+the *new* repo URL (so existing 1.6.0 users can upgrade to 1.6.1+
+after the rename).
+
+**Execution:** follow `Planning/08_REPO_RENAME.md` step-by-step
+(§5.1-§5.6 covers the full URL inventory that needs patching BEFORE
+the GitHub-side rename happens).
+
+**New: fallback dummy repository at the old name**
+
+To protect the old URL even after GitHub auto-redirects expire (or if
+someone re-creates `MidiEditor_AI` years later under a different
+account), publish a **frozen archive repo**:
+
+* **Name:** `happytunesai/MidiEditor_AI` (re-create the moment the
+  rename completes, so nobody else can claim it).
+* **Type:** GitHub *Archived* repository (read-only).
+* **Contents:**
+  1. A single `README.md` explaining the move:
+     ```markdown
+     # This repository has moved
+
+     **MidiEditor AI** is now hosted at
+     <https://github.com/happytunesai/MidiEditor-AI>.
+
+     The canonical website is <https://midieditor-ai.de>.
+
+     This repository is kept as an archive of the last 1.5.x source
+     tree so older clients can still resolve their auto-update probe
+     and so historical clones remain functional.
+
+     For new development, please use the new repository.
+     ```
+  2. A frozen snapshot of the **last 1.5.x source tree** (so an
+     older `MidiEditor.exe` that probes
+     `api.github.com/repos/happytunesai/MidiEditor_AI/releases/latest`
+     still gets a 200 with a sane "no newer version" payload, instead
+     of a 404 that older clients might mis-render).
+  3. **One** Release tagged `v1.5.x-archive` carrying that frozen
+     source as a ZIP -- gives the GitHub Releases API something to
+     return and points the user at the new URL via the release notes.
+  4. Repository description: `Archived. New home:
+     github.com/happytunesai/MidiEditor-AI`.
+  5. Topic / tag: `archived`, `moved`.
+
+* **Branch protections:** none -- it's archived, no writes possible.
+
+* **GitHub Pages:** disabled on the dummy repo; the custom domain
+  (`midieditor-ai.de`) stays bound to the new repo's Pages.
+
+**Auto-update behavior matrix:**
+
+| Client version | Probes URL | Behavior after 37.4 |
+|---|---|---|
+| <= 1.5.x | `.../MidiEditor_AI/releases/latest` | Hits dummy archive; sees `v1.5.x-archive`; release notes nudge user to manually download from new URL. |
+| 1.6.0 with patched URL | `.../MidiEditor-AI/releases/latest` | Direct hit; auto-update works normally. |
+| Future 1.6.x+ | `.../MidiEditor-AI/releases/latest` | Direct hit; chain continues. |
+
+**Files modified by 37.4:**
+
+* All files listed in `Planning/08_REPO_RENAME.md` §5.1-§5.5.
+* `src/gui/UpdateChecker.cpp` -- rebase URL to
+  `https://api.github.com/repos/happytunesai/MidiEditor-AI/releases/latest`.
+* `src/gui/UpdateDialogs.cpp`, `src/gui/MainWindow.cpp` -- replace
+  `happytunesai.github.io/MidiEditor_AI/...` paths with
+  `https://midieditor-ai.de/...` (canonical, survives any future
+  rename).
+* `README.md` badges + clone URL.
+* `CHANGELOG.md` top-of-file release URL.
+* `scripts/build_changelog.py` constants -- then re-run to regenerate
+  all manual HTML.
+
+**Rollback:** documented in `Planning/08_REPO_RENAME.md` §8 -- the
+GitHub rename can be reversed in seconds; the dummy archive repo can
+be deleted (or kept as documentation history). The local working
+folder is **not** renamed (out of scope per the workspace-editing
+rule in `AGENTS.md`).
+
+**Acceptance criteria 37.4:**
+
+1. `git clone https://github.com/happytunesai/MidiEditor_AI.git`
+   resolves (via either redirect or the archive repo) and shows the
+   "moved" notice.
+2. `git clone https://github.com/happytunesai/MidiEditor-AI.git`
+   succeeds and contains the latest source.
+3. CI / Actions on the renamed repo run green; badges on README
+   render correctly.
+4. In-app *Check for updates* resolves to the new repo and reports
+   the current version.
+5. `https://midieditor-ai.de/` continues to serve the manual; no
+   404s in the manual nav.
+
+---
+
+### 37.5 -- Roll-out checklist
+
+```
+[x] 37.1  swap icons + logos + .rc + resources.qrc           -> commit
+[ ] 37.1  smoke-test About / taskbar / installer            -> sign-off
+[x] 37.2  midieditorai_brand.qss + ThemeManager registration -> commit
+[ ] 37.2  default-theme test green                          -> sign-off
+[x] 37.3  build_changelog.py palette + banner + favicon      -> commit
+[x] 37.3  re-run build_changelog.py -> regenerate manual/*  -> commit
+[ ] 37.3  deploy manual to midieditor-ai.de                 -> sign-off
+[ ] ----  CUT 1.6.0 RELEASE  (rebrand baked in, repo NOT renamed yet)
+[ ] ----  Verify 1.6.0 self-update probe still resolves
+[ ] 37.4  patch URLs per Planning/08_REPO_RENAME.md          -> commit
+[ ] 37.4  GitHub: rename MidiEditor_AI -> MidiEditor-AI
+[ ] 37.4  Re-create happytunesai/MidiEditor_AI as archived dummy
+[ ] 37.4  Push frozen 1.5.x snapshot + v1.5.x-archive release
+[ ] 37.4  Update local git remote on every clone
+[ ] 37.4  Smoke-test auto-update from a fresh 1.6.0 install
+[ ] ----  CUT 1.6.1 RELEASE (URL changes verified end-to-end)
+```
+
+---
+
+### 37.6 -- Open decisions
+
+1. **Default theme on existing installs?** Recommendation: leave
+   user's current theme untouched; only set `MidiEditor AI Brand` for
+   *new* installs (no `Appearance/theme` QSettings key present).
+2. **Splash screen?** Currently no splash. Optional 37.x-late: add
+   a 2-second splash with the new banner during cold start. Not in
+   the 1.6.0 cut.
+3. **Migrate doc URLs to `midieditor-ai.de` or just bump path?**
+   Recommendation: migrate to canonical custom domain everywhere --
+   makes future renames painless.
+4. **Park dummy repo as user-account or org?** Recommendation:
+   user-account `happytunesai` (matches current ownership; no org
+   permissions to wrangle).
+
+---
+
+37.1 New Midi Editor AI Theme
+
+/*  MidiEditor AI — Brand Theme
+ *  Logo-inspired dark theme for the Qt/QSS UI.
+ *
+ *  Palette:
+ *  --bg:             #0B1020  midnight navy
+ *  --bg-secondary:   #10192A  toolbars / menu bars / side panels
+ *  --bg-card:        #162238  elevated widgets / menus / cards
+ *  --bg-input:       #0E1626  inputs / editors
+ *  --text:           #EAF3FF  primary text
+ *  --text-muted:     #8FA3B8  secondary / disabled text
+ *  --accent:         #00B8FF  brand cyan
+ *  --accent-hover:   #25D6FF  bright cyan hover
+ *  --accent-violet:  #7C5CFF  AI violet accent
+ *  --border:         #293A55  separators / outlines
+ *  --danger:         #FF4D6D
+ *  --success:        #2CEAA3
+ */
+
+/* ─── Global ─────────────────────────────────────────────────────────── */
+
+QWidget {
+    background-color: #0B1020;
+    color: #EAF3FF;
+    font-family: "Segoe UI", sans-serif;
+    font-size: 9pt;
+    selection-background-color: #064B6E;
+    selection-color: #F6FBFF;
+}
+
+QWidget:disabled {
+    color: #51657A;
+}
+
+/* ─── Main Window & Central Widget ───────────────────────────────────── */
+
+QMainWindow {
+    background-color: #0B1020;
+}
+
+QMainWindow::separator {
+    background-color: #293A55;
+    width: 1px;
+    height: 1px;
+}
+
+/* ─── Menu Bar ───────────────────────────────────────────────────────── */
+
+QMenuBar {
+    background-color: #10192A;
+    color: #EAF3FF;
+    border-bottom: 1px solid #293A55;
+    padding: 2px 0px;
+}
+
+QMenuBar::item {
+    background: transparent;
+    padding: 4px 10px;
+    border-radius: 5px;
+    margin: 1px 1px;
+}
+
+QMenuBar::item:selected {
+    background-color: #162238;
+    color: #25D6FF;
+}
+
+QMenuBar::item:pressed {
+    background-color: #073C58;
+    color: #EAF3FF;
+}
+
+/* ─── Menus ──────────────────────────────────────────────────────────── */
+
+QMenu {
+    background-color: #162238;
+    color: #EAF3FF;
+    border: 1px solid #293A55;
+    border-radius: 8px;
+    padding: 4px 0px;
+}
+
+QMenu::item {
+    padding: 6px 28px 6px 20px;
+    border-radius: 5px;
+    margin: 1px 4px;
+}
+
+QMenu::item:selected {
+    background-color: #073C58;
+    color: #25D6FF;
+}
+
+QMenu::item:disabled {
+    color: #51657A;
+}
+
+QMenu::separator {
+    height: 1px;
+    background-color: #293A55;
+    margin: 4px 8px;
+}
+
+QMenu::indicator {
+    width: 14px;
+    height: 14px;
+    margin-left: 6px;
+}
+
+/* ─── Toolbar ────────────────────────────────────────────────────────── */
+
+QToolBar {
+    background-color: #10192A;
+    border-bottom: 1px solid #293A55;
+    spacing: 2px;
+    padding: 3px 5px;
+}
+
+QToolBar::separator {
+    background-color: #293A55;
+    width: 1px;
+    margin: 4px 4px;
+}
+
+QToolButton {
+    background: transparent;
+    color: #EAF3FF;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    padding: 3px;
+    margin: 1px;
+}
+
+QToolButton:hover {
+    background-color: #162238;
+    border: 1px solid #293A55;
+    color: #25D6FF;
+}
+
+QToolButton:pressed {
+    background-color: #073C58;
+}
+
+QToolButton:checked {
+    background-color: rgba(0, 184, 255, 0.16);
+    border: 1px solid #00B8FF;
+    color: #25D6FF;
+}
+
+QToolButton[popupMode="1"] {
+    padding-right: 16px;
+}
+
+QToolButton::menu-button {
+    border-left: 1px solid #293A55;
+    border-top-right-radius: 6px;
+    border-bottom-right-radius: 6px;
+    width: 14px;
+}
+
+/* ─── Tab Widget ─────────────────────────────────────────────────────── */
+
+QTabWidget::pane {
+    background-color: #0B1020;
+    border: 1px solid #293A55;
+    border-radius: 6px;
+    top: -1px;
+}
+
+QTabBar {
+    background: transparent;
+}
+
+QTabBar::tab {
+    background-color: #10192A;
+    color: #8FA3B8;
+    border: 1px solid #293A55;
+    border-bottom: none;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+    padding: 5px 14px;
+    margin-right: 2px;
+    min-width: 60px;
+}
+
+QTabBar::tab:selected {
+    background-color: #0B1020;
+    color: #EAF3FF;
+    border-bottom: 2px solid #00B8FF;
+}
+
+QTabBar::tab:hover:!selected {
+    background-color: #162238;
+    color: #EAF3FF;
+}
+
+/* ─── Dock Widget / Side Panels ──────────────────────────────────────── */
+
+QDockWidget {
+    color: #EAF3FF;
+    titlebar-close-icon: none;
+    titlebar-normal-icon: none;
+}
+
+QDockWidget::title {
+    background-color: #10192A;
+    border: 1px solid #293A55;
+    border-radius: 6px;
+    padding: 6px 8px;
+    text-align: left;
+}
+
+QDockWidget::close-button,
+QDockWidget::float-button {
+    background: transparent;
+    border: none;
+    padding: 2px;
+}
+
+QDockWidget::close-button:hover,
+QDockWidget::float-button:hover {
+    background-color: #162238;
+    border-radius: 4px;
+}
+
+/* ─── Scroll Bars ────────────────────────────────────────────────────── */
+
+QScrollBar:vertical {
+    background-color: transparent;
+    width: 10px;
+    margin: 0;
+    border: none;
+}
+
+QScrollBar::handle:vertical {
+    background-color: #334760;
+    border-radius: 4px;
+    min-height: 30px;
+    margin: 2px;
+}
+
+QScrollBar::handle:vertical:hover {
+    background-color: #00B8FF;
+}
+
+QScrollBar::handle:vertical:pressed {
+    background-color: #25D6FF;
+}
+
+QScrollBar::add-line:vertical,
+QScrollBar::sub-line:vertical {
+    height: 0px;
+}
+
+QScrollBar::add-page:vertical,
+QScrollBar::sub-page:vertical {
+    background: transparent;
+}
+
+QScrollBar:horizontal {
+    background-color: transparent;
+    height: 10px;
+    margin: 0;
+    border: none;
+}
+
+QScrollBar::handle:horizontal {
+    background-color: #334760;
+    border-radius: 4px;
+    min-width: 30px;
+    margin: 2px;
+}
+
+QScrollBar::handle:horizontal:hover {
+    background-color: #00B8FF;
+}
+
+QScrollBar::handle:horizontal:pressed {
+    background-color: #25D6FF;
+}
+
+QScrollBar::add-line:horizontal,
+QScrollBar::sub-line:horizontal {
+    width: 0px;
+}
+
+QScrollBar::add-page:horizontal,
+QScrollBar::sub-page:horizontal {
+    background: transparent;
+}
+
+/* ─── Buttons ────────────────────────────────────────────────────────── */
+
+QPushButton {
+    background-color: #162238;
+    color: #EAF3FF;
+    border: 1px solid #293A55;
+    border-radius: 6px;
+    padding: 5px 16px;
+    min-height: 20px;
+}
+
+QPushButton:hover {
+    background-color: #1B2B47;
+    border-color: #00B8FF;
+    color: #F6FBFF;
+}
+
+QPushButton:pressed {
+    background-color: #0E1626;
+}
+
+QPushButton:disabled {
+    color: #51657A;
+    background-color: #10192A;
+    border-color: #1B2B47;
+}
+
+QPushButton:default {
+    border-color: #00B8FF;
+}
+
+QPushButton[class="primary"] {
+    background-color: #00B8FF;
+    border-color: #25D6FF;
+    color: #06101F;
+    font-weight: 600;
+}
+
+QPushButton[class="primary"]:hover {
+    background-color: #25D6FF;
+    border-color: #7CE8FF;
+}
+
+QPushButton[class="ai"] {
+    background-color: #7C5CFF;
+    border-color: #9A82FF;
+    color: #FFFFFF;
+    font-weight: 600;
+}
+
+QPushButton[class="ai"]:hover {
+    background-color: #9277FF;
+    border-color: #B6A7FF;
+}
+
+/* ─── Inputs ─────────────────────────────────────────────────────────── */
+
+QLineEdit, QTextEdit, QPlainTextEdit {
+    background-color: #0E1626;
+    color: #EAF3FF;
+    border: 1px solid #293A55;
+    border-radius: 6px;
+    padding: 4px 8px;
+    selection-background-color: #064B6E;
+    selection-color: #F6FBFF;
+}
+
+QLineEdit:focus, QTextEdit:focus, QPlainTextEdit:focus {
+    border-color: #00B8FF;
+}
+
+QLineEdit:disabled, QTextEdit:disabled, QPlainTextEdit:disabled {
+    color: #51657A;
+    background-color: #10192A;
+}
+
+QLineEdit[role="search"] {
+    border-radius: 12px;
+    padding-left: 10px;
+}
+
+/* ─── Spin Boxes ─────────────────────────────────────────────────────── */
+
+QSpinBox, QDoubleSpinBox {
+    background-color: #0E1626;
+    color: #EAF3FF;
+    border: 1px solid #293A55;
+    border-radius: 6px;
+    padding: 3px 6px;
+}
+
+QSpinBox:focus, QDoubleSpinBox:focus {
+    border-color: #00B8FF;
+}
+
+QSpinBox::up-button, QDoubleSpinBox::up-button {
+    subcontrol-origin: border;
+    subcontrol-position: top right;
+    border-left: 1px solid #293A55;
+    border-top-right-radius: 6px;
+    width: 18px;
+    background-color: #162238;
+}
+
+QSpinBox::down-button, QDoubleSpinBox::down-button {
+    subcontrol-origin: border;
+    subcontrol-position: bottom right;
+    border-left: 1px solid #293A55;
+    border-bottom-right-radius: 6px;
+    width: 18px;
+    background-color: #162238;
+}
+
+QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover,
+QSpinBox::down-button:hover, QDoubleSpinBox::down-button:hover {
+    background-color: #1B2B47;
+}
+
+QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {
+    image: none;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-bottom: 5px solid #8FA3B8;
+    width: 0px;
+    height: 0px;
+}
+
+QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {
+    image: none;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 5px solid #8FA3B8;
+    width: 0px;
+    height: 0px;
+}
+
+/* ─── Combo Box ──────────────────────────────────────────────────────── */
+
+QComboBox {
+    background-color: #162238;
+    color: #EAF3FF;
+    border: 1px solid #293A55;
+    border-radius: 6px;
+    padding: 4px 8px;
+    min-height: 20px;
+}
+
+QComboBox:hover {
+    border-color: #00B8FF;
+}
+
+QComboBox:focus {
+    border-color: #25D6FF;
+}
+
+QComboBox::drop-down {
+    subcontrol-origin: padding;
+    subcontrol-position: center right;
+    width: 20px;
+    border: none;
+}
+
+QComboBox::down-arrow {
+    image: none;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 5px solid #8FA3B8;
+    width: 0px;
+    height: 0px;
+    margin-right: 6px;
+}
+
+QComboBox QAbstractItemView {
+    background-color: #162238;
+    color: #EAF3FF;
+    border: 1px solid #293A55;
+    border-radius: 6px;
+    selection-background-color: #064B6E;
+    selection-color: #25D6FF;
+    padding: 2px;
+    outline: none;
+}
+
+/* ─── Check Box & Radio Button ───────────────────────────────────────── */
+
+QCheckBox, QRadioButton {
+    color: #EAF3FF;
+    spacing: 6px;
+}
+
+QCheckBox::indicator {
+    width: 16px;
+    height: 16px;
+    border: 2px solid #4B6380;
+    border-radius: 4px;
+    background-color: #10192A;
+}
+
+QCheckBox::indicator:hover {
+    border-color: #00B8FF;
+}
+
+QCheckBox::indicator:checked {
+    background-color: #00B8FF;
+    border-color: #00B8FF;
+}
+
+QCheckBox::indicator:disabled {
+    border-color: #293A55;
+    background-color: #0B1020;
+}
+
+QRadioButton::indicator {
+    width: 16px;
+    height: 16px;
+    border: 2px solid #4B6380;
+    border-radius: 8px;
+    background-color: #10192A;
+}
+
+QRadioButton::indicator:hover {
+    border-color: #00B8FF;
+}
+
+QRadioButton::indicator:checked {
+    background-color: #10192A;
+    border: 5px solid #00B8FF;
+    border-radius: 10px;
+}
+
+QRadioButton::indicator:disabled {
+    border-color: #293A55;
+    background-color: #0B1020;
+}
+
+/* ─── Slider ─────────────────────────────────────────────────────────── */
+
+QSlider::groove:horizontal {
+    background-color: #162238;
+    height: 6px;
+    border-radius: 3px;
+}
+
+QSlider::handle:horizontal {
+    background-color: #00B8FF;
+    border: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 7px;
+    margin: -4px 0;
+}
+
+QSlider::handle:horizontal:hover {
+    background-color: #25D6FF;
+}
+
+QSlider::sub-page:horizontal {
+    background-color: #00B8FF;
+    border-radius: 3px;
+}
+
+QSlider::groove:vertical {
+    background-color: #162238;
+    width: 6px;
+    border-radius: 3px;
+}
+
+QSlider::handle:vertical {
+    background-color: #00B8FF;
+    border: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 7px;
+    margin: 0 -4px;
+}
+
+QSlider::handle:vertical:hover {
+    background-color: #25D6FF;
+}
+
+QSlider::sub-page:vertical {
+    background-color: #00B8FF;
+    border-radius: 3px;
+}
+
+/* ─── Progress Bar ───────────────────────────────────────────────────── */
+
+QProgressBar {
+    background-color: #162238;
+    border: 1px solid #293A55;
+    border-radius: 6px;
+    text-align: center;
+    color: #EAF3FF;
+    height: 18px;
+}
+
+QProgressBar::chunk {
+    background-color: #00B8FF;
+    border-radius: 5px;
+}
+
+QProgressBar[class="ai"]::chunk {
+    background-color: #7C5CFF;
+}
+
+/* ─── Group Box ──────────────────────────────────────────────────────── */
+
+QGroupBox {
+    color: #EAF3FF;
+    border: 1px solid #293A55;
+    border-radius: 8px;
+    margin-top: 8px;
+    padding-top: 14px;
+}
+
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    left: 12px;
+    padding: 0 6px;
+    color: #25D6FF;
+}
+
+/* ─── Splitter ───────────────────────────────────────────────────────── */
+
+QSplitter::handle {
+    background-color: #293A55;
+}
+
+QSplitter::handle:hover {
+    background-color: #00B8FF;
+}
+
+QSplitter::handle:horizontal {
+    width: 2px;
+}
+
+QSplitter::handle:vertical {
+    height: 2px;
+}
+
+/* ─── Status Bar ─────────────────────────────────────────────────────── */
+
+QStatusBar {
+    background-color: #10192A;
+    color: #8FA3B8;
+    border-top: 1px solid #293A55;
+    min-height: 22px;
+}
+
+QStatusBar::item {
+    border: none;
+}
+
+QStatusBar QLabel {
+    color: #8FA3B8;
+    padding: 0 4px;
+}
+
+QSizeGrip {
+    background-color: transparent;
+}
+
+/* ─── Dialogs & Message Boxes ────────────────────────────────────────── */
+
+QDialog {
+    background-color: #0B1020;
+    color: #EAF3FF;
+}
+
+QMessageBox {
+    background-color: #0B1020;
+}
+
+QMessageBox QLabel {
+    color: #EAF3FF;
+}
+
+/* ─── Tooltip ────────────────────────────────────────────────────────── */
+
+QToolTip {
+    background-color: #162238;
+    color: #EAF3FF;
+    border: 1px solid #00B8FF;
+    border-radius: 6px;
+    padding: 4px 8px;
+}
+
+/* ─── List / Tree / Table Views ──────────────────────────────────────── */
+
+QListView, QListWidget, QTreeView, QTreeWidget, QTableView, QTableWidget {
+    background-color: #0E1626;
+    color: #EAF3FF;
+    border: 1px solid #293A55;
+    border-radius: 6px;
+    outline: none;
+    alternate-background-color: #10192A;
+}
+
+QListView::item, QListWidget::item,
+QTreeView::item, QTreeWidget::item {
+    padding: 3px 4px;
+    border-radius: 4px;
+}
+
+QListView::item:selected, QListWidget::item:selected,
+QTreeView::item:selected, QTreeWidget::item:selected,
+QTableView::item:selected, QTableWidget::item:selected {
+    background-color: #064B6E;
+    color: #F6FBFF;
+}
+
+QListView::item:hover, QListWidget::item:hover,
+QTreeView::item:hover, QTreeWidget::item:hover {
+    background-color: #162238;
+}
+
+QHeaderView::section {
+    background-color: #10192A;
+    color: #8FA3B8;
+    border: none;
+    border-right: 1px solid #293A55;
+    border-bottom: 1px solid #293A55;
+    padding: 4px 8px;
+    font-weight: 600;
+}
+
+QHeaderView::section:hover {
+    background-color: #162238;
+    color: #EAF3FF;
+}
+
+/* ─── Labels / Frames ───────────────────────────────────────────────── */
+
+QLabel {
+    background: transparent;
+    color: #EAF3FF;
+}
+
+QLabel[class="muted"] {
+    color: #8FA3B8;
+}
+
+QLabel[class="accent"] {
+    color: #00B8FF;
+}
+
+QLabel[class="ai"] {
+    color: #7C5CFF;
+}
+
+QFrame[frameShape="4"],
+QFrame[frameShape="5"] {
+    color: #293A55;
+}
+
+/* ─── MidiEditor AI specific utility classes ─────────────────────────── */
+
+QWidget[class="card"] {
+    background-color: #162238;
+    border: 1px solid #293A55;
+    border-radius: 10px;
+}
+
+QWidget[class="panel"] {
+    background-color: #10192A;
+    border: 1px solid #293A55;
+    border-radius: 8px;
+}
+
+QWidget[class="midipilot"] {
+    background-color: #0E1626;
+    border: 1px solid #293A55;
+    border-radius: 10px;
+}
+
+QLabel[class="badge"] {
+    background-color: rgba(0, 184, 255, 0.14);
+    color: #25D6FF;
+    border: 1px solid rgba(0, 184, 255, 0.45);
+    border-radius: 8px;
+    padding: 2px 8px;
+}
+
+QLabel[class="badge-ai"] {
+    background-color: rgba(124, 92, 255, 0.16);
+    color: #B6A7FF;
+    border: 1px solid rgba(124, 92, 255, 0.48);
+    border-radius: 8px;
+    padding: 2px 8px;
+}
+
+QFrame[class="accent-line"] {
+    background-color: #00B8FF;
+    border: none;
+    min-height: 1
+
+
+<file>src/gui/themes/midieditorai_brand.qss</file>
+
+Palet: 
+#0B1020  Midnight Navy
+#10192A  Panel Navy
+#162238  Card / Elevated
+#0E1626  Input Background
+#EAF3FF  Main Text
+#8FA3B8  Muted Text
+#00B8FF  Brand Cyan
+#25D6FF  Cyan Hover
+#7C5CFF  AI Violet
+#293A55  Border

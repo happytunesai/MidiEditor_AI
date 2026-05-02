@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Themes &amp; Appearance | MidiEditor AI Manual</title>
 <link rel="icon" type="image/png" href="favicon.png">
-<meta name="theme-color" content="#0d1117">
+<meta name="theme-color" content="#0B1020">
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="site.css">
   <link rel="stylesheet" href="audio.css">
@@ -146,8 +146,7 @@
 <nav class="site-nav" role="navigation" aria-label="Main navigation">
 <div class="container">
     <a href="index.html" class="nav-brand">
-        <span class="brand-icon">&#x1F3B5;</span>
-        <span>MidiEditor AI</span>
+        <img class="brand-logo" src="Midieditor-ai_banner_w.png" alt="MidiEditor AI">
     </a>
     <button class="nav-hamburger" aria-label="Toggle menu" aria-expanded="false">&#x2630;</button>
     <ul class="nav-links">
@@ -160,6 +159,8 @@
                 <a href="midipilot.html">MidiPilot AI</a>
                 <a href="prompt-examples.html">Prompt Examples</a>
                 <a href="ffxiv-channel-fixer.html">FFXIV Channel Fixer</a>
+                <a href="ffxiv-voice-limiter.html">FFXIV Voice Limiter</a>
+                <a href="tempo-conversion.html">Convert Tempo</a>
                 <a href="supported-files.html">Supported Files</a>
                 <a href="themes.html">Themes &amp; Appearance</a>
                 <a href="lyrics.html">Lyric Editor</a>
@@ -185,14 +186,14 @@
 <h1>&#127912; Themes &amp; Appearance</h1>
 
 <p>
-MidiEditor&nbsp;AI ships with <b>seven built-in themes</b> that restyle the entire application
-&mdash; toolbars, lists, scroll&shy;bars, dialogs, the piano roll, velocity editor, and
+MidiEditor&nbsp;AI ships with <b>eight built-in themes</b> that restyle the entire application
+- toolbars, lists, scroll&shy;bars, dialogs, the piano roll, velocity editor, and
 every custom-painted widget. Pick the look that suits your workflow and time of day.
 </p>
 
 <div class="screenshot-single">
 <img src="screenshots/miditheme.png" width="900" alt="MidiEditor AI theme overview showing Dark, AMOLED, Sakura, Light and Material Dark themes side by side">
-<p class="caption">All themes applied to the same MIDI file &mdash; pick your vibe.</p>
+<p class="caption">All themes applied to the same MIDI file - pick your vibe.</p>
 </div>
 
 <!-- --- Where to find it --- -->
@@ -205,39 +206,39 @@ are reachable at any window size. From top to bottom you can:
 </p>
 
 <ul>
-<li><b>Theme</b> &mdash; pick one of the seven built-in themes (requires restart)</li>
-<li><b>Color Preset</b> &mdash; choose from 10 one-click channel color schemes</li>
-<li><b>Smooth Playback Scrolling</b> &mdash; toggle smooth viewport following during playback</li>
-<li><b>Timeline Markers</b> &mdash; toggle visibility of Program&nbsp;Change, Control&nbsp;Change, and Text/Marker event indicators on the timeline</li>
-<li><b>Color by Track / Channel</b> &mdash; choose how marker colors are derived</li>
-<li><b>Channel Colors</b> / <b>Track Colors</b> &mdash; collapsible sections (click the <b>&#x25B6;/&#x25BC;</b> arrow) to individually tweak each channel or track color</li>
-<li><b>Reset Colors</b> &mdash; revert to the current preset&rsquo;s defaults</li>
+<li><b>Theme</b> - pick one of the seven built-in themes (requires restart)</li>
+<li><b>Color Preset</b> - choose from 10 one-click channel color schemes</li>
+<li><b>Smooth Playback Scrolling</b> - toggle smooth viewport following during playback</li>
+<li><b>Timeline Markers</b> - toggle visibility of Program&nbsp;Change, Control&nbsp;Change, and Text/Marker event indicators on the timeline</li>
+<li><b>Color by Track / Channel</b> - choose how marker colors are derived</li>
+<li><b>Channel Colors</b> / <b>Track Colors</b> - collapsible sections (click the <b>&#x25B6;/&#x25BC;</b> arrow) to individually tweak each channel or track color</li>
+<li><b>Reset Colors</b> - revert to the current preset&rsquo;s defaults</li>
 </ul>
 
 <div class="screenshot-single">
 <a href="screenshots/appearance_settings.png" class="lightbox-link"><img src="screenshots/appearance_settings.png" width="700" alt="Appearance settings panel showing theme selector, color preset, marker toggles, and collapsible channel/track color sections"></a>
-<p class="caption">Settings &rarr; Appearance &mdash; Theme, color preset, timeline marker toggles, and collapsible color pickers.</p>
+<p class="caption">Settings &rarr; Appearance - Theme, color preset, timeline marker toggles, and collapsible color pickers.</p>
 </div>
 
 <div class="highlight-box">
 <p>
 &#x1F504; <b>Theme changes require a restart.</b> When you select a new theme from the
 dropdown, a confirmation dialog appears. Click <b>Restart</b> to apply immediately
-&mdash; the app saves your work, restarts, and re-opens the Appearance settings
+- the app saves your work, restarts, and re-opens the Appearance settings
 so you&rsquo;re right back where you left off.
 </p>
 </div>
 
 <div class="screenshot-single">
 <img src="screenshots/theme_change_popup.png" width="420" alt="Theme change restart confirmation dialog">
-<p class="caption">The restart confirmation popup &mdash; Cancel keeps your current theme.</p>
+<p class="caption">The restart confirmation popup - Cancel keeps your current theme.</p>
 </div>
 
 <!-- --- Theme Palette Gallery --- -->
 <h2 id="themes">&#127912; Theme Gallery</h2>
 
 <p>
-Each theme defines a complete colour palette &mdash; backgrounds, accents, borders,
+Each theme defines a complete colour palette - backgrounds, accents, borders,
 text, and all custom-painted editor areas. Hover over the swatches below to see the
 hex values.
 </p>
@@ -314,7 +315,20 @@ hex values.
 <p class="palette-desc">Charcoal purple-gray base with teal accents. Inspired by Material Design dark themes.</p>
 </div>
 
-<!-- System -->
+<!-- MidiEditor AI -->
+<div class="palette-card">
+<h4>&#x1F3B5; MidiEditor AI <span class="palette-type dark">dark</span></h4>
+<div class="swatch-row">
+  <div class="swatch" style="background:#0B1020"><span class="swatch-label">#0B1020</span></div>
+  <div class="swatch" style="background:#10192A"><span class="swatch-label">#10192A</span></div>
+  <div class="swatch" style="background:#162238"><span class="swatch-label">#162238</span></div>
+  <div class="swatch" style="background:#00B8FF"><span class="swatch-label">#00B8FF</span></div>
+  <div class="swatch" style="background:#7C5CFF"><span class="swatch-label">#7C5CFF</span></div>
+  <div class="swatch" style="background:#293A55"><span class="swatch-label">#293A55</span></div>
+</div>
+<p class="palette-desc">Brand theme - deep navy base with brand cyan focus rings and a violet accent reserved for AI/MidiPilot surfaces. Default for new installs in 1.6.0.</p>
+<p style="margin-top:0.6rem;"><img src="screenshots/MidiEditor_AI_theme.png" width="100%" alt="MidiEditor AI brand theme preview" style="border-radius:8px; border:1px solid var(--border);"></p>
+</div>
 <div class="palette-card">
 <h4>&#x1F5A5;&#xFE0F; System (Auto)</h4>
 <div class="swatch-row">
@@ -339,7 +353,7 @@ hex values.
   <div class="swatch" style="background:#fff"><span class="swatch-label">window</span></div>
   <div class="swatch" style="background:#a0a0a0"><span class="swatch-label">border</span></div>
 </div>
-<p class="palette-desc">Original system-native MidiEditor look. No QSS applied &mdash; uses your OS window style.</p>
+<p class="palette-desc">Original system-native MidiEditor look. No QSS applied - uses your OS window style.</p>
 </div>
 
 </div>
@@ -370,6 +384,10 @@ hex values.
 <tr>
   <td><b>Material Dark</b></td><td><code>#1e1d23</code></td><td><code>#04b97f</code> teal</td>
   <td>Dark</td><td>Dark</td><td>Material Design fans</td>
+</tr>
+<tr>
+  <td><b>MidiEditor AI</b></td><td><code>#0B1020</code></td><td><code>#00B8FF</code> cyan + <code>#7C5CFF</code> violet</td>
+  <td>Dark</td><td>Dark</td><td>Default brand theme - AI-focused workflow</td>
 </tr>
 <tr>
   <td><b>System</b></td><td colspan="2"><i>Follows OS setting</i></td>
@@ -504,7 +522,7 @@ Each marker type can be toggled independently in <b>Settings&nbsp;&rarr; Appeara
 
 <div class="screenshot-single">
 <a href="screenshots/show_program_control_change.png" class="lightbox-link"><img src="screenshots/show_program_control_change.png" width="900" alt="Piano roll with timeline markers showing Program Change and Control Change events as dashed lines and labelled badges"></a>
-<p class="caption">Timeline markers in action &mdash; Program&nbsp;Change and Control&nbsp;Change events displayed as dashed lines and badges below the ruler.</p>
+<p class="caption">Timeline markers in action - Program&nbsp;Change and Control&nbsp;Change events displayed as dashed lines and badges below the ruler.</p>
 </div>
 
 <div class="highlight-box">
@@ -522,7 +540,7 @@ automation at a glance. Combine with <b>Color by Track</b> to match the note col
 <p>
 The <b>MIDI Visualizer</b> is a real-time 16-channel equalizer bar display embedded in
 the toolbar. Each bar represents one MIDI channel and animates based on note velocity
-during playback &mdash; green-to-blue colour interpolation with smooth decay.
+during playback - green-to-blue colour interpolation with smooth decay.
 </p>
 
 <div class="visualizer-demo">
@@ -530,7 +548,7 @@ during playback &mdash; green-to-blue colour interpolation with smooth decay.
     <source src="screenshots/midi_visualizer.webm" type="video/webm">
     <img src="screenshots/midi_visualizer.gif" width="900" alt="MIDI Visualizer bars bouncing during playback" loading="lazy">
 </video>
-<p class="caption">The MIDI Visualizer in action &mdash; one bar per channel, animated at ~30&thinsp;fps.</p>
+<p class="caption">The MIDI Visualizer in action - one bar per channel, animated at ~30&thinsp;fps.</p>
 </div>
 
 <table class="info-table">
@@ -559,7 +577,7 @@ during playback &mdash; green-to-blue colour interpolation with smooth decay.
 <p>
 &#x1F4A1; <b>Why restart?</b> Qt caches icons and some widget metrics at startup.
 A full restart ensures every icon, toolbar, and custom-painted widget reflects the new
-theme perfectly &mdash; no stale colours or mismatched icons.
+theme perfectly - no stale colours or mismatched icons.
 </p>
 </div>
 
@@ -567,9 +585,9 @@ theme perfectly &mdash; no stale colours or mismatched icons.
 <h2 id="tips">&#x1F4A1; Tips</h2>
 
 <ul>
-<li><b>System theme</b> follows your Windows dark/light mode &mdash; flip the OS toggle and
+<li><b>System theme</b> follows your Windows dark/light mode - flip the OS toggle and
     restart MidiEditor&nbsp;AI to match.</li>
-<li><b>Color presets</b> are independent of themes &mdash; you can use the Punk preset on
+<li><b>Color presets</b> are independent of themes - you can use the Punk preset on
     any theme, or match Sakura preset with Sakura theme for full cherry blossom immersion.</li>
 <li>The <b>Sakura theme</b> tints the piano keys slightly pink (lavender blush white keys,
     dark rose black keys) for extra aesthetic points.</li>
@@ -577,7 +595,7 @@ theme perfectly &mdash; no stale colours or mismatched icons.
     <a href="https://github.com/GTRONICK/QSS" target="_blank" rel="noopener noreferrer">GTRONICK/QSS</a> (MIT&nbsp;License),
     adapted to our QSS structure.</li>
 <li>All dark themes automatically get a <b>native Windows dark title bar</b> via the DWM&nbsp;API.</li>
-<li>Toolbar icons automatically <b>recolour to light gray</b> in dark themes &mdash; coloured
+<li>Toolbar icons automatically <b>recolour to light gray</b> in dark themes - coloured
     tool icons (FFXIV Fix, Explode Chords, MidiPilot) keep their original colours.</li>
 </ul>
 
@@ -585,7 +603,7 @@ theme perfectly &mdash; no stale colours or mismatched icons.
 
 <footer class="site-footer">
     <div class="footer-links">
-        <a href="https://github.com/happytunesai/MidiEditor_AI" target="_blank" rel="noopener noreferrer">GitHub Repo</a>
+        <a href="https://github.com/happytunesai/MidiEditor_AI" class="repo-link" target="_blank" rel="noopener noreferrer"><img class="repo-logo" src="Midieditor-ai_logo.png" alt="">GitHub Repo</a>
         <a href="https://github.com/happytunesai" target="_blank" rel="noopener noreferrer">All Projects</a>
         <a href="docs-index.html">Documentation</a>
         <a href="changelog.html">Changelog</a>

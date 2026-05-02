@@ -18,6 +18,7 @@
 
 #include "MatrixWidget.h"
 #include "../MidiEvent/MidiEvent.h"
+#include "../ai/FfxivVoiceAnalyzer.h"
 #include <iterator>
 #include "../MidiEvent/NoteOnEvent.h"
 #include "../MidiEvent/OffEvent.h"
@@ -346,7 +347,14 @@ void MatrixWidget::paintEvent(QPaintEvent *event) {
                                 height());
 
         pixpainter->setPen(_cachedDarkGrayColor);
-        pixpainter->setBrush(_cachedPianoWhiteKeyColor);
+        // For the brand theme, fill the timeline strip with the brand bg
+        // instead of the (light grey) piano white-key colour so the top bar
+        // stays in the navy palette.
+        if (Appearance::theme() == Appearance::ThemeBrand) {
+            pixpainter->setBrush(_cachedSystemWindowColor);
+        } else {
+            pixpainter->setBrush(_cachedPianoWhiteKeyColor);
+        }
         pixpainter->drawRect(lineNameWidth, 2, width() - lineNameWidth - 1, timeHeight - 2);
         pixpainter->setPen(_cachedForegroundColor);
 
@@ -379,7 +387,9 @@ void MatrixWidget::paintEvent(QPaintEvent *event) {
             if (startNumber < startTimeX) {
                 startNumber += realstep;
             }
-            if (_cachedShouldUseDarkMode) {
+            if (Appearance::theme() == Appearance::ThemeBrand) {
+                pixpainter->setPen(QColor(0xEA, 0xF3, 0xFF)); // brand --text for high contrast
+            } else if (_cachedShouldUseDarkMode) {
                 pixpainter->setPen(QColor(200, 200, 200)); // Light gray for dark mode
             } else {
                 pixpainter->setPen(Qt::gray); // Original color for light mode
@@ -628,6 +638,9 @@ void MatrixWidget::paintEvent(QPaintEvent *event) {
     // Paint timeline markers (CC/PC/Text) before cursor
     paintTimelineMarkers(painter);
     paintMarkerBar(painter);
+
+    // Phase 32.2: FFXIV voice-load overlay (yellow/red tint over note area)
+    paintVoiceLoadOverlay(painter);
 
     if (enabled && mouseInRect(TimeLineArea)) {
         painter->setPen(_cachedPlaybackCursorColor);
@@ -879,9 +892,7 @@ void MatrixWidget::paintTimelineMarkers(QPainter *painter) {
 
 void MatrixWidget::paintMarkerBar(QPainter *painter) {
     if (!file || markerBarHeight <= 0) return;
-    if (!_cachedShowPCMarkers && !_cachedShowCCMarkers && !_cachedShowTextMarkers) return;
-
-    int rulerHeight = timeHeight - markerBarHeight;
+    if (!_cachedShowPCMarkers && !_cachedShowCCMarkers && !_cachedShowTextMarkers) return;    int rulerHeight = timeHeight - markerBarHeight;
 
     painter->save();
     painter->setClipping(true);
@@ -969,6 +980,102 @@ void MatrixWidget::paintMarkerBar(QPainter *painter) {
 
     painter->setClipping(false);
     painter->restore();
+}
+
+// Phase 32.2: FFXIV voice-load overlay.
+//
+// Tints the note area with a translucent yellow/red bar over any tick range
+// where the simultaneous voice count crosses the FFXIV soft / hard limits,
+// and a thin red vertical hatch over note-rate hotspots (per-channel
+// > 14 NoteOns / 250 ms).
+//
+// Cheap path: bails immediately when disabled, no analyser query.
+// Hot path: O(samples in viewport) — voiceSamples is sparse (one entry per
+// tick where the count actually changes), so a typical 4-bar viewport on a
+// dense FFXIV arrangement is in the low hundreds at most.
+void MatrixWidget::paintVoiceLoadOverlay(QPainter *painter) {
+    if (!file || !_cachedShowVoiceLoad) return;
+
+    FfxivVoiceAnalyzer *an = FfxivVoiceAnalyzer::instance();
+    if (!an->isEnabled()) return;
+
+    FfxivVoiceAnalyzer::Result res = an->resultFor(file);
+    if (!res.valid) return;
+
+    // Thresholds (mirror FFXIV game ceilings).
+    constexpr int kSoftWarn = 13;  // yellow at 13..16
+    const int kHard = FfxivVoiceAnalyzer::kVoiceCeiling; // red above
+
+    QColor yellow(255, 200, 40, 55);
+    QColor red(255, 60, 60, 90);
+
+    int areaTop = static_cast<int>(ToolArea.top());
+    int areaBottom = static_cast<int>(ToolArea.bottom());
+    int areaH = areaBottom - areaTop;
+    if (areaH <= 0) return;
+
+    painter->save();
+    painter->setClipping(true);
+    painter->setClipRect(ToolArea);
+    painter->setPen(Qt::NoPen);
+
+    // Walk the sparse voice samples; each segment [s[i].tick, s[i+1].tick)
+    // has constant voiceCount == s[i].voiceCount.
+    const auto &samples = res.voiceSamples;
+    int n = samples.size();
+    int viewEnd = endTick;
+    for (int i = 0; i + 1 < n; ++i) {
+        int v = samples[i].voiceCount;
+        if (v < kSoftWarn) continue;
+
+        int t0 = samples[i].tick;
+        int t1 = samples[i + 1].tick;
+        if (t1 <= startTick) continue;
+        if (t0 >= viewEnd) break;
+
+        int x0 = xPosOfMs(msOfTick(qMax(t0, startTick)));
+        int x1 = xPosOfMs(msOfTick(qMin(t1, viewEnd)));
+        if (x1 <= x0) continue;
+        if (x0 < lineNameWidth) x0 = lineNameWidth;
+        if (x1 > width()) x1 = width();
+        if (x1 <= x0) continue;
+
+        painter->setBrush(v > kHard ? red : yellow);
+        painter->drawRect(x0, areaTop, x1 - x0, areaH);
+    }
+
+    // Note-rate hotspots: thin red hatch per hotspot range.
+    if (!res.rateHotspots.isEmpty()) {
+        QPen hatchPen(QColor(200, 30, 30, 140));
+        hatchPen.setStyle(Qt::DashLine);
+        hatchPen.setWidth(1);
+        painter->setPen(hatchPen);
+        painter->setBrush(Qt::NoBrush);
+        for (const auto &h : res.rateHotspots) {
+            if (h.endTick <= startTick) continue;
+            if (h.startTick >= viewEnd) continue;
+            int x0 = xPosOfMs(msOfTick(qMax(h.startTick, startTick)));
+            int x1 = xPosOfMs(msOfTick(qMin(h.endTick, viewEnd)));
+            if (x0 < lineNameWidth) x0 = lineNameWidth;
+            if (x1 > width()) x1 = width();
+            // Sparse vertical lines every 6 px.
+            for (int x = x0; x < x1; x += 6) {
+                painter->drawLine(x, areaTop, x, areaBottom);
+            }
+        }
+    }
+
+    painter->setClipping(false);
+    painter->restore();
+}
+
+void MatrixWidget::setShowVoiceLoadOverlay(bool on) {
+    if (_cachedShowVoiceLoad == on) return;
+    _cachedShowVoiceLoad = on;
+    if (on && file) {
+        FfxivVoiceAnalyzer::instance()->watchFile(file);
+    }
+    update();
 }
 
 void MatrixWidget::paintPianoKey(QPainter *painter, int number, int x, int y,
@@ -1145,7 +1252,12 @@ void MatrixWidget::paintPianoKey(QPainter *painter, int number, int x, int y,
         painter->drawPolygon(keyPolygon, Qt::OddEvenFill);
 
         if (name != "") {
-            painter->setPen(_cachedShouldUseDarkMode ? QColor(200, 200, 200) : Qt::gray);
+            if (Appearance::theme() == Appearance::ThemeBrand) {
+                // brand --bg (deep navy) on the bright white-blue keys -> readable
+                painter->setPen(QColor(0x0B, 0x10, 0x20));
+            } else {
+                painter->setPen(_cachedShouldUseDarkMode ? QColor(200, 200, 200) : Qt::gray);
+            }
             QFontMetrics fm(painter->font());
             int textlength = fm.horizontalAdvance(name);
 
@@ -1780,6 +1892,10 @@ void MatrixWidget::contextMenuEvent(QContextMenuEvent *event) {
     QAction *quantizeAct = menu.addAction(tr("Quantize Selection"));
     connect(quantizeAct, &QAction::triggered, mw, &MainWindow::quantizeSelection);
 
+    // Phase 33 — convert tempo, preserve duration (selection scope)
+    QAction *convertTempoAct = menu.addAction(tr("Convert Tempo, Preserve Duration..."));
+    connect(convertTempoAct, &QAction::triggered, mw, &MainWindow::convertTempoForSelection);
+
     menu.addSeparator();
 
     // Copy / Delete
@@ -1807,9 +1923,11 @@ void MatrixWidget::contextMenuEvent(QContextMenuEvent *event) {
     QMenu *trackMenu = menu.addMenu(tr("Move to Track"));
     // Eye icons indicate which tracks/channels are currently visible in the
     // editor, so the user can pick the right destination even when nothing has
-    // been renamed yet (cosmetic helper for VIS-MENU-001).
-    QIcon visibleIcon(":/run_environment/graphics/tool/all_visible.png");
-    QIcon hiddenIcon(":/run_environment/graphics/tool/all_invisible.png");
+    // been renamed yet (cosmetic helper for VIS-MENU-001). Run them through
+    // Appearance::adjustIconForDarkMode() so the black glyphs invert on dark
+    // themes and stay readable in the cascading menu.
+    QIcon visibleIcon = Appearance::adjustIconForDarkMode(QStringLiteral(":/run_environment/graphics/tool/all_visible.png"));
+    QIcon hiddenIcon  = Appearance::adjustIconForDarkMode(QStringLiteral(":/run_environment/graphics/tool/all_invisible.png"));
     int numTracks = file->numTracks();
     for (int i = 0; i < numTracks; i++) {
         MidiTrack *trk = file->track(i);
@@ -1838,6 +1956,40 @@ void MatrixWidget::contextMenuEvent(QContextMenuEvent *event) {
         a->setData(i);
         connect(a, &QAction::triggered, this, [mw, a]() {
             mw->moveSelectedEventsToChannel(a);
+        });
+    }
+
+    // Phase 36 -- Copy to Track / Copy to Channel cascades. Same target
+    // lists as the Move-to menus above; the action duplicates the
+    // selection 1:1 onto the chosen target and leaves the originals in
+    // place. The new copies become the active selection.
+    QMenu *copyTrackMenu = menu.addMenu(tr("Copy to Track"));
+    for (int i = 0; i < numTracks; i++) {
+        MidiTrack *trk = file->track(i);
+        QString label = QString::number(i) + ": " + trk->name();
+        QAction *a = copyTrackMenu->addAction(label);
+        a->setIcon(trk->hidden() ? hiddenIcon : visibleIcon);
+        a->setData(i);
+        connect(a, &QAction::triggered, this, [mw, a]() {
+            mw->copySelectedEventsToTrack(a);
+        });
+    }
+
+    QMenu *copyChannelMenu = menu.addMenu(tr("Copy to Channel"));
+    for (int i = 0; i < 16; i++) {
+        QString label = QString::number(i);
+        if (file) {
+            QString instr = MidiFile::instrumentName(file->channel(i)->progAtTick(0));
+            if (!instr.isEmpty())
+                label += ": " + instr;
+        }
+        if (i == 9 && !label.contains("("))
+            label += " (Drums)";
+        QAction *a = copyChannelMenu->addAction(label);
+        a->setIcon(file->channel(i)->visible() ? visibleIcon : hiddenIcon);
+        a->setData(i);
+        connect(a, &QAction::triggered, this, [mw, a]() {
+            mw->copySelectedEventsToChannel(a);
         });
     }
 

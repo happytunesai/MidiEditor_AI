@@ -19,16 +19,19 @@
 #include "TrackListWidget.h"
 #include "ColoredWidget.h"
 #include "Appearance.h"
+#include "MainWindow.h"
 
 #include "../midi/MidiFile.h"
 #include "../midi/MidiTrack.h"
 #include "../protocol/Protocol.h"
 
 #include <QAction>
+#include <QContextMenuEvent>
 #include <QDragEnterEvent>
 #include <QDropEvent>
 #include <QGridLayout>
 #include <QLabel>
+#include <QMenu>
 #include <QMimeData>
 #include <QPainter>
 #include <QToolBar>
@@ -330,4 +333,38 @@ void TrackListWidget::refreshColors() {
         item->refreshColors();
     }
     QListWidget::update();
+}
+
+void TrackListWidget::contextMenuEvent(QContextMenuEvent *event) {
+    if (!file) {
+        QListWidget::contextMenuEvent(event);
+        return;
+    }
+    QListWidgetItem *item = itemAt(event->pos());
+    if (!item) {
+        QListWidget::contextMenuEvent(event);
+        return;
+    }
+    const int row = this->row(item);
+    if (row < 0 || row >= trackorder.size()) {
+        QListWidget::contextMenuEvent(event);
+        return;
+    }
+    MidiTrack *track = trackorder.at(row);
+    if (!track) {
+        QListWidget::contextMenuEvent(event);
+        return;
+    }
+    MainWindow *mw = qobject_cast<MainWindow *>(window());
+    if (!mw) {
+        QListWidget::contextMenuEvent(event);
+        return;
+    }
+    QMenu menu(this);
+    const int trackNumber = track->number();
+    QAction *convertTempoAct = menu.addAction(tr("Convert Tempo, Preserve Duration..."));
+    connect(convertTempoAct, &QAction::triggered, mw, [mw, trackNumber]() {
+        mw->convertTempoForTrack(trackNumber);
+    });
+    menu.exec(event->globalPos());
 }

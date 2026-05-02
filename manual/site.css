@@ -18,27 +18,27 @@
 
 /* ---------- Design Tokens ---------- */
 :root {
-    /* Core palette (inherited from manual) */
-    --bg:            #0d1117;
-    --bg-secondary:  #161b22;
-    --bg-card:       #1c2129;
-    --bg-card-hover: #242b35;
-    --text:          #e6edf3;
-    --text-muted:    #8b949e;
-    --accent:        #58a6ff;
-    --accent-hover:  #79c0ff;
-    --border:        #30363d;
-    --link:          #58a6ff;
-    --link-hover:    #79c0ff;
-    --code-bg:       #1c2129;
+    /* Core palette (Phase 37.3 — aligned with in-app MidiEditor AI Brand theme) */
+    --bg:            #0B1020;
+    --bg-secondary:  #10192A;
+    --bg-card:       #162238;
+    --bg-card-hover: #1B2B47;
+    --text:          #EAF3FF;
+    --text-muted:    #8FA3B8;
+    --accent:        #00B8FF;
+    --accent-hover:  #25D6FF;
+    --border:        #293A55;
+    --link:          #00B8FF;
+    --link-hover:    #25D6FF;
+    --code-bg:       #0E1626;
 
-    /* NEW — gradient / glow accents */
-    --gradient-hero:    linear-gradient(160deg, #0d1117 0%, #111820 40%, #151d28 70%, #0d1117 100%);
-    --gradient-accent:  linear-gradient(135deg, #58a6ff, #a855f7);
+    /* NEW — gradient / glow accents (brand cyan -> violet) */
+    --gradient-hero:    linear-gradient(160deg, #0B1020 0%, #0E1626 40%, #10192A 70%, #0B1020 100%);
+    --gradient-accent:  linear-gradient(135deg, #00B8FF, #7C5CFF);
     --gradient-rainbow: linear-gradient(90deg,
-        #ff6b6b, #ffa94d, #ffd43b, #69db7c, #58a6ff, #a855f7, #f06595, #ff6b6b);
-    --glow-blue:   0 0 30px rgba(88,166,255,0.15);
-    --glow-purple: 0 0 30px rgba(168,85,247,0.15);
+        #FF4D6D, #FFA94D, #FFD43B, #2CEAA3, #00B8FF, #7C5CFF, #F06595, #FF4D6D);
+    --glow-blue:   0 0 30px rgba(0,184,255,0.18);
+    --glow-purple: 0 0 30px rgba(124,92,255,0.18);
 
     /* Layout */
     --nav-height: 64px;
@@ -112,6 +112,10 @@ img { max-width: 100%; height: auto; }
 }
 .nav-brand:hover { color: var(--accent); }
 .nav-brand .brand-icon { font-size: 1.4rem; }
+.nav-brand .brand-logo {
+    height: 40px; width: auto; display: block;
+    image-rendering: auto;
+}
 .nav-links {
     display: flex; align-items: center; gap: 0.2rem;
     margin-left: auto; list-style: none;
@@ -238,11 +242,11 @@ img { max-width: 100%; height: auto; }
     font-size: 0.78rem;
     font-weight: 600;
     white-space: nowrap;
-    color: #c9d1d9;
+    color: #C9D6E6;
     text-decoration: none;
     border: none;
     border-radius: 8px;
-    background: linear-gradient(135deg, #21262d 0%, #282e38 100%);
+    background: linear-gradient(135deg, #10192A 0%, #162238 100%);
     box-shadow:
         rgba(0,0,0,0.5) 0 2px 4px,
         rgba(0,0,0,0.3) 0 7px 13px -3px,
@@ -256,7 +260,7 @@ img { max-width: 100%; height: auto; }
 
 .doc-subnav a:hover {
     color: #fff;
-    background: linear-gradient(135deg, #272d37 0%, #303845 100%);
+    background: linear-gradient(135deg, #162238 0%, #1B2B47 100%);
     box-shadow:
         rgba(0,0,0,0.5) 0 4px 8px,
         rgba(0,0,0,0.3) 0 7px 13px -3px,
@@ -272,15 +276,15 @@ img { max-width: 100%; height: auto; }
 /* Active / selected page — pressed down */
 .doc-subnav a.active {
     color: #fff;
-    background: linear-gradient(135deg, #58a6ff 0%, #a855f7 100%);
+    background: linear-gradient(135deg, #00B8FF 0%, #7C5CFF 100%);
     box-shadow:
-        rgba(88,166,255,0.25) 0 0 12px,
+        rgba(0,184,255,0.28) 0 0 12px,
         rgba(0,0,0,0.5) 0 2px 6px inset;
     transform: translateY(1px);
 }
 .doc-subnav a.active:hover {
     box-shadow:
-        rgba(88,166,255,0.35) 0 0 16px,
+        rgba(0,184,255,0.40) 0 0 16px,
         rgba(0,0,0,0.5) 0 2px 6px inset;
     transform: translateY(1px);
 }
@@ -323,8 +327,8 @@ img { max-width: 100%; height: auto; }
     content: '';
     position: absolute; inset: 0;
     background-image:
-        linear-gradient(rgba(88,166,255,0.03) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(88,166,255,0.03) 1px, transparent 1px);
+        linear-gradient(rgba(0,184,255,0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0,184,255,0.04) 1px, transparent 1px);
     background-size: 60px 60px;
     pointer-events: none;
 }
@@ -404,9 +408,9 @@ img { max-width: 100%; height: auto; }
 .btn:hover { transform: translateY(-2px); }
 .btn-primary {
     background: var(--gradient-accent); color: #fff;
-    box-shadow: 0 4px 20px rgba(88,166,255,0.25);
+    box-shadow: 0 4px 20px rgba(0,184,255,0.28);
 }
-.btn-primary:hover { box-shadow: 0 6px 28px rgba(88,166,255,0.35); color: #fff; }
+.btn-primary:hover { box-shadow: 0 6px 28px rgba(0,184,255,0.40); color: #fff; }
 .btn-secondary {
     background: var(--bg-card); color: var(--text);
     border: 1px solid var(--border);
@@ -569,7 +573,7 @@ img { max-width: 100%; height: auto; }
     transition: background .2s;
     z-index: 5;
 }
-.showcase-btn:hover { background: rgba(88,166,255,0.5); }
+.showcase-btn:hover { background: rgba(0,184,255,0.5); }
 .showcase-btn.prev { left: 1rem; }
 .showcase-btn.next { right: 1rem; }
 .showcase-dots {
@@ -768,6 +772,34 @@ img { max-width: 100%; height: auto; }
     color: var(--text-muted); font-size: 0.9rem;
 }
 .footer-links a:hover { color: var(--accent); }
+
+/* "New in 1.6.0" inline badge for manual rows */
+.badge-new {
+    display: inline-block;
+    margin-left: 0.4em;
+    padding: 0.08em 0.55em;
+    border-radius: 999px;
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-violet) 100%);
+    color: #fff;
+    font-size: 0.72em; font-weight: 700;
+    letter-spacing: 0.04em;
+    vertical-align: middle;
+    box-shadow: 0 0 8px rgba(0,184,255,0.35);
+}
+.footer-links a.repo-link {
+    display: inline-flex; align-items: center; gap: 0.4rem;
+}
+.footer-links a.repo-link .repo-logo {
+    height: 1.5em; width: auto;
+    filter: grayscale(1) brightness(1.6) contrast(0.85);
+    opacity: 0.65;
+    transition: filter .25s ease, opacity .25s ease, transform .25s ease;
+}
+.footer-links a.repo-link:hover .repo-logo {
+    filter: grayscale(0) brightness(1) contrast(1);
+    opacity: 1;
+    transform: scale(1.08);
+}
 .footer-copy {
     color: var(--text-muted);
     font-size: 0.82rem;

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>The Editor and its Components - MidiEditor AI Manual</title>
   <link rel="icon" type="image/png" href="favicon.png">
-<meta name="theme-color" content="#0d1117">
+<meta name="theme-color" content="#0B1020">
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="site.css">
   <link rel="stylesheet" href="audio.css">
@@ -20,8 +20,7 @@
 <nav class="site-nav" role="navigation" aria-label="Main navigation">
 <div class="container">
     <a href="index.html" class="nav-brand">
-        <span class="brand-icon">&#x1F3B5;</span>
-        <span>MidiEditor AI</span>
+        <img class="brand-logo" src="Midieditor-ai_banner_w.png" alt="MidiEditor AI">
     </a>
     <button class="nav-hamburger" aria-label="Toggle menu" aria-expanded="false">&#x2630;</button>
     <ul class="nav-links">
@@ -34,6 +33,8 @@
                 <a href="midipilot.html">MidiPilot AI</a>
                 <a href="prompt-examples.html">Prompt Examples</a>
                 <a href="ffxiv-channel-fixer.html">FFXIV Channel Fixer</a>
+                <a href="ffxiv-voice-limiter.html">FFXIV Voice Limiter</a>
+                <a href="tempo-conversion.html">Convert Tempo</a>
                 <a href="supported-files.html">Supported Files</a>
                 <a href="themes.html">Themes &amp; Appearance</a>
                 <a href="lyrics.html">Lyric Editor</a>
@@ -96,7 +97,7 @@ structured within the following submenus. For the <b>Tools</b> menu, see the
 </tr>
 <tr>
 <td><img src="tools/load.png" width="20" height="20"></td>
-<td><i>Open&hellip;</i><br>Open an existing MIDI file. Also imports <b>Guitar Pro</b> (<code>.gp</code>, <code>.gp3</code>, <code>.gp4</code>, <code>.gp5</code>, <code>.gpx</code>, <code>.gtp</code>), <b>MusicXML</b> (<code>.musicxml</code>, <code>.xml</code>, <code>.mxl</code>), and <b>MuseScore</b> (<code>.mscz</code>, <code>.mscx</code>) files &mdash; auto-converted to MIDI on open. See <a href="supported-files.html">Supported Files</a>.</td>
+<td><i>Open&hellip;</i><br>Open an existing MIDI file. Also imports <b>Guitar Pro</b> (<code>.gp</code>, <code>.gp3</code>, <code>.gp4</code>, <code>.gp5</code>, <code>.gpx</code>, <code>.gtp</code>), <b>MusicXML</b> (<code>.musicxml</code>, <code>.xml</code>, <code>.mxl</code>), and <b>MuseScore</b> (<code>.mscz</code>, <code>.mscx</code>) files - auto-converted to MIDI on open. See <a href="supported-files.html">Supported Files</a>.</td>
 </tr>
 <tr>
 <td></td>
@@ -246,7 +247,7 @@ See the <a href="playback.html">Playback &amp; Recording</a> page for full detai
 	show and edit on the left of the window.
 </p>
 
-<h4 id="context-menu-visibility">Context Menu &mdash; Visibility at a Glance <span style="font-size:0.7em; color:var(--text-muted); font-weight:normal;">(new in v1.4.2)</span></h4>
+<h4 id="context-menu-visibility">Context Menu - Visibility at a Glance <span style="font-size:0.7em; color:var(--text-muted); font-weight:normal;">(new in v1.4.2)</span></h4>
 <p>
   Right-clicking any note in the event view opens a context menu with quick reassignment shortcuts.
   Both the <b>Move to Track</b> and <b>Move to Channel</b> submenus now display a small visibility
@@ -254,8 +255,8 @@ See the <a href="playback.html">Playback &amp; Recording</a> page for full detai
   shown without first opening the side panels:
 </p>
 <ul>
-  <li><img src="tools/all_visible.png" width="14" height="14" style="vertical-align:middle"/> &mdash; track or channel is currently <b>visible</b> (and audible)</li>
-  <li><img src="tools/all_invisible.png" width="14" height="14" style="vertical-align:middle"/> &mdash; track or channel is <b>hidden</b></li>
+  <li><img src="tools/all_visible.png" width="14" height="14" style="vertical-align:middle"/> - track or channel is currently <b>visible</b> (and audible)</li>
+  <li><img src="tools/all_invisible.png" width="14" height="14" style="vertical-align:middle"/> - track or channel is <b>hidden</b></li>
 </ul>
 <div style="text-align:center; margin:1.5rem 0;">
 <a href="screenshots/context_menu_track_channel_visibility.png" class="lightbox-link">
@@ -312,15 +313,15 @@ See the <a href="playback.html">Playback &amp; Recording</a> page for full detai
 </p>
 
 <ul>
-<li><b>Selected note info</b> &mdash; note name, octave, MIDI number, velocity, and duration</li>
-<li><b>Chord analysis</b> &mdash; automatically detects chords from selected notes (major, minor, 7th, dim, aug, sus, and more)</li>
-<li><b>Tick position</b> &mdash; current cursor position in ticks</li>
-<li><b>Event count</b> &mdash; number of selected events</li>
+<li><b>Selected note info</b> - note name, octave, MIDI number, velocity, and duration</li>
+<li><b>Chord analysis</b> - automatically detects chords from selected notes (major, minor, 7th, dim, aug, sus, and more)</li>
+<li><b>Tick position</b> - current cursor position in ticks</li>
+<li><b>Event count</b> - number of selected events</li>
 </ul>
 
 <div style="text-align:center; margin:1.5rem 0;">
 <a href="screenshots/statusbar_chord_detection.png" class="lightbox-link"><img src="screenshots/statusbar_chord_detection.png" style="max-width:900px; border:1px solid var(--border); border-radius:8px;" alt="Status bar showing chord detection, note info, tick position, and event count"></a>
-<p style="text-align:center; color:var(--text-muted); font-style:italic; margin-top:0.5rem; font-size:0.9rem;">The status bar with chord detection &mdash; selecting notes shows the detected chord name.</p>
+<p style="text-align:center; color:var(--text-muted); font-style:italic; margin-top:0.5rem; font-size:0.9rem;">The status bar with chord detection - selecting notes shows the detected chord name.</p>
 </div>
 
 <p>
@@ -331,7 +332,7 @@ See the <a href="playback.html">Playback &amp; Recording</a> page for full detai
 
 <footer class="site-footer">
     <div class="footer-links">
-        <a href="https://github.com/happytunesai/MidiEditor_AI" target="_blank" rel="noopener noreferrer">GitHub Repo</a>
+        <a href="https://github.com/happytunesai/MidiEditor_AI" class="repo-link" target="_blank" rel="noopener noreferrer"><img class="repo-logo" src="Midieditor-ai_logo.png" alt="">GitHub Repo</a>
         <a href="https://github.com/happytunesai" target="_blank" rel="noopener noreferrer">All Projects</a>
         <a href="docs-index.html">Documentation</a>
         <a href="changelog.html">Changelog</a>

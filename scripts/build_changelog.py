@@ -37,8 +37,8 @@ def md_inline(text: str) -> str:
         t,
     )
     # em-dash
-    t = t.replace(" --- ", " &mdash; ")
-    t = t.replace(" -- ", " &ndash; ")
+    t = t.replace(" --- ", " - ")
+    t = t.replace(" -- ", " - ")
     return t
 
 
@@ -80,9 +80,10 @@ def badge_for_category(cls: str) -> str:
 
 def parse_changelog(text: str):
     """Yield (version, date, title, summary_bullets, details_html) tuples."""
-    # Split on version headers: ## [x.y.z] - date — title
+    # Split on version headers: ## [x.y.z] - date - title
+    # Accepts "-", em-dash, or en-dash as the date/title separator (legacy).
     version_re = re.compile(
-        r"^## \[(.+?)\] - (\S+)(?: — (.+))?$", re.MULTILINE
+        r"^## \[(.+?)\] - (\S+)(?:\s+[-\u2014\u2013]\s+(.+))?$", re.MULTILINE
     )
     splits = list(version_re.finditer(text))
 
@@ -196,14 +197,14 @@ HTML_HEAD = """\
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Changelog | MidiEditor AI</title>
-<meta name="description" content="Full release history for MidiEditor AI — every version, feature, bug fix, and improvement documented.">
-<meta property="og:title" content="Changelog — MidiEditor AI">
-<meta property="og:description" content="Full release history for MidiEditor AI — every version, feature, and bug fix.">
+<meta name="description" content="Full release history for MidiEditor AI - every version, feature, bug fix, and improvement documented.">
+<meta property="og:title" content="Changelog - MidiEditor AI">
+<meta property="og:description" content="Full release history for MidiEditor AI - every version, feature, and bug fix.">
 <meta property="og:url" content="https://midieditor-ai.de/changelog.html">
 <meta property="og:image" content="https://midieditor-ai.de/midipilot_ai_OG.png">
 <link rel="icon" type="image/png" href="favicon.png">
 <link rel="preconnect" href="https://github.com" crossorigin>
-<meta name="theme-color" content="#0d1117">
+<meta name="theme-color" content="#0B1020">
 <link rel="stylesheet" href="site.css">
 <style>
     /* ─ changelog hero ─ */
@@ -260,7 +261,7 @@ HTML_HEAD = """\
         z-index: 1;
     }
     .cl-version.latest .cl-dot {
-        box-shadow: 0 0 12px rgba(88,166,255,.5);
+        box-shadow: 0 0 12px rgba(0,184,255,.55);
     }
     .cl-version-head {
         display: flex; flex-wrap: wrap; align-items: baseline; gap: .5rem .75rem;
@@ -338,19 +339,19 @@ HTML_HEAD = """\
         margin-bottom: .3rem; font-size: .85rem; line-height: 1.55;
     }
     code.hl {
-        background: var(--code-bg, rgba(88,166,255,.1));
+        background: var(--code-bg, rgba(0,184,255,.12));
         padding: 1px 5px; border-radius: 4px; font-size: .82em;
     }
 
-    /* category border colors */
-    .cat-critical { border-left-color: #f85149; }
-    .cat-memory   { border-left-color: #d29922; }
-    .cat-feature  { border-left-color: #a371f7; }
-    .cat-fix      { border-left-color: #58a6ff; }
-    .cat-changed  { border-left-color: #79c0ff; }
-    .cat-low      { border-left-color: #2ea043; }
-    .cat-tech     { border-left-color: #8b949e; }
-    .cat-medium   { border-left-color: #d29922; }
+    /* category border colors (Phase 37.3 - brand-aligned) */
+    .cat-critical { border-left-color: #FF4D6D; }
+    .cat-memory   { border-left-color: #FFA94D; }
+    .cat-feature  { border-left-color: #7C5CFF; }
+    .cat-fix      { border-left-color: #00B8FF; }
+    .cat-changed  { border-left-color: #25D6FF; }
+    .cat-low      { border-left-color: #2CEAA3; }
+    .cat-tech     { border-left-color: #8FA3B8; }
+    .cat-medium   { border-left-color: #FFA94D; }
 
     /* responsive */
     @media (max-width: 600px) {
@@ -406,7 +407,7 @@ HERO = """\
 <section class="cl-hero">
     <div class="container">
         <h1>&#x1F4DC; Changelog</h1>
-        <p>Full release history &mdash; every version, feature, and bug fix.</p>
+        <p>Full release history - every version, feature, and bug fix.</p>
     </div>
 </section>
 """
@@ -601,12 +602,12 @@ def main():
             rf"\g<1>{latest_version}\2",
             content,
         )
-        # Date in download hero: "April 9, 2026" style — update from changelog
-        # Parse date: 2026-04-09 → April 9, 2026
+        # Date in download hero: "April 9, 2026" style - update from changelog
+        # Parse date: 2026-04-09 -> April 9, 2026
         date_nice = _format_date(latest_date)
         if date_nice:
             content = re.sub(
-                r"(Current Release:.*?&mdash;\s*).+?(</p>)",
+                r"(Current Release:.*?(?:&mdash;|-)\s*).+?(</p>)",
                 rf"\g<1>{date_nice}\2",
                 content,
             )

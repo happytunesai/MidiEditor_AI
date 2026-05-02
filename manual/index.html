@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MidiEditor AI — The AI-Powered MIDI Editor</title>
+<title>MidiEditor AI - The AI-Powered MIDI Editor</title>
 <meta name="description" content="MidiEditor AI - The AI-powered MIDI editor with intelligent MidiPilot copilot, Guitar Pro import (GP1-GP8), FFXIV bard mode, FluidSynth playback, and audio export. Free &amp; open source for Windows.">
 <meta property="og:title" content="MidiEditor AI - The AI-Powered MIDI Editor">
 <meta property="og:description" content="Compose, edit, transform &amp; play MIDI with an AI copilot. Guitar Pro import, FFXIV bard mode, FluidSynth, 7 themes. Free &amp; open source.">
@@ -13,7 +13,7 @@
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" type="image/png" href="favicon.png">
 <link rel="preconnect" href="https://github.com" crossorigin>
-<meta name="theme-color" content="#0d1117">
+<meta name="theme-color" content="#0B1020">
 <link rel="stylesheet" href="site.css">
   <link rel="stylesheet" href="audio.css">
 
@@ -149,7 +149,7 @@
     .chat-demo-footer .ffxiv-box input { margin: 0; }
     .chat-demo-footer .ffxiv-box.highlight { color: #00897B; font-weight: 600; }
 
-    /* Easter egg — Happy Tunes bard band logo */
+    /* Easter egg - Happy Tunes bard band logo */
     .easter-egg {
         display: flex; align-items: center;
         margin-left: 0.5rem; flex-shrink: 0;
@@ -175,7 +175,7 @@
     "description": "AI-powered MIDI editor with intelligent copilot, Guitar Pro import, FFXIV bard mode, and FluidSynth playback.",
     "url": "https://midieditor-ai.de",
     "downloadUrl": "https://github.com/happytunesai/MidiEditor_AI/releases/latest",
-    "softwareVersion": "1.5.3",
+    "softwareVersion": "1.6.0",
     "license": "https://github.com/happytunesai/MidiEditor_AI/blob/main/LICENSE",
     "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
 }
@@ -187,8 +187,7 @@
 <nav class="site-nav" role="navigation" aria-label="Main navigation">
 <div class="container">
     <a href="index.html" class="nav-brand">
-        <span class="brand-icon">&#x1F3B5;</span>
-        <span>MidiEditor AI</span>
+        <img class="brand-logo" src="Midieditor-ai_banner_w.png" alt="MidiEditor AI">
     </a>
     <button class="nav-hamburger" aria-label="Toggle menu" aria-expanded="false">&#x2630;</button>
     <ul class="nav-links">
@@ -201,6 +200,8 @@
                 <a href="midipilot.html">MidiPilot AI</a>
                 <a href="prompt-examples.html">Prompt Examples</a>
                 <a href="ffxiv-channel-fixer.html">FFXIV Channel Fixer</a>
+                <a href="ffxiv-voice-limiter.html">FFXIV Voice Limiter</a>
+                <a href="tempo-conversion.html">Convert Tempo</a>
                 <a href="supported-files.html">Supported Files</a>
                 <a href="themes.html">Themes &amp; Appearance</a>
                 <a href="lyrics.html">Lyric Editor</a>
@@ -236,19 +237,19 @@
              onerror="this.parentElement.style.display='none';">
     </div>
 
-    <span class="hero-badge">v1.5.3 &middot; Open Source &middot; Windows</span>
+    <span class="hero-badge">v1.6.0 &middot; Open Source &middot; Windows</span>
 
     <h1 class="hero-title">
         The <span class="text-gradient">AI-Powered</span> MIDI Editor
     </h1>
     <p class="hero-subtitle">
-        Compose &bull; Edit &bull; Transform &bull; Play &mdash;
+        Compose &bull; Edit &bull; Transform &bull; Play -
         with an intelligent copilot that understands music.
     </p>
 
     <div class="hero-actions">
         <a href="download.html" class="btn btn-primary">
-            &#x2B07; Download v1.5.3
+            &#x2B07; Download v1.6.0
         </a>
         <a href="docs-index.html" class="btn btn-secondary" target="_blank" rel="noopener noreferrer">
             &#x1F4D6; Documentation
@@ -295,25 +296,25 @@
 <div class="container">
     <div class="section-header reveal">
         <h2>&#x2728; Features</h2>
-        <p>Everything you need for MIDI editing &mdash; plus an AI that actually helps.</p>
+        <p>Everything you need for MIDI editing - plus an AI that actually helps.</p>
     </div>
     <div class="features-grid">
         <div class="feature-card">
             <span class="card-icon">&#x1F916;</span>
             <h3>MidiPilot AI Copilot</h3>
                 <p>15 AI tools, live Agent streaming, provider model refresh, favourites,
-                    and natural language MIDI editing. Compose, harmonize, fix, and refine &mdash; just ask.</p>
+                    and natural language MIDI editing. Compose, harmonize, fix, and refine - just ask.</p>
         </div>
         <div class="feature-card">
             <span class="card-icon">&#x1F4C2;</span>
             <h3>Score &amp; Tab Import</h3>
-            <p>Open Guitar Pro (GP1&ndash;GP8), MusicXML (.musicxml / .xml / .mxl),
-               and MuseScore (.mscz / .mscx) files directly &mdash; auto-converted to MIDI on open.</p>
+            <p>Open Guitar Pro (GP1-GP8), MusicXML (.musicxml / .xml / .mxl),
+               and MuseScore (.mscz / .mscx) files directly - auto-converted to MIDI on open.</p>
         </div>
         <div class="feature-card">
             <span class="card-icon">&#x1F3AE;</span>
             <h3>FFXIV Bard Mode</h3>
-            <p>One-click FFXIV channel fixer for MidiBard2 &mdash; deterministic algorithm,
+            <p>One-click FFXIV channel fixer for MidiBard2 - deterministic algorithm,
                no AI needed. Guitar variant switching, range clamping, validation.</p>
         </div>
         <div class="feature-card">
@@ -324,8 +325,8 @@
         </div>
         <div class="feature-card">
             <span class="card-icon">&#x1F3A8;</span>
-            <h3>7 Themes &amp; MIDI Visualizer</h3>
-            <p>Dark, Light, Sakura, AMOLED, Material Dark, System, Classic.
+            <h3>8 Themes &amp; MIDI Visualizer</h3>
+            <p>MidiEditor AI brand, Dark, Light, Sakura, AMOLED, Material Dark, System, Classic.
                10 color presets for note bars. Real-time MIDI visualizer for playback.</p>
         </div>
         <div class="feature-card">
@@ -351,7 +352,7 @@
             <h3>Additional Tools</h3>
             <p>Chord Explode, delete overlapping notes, convert pitch bends to discrete notes,
                show markers for Program Changes / Control Changes / Text events,
-               C3&ndash;C6 octave range markers, and smooth auto-scroll during playback.</p>
+               C3-C6 octave range markers, and smooth auto-scroll during playback.</p>
         </div>
     </div>
 </div>
@@ -367,7 +368,7 @@
     <div class="showcase reveal">
         <div class="showcase-track">
             <div class="showcase-slide">
-                <img src="midipilot_ai_OG.png" alt="MidiEditor AI — The AI-Powered MIDI Editor" width="1200" height="630" loading="lazy">
+                <img src="midipilot_ai_OG.png" alt="MidiEditor AI - The AI-Powered MIDI Editor" width="1200" height="630" loading="lazy">
                 <div class="slide-caption">MidiEditor AI - The AI-Powered MIDI Editor</div>
             </div>
             <div class="showcase-slide">
@@ -410,8 +411,11 @@
                 <div class="slide-caption">MIDI Visualizer - Real-time note visualization during playback</div>
             </div>
             <div class="showcase-slide">
-                <img src="screenshots/midipilot-overview.png" alt="MidiPilot Panel" width="3839" height="2099" loading="lazy">
-                <div class="slide-caption">MidiPilot Panel - AI context, chat history, and tool integration</div>
+                <video autoplay loop muted playsinline loading="lazy" aria-label="FFXIV Voice Limiter">
+                    <source src="screenshots/voice_limiter_ffxiv.webm" type="video/webm">
+                    <img src="screenshots/VoiceLimiter-Gadget.png" alt="FFXIV Voice Limiter" loading="lazy">
+                </video>
+                <div class="slide-caption">FFXIV Voice Limiter - Live audit against the in-game 16-voice ceiling</div>
             </div>
             <div class="showcase-slide">
                 <video autoplay loop muted playsinline loading="lazy" aria-label="Lyric Visualizer Sakura">
@@ -480,11 +484,12 @@
 <div class="container">
     <div class="section-header reveal">
         <h2>&#x1F3A8; Theme Preview</h2>
-        <p>6 built-in themes &mdash; click to preview.</p>
+        <p>7 built-in themes - click to preview.</p>
     </div>
     <div class="theme-switcher reveal">
         <div class="theme-tabs">
-            <button class="theme-tab active" data-theme="dark">Dark</button>
+            <button class="theme-tab active" data-theme="midieditor_ai">MidiEditor AI</button>
+            <button class="theme-tab" data-theme="dark">Dark</button>
             <button class="theme-tab" data-theme="light">Light</button>
             <button class="theme-tab" data-theme="classic">Classic</button>
             <button class="theme-tab" data-theme="sakura">Sakura</button>
@@ -492,7 +497,7 @@
             <button class="theme-tab" data-theme="material_dark">Material Dark</button>
         </div>
         <div class="theme-preview-frame">
-            <img class="theme-preview-img" src="screenshots/dark_theme.png" alt="Dark Theme Preview" width="2560" height="1063" loading="lazy">
+            <img class="theme-preview-img" src="screenshots/MidiEditor_AI_theme.png" alt="MidiEditor AI Theme Preview" loading="lazy">
         </div>
     </div>
 </div>
@@ -511,7 +516,7 @@
             <span class="stat-label">File Formats</span>
         </div>
         <div class="stat-item">
-            <span class="stat-number text-gradient" data-target="7">0</span>
+            <span class="stat-number text-gradient" data-target="8">0</span>
             <span class="stat-label">Themes</span>
         </div>
         <div class="stat-item">
@@ -534,14 +539,14 @@
     </div>
     <div class="whats-new reveal">
         <span class="latest-badge">Latest</span>
-        <h3>v1.5.3 &mdash; April 2026</h3>
-        <p class="whats-new-subtitle">Bard-Accurate Playback &amp; Mute-Aware Audio Export</p>
+        <h3>v1.6.0 - May 2026</h3>
+        <p class="whats-new-subtitle">Voice Limiter, Tempo Conversion, Paste Special &amp; Copy to Track/Channel</p>
         <ul>
-            <li><strong>FFXIV bard-accurate playback mode</strong> &mdash; FluidSynth now reshapes its output to sound much closer to the in-game bard: dry (no reverb/chorus), 16-voice cap, 48&nbsp;kHz default, per-instrument minimum-note-length tables, and a perceptual cubic <em>(CC7&middot;CC11)<sup>3</sup></em> volume curve with velocity pinned to 127</li>
-            <li><strong>FFXIV percussion routing for GM drum tracks</strong> &mdash; GM Standard-Kit keys (kick / snare / toms / hats / cymbals / hand drums) are mapped to the closest FFXIV bard percussion preset, so single-channel GM drum tracks finally route each hit individually</li>
-            <li><strong>Mute- and solo-aware audio export (all formats)</strong> &mdash; Export Audio now honours both channel mute/solo and per-track mute. Solo a single channel or mute a single track and the rendered <strong>WAV / FLAC / OGG / MP3</strong> contains exactly that &mdash; same behaviour as live playback</li>
-            <li><strong>FFXIV percussion routing in audio export</strong> &mdash; named percussion tracks (Bass Drum / Snare Drum / Timpani / Bongo / Cymbal) are auto-routed to the matching FFXIV bard percussion preset in the offline render, format-agnostic</li>
-            <li><strong>Live-parity FFXIV remap in audio export (all formats)</strong> &mdash; the offline renderer applies the same bank-select forcing, program-fallback table and per-program loudness trim as live playback, so exported files match what you hear</li>
+            <li><strong>FFXIV Voice Limiter</strong> - live toolbar gauge + piano-roll voice lane visualise the in-game 16-voice ceiling and the 14&nbsp;notes/sec/channel rate cap so dense arrangements can be audited <em>before</em> a performance drops notes. Auto-binds to FFXIV SoundFont Mode</li>
+            <li><strong>Convert Tempo, Preserve Duration</strong> - new dialog under <em>Tools &rarr; Tempo Tools</em> (and via right-click on tracks / channels) scales every event tick by <em>target/source</em> and rewrites the tempo meta in one undoable action, so a 90&nbsp;BPM vocal lines up with a 180&nbsp;BPM project at the same real-time speed</li>
+            <li><strong>Paste Special - cross-instance track/channel assignment</strong> - pasting from another MidiEditor instance no longer collapses everything onto the current edit track. Pick <em>Create new tracks per source</em>, <em>Preserve source mapping</em>, or <em>Paste to current target</em>; one Ctrl+Z reverts paste <em>and</em> any new tracks together</li>
+            <li><strong>Copy to Track / Copy to Channel</strong> - new <em>Tools</em> entries duplicate the current selection 1:1 onto another track or channel and select the duplicates so an immediate <em>Octave Up</em> only touches the copies</li>
+            <li><strong>Move-to context-menu eye icons fixed in dark themes</strong> - the visibility cue next to each entry in the matrix <em>Move to Track</em> / <em>Move to Channel</em> submenus is now readable in every theme (legacy bug since 1.4.2)</li>
         </ul>
         <a href="changelog.html" class="changelog-link">View Full Changelog &rarr;</a>
     </div>
@@ -561,7 +566,7 @@
         </thead>
         <tbody>
             <tr><td>AI Copilot (MidiPilot)</td><td><span class="cross">&#x2716;</span></td><td><span class="check">&#x2714;</span></td></tr>
-            <tr><td>Guitar Pro Import (GP1&ndash;GP8)</td><td><span class="cross">&#x2716;</span></td><td><span class="check">&#x2714;</span></td></tr>
+            <tr><td>Guitar Pro Import (GP1-GP8)</td><td><span class="cross">&#x2716;</span></td><td><span class="check">&#x2714;</span></td></tr>
             <tr><td>FFXIV Bard Mode</td><td><span class="cross">&#x2716;</span></td><td><span class="check">&#x2714;</span></td></tr>
             <tr><td>FluidSynth Playback</td><td><span class="cross">&#x2716;</span></td><td><span class="check">&#x2714;</span></td></tr>
             <tr><td>Audio Export (WAV/FLAC/MP3)</td><td><span class="cross">&#x2716;</span></td><td><span class="check">&#x2714;</span></td></tr>
@@ -595,11 +600,11 @@
     </div>
     <div class="hero-actions reveal" style="margin-bottom: 1.5rem;">
         <a href="download.html" class="btn btn-primary" style="font-size: 1.15rem; padding: 1rem 2.5rem;">
-            &#x2B07; Download MidiEditor AI v1.5.3
+            &#x2B07; Download MidiEditor AI v1.6.0
         </a>
     </div>
     <p class="reveal" style="color: var(--text-muted); font-size: .9rem;">
-        Portable ZIP &mdash; extract &amp; run. No installer needed.
+        Portable ZIP - extract &amp; run. No installer needed.
         &middot;
         <a href="download.html">Download details</a>
         &middot;
@@ -613,7 +618,7 @@
 <!-- ==================== FOOTER ==================== -->
 <footer class="site-footer">
     <div class="footer-links">
-        <a href="https://github.com/happytunesai/MidiEditor_AI" target="_blank" rel="noopener noreferrer">GitHub Repo</a>
+        <a href="https://github.com/happytunesai/MidiEditor_AI" class="repo-link" target="_blank" rel="noopener noreferrer"><img class="repo-logo" src="Midieditor-ai_logo.png" alt="">GitHub Repo</a>
         <a href="https://github.com/happytunesai" target="_blank" rel="noopener noreferrer">All Projects</a>
         <a href="docs-index.html">Documentation</a>
         <a href="changelog.html">Changelog</a>
@@ -804,7 +809,7 @@
     }
 
     function showSteps(steps, cb) {
-        // Create steps panel — shown immediately (no opacity transition)
+        // Create steps panel - shown immediately (no opacity transition)
         var panel = document.createElement('div');
         panel.className = 'steps-panel';
         var header = document.createElement('div');
@@ -912,7 +917,7 @@
     function runChat(idx, cb) {
         var c = CHATS[idx];
         var newMode = c.mode || 'Agent';
-        // Switch mode selector — highlight if changed
+        // Switch mode selector - highlight if changed
         if (newMode !== lastMode) {
             modeSelect.value = newMode;
             highlightMode();
@@ -944,7 +949,7 @@
                                 });
                             });
                         } else {
-                            // Simple mode — no steps, direct response
+                            // Simple mode - no steps, direct response
                             setTimeout(function(){
                                 setReady();
                                 addTimestamp('left', function(){

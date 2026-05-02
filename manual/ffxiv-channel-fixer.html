@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Fix X|V Channels - FFXIV Channel Fixer | MidiEditor AI Manual</title>
 <link rel="icon" type="image/png" href="favicon.png">
-<meta name="theme-color" content="#0d1117">
+<meta name="theme-color" content="#0B1020">
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="site.css">
   <link rel="stylesheet" href="audio.css">
@@ -46,8 +46,7 @@
 <nav class="site-nav" role="navigation" aria-label="Main navigation">
 <div class="container">
     <a href="index.html" class="nav-brand">
-        <span class="brand-icon">&#x1F3B5;</span>
-        <span>MidiEditor AI</span>
+        <img class="brand-logo" src="Midieditor-ai_banner_w.png" alt="MidiEditor AI">
     </a>
     <button class="nav-hamburger" aria-label="Toggle menu" aria-expanded="false">&#x2630;</button>
     <ul class="nav-links">
@@ -60,6 +59,8 @@
                 <a href="midipilot.html">MidiPilot AI</a>
                 <a href="prompt-examples.html">Prompt Examples</a>
                 <a href="ffxiv-channel-fixer.html">FFXIV Channel Fixer</a>
+                <a href="ffxiv-voice-limiter.html">FFXIV Voice Limiter</a>
+                <a href="tempo-conversion.html">Convert Tempo</a>
                 <a href="supported-files.html">Supported Files</a>
                 <a href="themes.html">Themes &amp; Appearance</a>
                 <a href="lyrics.html">Lyric Editor</a>
@@ -135,7 +136,7 @@ When you click <b>Fix X|V Channels</b>, a confirmation dialog appears with two m
 
 <div class="screenshot-single">
 <img src="screenshots/midipilot-ffxiv-channelfix_popup.png" alt="Fix X|V Channels confirmation dialog" width="480">
-<div class="caption">Mode selection dialog &mdash; auto-detects Rebuild or Preserve based on file analysis</div>
+<div class="caption">Mode selection dialog - auto-detects Rebuild or Preserve based on file analysis</div>
 </div>
 
 <table class="info-table">
@@ -145,12 +146,12 @@ When you click <b>Fix X|V Channels</b>, a confirmation dialog appears with two m
 <td>
 <ul style="margin:0; padding-left:1.2em;">
 <li>Maps every track to a fresh channel (T0&rarr;CH0, T1&rarr;CH1, &hellip;)</li>
-<li>Percussion tracks &rarr; CH9 &nbsp;(Timpani stays on track index &mdash; it's tonal)</li>
+<li>Percussion tracks &rarr; CH9 &nbsp;(Timpani stays on track index - it's tonal)</li>
 <li>Removes <b>all</b> existing program changes and non-essential events (CC, PitchBend, SysEx)</li>
 <li>Moves all events to the correct channel</li>
-<li>Reserves channels for <b>all 5 guitar variants</b>, even if only 1&ndash;2 are present as tracks</li>
+<li>Reserves channels for <b>all 5 guitar variants</b>, even if only 1-2 are present as tracks</li>
 <li>Inserts <code>program_change</code> at tick 0 for every instrument on every track</li>
-<li>Reserves channels for all 5 guitar variants &mdash; preparing the file for guitar variant switching in subsequent Preserve runs</li>
+<li>Reserves channels for all 5 guitar variants - preparing the file for guitar variant switching in subsequent Preserve runs</li>
 <li>Normalizes all note velocities to 127 (FFXIV has no dynamics)</li>
 </ul>
 </td>
@@ -161,7 +162,7 @@ When you click <b>Fix X|V Channels</b>, a confirmation dialog appears with two m
 <td>
 <ul style="margin:0; padding-left:1.2em;">
 <li>Keeps all existing channel assignments (uses <code>assignedChannel()</code>)</li>
-<li>Non-guitar channels <b>completely untouched</b> &mdash; no PCs removed, no events moved</li>
+<li>Non-guitar channels <b>completely untouched</b> - no PCs removed, no events moved</li>
 <li>Recognizes <b>reserved guitar channels</b> from a previous Rebuild (e.g. CH5, CH6 for unused variants)</li>
 <li>Refreshes guitar program changes at tick 0 + inserts switch PCs at variant change points</li>
 <li>Auto-renames guitar tracks if first note sits on a different variant's channel</li>
@@ -189,17 +190,17 @@ After the fix completes, a structured result popup shows exactly what was change
 
 <div class="screenshot-single">
 <img src="screenshots/midipilot-ffxiv-channelfix_popup_sucess.png" alt="Fix X|V Channels result summary" width="400">
-<div class="caption">Result summary &mdash; channel mapping table, program change statistics, and undo hint</div>
+<div class="caption">Result summary - channel mapping table, program change statistics, and undo hint</div>
 </div>
 
 <p>The result includes:</p>
 <ul>
-<li><b>Mode used</b> &mdash; Rebuild or Preserve</li>
-<li><b>Channel mapping table</b> &mdash; Track &rarr; Instrument &rarr; Channel &rarr; Program number</li>
-<li><b>Removed program changes</b> &mdash; how many old PCs were cleaned up</li>
-<li><b>Guitar switches</b> &mdash; how many mid-song variant switches were inserted</li>
-<li><b>Velocity normalization</b> &mdash; how many notes were set to maximum velocity</li>
-<li><b>Track renames</b> &mdash; any guitar tracks auto-renamed to match their actual variant</li>
+<li><b>Mode used</b> - Rebuild or Preserve</li>
+<li><b>Channel mapping table</b> - Track &rarr; Instrument &rarr; Channel &rarr; Program number</li>
+<li><b>Removed program changes</b> - how many old PCs were cleaned up</li>
+<li><b>Guitar switches</b> - how many mid-song variant switches were inserted</li>
+<li><b>Velocity normalization</b> - how many notes were set to maximum velocity</li>
+<li><b>Track renames</b> - any guitar tracks auto-renamed to match their actual variant</li>
 </ul>
 
 <hr>
@@ -217,9 +218,9 @@ After the fix completes, a structured result popup shows exactly what was change
 <div class="screenshot-single">
 <video autoplay loop muted playsinline loading="lazy" width="700" aria-label="Fix XIV Channels Rebuild mode demo">
     <source src="screenshots/ffxiv_channel_fix_rebuild.webm" type="video/webm">
-    <img src="screenshots/ffxiv_channel_fix_rebuild.gif" alt="Fix XIV Channels — Rebuild mode demo" width="700" loading="lazy">
+    <img src="screenshots/ffxiv_channel_fix_rebuild.gif" alt="Fix XIV Channels - Rebuild mode demo" width="700" loading="lazy">
 </video>
-<div class="caption"><b>Rebuild</b> &mdash; full channel reassignment from scratch</div>
+<div class="caption"><b>Rebuild</b> - full channel reassignment from scratch</div>
 </div>
 
 <h3>Preserve Mode Demo</h3>
@@ -227,9 +228,9 @@ After the fix completes, a structured result popup shows exactly what was change
 <div class="screenshot-single">
 <video autoplay loop muted playsinline loading="lazy" width="700" aria-label="Fix XIV Channels Preserve mode demo">
     <source src="screenshots/ffxiv_channel_fix_Preserve.webm" type="video/webm">
-    <img src="screenshots/ffxiv_channel_fix_Preserve.gif" alt="Fix XIV Channels — Preserve mode demo" width="700" loading="lazy">
+    <img src="screenshots/ffxiv_channel_fix_Preserve.gif" alt="Fix XIV Channels - Preserve mode demo" width="700" loading="lazy">
 </video>
-<div class="caption"><b>Preserve</b> &mdash; minimal changes, only refreshes guitar channels</div>
+<div class="caption"><b>Preserve</b> - minimal changes, only refreshes guitar channels</div>
 </div>
 
 <hr>
@@ -282,10 +283,10 @@ FFXIV electric guitar supports 5 tonal variants that share channels via <code>pr
 </p>
 
 <ul>
-<li><b>5 channels reserved</b> &mdash; Rebuild mode ensures all 5 guitar variants get a channel, even if your file only uses 1&ndash;2 variants. These reserved channels persist across saves and are recognized by Preserve mode.</li>
-<li><b>Reserved channels visible in Preserve</b> &mdash; when you manually place notes on a reserved guitar channel (e.g. Guitar harmonics on CH6), Preserve mode detects them for auto-rename and switch-point insertion.</li>
-<li><b>Mid-song switches</b> &mdash; when notes jump between guitar channels, a <code>program_change</code> is inserted at the switch point</li>
-<li><b>Auto-rename</b> &mdash; in Preserve mode, if a guitar track's first note is on a different variant's channel, the track is automatically renamed to match</li>
+<li><b>5 channels reserved</b> - Rebuild mode ensures all 5 guitar variants get a channel, even if your file only uses 1-2 variants. These reserved channels persist across saves and are recognized by Preserve mode.</li>
+<li><b>Reserved channels visible in Preserve</b> - when you manually place notes on a reserved guitar channel (e.g. Guitar harmonics on CH6), Preserve mode detects them for auto-rename and switch-point insertion.</li>
+<li><b>Mid-song switches</b> - when notes jump between guitar channels, a <code>program_change</code> is inserted at the switch point</li>
+<li><b>Auto-rename</b> - in Preserve mode, if a guitar track's first note is on a different variant's channel, the track is automatically renamed to match</li>
 </ul>
 
 <hr>
@@ -314,18 +315,18 @@ The entire Fix X|V Channels operation is wrapped in a <b>single undo action</b>.
 <h2 id="tips">Tips</h2>
 
 <ul>
-<li><b>Name your tracks correctly</b> &mdash; the fixer identifies instruments purely by track name. Use the exact FFXIV instrument names listed above</li>
-<li><b>Run Rebuild first</b> &mdash; for fresh files, always start with Rebuild mode to get a clean baseline</li>
-<li><b>Use Preserve for touch-ups</b> &mdash; if you only need to fix guitar variants after manual editing, Preserve keeps everything else intact</li>
-<li><b>Combine with MidiPilot</b> &mdash; use "Convert this for FFXIV Bard performance" in Agent mode to compose, then Fix X|V to clean up channels</li>
-<li><b>Check with validate_ffxiv</b> &mdash; after fixing, ask MidiPilot to validate for complete FFXIV rule compliance</li>
+<li><b>Name your tracks correctly</b> - the fixer identifies instruments purely by track name. Use the exact FFXIV instrument names listed above</li>
+<li><b>Run Rebuild first</b> - for fresh files, always start with Rebuild mode to get a clean baseline</li>
+<li><b>Use Preserve for touch-ups</b> - if you only need to fix guitar variants after manual editing, Preserve keeps everything else intact</li>
+<li><b>Combine with MidiPilot</b> - use "Convert this for FFXIV Bard performance" in Agent mode to compose, then Fix X|V to clean up channels</li>
+<li><b>Check with validate_ffxiv</b> - after fixing, ask MidiPilot to validate for complete FFXIV rule compliance</li>
 </ul>
 
 </main>
 
 <footer class="site-footer">
     <div class="footer-links">
-        <a href="https://github.com/happytunesai/MidiEditor_AI" target="_blank" rel="noopener noreferrer">GitHub Repo</a>
+        <a href="https://github.com/happytunesai/MidiEditor_AI" class="repo-link" target="_blank" rel="noopener noreferrer"><img class="repo-logo" src="Midieditor-ai_logo.png" alt="">GitHub Repo</a>
         <a href="https://github.com/happytunesai" target="_blank" rel="noopener noreferrer">All Projects</a>
         <a href="docs-index.html">Documentation</a>
         <a href="changelog.html">Changelog</a>

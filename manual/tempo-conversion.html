@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Convert Tempo, Preserve Duration | MidiEditor AI Manual</title>
+<link rel="icon" type="image/png" href="favicon.png">
+<meta name="theme-color" content="#0B1020">
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="site.css">
+<link rel="stylesheet" href="audio.css">
+<style>
+.screenshot-single { text-align: center; margin: 1.5rem 0; }
+.screenshot-single img { max-width: 100%; border: 1px solid var(--border); border-radius: 8px; }
+.caption { text-align: center; color: var(--text-muted); font-style: italic; margin-top: 0.5rem; font-size: 0.9rem; }
+.info-table { width: 100%; border-collapse: collapse; margin: 1rem 0 1.5rem; }
+.info-table th, .info-table td { padding: 0.6rem 0.8rem; border: 1px solid var(--border); text-align: left; }
+.info-table th { background: var(--bg-secondary); font-weight: 600; }
+.info-table tr:nth-child(even) td { background: var(--table-alt); }
+.highlight-box {
+    background: var(--bg-card);
+    border-left: 4px solid var(--accent);
+    padding: 1rem 1.25rem;
+    margin: 1.5rem 0;
+    border-radius: 0 8px 8px 0;
+}
+.highlight-box p { margin: 0; }
+.warn-box {
+    background: var(--bg-card);
+    border-left: 4px solid #FFB020;
+    padding: 1rem 1.25rem;
+    margin: 1.5rem 0;
+    border-radius: 0 8px 8px 0;
+}
+.warn-box p { margin: 0; }
+.formula {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.25rem;
+    margin: 1rem 0;
+    font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+    white-space: pre;
+    overflow-x: auto;
+}
+</style>
+</head>
+<body>
+<nav class="site-nav" role="navigation" aria-label="Main navigation">
+<div class="container">
+    <a href="index.html" class="nav-brand">
+        <img class="brand-logo" src="Midieditor-ai_banner_w.png" alt="MidiEditor AI">
+    </a>
+    <button class="nav-hamburger" aria-label="Toggle menu" aria-expanded="false">&#x2630;</button>
+    <ul class="nav-links">
+        <li><a href="index.html#features">Features</a></li>
+        <li><a href="index.html#showcase">Showcase</a></li>
+        <li class="nav-dropdown">
+            <span class="nav-dropdown-trigger active">Docs &#x25BE;</span>
+            <div class="nav-dropdown-menu">
+                <a href="docs-index.html">Manual Overview</a>
+                <a href="midipilot.html">MidiPilot AI</a>
+                <a href="prompt-examples.html">Prompt Examples</a>
+                <a href="ffxiv-channel-fixer.html">FFXIV Channel Fixer</a>
+                <a href="ffxiv-voice-limiter.html">FFXIV Voice Limiter</a>
+                <a href="tempo-conversion.html">Convert Tempo</a>
+                <a href="supported-files.html">Supported Files</a>
+                <a href="themes.html">Themes &amp; Appearance</a>
+                <a href="lyrics.html">Lyric Editor</a>
+                <a href="soundfont.html">SoundFonts &amp; FluidSynth</a>
+                <a href="mcp-server.html">MCP Server</a>
+                <a href="setup.html">Setup &amp; Installation</a>
+            </div>
+        </li>
+        <li><a href="changelog.html">Changelog</a></li>
+        <li><a href="https://github.com/happytunesai/MidiEditor_AI" target="_blank" rel="noopener noreferrer">GitHub &#x2197;</a></li>
+        <li><a href="download.html" class="nav-cta">&#x2B07; Download</a></li>
+    </ul>
+</div>
+</nav>
+
+<!-- Navigation injected by navigation.js -->
+
+<a href="#main-content" class="skip-link">Skip to main content</a>
+
+<main id="main-content">
+
+<h1><img src="tools/tempo.png" alt="Tempo" style="height:1.1em;vertical-align:middle;"> Convert Tempo, Preserve Duration</h1>
+
+<p>
+The <b>Convert Tempo, Preserve Duration</b> tool re-targets a MIDI file (or a part of it) from one
+musical tempo to another <b>without changing how long it takes to play back in real time</b>. A
+90&nbsp;BPM vocal recording dropped into a 180&nbsp;BPM project will line up bar-for-bar with the
+project grid <i>and</i> sound exactly the same speed it always did.
+</p>
+
+<div class="highlight-box">
+<p>&#x1F4A1; <b>Find it in:</b> <b>Tools &rarr; Tempo Tools &rarr; Convert Tempo, Preserve Duration&hellip;</b>,
+or right-click a track / channel / selection and pick the same entry from the context menu.</p>
+</div>
+
+<div class="screenshot-single">
+<a href="screenshots/ConvertTempo_Tool.png" class="lightbox-link">
+<img src="screenshots/ConvertTempo_Tool.png" alt="Convert Tempo, Preserve Duration dialog" loading="lazy">
+</a>
+<p class="caption">The dialog with live preview, scope chips and tempo-mode picker.</p>
+</div>
+
+<hr>
+
+<h2 id="why">Why this exists</h2>
+
+<p>
+Two existing operations almost solve the problem but neither is enough on its own:
+</p>
+<ul>
+  <li><b>Change BPM</b> - flips the tempo meta but leaves note ticks alone, so the music
+    plays back at a different speed and a different musical length.</li>
+  <li><b>Scale notes</b> - multiplies tick positions but leaves the tempo alone, so the
+    music takes longer / shorter in real time and re-aligns to different bars.</li>
+</ul>
+<p>
+Combining the two by hand is fiddly and easy to get wrong. <i>Convert Tempo, Preserve Duration</i>
+does both in one atomic, undoable operation and shows the projected duration delta before you
+commit.
+</p>
+
+<hr>
+
+<h2 id="formula">The math - one formula, one example</h2>
+
+<div class="formula">scale = target_bpm / source_bpm
+
+new_tick     = round(old_tick     * scale)
+new_duration = round(old_duration * scale)
+
+tempo_meta := target_bpm</div>
+
+<p>Worked example, 90&nbsp;BPM &rarr; 180&nbsp;BPM (<code>scale = 2.0</code>):</p>
+
+<table class="info-table">
+<thead><tr><th>Quantity</th><th>Before</th><th>After</th></tr></thead>
+<tbody>
+<tr><td>Note start tick</td><td>480</td><td>960</td></tr>
+<tr><td>Note length (ticks)</td><td>240</td><td>480</td></tr>
+<tr><td>Tempo meta</td><td>90 BPM</td><td>180 BPM</td></tr>
+<tr><td>Real-time start</td><td>0.333 s</td><td>0.333 s</td></tr>
+<tr><td>Real-time length</td><td>0.167 s</td><td>0.167 s</td></tr>
+</tbody>
+</table>
+
+<p>
+Real playback duration is preserved; the file now lives in the host project's 180&nbsp;BPM grid.
+Round-trip 90 &rarr; 180 &rarr; 90 may introduce <b>&le; 1 tick of drift per event</b> from
+rounding; the dialog shows a toast when this happens, and the optional <i>Snap to grid</i>
+checkbox cleans it up.
+</p>
+
+<hr>
+
+<h2 id="dialog">The dialog - field by field</h2>
+
+<table class="info-table">
+<thead><tr><th>Field</th><th>What it does</th></tr></thead>
+<tbody>
+<tr>
+  <td><b>Source BPM</b></td>
+  <td>Auto-detected from the tempo at tick&nbsp;0; the label shows <i>(detected)</i>. Override
+    it manually for files whose first tempo event lies elsewhere.</td>
+</tr>
+<tr>
+  <td><b>Target BPM</b></td>
+  <td>Where you want to end up. Defaults to the current project tempo.</td>
+</tr>
+<tr>
+  <td><b>Scope</b></td>
+  <td>
+    <i>Whole project</i>, <i>Selected tracks</i>, <i>Selected channels</i> or <i>Selected events</i>.
+    A chip strip below the combo lists the affected tracks / channels and lets you add or remove
+    entries on the fly - the right-click entry points pre-fill this strip from your panel
+    selection.
+  </td>
+</tr>
+<tr>
+  <td><b>Tempo handling</b></td>
+  <td>
+    <i>Replace tempo map with target tempo</i> (default), <i>Scale existing tempo map</i>, or
+    <i>Keep tempo map, scale events only</i>. The default does what most people mean by
+    "convert tempo": rewrite the tempo meta to the target BPM <b>and</b> scale every event tick
+    by <code>target/source</code> so the real-time playback length stays identical. See the
+    <a href="#modes">modes section</a> for the other two.
+  </td>
+</tr>
+<tr>
+  <td><b>Include</b> checkboxes</td>
+  <td>Notes, controllers, pitch bend, program changes, aftertouch, lyrics &amp; text events,
+    markers and time signatures - all on by default <b>except time signatures</b>, which
+    are intentionally off (scaling them moves the bar lines relative to the notes and is rarely
+    what you want).</td>
+</tr>
+<tr>
+  <td><b>Quantize after conversion</b></td>
+  <td>Optional. Runs the existing quantizer with the project grid right after the conversion so
+    the result lands cleanly on beats.</td>
+</tr>
+<tr>
+  <td><b>Live preview pane</b></td>
+  <td>Recomputes on every field change (100&nbsp;ms debounce) without modifying the file. Shows
+    the projected new duration with a &Delta; indicator, the scale factor, the affected event
+    count and the number of source tempo events.</td>
+</tr>
+</tbody>
+</table>
+
+<hr>
+
+<h2 id="modes">Tempo handling modes</h2>
+
+<table class="info-table">
+<thead><tr><th>Mode</th><th>Behaviour</th><th>Use when</th></tr></thead>
+<tbody>
+<tr>
+  <td><b>Replace tempo map with target tempo</b><br><span style="color:var(--text-muted);">(default - "just convert the BPM")</span></td>
+  <td>All <code>TempoChange</code> events are removed and a single tempo at <code>target_bpm</code>
+    is inserted at tick&nbsp;0. Event ticks scale by <code>target/source</code> so note lengths
+    grow / shrink to match. The piece sounds <b>exactly</b> the same speed as before but now
+    lives at the new BPM.</td>
+  <td>The common case: re-target a clip from one tempo to another. 90&nbsp;BPM vocal &rarr;
+    180&nbsp;BPM project, etc.</td>
+</tr>
+<tr>
+  <td><b>Scale existing tempo map</b></td>
+  <td>Tempo events keep their tick-relative position and their BPM values are inverse-scaled so
+    the real-time tempo curve is preserved at the new musical-tick rate.</td>
+  <td>Pieces with a written-in ritardando / accelerando that you want to retime without
+    flattening the tempo changes.</td>
+</tr>
+<tr>
+  <td><b>Keep tempo map, scale events only</b></td>
+  <td>The tempo map is left exactly as it was. Only the selected event ticks are rescaled.</td>
+  <td>You want a half-time / double-time correction inside a project that already runs at the
+    correct musical tempo.</td>
+</tr>
+</tbody>
+</table>
+
+<div class="warn-box">
+<p>&#x26A0; <b>Channel-scoped conversions cannot use Replace mode.</b> Rewriting the project tempo
+from a single channel's local conversion would silently retime every other channel, so the dialog
+disables <i>Replace</i> when scope is <i>Selected channels</i> and forces <i>Events only</i>
+(or, eventually, <i>Scale tempo map</i>).</p>
+</div>
+
+<hr>
+
+<h2 id="entry-points">Entry points</h2>
+
+<ul>
+  <li><b>Tools menu</b> &rarr; <b>Tempo Tools</b> &rarr; <b>Convert Tempo, Preserve
+    Duration&hellip;</b> - opens the dialog with scope set to <i>Whole project</i>.</li>
+  <li><b>Tracks panel</b> - right-click a track row, pick <i>Convert Tempo, Preserve
+    Duration&hellip;</i>. Scope is pre-set to <i>Selected tracks</i> with the right-clicked track
+    plus any other already-selected tracks pre-filled into the chip strip.</li>
+  <li><b>Channels panel</b> - same idea: right-click a channel, scope pre-set to
+    <i>Selected channels</i>.</li>
+  <li><b>Matrix / piano roll</b> - with at least one event selected, the right-click menu
+    adds the same entry with scope pre-set to <i>Selected events</i>. Mirrors the existing
+    Quantize-selection idiom.</li>
+</ul>
+<p>
+All four entry points open the same dialog and route through the same
+<code>onConvertTempoPreserveDuration(ScopeHint)</code> slot. The dialog itself remains the source
+of truth - you can change scope, chips, modes and include-flags before clicking OK.
+</p>
+
+<hr>
+
+<h2 id="safety">Safety guarantees</h2>
+
+<ul>
+  <li><b>Single undo step.</b> The whole conversion runs inside one
+    <code>Protocol::startNewAction("Convert tempo (preserve duration): X&rarr;Y BPM")</code>
+    block - one Ctrl+Z restores every event tick and the tempo map exactly.</li>
+  <li><b>NoteOn / Off pairing is preserved.</b> Each NoteOn and its matching OffEvent are scaled
+    together via <code>noteOn-&gt;offEvent()</code> so the pair never desyncs.</li>
+  <li><b>Tick-domain math.</b> Scaling happens at the absolute-tick layer; the existing MIDI
+    writer converts to deltas on save, so we never have to touch delta-time encoding.</li>
+  <li><b>Meta channels are opt-in.</b> Channels 16 (lyrics/text), 17 (tempo) and 18 (time
+    signature) are never scaled implicitly - you have to tick the matching include flag.</li>
+  <li><b>Drum / FFXIV percussion safety.</b> The CH9 program-change injection used by FFXIV
+    SoundFont Mode reads NoteOn ticks live and doesn't cache, so it stays correct after a
+    conversion.</li>
+</ul>
+
+<hr>
+
+<h2 id="warnings">Warnings the dialog raises</h2>
+
+<table class="info-table">
+<thead><tr><th>Situation</th><th>What you'll see</th></tr></thead>
+<tbody>
+<tr><td>Source &equiv; Target BPM</td><td>OK button disabled. Footer: <i>"Source and target tempo are identical - nothing to do."</i></td></tr>
+<tr><td>Scope returns 0 events</td><td>OK disabled. <i>"No events in scope."</i></td></tr>
+<tr><td>&gt; 1 tempo event in source + Replace mode</td><td>Yellow warning row: <i>"Source contains N tempo changes - they will be collapsed to a single tempo at the target BPM."</i></td></tr>
+<tr><td>Time signatures unchecked but selection contains them</td><td>Inline warning: bar lines will visually drift relative to the notes after conversion.</td></tr>
+<tr><td>Round-trip drift</td><td>After-action toast: <i>"N events scaled. Round-trip back to source BPM may differ by &le; 1 tick per event."</i></td></tr>
+</tbody>
+</table>
+
+<hr>
+
+<h2 id="related">Related</h2>
+
+<ul>
+  <li><a href="menu-tools.html">Tools menu reference</a></li>
+  <li><a href="editing-midi-files.html">Editing MIDI files</a></li>
+  <li><a href="midipilot.html">MidiPilot AI - tool calls</a></li>
+  <li><a href="ffxiv-voice-limiter.html">FFXIV Voice Limiter</a></li>
+</ul>
+
+</main>
+
+<footer class="site-footer">
+    <div class="footer-links">
+        <a href="https://github.com/happytunesai/MidiEditor_AI" class="repo-link" target="_blank" rel="noopener noreferrer"><img class="repo-logo" src="Midieditor-ai_logo.png" alt="">GitHub Repo</a>
+        <a href="https://github.com/happytunesai" target="_blank" rel="noopener noreferrer">All Projects</a>
+        <a href="docs-index.html">Documentation</a>
+        <a href="changelog.html">Changelog</a>
+        <a href="https://github.com/happytunesai/MidiEditor_AI/issues" target="_blank" rel="noopener noreferrer">Issues</a>
+        <a href="midipilot.html">MidiPilot</a>
+        <a href="supported-files.html">Supported Files</a>
+        <a href="https://www.happytunes.de" target="_blank" rel="noopener noreferrer">Happy Tunes &#x1F3B6;</a>
+    </div>
+    <p class="footer-copy">
+        MidiEditor AI &copy; 2026 &middot;
+        <a href="https://github.com/happytunesai/MidiEditor_AI/blob/main/LICENSE">License</a>
+        &middot; Made with &#x266A; + &#x1F916;
+        &middot; A <a href="https://www.happytunes.de" target="_blank" rel="noopener noreferrer">Happy Tunes</a> project
+    </p>
+</footer>
+
+<button class="scroll-top" id="scrollTopBtn" title="Back to top">&#x2191;</button>
+<script>
+(function() {
+    var btn = document.getElementById('scrollTopBtn');
+    window.addEventListener('scroll', function() {
+        btn.classList.toggle('visible', window.scrollY > 300);
+    });
+    btn.addEventListener('click', function() {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+})();
+</script>
+<script src="lightbox.js"></script>
+<script src="navigation.js"></script>
+<script src="site.js"></script>
+</body>
+</html>

@@ -433,6 +433,19 @@ protected:
     void paintMarkerBar(QPainter *painter);
 
     /**
+     * \brief Phase 32.2: paints the FFXIV voice-load overlay (yellow/red
+     * tints + per-channel rate hatch) on top of the note area when enabled.
+     */
+    void paintVoiceLoadOverlay(QPainter *painter);
+
+public:
+    /// Phase 32.2: toggle the voice-load overlay on/off (persisted by caller).
+    void setShowVoiceLoadOverlay(bool on);
+    bool showVoiceLoadOverlay() const { return _cachedShowVoiceLoad; }
+
+protected:
+
+    /**
      * \brief Handles mouse move events.
      * \param event The mouse move event
      */
@@ -599,6 +612,9 @@ private:
     bool _cachedShowCCMarkers;
     bool _cachedShowTextMarkers;
     Appearance::MarkerColorMode _cachedMarkerColorMode;
+
+    // Phase 32.2: voice-load overlay (FFXIV awareness)
+    bool _cachedShowVoiceLoad = false;
 
     // === View State ===
 

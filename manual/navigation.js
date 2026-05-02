@@ -8,6 +8,8 @@
         { href: 'midipilot.html', icon: '🤖', name: 'MidiPilot' },
         { href: 'prompt-examples.html', icon: '💬', name: 'Prompts' },
         { href: 'ffxiv-channel-fixer.html', icon: '🎮', name: 'Fix XIV' },
+        { href: 'ffxiv-voice-limiter.html', icon: '🎚️', name: 'Voices' },
+        { href: 'tempo-conversion.html', icon: '⏱️', name: 'Tempo' },
         { href: 'split-channels.html', icon: '✂️', name: 'Split' },
         { href: 'themes.html', icon: '🎨', name: 'Themes' },
         { href: 'soundfont.html', icon: '🔊', name: 'SoundFonts' },

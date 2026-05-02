@@ -18,6 +18,7 @@
 
 #include "MidiSettingsWidget.h"
 #include "Appearance.h"
+#include "../ai/FfxivVoiceAnalyzer.h"
 
 #include "../Terminal.h"
 #include "../midi/MidiFile.h"
@@ -332,6 +333,32 @@ MidiSettingsWidget::MidiSettingsWidget(QWidget *parent)
     fsLayout->addWidget(_ffxivModeCheckBox);
     connect(_ffxivModeCheckBox, SIGNAL(toggled(bool)), this, SLOT(onFfxivModeToggled(bool)));
 
+    // FFXIV Voice Limiter mode (Phase 32.5)
+    QHBoxLayout *voiceLimRow = new QHBoxLayout();
+    voiceLimRow->addWidget(new QLabel(tr("FFXIV Voice Limiter:"), _fluidSynthSettingsGroup));
+    _ffxivVoiceLimiterCombo = new QComboBox(_fluidSynthSettingsGroup);
+    _ffxivVoiceLimiterCombo->addItem(tr("Auto (follow FFXIV Mode)"), QStringLiteral("auto"));
+    _ffxivVoiceLimiterCombo->addItem(tr("Always On"),               QStringLiteral("on"));
+    _ffxivVoiceLimiterCombo->addItem(tr("Always Off"),              QStringLiteral("off"));
+    _ffxivVoiceLimiterCombo->setToolTip(tr(
+        "Controls the FFXIV voice-load gauge in the toolbar.\n"
+        "Auto: enabled while FFXIV SoundFont Mode is on.\n"
+        "Always On: always analyse, even with normal SoundFonts.\n"
+        "Always Off: hide the gauge entirely."));
+    {
+        QSettings s("MidiEditor", "NONE");
+        QString cur = s.value("FFXIV/voiceLimiter/userOverride").toString();
+        int idx = 0;
+        if (cur == "on")  idx = 1;
+        else if (cur == "off") idx = 2;
+        _ffxivVoiceLimiterCombo->setCurrentIndex(idx);
+    }
+    voiceLimRow->addWidget(_ffxivVoiceLimiterCombo);
+    voiceLimRow->addStretch();
+    fsLayout->addLayout(voiceLimRow);
+    connect(_ffxivVoiceLimiterCombo, SIGNAL(currentIndexChanged(int)),
+            this, SLOT(onFfxivVoiceLimiterModeChanged(int)));
+
     fsLayout->addLayout(gainRow);
 
     layout->addWidget(_fluidSynthSettingsGroup, 3, 0, 1, 6);
@@ -571,6 +598,24 @@ void MidiSettingsWidget::onFfxivModeToggled(bool enabled) {
         FfxivSoundFontHelper::requestDisable(window());
     }
     refreshSoundFontList();
+}
+
+void MidiSettingsWidget::onFfxivVoiceLimiterModeChanged(int /*index*/) {
+    if (!_ffxivVoiceLimiterCombo)
+        return;
+    QString mode = _ffxivVoiceLimiterCombo->currentData().toString();
+    QSettings s("MidiEditor", "NONE");
+    if (mode == "auto")
+        s.remove("FFXIV/voiceLimiter/userOverride");
+    else
+        s.setValue("FFXIV/voiceLimiter/userOverride", mode);
+
+    bool enabled;
+    if (mode == "on")       enabled = true;
+    else if (mode == "off") enabled = false;
+    else                    enabled = FluidSynthEngine::instance()
+                                       && FluidSynthEngine::instance()->ffxivSoundFontMode();
+    FfxivVoiceAnalyzer::instance()->setEnabled(enabled);
 }
 
 void MidiSettingsWidget::refreshSoundFontList() {

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>MidiEditor AI Manual</title>
 <link rel="icon" type="image/png" href="favicon.png">
-<meta name="theme-color" content="#0d1117">
+<meta name="theme-color" content="#0B1020">
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="site.css">
   <link rel="stylesheet" href="audio.css">
@@ -121,7 +121,7 @@
 
 /* Quick-start banner */
 .quick-start {
-    background: linear-gradient(135deg, #161b22 0%, #1c2129 100%);
+    background: linear-gradient(135deg, #10192A 0%, #162238 100%);
     border: 1px solid var(--border);
     border-radius: 10px;
     padding: 1.5rem 1.75rem;
@@ -284,8 +284,7 @@
 <nav class="site-nav" role="navigation" aria-label="Main navigation">
 <div class="container">
     <a href="index.html" class="nav-brand">
-        <span class="brand-icon">&#x1F3B5;</span>
-        <span>MidiEditor AI</span>
+        <img class="brand-logo" src="Midieditor-ai_banner_w.png" alt="MidiEditor AI">
     </a>
     <button class="nav-hamburger" aria-label="Toggle menu" aria-expanded="false">&#x2630;</button>
     <ul class="nav-links">
@@ -324,7 +323,7 @@
 <div class="hero">
 <pre id="ascii-logo" aria-label="MidiEditor AI"></pre>
 <p class="tagline" id="hero-tagline" style="opacity:0">Your complete guide to the AI-powered MIDI editor</p>
-    <span class="version-badge" id="hero-badge" style="opacity:0">v1.5.3 &middot; Manual</span>
+    <span class="version-badge" id="hero-badge" style="opacity:0">v1.6.0 &middot; Manual</span>
 
 <!-- Fake Chat Demo -->
 <div class="chat-demo" id="chat-demo">
@@ -373,7 +372,7 @@
 <div class="section-grid">
 
 <div class="section-card">
-<h3><span class="icon">&#x1F4AC;</span> MidiPilot &mdash; AI Copilot</h3>
+<h3><span class="icon">&#x1F4AC;</span> MidiPilot - AI Copilot</h3>
 <p class="card-desc">The integrated AI brain with live Agent streaming, provider model refresh, favourites, and natural-language MIDI editing.</p>
 <ul>
 <li><a href="midipilot.html#features">&#x2B50; Key Features</a></li>
@@ -416,7 +415,7 @@
 
 <div class="section-card">
 <h3><span class="icon"><img src="tools/ffxiv_fix.png" alt="Fix X|V" style="height:1.1em;vertical-align:middle;"></span> Fix X|V Channels</h3>
-<p class="card-desc">One-click deterministic FFXIV channel fixer &mdash; no AI needed. Sets up MidiBard2 channel mapping, program changes, and guitar variant switching.</p>
+<p class="card-desc">One-click deterministic FFXIV channel fixer - no AI needed. Sets up MidiBard2 channel mapping, program changes, and guitar variant switching.</p>
 <ul>
 <li><a href="ffxiv-channel-fixer.html#overview">&#x2699;&#xFE0F; How It Works (6-Step Algorithm)</a></li>
 <li><a href="ffxiv-channel-fixer.html#modes">&#x1F504; Rebuild vs Preserve Modes</a></li>
@@ -426,6 +425,35 @@
 <li><a href="ffxiv-channel-fixer.html#guitar">&#x1F3B8; Guitar Variant Switching</a></li>
 <li><a href="ffxiv-channel-fixer.html#validation">&#x2705; Validation</a></li>
 <li><a href="ffxiv-channel-fixer.html#tips">&#x1F4A1; Tips</a></li>
+</ul>
+</div>
+
+<div class="section-card">
+<h3><span class="icon">&#x1F3AE;</span> FFXIV Voice Limiter</h3>
+<p class="card-desc">Live voice-load gauge + lane that surface the 16-voice ceiling and 14&nbsp;notes/s/channel rate cap before the game silently drops your notes.</p>
+<ul>
+<li><a href="ffxiv-voice-limiter.html#why">&#x1F4DD; The FFXIV constraints</a></li>
+<li><a href="ffxiv-voice-limiter.html#thresholds">&#x1F4CF; Thresholds (green / yellow / red)</a></li>
+<li><a href="ffxiv-voice-limiter.html#gauge">&#x1F50A; Toolbar gauge</a></li>
+<li><a href="ffxiv-voice-limiter.html#lane">&#x1F4CA; Voice-load lane</a></li>
+<li><a href="ffxiv-voice-limiter.html#analyzer">&#x2699;&#xFE0F; Analyser engine &amp; sample-tail simulation</a></li>
+<li><a href="ffxiv-voice-limiter.html#settings">&#x1F527; Settings</a></li>
+<li><a href="ffxiv-voice-limiter.html#ai-tool">&#x1F916; <code>analyze_voice_load</code> AI tool</a></li>
+<li><a href="ffxiv-voice-limiter.html#demo">&#x25B6;&#xFE0F; Demo video</a></li>
+</ul>
+</div>
+
+<div class="section-card">
+<h3><span class="icon"><img src="tools/tempo.png" alt="Tempo" style="height:1.1em;vertical-align:middle;"></span> Convert Tempo, Preserve Duration</h3>
+<p class="card-desc">Re-target a MIDI from one BPM to another while keeping the real-time playback length identical - one atomic, undoable action.</p>
+<ul>
+<li><a href="tempo-conversion.html#why">&#x1F4DD; Why this exists</a></li>
+<li><a href="tempo-conversion.html#formula">&#x1F4D0; Math &amp; worked example (90 &rarr; 180 BPM)</a></li>
+<li><a href="tempo-conversion.html#dialog">&#x1F5A5;&#xFE0F; Dialog - field by field</a></li>
+<li><a href="tempo-conversion.html#modes">&#x1F504; Replace / Scale / Events-only modes</a></li>
+<li><a href="tempo-conversion.html#entry-points">&#x1F4CD; Entry points (menu, panels, matrix)</a></li>
+<li><a href="tempo-conversion.html#safety">&#x1F6E1;&#xFE0F; Safety guarantees</a></li>
+<li><a href="tempo-conversion.html#warnings">&#x26A0;&#xFE0F; Warnings the dialog raises</a></li>
 </ul>
 </div>
 
@@ -459,7 +487,7 @@
 
 <div class="section-card">
 <h3><span class="icon">&#x1F3B6;</span> Audio Export</h3>
-<p class="card-desc">Render MIDI to WAV, FLAC, OGG Vorbis, or MP3 using loaded SoundFonts. Built-in LAME 3.100 MP3 encoder &mdash; no external tools needed.</p>
+<p class="card-desc">Render MIDI to WAV, FLAC, OGG Vorbis, or MP3 using loaded SoundFonts. Built-in LAME 3.100 MP3 encoder - no external tools needed.</p>
 <ul>
 <li><a href="export-audio.html#how-to">&#x1F3AC; How to Export</a></li>
 <li><a href="export-audio.html#dialog">&#x2699;&#xFE0F; Export Dialog</a></li>
@@ -514,11 +542,11 @@
 
 <div class="section-card">
 <h3><span class="icon">&#x1F4C2;</span> Supported Files</h3>
-<p class="card-desc">Open MIDI, Guitar Pro (GP1&ndash;GP8), MusicXML, and MuseScore files directly &mdash; one unified reference for every supported input format.</p>
+<p class="card-desc">Open MIDI, Guitar Pro (GP1-GP8), MusicXML, and MuseScore files directly - one unified reference for every supported input format.</p>
 <ul>
 <li><a href="supported-files.html#overview">&#x1F4CB; Format Overview</a></li>
 <li><a href="supported-files.html#midi">&#x1F3B5; MIDI</a></li>
-<li><a href="supported-files.html#guitar-pro">&#x1F3B8; Guitar Pro (GP1&ndash;GP8)</a></li>
+<li><a href="supported-files.html#guitar-pro">&#x1F3B8; Guitar Pro (GP1-GP8)</a></li>
 <li><a href="supported-files.html#musicxml">&#x1F3BC; MusicXML &amp; MXL</a></li>
 <li><a href="supported-files.html#musescore">&#x1F3BB; MuseScore (.mscz / .mscx)</a></li>
 <li><a href="supported-files.html#workflow-ffxiv">&#x1F3AE; Score &rarr; FFXIV Workflow</a></li>
@@ -633,7 +661,7 @@
 
 <footer class="site-footer">
     <div class="footer-links">
-        <a href="https://github.com/happytunesai/MidiEditor_AI" target="_blank" rel="noopener noreferrer">GitHub Repo</a>
+        <a href="https://github.com/happytunesai/MidiEditor_AI" class="repo-link" target="_blank" rel="noopener noreferrer"><img class="repo-logo" src="Midieditor-ai_logo.png" alt="">GitHub Repo</a>
         <a href="https://github.com/happytunesai" target="_blank" rel="noopener noreferrer">All Projects</a>
         <a href="docs-index.html">Documentation</a>
         <a href="changelog.html">Changelog</a>

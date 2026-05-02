@@ -23,11 +23,29 @@
 #include <QSharedMemory>
 #include <QSystemSemaphore>
 #include <QList>
+#include <QHash>
+#include <QString>
 #include <QByteArray>
 
 // Forward declarations
 class MidiEvent;
 class MidiFile;
+
+/**
+ * \brief Per-event source metadata recovered from a cross-instance paste.
+ *
+ * Phase 34 widens the per-event header so the paste site can re-create
+ * the source's track structure (and avoid collapsing every event onto
+ * the current edit target). `originalTime` and `originalChannel` remain
+ * the same fields exposed by the legacy QPair API; `sourceTrackId` and
+ * `sourceTrackName` are the new pieces of metadata.
+ */
+struct PasteSourceInfo {
+    int originalTime = -1;       ///< Event tick in source file
+    int originalChannel = -1;    ///< Source MIDI channel (0..18, -1 = invalid)
+    int sourceTrackId = -1;      ///< Source MidiTrack::number(); -1 if missing
+    QString sourceTrackName;     ///< Source MidiTrack::name(); empty if missing
+};
 
 /**
  * \class SharedClipboard
@@ -108,6 +126,31 @@ public:
      * @return QPair of (midiTime, channel) or (-1, -1) if invalid
      */
     static QPair<int, int> getOriginalTiming(int index);
+
+    /**
+     * @brief Phase 34 — get full source metadata for a deserialized event.
+     * @param index Event index (matches the order returned by pasteEvents)
+     * @return Filled PasteSourceInfo, or default-constructed if index invalid.
+     */
+    static PasteSourceInfo getPasteSourceInfo(int index);
+
+    /**
+     * @brief Phase 34 — distinct source track ids referenced by the
+     * currently deserialized clipboard, mapped to their source names
+     * (empty string when unknown). Insertion-ordered for deterministic
+     * track creation downstream.
+     */
+    static QList<QPair<int, QString>> sourceTrackList();
+
+    /**
+     * @brief Phase 36.x — ticksPerQuarter of the source MidiFile at the
+     * time the clipboard buffer was written. Read by pasteEvents() and
+     * cached so EventTool can scale event timings into the target
+     * file's tick coordinates (mirrors the local clipboard's
+     * `_copiedTicksPerQuarter` rescale in pasteAction()).
+     * Returns 0 when no clipboard read has happened yet.
+     */
+    static int sourceTicksPerQuarter();
 
 private:
     explicit SharedClipboard(QObject *parent = nullptr);

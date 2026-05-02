@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MidiPilot &mdash; AI Copilot | MidiEditor AI Manual</title>
+<title>MidiPilot - AI Copilot | MidiEditor AI Manual</title>
 <link rel="icon" type="image/png" href="favicon.png">
-<meta name="theme-color" content="#0d1117">
+<meta name="theme-color" content="#0B1020">
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="site.css">
   <link rel="stylesheet" href="audio.css">
@@ -80,8 +80,7 @@
 <nav class="site-nav" role="navigation" aria-label="Main navigation">
 <div class="container">
     <a href="index.html" class="nav-brand">
-        <span class="brand-icon">&#x1F3B5;</span>
-        <span>MidiEditor AI</span>
+        <img class="brand-logo" src="Midieditor-ai_banner_w.png" alt="MidiEditor AI">
     </a>
     <button class="nav-hamburger" aria-label="Toggle menu" aria-expanded="false">&#x2630;</button>
     <ul class="nav-links">
@@ -94,6 +93,8 @@
                 <a href="midipilot.html">MidiPilot AI</a>
                 <a href="prompt-examples.html">Prompt Examples</a>
                 <a href="ffxiv-channel-fixer.html">FFXIV Channel Fixer</a>
+                <a href="ffxiv-voice-limiter.html">FFXIV Voice Limiter</a>
+                <a href="tempo-conversion.html">Convert Tempo</a>
                 <a href="supported-files.html">Supported Files</a>
                 <a href="themes.html">Themes &amp; Appearance</a>
                 <a href="lyrics.html">Lyric Editor</a>
@@ -116,7 +117,7 @@
 
 <main id="main-content">
 
-<h1 id="midipilot">MidiPilot &mdash; Your AI Copilot</h1>
+<h1 id="midipilot">MidiPilot - Your AI Copilot</h1>
 
 <p>
 MidiPilot is the AI brain embedded directly in MidiEditor AI. Open the sidebar panel, type what you want in plain English, and watch it compose, edit, transform, and analyze your MIDI data automatically.
@@ -126,7 +127,7 @@ MidiPilot is the AI brain embedded directly in MidiEditor AI. Open the sidebar p
 <video autoplay loop muted playsinline loading="lazy" width="900" aria-label="MidiPilot Agent mode streaming live with GPT-5.5">
     <source src="screenshots/midieditor_ai_gpt55_streaming.webm" type="video/webm">
 </video>
-<div class="caption">MidiPilot Agent mode composing a full arrangement from a single prompt &mdash; live streaming with GPT-5.5 (Responses API)</div>
+<div class="caption">MidiPilot Agent mode composing a full arrangement from a single prompt - live streaming with GPT-5.5 (Responses API)</div>
 </div>
 
 <hr>
@@ -136,7 +137,7 @@ MidiPilot is the AI brain embedded directly in MidiEditor AI. Open the sidebar p
 <div class="feature-grid">
 <a class="feature-card" href="#agent-mode">
 <h4>&#x1F3AF; Agent Mode</h4>
-<p>Multi-step agentic loop &mdash; the AI calls tools iteratively, inspecting results between steps to build complex compositions from a single prompt.</p>
+<p>Multi-step agentic loop - the AI calls tools iteratively, inspecting results between steps to build complex compositions from a single prompt.</p>
 <span class="card-arrow">Learn more &rarr;</span>
 </a>
 <a class="feature-card" href="#simple-mode">
@@ -146,7 +147,7 @@ MidiPilot is the AI brain embedded directly in MidiEditor AI. Open the sidebar p
 </a>
 <a class="feature-card" href="#ffxiv-mode">
 <h4>&#x1F3AE; FFXIV Bard Mode</h4>
-<p>Enforces Final Fantasy XIV Performance constraints &mdash; 8 tracks, monophonic, C3&ndash;C6 range, tonal drum conversion for MidiBard2 octets.</p>
+<p>Enforces Final Fantasy XIV Performance constraints - 8 tracks, monophonic, C3-C6 range, tonal drum conversion for MidiBard2 octets.</p>
 <span class="card-arrow">Learn more &rarr;</span>
 </a>
 <a class="feature-card" href="#providers">
@@ -161,7 +162,7 @@ MidiPilot is the AI brain embedded directly in MidiEditor AI. Open the sidebar p
 </a>
 <a class="feature-card" href="#system-prompts">
 <h4>&#x270F;&#xFE0F; Custom System Prompts</h4>
-<p>Edit AI behavior per mode via the built-in editor. Export/import as JSON &mdash; no recompiling needed.</p>
+<p>Edit AI behavior per mode via the built-in editor. Export/import as JSON - no recompiling needed.</p>
 <span class="card-arrow">Learn more &rarr;</span>
 </a>
 <a class="feature-card" href="#conversation-history">
@@ -191,14 +192,14 @@ MidiPilot is the AI brain embedded directly in MidiEditor AI. Open the sidebar p
 <h2 id="chat-panel">Chat Panel</h2>
 
 <p>
-The MidiPilot panel features a clean chat interface with context-aware track info, mode selection (Agent / Simple), and model switching &mdash; all accessible without leaving the editor. Assistant bubbles and the live reasoning stream render <b>Markdown</b> (bold, italic, lists, fenced code, links); user and system bubbles stay plain text.
+The MidiPilot panel features a clean chat interface with context-aware track info, mode selection (Agent / Simple), and model switching - all accessible without leaving the editor. Assistant bubbles and the live reasoning stream render <b>Markdown</b> (bold, italic, lists, fenced code, links); user and system bubbles stay plain text.
 </p>
 
 <div class="screenshot-row">
 <img src="screenshots/midipilot-panel.png" alt="MidiPilot chat panel in light theme" width="380">
 <img src="screenshots/midipilot-panel-alt.png" alt="MidiPilot chat panel in dark theme" width="380">
 </div>
-<div class="caption">Docked MidiPilot panel side by side &mdash; Light theme (left) and Dark theme (right)</div>
+<div class="caption">Docked MidiPilot panel side by side - Light theme (left) and Dark theme (right)</div>
 
 <p>
 The input bar at the bottom provides quick access to everything you need:
@@ -213,16 +214,16 @@ The input bar at the bottom provides quick access to everything you need:
 </div>
 
 <ul>
-<li><b>Mode selector</b> &mdash; Switch between Agent (multi-step) and Simple (single response)</li>
-<li><b>New Chat</b> &mdash; Start a fresh conversation (previous one is auto-saved to history)</li>
-<li><b>History</b> &mdash; Browse and resume past conversations</li>
-<li><b>FFXIV checkbox</b> &mdash; Enable FFXIV Bard Performance constraints</li>
-<li><b>Model dropdown</b> &mdash; Switch models on the fly without opening settings</li>
-<li><b>Reasoning level</b> &mdash; Adjust thinking effort (when supported by the model)</li>
-<li><b>Token counter</b> &mdash; Shows session usage vs. context window size</li>
-<li><b>Send / Stop</b> &mdash; Send your prompt or cancel an in-progress Agent run</li>
-<li><b>Settings gear</b> &mdash; Open MidiPilot Settings&hellip; or save per-file AI presets</li>
-<li><b>Status indicator</b> &mdash; Shows Ready, Thinking, or error states in real time</li>
+<li><b>Mode selector</b> - Switch between Agent (multi-step) and Simple (single response)</li>
+<li><b>New Chat</b> - Start a fresh conversation (previous one is auto-saved to history)</li>
+<li><b>History</b> - Browse and resume past conversations</li>
+<li><b>FFXIV checkbox</b> - Enable FFXIV Bard Performance constraints</li>
+<li><b>Model dropdown</b> - Switch models on the fly without opening settings</li>
+<li><b>Reasoning level</b> - Adjust thinking effort (when supported by the model)</li>
+<li><b>Token counter</b> - Shows session usage vs. context window size</li>
+<li><b>Send / Stop</b> - Send your prompt or cancel an in-progress Agent run</li>
+<li><b>Settings gear</b> - Open MidiPilot Settings&hellip; or save per-file AI presets</li>
+<li><b>Status indicator</b> - Shows Ready, Thinking, or error states in real time</li>
 </ul>
 
 <hr>
@@ -230,7 +231,7 @@ The input bar at the bottom provides quick access to everything you need:
 <h2 id="simple-mode">Simple Mode (One-Shot)</h2>
 
 <p>
-Simple mode sends a <b>single API call</b> to the AI model containing your instruction, the current editor state, selected events, and surrounding musical context. The model responds with one complete answer &mdash; no follow-up calls, no iterative loop.
+Simple mode sends a <b>single API call</b> to the AI model containing your instruction, the current editor state, selected events, and surrounding musical context. The model responds with one complete answer - no follow-up calls, no iterative loop.
 </p>
 
 <h3>How It Works</h3>
@@ -245,18 +246,18 @@ Simple mode sends a <b>single API call</b> to the AI model containing your instr
 <h3>When to Use Simple Mode</h3>
 
 <ul>
-<li><b>Quick edits</b> &mdash; transpose a selection, quantize notes, change velocities</li>
-<li><b>Small segments</b> &mdash; work on a specific track or a few measures</li>
-<li><b>Focused tasks</b> &mdash; delete notes, change instruments, adjust tempo</li>
-<li><b>Fast turnaround</b> &mdash; one call means instant results with no waiting for multi-step loops</li>
+<li><b>Quick edits</b> - transpose a selection, quantize notes, change velocities</li>
+<li><b>Small segments</b> - work on a specific track or a few measures</li>
+<li><b>Focused tasks</b> - delete notes, change instruments, adjust tempo</li>
+<li><b>Fast turnaround</b> - one call means instant results with no waiting for multi-step loops</li>
 </ul>
 
 <h3>Limitations</h3>
 
 <ul>
-<li><b>Token limit risk</b> &mdash; Complex requests (many tracks, long passages) can exceed the model&rsquo;s output token limit. When this happens the response is <b>truncated</b>, which can result in incomplete or broken edits</li>
-<li><b>No tool access</b> &mdash; The model cannot call tools to inspect the file or request additional context. It works only with whatever was included in the initial snapshot</li>
-<li><b>No self-correction</b> &mdash; If something goes wrong, it cannot verify or retry. You have to undo and try again manually</li>
+<li><b>Token limit risk</b> - Complex requests (many tracks, long passages) can exceed the model&rsquo;s output token limit. When this happens the response is <b>truncated</b>, which can result in incomplete or broken edits</li>
+<li><b>No tool access</b> - The model cannot call tools to inspect the file or request additional context. It works only with whatever was included in the initial snapshot</li>
+<li><b>No self-correction</b> - If something goes wrong, it cannot verify or retry. You have to undo and try again manually</li>
 </ul>
 
 <p>
@@ -267,7 +268,7 @@ If MidiPilot detects a truncated response (<code>finish_reason: "length"</code>)
 <video autoplay loop muted playsinline loading="lazy" width="900" aria-label="Simple Mode one-shot response from GPT-5.5">
     <source src="screenshots/midieditor_ai_gpt_simple_gpt55.webm" type="video/webm">
 </video>
-<div class="caption">Simple Mode &mdash; one-shot response from GPT-5.5 streaming text and the resulting JSON action into the editor</div>
+<div class="caption">Simple Mode - one-shot response from GPT-5.5 streaming text and the resulting JSON action into the editor</div>
 </div>
 
 <hr>
@@ -275,13 +276,13 @@ If MidiPilot detects a truncated response (<code>finish_reason: "length"</code>)
 <h2 id="agent-mode">Agent Mode (Multi-Step)</h2>
 
 <p>
-Agent mode is the powerhouse for complex compositions and large-scale edits. Instead of squeezing everything into one response, the AI works <b>iteratively</b> &mdash; planning, executing, inspecting, and adjusting across multiple API calls until the task is complete.
+Agent mode is the powerhouse for complex compositions and large-scale edits. Instead of squeezing everything into one response, the AI works <b>iteratively</b> - planning, executing, inspecting, and adjusting across multiple API calls until the task is complete.
 </p>
 
 <h3>How It Works</h3>
 
 <ol>
-<li>Your prompt is sent along with the system prompt and a set of <b>15 tools</b> the model can call</li>
+<li>Your prompt is sent along with the system prompt and a set of <b>16 tools</b> the model can call</li>
 <li>The model responds with one or more <b>tool calls</b> (e.g., <code>create_track</code>, <code>insert_events</code>, <code>get_editor_state</code>)</li>
 <li>MidiEditor executes each tool call and sends the results back to the model</li>
 <li>The model reviews the results, decides the next step, and issues more tool calls</li>
@@ -291,11 +292,11 @@ Agent mode is the powerhouse for complex compositions and large-scale edits. Ins
 <h3>Why This Matters</h3>
 
 <ul>
-<li><b>No token limit risk</b> &mdash; Work is split across many smaller API calls, so each individual response stays well within token limits. No truncation, no data loss</li>
-<li><b>Self-monitoring</b> &mdash; The model can call <code>get_editor_state</code> or <code>query_events</code> at any time to inspect what it has built so far, catch mistakes, and correct them</li>
-<li><b>Complex compositions</b> &mdash; Multi-track arrangements, genre conversions, full orchestrations &mdash; tasks that would overwhelm a single response are handled step by step</li>
-<li><b>Parallel tool calls</b> &mdash; The model can issue multiple tool calls in a single step (e.g., create three tracks at once), speeding up large jobs</li>
-<li><b>Granular undo</b> &mdash; Each tool call from an Agent run gets its own undo step. Press Ctrl+Z to revert one action at a time, keeping the rest intact</li>
+<li><b>No token limit risk</b> - Work is split across many smaller API calls, so each individual response stays well within token limits. No truncation, no data loss</li>
+<li><b>Self-monitoring</b> - The model can call <code>get_editor_state</code> or <code>query_events</code> at any time to inspect what it has built so far, catch mistakes, and correct them</li>
+<li><b>Complex compositions</b> - Multi-track arrangements, genre conversions, full orchestrations - tasks that would overwhelm a single response are handled step by step</li>
+<li><b>Parallel tool calls</b> - The model can issue multiple tool calls in a single step (e.g., create three tracks at once), speeding up large jobs</li>
+<li><b>Granular undo</b> - Each tool call from an Agent run gets its own undo step. Press Ctrl+Z to revert one action at a time, keeping the rest intact</li>
 </ul>
 
 <h3>Agent Steps Panel</h3>
@@ -315,18 +316,18 @@ During an Agent run, a collapsible <b>Agent Steps</b> panel appears below the ch
 <h3>When to Use Agent Mode</h3>
 
 <ul>
-<li><b>Composing from scratch</b> &mdash; &ldquo;Create a jazz waltz with piano, bass, and drums&rdquo;</li>
-<li><b>Multi-track work</b> &mdash; Adding harmonies, arranging for multiple instruments</li>
-<li><b>Genre conversion</b> &mdash; &ldquo;Make this classical piece into a metal version&rdquo;</li>
-<li><b>FFXIV setups</b> &mdash; Preparing an 8-track octet with channel mapping and drum conversion</li>
-<li><b>Analysis tasks</b> &mdash; &ldquo;Check all tracks for issues and fix them&rdquo;</li>
+<li><b>Composing from scratch</b> - &ldquo;Create a jazz waltz with piano, bass, and drums&rdquo;</li>
+<li><b>Multi-track work</b> - Adding harmonies, arranging for multiple instruments</li>
+<li><b>Genre conversion</b> - &ldquo;Make this classical piece into a metal version&rdquo;</li>
+<li><b>FFXIV setups</b> - Preparing an 8-track octet with channel mapping and drum conversion</li>
+<li><b>Analysis tasks</b> - &ldquo;Check all tracks for issues and fix them&rdquo;</li>
 </ul>
 
 <h3>Configuration</h3>
 
 <table>
 <tr><th>Setting</th><th>Description</th></tr>
-<tr><td><b>Agent Max Steps</b></td><td>Maximum tool calls per request (5&ndash;100, default 50). Increase for very large compositions.</td></tr>
+<tr><td><b>Agent Max Steps</b></td><td>Maximum tool calls per request (5-100, default 50). Increase for very large compositions.</td></tr>
 <tr><td><b>Token Limit</b></td><td>Optional output cap. Agent mode is less sensitive to this since each call is smaller, but very low limits can still truncate individual steps.</td></tr>
 </table>
 
@@ -338,19 +339,19 @@ The agent loop is wrapped by a lightweight <b>conductor</b> that owns a compact,
 
 <ul>
 <li>After every successful tool call, the conductor distils a one-line confirmation into the working state (e.g. <i>&ldquo;Tempo set to 82 BPM&rdquo;</i>, <i>&ldquo;8 tracks created&rdquo;</i>) so the model resumes from real progress instead of re-deriving it from raw tool output.</li>
-<li>After a rejected write (validation error, FFXIV violation, capability error&hellip;), the conductor injects a short, <b>positive</b> rejection guidance &mdash; describing what should be tried next instead of restating what failed.</li>
+<li>After a rejected write (validation error, FFXIV violation, capability error&hellip;), the conductor injects a short, <b>positive</b> rejection guidance - describing what should be tried next instead of restating what failed.</li>
 <li>If two consecutive write attempts fail without making progress, the conductor performs a <b>bounded-failure stop</b> and reports the remaining problem in plain language instead of looping forever.</li>
 </ul>
 
 <h3>GPT-5.5 model-isolation policy</h3>
 
 <p>
-For OpenAI <code>gpt-5.5*</code>, MidiPilot applies a small set of model-specific mitigations through a central policy table &mdash; <b>nothing else is touched</b>. Currently:
+For OpenAI <code>gpt-5.5*</code>, MidiPilot applies a small set of model-specific mitigations through a central policy table - <b>nothing else is touched</b>. Currently:
 </p>
 
 <ul>
-<li><b>Schema-light tools</b> &mdash; the <code>insert_events</code> / <code>replace_events</code> JSON schema drops the <code>pitch_bend</code> branch that this model frequently mis-emits.</li>
-<li><b>Sanitised, positive rejection guidance</b> &mdash; rejection messages avoid phrasing the model is known to over-react to.</li>
+<li><b>Schema-light tools</b> - the <code>insert_events</code> / <code>replace_events</code> JSON schema drops the <code>pitch_bend</code> branch that this model frequently mis-emits.</li>
+<li><b>Sanitised, positive rejection guidance</b> - rejection messages avoid phrasing the model is known to over-react to.</li>
 <li><b>Serial tool calls + low reasoning effort</b> on the OpenAI Responses API (<code>parallel_tool_calls: false</code>, <code>reasoning.effort: "low"</code>).</li>
 </ul>
 
@@ -367,24 +368,24 @@ When the <b>FFXIV</b> checkbox is enabled, MidiPilot appends additional constrai
 </p>
 
 <ul>
-<li><b>Agent + FFXIV</b> &mdash; Full FFXIV context (~3500 chars) with detailed guidance + 3 FFXIV-specific tools (<code>validate_ffxiv</code>, <code>convert_drums_ffxiv</code>, <code>setup_channel_pattern</code>)</li>
-<li><b>Simple + FFXIV</b> &mdash; Compact FFXIV context (~1300 chars) optimized for token budget. Includes a warning that large compositions may exceed limits</li>
+<li><b>Agent + FFXIV</b> - Full FFXIV context (~3500 chars) with detailed guidance + 3 FFXIV-specific tools (<code>validate_ffxiv</code>, <code>convert_drums_ffxiv</code>, <code>setup_channel_pattern</code>)</li>
+<li><b>Simple + FFXIV</b> - Compact FFXIV context (~1300 chars) optimized for token budget. Includes a warning that large compositions may exceed limits</li>
 </ul>
 
 <h3>Enforced Rules Overview</h3>
 
 <ul>
-<li>&#x2705; <b>Note range C3&ndash;C6</b> (MIDI 48&ndash;84) &mdash; strict boundaries, no notes outside</li>
-<li>&#x2705; <b>Monophonic tracks</b> &mdash; one note at a time (Lute/Harp/Piano allow limited chords)</li>
-<li>&#x2705; <b>Track name = instrument</b> &mdash; the track name determines which instrument the bard equips in-game (29 valid names)</li>
-<li>&#x2705; <b>Instrument &rarr; GM program mapping</b> &mdash; correct <code>program_change</code> at tick 0 per channel</li>
-<li>&#x2705; <b>Channels are cosmetic</b> &mdash; the channel number does not affect the instrument. Unique channels per track are recommended for clean editing, but not required</li>
-<li>&#x2705; <b>Drums can stay on channel 9</b> &mdash; the track name (Bass Drum, Snare Drum, Cymbal, etc.) determines the percussion instrument, not the channel</li>
-<li>&#x2705; <b>GM drum conversion</b> &mdash; kick &rarr; Bass Drum C4, snare &rarr; Snare C5, hi-hat &rarr; Cymbal C6, crash &rarr; Cymbal C5, toms &rarr; Timpani</li>
-<li>&#x2705; <b>Guitar switches</b> &mdash; the only case where channels matter functionally. Each of the 5 variants (Clean, Muted, Overdriven, PowerChords, Special) needs its own channel with <code>program_change</code> at tick 0. Switch sound mid-track by changing the note&rsquo;s channel</li>
-<li>&#x2705; <b>No pitch bend / no velocity editing</b> &mdash; velocity fixed at 100</li>
-<li>&#x2705; <b>Instrument transposition</b> &mdash; native ranges mapped per instrument (e.g., Piano C4&ndash;C7 = &minus;1 octave, Tuba C1&ndash;C4 = +2 octaves)</li>
-<li>&#x2705; <b>Track ordering</b> &mdash; melodic instruments first, drums at end (highest track indices)</li>
+<li>&#x2705; <b>Note range C3-C6</b> (MIDI 48-84) - strict boundaries, no notes outside</li>
+<li>&#x2705; <b>Monophonic tracks</b> - one note at a time (Lute/Harp/Piano allow limited chords)</li>
+<li>&#x2705; <b>Track name = instrument</b> - the track name determines which instrument the bard equips in-game (29 valid names)</li>
+<li>&#x2705; <b>Instrument &rarr; GM program mapping</b> - correct <code>program_change</code> at tick 0 per channel</li>
+<li>&#x2705; <b>Channels are cosmetic</b> - the channel number does not affect the instrument. Unique channels per track are recommended for clean editing, but not required</li>
+<li>&#x2705; <b>Drums can stay on channel 9</b> - the track name (Bass Drum, Snare Drum, Cymbal, etc.) determines the percussion instrument, not the channel</li>
+<li>&#x2705; <b>GM drum conversion</b> - kick &rarr; Bass Drum C4, snare &rarr; Snare C5, hi-hat &rarr; Cymbal C6, crash &rarr; Cymbal C5, toms &rarr; Timpani</li>
+<li>&#x2705; <b>Guitar switches</b> - the only case where channels matter functionally. Each of the 5 variants (Clean, Muted, Overdriven, PowerChords, Special) needs its own channel with <code>program_change</code> at tick 0. Switch sound mid-track by changing the note&rsquo;s channel</li>
+<li>&#x2705; <b>No pitch bend / no velocity editing</b> - velocity fixed at 100</li>
+<li>&#x2705; <b>Instrument transposition</b> - native ranges mapped per instrument (e.g., Piano C4-C7 = &minus;1 octave, Tuba C1-C4 = +2 octaves)</li>
+<li>&#x2705; <b>Track ordering</b> - melodic instruments first, drums at end (highest track indices)</li>
 </ul>
 
 <p>
@@ -397,12 +398,12 @@ See <a href="prompt-examples.html#ffxiv">FFXIV Prompt Examples</a> for tested pr
 
 <p>
 The <b>Fix X|V Channels</b> tool provides a <b>one-click, deterministic</b> channel fixer
-that sets up the complete MidiBard2 channel mapping &mdash; no AI calls needed.
+that sets up the complete MidiBard2 channel mapping - no AI calls needed.
 Find it in the toolbar or via <b>Tools &rarr; Fix X|V Channels</b>.
 </p>
 
 <p>
-&#x1F449; <a href="ffxiv-channel-fixer.html"><b>Full documentation: Fix X|V Channels</b></a> &mdash;
+&#x1F449; <a href="ffxiv-channel-fixer.html"><b>Full documentation: Fix X|V Channels</b></a> -
 the 5-step algorithm, Rebuild vs Preserve modes, supported instruments, guitar variant switching,
 before/after screenshots, and tips.
 </p>
@@ -414,13 +415,13 @@ before/after screenshots, and tips.
 <table>
 <tr><th>Feature</th><th>Simple Mode</th><th>Agent Mode</th></tr>
 <tr><td><b>API Calls</b></td><td>1 (one-shot)</td><td>Multiple (iterative loop)</td></tr>
-<tr><td><b>Tool Access</b></td><td>None</td><td>15 tools</td></tr>
-<tr><td><b>Self-Correction</b></td><td>No</td><td>Yes &mdash; can inspect and fix</td></tr>
-<tr><td><b>Token Limit Risk</b></td><td>High for complex tasks</td><td>Low &mdash; work is split</td></tr>
+<tr><td><b>Tool Access</b></td><td>None</td><td>16 tools</td></tr>
+<tr><td><b>Self-Correction</b></td><td>No</td><td>Yes - can inspect and fix</td></tr>
+<tr><td><b>Token Limit Risk</b></td><td>High for complex tasks</td><td>Low - work is split</td></tr>
 <tr><td><b>Truncation Handling</b></td><td>Warns, suggests Agent mode</td><td>Per-step, can continue</td></tr>
 <tr><td><b>Speed</b></td><td>Fast (single round-trip)</td><td>Slower (multiple round-trips)</td></tr>
 <tr><td><b>UI Feedback</b></td><td>Streaming text or action preview</td><td>Live thoughts, assistant text, and Agent Steps panel</td></tr>
-<tr><td><b>Undo</b></td><td>Per action</td><td>Granular &mdash; one Ctrl+Z per tool call</td></tr>
+<tr><td><b>Undo</b></td><td>Per action</td><td>Granular - one Ctrl+Z per tool call</td></tr>
 <tr><td><b>Ideal For</b></td><td>Quick edits, small changes</td><td>Complex compositions, multi-track</td></tr>
 </table>
 
@@ -437,10 +438,10 @@ MidiPilot tracks token usage per API call and per session, with automatic normal
 </p>
 
 <ul>
-<li><b>Last call</b> &mdash; Prompt + completion tokens from the most recent API call</li>
-<li><b>Session total</b> &mdash; Cumulative tokens since the chat was opened (&#x1F525; fire icon)</li>
-<li><b>Context window</b> &mdash; The model&rsquo;s known context limit (e.g., 128k for GPT-4o, 1M for GPT-5). Turns yellow when usage exceeds 80%</li>
-<li><b>Limit</b> &mdash; Only shown when a max token limit is enabled (&#x2702; scissors icon)</li>
+<li><b>Last call</b> - Prompt + completion tokens from the most recent API call</li>
+<li><b>Session total</b> - Cumulative tokens since the chat was opened (&#x1F525; fire icon)</li>
+<li><b>Context window</b> - The model&rsquo;s known context limit (e.g., 128k for GPT-4o, 1M for GPT-5). Turns yellow when usage exceeds 80%</li>
+<li><b>Limit</b> - Only shown when a max token limit is enabled (&#x2702; scissors icon)</li>
 </ul>
 
 <h3>Context Window Management</h3>
@@ -450,9 +451,9 @@ When conversations grow long, MidiPilot automatically manages context to prevent
 </p>
 
 <ul>
-<li><b>Sliding window</b> &mdash; When estimated token usage exceeds 70% of the context window, older messages are dropped while keeping the system prompt, first 2 messages (task context), and most recent messages</li>
-<li><b>Truncation marker</b> &mdash; A &ldquo;[Context truncated]&rdquo; message is inserted where older messages were removed</li>
-<li><b>Visual warning</b> &mdash; The token label turns yellow when approaching 80% of the context window</li>
+<li><b>Sliding window</b> - When estimated token usage exceeds 70% of the context window, older messages are dropped while keeping the system prompt, first 2 messages (task context), and most recent messages</li>
+<li><b>Truncation marker</b> - A &ldquo;[Context truncated]&rdquo; message is inserted where older messages were removed</li>
+<li><b>Visual warning</b> - The token label turns yellow when approaching 80% of the context window</li>
 </ul>
 
 <h3>Multi-Provider Token Normalization</h3>
@@ -462,11 +463,11 @@ Different providers report token usage in different formats. MidiPilot normalize
 </p>
 
 <ul>
-<li><b>OpenAI Chat Completions</b> &mdash; <code>prompt_tokens</code> / <code>completion_tokens</code> (native format)</li>
-<li><b>OpenAI Responses API</b> &mdash; <code>input_tokens</code> / <code>output_tokens</code> &rarr; normalized</li>
-<li><b>Anthropic</b> &mdash; <code>input_tokens</code> / <code>output_tokens</code> &rarr; normalized</li>
-<li><b>Google Gemini</b> &mdash; <code>usageMetadata.promptTokenCount</code> / <code>candidatesTokenCount</code> &rarr; normalized</li>
-<li><b>Estimation fallback</b> &mdash; When a provider returns no usage data, MidiPilot estimates ~4 characters per token</li>
+<li><b>OpenAI Chat Completions</b> - <code>prompt_tokens</code> / <code>completion_tokens</code> (native format)</li>
+<li><b>OpenAI Responses API</b> - <code>input_tokens</code> / <code>output_tokens</code> &rarr; normalized</li>
+<li><b>Anthropic</b> - <code>input_tokens</code> / <code>output_tokens</code> &rarr; normalized</li>
+<li><b>Google Gemini</b> - <code>usageMetadata.promptTokenCount</code> / <code>candidatesTokenCount</code> &rarr; normalized</li>
+<li><b>Estimation fallback</b> - When a provider returns no usage data, MidiPilot estimates ~4 characters per token</li>
 </ul>
 
 <hr>
@@ -481,13 +482,13 @@ Configure your AI connection from <b>Settings &rarr; MidiPilot AI</b>. Select a 
 <img src="screenshots/midipilot-settings.png" alt="MidiPilot AI settings" width="420">
 <img src="screenshots/midipilot-connection-test.png" alt="Connection test successful" width="420">
 </div>
-<div class="caption">Provider configuration &mdash; Connection test: &#x2705; Model: gemini-2.5-flash</div>
+<div class="caption">Provider configuration - Connection test: &#x2705; Model: gemini-2.5-flash</div>
 
 <table>
 <tr><th>Setting</th><th>Description</th></tr>
 <tr><td><b>Provider</b></td><td>OpenAI, OpenRouter, Google Gemini, or Custom</td></tr>
 <tr><td><b>Base URL</b></td><td>Auto-filled per provider, or enter your own endpoint</td></tr>
-<tr><td><b>API Key</b></td><td>Your provider API key &mdash; get one from <a href="https://platform.openai.com/settings/organization/api-keys" target="_blank" rel="noopener noreferrer">OpenAI</a>, <a href="https://openrouter.ai/settings/keys" target="_blank" rel="noopener noreferrer">OpenRouter</a>, or <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Google Gemini</a></td></tr>
+<tr><td><b>API Key</b></td><td>Your provider API key - get one from <a href="https://platform.openai.com/settings/organization/api-keys" target="_blank" rel="noopener noreferrer">OpenAI</a>, <a href="https://openrouter.ai/settings/keys" target="_blank" rel="noopener noreferrer">OpenRouter</a>, or <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Google Gemini</a></td></tr>
 <tr><td><b>Model</b></td><td>Editable dropdown populated from the active provider's cached model list. If no cache exists, MidiPilot falls back to a small built-in starter list.</td></tr>
 <tr><td><b>Refresh Models</b></td><td>Fetches the live provider model list from <code>/models</code>, normalizes provider-specific fields, filters obvious non-chat models, and stores the result in <code>&lt;userdata&gt;/midipilot_models.json</code>.</td></tr>
 <tr><td><b>Manage favourites&hellip;</b></td><td>Pick the models that should stay visible per provider. If no favourites are selected, all cached chat-capable models are shown.</td></tr>
@@ -497,9 +498,9 @@ Configure your AI connection from <b>Settings &rarr; MidiPilot AI</b>. Select a 
 <tr><td><b>Reasoning Effort</b></td><td>None / Low / Medium / High / Extra High</td></tr>
 <tr><td><b>Live Streaming</b></td><td>Streams both Simple and Agent responses live (text, reasoning summaries, and tool-call arguments) when the provider supports it. Failed paths automatically fall back to non-streaming for the rest of the session.</td></tr>
 <tr><td><b>Prompt Profiles&hellip;</b></td><td>Open the <a href="#prompt-profiles">Prompt Profiles</a> dialog to attach custom system prompts to specific provider/model combinations.</td></tr>
-<tr><td><b>Context Range</b></td><td>Measures before/after cursor sent as musical context (0&ndash;50)</td></tr>
+<tr><td><b>Context Range</b></td><td>Measures before/after cursor sent as musical context (0-50)</td></tr>
 <tr><td><b>FFXIV Mode</b></td><td>Enable Bard Performance rule enforcement</td></tr>
-<tr><td><b>Agent Max Steps</b></td><td>Maximum tool calls per Agent request (5&ndash;100)</td></tr>
+<tr><td><b>Agent Max Steps</b></td><td>Maximum tool calls per Agent request (5-100)</td></tr>
 <tr><td><b>Test Connection</b></td><td>Verify your API key and model work correctly</td></tr>
 </table>
 
@@ -525,11 +526,11 @@ When the footer refresh completes, MidiPilot reports the result in the chat/stat
 </div>
 
 <p>
-If a model fails live streaming but still works without streaming, MidiPilot retries automatically and marks that model with a warning icon for the current app session. The mark is <b>scoped per mode</b> &mdash; Simple Mode (no tools) and Agent Mode (with tools) are tracked independently, because some models support live streaming in only one of the two paths. The dropdown shows which mode is blocked: <code>&#x26A0; &lt;model&gt; (Simple)</code>, <code>(Agent)</code>, or <code>(Simple+Agent)</code>. Use <b>Force Streaming for This Model</b> to clear the temporary mark after switching providers, updating the model, or testing a fixed endpoint.
+If a model fails live streaming but still works without streaming, MidiPilot retries automatically and marks that model with a warning icon for the current app session. The mark is <b>scoped per mode</b> - Simple Mode (no tools) and Agent Mode (with tools) are tracked independently, because some models support live streaming in only one of the two paths. The dropdown shows which mode is blocked: <code>&#x26A0; &lt;model&gt; (Simple)</code>, <code>(Agent)</code>, or <code>(Simple+Agent)</code>. Use <b>Force Streaming for This Model</b> to clear the temporary mark after switching providers, updating the model, or testing a fixed endpoint.
 </p>
 
 <p>
-<b>Capability-aware error handling</b> &mdash; if the active provider returns HTTP&nbsp;404 with <i>&ldquo;No endpoints found that support tool use&rdquo;</i> (or any equivalent &ldquo;tools not supported&rdquo; error), MidiPilot stops retrying immediately, posts a clear <i>&ldquo;Model does not support tool calling &mdash; pick a different model in Settings &rarr; AI, or switch to Simple mode for this request&rdquo;</i> bubble, and remembers the flag per <code>provider:model</code> for the rest of the session. Picking a different model re-enables Agent Mode automatically.
+<b>Capability-aware error handling</b> - if the active provider returns HTTP&nbsp;404 with <i>&ldquo;No endpoints found that support tool use&rdquo;</i> (or any equivalent &ldquo;tools not supported&rdquo; error), MidiPilot stops retrying immediately, posts a clear <i>&ldquo;Model does not support tool calling - pick a different model in Settings &rarr; AI, or switch to Simple mode for this request&rdquo;</i> bubble, and remembers the flag per <code>provider:model</code> for the rest of the session. Picking a different model re-enables Agent Mode automatically.
 </p>
 
 <hr>
@@ -546,10 +547,10 @@ Click <b>Edit System Prompts&hellip;</b> in settings to open the built-in editor
 </div>
 
 <ul>
-<li><b>Load Default</b> &mdash; Reset the current tab to the built-in default prompt</li>
-<li><b>Export to JSON</b> &mdash; Save all prompts to a file for backup or sharing</li>
-<li><b>Import from JSON</b> &mdash; Load prompts from a previously exported file</li>
-<li><b>Reset All to Defaults</b> &mdash; Restore all modes to factory defaults</li>
+<li><b>Load Default</b> - Reset the current tab to the built-in default prompt</li>
+<li><b>Export to JSON</b> - Save all prompts to a file for backup or sharing</li>
+<li><b>Import from JSON</b> - Load prompts from a previously exported file</li>
+<li><b>Reset All to Defaults</b> - Restore all modes to factory defaults</li>
 </ul>
 
 <p>
@@ -557,7 +558,7 @@ Prompts are saved as <code>system_prompts.json</code> in the application directo
 </p>
 
 <p>
-<b>Looking for per-model overrides?</b> The newer <a href="#prompt-profiles">Prompt Profiles</a> dialog lets you attach a dedicated system prompt to one or more <code>provider:model</code> combinations &mdash; great for guiding a single &ldquo;quirky&rdquo; model without touching the global mode prompts.
+<b>Looking for per-model overrides?</b> The newer <a href="#prompt-profiles">Prompt Profiles</a> dialog lets you attach a dedicated system prompt to one or more <code>provider:model</code> combinations - great for guiding a single &ldquo;quirky&rdquo; model without touching the global mode prompts.
 </p>
 
 <hr>
@@ -573,7 +574,7 @@ Open <b>Settings &rarr; AI &rarr; Prompt Profiles&hellip;</b> to manage profiles
 <tr><td><b>Name</b></td><td>Free-text label shown in the profile list (e.g. &ldquo;GPT-5.5 Decisive&rdquo;, &ldquo;Claude Strict JSON&rdquo;).</td></tr>
 <tr><td><b>Model patterns</b></td><td>One or more <code>provider:model</code> entries with optional glob suffix, e.g. <code>openai:gpt-5.5*</code>, <code>openrouter:openai/gpt-5.5*</code>, <code>gemini:gemini-2.5-pro</code>. The first matching profile wins.</td></tr>
 <tr><td><b>System prompt</b></td><td>The prompt text that should be sent for matching models. Markdown is allowed.</td></tr>
-<tr><td><b>Append to default</b></td><td>When checked, the profile is appended to the active mode prompt (Simple/Agent/FFXIV) instead of replacing it &mdash; useful for adding small, model-specific guardrails.</td></tr>
+<tr><td><b>Append to default</b></td><td>When checked, the profile is appended to the active mode prompt (Simple/Agent/FFXIV) instead of replacing it - useful for adding small, model-specific guardrails.</td></tr>
 </table>
 
 <p>
@@ -590,17 +591,17 @@ MidiPilot ships with one built-in profile: <b>GPT-5.5 Decisive</b>, bound to <co
 <h2 id="auto-save">Auto-Save</h2>
 
 <p>
-MidiEditor AI automatically saves a backup copy of your work at regular intervals, so you never lose progress to a crash or accidental close. Your original file is <b>never overwritten</b> &mdash; the backup is stored as a separate <code>.autosave</code> sidecar file alongside your MIDI file.
+MidiEditor AI automatically saves a backup copy of your work at regular intervals, so you never lose progress to a crash or accidental close. Your original file is <b>never overwritten</b> - the backup is stored as a separate <code>.autosave</code> sidecar file alongside your MIDI file.
 </p>
 
 <h3>How It Works</h3>
 
 <ul>
-<li><b>Debounce timer</b> &mdash; after each edit, a countdown resets. The backup is only written once you pause editing for the configured interval (default: 120 seconds).</li>
-<li><b>Named files</b> &mdash; saved as <code>YourSong.mid.autosave</code> next to the original file.</li>
-<li><b>Untitled documents</b> &mdash; saved to <code>AppData/MidiEditor AI/autosave/untitled.autosave.mid</code>.</li>
-<li><b>Cleanup</b> &mdash; the <code>.autosave</code> backup is automatically deleted when you save normally or exit cleanly.</li>
-<li><b>Protocol entry</b> &mdash; each auto-save appears as an &ldquo;Auto-saved&rdquo; marker in the undo history panel.</li>
+<li><b>Debounce timer</b> - after each edit, a countdown resets. The backup is only written once you pause editing for the configured interval (default: 120 seconds).</li>
+<li><b>Named files</b> - saved as <code>YourSong.mid.autosave</code> next to the original file.</li>
+<li><b>Untitled documents</b> - saved to <code>AppData/MidiEditor AI/autosave/untitled.autosave.mid</code>.</li>
+<li><b>Cleanup</b> - the <code>.autosave</code> backup is automatically deleted when you save normally or exit cleanly.</li>
+<li><b>Protocol entry</b> - each auto-save appears as an &ldquo;Auto-saved&rdquo; marker in the undo history panel.</li>
 </ul>
 
 <h3>Crash Recovery</h3>
@@ -608,7 +609,7 @@ MidiEditor AI automatically saves a backup copy of your work at regular interval
 <ul>
 <li>When opening a file, if a newer <code>.autosave</code> backup exists, MidiEditor AI offers to recover it.</li>
 <li>On startup, orphaned untitled backups from previous crashes are detected and a recovery dialog is shown.</li>
-<li>Recovered files open as unsaved &mdash; use <b>Save As</b> to give them a permanent name.</li>
+<li>Recovered files open as unsaved - use <b>Save As</b> to give them a permanent name.</li>
 </ul>
 
 <h3>Settings</h3>
@@ -625,7 +626,7 @@ Auto-save options are in <b>Settings &rarr; System &amp; Performance</b>:
 <table>
 <tr><th>Setting</th><th>Description</th></tr>
 <tr><td><b>Enable auto-save</b></td><td>Toggle automatic backups on or off (default: on)</td></tr>
-<tr><td><b>Save after idle (seconds)</b></td><td>Seconds of inactivity before a backup is written (30&ndash;600, default: 120)</td></tr>
+<tr><td><b>Save after idle (seconds)</b></td><td>Seconds of inactivity before a backup is written (30-600, default: 120)</td></tr>
 </table>
 
 <hr>
@@ -633,7 +634,7 @@ Auto-save options are in <b>Settings &rarr; System &amp; Performance</b>:
 <h2 id="tools">AI Tools Reference</h2>
 
 <p>
-In Agent mode, the AI has access to <b>15 tools</b> (12 base + 3 FFXIV-specific) for inspecting and modifying MIDI files:
+In Agent mode, the AI has access to <b>16 tools</b> (12 base + 4 FFXIV-specific) for inspecting and modifying MIDI files:
 </p>
 
 <table>
@@ -653,6 +654,7 @@ In Agent mode, the AI has access to <b>15 tools</b> (12 base + 3 FFXIV-specific)
 <tr><td><code>setup_channel_pattern</code></td><td>Auto-configure MidiBard2 channel mapping (FFXIV)</td></tr>
 <tr><td><code>convert_drums_ffxiv</code></td><td>Convert GM drum kit to FFXIV-compatible tone-mapped notes</td></tr>
 <tr><td><code>validate_ffxiv</code></td><td>Check FFXIV Bard Performance rule compliance</td></tr>
+<tr><td><code>analyze_voice_load</code></td><td>Read-only audit of the FFXIV 16-voice ceiling and 14&nbsp;notes/sec/channel rate cap. Returns <code>globalPeak</code>, <code>overflowRanges</code> and <code>rateHotspots</code> - see <a href="ffxiv-voice-limiter.html#ai-tool">FFXIV Voice Limiter</a></td></tr>
 </table>
 
 <hr>
@@ -686,7 +688,7 @@ In Agent mode, the AI has access to <b>15 tools</b> (12 base + 3 FFXIV-specific)
 </blockquote>
 
 <p>
-The AI will compose the requested music directly into the editor using its built-in tools. In Agent mode, it works iteratively &mdash; creating tracks, setting tempo, inserting notes, and validating the result step by step.
+The AI will compose the requested music directly into the editor using its built-in tools. In Agent mode, it works iteratively - creating tracks, setting tempo, inserting notes, and validating the result step by step.
 </p>
 
 <p>
@@ -704,12 +706,12 @@ MidiPilot automatically saves every conversation as a JSON file. You can browse,
 <h3>How It Works</h3>
 
 <ul>
-<li><b>Auto-save</b> &mdash; After every assistant response, the conversation is saved (debounced 2 seconds) to <code>AppData/MidiPilotHistory/</code></li>
-<li><b>Associated with MIDI file</b> &mdash; Each conversation records which MIDI file it was working on</li>
-<li><b>History button</b> &mdash; Click the &#x1F4DC; history icon in the toolbar (next to New Chat) to browse past conversations</li>
-<li><b>Turn metadata</b> &mdash; Agent reasoning, executed steps, latency, provider, model, and token counts are stored with each assistant turn</li>
-<li><b>Resume</b> &mdash; Click any past conversation to load it back into the chat and continue where you left off</li>
-<li><b>Persistent across sessions</b> &mdash; Conversations survive app restarts</li>
+<li><b>Auto-save</b> - After every assistant response, the conversation is saved (debounced 2 seconds) to <code>AppData/MidiPilotHistory/</code></li>
+<li><b>Associated with MIDI file</b> - Each conversation records which MIDI file it was working on</li>
+<li><b>History button</b> - Click the &#x1F4DC; history icon in the toolbar (next to New Chat) to browse past conversations</li>
+<li><b>Turn metadata</b> - Agent reasoning, executed steps, latency, provider, model, and token counts are stored with each assistant turn</li>
+<li><b>Resume</b> - Click any past conversation to load it back into the chat and continue where you left off</li>
+<li><b>Persistent across sessions</b> - Conversations survive app restarts</li>
 </ul>
 
 <h3>Conversation File Format</h3>
@@ -733,23 +735,23 @@ MidiPilot uses <b>Server-Sent Events (SSE)</b> to stream responses in real time.
 <h3>How It Works</h3>
 
 <ul>
-<li><b>Simple text</b> &mdash; A chat bubble appears immediately and grows as text arrives</li>
-<li><b>Simple actions</b> &mdash; JSON action responses show a subdued composing indicator, then execute once the complete payload is available</li>
-<li><b>Agent thoughts</b> &mdash; Reasoning summaries stream into the grey italic thought block when the provider exposes them</li>
-<li><b>Agent tools</b> &mdash; Tool calls are reconstructed from streamed deltas, then dispatched through the same undo-safe tool path as non-streaming Agent mode</li>
-<li><b>Fallback</b> &mdash; Broken streams automatically retry without streaming and mark the model temporarily for the current app session</li>
-<li><b>Token capture</b> &mdash; Usage statistics are captured from the final SSE event when the provider reports them</li>
+<li><b>Simple text</b> - A chat bubble appears immediately and grows as text arrives</li>
+<li><b>Simple actions</b> - JSON action responses show a subdued composing indicator, then execute once the complete payload is available</li>
+<li><b>Agent thoughts</b> - Reasoning summaries stream into the grey italic thought block when the provider exposes them</li>
+<li><b>Agent tools</b> - Tool calls are reconstructed from streamed deltas, then dispatched through the same undo-safe tool path as non-streaming Agent mode</li>
+<li><b>Fallback</b> - Broken streams automatically retry without streaming and mark the model temporarily for the current app session</li>
+<li><b>Token capture</b> - Usage statistics are captured from the final SSE event when the provider reports them</li>
 </ul>
 
 <h3>When Streaming Is Used</h3>
 
 <table>
 <tr><th>Mode</th><th>Streaming</th><th>Reason</th></tr>
-<tr><td>Simple &mdash; text response</td><td>&#x2705; Yes</td><td>Reduces perceived latency</td></tr>
-<tr><td>Simple &mdash; JSON actions</td><td>&#x2705; Preview</td><td>Shows action composition, then executes after complete JSON arrives</td></tr>
-<tr><td>Agent &mdash; Chat Completions</td><td>&#x2705; Yes</td><td>Streams assistant text and tool-call argument deltas when the provider supports them</td></tr>
-<tr><td>Agent &mdash; OpenAI Responses API</td><td>&#x2705; Yes</td><td>Streams text, reasoning summaries, and function-call arguments for GPT-5-family tool use</td></tr>
-<tr><td>Agent &mdash; Gemini native</td><td>&#x2705; Yes</td><td>Streams thought summaries and whole function calls via <code>:streamGenerateContent</code></td></tr>
+<tr><td>Simple - text response</td><td>&#x2705; Yes</td><td>Reduces perceived latency</td></tr>
+<tr><td>Simple - JSON actions</td><td>&#x2705; Preview</td><td>Shows action composition, then executes after complete JSON arrives</td></tr>
+<tr><td>Agent - Chat Completions</td><td>&#x2705; Yes</td><td>Streams assistant text and tool-call argument deltas when the provider supports them</td></tr>
+<tr><td>Agent - OpenAI Responses API</td><td>&#x2705; Yes</td><td>Streams text, reasoning summaries, and function-call arguments for GPT-5-family tool use</td></tr>
+<tr><td>Agent - Gemini native</td><td>&#x2705; Yes</td><td>Streams thought summaries and whole function calls via <code>:streamGenerateContent</code></td></tr>
 <tr><td>Broken provider/model stream</td><td>&#x26A0; Fallback</td><td>Retries non-streaming and marks the model for the current app session</td></tr>
 </table>
 
@@ -762,17 +764,17 @@ MidiPilot uses <b>Server-Sent Events (SSE)</b> to stream responses in real time.
     <img src="screenshots/midieditor_ai_gemini_streaming_poster.jpg" alt="Gemini streaming with thought summaries and Agent steps" width="440" loading="lazy">
 </video>
 </div>
-<div class="caption">OpenAI GPT-5.4 (Chat Completions, Material Dark) and Gemini 3.1 native streaming side by side &mdash; see the top of this page for the GPT-5.5 Responses-API run</div>
+<div class="caption">OpenAI GPT-5.4 (Chat Completions, Material Dark) and Gemini 3.1 native streaming side by side - see the top of this page for the GPT-5.5 Responses-API run</div>
 
 <div class="screenshot-single">
 <img src="screenshots/midipilot_model_no_streaming.png" alt="Model dropdown showing a model marked with the warning icon and a (Simple) suffix after a streaming failure" width="520">
-<div class="caption">Mode-scoped streaming fallback &mdash; failed paths are marked <code>(Simple)</code>, <code>(Agent)</code>, or <code>(Simple+Agent)</code> in the model dropdown until you re-enable streaming for that model</div>
+<div class="caption">Mode-scoped streaming fallback - failed paths are marked <code>(Simple)</code>, <code>(Agent)</code>, or <code>(Simple+Agent)</code> in the model dropdown until you re-enable streaming for that model</div>
 </div>
 
 <h3>Non-Streaming Reference Run</h3>
 
 <p>
-For comparison, here is the same Agent loop running <b>without</b> live streaming &mdash; either because the provider does not support it, the user disabled <i>Live Streaming</i> in settings, or a previous request hit the per-session streaming-fallback marker. Tool calls and assistant text still arrive correctly, just in one chunk per round-trip instead of progressively.
+For comparison, here is the same Agent loop running <b>without</b> live streaming - either because the provider does not support it, the user disabled <i>Live Streaming</i> in settings, or a previous request hit the per-session streaming-fallback marker. Tool calls and assistant text still arrive correctly, just in one chunk per round-trip instead of progressively.
 </p>
 
 <div class="screenshot-single">
@@ -780,7 +782,7 @@ For comparison, here is the same Agent loop running <b>without</b> live streamin
     <source src="screenshots/MidiPilot_Agent_run.webm" type="video/webm">
     <img src="screenshots/MidiPilot_Agent_run.gif" alt="MidiPilot Agent mode without streaming" width="900" loading="lazy">
 </video>
-<div class="caption">Non-streaming Agent run &mdash; same multi-step composition flow, batched tool results per round-trip</div>
+<div class="caption">Non-streaming Agent run - same multi-step composition flow, batched tool results per round-trip</div>
 </div>
 
 <hr>
@@ -794,12 +796,12 @@ Different MIDI files may need different AI settings. A 16-track orchestral arran
 <h3>What&rsquo;s Saved</h3>
 
 <ul>
-<li><b>Provider</b> &mdash; OpenAI, OpenRouter, Gemini, or Custom</li>
-<li><b>Model</b> &mdash; e.g., gpt-5.4, gemini-2.5-flash</li>
-<li><b>Mode</b> &mdash; Simple or Agent</li>
-<li><b>FFXIV mode</b> &mdash; On or off</li>
-<li><b>Reasoning effort</b> &mdash; None / Low / Medium / High / Extra High</li>
-<li><b>Custom instructions</b> &mdash; Free-text notes appended to the system prompt (e.g., &ldquo;This is a jazz arrangement, keep swing feel&rdquo;)</li>
+<li><b>Provider</b> - OpenAI, OpenRouter, Gemini, or Custom</li>
+<li><b>Model</b> - e.g., gpt-5.4, gemini-2.5-flash</li>
+<li><b>Mode</b> - Simple or Agent</li>
+<li><b>FFXIV mode</b> - On or off</li>
+<li><b>Reasoning effort</b> - None / Low / Medium / High / Extra High</li>
+<li><b>Custom instructions</b> - Free-text notes appended to the system prompt (e.g., &ldquo;This is a jazz arrangement, keep swing feel&rdquo;)</li>
 </ul>
 
 <h3>How to Use</h3>
@@ -829,12 +831,12 @@ Presets are stored as <code>&lt;filename&gt;.midipilot.json</code> next to the M
 Sweet Child O Mine.mid.midipilot.json   &larr; preset</code></pre>
 
 <p>
-The preset file is a simple JSON object. All fields are optional &mdash; any field not present falls back to the global default.
+The preset file is a simple JSON object. All fields are optional - any field not present falls back to the global default.
 </p>
 
 <hr>
 
-<h2 id="mcp-server">MCP Server &mdash; External AI Clients</h2>
+<h2 id="mcp-server">MCP Server - External AI Clients</h2>
 
 <p>
 MidiEditor AI includes a built-in <b>MCP (Model Context Protocol)</b> server that exposes all 15 MidiPilot tools
@@ -863,8 +865,8 @@ MidiPilot writes every API request and response to a log file for debugging and 
 <tr><th>Detail</th><th>Description</th></tr>
 <tr><td><b>Location</b></td><td><code>midipilot_api.log</code> next to the <code>.exe</code></td></tr>
 <tr><td><b>Format</b></td><td>ISO-8601 timestamp + direction (<code>[REQUEST]</code> / <code>[RESPONSE]</code>) + JSON body</td></tr>
-<tr><td><b>Cleared on</b></td><td>Starting a new chat or loading a different MIDI file &mdash; the previous log is overwritten</td></tr>
-<tr><td><b>Manual clear</b></td><td>Delete the file &mdash; it will be recreated on the next API call</td></tr>
+<tr><td><b>Cleared on</b></td><td>Starting a new chat or loading a different MIDI file - the previous log is overwritten</td></tr>
+<tr><td><b>Manual clear</b></td><td>Delete the file - it will be recreated on the next API call</td></tr>
 </table>
 
 <p>
@@ -875,7 +877,7 @@ If the AI produces unexpected results, open the log to inspect the raw JSON sent
 
 <footer class="site-footer">
     <div class="footer-links">
-        <a href="https://github.com/happytunesai/MidiEditor_AI" target="_blank" rel="noopener noreferrer">GitHub Repo</a>
+        <a href="https://github.com/happytunesai/MidiEditor_AI" class="repo-link" target="_blank" rel="noopener noreferrer"><img class="repo-logo" src="Midieditor-ai_logo.png" alt="">GitHub Repo</a>
         <a href="https://github.com/happytunesai" target="_blank" rel="noopener noreferrer">All Projects</a>
         <a href="docs-index.html">Documentation</a>
         <a href="changelog.html">Changelog</a>

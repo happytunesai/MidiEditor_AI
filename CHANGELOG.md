@@ -1,93 +1,147 @@
-# Changelog — MidiEditor AI
+# Changelog - MidiEditor AI
 
 All notable changes to MidiEditor AI are documented here.
-Releases: https://github.com/happytunesai/MidiEditor_AI/releases
+Releases: https://github.com/happytunesai/web/releases
 
 ---
 
-## [1.5.3] - 2026-04-29 — Bard-Accurate Playback (Closer to In-Game Sound)
+## [1.6.0] - 2026-05-02 - Voice Limiter, Tempo Conversion & Paste Special
 
 ### Summary
 
-* **FFXIV bard-accurate playback mode** — when FFXIV SoundFont Mode is on, FluidSynth now reshapes its output so MidiEditor AI sounds much closer to the in-game bard performance instead of a generic GM player. Auto-enabled with FFXIV mode, persisted under `FluidSynth/bardAccurateMode` (default on); toggling either flag off restores the user's reverb/chorus state and 256-voice polyphony (BARD-MODE-001).
-* **Phase 1 — Dry & capped** — in bard mode FluidSynth disables reverb (`fluid_synth_set_reverb_on(0)`) and chorus (`fluid_synth_set_chorus_on(0)`), caps polyphony to **16 voices** (`fluid_synth_set_polyphony(16)`) to match the in-game bard's hard voice limit, and the default sample rate is now **48 kHz** to match WASAPI shared-mode (BARD-DRY-001).
-* **Phase 2 — Bard dynamics** — per-instrument-per-register **minimum note length** table modelled after the in-game bard's instrument behaviour (Harp ≥ 1.13 s, Piano ≥ 1.53 s, Flute clamp 0.5–4.5 s, Snare 0.26 s, …). NoteOff is held by `QTimer::singleShot` with a per-(channel,key) generation counter so engine reset / SoundFont reload can't fire stale lambdas. Volume (CC7) and expression (CC11) are reshaped through a **cubic perceptual curve** (`v = (CC7/127)·(CC11/127); v³`) and emitted on CC7 only. Velocity is forced to **127** on every NoteOn so dynamics flow through the curve (BARD-DYN-001).
-* **Phase 3 — Percussion parity** — new `FluidSynthEngine::ffxivDrumProgramForGmNote()` maps GM Standard-Kit keys (35/36 kick → 117 BassDrum; 37/38/40 snare → 118; 41/43/45/47/48/50 toms → 47 Timpani; 42/44/46 hats + 49/51/52/53/55/57/59 cymbals → 119 Cymbal; 60–81 hand drums / blocks / shakers → 116 Bongo) to the closest FFXIV percussion preset. `MidiOutput::sendCommand` first tries the existing track-name lookup (`drumProgramForTrackName`), then falls back to the GM-key map so single-channel GM drum tracks finally route correctly instead of all hits sharing one preset (BARD-DRUM-001).
-* **Audio export now honours FFXIV mode (all formats)** — offline rendering (Export → WAV / FLAC / OGG / MP3) used `fluid_player_t` directly and bypassed the live FFXIV remap, so e.g. *Acoustic Guitar (nylon)* exported as Piano. A new playback callback runs the same bank-select forcing and program-fallback table during export so every rendered file — regardless of format — sounds the same as live playback (BARD-EXPORT-001).
-* **Mute- and solo-aware audio export (all formats)** — the Export Audio pipeline is now fully channel- *and* track-aware. Channel mute / solo state (`MidiFile::channelMuted()`) is forwarded to the offline render via a new `ExportOptions::mutedChannelsMask`, and any per-track mute is honoured by writing those tracks as empty `MTrk` chunks into the temp MIDI passed to FluidSynth. Drop a single drum track or solo a single guitar and the rendered WAV / FLAC / OGG / MP3 contains exactly that — same behaviour you'd get during live playback (BARD-MUTE-001, BARD-TRACK-MUTE-001).
-* **Per-track FFXIV percussion routing in export (all formats)** — for FFXIV percussion tracks (Bass Drum / Snare Drum / Timpani / Bongo / Cymbal, with optional `+N` / `-N` octave suffix) the export pipeline now injects a CH9 Program Change before each NoteOn so the offline FluidSynth player picks the correct bard percussion preset per track. This mirrors the live per-note PC injection in `MidiOutput::sendCommand` and finally lets multi-drum-track arrangements export with the same drum kit balance you hear during playback. Format-agnostic — the routing happens before the encoder, so it applies to WAV, FLAC, OGG and MP3 alike (BARD-DRUM-EXPORT-001).
-* **Per-program loudness trim** — the FFXIV SoundFont presets are sampled at uneven levels (ElectricGuitarClean is noticeably quieter than Lute / Harp / Piano). New `bardProgramAttenuationCb()` adds a per-program `GEN_ATTENUATION` (in centibels) on every Program Change in bard mode so the perceived loudness across instruments is balanced; cleared back to 0 when bard mode is turned off (BARD-LOUDNESS-001).
+* **FFXIV voice-limiter awareness** (Phase 32) - read-only `analyze_voice_load` AI tool plus the **MidiPilot → Tools → Analyze Voice Load** menu surface a per-tick voice peak, the 16-voice ceiling, and per-channel rate hotspots so dense compositions can be audited *before* an in-game performance drops notes.
+* **Time-preserving tempo conversion** (Phase 33) - new **Tools → Tempo Tools → Convert Tempo, Preserve Duration…** dialog plus right-click entry points on the channel/track list. Scales every event's tick position by `target_bpm / source_bpm` and rewrites the tempo meta in one atomic, undoable operation, so a 90 BPM vocal lines up with a 180 BPM project at the same real-time speed.
+* **Paste Special - cross-instance track/channel assignment** (Phase 34) - copying a multi-track arrangement from another MidiEditor instance and pasting into a new file no longer collapses everything onto the current edit track. The new **Edit → Paste Special…** dialog offers three modes: *Create new tracks per source* (default), *Preserve source track + channel mapping (1:1)*, and *Paste to current edit track + channel (legacy)*. Track creation is part of the same protocol action so a single Ctrl+Z undoes the paste *and* the new tracks together. Ctrl+V automatically opens this dialog whenever cross-instance clipboard data is present.
+* **Copy to Track / Copy to Channel** (Phase 36) - new **Tools → Copy events to track…** and **Tools → Copy events to channel…** entries duplicate the current selection 1:1 onto another track / channel while leaving the originals in place. The new copies become the active selection so an immediate *Octave Up* / velocity edit only touches the duplicates.
 
 <details>
-<summary>Full Changelog — Bard-Accurate Playback (Closer to In-Game Sound)</summary>
+<summary>Full Changelog - Voice Limiter, Tempo Conversion & Paste Special</summary>
 
-### New Features
+### Phase 32 - FFXIV Voice Limiter / Awareness
 
-* **BARD-MODE-001 — Bard-accurate playback mode** — new public API `FluidSynthEngine::setBardAccurateMode(bool)` / `bardAccurateMode()` plus `bardAccurateModeChanged(bool)` signal in [src/midi/FluidSynthEngine.h](src/midi/FluidSynthEngine.h), wired into `applyBardAccuracySettings()` in [src/midi/FluidSynthEngine.cpp](src/midi/FluidSynthEngine.cpp). The mode is gated on **`_ffxivSoundFontMode && _bardAccurateMode`** so toggling either flag restores the user's previous reverb/chorus state and the 256-voice polyphony default. Persisted under `FluidSynth/bardAccurateMode` in `QSettings` (default `true`); reapplied on every `initialize()` and on every `setFfxivSoundFontMode(bool)` call.
-* **BARD-DRY-001 — Dry & capped output (Phase 1)** — `applyBardAccuracySettings()` calls `fluid_synth_set_reverb_on(synth, 0)`, `fluid_synth_set_chorus_on(synth, 0)`, `fluid_synth_set_polyphony(synth, 16)` because the in-game bard runs dry (no global reverb/chorus colouring) with a hard 16-voice limit per performer. Default `_sampleRate` raised from 44100.0 to **48000.0** in the constructor and in `loadSettings()` so the FluidSynth engine starts at 48 kHz / WASAPI shared-mode and gives the FFXIV SoundFont presets the sample-rate context they were authored against. Removes the boomy reverb tail that was making FFXIV preset attacks sound smeared compared to the in-game bard.
-* **BARD-DYN-001 — Bard dynamics (Phase 2)** — three coordinated changes in `FluidSynthEngine::sendMidiData()`:
-  * **Min note length** — new `bardMinNoteLengthMs(instrumentIndex, midiKey, duration)` carries per-instrument-per-register tables (Harp / Piano / Lute / Fiddle / Flute family / Timpani / Bongo / Bass Drum / Snare / Cymbal / Brass / Strings / E-Guitar variants) that match the in-game bard's minimum sustain per instrument and register. NoteOff timing: if `elapsed >= minLen` we send `fluid_synth_noteoff` immediately, else we schedule a `QTimer::singleShot(remaining, this, lambda)` that captures a `QPointer<FluidSynthEngine>` guard, the channel/key, and the current per-(channel,key) generation counter. `resetBardNoteState()` (also called from `initialize()`) bumps the generation counter so any pending lambdas drop their work — no spurious noteoffs after SoundFont reload, song change, or engine shutdown.
-  * **Cubic CC7·CC11 curve** — new `applyBardVolumeCurve(channel)` computes `v = (CC7/127) * (CC11/127)`, raises it to the third power, rounds to 0..127 and emits the result on **CC7** while pinning CC11 to 127. The CC handler in `sendMidiData()` intercepts incoming CC7 / CC11, stores them in `_bardCC7[16]` / `_bardCC11[16]`, calls the curve, and short-circuits forwarding so the synth never sees the raw linear values. Matches the perceptual `(vol·expr)^3` response the in-game mix uses.
-  * **Force vel=127** — every NoteOn in bard mode is forced to velocity 127; if a previous note for the same (channel,key) is still held by min-length, a NoteOff is flushed first so the synth retriggers cleanly. Mirrors the in-game bard's fixed-FFF note delivery and lets the cubic curve own all dynamics.
-* **BARD-DRUM-001 — GM drum-key → FFXIV percussion fallback (Phase 3)** — new `FluidSynthEngine::ffxivDrumProgramForGmNote(int gmNote)` in [src/midi/FluidSynthEngine.h](src/midi/FluidSynthEngine.h) / `.cpp` returns the closest FFXIV bard percussion program for a GM Standard Kit key (35..81 covered). `MidiOutput::sendCommand` in [src/midi/MidiOutput.cpp](src/midi/MidiOutput.cpp) keeps the existing per-track-name path as the primary lookup and falls back to the GM-key map only when `drumProgramForTrackName()` returns -1, so well-tagged GP/MusicXML imports keep working unchanged while generic single-channel GM drum tracks (kick/snare/toms/hats/cymbals on CH9) now route each hit individually instead of all sharing the first injected preset.
+* **VOICE-001 - `analyze_voice_load` AI tool** - new entry in [src/ai/ToolDefinitions.cpp](src/ai/ToolDefinitions.cpp), gated on `AI/ffxiv_mode`. Returns `globalPeak`, `overflowRanges` (tick spans where simultaneous voices > 16), and `rateHotspots` (per-channel passages exceeding the 14 notes/sec/channel cap). Implemented in [src/ai/FfxivVoiceLoadCore.cpp](src/ai/FfxivVoiceLoadCore.cpp) so the analysis is testable in isolation without pulling in MidiFile/Selection.
+* **VOICE-002 - Voice load lane** - optional dense-score visualiser stripe under the velocity lane in [src/gui/MatrixWidget.cpp](src/gui/MatrixWidget.cpp); colour-coded green/yellow/red against the 16-voice ceiling.
+* **VOICE-003 - Test coverage** - [tests/test_ffxiv_voice_analyzer.cpp](tests/test_ffxiv_voice_analyzer.cpp) covers empty input, monophonic = 1 voice, 17-note chord overflow detection, per-channel rate hotspots, and simultaneous-chord-on-different-channels accounting.
 
-### Improvements
+### Phase 33 - Time-Preserving Tempo Conversion
 
-* **BARD-CTOR-001 — Per-channel bard state** — `FluidSynthEngine` now tracks the active program per channel (`_bardCurrentProgram[16]`) so the min-note-length lookup can map by current FFXIV bard instrument. NoteOn timestamps and held flags live in `_bardNoteOnMs[16][128]` / `_bardNoteHeld[16][128]`, indexed by a `QElapsedTimer` (`_bardClock`) started from `initialize()`. The generation counter `_bardNoteGen[16][128]` invalidates pending QTimer lambdas without needing to track them explicitly.
-* **BARD-INSTMAP-001 — FFXIV instrument index map** — new static `bardInstrumentIndexForProgram(int program)` collapses both common reference program numbers (115 snare, 127 cymbal) and our actual FFXIV SoundFont program numbers (118 snare, 119 cymbal) onto a unified 1..28 instrument index so `bardMinNoteLengthMs` works regardless of how the host sequencer numbered the percussion presets.
-* **BARD-CC-001 — CC7/CC11 forwarding policy** — outside bard mode the CC handler keeps the existing FFXIV bank-select (`CC#0` / `CC#32` → 0) behaviour unchanged. Inside bard mode CC7/CC11 are intercepted *before* the bank-select short-circuit so the cubic curve is the only volume path; all other CCs (sustain, pan, modulation, …) pass through untouched.
+* **TEMPO-CONV-001 - Convert Tempo dialog** - new [src/gui/TempoConversionDialog.cpp](src/gui/TempoConversionDialog.cpp) under **Tools → Tempo Tools**. Prompts for source/target BPM, scope (whole file / events only / per channel / selected events), and a tempo handling mode (replace fixed tempo / scale existing tempo curve / events only). Applied inside a single `Protocol::startNewAction()` so Ctrl+Z is one step.
+* **TEMPO-CONV-002 - Engine in `TempoConversionService`** - [src/converter/TempoConversionService.cpp](src/converter/TempoConversionService.cpp) implements `preview()` and `apply()`. Three passes: (1) collect target events by scope, (2) scale tick positions by `target/source`, (3) rewrite tempo events according to the chosen `TempoMode` (`ReplaceFixed` / `ScaleTempoMap` / `EventsOnly`).
+* **TEMPO-CONV-003 - Right-click entry points** - channel list and track list both surface **Convert Tempo, Preserve Duration…** scoped to the clicked row, in [src/gui/ChannelListWidget.cpp](src/gui/ChannelListWidget.cpp) and [src/gui/TrackListWidget.cpp](src/gui/TrackListWidget.cpp).
+* **TEMPO-CONV-004 - Test coverage** - [tests/test_tempo_conversion_service.cpp](tests/test_tempo_conversion_service.cpp) ships eight fixtures covering null/zero-BPM error paths, identity-BPM warning, ReplaceFixed tempo collapse, EventsOnly per-channel scope isolation, selected-event-only scaling, and round-trip (90→180→90) restoration.
+
+### Phase 32 - Voice-Awareness UI surfaces (UI counterparts to VOICE-001)
+
+* **VOICE-GAUGE-001 - Toolbar voice gauge** - new [src/gui/FfxivVoiceGaugeWidget.cpp](src/gui/FfxivVoiceGaugeWidget.cpp), a 24-segment stereo-style LED meter with a fixed left `N/16` readout, a reserved `+N` overflow slot and a dedicated tick mark at the documented 16-voice ceiling. Registered as a customisable toolbar action `ffxiv_voice_gauge` so it survives toolbar customisation and *Reset to Defaults*.
+* **VOICE-LANE-001 - Piano-roll voice lane** - new [src/gui/FfxivVoiceLaneWidget.cpp](src/gui/FfxivVoiceLaneWidget.cpp) renders an auto-scaled bar chart under the velocity lane: soft / red threshold colouring, dashed red ceiling at 16 with halo + `16` tag, plus a per-channel rate-hotspot strip for any 1-second window exceeding 14 notes/sec. Toggled from **View → Show Voice Lane** and from clicking the toolbar gauge.
+* **VOICE-AUTOBIND-001 - Voice Awareness auto-binds to FFXIV SoundFont Mode** - new **Settings → MIDI → FFXIV → Voice Limiter** group; enabling FFXIV Mode flips Voice Awareness on (gauge + lane visible, analyser running), disabling it stops the analyser entirely so non-FFXIV users pay zero perf cost. Manual override persists at `FFXIV/voiceLimiter/userOverride`. Wired through `FluidSynthEngine::ffxivSoundFontModeChanged(bool)`, mirroring the bard-accurate-mode auto-bind from 1.5.3 (BARD-MODE-001).
+* **VOICE-TAILS-001 - Empirical sample-tail model** - `FfxivVoiceLoadCore::sampleTailMs()` extends each NoteOn..NoteOff window by an estimated audible release per GM family / drum pitch (Lute / Harp / Piano 0.5-0.9 s, Cymbal 1.2 s, Snare 0.2 s, …) so the voice count matches in-game / MogNotate observations instead of under-reporting on plucked instruments. Visual thresholds (`green ≤18`, `yellow 19-23`, `red ≥24`) are intentionally relaxed from the documented hard ceiling per empirical in-game testing; the analyser still reports the raw count and overflow against `16` for the AI tool.
+
+### Phase 34 - Paste Special (Cross-Instance Paste)
+
+* **PASTE-SPEC-001 - `SharedClipboard` v2 wire format** - [src/tool/SharedClipboard.cpp](src/tool/SharedClipboard.cpp) bumps `CLIPBOARD_VERSION` from 1 → 2. The new prelude carries a `(trackId → trackName)` table plus a `qint32 sourceTrackId` per event record (per-event header is now 16 bytes). v1 buffers from older instances are rejected via the existing version check. New static accessors `SharedClipboard::sourceTrackList()` and `SharedClipboard::getPasteSourceInfo(index)` surface the metadata to callers.
+* **PASTE-SPEC-002 - `PasteSpecialDialog`** - new [src/gui/PasteSpecialDialog.cpp](src/gui/PasteSpecialDialog.cpp). Modal, summary line *"Clipboard: N event(s), M source track(s), C channel(s), D of music"*, three radio buttons (`NewTracksPerSource` / `PreserveSourceMapping` / `CurrentEditTarget`), and *Don't ask again this session* / *Make this the new default* check-boxes (the latter only enabled when the former is). Persistent default lives under `QSettings("Editing/pasteSpecialDefault")`.
+* **PASTE-SPEC-003 - `EventTool::pasteFromSharedClipboardWithOptions`** - [src/tool/EventTool.cpp](src/tool/EventTool.cpp). Builds a `QHash<int sourceTrackId, MidiTrack *>` according to `opts.assignment` (NewTracksPerSource creates `Pasted: <name>` tracks via `MidiFile::addTrack()`, PreserveSourceMapping reuses by name and falls back to creating with the original name, CurrentEditTarget collapses to `NewNoteTool::editTrack()` / `editChannel()`). Per-event channel + track is routed via `SharedClipboard::getPasteSourceInfo()`. Pre-snapshots every distinct source channel into `channelCopies` so the protocol covers all of them. Track creation happens inside the same `startNewAction(...)` block so a single Ctrl+Z unwinds everything.
+* **PASTE-SPEC-004 - Backwards compatibility** - legacy `EventTool::pasteFromSharedClipboard()` becomes a thin wrapper using `CurrentEditTarget`, so the existing Ctrl+V cross-instance path is byte-identical to 1.5.x.
+* **PASTE-SPEC-005 - `Edit → Paste Special…` menu** - [src/gui/MainWindow.cpp](src/gui/MainWindow.cpp) registers the new action, builds a `PasteClipboardSummary` from the deserialised metadata, opens the dialog, persists the chosen default to `QSettings`, and dispatches into `EventTool::pasteFromSharedClipboardWithOptions(opts)`.
+* **PASTE-SPEC-006 - Ctrl+V routes through Paste Special** - [src/gui/MainWindow.cpp](src/gui/MainWindow.cpp) `MainWindow::paste()` now opens the Paste Special dialog whenever `EventTool::hasSharedClipboardData()` reports cross-instance data; the in-process clipboard keeps the legacy fast path. The dialog's *Don't ask again this session* toggle silences the modal for subsequent Ctrl+V presses and reuses the chosen assignment.
+
+### Phase 36 - Copy to Track / Copy to Channel
+
+* **COPY-TARGET-001 - `EventTool::copySelectionToTrack` / `copySelectionToChannel`** - [src/tool/EventTool.cpp](src/tool/EventTool.cpp). Duplicates the current selection 1:1 onto a chosen track or channel (0..15), keeps the originals in place, snapshots each touched `MidiChannel` exactly once for the protocol, and sets the new copies as the active selection so the user can immediately apply *Octave Up*, velocity edits, etc. NoteOn/Off pairing is preserved via `cloneEventOnto()`. Copy-to-Channel rejects meta channels (16/17/18) by contract.
+* **COPY-TARGET-002 - Tools menu integration** - [src/gui/MainWindow.cpp](src/gui/MainWindow.cpp) adds **Tools → Copy events to track…** and **Tools → Copy events to channel…**. Channel submenu is populated once with channels 0-15; track submenu is rebuilt from `updateTrackMenu()` whenever the file's track list changes. Both menus are gated on a non-empty selection via `checkEnableActionsForSelection()`.
 
 ### Bug Fixes
 
-* **BARD-RESET-001 — Stale NoteOff lambdas after engine reset** — without the generation counter, `QTimer::singleShot` lambdas scheduled before a SoundFont reload or `shutdown()`/`initialize()` cycle could fire `fluid_synth_noteoff` against a freshly initialized synth, occasionally truncating the first notes of the next playback. `resetBardNoteState()` now bumps `_bardNoteGen[ch][key]` for every (channel,key), and the lambda body checks `guard->_bardNoteGen[channel][key] != gen` (plus `_initialized && _synth`) before touching the synth so stale callbacks are dropped silently.
-
-### Audio Export Pipeline
-
-* **BARD-EXPORT-001 — Live-parity FFXIV remap in audio export (all formats)** — offline rendering used `fluid_player_t` directly and bypassed the live `sendMidiData()` path, so the FFXIV bank-select forcing and the program-fallback table never ran during export. New static `FluidSynthEngine::exportPlaybackCallback(void*, fluid_midi_event_t*)` is installed via `fluid_player_set_playback_callback()` whenever FFXIV mode is on; it forces CC#0 / CC#32 to 0 and remaps program changes through the same fallback table as live playback (24→25 Lute, 26→27 Clean Guitar) before forwarding to `fluid_synth_handle_midi_event()`. Because the callback runs ahead of FluidSynth's audio renderer and `audio.file.format` (the encoder selector — WAV / FLAC / OGG / MP3), the remap applies uniformly to every export format the dialog offers. The export synth also picks up the dry/16-voice settings when bard mode is active and seeds `GEN_ATTENUATION` for default program 0 on every channel so tracks that never send a Program Change still get the same loudness trim as live playback. Tracks like *Acoustic Guitar (nylon)* (GM prog 24) now export with the same Lute voicing they have during live playback.
-* **BARD-MUTE-001 — Channel mute / solo respected in audio export (all formats)** — `MainWindow::exportAudio()` and `exportAudioSelection()` in [src/gui/MainWindow.cpp](src/gui/MainWindow.cpp) build a `quint32 mutedChannelsMask` from `MidiFile::channelMuted(i)` (which already folds in solo logic) and pass it through the new `ExportOptions::mutedChannelsMask` field. `FluidSynthEngine::exportPlaybackCallback` drops every channel-bound MIDI message (0x80/0x90/0xA0/0xB0/0xC0/0xD0/0xE0) for any channel in the mask, so exporting with only the harp audible produces a harp-only WAV/FLAC/OGG/MP3. The callback is registered whenever the mask is non-zero even outside FFXIV mode, so generic exports also respect mute/solo state across every format. The callback re-applies per-program `bardProgramAttenuationCb()` on every Program Change in offline render so loudness balance matches live playback. Note: the cubic CC7·CC11 curve and per-instrument min-note-length still run only on the live `MidiOutput` timing path; full offline parity for those would require a larger export refactor.
-* **BARD-TRACK-MUTE-001 — Per-track mute respected in audio export (all formats)** — `MidiFile::save(QString, bool skipMutedTrackEvents = false, const QHash<QString,int> &drumProgramByTrackName = {})` in [src/midi/MidiFile.cpp](src/midi/MidiFile.cpp) gained two new parameters. With `skipMutedTrackEvents=true`, muted tracks are written as empty `MTrk` chunks (header + end-of-track only) so the offline FluidSynth player can't see their events — required because the offline player flattens to channels and would otherwise still hear muted-track events if multiple tracks share a channel. `MainWindow::exportAudio()` / `exportAudioSelection()` scan `file->tracks()` for any muted track; if found, they force the temp-MIDI export path even for already-`.mid` sources and pass `skipMutedTrackEvents=true`. Applies to every export format because the temp MIDI is the input to a single render pipeline shared by WAV / FLAC / OGG / MP3.
-* **BARD-DRUM-EXPORT-001 — Per-track FFXIV percussion routing in audio export (all formats)** — `MidiFile::save()`'s new `drumProgramByTrackName` parameter inserts a delta-0 CH9 Program Change before each NoteOn from a track whose name matches an FFXIV percussion preset (Bass Drum / Snare Drum / Timpani / Bongo / Cymbal, with `+N`/`-N` octave suffix stripped). `MainWindow::exportAudio()` builds this map from `FluidSynthEngine::drumProgramForTrackName()` for every track and forces the temp-MIDI path when the map is non-empty. `FluidSynthEngine::exportPlaybackCallback` flips a new `_exportExplicitPC[16]` flag whenever it sees an explicit Program Change, so the GM-drum-key fallback (`ffxivDrumProgramForGmNote()`) on CH9 NoteOn no longer overwrites the program a named track already requested. CH9 NoteOn / NoteOff in bard mode are now triggered via direct `fluid_synth_noteon` / `fluid_synth_noteoff` calls instead of `fluid_synth_handle_midi_event`, which was silently routing CH9 events into a non-existent percussion bank. Because both the temp-MIDI PC injection and the callback fallback run before FluidSynth's encoder stage, the per-track drum routing is identical for WAV, FLAC, OGG and MP3.
-
-### Technical / Internal
-
-* **FLUIDSYNTH-SR-001 — Default sample rate raised to 48 kHz** — both the constructor (`_sampleRate(48000.0)`) and `loadSettings()` (`settings->value("sampleRate", 48000.0)`) now default to 48 kHz so a fresh install or a settings file without the key matches WASAPI shared-mode and the sample-rate context the FFXIV SoundFont presets were authored against. Existing user overrides are honoured.
-* **PLAN-08-001 — Phase status updated** — internal planning doc Phases 1–3 marked ✅ implemented with the actual function/setting names, leaving Phase 4 (audio period tuning, in-game OBS A/B reference) as the only outstanding item.
+* **DARKMODE-MOVETO-001 - Eye icons in Move-to context submenus were unreadable in dark themes (legacy bug)** - `MatrixWidget::contextMenuEvent()`'s **Move to Track** / **Move to Channel** submenus loaded `all_visible.png` / `all_invisible.png` directly via `QIcon(":/...")`, bypassing `Appearance::adjustIconForDarkMode()`. Result: black-on-dark glyphs that were effectively invisible in every dark theme since UX-CTX-001 shipped in v1.4.2. Both icons are now routed through `Appearance::adjustIconForDarkMode(QStringLiteral(...))` so the eye glyphs invert and stay readable in cascading menus across all themes. Regression since v1.4.2.
 
 </details>
 
 ---
 
-## [1.5.2] - 2026-04-28 — QoL Update: FFXIV SoundFont Toolbar Toggle & Auto-Setup
+## [1.5.3] - 2026-04-29 - Bard-Accurate Playback (Closer to In-Game Sound)
 
 ### Summary
 
-* **One-click FFXIV SoundFont Mode toolbar toggle** — new `XIV` button next to the existing `MCP` button flips FFXIV SoundFont Mode on/off without opening Settings, stays in sync with the checkbox via a new `ffxivSoundFontModeChanged(bool)` signal, and is registered as a customisable toolbar action `ffxiv_toggle` (FFXIV-TOGGLE-001).
-* **Auto-download + snapshot/restore orchestration** — toggling FFXIV Mode on auto-locates the FFXIV SoundFont (stack → disk → `DownloadSoundFontDialog`), snapshots the previous non-FFXIV selection to `QSettings("FFXIV/savedEnabledSoundFonts")`, and restores it verbatim on disable, with a Microsoft GS Wavetable Synth fallback when the FluidSynth stack ends up empty (FFXIV-AUTO-001).
-* **Piano roll opens centred on C3..C6 by default** — empty/new files now position the matrix viewport so the playable middle octaves sit in the visible centre regardless of window height, instead of dropping the user at C7+ or C1- (QOL-VIEW-001).
-* **Dark-mode tinting bug for the green `mcp_on` toolbar icon** — the *MCP server running* indicator was painted gray-on-gray in dark themes; added `mcp_on` to the `Appearance::adjustIconForDarkMode` skip list so coloured "active" icons render verbatim (DARKMODE-MCP-001).
-* **Generic dark-mode artwork override via `<name>_dark.png`** — `Appearance::adjustIconForDarkMode(QString)` now auto-uses an explicit `*_dark.png` sibling when one exists, fixing the gold-text `ffxiv_fix` icon and giving every future icon a drop-in dark variant path (DARKMODE-VARIANT-001).
-* **Manual updates for the new toolbar toggle** — added a Tools row in `manual/menu-tools.html` and a new "FFXIV SoundFont Mode — Toolbar Toggle" section in `manual/soundfont.html` with inline `XIV_on/off` previews and matching CSS exceptions in `manual/style.css` (DOC-XIV-001).
+* **FFXIV bard-accurate playback mode** - when FFXIV SoundFont Mode is on, FluidSynth now reshapes its output so MidiEditor AI sounds much closer to the in-game bard performance instead of a generic GM player. Auto-enabled with FFXIV mode, persisted under `FluidSynth/bardAccurateMode` (default on); toggling either flag off restores the user's reverb/chorus state and 256-voice polyphony (BARD-MODE-001).
+* **Phase 1 - Dry & capped** - in bard mode FluidSynth disables reverb (`fluid_synth_set_reverb_on(0)`) and chorus (`fluid_synth_set_chorus_on(0)`), caps polyphony to **16 voices** (`fluid_synth_set_polyphony(16)`) to match the in-game bard's hard voice limit, and the default sample rate is now **48 kHz** to match WASAPI shared-mode (BARD-DRY-001).
+* **Phase 2 - Bard dynamics** - per-instrument-per-register **minimum note length** table modelled after the in-game bard's instrument behaviour (Harp ≥ 1.13 s, Piano ≥ 1.53 s, Flute clamp 0.5-4.5 s, Snare 0.26 s, …). NoteOff is held by `QTimer::singleShot` with a per-(channel,key) generation counter so engine reset / SoundFont reload can't fire stale lambdas. Volume (CC7) and expression (CC11) are reshaped through a **cubic perceptual curve** (`v = (CC7/127)·(CC11/127); v³`) and emitted on CC7 only. Velocity is forced to **127** on every NoteOn so dynamics flow through the curve (BARD-DYN-001).
+* **Phase 3 - Percussion parity** - new `FluidSynthEngine::ffxivDrumProgramForGmNote()` maps GM Standard-Kit keys (35/36 kick → 117 BassDrum; 37/38/40 snare → 118; 41/43/45/47/48/50 toms → 47 Timpani; 42/44/46 hats + 49/51/52/53/55/57/59 cymbals → 119 Cymbal; 60-81 hand drums / blocks / shakers → 116 Bongo) to the closest FFXIV percussion preset. `MidiOutput::sendCommand` first tries the existing track-name lookup (`drumProgramForTrackName`), then falls back to the GM-key map so single-channel GM drum tracks finally route correctly instead of all hits sharing one preset (BARD-DRUM-001).
+* **Audio export now honours FFXIV mode (all formats)** - offline rendering (Export → WAV / FLAC / OGG / MP3) used `fluid_player_t` directly and bypassed the live FFXIV remap, so e.g. *Acoustic Guitar (nylon)* exported as Piano. A new playback callback runs the same bank-select forcing and program-fallback table during export so every rendered file - regardless of format - sounds the same as live playback (BARD-EXPORT-001).
+* **Mute- and solo-aware audio export (all formats)** - the Export Audio pipeline is now fully channel- *and* track-aware. Channel mute / solo state (`MidiFile::channelMuted()`) is forwarded to the offline render via a new `ExportOptions::mutedChannelsMask`, and any per-track mute is honoured by writing those tracks as empty `MTrk` chunks into the temp MIDI passed to FluidSynth. Drop a single drum track or solo a single guitar and the rendered WAV / FLAC / OGG / MP3 contains exactly that - same behaviour you'd get during live playback (BARD-MUTE-001, BARD-TRACK-MUTE-001).
+* **Per-track FFXIV percussion routing in export (all formats)** - for FFXIV percussion tracks (Bass Drum / Snare Drum / Timpani / Bongo / Cymbal, with optional `+N` / `-N` octave suffix) the export pipeline now injects a CH9 Program Change before each NoteOn so the offline FluidSynth player picks the correct bard percussion preset per track. This mirrors the live per-note PC injection in `MidiOutput::sendCommand` and finally lets multi-drum-track arrangements export with the same drum kit balance you hear during playback. Format-agnostic - the routing happens before the encoder, so it applies to WAV, FLAC, OGG and MP3 alike (BARD-DRUM-EXPORT-001).
+* **Per-program loudness trim** - the FFXIV SoundFont presets are sampled at uneven levels (ElectricGuitarClean is noticeably quieter than Lute / Harp / Piano). New `bardProgramAttenuationCb()` adds a per-program `GEN_ATTENUATION` (in centibels) on every Program Change in bard mode so the perceived loudness across instruments is balanced; cleared back to 0 when bard mode is turned off (BARD-LOUDNESS-001).
 
 <details>
-<summary>Full Changelog — FFXIV SoundFont Toolbar Toggle & Auto-Setup</summary>
+<summary>Full Changelog - Bard-Accurate Playback (Closer to In-Game Sound)</summary>
 
 ### New Features
 
-* **FFXIV-TOGGLE-001 — Toolbar toggle for FFXIV SoundFont Mode** — new dedicated `XIV` button next to the existing `MCP` toolbar button so the mode can be flipped with a single click instead of opening *MIDI Settings → FluidSynth → FFXIV SoundFont Mode* every time. Implemented as `FfxivToggleWidget` ([src/gui/FfxivToggleWidget.cpp](src/gui/FfxivToggleWidget.cpp)) using the same paint/hover idiom as `McpToggleWidget`: two preloaded pixmaps (`XIV_on.png` / `XIV_off.png` in [run_environment/graphics/tool/](run_environment/graphics/tool)) swapped per state, no opacity dim, fixed 40×40 px so the toolbar layout stays uniform. Stays in sync with the Settings checkbox via the new `FluidSynthEngine::ffxivSoundFontModeChanged(bool)` signal (only emitted on actual value change). Registered as a customisable toolbar action `ffxiv_toggle` in [src/gui/LayoutSettingsWidget.cpp](src/gui/LayoutSettingsWidget.cpp) with own default-list entry, so it survives toolbar customisation and *Reset to Defaults*.
-* **FFXIV-AUTO-001 — Auto-download of the FFXIV SoundFont on first enable** — toggling FFXIV Mode on (button or checkbox) now goes through the new `FfxivSoundFontHelper` ([src/gui/FfxivSoundFontHelper.cpp](src/gui/FfxivSoundFontHelper.cpp)). Resolution order: FFXIV SF already in the FluidSynth stack → on disk in `<appDir>/soundfonts/` → otherwise the user is asked *"Download FFXIV SoundFont now?"* and the existing `DownloadSoundFontDialog` opens scoped to the FFXIV entry. The downloaded file is auto-loaded into the engine and selected, all other SoundFonts are disabled, and the engine flag flips on. If the user cancels the download the toggle reverts to OFF — no half-state. SF detection is by basename match (`ff14*` or `ffxiv*`, case-insensitive).
-* **FFXIV-AUTO-001 — Snapshot + restore of the previous SoundFont selection** — before enabling FFXIV Mode the helper snapshots all currently enabled non-FFXIV SoundFonts to `QSettings("FFXIV/savedEnabledSoundFonts")`. On disable, the snapshot is restored verbatim (re-loading any SF that was unloaded in the meantime). If the snapshot is empty or all snapshotted files are gone, the first non-FFXIV SF in the stack is enabled as a sane fallback.
-* **FFXIV-AUTO-001 — Microsoft GS Wavetable Synth fallback** — if disabling FFXIV Mode leaves the FluidSynth stack with zero enabled SoundFonts (clean install / freshly cleared list), the helper switches the active MIDI output to the system *"Microsoft GS Wavetable Synth"* port (matched by name) and shows a one-line info dialog so playback keeps working out of the box.
-* **QOL-VIEW-001 — Piano roll opens centred on the C3..C6 range** — when MidiEditor AI starts with an empty file (or any file with no notes) the matrix viewport is now positioned so that the playable middle octaves (lines 43..79, midpoint line 61) sit in the centre of the visible area regardless of window height. Implemented in [src/gui/MatrixWidget.cpp](src/gui/MatrixWidget.cpp) `setFile()`: when the existing `maxNote - 5` heuristic reports no notes, `startLineY = 61 - linesInView/2` (clamped to 0). Files that contain notes keep the previous "scroll to the highest note in the song" behaviour byte-identically — only the empty-file QoL case changes, so the user can start drawing immediately without scrolling.
+* **BARD-MODE-001 - Bard-accurate playback mode** - new public API `FluidSynthEngine::setBardAccurateMode(bool)` / `bardAccurateMode()` plus `bardAccurateModeChanged(bool)` signal in [src/midi/FluidSynthEngine.h](src/midi/FluidSynthEngine.h), wired into `applyBardAccuracySettings()` in [src/midi/FluidSynthEngine.cpp](src/midi/FluidSynthEngine.cpp). The mode is gated on **`_ffxivSoundFontMode && _bardAccurateMode`** so toggling either flag restores the user's previous reverb/chorus state and the 256-voice polyphony default. Persisted under `FluidSynth/bardAccurateMode` in `QSettings` (default `true`); reapplied on every `initialize()` and on every `setFfxivSoundFontMode(bool)` call.
+* **BARD-DRY-001 - Dry & capped output (Phase 1)** - `applyBardAccuracySettings()` calls `fluid_synth_set_reverb_on(synth, 0)`, `fluid_synth_set_chorus_on(synth, 0)`, `fluid_synth_set_polyphony(synth, 16)` because the in-game bard runs dry (no global reverb/chorus colouring) with a hard 16-voice limit per performer. Default `_sampleRate` raised from 44100.0 to **48000.0** in the constructor and in `loadSettings()` so the FluidSynth engine starts at 48 kHz / WASAPI shared-mode and gives the FFXIV SoundFont presets the sample-rate context they were authored against. Removes the boomy reverb tail that was making FFXIV preset attacks sound smeared compared to the in-game bard.
+* **BARD-DYN-001 - Bard dynamics (Phase 2)** - three coordinated changes in `FluidSynthEngine::sendMidiData()`:
+  * **Min note length** - new `bardMinNoteLengthMs(instrumentIndex, midiKey, duration)` carries per-instrument-per-register tables (Harp / Piano / Lute / Fiddle / Flute family / Timpani / Bongo / Bass Drum / Snare / Cymbal / Brass / Strings / E-Guitar variants) that match the in-game bard's minimum sustain per instrument and register. NoteOff timing: if `elapsed >= minLen` we send `fluid_synth_noteoff` immediately, else we schedule a `QTimer::singleShot(remaining, this, lambda)` that captures a `QPointer<FluidSynthEngine>` guard, the channel/key, and the current per-(channel,key) generation counter. `resetBardNoteState()` (also called from `initialize()`) bumps the generation counter so any pending lambdas drop their work - no spurious noteoffs after SoundFont reload, song change, or engine shutdown.
+  * **Cubic CC7·CC11 curve** - new `applyBardVolumeCurve(channel)` computes `v = (CC7/127) * (CC11/127)`, raises it to the third power, rounds to 0..127 and emits the result on **CC7** while pinning CC11 to 127. The CC handler in `sendMidiData()` intercepts incoming CC7 / CC11, stores them in `_bardCC7[16]` / `_bardCC11[16]`, calls the curve, and short-circuits forwarding so the synth never sees the raw linear values. Matches the perceptual `(vol·expr)^3` response the in-game mix uses.
+  * **Force vel=127** - every NoteOn in bard mode is forced to velocity 127; if a previous note for the same (channel,key) is still held by min-length, a NoteOff is flushed first so the synth retriggers cleanly. Mirrors the in-game bard's fixed-FFF note delivery and lets the cubic curve own all dynamics.
+* **BARD-DRUM-001 - GM drum-key → FFXIV percussion fallback (Phase 3)** - new `FluidSynthEngine::ffxivDrumProgramForGmNote(int gmNote)` in [src/midi/FluidSynthEngine.h](src/midi/FluidSynthEngine.h) / `.cpp` returns the closest FFXIV bard percussion program for a GM Standard Kit key (35..81 covered). `MidiOutput::sendCommand` in [src/midi/MidiOutput.cpp](src/midi/MidiOutput.cpp) keeps the existing per-track-name path as the primary lookup and falls back to the GM-key map only when `drumProgramForTrackName()` returns -1, so well-tagged GP/MusicXML imports keep working unchanged while generic single-channel GM drum tracks (kick/snare/toms/hats/cymbals on CH9) now route each hit individually instead of all sharing the first injected preset.
+
+### Improvements
+
+* **BARD-CTOR-001 - Per-channel bard state** - `FluidSynthEngine` now tracks the active program per channel (`_bardCurrentProgram[16]`) so the min-note-length lookup can map by current FFXIV bard instrument. NoteOn timestamps and held flags live in `_bardNoteOnMs[16][128]` / `_bardNoteHeld[16][128]`, indexed by a `QElapsedTimer` (`_bardClock`) started from `initialize()`. The generation counter `_bardNoteGen[16][128]` invalidates pending QTimer lambdas without needing to track them explicitly.
+* **BARD-INSTMAP-001 - FFXIV instrument index map** - new static `bardInstrumentIndexForProgram(int program)` collapses both common reference program numbers (115 snare, 127 cymbal) and our actual FFXIV SoundFont program numbers (118 snare, 119 cymbal) onto a unified 1..28 instrument index so `bardMinNoteLengthMs` works regardless of how the host sequencer numbered the percussion presets.
+* **BARD-CC-001 - CC7/CC11 forwarding policy** - outside bard mode the CC handler keeps the existing FFXIV bank-select (`CC#0` / `CC#32` → 0) behaviour unchanged. Inside bard mode CC7/CC11 are intercepted *before* the bank-select short-circuit so the cubic curve is the only volume path; all other CCs (sustain, pan, modulation, …) pass through untouched.
 
 ### Bug Fixes
 
-* **DARKMODE-MCP-001 — Dark mode tinted the green `mcp_on` toolbar icon to gray** — `Appearance::adjustIconForDarkMode` paints a `(180,180,180)` overlay over every non-skipped icon to lift black artwork against dark backgrounds, but the MCP "active" icon is intentionally green and was missing from the `skipIcons` list. Result: the *MCP server running* state looked the same medium-gray as the *stopped* state in dark themes — original v1.4.0 oversight when the MCP toolbar toggle was first introduced. Added `mcp_on` (and the new `XIV_on`) to the skip list in [src/gui/Appearance.cpp](src/gui/Appearance.cpp) so coloured "active" toolbar icons render verbatim in every theme. Regression since v1.4.0.
-* **DARKMODE-VARIANT-001 — Dark mode tinted the gold-text `ffxiv_fix` Tools icon** — the FFXIV Channel Fixer icon has a black harp glyph (hard to read on dark backgrounds) **and** gold lettering (which the gray overlay flattens). Solved generically: `Appearance::adjustIconForDarkMode(QString iconPath)` now looks for an explicit `<name>_dark.png` variant next to the original and, if present, returns it verbatim (no tinting, no inversion). Shipped `run_environment/graphics/tool/ffxiv_fix_dark.png` as the first variant. The same pattern works for any future icon — drop a `*_dark.png` next to the file and it is picked up automatically in dark mode.
-* **DARKMODE-XIV-001 — `XIV_off` toolbar icon was unreadable in dark mode** — the new OFF state is intentionally black, but the `FfxivToggleWidget` constructor was loading the pixmap directly via `QPixmap(...)` instead of going through `Appearance::adjustIconForDarkMode`, so it stayed black on a dark toolbar. Routed both `XIV_on` and `XIV_off` through `Appearance::adjustIconForDarkMode(QPixmap, name)` (mirroring `McpToggleWidget`); the `mcp_on`/`XIV_on` skip-list entry above keeps the green ON variant untouched while the OFF variant is lifted to light gray for dark themes.
+* **BARD-RESET-001 - Stale NoteOff lambdas after engine reset** - without the generation counter, `QTimer::singleShot` lambdas scheduled before a SoundFont reload or `shutdown()`/`initialize()` cycle could fire `fluid_synth_noteoff` against a freshly initialized synth, occasionally truncating the first notes of the next playback. `resetBardNoteState()` now bumps `_bardNoteGen[ch][key]` for every (channel,key), and the lambda body checks `guard->_bardNoteGen[channel][key] != gen` (plus `_initialized && _synth`) before touching the synth so stale callbacks are dropped silently.
+
+### Audio Export Pipeline
+
+* **BARD-EXPORT-001 - Live-parity FFXIV remap in audio export (all formats)** - offline rendering used `fluid_player_t` directly and bypassed the live `sendMidiData()` path, so the FFXIV bank-select forcing and the program-fallback table never ran during export. New static `FluidSynthEngine::exportPlaybackCallback(void*, fluid_midi_event_t*)` is installed via `fluid_player_set_playback_callback()` whenever FFXIV mode is on; it forces CC#0 / CC#32 to 0 and remaps program changes through the same fallback table as live playback (24→25 Lute, 26→27 Clean Guitar) before forwarding to `fluid_synth_handle_midi_event()`. Because the callback runs ahead of FluidSynth's audio renderer and `audio.file.format` (the encoder selector - WAV / FLAC / OGG / MP3), the remap applies uniformly to every export format the dialog offers. The export synth also picks up the dry/16-voice settings when bard mode is active and seeds `GEN_ATTENUATION` for default program 0 on every channel so tracks that never send a Program Change still get the same loudness trim as live playback. Tracks like *Acoustic Guitar (nylon)* (GM prog 24) now export with the same Lute voicing they have during live playback.
+* **BARD-MUTE-001 - Channel mute / solo respected in audio export (all formats)** - `MainWindow::exportAudio()` and `exportAudioSelection()` in [src/gui/MainWindow.cpp](src/gui/MainWindow.cpp) build a `quint32 mutedChannelsMask` from `MidiFile::channelMuted(i)` (which already folds in solo logic) and pass it through the new `ExportOptions::mutedChannelsMask` field. `FluidSynthEngine::exportPlaybackCallback` drops every channel-bound MIDI message (0x80/0x90/0xA0/0xB0/0xC0/0xD0/0xE0) for any channel in the mask, so exporting with only the harp audible produces a harp-only WAV/FLAC/OGG/MP3. The callback is registered whenever the mask is non-zero even outside FFXIV mode, so generic exports also respect mute/solo state across every format. The callback re-applies per-program `bardProgramAttenuationCb()` on every Program Change in offline render so loudness balance matches live playback. Note: the cubic CC7·CC11 curve and per-instrument min-note-length still run only on the live `MidiOutput` timing path; full offline parity for those would require a larger export refactor.
+* **BARD-TRACK-MUTE-001 - Per-track mute respected in audio export (all formats)** - `MidiFile::save(QString, bool skipMutedTrackEvents = false, const QHash<QString,int> &drumProgramByTrackName = {})` in [src/midi/MidiFile.cpp](src/midi/MidiFile.cpp) gained two new parameters. With `skipMutedTrackEvents=true`, muted tracks are written as empty `MTrk` chunks (header + end-of-track only) so the offline FluidSynth player can't see their events - required because the offline player flattens to channels and would otherwise still hear muted-track events if multiple tracks share a channel. `MainWindow::exportAudio()` / `exportAudioSelection()` scan `file->tracks()` for any muted track; if found, they force the temp-MIDI export path even for already-`.mid` sources and pass `skipMutedTrackEvents=true`. Applies to every export format because the temp MIDI is the input to a single render pipeline shared by WAV / FLAC / OGG / MP3.
+* **BARD-DRUM-EXPORT-001 - Per-track FFXIV percussion routing in audio export (all formats)** - `MidiFile::save()`'s new `drumProgramByTrackName` parameter inserts a delta-0 CH9 Program Change before each NoteOn from a track whose name matches an FFXIV percussion preset (Bass Drum / Snare Drum / Timpani / Bongo / Cymbal, with `+N`/`-N` octave suffix stripped). `MainWindow::exportAudio()` builds this map from `FluidSynthEngine::drumProgramForTrackName()` for every track and forces the temp-MIDI path when the map is non-empty. `FluidSynthEngine::exportPlaybackCallback` flips a new `_exportExplicitPC[16]` flag whenever it sees an explicit Program Change, so the GM-drum-key fallback (`ffxivDrumProgramForGmNote()`) on CH9 NoteOn no longer overwrites the program a named track already requested. CH9 NoteOn / NoteOff in bard mode are now triggered via direct `fluid_synth_noteon` / `fluid_synth_noteoff` calls instead of `fluid_synth_handle_midi_event`, which was silently routing CH9 events into a non-existent percussion bank. Because both the temp-MIDI PC injection and the callback fallback run before FluidSynth's encoder stage, the per-track drum routing is identical for WAV, FLAC, OGG and MP3.
+
+### Technical / Internal
+
+* **FLUIDSYNTH-SR-001 - Default sample rate raised to 48 kHz** - both the constructor (`_sampleRate(48000.0)`) and `loadSettings()` (`settings->value("sampleRate", 48000.0)`) now default to 48 kHz so a fresh install or a settings file without the key matches WASAPI shared-mode and the sample-rate context the FFXIV SoundFont presets were authored against. Existing user overrides are honoured.
+* **PLAN-08-001 - Phase status updated** - internal planning doc Phases 1-3 marked ✅ implemented with the actual function/setting names, leaving Phase 4 (audio period tuning, in-game OBS A/B reference) as the only outstanding item.
+
+</details>
+
+---
+
+## [1.5.2] - 2026-04-28 - QoL Update: FFXIV SoundFont Toolbar Toggle & Auto-Setup
+
+### Summary
+
+* **One-click FFXIV SoundFont Mode toolbar toggle** - new `XIV` button next to the existing `MCP` button flips FFXIV SoundFont Mode on/off without opening Settings, stays in sync with the checkbox via a new `ffxivSoundFontModeChanged(bool)` signal, and is registered as a customisable toolbar action `ffxiv_toggle` (FFXIV-TOGGLE-001).
+* **Auto-download + snapshot/restore orchestration** - toggling FFXIV Mode on auto-locates the FFXIV SoundFont (stack → disk → `DownloadSoundFontDialog`), snapshots the previous non-FFXIV selection to `QSettings("FFXIV/savedEnabledSoundFonts")`, and restores it verbatim on disable, with a Microsoft GS Wavetable Synth fallback when the FluidSynth stack ends up empty (FFXIV-AUTO-001).
+* **Piano roll opens centred on C3..C6 by default** - empty/new files now position the matrix viewport so the playable middle octaves sit in the visible centre regardless of window height, instead of dropping the user at C7+ or C1- (QOL-VIEW-001).
+* **Dark-mode tinting bug for the green `mcp_on` toolbar icon** - the *MCP server running* indicator was painted gray-on-gray in dark themes; added `mcp_on` to the `Appearance::adjustIconForDarkMode` skip list so coloured "active" icons render verbatim (DARKMODE-MCP-001).
+* **Generic dark-mode artwork override via `<name>_dark.png`** - `Appearance::adjustIconForDarkMode(QString)` now auto-uses an explicit `*_dark.png` sibling when one exists, fixing the gold-text `ffxiv_fix` icon and giving every future icon a drop-in dark variant path (DARKMODE-VARIANT-001).
+* **Manual updates for the new toolbar toggle** - added a Tools row in `manual/menu-tools.html` and a new "FFXIV SoundFont Mode - Toolbar Toggle" section in `manual/soundfont.html` with inline `XIV_on/off` previews and matching CSS exceptions in `manual/style.css` (DOC-XIV-001).
+
+<details>
+<summary>Full Changelog - FFXIV SoundFont Toolbar Toggle & Auto-Setup</summary>
+
+### New Features
+
+* **FFXIV-TOGGLE-001 - Toolbar toggle for FFXIV SoundFont Mode** - new dedicated `XIV` button next to the existing `MCP` toolbar button so the mode can be flipped with a single click instead of opening *MIDI Settings → FluidSynth → FFXIV SoundFont Mode* every time. Implemented as `FfxivToggleWidget` ([src/gui/FfxivToggleWidget.cpp](src/gui/FfxivToggleWidget.cpp)) using the same paint/hover idiom as `McpToggleWidget`: two preloaded pixmaps (`XIV_on.png` / `XIV_off.png` in [run_environment/graphics/tool/](run_environment/graphics/tool)) swapped per state, no opacity dim, fixed 40×40 px so the toolbar layout stays uniform. Stays in sync with the Settings checkbox via the new `FluidSynthEngine::ffxivSoundFontModeChanged(bool)` signal (only emitted on actual value change). Registered as a customisable toolbar action `ffxiv_toggle` in [src/gui/LayoutSettingsWidget.cpp](src/gui/LayoutSettingsWidget.cpp) with own default-list entry, so it survives toolbar customisation and *Reset to Defaults*.
+* **FFXIV-AUTO-001 - Auto-download of the FFXIV SoundFont on first enable** - toggling FFXIV Mode on (button or checkbox) now goes through the new `FfxivSoundFontHelper` ([src/gui/FfxivSoundFontHelper.cpp](src/gui/FfxivSoundFontHelper.cpp)). Resolution order: FFXIV SF already in the FluidSynth stack → on disk in `<appDir>/soundfonts/` → otherwise the user is asked *"Download FFXIV SoundFont now?"* and the existing `DownloadSoundFontDialog` opens scoped to the FFXIV entry. The downloaded file is auto-loaded into the engine and selected, all other SoundFonts are disabled, and the engine flag flips on. If the user cancels the download the toggle reverts to OFF - no half-state. SF detection is by basename match (`ff14*` or `ffxiv*`, case-insensitive).
+* **FFXIV-AUTO-001 - Snapshot + restore of the previous SoundFont selection** - before enabling FFXIV Mode the helper snapshots all currently enabled non-FFXIV SoundFonts to `QSettings("FFXIV/savedEnabledSoundFonts")`. On disable, the snapshot is restored verbatim (re-loading any SF that was unloaded in the meantime). If the snapshot is empty or all snapshotted files are gone, the first non-FFXIV SF in the stack is enabled as a sane fallback.
+* **FFXIV-AUTO-001 - Microsoft GS Wavetable Synth fallback** - if disabling FFXIV Mode leaves the FluidSynth stack with zero enabled SoundFonts (clean install / freshly cleared list), the helper switches the active MIDI output to the system *"Microsoft GS Wavetable Synth"* port (matched by name) and shows a one-line info dialog so playback keeps working out of the box.
+* **QOL-VIEW-001 - Piano roll opens centred on the C3..C6 range** - when MidiEditor AI starts with an empty file (or any file with no notes) the matrix viewport is now positioned so that the playable middle octaves (lines 43..79, midpoint line 61) sit in the centre of the visible area regardless of window height. Implemented in [src/gui/MatrixWidget.cpp](src/gui/MatrixWidget.cpp) `setFile()`: when the existing `maxNote - 5` heuristic reports no notes, `startLineY = 61 - linesInView/2` (clamped to 0). Files that contain notes keep the previous "scroll to the highest note in the song" behaviour byte-identically - only the empty-file QoL case changes, so the user can start drawing immediately without scrolling.
+
+### Bug Fixes
+
+* **DARKMODE-MCP-001 - Dark mode tinted the green `mcp_on` toolbar icon to gray** - `Appearance::adjustIconForDarkMode` paints a `(180,180,180)` overlay over every non-skipped icon to lift black artwork against dark backgrounds, but the MCP "active" icon is intentionally green and was missing from the `skipIcons` list. Result: the *MCP server running* state looked the same medium-gray as the *stopped* state in dark themes - original v1.4.0 oversight when the MCP toolbar toggle was first introduced. Added `mcp_on` (and the new `XIV_on`) to the skip list in [src/gui/Appearance.cpp](src/gui/Appearance.cpp) so coloured "active" toolbar icons render verbatim in every theme. Regression since v1.4.0.
+* **DARKMODE-VARIANT-001 - Dark mode tinted the gold-text `ffxiv_fix` Tools icon** - the FFXIV Channel Fixer icon has a black harp glyph (hard to read on dark backgrounds) **and** gold lettering (which the gray overlay flattens). Solved generically: `Appearance::adjustIconForDarkMode(QString iconPath)` now looks for an explicit `<name>_dark.png` variant next to the original and, if present, returns it verbatim (no tinting, no inversion). Shipped `run_environment/graphics/tool/ffxiv_fix_dark.png` as the first variant. The same pattern works for any future icon - drop a `*_dark.png` next to the file and it is picked up automatically in dark mode.
+* **DARKMODE-XIV-001 - `XIV_off` toolbar icon was unreadable in dark mode** - the new OFF state is intentionally black, but the `FfxivToggleWidget` constructor was loading the pixmap directly via `QPixmap(...)` instead of going through `Appearance::adjustIconForDarkMode`, so it stayed black on a dark toolbar. Routed both `XIV_on` and `XIV_off` through `Appearance::adjustIconForDarkMode(QPixmap, name)` (mirroring `McpToggleWidget`); the `mcp_on`/`XIV_on` skip-list entry above keeps the green ON variant untouched while the OFF variant is lifted to light gray for dark themes.
 
 ### Documentation
 
-* **DOC-XIV-001 — Manual entries for the new FFXIV SoundFont toolbar toggle** — added a *FFXIV SoundFont Mode toggle* row to [manual/menu-tools.html](manual/menu-tools.html) (right under the FFXIV Channel Fixer entry, with inline `XIV_on/off` previews) and a new *"FFXIV SoundFont Mode — Toolbar Toggle"* section to [manual/soundfont.html](manual/soundfont.html) (`#ffxiv-toolbar-toggle`) covering Smart Enable (snapshot → locate → auto-download → activate) and Smart Disable / Fallback (restore snapshot → first non-FFXIV SF → Microsoft GS Wavetable Synth). [manual/style.css](manual/style.css) gained a CSS exception for `XIV_on`/`XIV_off` (no inversion, native 72×25 size) so the inline previews render correctly in dark themes.
+* **DOC-XIV-001 - Manual entries for the new FFXIV SoundFont toolbar toggle** - added a *FFXIV SoundFont Mode toggle* row to [manual/menu-tools.html](manual/menu-tools.html) (right under the FFXIV Channel Fixer entry, with inline `XIV_on/off` previews) and a new *"FFXIV SoundFont Mode - Toolbar Toggle"* section to [manual/soundfont.html](manual/soundfont.html) (`#ffxiv-toolbar-toggle`) covering Smart Enable (snapshot → locate → auto-download → activate) and Smart Disable / Fallback (restore snapshot → first non-FFXIV SF → Microsoft GS Wavetable Synth). [manual/style.css](manual/style.css) gained a CSS exception for `XIV_on`/`XIV_off` (no inversion, native 72×25 size) so the inline previews render correctly in dark themes.
 
 ### Notes
 
@@ -97,133 +151,133 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 
 ### Files Added
 
-* `src/gui/FfxivToggleWidget.h` — toolbar widget header for the new `XIV` button.
-* `src/gui/FfxivToggleWidget.cpp` — toolbar widget implementation (paint/hover/click, syncs to `FluidSynthEngine::ffxivSoundFontModeChanged`).
-* `src/gui/FfxivSoundFontHelper.h` — public namespace API for enable/disable orchestration.
-* `src/gui/FfxivSoundFontHelper.cpp` — auto-download + snapshot/restore + Microsoft GS Wavetable Synth fallback logic.
-* `run_environment/graphics/tool/XIV_on.png` — green ON-state toolbar icon (72×25 native).
-* `run_environment/graphics/tool/XIV_off.png` — neutral OFF-state toolbar icon (72×25 native).
-* `run_environment/graphics/tool/ffxiv_fix_dark.png` — explicit dark-mode variant of the FFXIV Channel Fixer icon (first user of the new `<name>_dark.png` lookup).
-* `manual/tools/XIV_on.png` / `manual/tools/XIV_off.png` — manual copies of the toolbar icons for inline previews.
+* `src/gui/FfxivToggleWidget.h` - toolbar widget header for the new `XIV` button.
+* `src/gui/FfxivToggleWidget.cpp` - toolbar widget implementation (paint/hover/click, syncs to `FluidSynthEngine::ffxivSoundFontModeChanged`).
+* `src/gui/FfxivSoundFontHelper.h` - public namespace API for enable/disable orchestration.
+* `src/gui/FfxivSoundFontHelper.cpp` - auto-download + snapshot/restore + Microsoft GS Wavetable Synth fallback logic.
+* `run_environment/graphics/tool/XIV_on.png` - green ON-state toolbar icon (72×25 native).
+* `run_environment/graphics/tool/XIV_off.png` - neutral OFF-state toolbar icon (72×25 native).
+* `run_environment/graphics/tool/ffxiv_fix_dark.png` - explicit dark-mode variant of the FFXIV Channel Fixer icon (first user of the new `<name>_dark.png` lookup).
+* `manual/tools/XIV_on.png` / `manual/tools/XIV_off.png` - manual copies of the toolbar icons for inline previews.
 
 ### Files Modified
 
-* `src/midi/FluidSynthEngine.h` / `.cpp` — added `ffxivSoundFontModeChanged(bool)` signal, emitted only on actual value change to avoid feedback loops with the toolbar widget.
-* `src/gui/MainWindow.h` / `.cpp` — created `ffxivToggleAction`, registered it in the action map, special-cased the toolbar widget instantiation in all four toolbar code paths, and seeded two action-order lists.
-* `src/gui/LayoutSettingsWidget.cpp` — registered `ffxiv_toggle` in the toolbar registry and appended it to all five default action-order lists.
-* `src/gui/MidiSettingsWidget.cpp` — `onFfxivModeToggled` now routes through `FfxivSoundFontHelper::requestEnable/Disable` and reverts the checkbox if the user cancels the download dialog.
-* `src/gui/MatrixWidget.cpp` — empty-file branch in `setFile()` centres the viewport on the C3..C6 range (line 61); files with notes are unchanged.
-* `src/gui/Appearance.cpp` — extended `skipIcons` with `XIV_on` + `mcp_on`; added automatic `<name>_dark.png` lookup in `adjustIconForDarkMode(QString)`.
-* `resources.qrc` — registered `XIV_on.png`, `XIV_off.png`, `ffxiv_fix_dark.png`.
-* `manual/menu-tools.html` — added the FFXIV SoundFont Mode toggle row with inline icon previews.
-* `manual/soundfont.html` — added the new `#ffxiv-toolbar-toggle` section covering enable/disable orchestration.
-* `manual/style.css` — added CSS exception so the wide `XIV_on/off` icons render at native 72×25 size and the green ON variant is not inverted in dark themes.
+* `src/midi/FluidSynthEngine.h` / `.cpp` - added `ffxivSoundFontModeChanged(bool)` signal, emitted only on actual value change to avoid feedback loops with the toolbar widget.
+* `src/gui/MainWindow.h` / `.cpp` - created `ffxivToggleAction`, registered it in the action map, special-cased the toolbar widget instantiation in all four toolbar code paths, and seeded two action-order lists.
+* `src/gui/LayoutSettingsWidget.cpp` - registered `ffxiv_toggle` in the toolbar registry and appended it to all five default action-order lists.
+* `src/gui/MidiSettingsWidget.cpp` - `onFfxivModeToggled` now routes through `FfxivSoundFontHelper::requestEnable/Disable` and reverts the checkbox if the user cancels the download dialog.
+* `src/gui/MatrixWidget.cpp` - empty-file branch in `setFile()` centres the viewport on the C3..C6 range (line 61); files with notes are unchanged.
+* `src/gui/Appearance.cpp` - extended `skipIcons` with `XIV_on` + `mcp_on`; added automatic `<name>_dark.png` lookup in `adjustIconForDarkMode(QString)`.
+* `resources.qrc` - registered `XIV_on.png`, `XIV_off.png`, `ffxiv_fix_dark.png`.
+* `manual/menu-tools.html` - added the FFXIV SoundFont Mode toggle row with inline icon previews.
+* `manual/soundfont.html` - added the new `#ffxiv-toolbar-toggle` section covering enable/disable orchestration.
+* `manual/style.css` - added CSS exception so the wide `XIV_on/off` icons render at native 72×25 size and the green ON variant is not inverted in dark themes.
 
 </details>
 
 ---
 
-## [1.5.1] - 2026-04-28 — FFXIV SoundFont Mapping Fixes
+## [1.5.1] - 2026-04-28 - FFXIV SoundFont Mapping Fixes
 
 ### Bug Fixes
 
-* **FFXIV SoundFont — Acoustic Guitar (nylon) silently played as Piano** — `FF14-c3c6-fixed.sf2` exposes Lute on GM program **25** (Acoustic Guitar steel slot), not 24, and `Snare Drum` / `Cymbal` on **118 / 119** rather than 115 / 127. The FFXIV instrument → GM-program tables in [src/ai/FFXIVChannelFixer.cpp](src/ai/FFXIVChannelFixer.cpp) and [src/ai/ToolDefinitions.cpp](src/ai/ToolDefinitions.cpp) used the old (wrong) numbers, so the FFXIV Channel Fixer and the AI agent emitted Program Changes onto empty preset slots; FluidSynth then silently fell back to bank 0 / prog 0 (= Piano). Verified against the SF2 `phdr` chunk and corrected to 25 / 118 / 119.
-* **FluidSynth — GM program fallback when running with the FFXIV SoundFont** — old or imported MIDIs (e.g. Guitar Pro, MusicXML) frequently send Program Change 24 (Acoustic Guitar nylon) or 26 (Acoustic Guitar jazz). The FFXIV SoundFont contains no preset for those slots, so they collapsed to Piano. Added a small remap in `FluidSynthEngine::sendMidiData()` (only active when **FFXIV SoundFont Mode** is on): `24 → 25` (Lute), `26 → 27` (Clean Guitar). The remap is logged via `qDebug` as `prog 24 → 25 (FFXIV fallback)`. All other programs are passed through unchanged.
+* **FFXIV SoundFont - Acoustic Guitar (nylon) silently played as Piano** - `FF14-c3c6-fixed.sf2` exposes Lute on GM program **25** (Acoustic Guitar steel slot), not 24, and `Snare Drum` / `Cymbal` on **118 / 119** rather than 115 / 127. The FFXIV instrument → GM-program tables in [src/ai/FFXIVChannelFixer.cpp](src/ai/FFXIVChannelFixer.cpp) and [src/ai/ToolDefinitions.cpp](src/ai/ToolDefinitions.cpp) used the old (wrong) numbers, so the FFXIV Channel Fixer and the AI agent emitted Program Changes onto empty preset slots; FluidSynth then silently fell back to bank 0 / prog 0 (= Piano). Verified against the SF2 `phdr` chunk and corrected to 25 / 118 / 119.
+* **FluidSynth - GM program fallback when running with the FFXIV SoundFont** - old or imported MIDIs (e.g. Guitar Pro, MusicXML) frequently send Program Change 24 (Acoustic Guitar nylon) or 26 (Acoustic Guitar jazz). The FFXIV SoundFont contains no preset for those slots, so they collapsed to Piano. Added a small remap in `FluidSynthEngine::sendMidiData()` (only active when **FFXIV SoundFont Mode** is on): `24 → 25` (Lute), `26 → 27` (Clean Guitar). The remap is logged via `qDebug` as `prog 24 → 25 (FFXIV fallback)`. All other programs are passed through unchanged.
 
 ---
 
-## [1.5.0] - 2026-04-21 — Live Agent Streaming, Dynamic Models, Prompt Profiles, Agent Conductor & GPT-5.5 Isolation
+## [1.5.0] - 2026-04-21 - Live Agent Streaming, Dynamic Models, Prompt Profiles, Agent Conductor & GPT-5.5 Isolation
 
 ### Summary
 
-* **Live agent streaming on every provider (Phase 25 + 27)** — the Agent loop streams assistant text, tool-call arguments and reasoning live for OpenAI Chat-Completions, OpenAI Responses-API (`gpt-5*`), OpenRouter Chat-Completions and native Gemini (`:streamGenerateContent?alt=sse` with `thinkingConfig.includeThoughts:true`). A single `extractReasoningFromJson()` covers Responses-API reasoning items, Chat-Completions `reasoning_content`, Gemini `parts[].thought` and Anthropic `thinking` blocks, so the MidiPilot 💭 thought block renders live everywhere. Gemini 3.x's mandatory `part.thoughtSignature` is captured during streaming and echoed back on the follow-up `functionCall`, so multi-step Gemini agent loops no longer 400 with *"missing thought_signature"*.
-* **GPT-5-family Responses-API routing (Phase 27.8)** — OpenAI `gpt-5*` reasoning models with tools route through `/v1/responses` consistently, including reasoning summaries, tool-call argument reassembly, usage normalisation and a stable `prompt_cache_key` for repeated requests.
-* **Per-session streaming fallback with Force Streaming override (Phase 27.7 + 31.1)** — every streaming request is armed with a non-streaming retry; on HTTP 4xx/5xx, network error, or HTTP 200 with no parsable content/tool calls, MidiPilot transparently retries via `sendRequest` / `sendMessages` and marks the `(provider, model, mode)` triple with a warning icon for the rest of the session — Simple Mode and Agent Mode are tracked separately so a streaming failure in one mode never poisons the other. The Settings model dropdown, MidiPilot footer dropdown and the **Force Streaming for This Model** button show which mode is blocked: `⚠ <model> (Simple)` / `(Agent)` / `(Simple+Agent)`.
-* **Dynamic provider model list with favourites & non-LLM filter (Phase 26)** — model dropdowns drop their hardcoded entries; a 🔄 refresh button queries the active provider's `/models` endpoint, normalises the four response shapes (OpenAI / OpenRouter / Gemini / Custom) into `<userdata>/midipilot_models.json` (7-day TTL) and feeds `AiClient::contextWindowForModel` cache-first. Every cached model runs through `ModelFavorites::isLikelyChatModel` to drop image/audio/embedding/tts entries, and a new **Settings → AI → "Manage favourites…"** dialog persists per-provider favourites at `AI/favorites/<provider>` and shows favourites-only when any are pinned.
-* **Persistent per-turn metadata + scrollable history popup (Phase 27.5 + 27.6)** — `MidiPilotHistory/<id>.json` now stores a `turns[]` array (reasoning text, agent steps, latency, provider, model, token counts) alongside `messages[]`; `loadConversation()` re-renders saved 💭 thoughts and `🔧 Steps` summaries so reopened conversations look like they did live. The history dropdown is a frameless `QDialog` with `QLineEdit` search, date-grouped scroll list and per-row Load / Delete buttons that stays usable past hundreds of conversations.
-* **OpenRouter robustness (Phase 28)** — *transient upstream errors* (`"provider returned error"` / `"provider_name"` / HTTP 400 + openrouter) are reclassified as `RetryKind::Network` and ride the existing 3-attempt back-off so the retry routes to a different upstream. *Capability-aware* HTTP 404 *"No endpoints found that support tool use"* (and the generic *"does not support tools / function calling"* family) is now caught up-front: `AiClient::markToolsIncapableForCurrentModel` persists the flag at `AI/incapable_tools/<provider>:<model>`, MidiPilot posts a clear "Model does not support tool calling — pick a different model or switch to Simple mode" bubble instead of burning three retries on a permanent gap, and `onSendMessage` short-circuits the agent loop until the user changes model.
-* **Per-Model Prompt Profiles (Phase 29)** — new `PromptProfileStore` and **Settings → AI → "Prompt Profiles…"** dialog let the user (or a built-in profile) attach a custom system prompt to one or more `provider:model` entries via checkbox, with optional glob suffixes (`gpt-5.5*`) and an "append to default" flag. Resolution runs in `MidiPilotWidget::buildSystemPrompt()` before the default is emitted; sidebar status shows *Prompt: <name>* whenever a profile is active. Ships read-only with **GPT-5.5 Decisive**, bound to `openai:gpt-5.5*` / `openrouter:openai/gpt-5.5*`, that appends explicit "commit after one short analysis paragraph; treat editor_state as pre-existing" rules.
-* **Lightweight Agent Conductor & Working State (Phase 30)** — `AgentRunner` keeps a compact program-owned `AgentWorkingState` (goal, taskType, confirmedState, lastToolResult, activeConstraints, nextStepHint, repeatedFailureCount). A heuristic classifier tags every run as `composition` / `edit` / `analysis` / `repair`; tool results are summarised into confirmed facts (e.g. *"Tempo set to 82 BPM; 8 tracks created; bars 1-16 inserted"*) without growing `_messages`. Before each request a synthetic high-priority `Current Agent State` developer-layer is injected request-locally so the model resumes from confirmed facts after rejections instead of re-deriving them. Bounded-failure stop after 2 consecutive incomplete writes preserves partial progress and surfaces an actionable explanation.
-* **GPT-5.5 model-isolation policy (Phase 31)** — central `AgentToolPolicy` table gates every GPT-5.5 mitigation behind `isGpt55Model(model, provider)`, so non-GPT-5.5 runs are byte-identical to the previous behaviour. For `gpt-5.5*` composition/edit on OpenAI-native: schema-light tools (no `pitch_bend` branch in `insert_events` / `replace_events`), positive-only rejection guidance that never echoes the `pitch_bend` token back into context, per-request `parallel_tool_calls:false` + `reasoning.effort:low` overrides on the Responses API, and a bounded-failure stop after two consecutive incomplete writes. OpenRouter passthrough of `gpt-5.5` keeps the schema/prompt mitigations but skips the API-body fields. Pitch Bend remains fully supported for every other model.
-* **MidiPilot UX polish** — chat bubbles render Markdown (`**bold**`, `*italic*`, lists, fenced code, links) for both the live reasoning stream and the final assistant bubble; agent step outcomes are colour-coded `OK → green` / `retrying → orange` / `failed → red` in the bottom status pill, with the dot-pulse + cycling fun-message animation kept alive while the agent loop is in flight; a Braille spinner replaces the underscore blink on the live thought label; the final assistant bubble now sits above the Agent Steps widget; the footer ⚙ menu's "AI Settings…" entry is renamed to **"MidiPilot Settings…"** to avoid implying an OpenAI-specific action.
-* **Fixed `MidiTrack` copy ctor / `reloadState` losing `_assignedChannel` (TEST-001, legacy bug)** — the default ctor initialises `_assignedChannel = -1`, but the copy ctor (`src/midi/MidiTrack.cpp`) and `reloadState()` only mirrored `_number`, `_nameEvent`, `_file`, `_hidden`, `_muted`. Because every `setNumber()/setNameEvent()/setHidden()/setMuted()` snapshots the track via `copy()` for the protocol stack, every track-attribute change produced a snapshot whose `_assignedChannel` was uninitialised heap memory; a subsequent undo would then `reloadState()` from that snapshot and overwrite the live track's channel assignment with garbage, silently corrupting FFXIV-channel routing across the undo stack. Discovered by `tests/test_midi_track.cpp` (which observed `513` in one run). Fixed by adding `_assignedChannel = other._assignedChannel;` to both methods; regression-tested.
+* **Live agent streaming on every provider (Phase 25 + 27)** - the Agent loop streams assistant text, tool-call arguments and reasoning live for OpenAI Chat-Completions, OpenAI Responses-API (`gpt-5*`), OpenRouter Chat-Completions and native Gemini (`:streamGenerateContent?alt=sse` with `thinkingConfig.includeThoughts:true`). A single `extractReasoningFromJson()` covers Responses-API reasoning items, Chat-Completions `reasoning_content`, Gemini `parts[].thought` and Anthropic `thinking` blocks, so the MidiPilot 💭 thought block renders live everywhere. Gemini 3.x's mandatory `part.thoughtSignature` is captured during streaming and echoed back on the follow-up `functionCall`, so multi-step Gemini agent loops no longer 400 with *"missing thought_signature"*.
+* **GPT-5-family Responses-API routing (Phase 27.8)** - OpenAI `gpt-5*` reasoning models with tools route through `/v1/responses` consistently, including reasoning summaries, tool-call argument reassembly, usage normalisation and a stable `prompt_cache_key` for repeated requests.
+* **Per-session streaming fallback with Force Streaming override (Phase 27.7 + 31.1)** - every streaming request is armed with a non-streaming retry; on HTTP 4xx/5xx, network error, or HTTP 200 with no parsable content/tool calls, MidiPilot transparently retries via `sendRequest` / `sendMessages` and marks the `(provider, model, mode)` triple with a warning icon for the rest of the session - Simple Mode and Agent Mode are tracked separately so a streaming failure in one mode never poisons the other. The Settings model dropdown, MidiPilot footer dropdown and the **Force Streaming for This Model** button show which mode is blocked: `⚠ <model> (Simple)` / `(Agent)` / `(Simple+Agent)`.
+* **Dynamic provider model list with favourites & non-LLM filter (Phase 26)** - model dropdowns drop their hardcoded entries; a 🔄 refresh button queries the active provider's `/models` endpoint, normalises the four response shapes (OpenAI / OpenRouter / Gemini / Custom) into `<userdata>/midipilot_models.json` (7-day TTL) and feeds `AiClient::contextWindowForModel` cache-first. Every cached model runs through `ModelFavorites::isLikelyChatModel` to drop image/audio/embedding/tts entries, and a new **Settings → AI → "Manage favourites…"** dialog persists per-provider favourites at `AI/favorites/<provider>` and shows favourites-only when any are pinned.
+* **Persistent per-turn metadata + scrollable history popup (Phase 27.5 + 27.6)** - `MidiPilotHistory/<id>.json` now stores a `turns[]` array (reasoning text, agent steps, latency, provider, model, token counts) alongside `messages[]`; `loadConversation()` re-renders saved 💭 thoughts and `🔧 Steps` summaries so reopened conversations look like they did live. The history dropdown is a frameless `QDialog` with `QLineEdit` search, date-grouped scroll list and per-row Load / Delete buttons that stays usable past hundreds of conversations.
+* **OpenRouter robustness (Phase 28)** - *transient upstream errors* (`"provider returned error"` / `"provider_name"` / HTTP 400 + openrouter) are reclassified as `RetryKind::Network` and ride the existing 3-attempt back-off so the retry routes to a different upstream. *Capability-aware* HTTP 404 *"No endpoints found that support tool use"* (and the generic *"does not support tools / function calling"* family) is now caught up-front: `AiClient::markToolsIncapableForCurrentModel` persists the flag at `AI/incapable_tools/<provider>:<model>`, MidiPilot posts a clear "Model does not support tool calling - pick a different model or switch to Simple mode" bubble instead of burning three retries on a permanent gap, and `onSendMessage` short-circuits the agent loop until the user changes model.
+* **Per-Model Prompt Profiles (Phase 29)** - new `PromptProfileStore` and **Settings → AI → "Prompt Profiles…"** dialog let the user (or a built-in profile) attach a custom system prompt to one or more `provider:model` entries via checkbox, with optional glob suffixes (`gpt-5.5*`) and an "append to default" flag. Resolution runs in `MidiPilotWidget::buildSystemPrompt()` before the default is emitted; sidebar status shows *Prompt: <name>* whenever a profile is active. Ships read-only with **GPT-5.5 Decisive**, bound to `openai:gpt-5.5*` / `openrouter:openai/gpt-5.5*`, that appends explicit "commit after one short analysis paragraph; treat editor_state as pre-existing" rules.
+* **Lightweight Agent Conductor & Working State (Phase 30)** - `AgentRunner` keeps a compact program-owned `AgentWorkingState` (goal, taskType, confirmedState, lastToolResult, activeConstraints, nextStepHint, repeatedFailureCount). A heuristic classifier tags every run as `composition` / `edit` / `analysis` / `repair`; tool results are summarised into confirmed facts (e.g. *"Tempo set to 82 BPM; 8 tracks created; bars 1-16 inserted"*) without growing `_messages`. Before each request a synthetic high-priority `Current Agent State` developer-layer is injected request-locally so the model resumes from confirmed facts after rejections instead of re-deriving them. Bounded-failure stop after 2 consecutive incomplete writes preserves partial progress and surfaces an actionable explanation.
+* **GPT-5.5 model-isolation policy (Phase 31)** - central `AgentToolPolicy` table gates every GPT-5.5 mitigation behind `isGpt55Model(model, provider)`, so non-GPT-5.5 runs are byte-identical to the previous behaviour. For `gpt-5.5*` composition/edit on OpenAI-native: schema-light tools (no `pitch_bend` branch in `insert_events` / `replace_events`), positive-only rejection guidance that never echoes the `pitch_bend` token back into context, per-request `parallel_tool_calls:false` + `reasoning.effort:low` overrides on the Responses API, and a bounded-failure stop after two consecutive incomplete writes. OpenRouter passthrough of `gpt-5.5` keeps the schema/prompt mitigations but skips the API-body fields. Pitch Bend remains fully supported for every other model.
+* **MidiPilot UX polish** - chat bubbles render Markdown (`**bold**`, `*italic*`, lists, fenced code, links) for both the live reasoning stream and the final assistant bubble; agent step outcomes are colour-coded `OK → green` / `retrying → orange` / `failed → red` in the bottom status pill, with the dot-pulse + cycling fun-message animation kept alive while the agent loop is in flight; a Braille spinner replaces the underscore blink on the live thought label; the final assistant bubble now sits above the Agent Steps widget; the footer ⚙ menu's "AI Settings…" entry is renamed to **"MidiPilot Settings…"** to avoid implying an OpenAI-specific action.
+* **Fixed `MidiTrack` copy ctor / `reloadState` losing `_assignedChannel` (TEST-001, legacy bug)** - the default ctor initialises `_assignedChannel = -1`, but the copy ctor (`src/midi/MidiTrack.cpp`) and `reloadState()` only mirrored `_number`, `_nameEvent`, `_file`, `_hidden`, `_muted`. Because every `setNumber()/setNameEvent()/setHidden()/setMuted()` snapshots the track via `copy()` for the protocol stack, every track-attribute change produced a snapshot whose `_assignedChannel` was uninitialised heap memory; a subsequent undo would then `reloadState()` from that snapshot and overwrite the live track's channel assignment with garbage, silently corrupting FFXIV-channel routing across the undo stack. Discovered by `tests/test_midi_track.cpp` (which observed `513` in one run). Fixed by adding `_assignedChannel = other._assignedChannel;` to both methods; regression-tested.
 
 ### Test Coverage
 
-* `tests/test_streaming_fallback.cpp` — covers the per-session, mode-aware streaming fallback surface (`streamingDisabledForCurrentModel` / `streamingBlockedForSession` / `markStreamingUnsupportedForCurrentModel` / `clearStreamingBlocklist`) and the `retrying` signal used by the MidiPilot UI.
-* `tests/test_model_favorites.cpp` — chat-model heuristic, QSettings round-trip, and `visibleModels()` filter behaviour with and without favourites set.
-* `tests/test_prompt_profiles.cpp` — glob resolution, replace-vs-append flag, disabled profiles, persistence round-trip, built-in immutability and ordering between user custom / profile / default.
-* `tests/test_agent_runner_state.cpp` — task classification, working-state updates from successful tool results, request-local state-layer injection (does not permanently grow `_messages`), failure-to-steering conversion.
-* `tests/test_agent_tool_policy.cpp` — `isGpt55Model` matrix, schema-light branch gating, sanitised rejection guidance and Responses-API overrides for every covered `(provider, model)` pair.
-* `tests/test_provider_matrix.cpp` — live-API smoke runner that exercises all four `AiClient` code paths (non-stream / stream × no tools / +tools) for OpenAI, OpenRouter and Gemini; each provider is **skipped** unless its `MIDIPILOT_TEST_<PROVIDER>_KEY` env var is set.
+* `tests/test_streaming_fallback.cpp` - covers the per-session, mode-aware streaming fallback surface (`streamingDisabledForCurrentModel` / `streamingBlockedForSession` / `markStreamingUnsupportedForCurrentModel` / `clearStreamingBlocklist`) and the `retrying` signal used by the MidiPilot UI.
+* `tests/test_model_favorites.cpp` - chat-model heuristic, QSettings round-trip, and `visibleModels()` filter behaviour with and without favourites set.
+* `tests/test_prompt_profiles.cpp` - glob resolution, replace-vs-append flag, disabled profiles, persistence round-trip, built-in immutability and ordering between user custom / profile / default.
+* `tests/test_agent_runner_state.cpp` - task classification, working-state updates from successful tool results, request-local state-layer injection (does not permanently grow `_messages`), failure-to-steering conversion.
+* `tests/test_agent_tool_policy.cpp` - `isGpt55Model` matrix, schema-light branch gating, sanitised rejection guidance and Responses-API overrides for every covered `(provider, model)` pair.
+* `tests/test_provider_matrix.cpp` - live-API smoke runner that exercises all four `AiClient` code paths (non-stream / stream × no tools / +tools) for OpenAI, OpenRouter and Gemini; each provider is **skipped** unless its `MIDIPILOT_TEST_<PROVIDER>_KEY` env var is set.
 
 <details>
-<summary>Full Changelog — Live Agent Streaming, Dynamic Models, Prompt Profiles, Agent Conductor & GPT-5.5 Isolation</summary>
+<summary>Full Changelog - Live Agent Streaming, Dynamic Models, Prompt Profiles, Agent Conductor & GPT-5.5 Isolation</summary>
 
 ### Bug Fixes (Legacy)
 
-* **TEST-001 — `MidiTrack` copy constructor / `reloadState` did not propagate `_assignedChannel`** — the default ctor initialises `_assignedChannel = -1`, but the copy ctor (`src/midi/MidiTrack.cpp` lines 36–43) only mirrored `_number`, `_nameEvent`, `_file`, `_hidden`, `_muted`. The same omission was present in `reloadState()`. Because every `setNumber()/setNameEvent()/setHidden()/setMuted()` call snapshots the track via `copy()` for the protocol stack, every track-attribute change produced a snapshot whose `_assignedChannel` was uninitialised heap memory. A subsequent undo would then `reloadState()` from that snapshot and overwrite the live track's channel assignment with garbage — silent FFXIV-channel-routing corruption that survived since the field was added. Fix: add `_assignedChannel = other._assignedChannel;` to both methods. `tests/test_midi_track.cpp::copy_clonesNumberHiddenMutedAndFile` now actively asserts `clone->assignedChannel() == 7`, and `reloadState_fromMidiTrackEntry_restoresAllFields` was extended to mutate and restore `assignedChannel` as well.
+* **TEST-001 - `MidiTrack` copy constructor / `reloadState` did not propagate `_assignedChannel`** - the default ctor initialises `_assignedChannel = -1`, but the copy ctor (`src/midi/MidiTrack.cpp` lines 36-43) only mirrored `_number`, `_nameEvent`, `_file`, `_hidden`, `_muted`. The same omission was present in `reloadState()`. Because every `setNumber()/setNameEvent()/setHidden()/setMuted()` call snapshots the track via `copy()` for the protocol stack, every track-attribute change produced a snapshot whose `_assignedChannel` was uninitialised heap memory. A subsequent undo would then `reloadState()` from that snapshot and overwrite the live track's channel assignment with garbage - silent FFXIV-channel-routing corruption that survived since the field was added. Fix: add `_assignedChannel = other._assignedChannel;` to both methods. `tests/test_midi_track.cpp::copy_clonesNumberHiddenMutedAndFile` now actively asserts `clone->assignedChannel() == 7`, and `reloadState_fromMidiTrackEntry_restoresAllFields` was extended to mutate and restore `assignedChannel` as well.
 
 ### New Features
 
-* **Phase 25 + 27 — Live agent-loop streaming everywhere** — `AiClient::sendStreamingMessages(messages, tools)` mirrors the existing `sendMessages` but with `stream:true`. The OpenAI-CC parser handles `choices[0].delta.tool_calls[*].function.{name,arguments}` deltas: per-call accumulators keyed by `tool_calls[i].index` collect `id` + `name` from the first chunk and append `arguments` JSON fragments from subsequent chunks. New signals `streamAssistantTextDelta`, `streamReasoningDelta`, `streamToolCallStarted`, `streamToolCallArgsDelta`, `streamToolCallArgsDone` flow through the agent loop; the reassembled assistant message is emitted via the existing `responseReceived` signal so `AgentRunner::onApiResponse` is unchanged. Per-provider routing:
-  * **OpenAI Chat-Completions / OpenRouter** — OpenAI-CC SSE shape, full text + tool-args + (OpenRouter only) `delta.reasoning` deltas.
-  * **OpenAI Responses-API** (Phase 27.8) — `sendStreamingMessagesResponses` + `onResponsesStreamDataAvailable` parses event-typed SSE (`response.output_text.delta`, `response.reasoning_summary_text.delta`, `response.function_call_arguments.delta`, `response.completed`) and reassembles a synthetic Chat-Completions payload so AgentRunner is unchanged. Used for `gpt-5*` reasoning models when tools are present; reasoning summaries stream live.
-  * **Native Gemini** — `sendStreamingMessagesGemini` posts to `https://generativelanguage.googleapis.com/v1beta/models/<model>:streamGenerateContent?alt=sse&key=<KEY>` because Google's OpenAI-compat endpoint rejects `stream:true + tools` with HTTP 400. Helpers convert OpenAI-shape `messages[]` → Gemini `contents[]` + `systemInstruction` (with a `tool_call_id → name` lookup so Gemini receives function names, not opaque OpenAI ids) and OpenAI tools → `tools[0].functionDeclarations[]`. `generationConfig.thinkingConfig.includeThoughts:true` is enabled on Gemini 2.5+/3.x with `thinkingBudget` mapped from the existing `reasoning_effort` (low=2048, medium=8192, high=24576, off=0, default=auto). Thought parts (`parts[].thought == true`) emit `streamReasoningDelta`; whole `functionCall` parts get a synthetic call id (`gemini_<n>`) so AgentRunner reassembly stays uniform. Gemini 3.x's mandatory `part.thoughtSignature` is captured per `StreamToolCall::thoughtSignature` and written back onto the `functionCall` on the next request via the synthetic `_gemini_thought_signature` field.
-  * **Universal reasoning extractor** — `AiClient::extractReasoningFromJson(QJsonObject)` walks every known shape (Responses-API reasoning items, Chat-Completions `reasoning_content` / `reasoning`, Gemini `parts[].thought`, Anthropic `content[].type == "thinking"`, plus generic `reasoning` / `thoughts` fallbacks), so the 💭 thought block UI lambda is provider-agnostic.
-  * **Gemini schema sanitiser** — `sanitizeSchemaForGemini()` strips OpenAPI-3.0-incompatible fields (`additionalProperties`, `$schema`, `$id`, `$ref`, `definitions`, `strict`) and removes integer `enum`s, so MidiPilot's strict-mode tool schemas no longer trip Gemini's validator with HTTP 400.
+* **Phase 25 + 27 - Live agent-loop streaming everywhere** - `AiClient::sendStreamingMessages(messages, tools)` mirrors the existing `sendMessages` but with `stream:true`. The OpenAI-CC parser handles `choices[0].delta.tool_calls[*].function.{name,arguments}` deltas: per-call accumulators keyed by `tool_calls[i].index` collect `id` + `name` from the first chunk and append `arguments` JSON fragments from subsequent chunks. New signals `streamAssistantTextDelta`, `streamReasoningDelta`, `streamToolCallStarted`, `streamToolCallArgsDelta`, `streamToolCallArgsDone` flow through the agent loop; the reassembled assistant message is emitted via the existing `responseReceived` signal so `AgentRunner::onApiResponse` is unchanged. Per-provider routing:
+  * **OpenAI Chat-Completions / OpenRouter** - OpenAI-CC SSE shape, full text + tool-args + (OpenRouter only) `delta.reasoning` deltas.
+  * **OpenAI Responses-API** (Phase 27.8) - `sendStreamingMessagesResponses` + `onResponsesStreamDataAvailable` parses event-typed SSE (`response.output_text.delta`, `response.reasoning_summary_text.delta`, `response.function_call_arguments.delta`, `response.completed`) and reassembles a synthetic Chat-Completions payload so AgentRunner is unchanged. Used for `gpt-5*` reasoning models when tools are present; reasoning summaries stream live.
+  * **Native Gemini** - `sendStreamingMessagesGemini` posts to `https://generativelanguage.googleapis.com/v1beta/models/<model>:streamGenerateContent?alt=sse&key=<KEY>` because Google's OpenAI-compat endpoint rejects `stream:true + tools` with HTTP 400. Helpers convert OpenAI-shape `messages[]` → Gemini `contents[]` + `systemInstruction` (with a `tool_call_id → name` lookup so Gemini receives function names, not opaque OpenAI ids) and OpenAI tools → `tools[0].functionDeclarations[]`. `generationConfig.thinkingConfig.includeThoughts:true` is enabled on Gemini 2.5+/3.x with `thinkingBudget` mapped from the existing `reasoning_effort` (low=2048, medium=8192, high=24576, off=0, default=auto). Thought parts (`parts[].thought == true`) emit `streamReasoningDelta`; whole `functionCall` parts get a synthetic call id (`gemini_<n>`) so AgentRunner reassembly stays uniform. Gemini 3.x's mandatory `part.thoughtSignature` is captured per `StreamToolCall::thoughtSignature` and written back onto the `functionCall` on the next request via the synthetic `_gemini_thought_signature` field.
+  * **Universal reasoning extractor** - `AiClient::extractReasoningFromJson(QJsonObject)` walks every known shape (Responses-API reasoning items, Chat-Completions `reasoning_content` / `reasoning`, Gemini `parts[].thought`, Anthropic `content[].type == "thinking"`, plus generic `reasoning` / `thoughts` fallbacks), so the 💭 thought block UI lambda is provider-agnostic.
+  * **Gemini schema sanitiser** - `sanitizeSchemaForGemini()` strips OpenAPI-3.0-incompatible fields (`additionalProperties`, `$schema`, `$id`, `$ref`, `definitions`, `strict`) and removes integer `enum`s, so MidiPilot's strict-mode tool schemas no longer trip Gemini's validator with HTTP 400.
   * Setting: `AI/streaming_mode` (default `"on"`) gates the path in `AgentRunner::sendNextRequest`; checkbox **Settings → AI → Live Streaming → "Stream agent responses live (text + tool-call arguments)"**.
 
-* **Phase 27.7 + 31.1 — Per-session streaming fallback safety net (mode-aware)** — every streaming request arms a per-request retry context (`armStreamingRetryAgent` / `armStreamingRetrySimple`) before the POST. Each streaming finished-lambda inspects the outcome via `shouldFallbackToNonStreaming(httpStatus, netError, gotContent, gotToolCalls)` and, when true, `tryStreamingFallback(reason)` dispatches to the regular `sendRequest` / `sendMessages` path and emits the new `retrying(QString)` signal so the UI can show the reason. The offending entry is persisted via `markStreamingUnsupportedForCurrentModel(reason)` keyed by `(provider, model, mode)` — Simple Mode (`tools=0`) and Agent Mode (`tools=1`) are tracked separately so a streaming failure in one mode never disables streaming for the other. Public 2-arg helpers (`streamingBlockedForSession(provider, model)`, `clearStreamingBlockForSession`) keep their meaning by OR-ing both modes. Wired into all four streaming entry points (Chat-Completions agent + simple, Responses-API agent, Gemini native). Explicitly **not** retried: `QNetworkReply::OperationCanceledError` (user pressed Cancel) and Gemini semantic finish reasons `SAFETY`, `RECITATION`, `MAX_TOKENS`, `MALFORMED_FUNCTION_CALL`. UI: Settings model dropdown, MidiPilot footer dropdown and **Force Streaming for This Model** button show `⚠ <model> (Simple)` / `(Agent)` / `(Simple+Agent)` with matching tooltips and button labels.
+* **Phase 27.7 + 31.1 - Per-session streaming fallback safety net (mode-aware)** - every streaming request arms a per-request retry context (`armStreamingRetryAgent` / `armStreamingRetrySimple`) before the POST. Each streaming finished-lambda inspects the outcome via `shouldFallbackToNonStreaming(httpStatus, netError, gotContent, gotToolCalls)` and, when true, `tryStreamingFallback(reason)` dispatches to the regular `sendRequest` / `sendMessages` path and emits the new `retrying(QString)` signal so the UI can show the reason. The offending entry is persisted via `markStreamingUnsupportedForCurrentModel(reason)` keyed by `(provider, model, mode)` - Simple Mode (`tools=0`) and Agent Mode (`tools=1`) are tracked separately so a streaming failure in one mode never disables streaming for the other. Public 2-arg helpers (`streamingBlockedForSession(provider, model)`, `clearStreamingBlockForSession`) keep their meaning by OR-ing both modes. Wired into all four streaming entry points (Chat-Completions agent + simple, Responses-API agent, Gemini native). Explicitly **not** retried: `QNetworkReply::OperationCanceledError` (user pressed Cancel) and Gemini semantic finish reasons `SAFETY`, `RECITATION`, `MAX_TOKENS`, `MALFORMED_FUNCTION_CALL`. UI: Settings model dropdown, MidiPilot footer dropdown and **Force Streaming for This Model** button show `⚠ <model> (Simple)` / `(Agent)` / `(Simple+Agent)` with matching tooltips and button labels.
 
-* **Phase 26 — Dynamic provider model list with favourites & non-LLM filter** — drops hardcoded `_modelCombo->addItem(…)` from `AiSettingsWidget::populateModelsForProvider` and `MidiPilotWidget::populateFooterModels`. New components:
-  * `src/ai/ModelListCache.{h,cpp}` — JSON cache file at `<AppDataLocation>/midipilot_models.json` (versioned schema, 7-day TTL, per-provider entries with `id`, `displayName`, `contextWindow`, `supportsTools`, `supportsReasoning`).
-  * `src/ai/ModelListFetcher.{h,cpp}` — single-shot `QNetworkAccessManager` worker that hits the per-provider `/models` endpoint, normalises four response shapes (OpenAI `data[].id`, OpenRouter `data[].{id,name,context_length,architecture,supported_parameters}`, Gemini `models[].{name,inputTokenLimit,supportedGenerationMethods,displayName}`, Custom `data[].id`) into the cache schema, filters out embedding/audio/image/legacy/preview entries, and emits `finished(provider, array)` or `failed(provider, error)`.
+* **Phase 26 - Dynamic provider model list with favourites & non-LLM filter** - drops hardcoded `_modelCombo->addItem(…)` from `AiSettingsWidget::populateModelsForProvider` and `MidiPilotWidget::populateFooterModels`. New components:
+  * `src/ai/ModelListCache.{h,cpp}` - JSON cache file at `<AppDataLocation>/midipilot_models.json` (versioned schema, 7-day TTL, per-provider entries with `id`, `displayName`, `contextWindow`, `supportsTools`, `supportsReasoning`).
+  * `src/ai/ModelListFetcher.{h,cpp}` - single-shot `QNetworkAccessManager` worker that hits the per-provider `/models` endpoint, normalises four response shapes (OpenAI `data[].id`, OpenRouter `data[].{id,name,context_length,architecture,supported_parameters}`, Gemini `models[].{name,inputTokenLimit,supportedGenerationMethods,displayName}`, Custom `data[].id`) into the cache schema, filters out embedding/audio/image/legacy/preview entries, and emits `finished(provider, array)` or `failed(provider, error)`.
   * `AiClient::contextWindowForModel` consults `ModelListCache::contextWindowFor()` first, falls back to the hardcoded prefix-match table only when the cache has no entry.
   * UI: 🔄 button next to the model combo in both `AiSettingsWidget` and the MidiPilot footer; settings dialog shows a small "Models updated 2 days ago" status line. Combos remain editable so the user can still type a not-yet-published model id.
-  * **`ModelFavorites` + non-LLM filter** — every cached model runs through `isLikelyChatModel` to drop image/audio/embedding/tts entries; **Settings → AI → "Manage favourites…"** dialog persists per-provider favourites at `AI/favorites/<provider>` and shows favourites-only when any are pinned.
+  * **`ModelFavorites` + non-LLM filter** - every cached model runs through `isLikelyChatModel` to drop image/audio/embedding/tts entries; **Settings → AI → "Manage favourites…"** dialog persists per-provider favourites at `AI/favorites/<provider>` and shows favourites-only when any are pinned.
 
-* **Phase 27.5 + 27.6 — Persistent per-turn metadata + scrollable history popup**
+* **Phase 27.5 + 27.6 - Persistent per-turn metadata + scrollable history popup**
   * `MidiPilotHistory/<id>.json` now persists a `turns[]` array alongside `messages[]`. Each turn anchors to its assistant message via `assistantIndex` and stores `reasoning`, `steps[]` (`{step, tool, success, recoverable}`), `streamed`, `latencyMs`, `effort`, `provider`, `model`, `promptTokens`, `completionTokens`, `status`. `MidiPilotWidget::resetTurnState()` snapshots provider/model/effort + start time at user-send; `streamReasoningDelta` and `streamAssistantTextDelta` lambdas accumulate the reasoning text and flip `_turnStreamed`; `onAgentStepCompleted` appends a compact step record; `finalizeTurn()` is called from `onAgentFinished` / `onAgentError` / `onResponseReceived` and seals the record. `loadConversation()` re-indexes `turns[]` by `assistantIndex` and re-renders the saved 💭 thought block above and the `🔧 Steps: ✓ tool1, ✗ tool2` summary below each assistant bubble.
   * `showHistoryMenu` rewritten from `QMenu` to a frameless `QDialog` with `QLineEdit` search, `QScrollArea` body capped at ~500 px, conversations grouped by date bucket (Today / Yesterday / weekday / Month Year), per-row Load + Delete buttons. Live filter hides non-matching rows and collapses now-empty section headers.
 
-* **Phase 28 — OpenRouter robustness & capability-aware error handling**
-  * **28.1 Transient-upstream classifier** — `AgentRunner::classifyError` and `MidiPilotWidget::onErrorOccurred::isRetriable` treat `"provider returned error"`, `"provider_name"` and `HTTP 400 + openrouter` as `RetryKind::Network`, so the existing self-healing retry kicks in (3 attempts, exponential back-off). Reuses `AI/agent_max_retries` / `AI/simple_max_retries`.
-  * **28.2 Capability-aware error surfacing (HTTP 404 — no tool support)** — `AiClient::errorIndicatesNoToolSupport(error)` heuristic catches the OpenRouter HTTP 404 *"No endpoints found that support tool use"* family plus generic *"does not support tools / function calling is not supported"* variants. `AgentRunner::onApiError` checks this **before** the retry classifier, calls `markToolsIncapableForCurrentModel(reason)` and surfaces *"Model does not support tool calling — pick a different model in Settings → AI, or switch to Simple mode for this request."* The flag is persisted at `AI/incapable_tools/<provider>:<model>` via `toolsIncapableForCurrentModel()` / `markToolsIncapableForCurrentModel()` / `clearToolsIncapableFlag()` (mirrors the streaming-blocklist API). `MidiPilotWidget::onSendMessage` (agent branch) consults the flag **before** spinning up the agent loop and posts a friendly system bubble instead of round-tripping. Per-`(provider,model)`, so picking a different model re-enables agent mode automatically.
+* **Phase 28 - OpenRouter robustness & capability-aware error handling**
+  * **28.1 Transient-upstream classifier** - `AgentRunner::classifyError` and `MidiPilotWidget::onErrorOccurred::isRetriable` treat `"provider returned error"`, `"provider_name"` and `HTTP 400 + openrouter` as `RetryKind::Network`, so the existing self-healing retry kicks in (3 attempts, exponential back-off). Reuses `AI/agent_max_retries` / `AI/simple_max_retries`.
+  * **28.2 Capability-aware error surfacing (HTTP 404 - no tool support)** - `AiClient::errorIndicatesNoToolSupport(error)` heuristic catches the OpenRouter HTTP 404 *"No endpoints found that support tool use"* family plus generic *"does not support tools / function calling is not supported"* variants. `AgentRunner::onApiError` checks this **before** the retry classifier, calls `markToolsIncapableForCurrentModel(reason)` and surfaces *"Model does not support tool calling - pick a different model in Settings → AI, or switch to Simple mode for this request."* The flag is persisted at `AI/incapable_tools/<provider>:<model>` via `toolsIncapableForCurrentModel()` / `markToolsIncapableForCurrentModel()` / `clearToolsIncapableFlag()` (mirrors the streaming-blocklist API). `MidiPilotWidget::onSendMessage` (agent branch) consults the flag **before** spinning up the agent loop and posts a friendly system bubble instead of round-tripping. Per-`(provider,model)`, so picking a different model re-enables agent mode automatically.
 
-* **Phase 29 — Per-Model System Prompt Profiles**
-  * `src/ai/PromptProfileStore.{h,cpp}` + `src/ai/PromptProfile.h` — store keyed under `AI/prompt_profiles/<id>/{name, system, append_to_default, builtin, models[], enabled}` plus `AI/prompt_profiles/order`. `models[]` is an array of `<provider>:<modelId>` entries with `*` glob suffixes (e.g. `openai:gpt-5.5*`). Resolution in `resolvePromptForModel(provider, model, defaultPrompt, userCustom)`:
+* **Phase 29 - Per-Model System Prompt Profiles**
+  * `src/ai/PromptProfileStore.{h,cpp}` + `src/ai/PromptProfile.h` - store keyed under `AI/prompt_profiles/<id>/{name, system, append_to_default, builtin, models[], enabled}` plus `AI/prompt_profiles/order`. `models[]` is an array of `<provider>:<modelId>` entries with `*` glob suffixes (e.g. `openai:gpt-5.5*`). Resolution in `resolvePromptForModel(provider, model, defaultPrompt, userCustom)`:
     1. enabled profile whose `models[]` glob matches → if `append_to_default`, return `defaultPrompt + "\n\n" + profile.system`; else return `profile.system`.
     2. no profile match → existing behaviour: user custom OR default.
-  * `src/gui/PromptProfilesDialog.{h,cpp}` — list with checkbox enable, Add/Duplicate/Delete; right pane has name, append-to-default flag, monospace prompt editor with token count, and the Provider → Model `QTreeWidget` from `ModelFavoritesDialog` for binding. Built-ins show a lock icon and can only be duplicated. Reachable from **Settings → AI → "Prompt Profiles…"** and the MidiPilot ⚙ menu.
+  * `src/gui/PromptProfilesDialog.{h,cpp}` - list with checkbox enable, Add/Duplicate/Delete; right pane has name, append-to-default flag, monospace prompt editor with token count, and the Provider → Model `QTreeWidget` from `ModelFavoritesDialog` for binding. Built-ins show a lock icon and can only be duplicated. Reachable from **Settings → AI → "Prompt Profiles…"** and the MidiPilot ⚙ menu.
   * `MidiPilotWidget::buildSystemPrompt()` calls `_profileStore->resolvePromptForModel(...)` at the existing custom-vs-default decision point; sidebar status line shows *"Prompt: <name> (auto-bound)"* when a profile resolved.
-  * **Built-in: GPT-5.5 Decisive** — `builtin=true`, bound to `openai:gpt-5.5*` and `openrouter:openai/gpt-5.5*`, `append_to_default=true`. Body adds: commit after one short analysis paragraph; treat `editor_state` events as pre-existing user data; do not re-derive `ticksPerQuarter` / `timeSignature` across turns; do not "redo" or "fix" successful tool calls unless the user explicitly says so.
+  * **Built-in: GPT-5.5 Decisive** - `builtin=true`, bound to `openai:gpt-5.5*` and `openrouter:openai/gpt-5.5*`, `append_to_default=true`. Body adds: commit after one short analysis paragraph; treat `editor_state` events as pre-existing user data; do not re-derive `ticksPerQuarter` / `timeSignature` across turns; do not "redo" or "fix" successful tool calls unless the user explicitly says so.
 
-* **Phase 30 — Lightweight Agent Conductor & Working State**
-  * `AgentRunner::AgentWorkingState` — `{goal, taskType, confirmedState, lastToolResult, activeConstraints, nextStepHint, repeatedFailureCount}`, kept under ~1200 chars by coalescing older facts (e.g. *"Tracks created: Piano, Bass, Drums, Lead"*).
-  * `classifyTask(userMessage, systemPrompt)` — heuristic classifier produces `composition` / `edit` / `analysis` / `repair`; result steers cadence and policy.
-  * **Working-state updates from tool results** (`updateWorkingStateFromToolResult`) — `create_track` / `set_tempo` / `insert_events` / `replace_events` successes append confirmed facts; `query_events` / `get_editor_state` summarise counts (not payload); rejected writes set `lastToolResult` and a corrective `nextStepHint`; duplicate-write rejections increment `repeatedFailureCount`.
-  * **Dynamic state-layer injection** — `messagesForNextRequest()` clones `_messages` and inserts one synthetic high-priority `Current Agent State` message immediately after the developer/system prompt; the layer is regenerated every turn from `AgentWorkingState`. `_messages` itself never grows from this — it stays the canonical protocol transcript.
-  * **Composition cadence** — for `taskType == composition`, `nextStepHint` favours one substantial `insert_events` / `replace_events` per track or section over inspect-after-every-phrase loops.
-  * **Bounded-failure stop** — if `repeatedFailureCount >= 2`, the loop halts with an actionable user-facing explanation; partial successful changes remain in the protocol stack.
+* **Phase 30 - Lightweight Agent Conductor & Working State**
+  * `AgentRunner::AgentWorkingState` - `{goal, taskType, confirmedState, lastToolResult, activeConstraints, nextStepHint, repeatedFailureCount}`, kept under ~1200 chars by coalescing older facts (e.g. *"Tracks created: Piano, Bass, Drums, Lead"*).
+  * `classifyTask(userMessage, systemPrompt)` - heuristic classifier produces `composition` / `edit` / `analysis` / `repair`; result steers cadence and policy.
+  * **Working-state updates from tool results** (`updateWorkingStateFromToolResult`) - `create_track` / `set_tempo` / `insert_events` / `replace_events` successes append confirmed facts; `query_events` / `get_editor_state` summarise counts (not payload); rejected writes set `lastToolResult` and a corrective `nextStepHint`; duplicate-write rejections increment `repeatedFailureCount`.
+  * **Dynamic state-layer injection** - `messagesForNextRequest()` clones `_messages` and inserts one synthetic high-priority `Current Agent State` message immediately after the developer/system prompt; the layer is regenerated every turn from `AgentWorkingState`. `_messages` itself never grows from this - it stays the canonical protocol transcript.
+  * **Composition cadence** - for `taskType == composition`, `nextStepHint` favours one substantial `insert_events` / `replace_events` per track or section over inspect-after-every-phrase loops.
+  * **Bounded-failure stop** - if `repeatedFailureCount >= 2`, the loop halts with an actionable user-facing explanation; partial successful changes remain in the protocol stack.
   * Diagnostics: every turn logs `[AGENT-STATE] step=N task=... confirmed="..." last="..." next="..."`.
 
-* **Phase 31 — GPT-5.5 model-isolation policy**
-  * `src/ai/AgentToolPolicy.{h,cpp}` — central policy table; every GPT-5.5 mitigation is gated behind `isGpt55Model(model, provider)`, so non-GPT-5.5 runs are byte-identical to the previous behaviour.
+* **Phase 31 - GPT-5.5 model-isolation policy**
+  * `src/ai/AgentToolPolicy.{h,cpp}` - central policy table; every GPT-5.5 mitigation is gated behind `isGpt55Model(model, provider)`, so non-GPT-5.5 runs are byte-identical to the previous behaviour.
   * For `gpt-5.5*` composition/edit on **OpenAI-native**:
-    * **Schema-light tools** — `insert_events` / `replace_events` are emitted without the `pitch_bend` event branch in their JSON schemas, removing the placeholder anti-pattern from the model's available actions for this model only.
-    * **Sanitised rejection guidance** — `AgentRunner::processToolCalls` rewrites failure guidance to positive-only language and never echoes the `pitch_bend` token back into context.
-    * **Per-request API overrides** — `parallel_tool_calls:false` + `reasoning.effort:low` injected into the Responses-API body to cap reasoning explosions on long composition prompts.
-    * **Bounded-failure stop** — same 2-incomplete-write threshold as Phase 30, with model-specific guidance.
+    * **Schema-light tools** - `insert_events` / `replace_events` are emitted without the `pitch_bend` event branch in their JSON schemas, removing the placeholder anti-pattern from the model's available actions for this model only.
+    * **Sanitised rejection guidance** - `AgentRunner::processToolCalls` rewrites failure guidance to positive-only language and never echoes the `pitch_bend` token back into context.
+    * **Per-request API overrides** - `parallel_tool_calls:false` + `reasoning.effort:low` injected into the Responses-API body to cap reasoning explosions on long composition prompts.
+    * **Bounded-failure stop** - same 2-incomplete-write threshold as Phase 30, with model-specific guidance.
   * **OpenRouter passthrough of `gpt-5.5`** keeps the schema/prompt mitigations but skips the API-body fields (Responses-API specific).
-  * **Pitch Bend is unchanged for every other model** — no schema diff, no rejection logic, no behaviour change.
+  * **Pitch Bend is unchanged for every other model** - no schema diff, no rejection logic, no behaviour change.
 
 * **MidiPilot UX polish**
   * Chat bubbles render Markdown (`Qt::MarkdownText` on the final assistant bubble, the live streaming bubble and the reasoning 💭 stream label, including loaded conversations). User and system bubbles stay `Qt::PlainText`.
-  * Bottom status pill colour-codes step outcomes — `OK → green`, `retrying → orange`, `failed → red` — and the dot-pulse + cycling fun-message animation stays alive while the agent loop is in flight regardless of colour. A successful step's green flash auto-reverts to `Thinking…` (orange) after 700 ms so the bar never appears to freeze on `Step N: OK`.
+  * Bottom status pill colour-codes step outcomes - `OK → green`, `retrying → orange`, `failed → red` - and the dot-pulse + cycling fun-message animation stays alive while the agent loop is in flight regardless of colour. A successful step's green flash auto-reverts to `Thinking…` (orange) after 700 ms so the bar never appears to freeze on `Step N: OK`.
   * Braille spinner (`⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏`, ~8 fps) on the live thought label, replacing the underscore blink.
   * `onAgentFinished` / `onAgentError` lift the Steps widget out of the dock so the order in chat becomes `[thoughts] → [final response] → [steps]`.
-  * Footer ⚙ menu's "AI Settings…" entry renamed to **"MidiPilot Settings…"** (and three matching streaming-block tooltip strings) — the old label looked like an OpenAI-specific action.
+  * Footer ⚙ menu's "AI Settings…" entry renamed to **"MidiPilot Settings…"** (and three matching streaming-block tooltip strings) - the old label looked like an OpenAI-specific action.
 
 ### New Files
 
@@ -235,19 +289,19 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 
 ### Files Modified
 
-* `src/midi/MidiTrack.cpp` — copy ctor and `reloadState()` now copy `_assignedChannel` (TEST-001)
-* `tests/test_midi_track.cpp` — `copy_clonesNumberHiddenMutedAndFile` flipped from "document gap" to active assertion; `reloadState_fromMidiTrackEntry_restoresAllFields` extended to cover `assignedChannel`
-* `src/ai/AiClient.{h,cpp}` — streaming entry points for Chat-Completions, Responses-API and native Gemini; SSE parsers; mode-aware streaming-blocklist API; tools-incapable flag API; `contextWindowForModel` cache lookup
-* `src/ai/AgentRunner.{h,cpp}` — streaming path selection, working-state conductor, task classifier, request-local state-layer injection, capability-aware error handling
-* `src/ai/ToolDefinitions.{h,cpp}` — per-policy schema-light branch for `insert_events` / `replace_events`
-* `src/gui/AiSettingsWidget.{h,cpp}` — model combo + 🔄 refresh button + status label; "Live Streaming" checkbox; "Manage favourites…" + "Prompt Profiles…" buttons; mode-aware streaming-block status
-* `src/gui/MidiPilotWidget.{h,cpp}` — footer model combo + 🔄 button; per-turn metadata; history dialog; capability-aware send guard; Markdown chat bubbles; status pill colour coding; spinner; rename to "MidiPilot Settings…"
-* `Planning/03_bugs.md` — TEST-001 marked **FIXED**
-* `Planning/02_ROADMAP.md` — Phases 26, 27, 28.1, 28.2, 29, 30, 31 marked **DONE**
+* `src/midi/MidiTrack.cpp` - copy ctor and `reloadState()` now copy `_assignedChannel` (TEST-001)
+* `tests/test_midi_track.cpp` - `copy_clonesNumberHiddenMutedAndFile` flipped from "document gap" to active assertion; `reloadState_fromMidiTrackEntry_restoresAllFields` extended to cover `assignedChannel`
+* `src/ai/AiClient.{h,cpp}` - streaming entry points for Chat-Completions, Responses-API and native Gemini; SSE parsers; mode-aware streaming-blocklist API; tools-incapable flag API; `contextWindowForModel` cache lookup
+* `src/ai/AgentRunner.{h,cpp}` - streaming path selection, working-state conductor, task classifier, request-local state-layer injection, capability-aware error handling
+* `src/ai/ToolDefinitions.{h,cpp}` - per-policy schema-light branch for `insert_events` / `replace_events`
+* `src/gui/AiSettingsWidget.{h,cpp}` - model combo + 🔄 refresh button + status label; "Live Streaming" checkbox; "Manage favourites…" + "Prompt Profiles…" buttons; mode-aware streaming-block status
+* `src/gui/MidiPilotWidget.{h,cpp}` - footer model combo + 🔄 button; per-turn metadata; history dialog; capability-aware send guard; Markdown chat bubbles; status pill colour coding; spinner; rename to "MidiPilot Settings…"
+* `Planning/03_bugs.md` - TEST-001 marked **FIXED**
+* `Planning/02_ROADMAP.md` - Phases 26, 27, 28.1, 28.2, 29, 30, 31 marked **DONE**
 
 ### Notes
 
-* Version bumped to **1.5.0** in `CMakeLists.txt`. TEST-002 (SysExEvent VLQ length prefix) remains open in `Planning/03_bugs.md` — reader and writer are paired non-spec-conformant, fix needs a tolerant loader plus spec-conformant writer plus real third-party SysEx fixtures and is therefore deferred.
+* Version bumped to **1.5.0** in `CMakeLists.txt`. TEST-002 (SysExEvent VLQ length prefix) remains open in `Planning/03_bugs.md` - reader and writer are paired non-spec-conformant, fix needs a tolerant loader plus spec-conformant writer plus real third-party SysEx fixtures and is therefore deferred.
 * Phase 26 keeps the existing hardcoded model lists as a fallback so a fresh install or an offline user still sees a populated picker. Refresh is opt-in (user clicks 🔄); we explicitly do **not** auto-refresh on app launch to avoid a network call on every startup.
 * Phase 28 sub-phases 28.3 (per-model capability cache from `/models`), 28.4 (provider-pinning UI), 28.5 (upstream attribution in chat) and 28.6 (long-timeout awareness for reasoning models) remain on the roadmap for a later release.
 
@@ -255,49 +309,49 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 
 ---
 
-## [1.4.2] - 2026-04-21 — Bulk-Op Memory/Perf Fixes + Test Harness Expansion + Live Playback Panels
+## [1.4.2] - 2026-04-21 - Bulk-Op Memory/Perf Fixes + Test Harness Expansion + Live Playback Panels
 
 ### Summary
-* **Side panels stay live during playback by default (UX-PLAY-001)** — `MainWindow::play()` and `record()` previously hard-disabled the Tracks, Channels, Event and Protocol panels for the entire duration of playback / recording, blocking visibility toggling and event inspection mid-song. Now unlocked by default; legacy lock-during-playback behaviour can be restored via **Settings → System & Performance → Playback → "Lock side panels during playback"** (`playback/lock_panels`, default `false`).
-* **Eye icons in the Matrix "Move to Track" / "Move to Channel" context-menu submenus (UX-CTX-001)** — right-clicking a note now shows a quick-glance visibility cue next to every entry in both submenus (`all_visible.png` for visible / unmuted, `all_invisible.png` for hidden), so you can see at a glance which tracks/channels are currently shown without having to scroll the side panels.
-* **Track deletion no longer eats 40–50 GB of RAM on heavy/CC-dense tracks (PERF-DEL-001)** — `MidiFile::removeTrack` deep-cloned the full channel `QMultiMap` once per removed event; brass tracks with thousands of Breath-Controller CCs blew the open undo step into tens of GB.
-* **`MidiFile::deleteMeasures` and `MidiFile::setMaxLengthMs` got the same treatment (PERF-DEL-002, PERF-DEL-003)** — same per-event-protocol explosion in the two sibling mass-delete paths.
-* **FFXIV Channel Fixer Tier 2 dropped from ~5 minutes / ~64 GB to seconds / bounded RAM (PERF-FFXIV-001)** — five hot mutation sites in `FFXIVChannelFixer::fixChannels()` were each cloning the full track + channel state per call.
-* **`NoteOnEvent::setVelocity(int, bool toProtocol = true)` overload (API-002)** — needed by the FFXIV bulk-op refactor so the velocity-normalisation pass can skip the per-event Protocol clone; default behaviour unchanged for existing callers.
-* **C++ test harness grown from 3 executables / 41 sub-tests to 19 / 229 (PHASE-25.3)** — new coverage across `MidiTrack`, `MidiChannel`, `MidiFile`, `Protocol`, `ProtocolItem`, `Selection`, `EventTool`, `LyricManager`, `LyricBlock`, `MidiEvent`, channel events, `SysExEvent`, and `MmlConverter`. Full ctest run: `100% tests passed, 0 tests failed out of 19` in ~14 s.
+* **Side panels stay live during playback by default (UX-PLAY-001)** - `MainWindow::play()` and `record()` previously hard-disabled the Tracks, Channels, Event and Protocol panels for the entire duration of playback / recording, blocking visibility toggling and event inspection mid-song. Now unlocked by default; legacy lock-during-playback behaviour can be restored via **Settings → System & Performance → Playback → "Lock side panels during playback"** (`playback/lock_panels`, default `false`).
+* **Eye icons in the Matrix "Move to Track" / "Move to Channel" context-menu submenus (UX-CTX-001)** - right-clicking a note now shows a quick-glance visibility cue next to every entry in both submenus (`all_visible.png` for visible / unmuted, `all_invisible.png` for hidden), so you can see at a glance which tracks/channels are currently shown without having to scroll the side panels.
+* **Track deletion no longer eats 40-50 GB of RAM on heavy/CC-dense tracks (PERF-DEL-001)** - `MidiFile::removeTrack` deep-cloned the full channel `QMultiMap` once per removed event; brass tracks with thousands of Breath-Controller CCs blew the open undo step into tens of GB.
+* **`MidiFile::deleteMeasures` and `MidiFile::setMaxLengthMs` got the same treatment (PERF-DEL-002, PERF-DEL-003)** - same per-event-protocol explosion in the two sibling mass-delete paths.
+* **FFXIV Channel Fixer Tier 2 dropped from ~5 minutes / ~64 GB to seconds / bounded RAM (PERF-FFXIV-001)** - five hot mutation sites in `FFXIVChannelFixer::fixChannels()` were each cloning the full track + channel state per call.
+* **`NoteOnEvent::setVelocity(int, bool toProtocol = true)` overload (API-002)** - needed by the FFXIV bulk-op refactor so the velocity-normalisation pass can skip the per-event Protocol clone; default behaviour unchanged for existing callers.
+* **C++ test harness grown from 3 executables / 41 sub-tests to 19 / 229 (PHASE-25.3)** - new coverage across `MidiTrack`, `MidiChannel`, `MidiFile`, `Protocol`, `ProtocolItem`, `Selection`, `EventTool`, `LyricManager`, `LyricBlock`, `MidiEvent`, channel events, `SysExEvent`, and `MmlConverter`. Full ctest run: `100% tests passed, 0 tests failed out of 19` in ~14 s.
 
 <details>
-<summary>Full Changelog — Bulk-Op Memory/Perf Fixes + Test Harness Expansion + Live Playback Panels</summary>
+<summary>Full Changelog - Bulk-Op Memory/Perf Fixes + Test Harness Expansion + Live Playback Panels</summary>
 
 ### New Features
 
-* **Live side panels during playback (UX-PLAY-001)** — historical MidiEditor behaviour was to call `setEnabled(false)` on `_miscWidgetContainer`, `channelWidget`, `protocolWidget`, `_trackWidget` and `eventWidget()` for the duration of every play/record session, then re-enable them in `stop()`. The intent was to prevent the user from mutating state mid-playback, but in practice it also blocked harmless interactions like toggling channel/track visibility, inspecting an event in the Event tab, or scrolling the Protocol log while listening. The disables are now gated on `_settings->value("playback/lock_panels", false).toBool()`, defaulting to **off** — panels remain interactive throughout playback. A new **"Lock side panels during playback"** checkbox under **Settings → System & Performance → Playback** restores the legacy behaviour for users who relied on it. The `stop()` re-enable path is unchanged (it's a safe no-op when the panels were never disabled in the first place).
-* **Eye icons on the Matrix context-menu "Move to…" submenus (UX-CTX-001)** — `MatrixWidget::contextMenuEvent()` now sets a per-entry icon on every action inside the **Move to Track** and **Move to Channel** submenus, mirroring the visibility/audibility state from `MidiTrack::hidden()` and `MidiChannel::visible()`: visible entries get `:/run_environment/graphics/tool/all_visible.png`, hidden entries get `all_invisible.png`. Saves a trip to the side panel when you're trying to remember which channels are currently muted before reassigning a note.
+* **Live side panels during playback (UX-PLAY-001)** - historical MidiEditor behaviour was to call `setEnabled(false)` on `_miscWidgetContainer`, `channelWidget`, `protocolWidget`, `_trackWidget` and `eventWidget()` for the duration of every play/record session, then re-enable them in `stop()`. The intent was to prevent the user from mutating state mid-playback, but in practice it also blocked harmless interactions like toggling channel/track visibility, inspecting an event in the Event tab, or scrolling the Protocol log while listening. The disables are now gated on `_settings->value("playback/lock_panels", false).toBool()`, defaulting to **off** - panels remain interactive throughout playback. A new **"Lock side panels during playback"** checkbox under **Settings → System & Performance → Playback** restores the legacy behaviour for users who relied on it. The `stop()` re-enable path is unchanged (it's a safe no-op when the panels were never disabled in the first place).
+* **Eye icons on the Matrix context-menu "Move to…" submenus (UX-CTX-001)** - `MatrixWidget::contextMenuEvent()` now sets a per-entry icon on every action inside the **Move to Track** and **Move to Channel** submenus, mirroring the visibility/audibility state from `MidiTrack::hidden()` and `MidiChannel::visible()`: visible entries get `:/run_environment/graphics/tool/all_visible.png`, hidden entries get `all_invisible.png`. Saves a trip to the side panel when you're trying to remember which channels are currently muted before reassigning a note.
 
 ### Bug Fixes
 
-* **Fixed track deletion ballooning RAM to 40–50 GB on CC-dense brass tracks (PERF-DEL-001)** — `MidiFile::removeTrack` (`src/midi/MidiFile.cpp`) iterated every event on every channel and called `channels[ch]->removeEvent(event)` with the default `toProtocol=true`. That path runs `MidiChannel::copy()`, which deep-clones the channel's full `QMultiMap<int, MidiEvent*>` into a fresh `ProtocolItem` — so a Trumpet track with thousands of "Breath Controller (MSB)" CC events produced thousands of full-channel clones piling up inside one open undo step. On the user's reference file peak RSS hit ~50 GB and the UI stalled for minutes. Replaced with the proven bulk-snapshot pattern: one `channel->copy()` per touched channel **before** the event-removal loop, `removeEvent(ev, false)` inside the loop, then one `channels[i]->protocol(snap, channels[i])` commit per channel after. Undo semantics are identical because `MidiChannel::reloadState()` swaps the `_events` pointer back wholesale — a single pre-mutation snapshot covers any number of fine-grained mutations. Peak RAM during a track delete now scales with channel count (~19), not event count.
-* **Fixed `MidiFile::deleteMeasures` having the same per-event clone explosion (PERF-DEL-002)** — same root cause as PERF-DEL-001 in the "Delete Measures" path: each `channel(ch)->removeEvent(event)` defaulted to `toProtocol=true` and cloned the full channel map. Rewritten to snapshot only the channels that actually have events to delete (skipping the snapshot when `toRemove` is empty), pass `false` to `removeEvent`, and commit the snapshots at the end.
-* **Fixed `MidiFile::setMaxLengthMs` truncating long files via per-event protocol calls (PERF-DEL-003)** — `setMaxLengthMs` is called when a SoundFont/audio export needs to clip the tail; on long files the trailing-event delete loop produced the same blow-up. Reworked to use a `QHash<int, ProtocolEntry*> channelSnapshots` keyed by channel: snapshot lazily on first deletion in a channel, mutate fast, commit at the end.
-* **Fixed FFXIV Channel Fixer Tier 2 taking ~5 minutes and ~64 GB on 20-track guitar files (PERF-FFXIV-001)** — `FFXIVChannelFixer::fixChannels()` (`src/ai/FFXIVChannelFixer.cpp`) had five hot mutation sites all defaulting to `toProtocol=true`: `MidiChannel::removeEvent` in the CLEAN phase, `MidiChannel::insertEvent` for relocated CCs/PCs, `MidiEvent::moveToChannel` during MIGRATE, `NoteOnEvent::setVelocity` during the velocity-normalisation pass, and the per-event `setTrack` calls. On a heavy file each call deep-cloned the whole channel + track snapshot, producing tens of thousands of clones inside the single open undo action. Now snapshots every touched track + channel **once** before the CLEAN/MIGRATE phases (`QVector<ProtocolEntry*> trackSnapshots`, `QVector<ProtocolEntry*> channelSnapshots`), runs all mutations with `toProtocol=false`, and commits the snapshots via `entry->protocol(snap, current)` before the JSON result is built. User confirmed: same file that previously took ~5 minutes now completes in seconds with bounded RAM.
-* **Added `NoteOnEvent::setVelocity(int v, bool toProtocol = true)` overload (API-002)** — the FFXIV bulk-op refactor needs to mutate velocity without firing the per-event protocol path. Header (`src/MidiEvent/NoteOnEvent.h`) declares the overload with `toProtocol` defaulted to `true`, body (`src/MidiEvent/NoteOnEvent.cpp`) takes the fast path `if (!toProtocol) { _velocity = v; return; }` before reaching the existing copy/protocol calls. All existing call sites compile unchanged.
+* **Fixed track deletion ballooning RAM to 40-50 GB on CC-dense brass tracks (PERF-DEL-001)** - `MidiFile::removeTrack` (`src/midi/MidiFile.cpp`) iterated every event on every channel and called `channels[ch]->removeEvent(event)` with the default `toProtocol=true`. That path runs `MidiChannel::copy()`, which deep-clones the channel's full `QMultiMap<int, MidiEvent*>` into a fresh `ProtocolItem` - so a Trumpet track with thousands of "Breath Controller (MSB)" CC events produced thousands of full-channel clones piling up inside one open undo step. On the user's reference file peak RSS hit ~50 GB and the UI stalled for minutes. Replaced with the proven bulk-snapshot pattern: one `channel->copy()` per touched channel **before** the event-removal loop, `removeEvent(ev, false)` inside the loop, then one `channels[i]->protocol(snap, channels[i])` commit per channel after. Undo semantics are identical because `MidiChannel::reloadState()` swaps the `_events` pointer back wholesale - a single pre-mutation snapshot covers any number of fine-grained mutations. Peak RAM during a track delete now scales with channel count (~19), not event count.
+* **Fixed `MidiFile::deleteMeasures` having the same per-event clone explosion (PERF-DEL-002)** - same root cause as PERF-DEL-001 in the "Delete Measures" path: each `channel(ch)->removeEvent(event)` defaulted to `toProtocol=true` and cloned the full channel map. Rewritten to snapshot only the channels that actually have events to delete (skipping the snapshot when `toRemove` is empty), pass `false` to `removeEvent`, and commit the snapshots at the end.
+* **Fixed `MidiFile::setMaxLengthMs` truncating long files via per-event protocol calls (PERF-DEL-003)** - `setMaxLengthMs` is called when a SoundFont/audio export needs to clip the tail; on long files the trailing-event delete loop produced the same blow-up. Reworked to use a `QHash<int, ProtocolEntry*> channelSnapshots` keyed by channel: snapshot lazily on first deletion in a channel, mutate fast, commit at the end.
+* **Fixed FFXIV Channel Fixer Tier 2 taking ~5 minutes and ~64 GB on 20-track guitar files (PERF-FFXIV-001)** - `FFXIVChannelFixer::fixChannels()` (`src/ai/FFXIVChannelFixer.cpp`) had five hot mutation sites all defaulting to `toProtocol=true`: `MidiChannel::removeEvent` in the CLEAN phase, `MidiChannel::insertEvent` for relocated CCs/PCs, `MidiEvent::moveToChannel` during MIGRATE, `NoteOnEvent::setVelocity` during the velocity-normalisation pass, and the per-event `setTrack` calls. On a heavy file each call deep-cloned the whole channel + track snapshot, producing tens of thousands of clones inside the single open undo action. Now snapshots every touched track + channel **once** before the CLEAN/MIGRATE phases (`QVector<ProtocolEntry*> trackSnapshots`, `QVector<ProtocolEntry*> channelSnapshots`), runs all mutations with `toProtocol=false`, and commits the snapshots via `entry->protocol(snap, current)` before the JSON result is built. User confirmed: same file that previously took ~5 minutes now completes in seconds with bounded RAM.
+* **Added `NoteOnEvent::setVelocity(int v, bool toProtocol = true)` overload (API-002)** - the FFXIV bulk-op refactor needs to mutate velocity without firing the per-event protocol path. Header (`src/MidiEvent/NoteOnEvent.h`) declares the overload with `toProtocol` defaulted to `true`, body (`src/MidiEvent/NoteOnEvent.cpp`) takes the fast path `if (!toProtocol) { _velocity = v; return; }` before reaching the existing copy/protocol calls. All existing call sites compile unchanged.
 
 ### Test Harness (PHASE-25.3)
 
 * **Sixteen new test executables** added under `tests/`, bringing ctest to 19 executables / 229 sub-tests (was 3 / 41 in v1.4.1):
-  * `tests/test_midi_track.cpp` — `MidiTrack` ctor / copy ctor / accessors.
-  * `tests/test_midi_channel.cpp` — `MidiChannel` event insertion, removal, `progAtTick`, `eventMap` invariants.
-  * `tests/test_midi_file.cpp` — `MidiFile` open/save round-trip, `pasteTrack`, `removeTrack`, `deleteMeasures`, `msOfTick` boundary cases.
-  * `tests/test_protocol.cpp` and `tests/test_protocol_item.cpp` — `Protocol` action lifecycle, `goTo` undo/redo navigation, `ProtocolItem` reverse-action correctness.
-  * `tests/test_selection.cpp` — `Selection` singleton return-by-value invariant (since v1.3.2), `setSelection` no-op detection, signal emission.
-  * `tests/test_event_tool.cpp` — `EventTool` selection helpers, paste path local-list construction.
-  * `tests/test_lyric_manager.cpp` and `tests/test_lyric_block.cpp` — block insert/sort/split/merge, overlap clamping.
-  * `tests/test_midi_event.cpp` — base-class accessors and meta-channel routing.
-  * `tests/test_channel_events.cpp` — save round-trips for `ControlChangeEvent`, `PitchBendEvent`, `ProgChangeEvent`, `ChannelPressureEvent`, `KeyPressureEvent` (status-byte / channel-nibble correctness).
-  * `tests/test_sysex_event.cpp` — F0/F7 framing and length encoding round-trip.
-  * `tests/test_mml_converter.cpp` — MML scale/tempo/length/dot/octave/tie/sharp/flat/instrument/garbage/empty cases (14 sub-tests).
+  * `tests/test_midi_track.cpp` - `MidiTrack` ctor / copy ctor / accessors.
+  * `tests/test_midi_channel.cpp` - `MidiChannel` event insertion, removal, `progAtTick`, `eventMap` invariants.
+  * `tests/test_midi_file.cpp` - `MidiFile` open/save round-trip, `pasteTrack`, `removeTrack`, `deleteMeasures`, `msOfTick` boundary cases.
+  * `tests/test_protocol.cpp` and `tests/test_protocol_item.cpp` - `Protocol` action lifecycle, `goTo` undo/redo navigation, `ProtocolItem` reverse-action correctness.
+  * `tests/test_selection.cpp` - `Selection` singleton return-by-value invariant (since v1.3.2), `setSelection` no-op detection, signal emission.
+  * `tests/test_event_tool.cpp` - `EventTool` selection helpers, paste path local-list construction.
+  * `tests/test_lyric_manager.cpp` and `tests/test_lyric_block.cpp` - block insert/sort/split/merge, overlap clamping.
+  * `tests/test_midi_event.cpp` - base-class accessors and meta-channel routing.
+  * `tests/test_channel_events.cpp` - save round-trips for `ControlChangeEvent`, `PitchBendEvent`, `ProgChangeEvent`, `ChannelPressureEvent`, `KeyPressureEvent` (status-byte / channel-nibble correctness).
+  * `tests/test_sysex_event.cpp` - F0/F7 framing and length encoding round-trip.
+  * `tests/test_mml_converter.cpp` - MML scale/tempo/length/dot/octave/tie/sharp/flat/instrument/garbage/empty cases (14 sub-tests).
 
-### Technical Notes — The Bulk-Snapshot Pattern
+### Technical Notes - The Bulk-Snapshot Pattern
 
 The four perf fixes in this release all apply the same proven pattern (already in use by `MidiChannel::insertNote()` and the upstream `MidiEditor_meow` reference):
 
@@ -305,22 +359,22 @@ The four perf fixes in this release all apply the same proven pattern (already i
 2. **Mutate fast:** every per-event call (`removeEvent`, `insertEvent`, `moveToChannel`, `setVelocity`) is invoked with `toProtocol = false`, skipping the per-call clone.
 3. **Commit once at the end:** `obj->protocol(snap, obj)` records exactly one `ProtocolItem` per touched object.
 
-Undo correctness is preserved because `MidiChannel::reloadState()` does a pointer-swap of `_events` — restoring one snapshot at the start fully covers any number of fine-grained mutations made between snapshot and commit. Undo becomes one coarse step instead of thousands of fine steps, which is also the better UX.
+Undo correctness is preserved because `MidiChannel::reloadState()` does a pointer-swap of `_events` - restoring one snapshot at the start fully covers any number of fine-grained mutations made between snapshot and commit. Undo becomes one coarse step instead of thousands of fine steps, which is also the better UX.
 
 ### Files Modified
 
-* `CMakeLists.txt` — version `1.4.1` → `1.4.2`
-* `src/gui/MainWindow.cpp` — `play()` and `record()` panel-disable blocks gated behind `playback/lock_panels` QSettings key, default off (UX-PLAY-001)
-* `src/gui/PerformanceSettingsWidget.h` / `.cpp` — new "Playback" group with **"Lock side panels during playback"** checkbox; persisted under `playback/lock_panels`; reset to unchecked in `resetToDefaults()` (UX-PLAY-001)
-* `src/gui/MatrixWidget.cpp` — `contextMenuEvent()` sets visibility eye icons on every entry of the **Move to Track** and **Move to Channel** submenus (UX-CTX-001)
-* `manual/editor-and-components.html` — new "Context Menu" subsection documenting the visibility eye icons (UX-CTX-001)
-* `manual/playback.html` — new "Live Side Panels During Playback" subsection documenting the new default and the opt-out toggle (UX-PLAY-001)
-* `manual/index.html` / `manual/download.html` — version bump 1.4.1 → 1.4.2; What's New card updated
-* `manual/changelog.html` — regenerated from `CHANGELOG.md` via `scripts/build_changelog.py`
-* `src/MidiEvent/NoteOnEvent.h` / `.cpp` — new `setVelocity(int, bool toProtocol = true)` overload with fast-path skip (API-002)
-* `src/ai/FFXIVChannelFixer.cpp` — bulk-snapshot pattern applied to all five hot mutation sites, plus required `#include "../protocol/ProtocolEntry.h"` and `<QVector>` (PERF-FFXIV-001)
-* `src/midi/MidiFile.cpp` — `removeTrack` snapshots all 19 channels, mutates with `removeEvent(ev, false)`, commits per-channel (PERF-DEL-001); `deleteMeasures` lazy-snapshots only channels with deletions (PERF-DEL-002); `setMaxLengthMs` uses `QHash<int, ProtocolEntry*>` lazy-snapshot map (PERF-DEL-003)
-* `tests/CMakeLists.txt` — registered 16 additional test executables with the Qt 6 DLL-PATH workaround
+* `CMakeLists.txt` - version `1.4.1` → `1.4.2`
+* `src/gui/MainWindow.cpp` - `play()` and `record()` panel-disable blocks gated behind `playback/lock_panels` QSettings key, default off (UX-PLAY-001)
+* `src/gui/PerformanceSettingsWidget.h` / `.cpp` - new "Playback" group with **"Lock side panels during playback"** checkbox; persisted under `playback/lock_panels`; reset to unchecked in `resetToDefaults()` (UX-PLAY-001)
+* `src/gui/MatrixWidget.cpp` - `contextMenuEvent()` sets visibility eye icons on every entry of the **Move to Track** and **Move to Channel** submenus (UX-CTX-001)
+* `manual/editor-and-components.html` - new "Context Menu" subsection documenting the visibility eye icons (UX-CTX-001)
+* `manual/playback.html` - new "Live Side Panels During Playback" subsection documenting the new default and the opt-out toggle (UX-PLAY-001)
+* `manual/index.html` / `manual/download.html` - version bump 1.4.1 → 1.4.2; What's New card updated
+* `manual/changelog.html` - regenerated from `CHANGELOG.md` via `scripts/build_changelog.py`
+* `src/MidiEvent/NoteOnEvent.h` / `.cpp` - new `setVelocity(int, bool toProtocol = true)` overload with fast-path skip (API-002)
+* `src/ai/FFXIVChannelFixer.cpp` - bulk-snapshot pattern applied to all five hot mutation sites, plus required `#include "../protocol/ProtocolEntry.h"` and `<QVector>` (PERF-FFXIV-001)
+* `src/midi/MidiFile.cpp` - `removeTrack` snapshots all 19 channels, mutates with `removeEvent(ev, false)`, commits per-channel (PERF-DEL-001); `deleteMeasures` lazy-snapshots only channels with deletions (PERF-DEL-002); `setMaxLengthMs` uses `QHash<int, ProtocolEntry*>` lazy-snapshot map (PERF-DEL-003)
+* `tests/CMakeLists.txt` - registered 16 additional test executables with the Qt 6 DLL-PATH workaround
 * `tests/test_midi_track.cpp` (new)
 * `tests/test_midi_channel.cpp` (new)
 * `tests/test_midi_file.cpp` (new)
@@ -331,151 +385,151 @@ Undo correctness is preserved because `MidiChannel::reloadState()` does a pointe
 * `tests/test_lyric_manager.cpp` (new)
 * `tests/test_lyric_block.cpp` (new)
 * `tests/test_midi_event.cpp` (new)
-* `tests/test_channel_events.cpp` (new) — covers CC, PC, PitchBend, ChannelPressure, KeyPressure save round-trips
+* `tests/test_channel_events.cpp` (new) - covers CC, PC, PitchBend, ChannelPressure, KeyPressure save round-trips
 * `tests/test_sysex_event.cpp` (new)
 * `tests/test_mml_converter.cpp` (new)
-* `Planning/03_bugs.md` — PERF-DEL-001/002/003 and PERF-FFXIV-001 noted as fixed in 1.4.2
-* `Planning/06_TEST_CASES.md` — coverage table updated 3 → 19 executables / 41 → 229 sub-tests
+* `Planning/03_bugs.md` - PERF-DEL-001/002/003 and PERF-FFXIV-001 noted as fixed in 1.4.2
+* `Planning/06_TEST_CASES.md` - coverage table updated 3 → 19 executables / 41 → 229 sub-tests
 
 </details>
 
 ---
 
-## [1.4.1] - 2026-04-19 — Manual Bugfix + SrtParser Tests
+## [1.4.1] - 2026-04-19 - Manual Bugfix + SrtParser Tests
 
 ### Summary
-* **Fixed stale "What's New" card on the manual landing page (DOC-002)** — the `index.html` What's New block was hardcoded HTML still showing v1.3.2 content even after the v1.4.0 release. The sister `changelog.html` is auto-generated from `CHANGELOG.md` by `scripts/build_changelog.py`, so it had the right content; the landing card was the only place still drifting. `manual/site.js` now fetches `changelog.html` once (a promise shared with the existing dynamic bugfix counter), pulls the first `.cl-version` block, and rewrites the card's heading, italic subtitle, and bullet list at runtime. The static markup in `index.html` was also refreshed to v1.4.0 content as a no-JS fallback, and a small `.whats-new-subtitle` rule was added to `site.css`.
-* **`SrtParser` unit tests (PHASE-25.2)** — new `tests/test_srt_parser.cpp` with 14 cases covering the happy path (two-block CRLF SRT), `.` accepted in place of `,` per the regex, multi-line cue text joined with a single space, final entry without a trailing blank, malformed timing line dropped while parser recovers, UTF-8 BOM stripped from the first line, missing file → empty list, null `MidiFile*` → empty list, full export↔import round-trip, empty / null export rejection, and canonical `HH:MM:SS,mmm` formatting for 1h+ timecodes. ctest is now 3 executables / 41 sub-tests, all green.
-* **`CHANGELOG_TEMPLATE.md` removed from the repo** — added to `.gitignore` and `git rm --cached`'d. The file stays on disk locally as a personal scratch template; it is no longer part of the published source tree.
+* **Fixed stale "What's New" card on the manual landing page (DOC-002)** - the `index.html` What's New block was hardcoded HTML still showing v1.3.2 content even after the v1.4.0 release. The sister `changelog.html` is auto-generated from `CHANGELOG.md` by `scripts/build_changelog.py`, so it had the right content; the landing card was the only place still drifting. `manual/site.js` now fetches `changelog.html` once (a promise shared with the existing dynamic bugfix counter), pulls the first `.cl-version` block, and rewrites the card's heading, italic subtitle, and bullet list at runtime. The static markup in `index.html` was also refreshed to v1.4.0 content as a no-JS fallback, and a small `.whats-new-subtitle` rule was added to `site.css`.
+* **`SrtParser` unit tests (PHASE-25.2)** - new `tests/test_srt_parser.cpp` with 14 cases covering the happy path (two-block CRLF SRT), `.` accepted in place of `,` per the regex, multi-line cue text joined with a single space, final entry without a trailing blank, malformed timing line dropped while parser recovers, UTF-8 BOM stripped from the first line, missing file → empty list, null `MidiFile*` → empty list, full export↔import round-trip, empty / null export rejection, and canonical `HH:MM:SS,mmm` formatting for 1h+ timecodes. ctest is now 3 executables / 41 sub-tests, all green.
+* **`CHANGELOG_TEMPLATE.md` removed from the repo** - added to `.gitignore` and `git rm --cached`'d. The file stays on disk locally as a personal scratch template; it is no longer part of the published source tree.
 
 ### Files Modified
 
-* `CMakeLists.txt` — version `1.4.0` → `1.4.1`
-* `manual/site.js` — shared `changelogDocReady` promise; new `populateWhatsNew()` rewrites the landing card from `changelog.html`
-* `manual/index.html` — version bump (4 places); What's New static fallback refreshed to v1.4.0 content with new `.whats-new-subtitle`
-* `manual/site.css` — `.whats-new-subtitle` rule (italic, muted, tight top margin)
-* `manual/changelog.html` — regenerated from `CHANGELOG.md` via `scripts/build_changelog.py`
-* `tests/test_srt_parser.cpp` (new) — 14 unit tests for `SrtParser`
-* `tests/CMakeLists.txt` — register `test_srt_parser` with the Windows DLL-PATH workaround
-* `Planning/06_TEST_CASES.md` — `SrtParser` row ⬜ → ✅; coverage table 2 → 3 executables / 24 → 41 sub-tests
-* `.gitignore` — ignore `CHANGELOG_TEMPLATE.md`
+* `CMakeLists.txt` - version `1.4.0` → `1.4.1`
+* `manual/site.js` - shared `changelogDocReady` promise; new `populateWhatsNew()` rewrites the landing card from `changelog.html`
+* `manual/index.html` - version bump (4 places); What's New static fallback refreshed to v1.4.0 content with new `.whats-new-subtitle`
+* `manual/site.css` - `.whats-new-subtitle` rule (italic, muted, tight top margin)
+* `manual/changelog.html` - regenerated from `CHANGELOG.md` via `scripts/build_changelog.py`
+* `tests/test_srt_parser.cpp` (new) - 14 unit tests for `SrtParser`
+* `tests/CMakeLists.txt` - register `test_srt_parser` with the Windows DLL-PATH workaround
+* `Planning/06_TEST_CASES.md` - `SrtParser` row ⬜ → ✅; coverage table 2 → 3 executables / 24 → 41 sub-tests
+* `.gitignore` - ignore `CHANGELOG_TEMPLATE.md`
 
 ---
 
-## [1.4.0] - 2026-04-19 — MusicXML & MuseScore Import + C++ Test Harness
+## [1.4.0] - 2026-04-19 - MusicXML & MuseScore Import + C++ Test Harness
 
 ### Summary
-* **MusicXML import** — open `.musicxml`, `.xml`, and compressed `.mxl` scores from Finale, Sibelius, MuseScore, Dorico, and any notation tool that exports MusicXML; parts, voices, chords, rests, tuplets, dotted notes, time/key signatures, tempo, and instrument program changes are converted to MIDI on the fly (PHASE-24.1)
-* **MuseScore import** — open `.mscz` (zipped) and `.mscx` (plain XML) files from MuseScore 3/4 directly, with the same coverage as MusicXML plus grace notes (PHASE-24.2)
-* **Shared SMF writer** — extracted `XmlScoreToMidi` so MusicXML and MuseScore importers emit Standard MIDI File bytes through a single, unit-tested code path instead of duplicating delta-time and meta-event logic in two places (PHASE-24.3)
-* **Format-aware error dialogs** — failed file opens now report the actual format ("MusicXML import failed", "MuseScore .mscz import failed") instead of a generic "load failed", making it obvious whether the user picked the wrong file or a real parser error occurred (UX-OPEN-001)
-* **First C++ unit test harness** — opt-in Qt Test executables under `tests/` (`-DBUILD_TESTING=ON`), runnable via `build_tests.bat`. Initial coverage: `XmlScoreToMidi` (6 cases) and `ChordDetector` (18 cases). See `Planning/06_TEST_CASES.md` for the test roadmap (PHASE-25.1)
-* **Manual reorganization** — Guitar Pro Import page replaced by a unified **Supported Files** page covering MIDI, Guitar Pro, MusicXML, and MuseScore in one place; old URL redirects automatically (DOC-001)
-* **`CHANGELOG_TEMPLATE.md`** — new top-level template documenting the canonical changelog entry format (Summary + `<details>` + Bug Fixes + Files Modified) so future entries stay consistent
+* **MusicXML import** - open `.musicxml`, `.xml`, and compressed `.mxl` scores from Finale, Sibelius, MuseScore, Dorico, and any notation tool that exports MusicXML; parts, voices, chords, rests, tuplets, dotted notes, time/key signatures, tempo, and instrument program changes are converted to MIDI on the fly (PHASE-24.1)
+* **MuseScore import** - open `.mscz` (zipped) and `.mscx` (plain XML) files from MuseScore 3/4 directly, with the same coverage as MusicXML plus grace notes (PHASE-24.2)
+* **Shared SMF writer** - extracted `XmlScoreToMidi` so MusicXML and MuseScore importers emit Standard MIDI File bytes through a single, unit-tested code path instead of duplicating delta-time and meta-event logic in two places (PHASE-24.3)
+* **Format-aware error dialogs** - failed file opens now report the actual format ("MusicXML import failed", "MuseScore .mscz import failed") instead of a generic "load failed", making it obvious whether the user picked the wrong file or a real parser error occurred (UX-OPEN-001)
+* **First C++ unit test harness** - opt-in Qt Test executables under `tests/` (`-DBUILD_TESTING=ON`), runnable via `build_tests.bat`. Initial coverage: `XmlScoreToMidi` (6 cases) and `ChordDetector` (18 cases). See `Planning/06_TEST_CASES.md` for the test roadmap (PHASE-25.1)
+* **Manual reorganization** - Guitar Pro Import page replaced by a unified **Supported Files** page covering MIDI, Guitar Pro, MusicXML, and MuseScore in one place; old URL redirects automatically (DOC-001)
+* **`CHANGELOG_TEMPLATE.md`** - new top-level template documenting the canonical changelog entry format (Summary + `<details>` + Bug Fixes + Files Modified) so future entries stay consistent
 
 <details>
-<summary>Full Changelog — MusicXML & MuseScore Import + Test Harness</summary>
+<summary>Full Changelog - MusicXML & MuseScore Import + Test Harness</summary>
 
 ### New Features
 
-* **MusicXML / MXL importer (PHASE-24.1)** — `src/converter/MusicXml/MusicXmlImporter.{h,cpp}` is a full XML → MIDI converter for the standard interchange format used by Finale, Sibelius, MuseScore, Dorico, and most notation software. Single-file `.musicxml` / `.xml` files are parsed directly via `QXmlStreamReader`; `.mxl` containers are auto-detected via the ZIP signature, unpacked through `QuaZip`, and the embedded `META-INF/container.xml` is read to locate the rootfile. The parser walks each `<part>`'s measures, tracking the running divisions value, time/key signature changes, tempo metas (`<sound tempo="…">` and `<direction>` BPM hints), and per-voice cursors so chords and grace notes accumulate at the correct tick. Output goes through the shared `XmlScoreToMidi` writer, producing one MIDI track per part with correct delta times. Sample files committed under the workspace root (`BeetAnGeSample.musicxml`, `MozartTrio.musicxml`, `il-vento-doro-giornos-theme.mxl`).
-* **MuseScore `.mscz` / `.mscx` importer (PHASE-24.2)** — `src/converter/MusicXml/MsczImporter.{h,cpp}` is a native parser for MuseScore's own format. `.mscx` plain XML is read directly; `.mscz` containers are unzipped (the embedded `.mscx` is found by extension scan, since the inner filename varies). The parser handles MuseScore's part / staff / voice hierarchy, durationType strings (`whole`, `half`, …, `64th`), dotted notes via `<dots>`, tuplets via `<actualNotes>`/`<normalNotes>`, chord groupings via the `<Chord>` wrapper, instrument program changes via `<Channel><program value="…"/></Channel>`, and grace notes via the `<grace…>` element family. Tempo, time signature, and key signature metas land on the correct meta channels. Same `XmlScoreToMidi` back-end as the MusicXML path.
-* **Shared SMF writer (PHASE-24.3)** — `src/converter/MusicXml/XmlScoreToMidi.{h,cpp}` is the single back-end used by both importers. Takes a `XmlScore` model (parts → events with absolute ticks and channels) and emits a complete Standard MIDI File: header chunk (format 1, division = 480 PPQ), one track per part, default tempo (500000 µs / quarter = 120 BPM) and time signature (4/4) inserted on track 0 when the score has none, correct VLQ delta times between events, and an explicit end-of-track meta on every track. Avoiding two parallel SMF emitters means parser bugs only have to be fixed in one place; it is also the first piece of the import pipeline with real unit tests.
-* **Format-aware error dialogs (UX-OPEN-001)** — `MainWindow::openFile()` previously delegated to a generic "load failed" message regardless of which importer rejected the file. Now the open path inspects the file extension and produces "MusicXML import failed: <reason>", "MuseScore .mscz import failed: <reason>", or "Guitar Pro import failed: <reason>" so users immediately know whether the file was malformed or whether they accidentally pointed the importer at the wrong format.
-* **Unified `manual/supported-files.html` (DOC-001)** — single reference page documenting every input format MidiEditor AI can open: MIDI (`.mid` / `.midi`), Guitar Pro (`.gp` / `.gp3` / `.gp4` / `.gp5` / `.gpx` / `.gtp`), MusicXML (`.musicxml` / `.xml` / `.mxl`), and MuseScore (`.mscz` / `.mscx`). Replaces the old Guitar-Pro-only page; `manual/guitar-pro.html` is now a meta-refresh redirect to `supported-files.html#guitar-pro` so existing bookmarks and external links still resolve.
+* **MusicXML / MXL importer (PHASE-24.1)** - `src/converter/MusicXml/MusicXmlImporter.{h,cpp}` is a full XML → MIDI converter for the standard interchange format used by Finale, Sibelius, MuseScore, Dorico, and most notation software. Single-file `.musicxml` / `.xml` files are parsed directly via `QXmlStreamReader`; `.mxl` containers are auto-detected via the ZIP signature, unpacked through `QuaZip`, and the embedded `META-INF/container.xml` is read to locate the rootfile. The parser walks each `<part>`'s measures, tracking the running divisions value, time/key signature changes, tempo metas (`<sound tempo="…">` and `<direction>` BPM hints), and per-voice cursors so chords and grace notes accumulate at the correct tick. Output goes through the shared `XmlScoreToMidi` writer, producing one MIDI track per part with correct delta times. Sample files committed under the workspace root (`BeetAnGeSample.musicxml`, `MozartTrio.musicxml`, `il-vento-doro-giornos-theme.mxl`).
+* **MuseScore `.mscz` / `.mscx` importer (PHASE-24.2)** - `src/converter/MusicXml/MsczImporter.{h,cpp}` is a native parser for MuseScore's own format. `.mscx` plain XML is read directly; `.mscz` containers are unzipped (the embedded `.mscx` is found by extension scan, since the inner filename varies). The parser handles MuseScore's part / staff / voice hierarchy, durationType strings (`whole`, `half`, …, `64th`), dotted notes via `<dots>`, tuplets via `<actualNotes>`/`<normalNotes>`, chord groupings via the `<Chord>` wrapper, instrument program changes via `<Channel><program value="…"/></Channel>`, and grace notes via the `<grace…>` element family. Tempo, time signature, and key signature metas land on the correct meta channels. Same `XmlScoreToMidi` back-end as the MusicXML path.
+* **Shared SMF writer (PHASE-24.3)** - `src/converter/MusicXml/XmlScoreToMidi.{h,cpp}` is the single back-end used by both importers. Takes a `XmlScore` model (parts → events with absolute ticks and channels) and emits a complete Standard MIDI File: header chunk (format 1, division = 480 PPQ), one track per part, default tempo (500000 µs / quarter = 120 BPM) and time signature (4/4) inserted on track 0 when the score has none, correct VLQ delta times between events, and an explicit end-of-track meta on every track. Avoiding two parallel SMF emitters means parser bugs only have to be fixed in one place; it is also the first piece of the import pipeline with real unit tests.
+* **Format-aware error dialogs (UX-OPEN-001)** - `MainWindow::openFile()` previously delegated to a generic "load failed" message regardless of which importer rejected the file. Now the open path inspects the file extension and produces "MusicXML import failed: <reason>", "MuseScore .mscz import failed: <reason>", or "Guitar Pro import failed: <reason>" so users immediately know whether the file was malformed or whether they accidentally pointed the importer at the wrong format.
+* **Unified `manual/supported-files.html` (DOC-001)** - single reference page documenting every input format MidiEditor AI can open: MIDI (`.mid` / `.midi`), Guitar Pro (`.gp` / `.gp3` / `.gp4` / `.gp5` / `.gpx` / `.gtp`), MusicXML (`.musicxml` / `.xml` / `.mxl`), and MuseScore (`.mscz` / `.mscx`). Replaces the old Guitar-Pro-only page; `manual/guitar-pro.html` is now a meta-refresh redirect to `supported-files.html#guitar-pro` so existing bookmarks and external links still resolve.
 
 ### Test Harness (PHASE-25.1)
 
-* **`tests/CMakeLists.txt`** — registers Qt Test executables behind a top-level `BUILD_TESTING` option (default OFF, opt-in via `-DBUILD_TESTING=ON`). Applies the Windows DLL-path workaround (`add_test … set_tests_properties(... PROPERTIES ENVIRONMENT "PATH=…")`) required for `ctest` to find Qt 6 at runtime; without it every test executable would fail to launch with `qt6Core.dll` not found.
-* **`tests/test_xml_score_to_midi.cpp`** — six cases covering the SMF writer's invariants: `MThd` header bytes, expected track count for a multi-part score, NoteOn ordering when two events share a tick, presence of a default tempo meta on track 0 when none was supplied, presence of a default 4/4 time-sig meta, and the explicit end-of-track marker on every track.
-* **`tests/test_chord_detector.cpp`** — eighteen cases covering pitch-class naming, major/minor triads, dominant/major/minor sevenths, suspended chords, all three triadic inversions, and the unknown-pattern fallback. Authored by the new `test-author` agent.
-* **`build_tests.bat`** — convenience script that reconfigures with `-DBUILD_TESTING=ON`, builds all test targets, and runs `ctest --output-on-failure`. Useful both locally and from CI.
-* **`tests/data/`** — local-only fixture directory (gitignored). Tests that need real-world files read the `MIDIEDITOR_FIXTURES` env var and `QSKIP` when the file is missing, so the suite stays green for contributors who do not have the proprietary tab files. Policy documented in `tests/data/README.md`.
-* **`Planning/06_TEST_CASES.md`** — living test roadmap (gitignored under `Planning/`). Module inventory with per-module status, prioritized backlog, and conventions. Maintained by the `test-author` agent on every test addition.
+* **`tests/CMakeLists.txt`** - registers Qt Test executables behind a top-level `BUILD_TESTING` option (default OFF, opt-in via `-DBUILD_TESTING=ON`). Applies the Windows DLL-path workaround (`add_test … set_tests_properties(... PROPERTIES ENVIRONMENT "PATH=…")`) required for `ctest` to find Qt 6 at runtime; without it every test executable would fail to launch with `qt6Core.dll` not found.
+* **`tests/test_xml_score_to_midi.cpp`** - six cases covering the SMF writer's invariants: `MThd` header bytes, expected track count for a multi-part score, NoteOn ordering when two events share a tick, presence of a default tempo meta on track 0 when none was supplied, presence of a default 4/4 time-sig meta, and the explicit end-of-track marker on every track.
+* **`tests/test_chord_detector.cpp`** - eighteen cases covering pitch-class naming, major/minor triads, dominant/major/minor sevenths, suspended chords, all three triadic inversions, and the unknown-pattern fallback. Authored by the new `test-author` agent.
+* **`build_tests.bat`** - convenience script that reconfigures with `-DBUILD_TESTING=ON`, builds all test targets, and runs `ctest --output-on-failure`. Useful both locally and from CI.
+* **`tests/data/`** - local-only fixture directory (gitignored). Tests that need real-world files read the `MIDIEDITOR_FIXTURES` env var and `QSKIP` when the file is missing, so the suite stays green for contributors who do not have the proprietary tab files. Policy documented in `tests/data/README.md`.
+* **`Planning/06_TEST_CASES.md`** - living test roadmap (gitignored under `Planning/`). Module inventory with per-module status, prioritized backlog, and conventions. Maintained by the `test-author` agent on every test addition.
 
 ### Documentation
 
-* **`manual/supported-files.html` (new)** — comprehensive file-format reference with anchor sections `#midi`, `#guitar-pro`, `#musicxml`, `#musescore`, `#workflow-ffxiv`, `#general-tips`. Documents what each format supports, known limitations (e.g. MusicXML lyrics not yet imported, MuseScore tempo text without BPM hint not parsed), and which converter is invoked for which extension.
-* **`manual/guitar-pro.html`** — replaced with a minimal meta-refresh redirect stub pointing at `supported-files.html#guitar-pro`, preserving deep links from prior releases.
-* **Sidebar / dropdown / sitemap link migration** — every manual page's nav, footer, and the global `navigation.js` doc-subnav now point to the new Supported Files page instead of Guitar Pro Import. `sitemap.xml` URL updated. Landing-page feature card relabelled "Score & Tab Import" with the new copy.
-* **Manual version display bumped to v1.4.0** — `index.html` (schema.org `softwareVersion`, hero badge, two download CTAs), `download.html` (current-release banner, download buttons, ZIP filename, GitHub release link), and `docs-index.html` (manual hero badge).
-* **Docs landing chat-demo widget synced with marketing landing** — `docs-index.html`'s decorative MidiPilot chat widget now uses the same markup as `index.html`'s newer version (token display, three-mode select, status bar, model tags) instead of the older single-mode layout.
-* **`CHANGELOG_TEMPLATE.md` (new, top-level)** — canonical template for future changelog entries. Documents the Summary + `<details>` + Bug Fixes + Files Modified pattern with rules and reference entries (`[1.3.2.2]`, `[1.3.2]`, `[1.2.1]`).
+* **`manual/supported-files.html` (new)** - comprehensive file-format reference with anchor sections `#midi`, `#guitar-pro`, `#musicxml`, `#musescore`, `#workflow-ffxiv`, `#general-tips`. Documents what each format supports, known limitations (e.g. MusicXML lyrics not yet imported, MuseScore tempo text without BPM hint not parsed), and which converter is invoked for which extension.
+* **`manual/guitar-pro.html`** - replaced with a minimal meta-refresh redirect stub pointing at `supported-files.html#guitar-pro`, preserving deep links from prior releases.
+* **Sidebar / dropdown / sitemap link migration** - every manual page's nav, footer, and the global `navigation.js` doc-subnav now point to the new Supported Files page instead of Guitar Pro Import. `sitemap.xml` URL updated. Landing-page feature card relabelled "Score & Tab Import" with the new copy.
+* **Manual version display bumped to v1.4.0** - `index.html` (schema.org `softwareVersion`, hero badge, two download CTAs), `download.html` (current-release banner, download buttons, ZIP filename, GitHub release link), and `docs-index.html` (manual hero badge).
+* **Docs landing chat-demo widget synced with marketing landing** - `docs-index.html`'s decorative MidiPilot chat widget now uses the same markup as `index.html`'s newer version (token display, three-mode select, status bar, model tags) instead of the older single-mode layout.
+* **`CHANGELOG_TEMPLATE.md` (new, top-level)** - canonical template for future changelog entries. Documents the Summary + `<details>` + Bug Fixes + Files Modified pattern with rules and reference entries (`[1.3.2.2]`, `[1.3.2]`, `[1.2.1]`).
 
 ### Files Modified
 
-* `CMakeLists.txt` — version `1.3.2.2` → `1.4.0`; opt-in `BUILD_TESTING` option + `add_subdirectory(tests)`; new `MusicXml/` source files added to the editor target
-* `README.md` — version bump; Features table now lists MusicXML and MuseScore alongside Guitar Pro
-* `src/gui/MainWindow.cpp` — file-open filter extended to include `*.musicxml *.xml *.mxl *.mscz *.mscx`; `openFile()` rewrite with format-aware error dialogs (UX-OPEN-001)
-* `src/converter/MusicXml/MusicXmlImporter.{h,cpp}` — new MusicXML / MXL parser (PHASE-24.1)
-* `src/converter/MusicXml/MsczImporter.{h,cpp}` — new MuseScore .mscz / .mscx parser (PHASE-24.2)
-* `src/converter/MusicXml/XmlScoreToMidi.{h,cpp}` — new shared SMF writer (PHASE-24.3)
-* `src/converter/MusicXml/MusicXmlModels.h` — shared score data model (parts, voices, events, metas)
-* `tests/CMakeLists.txt` — new test harness configuration with Qt 6 DLL-path workaround
-* `tests/test_xml_score_to_midi.cpp` — 6 unit tests for the shared SMF writer
-* `tests/test_chord_detector.cpp` — 18 unit tests for `ChordDetector`
-* `tests/data/README.md`, `tests/data/.gitkeep` — fixture directory policy + placeholder
-* `build_tests.bat` (new) — reconfigure + build + ctest convenience script
-* `.gitignore` — ignore `tests/data/*` real fixtures, keep `README.md` + `.gitkeep`
-* `manual/supported-files.html` (new) — unified import-format reference
-* `manual/guitar-pro.html` — replaced with meta-refresh redirect stub
-* `manual/index.html` — version bump (4 places); Score & Tab Import feature card
-* `manual/download.html` — version bump (4 places); Score & Tab features item; meta description
-* `manual/docs-index.html` — manual hero badge → v1.4.0; Supported Files section card; chat-demo widget synced with `index.html`
-* `manual/editor-and-components.html` — File → Open description updated for new formats
-* `manual/navigation.js` — doc-subnav entry: Guitar Pro → Supported Files
-* `manual/sitemap.xml` — `guitar-pro.html` → `supported-files.html`
-* 6 other manual pages — sidebar/footer link migration to Supported Files
-* `CHANGELOG_TEMPLATE.md` (new, top-level) — canonical entry template
+* `CMakeLists.txt` - version `1.3.2.2` → `1.4.0`; opt-in `BUILD_TESTING` option + `add_subdirectory(tests)`; new `MusicXml/` source files added to the editor target
+* `README.md` - version bump; Features table now lists MusicXML and MuseScore alongside Guitar Pro
+* `src/gui/MainWindow.cpp` - file-open filter extended to include `*.musicxml *.xml *.mxl *.mscz *.mscx`; `openFile()` rewrite with format-aware error dialogs (UX-OPEN-001)
+* `src/converter/MusicXml/MusicXmlImporter.{h,cpp}` - new MusicXML / MXL parser (PHASE-24.1)
+* `src/converter/MusicXml/MsczImporter.{h,cpp}` - new MuseScore .mscz / .mscx parser (PHASE-24.2)
+* `src/converter/MusicXml/XmlScoreToMidi.{h,cpp}` - new shared SMF writer (PHASE-24.3)
+* `src/converter/MusicXml/MusicXmlModels.h` - shared score data model (parts, voices, events, metas)
+* `tests/CMakeLists.txt` - new test harness configuration with Qt 6 DLL-path workaround
+* `tests/test_xml_score_to_midi.cpp` - 6 unit tests for the shared SMF writer
+* `tests/test_chord_detector.cpp` - 18 unit tests for `ChordDetector`
+* `tests/data/README.md`, `tests/data/.gitkeep` - fixture directory policy + placeholder
+* `build_tests.bat` (new) - reconfigure + build + ctest convenience script
+* `.gitignore` - ignore `tests/data/*` real fixtures, keep `README.md` + `.gitkeep`
+* `manual/supported-files.html` (new) - unified import-format reference
+* `manual/guitar-pro.html` - replaced with meta-refresh redirect stub
+* `manual/index.html` - version bump (4 places); Score & Tab Import feature card
+* `manual/download.html` - version bump (4 places); Score & Tab features item; meta description
+* `manual/docs-index.html` - manual hero badge → v1.4.0; Supported Files section card; chat-demo widget synced with `index.html`
+* `manual/editor-and-components.html` - File → Open description updated for new formats
+* `manual/navigation.js` - doc-subnav entry: Guitar Pro → Supported Files
+* `manual/sitemap.xml` - `guitar-pro.html` → `supported-files.html`
+* 6 other manual pages - sidebar/footer link migration to Supported Files
+* `CHANGELOG_TEMPLATE.md` (new, top-level) - canonical entry template
 
 </details>
 
 ---
 
-## [1.3.2.2] - 2026-04-17 — Hotfix: Paste Selection + v1.3.1 Audit Fallout
+## [1.3.2.2] - 2026-04-17 - Hotfix: Paste Selection + v1.3.1 Audit Fallout
 
 ### Summary
-* **Paste (Ctrl+V) now re-selects the pasted notes** — another fallout of the v1.3.2 selection overhaul; pasted notes appeared but were not highlighted, making them hard to move (PASTE-001)
-* **AI no longer misreads minor keys as their parallel major** — v1.3.1's AI-008 scanned the wrong channel for `KeySignatureEvent`s; every minor-key file was silently reported to the AI as the parallel major (AI-008-FIX)
-* **Lyric Visualizer no longer freezes when a position update arrives without a preceding `playerStarted`** — defensive timer restart in `onPlaybackPositionChanged()` (P3-008-RESIDUAL)
-* **Clipboard deserialize UAF eliminated** — added `NoteOnEvent` destructor that symmetrically removes itself from the static `OffEvent::onEvents` map; a corrupt clipboard payload no longer leaves a dangling pointer for the next file load to dereference (V131-P2-03)
-* **Agent `setup_channel_pattern` tool no longer leaks events** — the AI-tool entry point now wraps the FFXIV fixer in `startNewAction/endAction` so the CLEAN-phase `removeEvent` calls actually record into Protocol instead of silently discarding the undo items (V131-P2-04)
-* **Lyric Visualizer first phrase after file change now fades in** — `setFile()` was resetting `_fadeIn` to `1.0f` (fully visible), skipping the fade-in for the seek+play case; now starts at `0.0f` (V131-P2-06)
-* **FFXIV Tier 3 now renames switching tracks by their first note's channel** — v1.3.0's Bug #4 fix was too rigorous: it skipped renames entirely for tracks with notes on >1 guitar channel. But if the user moves a track's opening notes onto a different guitar channel (e.g. Clean track now starts with Overdriven), the rename should follow. Fixed to use the chronologically earliest NoteOn's channel for the rename decision, which works correctly for both single-channel and switching tracks (FFXIV-RENAME-001)
-* **Second-pass v1.3.1 audit** via bug-hunter subagent (Claude Opus 4.7) against the `MidiEditor_meow` upstream — full report in `Planning/03_bugs.md` → "v1.3.1 Audit — Second Pass"
+* **Paste (Ctrl+V) now re-selects the pasted notes** - another fallout of the v1.3.2 selection overhaul; pasted notes appeared but were not highlighted, making them hard to move (PASTE-001)
+* **AI no longer misreads minor keys as their parallel major** - v1.3.1's AI-008 scanned the wrong channel for `KeySignatureEvent`s; every minor-key file was silently reported to the AI as the parallel major (AI-008-FIX)
+* **Lyric Visualizer no longer freezes when a position update arrives without a preceding `playerStarted`** - defensive timer restart in `onPlaybackPositionChanged()` (P3-008-RESIDUAL)
+* **Clipboard deserialize UAF eliminated** - added `NoteOnEvent` destructor that symmetrically removes itself from the static `OffEvent::onEvents` map; a corrupt clipboard payload no longer leaves a dangling pointer for the next file load to dereference (V131-P2-03)
+* **Agent `setup_channel_pattern` tool no longer leaks events** - the AI-tool entry point now wraps the FFXIV fixer in `startNewAction/endAction` so the CLEAN-phase `removeEvent` calls actually record into Protocol instead of silently discarding the undo items (V131-P2-04)
+* **Lyric Visualizer first phrase after file change now fades in** - `setFile()` was resetting `_fadeIn` to `1.0f` (fully visible), skipping the fade-in for the seek+play case; now starts at `0.0f` (V131-P2-06)
+* **FFXIV Tier 3 now renames switching tracks by their first note's channel** - v1.3.0's Bug #4 fix was too rigorous: it skipped renames entirely for tracks with notes on >1 guitar channel. But if the user moves a track's opening notes onto a different guitar channel (e.g. Clean track now starts with Overdriven), the rename should follow. Fixed to use the chronologically earliest NoteOn's channel for the rename decision, which works correctly for both single-channel and switching tracks (FFXIV-RENAME-001)
+* **Second-pass v1.3.1 audit** via bug-hunter subagent (Claude Opus 4.7) against the `MidiEditor_meow` upstream - full report in `Planning/03_bugs.md` → "v1.3.1 Audit - Second Pass"
 
 <details>
-<summary>Full Changelog — Paste Selection + v1.3.1 Audit Fallout</summary>
+<summary>Full Changelog - Paste Selection + v1.3.1 Audit Fallout</summary>
 
 ### Bug Fixes
 
-* **Fixed Paste (Ctrl+V) not selecting the pasted notes (PASTE-001)** — Another fallout from the v1.3.2 selection overhaul: `EventTool::pasteAction()` and `pasteFromSharedClipboard()` called `selectEvent(event, false, true, /*setSelection=*/false)` in a loop, then `Selection::setSelection(Selection::selectedEvents())` at the end. This pattern worked before v1.3.2 because `selectedEvents()` returned by reference, so `selectEvent(..., setSelection=false)` accumulated the selection by mutating the internal list directly. After v1.3.2 made `selectedEvents()` return by value (SEL-001 proper fix), each `selectEvent` call built a throwaway local copy, and the final `setSelection(selectedEvents())` just read the still-empty selection and set it back. Pasted notes were inserted correctly (visible in Protocol panel as "Paste N events") but were not selected/highlighted, making them hard to move — especially when pasted on top of the originals. Rewrote both paste paths to build a local `pastedSelection` list while inserting events and call `Selection::setSelection()` once with the complete list (same pattern as the v1.3.2 SelectTool box-selection fix). Respects channel visibility, track hidden flag, and skips OffEvents. **Regression since v1.3.1.**
-* **Fixed AI context reporting every minor key as its parallel major (AI-008-FIX)** — v1.3.1's AI-008 "optimization" moved `captureKeySignature()` from scanning all 19 channels to scanning channel **18** — but `KeySignatureEvent`s actually live on channel **16** (the meta-event channel for KeySig, Text, Lyrics, Marker). Channel 18 holds `TimeSignatureEvent`s. The `dynamic_cast<KeySignatureEvent*>` on a ch18 iterator never matched any event, so `isMinor` was always `false`. Every minor-key file was silently reported to the AI as its relative major (e.g. A minor as C major, E minor as G major), causing wrong scale/chord suggestions and drum fills that clashed with the actual tonality. Verified against `MidiEvent::loadMidiEvent()` (meta events default to ch16) and `MidiFile::tonalityAt()` (reads `channels[16]`). One-line fix: channel `18` → `16`. **Silent regression since v1.3.1.**
-* **Fixed Lyric Visualizer staying animation-dead after idle timer stop (P3-008-RESIDUAL)** — v1.3.1's P3-008 stops the Visualizer's 30 fps refresh timer when not playing and fully faded in. v1.3.2 patched the main `playerStarted` signal path on Windows where `PlayerThread` is recreated per `play()`, but `onPlaybackPositionChanged()` did not itself restart the timer. Any code path delivering a position update without a preceding `playerStarted` (AI tool play toggles, scrubbing, future signal-order changes) would leave the widget frozen until the next `showEvent`. Added a defensive `if (!_timer.isActive()) _timer.start(REFRESH_MS)` in the slot.
-* **Fixed dangling `NoteOnEvent*` in static `OffEvent::onEvents` map (V131-P2-03)** — `NoteOnEvent::NoteOnEvent()` registers `this` in the process-wide static `OffEvent::onEvents` map so the next matching `OffEvent` can find it. There was no symmetric removal in the destructor, so any `delete event` path that freed a `NoteOnEvent` before an `OffEvent` consumed it (corrupted `SharedClipboard` payload, truncated file load, cancelled parse) left a dangling pointer in the map. The next `OffEvent` constructor on the same line would iterate `onEvents->values(line())`, dereference the freed pointer via `->channel()`, and either crash or produce a silent use-after-free. Added `NoteOnEvent::~NoteOnEvent()` that calls `OffEvent::onEvents->remove(line(), this)` (a no-op when `this` isn't in the map, safe for copies). Adjacent to v1.3.1's CLIP-001 dead-catch removal — not caused by it, but surfaced by the audit that cleared CLIP-001 as safe.
-* **Fixed Agent `setup_channel_pattern` tool leaking events and discarding undo steps (V131-P2-04)** — `ToolDefinitions::execSetupChannelPattern()` called `FFXIVChannelFixer::fixChannels()` directly without an active Protocol action. The fixer's CLEAN phase uses `MidiChannel::removeEvent(ev, true)`, which routes through `Protocol::enterUndoStep()` — but that method silently `delete`s the undo item when `_currentStep == nullptr`. Every removed program change / CC / pitch bend became an unrecorded leak, and the operation was un-undoable. The interactive `MainWindow` path already wraps in `startNewAction/endAction`, but the AI-tool entry point did not. Wrapped `execSetupChannelPattern` in the same.
-* **Fixed Lyric Visualizer skipping fade-in on seek+play after file change (V131-P2-06)** — `LyricVisualizerWidget::setFile()` reset `_fadeIn` to `1.0f` (fully visible), so when playback began inside an existing block (seek+play) the first phrase appeared without fading in. Changed to `0.0f`.
-* **Fixed FFXIV Tier 3 not renaming switching tracks based on their first note's channel (FFXIV-RENAME-001)** — v1.3.0's Bug #4 fix added an `if (chsWithNotes.size() != 1) continue;` gate, skipping the rename for any track whose notes spanned multiple guitar channels. This broke the legitimate use case where a user manually moves a track's opening notes to a different variant (e.g. takes an "ElectricGuitarClean" track and moves the first phrase onto the Overdriven channel so the track *starts* with Overdriven) — the fixer was supposed to then rename it to "ElectricGuitarOverdriven". Replaced the "skip if multi-channel" gate with an explicit chronologically-earliest NoteOn lookup: iterate all guitar channels, take the first NoteOn per channel (already the earliest on that channel thanks to the sorted event map), then pick the channel whose first note has the smallest tick. That channel's variant determines the new name. Works correctly for single-channel tracks (identical to old behaviour) and for switching tracks (renames to whichever variant they start on). Updates `Planning/05_FFXIV_Channel_Fix.md` Bug #4 section to reflect the revised rule.
+* **Fixed Paste (Ctrl+V) not selecting the pasted notes (PASTE-001)** - Another fallout from the v1.3.2 selection overhaul: `EventTool::pasteAction()` and `pasteFromSharedClipboard()` called `selectEvent(event, false, true, /*setSelection=*/false)` in a loop, then `Selection::setSelection(Selection::selectedEvents())` at the end. This pattern worked before v1.3.2 because `selectedEvents()` returned by reference, so `selectEvent(..., setSelection=false)` accumulated the selection by mutating the internal list directly. After v1.3.2 made `selectedEvents()` return by value (SEL-001 proper fix), each `selectEvent` call built a throwaway local copy, and the final `setSelection(selectedEvents())` just read the still-empty selection and set it back. Pasted notes were inserted correctly (visible in Protocol panel as "Paste N events") but were not selected/highlighted, making them hard to move - especially when pasted on top of the originals. Rewrote both paste paths to build a local `pastedSelection` list while inserting events and call `Selection::setSelection()` once with the complete list (same pattern as the v1.3.2 SelectTool box-selection fix). Respects channel visibility, track hidden flag, and skips OffEvents. **Regression since v1.3.1.**
+* **Fixed AI context reporting every minor key as its parallel major (AI-008-FIX)** - v1.3.1's AI-008 "optimization" moved `captureKeySignature()` from scanning all 19 channels to scanning channel **18** - but `KeySignatureEvent`s actually live on channel **16** (the meta-event channel for KeySig, Text, Lyrics, Marker). Channel 18 holds `TimeSignatureEvent`s. The `dynamic_cast<KeySignatureEvent*>` on a ch18 iterator never matched any event, so `isMinor` was always `false`. Every minor-key file was silently reported to the AI as its relative major (e.g. A minor as C major, E minor as G major), causing wrong scale/chord suggestions and drum fills that clashed with the actual tonality. Verified against `MidiEvent::loadMidiEvent()` (meta events default to ch16) and `MidiFile::tonalityAt()` (reads `channels[16]`). One-line fix: channel `18` → `16`. **Silent regression since v1.3.1.**
+* **Fixed Lyric Visualizer staying animation-dead after idle timer stop (P3-008-RESIDUAL)** - v1.3.1's P3-008 stops the Visualizer's 30 fps refresh timer when not playing and fully faded in. v1.3.2 patched the main `playerStarted` signal path on Windows where `PlayerThread` is recreated per `play()`, but `onPlaybackPositionChanged()` did not itself restart the timer. Any code path delivering a position update without a preceding `playerStarted` (AI tool play toggles, scrubbing, future signal-order changes) would leave the widget frozen until the next `showEvent`. Added a defensive `if (!_timer.isActive()) _timer.start(REFRESH_MS)` in the slot.
+* **Fixed dangling `NoteOnEvent*` in static `OffEvent::onEvents` map (V131-P2-03)** - `NoteOnEvent::NoteOnEvent()` registers `this` in the process-wide static `OffEvent::onEvents` map so the next matching `OffEvent` can find it. There was no symmetric removal in the destructor, so any `delete event` path that freed a `NoteOnEvent` before an `OffEvent` consumed it (corrupted `SharedClipboard` payload, truncated file load, cancelled parse) left a dangling pointer in the map. The next `OffEvent` constructor on the same line would iterate `onEvents->values(line())`, dereference the freed pointer via `->channel()`, and either crash or produce a silent use-after-free. Added `NoteOnEvent::~NoteOnEvent()` that calls `OffEvent::onEvents->remove(line(), this)` (a no-op when `this` isn't in the map, safe for copies). Adjacent to v1.3.1's CLIP-001 dead-catch removal - not caused by it, but surfaced by the audit that cleared CLIP-001 as safe.
+* **Fixed Agent `setup_channel_pattern` tool leaking events and discarding undo steps (V131-P2-04)** - `ToolDefinitions::execSetupChannelPattern()` called `FFXIVChannelFixer::fixChannels()` directly without an active Protocol action. The fixer's CLEAN phase uses `MidiChannel::removeEvent(ev, true)`, which routes through `Protocol::enterUndoStep()` - but that method silently `delete`s the undo item when `_currentStep == nullptr`. Every removed program change / CC / pitch bend became an unrecorded leak, and the operation was un-undoable. The interactive `MainWindow` path already wraps in `startNewAction/endAction`, but the AI-tool entry point did not. Wrapped `execSetupChannelPattern` in the same.
+* **Fixed Lyric Visualizer skipping fade-in on seek+play after file change (V131-P2-06)** - `LyricVisualizerWidget::setFile()` reset `_fadeIn` to `1.0f` (fully visible), so when playback began inside an existing block (seek+play) the first phrase appeared without fading in. Changed to `0.0f`.
+* **Fixed FFXIV Tier 3 not renaming switching tracks based on their first note's channel (FFXIV-RENAME-001)** - v1.3.0's Bug #4 fix added an `if (chsWithNotes.size() != 1) continue;` gate, skipping the rename for any track whose notes spanned multiple guitar channels. This broke the legitimate use case where a user manually moves a track's opening notes to a different variant (e.g. takes an "ElectricGuitarClean" track and moves the first phrase onto the Overdriven channel so the track *starts* with Overdriven) - the fixer was supposed to then rename it to "ElectricGuitarOverdriven". Replaced the "skip if multi-channel" gate with an explicit chronologically-earliest NoteOn lookup: iterate all guitar channels, take the first NoteOn per channel (already the earliest on that channel thanks to the sorted event map), then pick the channel whose first note has the smallest tick. That channel's variant determines the new name. Works correctly for single-channel tracks (identical to old behaviour) and for switching tracks (renames to whichever variant they start on). Updates `Planning/05_FFXIV_Channel_Fix.md` Bug #4 section to reflect the revised rule.
 
-### v1.3.1 Audit — Second Pass
+### v1.3.1 Audit - Second Pass
 
 Re-audited all 14 v1.3.1 fix IDs against the `MidiEditor_meow` upstream reference using the `bug-hunter` subagent on Claude Opus 4.7. First pass (Sonnet) had incorrectly cleared AI-008 as safe; second pass caught it by cross-checking `MidiEvent.cpp`, `MidiFile::tonalityAt`, and the actual ch16 vs ch18 semantics. Twelve v1.3.1 fixes (AI-001, AI-002, AI-004, AI-005, AI-006, AI-009, AI-010, AI-011, CLIP-001, FLUID-002, P2-007, P3-007, P3-011) verified correct on re-inspection with line-level evidence. Two additional pre-existing medium-risk issues flagged for future work: `NoteOnEvent` destructor doesn't remove from static `OffEvent::onEvents` map (dangling pointer risk on clipboard deserialize failure), and `MidiChannel::removeEvent(..., true)` can leak `ProtocolItem`s when called outside an active protocol action. Full report appended to `Planning/03_bugs.md`.
 
 ### Files Modified
-* `src/tool/EventTool.cpp` — PASTE-001 rewrite of both paste paths with local selection list
-* `src/ai/EditorContext.cpp` — AI-008-FIX channel `18` → `16` in `captureKeySignature()`
-* `src/gui/LyricVisualizerWidget.cpp` — P3-008-RESIDUAL defensive timer restart + V131-P2-06 `_fadeIn = 0.0f` in `setFile()`
-* `src/MidiEvent/NoteOnEvent.h`/`.cpp` — V131-P2-03 new destructor removes `this` from static `OffEvent::onEvents` map
-* `src/ai/ToolDefinitions.cpp` — V131-P2-04 `execSetupChannelPattern` wrapped in `startNewAction/endAction`
-* `src/ai/FFXIVChannelFixer.cpp` — FFXIV-RENAME-001 Tier 3 rename now uses chronologically-earliest NoteOn's channel
-* `Planning/03_bugs.md` — second-pass audit report appended
-* `Planning/05_FFXIV_Channel_Fix.md` — Bug #4 section revised
+* `src/tool/EventTool.cpp` - PASTE-001 rewrite of both paste paths with local selection list
+* `src/ai/EditorContext.cpp` - AI-008-FIX channel `18` → `16` in `captureKeySignature()`
+* `src/gui/LyricVisualizerWidget.cpp` - P3-008-RESIDUAL defensive timer restart + V131-P2-06 `_fadeIn = 0.0f` in `setFile()`
+* `src/MidiEvent/NoteOnEvent.h`/`.cpp` - V131-P2-03 new destructor removes `this` from static `OffEvent::onEvents` map
+* `src/ai/ToolDefinitions.cpp` - V131-P2-04 `execSetupChannelPattern` wrapped in `startNewAction/endAction`
+* `src/ai/FFXIVChannelFixer.cpp` - FFXIV-RENAME-001 Tier 3 rename now uses chronologically-earliest NoteOn's channel
+* `Planning/03_bugs.md` - second-pass audit report appended
+* `Planning/05_FFXIV_Channel_Fix.md` - Bug #4 section revised
 
 </details>
 
 ---
 
-## [1.3.2.1] - 2026-04-16 — Hotfix: Ctrl+Drag Deselection & CI Workflow
+## [1.3.2.1] - 2026-04-16 - Hotfix: Ctrl+Drag Deselection & CI Workflow
 
 * **Fixed Ctrl+drag box deselection not working** - The v1.3.2 selection system rewrite (`SelectTool::release()`) built a local event list but only had code to *add* events - there was no code path to *remove* already-selected events when Ctrl was held. Ctrl+drag box selection over selected notes did nothing instead of deselecting them. Added `ctrlHeld` check: when Ctrl is held, events inside the selection box are removed from the current selection instead of added. Applied to box selection, single selection, and left/right selection tools. **Regression since v1.3.1.**
 * **Added GitHub Actions CI/Release workflow** - New `.github/workflows/ci.yml` automates the full build-and-release pipeline. Triggers on push to `main`, `v*` tag push, or manual dispatch with optional release tag. Build job: checks out repo, installs Qt 6.5 (cached), sets up MSVC x64, downloads FluidSynth 2.5.2, configures and builds via CMake/NMake, deploys Qt with `windeployqt`, uploads build artifact (14-day retention for CI, 90-day for releases). Release job: downloads artifact, creates versioned ZIP, extracts release notes from CHANGELOG.md (falls back to git log), publishes GitHub Release with the ZIP attached. Includes build summary with duration, commit, and toolchain info.
@@ -483,7 +537,7 @@ Re-audited all 14 v1.3.1 fix IDs against the `MidiEditor_meow` upstream referenc
 
 ---
 
-## [1.3.2] - 2026-04-15 — MCP Server, Documentation System & Prompt Architecture v3
+## [1.3.2] - 2026-04-15 - MCP Server, Documentation System & Prompt Architecture v3
 
 ### Summary
 * **MCP Server** - Built-in Model Context Protocol server exposing all MidiEditor AI tools (15 tools) with security, rate limiting, and client identification
@@ -556,7 +610,7 @@ The v1.3.1 SEL-001 fix (early-return when selection unchanged) and v1.3.1.2 hotf
 
 ---
 
-## [1.3.1.2] - 2026-04-12 — Hotfix: Selection Regression (superseded by v1.3.2)
+## [1.3.1.2] - 2026-04-12 - Hotfix: Selection Regression (superseded by v1.3.2)
 
 > **Note:** Both fixes below were reverted in v1.3.2 and replaced by a proper architectural fix (`selectedEvents()` returns by value, SEL-001 early-return removed entirely). See v1.3.2 "Selection System Overhaul" for details.
 
@@ -565,13 +619,13 @@ The v1.3.1 SEL-001 fix (early-return when selection unchanged) and v1.3.1.2 hotf
 
 ---
 
-## [1.3.1.1] - 2026-04-12 — Hotfix: Post-Update Changelog
+## [1.3.1.1] - 2026-04-12 - Hotfix: Post-Update Changelog
 
 * **Fixed "Could not load patch notes" in post-update and update-available dialogs** - `fetchChangelog()` shared the same `QNetworkAccessManager` whose `finished` signal was already connected to `onResult()`, consuming the response before the changelog lambda could read it. Additionally, the GitHub Pages URL redirected to the custom domain, but Qt6 does not follow redirects by default. Fixed by using a separate `QNetworkAccessManager`, correcting the URL to `midieditor-ai.de`, and adding `NoLessSafeRedirectPolicy` as a safety net.
 
 ---
 
-## [1.3.1] - 2026-04-12 — Bugfix Release
+## [1.3.1] - 2026-04-12 - Bugfix Release
 
 * **16 bug fixes** across AI subsystem, lyric editor, clipboard, selection, FluidSynth export, and FFXIV Channel Fixer - memory leaks, use-after-free, undo spam, overlap prevention, and performance improvements
 * **Fix FFXIV Channel Fixer undo crash** - Reverting Fix XIV Channels (Tier 2 or Tier 3) caused a crash due to use-after-free; removed incorrect event deletion that conflicted with the Protocol undo system
@@ -583,96 +637,96 @@ The v1.3.1 SEL-001 fix (early-return when selection unchanged) and v1.3.1.2 hotf
 
 ### Bug Fixes (Pass 4 - AI Subsystem & Core)
 
-* **AI cancel safety** — Disconnect network reply signals before `abort()` in streaming cancel, preventing potential use-after-free (AI-002)
-* **Agent cancel after processEvents** — Added `_cancelled` check immediately after `QCoreApplication::processEvents()` in the tool-call loop (AI-001)
-* **Conversation store O(1) lookup** — `loadConversation()` now uses direct path lookup instead of scanning all JSON files (AI-009)
-* **FFXIV Channel Fixer memory leaks** — Removed events (ProgChange, CC, PitchBend) are now properly `delete`d in the CLEAN phase (AI-010, AI-011)
-* **Selection undo spam** — `setSelection()` returns early when selection is unchanged, avoiding redundant Protocol entries (SEL-001) — **reverted in v1.3.2** (caused empty Event tab; see Selection System Overhaul)
-* **SharedClipboard dead catch** — Removed `try/catch(...)` around `delete` (destructors are noexcept in C++11+) (CLIP-001)
-* **Export temp file cleanup** — `ExportOptions::deleteMidiFileAfterExport` flag is now honored; temp MIDI files are deleted after export (FLUID-002)
-* **Key signature scan** — `captureKeySignature()` now only scans channel 18 (meta) instead of all 19 channels (AI-008)
-* **API log truncation** — Non-streaming request/test logs now truncate body to 4000 chars, matching the streaming pattern (AI-005)
+* **AI cancel safety** - Disconnect network reply signals before `abort()` in streaming cancel, preventing potential use-after-free (AI-002)
+* **Agent cancel after processEvents** - Added `_cancelled` check immediately after `QCoreApplication::processEvents()` in the tool-call loop (AI-001)
+* **Conversation store O(1) lookup** - `loadConversation()` now uses direct path lookup instead of scanning all JSON files (AI-009)
+* **FFXIV Channel Fixer memory leaks** - Removed events (ProgChange, CC, PitchBend) are now properly `delete`d in the CLEAN phase (AI-010, AI-011)
+* **Selection undo spam** - `setSelection()` returns early when selection is unchanged, avoiding redundant Protocol entries (SEL-001) - **reverted in v1.3.2** (caused empty Event tab; see Selection System Overhaul)
+* **SharedClipboard dead catch** - Removed `try/catch(...)` around `delete` (destructors are noexcept in C++11+) (CLIP-001)
+* **Export temp file cleanup** - `ExportOptions::deleteMidiFileAfterExport` flag is now honored; temp MIDI files are deleted after export (FLUID-002)
+* **Key signature scan** - `captureKeySignature()` now only scans channel 18 (meta) instead of all 19 channels (AI-008)
+* **API log truncation** - Non-streaming request/test logs now truncate body to 4000 chars, matching the streaming pattern (AI-005)
 
 ### Bug Fixes (Remaining Lyric & AI Bugs)
 
-* **Insert overlap prevention** — Double-click, Insert Before, and Insert After now clamp new blocks to avoid overlapping adjacent blocks (P2-007)
-* **Split encapsulation** — Split operation now uses `addBlockDirect()` instead of calling `insertSorted()` + emitting `lyricsChanged()` from outside LyricManager (P3-007)
-* **Visualizer timer idle stop** — `LyricVisualizerWidget` timer now stops when not playing and fully faded in, eliminating unnecessary 30fps CPU usage (P3-008)
-* **Multi-timestamp LRC import** — LRC import now handles karaoke-style multi-timestamp lines like `[00:12.34][01:56.78]Text`, creating one block per timestamp (P3-011)
-* **Truncated response logging** — Truncated API responses now log partial content (up to 500 chars) for debugging before emitting the error (AI-004)
-* **FFXIV polyphony sort** — `execValidateFFXIV` now sorts notes by tick before the polyphony check, ensuring the first reported overlap is chronologically first; inner loop early-breaks for better performance (AI-006)
+* **Insert overlap prevention** - Double-click, Insert Before, and Insert After now clamp new blocks to avoid overlapping adjacent blocks (P2-007)
+* **Split encapsulation** - Split operation now uses `addBlockDirect()` instead of calling `insertSorted()` + emitting `lyricsChanged()` from outside LyricManager (P3-007)
+* **Visualizer timer idle stop** - `LyricVisualizerWidget` timer now stops when not playing and fully faded in, eliminating unnecessary 30fps CPU usage (P3-008)
+* **Multi-timestamp LRC import** - LRC import now handles karaoke-style multi-timestamp lines like `[00:12.34][01:56.78]Text`, creating one block per timestamp (P3-011)
+* **Truncated response logging** - Truncated API responses now log partial content (up to 500 chars) for debugging before emitting the error (AI-004)
+* **FFXIV polyphony sort** - `execValidateFFXIV` now sorts notes by tick before the polyphony check, ensuring the first reported overlap is chronologically first; inner loop early-breaks for better performance (AI-006)
 
 ### Documentation Fixes
 
-* **Fixed lyrics manual page** — "Lyric Metadata" section was a mismatch of Customize Toolbar and metadata content. Split into two proper sections: "Customize Toolbar" (toggle Lyric Visualizer on/off) and "Lyric Settings & Metadata" (LRC metadata fields with `lyric_settings.png` screenshot)
-* **Removed dead documentation** — "Larger Playback Toolbar" section in setup.html referenced a `--large-playback-toolbar` CLI argument that doesn't exist in the codebase. Removed section and screenshot reference
+* **Fixed lyrics manual page** - "Lyric Metadata" section was a mismatch of Customize Toolbar and metadata content. Split into two proper sections: "Customize Toolbar" (toggle Lyric Visualizer on/off) and "Lyric Settings & Metadata" (LRC metadata fields with `lyric_settings.png` screenshot)
+* **Removed dead documentation** - "Larger Playback Toolbar" section in setup.html referenced a `--large-playback-toolbar` CLI argument that doesn't exist in the codebase. Removed section and screenshot reference
 
 ### Website UX Tweaks
 
-* **Showcase carousel videos** — Replaced static screenshots with webm videos for MidiPilot, Lyric Visualizer, and other features
-* **Showcase aspect ratio** — All slides now use a fixed 16:9 aspect ratio with `object-fit: cover` cropping for a consistent, clean layout; click any slide for the full uncropped view in the lightbox
-* **Showcase caption bar** — Darker, taller gradient overlay for better text readability
-* **What's New section** — Fixed year (2025 to 2026), updated version to v1.3.1, added bug fix count
+* **Showcase carousel videos** - Replaced static screenshots with webm videos for MidiPilot, Lyric Visualizer, and other features
+* **Showcase aspect ratio** - All slides now use a fixed 16:9 aspect ratio with `object-fit: cover` cropping for a consistent, clean layout; click any slide for the full uncropped view in the lightbox
+* **Showcase caption bar** - Darker, taller gradient overlay for better text readability
+* **What's New section** - Fixed year (2025 to 2026), updated version to v1.3.1, added bug fix count
 
 </details>
 
 ---
 
-## [1.3.0] - 2026-04-11 — Lyric Editor & Visualizer
+## [1.3.0] - 2026-04-11 - Lyric Editor & Visualizer
 
-* **Lyric Timeline** — New dedicated lane below the piano roll for visual lyric editing (add, delete, move, resize, split, merge, inline text editing)
-* **Sync Lyrics dialog** — Tap-to-sync: hold Space while each phrase is sung to capture precise timing in real time
-* **Import/Export** — Import from plain text, SRT subtitles, or MIDI Text/Lyric events; export to SRT or LRC (karaoke) format
-* **Lyric Visualizer** — Karaoke-style toolbar widget with left-to-right color sweep, two-line display (current + next phrase), dynamic sizing (200–600px)
-* **Full undo/redo** — All lyric operations integrate with the Protocol system for complete undo/redo support
-* **FluidSynth fixes** — `synth.reverb.engine` compatibility guard for FluidSynth 2.5.2; bundled SoundFonts survive clean builds
-* **FFXIV Channel Fixer — 5 Tier 3 bugs fixed** — wrong programs, broken renames, unwanted event migration; `progAtTick(0)` now single source of truth for channel programs
-* **Website & documentation** — New Lyrics manual page, version bump to 1.3.0 across all pages, GIF→webm migration for bandwidth savings, video lightbox support
+* **Lyric Timeline** - New dedicated lane below the piano roll for visual lyric editing (add, delete, move, resize, split, merge, inline text editing)
+* **Sync Lyrics dialog** - Tap-to-sync: hold Space while each phrase is sung to capture precise timing in real time
+* **Import/Export** - Import from plain text, SRT subtitles, or MIDI Text/Lyric events; export to SRT or LRC (karaoke) format
+* **Lyric Visualizer** - Karaoke-style toolbar widget with left-to-right color sweep, two-line display (current + next phrase), dynamic sizing (200-600px)
+* **Full undo/redo** - All lyric operations integrate with the Protocol system for complete undo/redo support
+* **FluidSynth fixes** - `synth.reverb.engine` compatibility guard for FluidSynth 2.5.2; bundled SoundFonts survive clean builds
+* **FFXIV Channel Fixer - 5 Tier 3 bugs fixed** - wrong programs, broken renames, unwanted event migration; `progAtTick(0)` now single source of truth for channel programs
+* **Website & documentation** - New Lyrics manual page, version bump to 1.3.0 across all pages, GIF→webm migration for bandwidth savings, video lightbox support
 
 <details>
-<summary>Full Changelog — Lyric Editor, Visualizer & FluidSynth Fixes</summary>
+<summary>Full Changelog - Lyric Editor, Visualizer & FluidSynth Fixes</summary>
 
 ### Lyric Timeline Widget
 
-* **New Lyric Timeline lane** — A dedicated lane below the piano roll displays lyric blocks
+* **New Lyric Timeline lane** - A dedicated lane below the piano roll displays lyric blocks
   aligned to the MIDI timeline. Blocks show text, timing, and playback highlighting with a
   pop/glow effect on the currently playing phrase.
-* **Full lyric editing** — Add, delete, move, resize, split, and merge lyric blocks directly
+* **Full lyric editing** - Add, delete, move, resize, split, and merge lyric blocks directly
   in the timeline. Drag blocks to reposition, drag edges to resize, double-click to edit text
   inline, and use Delete/Backspace to remove. Shift+Click for multi-select with range support.
-* **Sync Lyrics dialog** — Tap-to-sync mode: play the song and hold Space while each phrase
+* **Sync Lyrics dialog** - Tap-to-sync mode: play the song and hold Space while each phrase
   is being sung. Press = phrase starts, Release = phrase ends. Captures precise timing in real
   time. Features a teleprompter view showing the next 8 upcoming phrases, separate Play/Stop
   buttons, and progress tracking.
-* **Import lyrics** — Import from plain text (one phrase per line), SRT subtitle files
+* **Import lyrics** - Import from plain text (one phrase per line), SRT subtitle files
   (with timestamp conversion), or existing MIDI Text/Lyric events. Automatically creates
   properly timed lyric blocks from any source.
-* **Export lyrics** — Export to SRT subtitle format or LRC (karaoke) format. LRC export
+* **Export lyrics** - Export to SRT subtitle format or LRC (karaoke) format. LRC export
   supports both 2-digit centisecond and 3-digit millisecond timestamps on import.
-* **Undo/Redo support** — All lyric operations (add, delete, move, resize, edit, split,
+* **Undo/Redo support** - All lyric operations (add, delete, move, resize, edit, split,
   merge, sync, import) integrate with the Protocol system for full undo/redo. A dedicated
   `undoRedoPerformed` signal ensures lyric blocks stay in sync after undo without disrupting
   forward editing operations.
-* **Context menu** — Right-click any block for Edit Text, Delete, Split at Cursor, Merge
+* **Context menu** - Right-click any block for Edit Text, Delete, Split at Cursor, Merge
   with Next, Insert Before/After. Right-click empty space to insert a new block.
 
 ### Lyric Visualizer (Karaoke Display)
 
-* **Karaoke toolbar widget** — A compact toolbar widget that shows the current lyric phrase
+* **Karaoke toolbar widget** - A compact toolbar widget that shows the current lyric phrase
   during playback with a karaoke-style left-to-right color sweep. Two-line display: current
   phrase (large, bold, with highlight animation) and next phrase (small, dimmed preview).
   Includes a thin progress bar at the bottom of the widget.
-* **Dynamic sizing** — The visualizer box dynamically expands (200–600px) based on the
+* **Dynamic sizing** - The visualizer box dynamically expands (200-600px) based on the
   current phrase length. Long text is gracefully elided with "…" when the toolbar constrains
   the available width. `updateGeometry()` called on phrase change for smooth toolbar relayout.
-* **Always visible** — Stays visible at all times (matching the MIDI Visualizer pattern).
+* **Always visible** - Stays visible at all times (matching the MIDI Visualizer pattern).
   Shows "♪ ♪ ♪" idle state when no lyrics are loaded; shows song title from lyric metadata
   when stopped.
-* **Full toolbar integration** — Appears in the Customize Toolbar dialog with its own icon,
+* **Full toolbar integration** - Appears in the Customize Toolbar dialog with its own icon,
   can be repositioned via drag-and-drop, and persists across layout changes (single-row /
   double-row). Registered in all 4 toolbar creation sites and both migration blocks for
   seamless upgrades from older settings.
-* **Toolbar integration fixes** — Added `lyric_visualizer` to all three "single source of
+* **Toolbar integration fixes** - Added `lyric_visualizer` to all three "single source of
   truth" methods (`getComprehensiveActionOrder`, `getDefaultEnabledActions`,
   `getDefaultRowDistribution`) so it appears in the Customize Toolbar dialog. Added icon to
   `resources.qrc` and `ToolbarActionInfo` entry in `getDefaultActions()`. Fixed inconsistent
@@ -680,10 +734,10 @@ The v1.3.1 SEL-001 fix (early-return when selection unchanged) and v1.3.1.2 hotf
 
 ### FluidSynth Fixes
 
-* **`synth.reverb.engine` compatibility** — FluidSynth 2.5.2 doesn't support the
+* **`synth.reverb.engine` compatibility** - FluidSynth 2.5.2 doesn't support the
   `synth.reverb.engine` setting. Added `fluid_settings_get_type()` guard before calling
   `fluid_settings_setstr()` to prevent initialization errors.
-* **Bundled SoundFonts survive clean builds** — Added CMake post-build rule to copy
+* **Bundled SoundFonts survive clean builds** - Added CMake post-build rule to copy
   `soundfont/*.sf2` to `build/bin/soundfonts/`. Previously, a clean build (`Remove-Item build`)
   deleted the user's downloaded SoundFont files.
 
@@ -694,62 +748,62 @@ The v1.3.1 SEL-001 fix (early-return when selection unchanged) and v1.3.1.2 hotf
 
 ### Website & Documentation
 
-* **New Lyrics manual page** — Full `manual/lyrics.html` with 10+ sections: Timeline overview,
+* **New Lyrics manual page** - Full `manual/lyrics.html` with 10+ sections: Timeline overview,
   editing, context menu, Tap-to-Sync, import/export, Lyric Visualizer, appearance settings,
   keyboard shortcuts, tips, and menu reference. Includes screenshots and video demos.
-* **Version bump to 1.3.0** — Updated `CMakeLists.txt`, `README.md`, `index.html` (4 locations),
+* **Version bump to 1.3.0** - Updated `CMakeLists.txt`, `README.md`, `index.html` (4 locations),
   and `docs-index.html`.
-* **README.md updated** — 3 new feature rows, 2 architecture entries, full Lyric Editor section,
+* **README.md updated** - 3 new feature rows, 2 architecture entries, full Lyric Editor section,
   4 project structure entries.
-* **Navigation updated on all pages** — Doc-subnav (🎤 Lyrics link) added to all 16 doc pages;
+* **Navigation updated on all pages** - Doc-subnav (🎤 Lyrics link) added to all 16 doc pages;
   nav dropdown (Lyric Editor) added to all 19 HTML pages; index.html updated with feature card,
   What's New section, and comparison table row.
-* **GIF→webm migration** — All 11 standalone GIF `<img>` tags across 8 HTML pages replaced with
+* **GIF→webm migration** - All 11 standalone GIF `<img>` tags across 8 HTML pages replaced with
   `<video autoplay loop muted playsinline>` using webm as primary source and GIF as `<img>`
   fallback. Saves significant bandwidth (webm is ~10× smaller than GIF).
-* **Video lightbox** — Extended `lightbox.js` to support click-to-enlarge on `<video>` elements.
+* **Video lightbox** - Extended `lightbox.js` to support click-to-enlarge on `<video>` elements.
   Clicking any inline video opens it full-screen in the lightbox overlay with autoplay+loop.
   Added matching CSS for `video.lightbox-thumb` hover states and overlay styling in both
   `style.css` and `site.css`.
-* **Lightbox added to lyrics page** — Added missing `lightbox.js` script include; wrapped
+* **Lightbox added to lyrics page** - Added missing `lightbox.js` script include; wrapped
   `lyric_context_menu.png` and `lyric_tool_menu.png` in `<a class="lightbox-link">` anchors.
-* **Fixed mojibake in FFXIV page** — Corrected `â€"` (corrupted UTF-8 em dash) to proper `—`
+* **Fixed mojibake in FFXIV page** - Corrected `â€"` (corrupted UTF-8 em dash) to proper `-`
   in `ffxiv-channel-fixer.html` aria-label attributes during webm migration.
-* **Lightbox click-to-close on images** — Fixed enlarged images not closing when clicked (only
+* **Lightbox click-to-close on images** - Fixed enlarged images not closing when clicked (only
   overlay edge or × button worked). Root cause: the lightbox's own `<img>` element was picked up
   by the thumbnail handler, causing close+reopen on every click. Added skip for `lbImg` in the
   image loop and changed enlarged image/video cursor to `pointer`.
 
-### FFXIV Channel Fixer — Tier 3 Overhaul (5 bugs)
+### FFXIV Channel Fixer - Tier 3 Overhaul (5 bugs)
 
-* **Bug #1:** Reserved guitar channels (from Tier 2) were invisible to rename/switch logic — `allGuitarChs` now includes `guitarChToProgram` channels
-* **Bug #2:** Track name was used instead of actual channel program for PC insertion and `chToVariant` — now uses `guitarChToProgram` as primary source
-* **Bug #3:** Duplicate guitar track names caused event migration between channels — removed all duplicate logic from Tier 3 (every track keeps its own channel)
-* **Bug #4:** Rename on switching tracks (notes on multiple channels) was unreliable — now only renames single-channel guitar tracks
-* **Bug #5:** `guitarChToProgram` scan took the first PC at tick 0 instead of the effective one — now uses `channel->progAtTick(0)` (matches channel view display)
+* **Bug #1:** Reserved guitar channels (from Tier 2) were invisible to rename/switch logic - `allGuitarChs` now includes `guitarChToProgram` channels
+* **Bug #2:** Track name was used instead of actual channel program for PC insertion and `chToVariant` - now uses `guitarChToProgram` as primary source
+* **Bug #3:** Duplicate guitar track names caused event migration between channels - removed all duplicate logic from Tier 3 (every track keeps its own channel)
+* **Bug #4:** Rename on switching tracks (notes on multiple channels) was unreliable - now only renames single-channel guitar tracks
+* **Bug #5:** `guitarChToProgram` scan took the first PC at tick 0 instead of the effective one - now uses `channel->progAtTick(0)` (matches channel view display)
 * **Files modified:** `src/ai/FFXIVChannelFixer.cpp`
 
-### Lyric System Bug Fixes (Pass 3 Audit — 7 fixes)
+### Lyric System Bug Fixes (Pass 3 Audit - 7 fixes)
 
-* **P3-001 (Critical)** — `lyricsChanged` signal unconditionally cleared the timeline selection
+* **P3-001 (Critical)** - `lyricsChanged` signal unconditionally cleared the timeline selection
   during an active drag operation. Added `_dragActive` guard in the lambda so drags are never
   interrupted by a background lyrics refresh.
-* **P3-002 (High)** — `importLyricsLrc()` called `addBlock()` in a loop, each creating its own
-  Protocol action — importing 50 lines produced 50 separate undo steps. Rewritten to use
+* **P3-002 (High)** - `importLyricsLrc()` called `addBlock()` in a loop, each creating its own
+  Protocol action - importing 50 lines produced 50 separate undo steps. Rewritten to use
   `insertSorted()` with direct event creation inside a single `startNewAction`/`endAction` pair.
-* **P3-003 (Medium)** — Consecutive MIDI Text events at the same tick produced zero-duration
+* **P3-003 (Medium)** - Consecutive MIDI Text events at the same tick produced zero-duration
   lyric blocks (`endTick == startTick`), which were invisible and unmovable. Added 120-tick
   minimum duration enforcement in `importFromTextEvents()`.
-* **P3-004 (Medium)** — `LyricTimelineWidget::paintEvent()` directly overwrote the `_file`
+* **P3-004 (Medium)** - `LyricTimelineWidget::paintEvent()` directly overwrote the `_file`
   member from `matrixWidget->midiFile()`, bypassing `setFile()` signal connections. Changed to
   a local variable with a conditional `setFile()` call when the file actually changes.
-* **P3-005 (Medium)** — `LyricSyncDialog::onDone()` did not re-sort blocks after applying
+* **P3-005 (Medium)** - `LyricSyncDialog::onDone()` did not re-sort blocks after applying
   tap-to-sync timings. Added `sortBlocks()` method to `LyricManager`; called after all timings
   are applied.
-* **P3-006 (Medium)** — `LyricTimelineWidget::setFile()` never disconnected the old file's
+* **P3-006 (Medium)** - `LyricTimelineWidget::setFile()` never disconnected the old file's
   `lyricsChanged` signal, causing accumulated connections and stale callbacks over multiple
   file loads. Added `disconnect()` before connecting the new file.
-* **P3-009 (Low)** — `LyricVisualizerWidget::onLyricsChanged()` did not reset
+* **P3-009 (Low)** - `LyricVisualizerWidget::onLyricsChanged()` did not reset
   `_currentBlockIndex`, so the visualizer could display a stale phrase after lyrics were
   re-imported or edited. Now resets to `-1` before calling `update()`.
 
@@ -757,9 +811,9 @@ The v1.3.1 SEL-001 fix (early-return when selection unchanged) and v1.3.1.2 hotf
 
 ---
 
-## [1.2.2] - 2026-04-11 — FFXIV Channel Fixer Bugfix & Website Fixes
+## [1.2.2] - 2026-04-11 - FFXIV Channel Fixer Bugfix & Website Fixes
 
-* **Fix XIV Channels — Tier 3 (Preserve) now sees reserved guitar channels**
+* **Fix XIV Channels - Tier 3 (Preserve) now sees reserved guitar channels**
   Previously, Tier 3 only recognized guitar channels that had an active track assigned.
   Reserved channels from a prior Tier 2 run (e.g. ElectricGuitarSpecial on CH6) were
   invisible to the rename logic and switch-point detection. This caused:
@@ -774,207 +828,207 @@ The v1.3.1 SEL-001 fix (early-return when selection unchanged) and v1.3.1.2 hotf
   map used by rename and switch logic is now built from both `guitarChannelMap` and
   `guitarChToProgram`.
 
-* **Fix lightbox on manual pages** — Images wrapped in `<a class="lightbox-link">` on
+* **Fix lightbox on manual pages** - Images wrapped in `<a class="lightbox-link">` on
   split-channels, themes, editing-midi-files, playback, and editor-and-components pages
   did not open the lightbox overlay on click. Added `preventDefault` / `stopPropagation`
   to the image click handler so the enclosing anchor no longer intercepts the event.
   Also added the missing `lightbox.js` script include on the Themes page.
 
-* **Updated FFXIV Channel Fixer manual page** — Clearer Tier 2 / Tier 3 descriptions,
+* **Updated FFXIV Channel Fixer manual page** - Clearer Tier 2 / Tier 3 descriptions,
   especially around reserved guitar channels and Preserve mode behavior.
 
 ---
 
-## [1.2.1] - 2026-04-09 — Stability & Bugfix Release
+## [1.2.1] - 2026-04-09 - Stability & Bugfix Release
 
-* **72 bug fixes** across the entire codebase — memory leaks, crashes, undefined behavior, protocol corruption, concurrency issues, parser security hardening, and correctness fixes
-* **Guitar Pro 5 parser fixes** — 4 byte-alignment bugs fixed; GP5 files that previously failed to open now load correctly
-* **MidiPilot timestamp readability** — Chat timestamps moved from inside the bubble to a clean label above each message; uses light gray text for dark themes, muted gray for light themes — readable across all 5 themes
+* **72 bug fixes** across the entire codebase - memory leaks, crashes, undefined behavior, protocol corruption, concurrency issues, parser security hardening, and correctness fixes
+* **Guitar Pro 5 parser fixes** - 4 byte-alignment bugs fixed; GP5 files that previously failed to open now load correctly
+* **MidiPilot timestamp readability** - Chat timestamps moved from inside the bubble to a clean label above each message; uses light gray text for dark themes, muted gray for light themes - readable across all 5 themes
 
 <details>
-<summary>Full Changelog — 72 Bug Fixes + GP5 Parser</summary>
+<summary>Full Changelog - 72 Bug Fixes + GP5 Parser</summary>
 
 ### Critical: Crash & Hang Prevention (9 fixes)
 
-* **EVT-001** — `loadMidiEvent()` infinite recursion on malformed MIDI data. Added recursion guard: bail when running status byte is 0 instead of recursing forever
-* **EVT-002** — SysEx loader infinite loop on truncated stream (missing 0xF7 terminator). Added `content->atEnd()` check in the read loop
-* **EVT-003** — `TempoChangeEvent` constructor division by zero on zero tempo value. Guards `value <= 0` with 120 BPM default
-* **EVT-004** — `TempoChangeEvent::save()` division by zero when `_beats` is 0. Guards `_beats > 0` before division
-* **PROTO-005** — `Protocol::goTo()` use-after-free when navigating to a redo step. Replaced dangling-pointer `contains()` loop with index-based count
-* **CONV-001** — `readIntByteSizeString()` negative size from file → SIZE_MAX string read. Returns empty string when `d < 0`
-* **CONV-002** — `readIntSizeString()` negative length from file → SIZE_MAX string read. Returns empty string when `length < 0`
-* **CONV-005** — GP6 BitStream `powers[]` array out-of-bounds read for wordSize > 10. Replaced lookup table with direct `(1 << i)` bit shift
-* **CONV-010** — Stack buffer overflow: `lastNoteIdx[10]` OOB write from untrusted GP6/7 string number. Added `MAX_STRINGS` constant with `std::min` clamping
+* **EVT-001** - `loadMidiEvent()` infinite recursion on malformed MIDI data. Added recursion guard: bail when running status byte is 0 instead of recursing forever
+* **EVT-002** - SysEx loader infinite loop on truncated stream (missing 0xF7 terminator). Added `content->atEnd()` check in the read loop
+* **EVT-003** - `TempoChangeEvent` constructor division by zero on zero tempo value. Guards `value <= 0` with 120 BPM default
+* **EVT-004** - `TempoChangeEvent::save()` division by zero when `_beats` is 0. Guards `_beats > 0` before division
+* **PROTO-005** - `Protocol::goTo()` use-after-free when navigating to a redo step. Replaced dangling-pointer `contains()` loop with index-based count
+* **CONV-001** - `readIntByteSizeString()` negative size from file → SIZE_MAX string read. Returns empty string when `d < 0`
+* **CONV-002** - `readIntSizeString()` negative length from file → SIZE_MAX string read. Returns empty string when `length < 0`
+* **CONV-005** - GP6 BitStream `powers[]` array out-of-bounds read for wordSize > 10. Replaced lookup table with direct `(1 << i)` bit shift
+* **CONV-010** - Stack buffer overflow: `lastNoteIdx[10]` OOB write from untrusted GP6/7 string number. Added `MAX_STRINGS` constant with `std::min` clamping
 
 ### Protocol System Memory Leaks (5 fixes)
 
-* **PROTO-001** — `Protocol` had no destructor — both undo/redo stacks and all contained steps leaked on file close. Added `~Protocol()` with `qDeleteAll` cleanup
-* **PROTO-002** — `startNewAction()` cleared redo stack without deleting `ProtocolStep` objects. Added `qDeleteAll` before `clear()`
-* **PROTO-006** — `enterUndoStep()` leaked `ProtocolItem` when no action step was open. Added `delete item` fallback
-* **PROTO-007** — `ProtocolStep` destructor didn't delete contained `ProtocolItem` objects. Added `qDeleteAll(*_itemStack)`
-* **PROTO-008** — `releaseStep()` leaked old items after calling `release()`. Added `delete item` after extracting reverse action
+* **PROTO-001** - `Protocol` had no destructor - both undo/redo stacks and all contained steps leaked on file close. Added `~Protocol()` with `qDeleteAll` cleanup
+* **PROTO-002** - `startNewAction()` cleared redo stack without deleting `ProtocolStep` objects. Added `qDeleteAll` before `clear()`
+* **PROTO-006** - `enterUndoStep()` leaked `ProtocolItem` when no action step was open. Added `delete item` fallback
+* **PROTO-007** - `ProtocolStep` destructor didn't delete contained `ProtocolItem` objects. Added `qDeleteAll(*_itemStack)`
+* **PROTO-008** - `releaseStep()` leaked old items after calling `release()`. Added `delete item` after extracting reverse action
 
 ### MIDI Engine (8 fixes)
 
-* **MIDI-001** — `msOfTick()` leaked a heap-allocated QList on every call (the most-called timing function). Changed to stack allocation — eliminates the single largest memory leak in the codebase
-* **MIDI-002** — `save()` leaked QFile and QDataStream on every save. Changed to stack allocation
-* **MIDI-003** — `timeSignatureEvents()`/`tempoEvents()` used `reinterpret_cast` from `QMultiMap*` to `QMap*` — undefined behavior in Qt 6 where these are different types. Changed return types to `QMultiMap*`, updated 12 callers
-* **MIDI-004** — `MidiChannel::number()` checked `this == nullptr` (UB in C++) and used useless try/catch. Removed dead guards
-* **MIDI-005** — `PlayerThread::stopped` used `volatile bool` instead of `std::atomic<bool>` — data race between main and player threads
-* **MIDI-006** — `playedNotes` QMap accessed from multiple threads without synchronization. Added `QMutex` protection around all accesses
-* **MIDI-007** — `setMaxLengthMs()` leaked QList from `eventsBetween()`. Added `delete ev`
-* **MIDI-008** — `reloadState()` leaked old `_tracks` list on every undo/redo. Added `delete _tracks` before reassignment
+* **MIDI-001** - `msOfTick()` leaked a heap-allocated QList on every call (the most-called timing function). Changed to stack allocation - eliminates the single largest memory leak in the codebase
+* **MIDI-002** - `save()` leaked QFile and QDataStream on every save. Changed to stack allocation
+* **MIDI-003** - `timeSignatureEvents()`/`tempoEvents()` used `reinterpret_cast` from `QMultiMap*` to `QMap*` - undefined behavior in Qt 6 where these are different types. Changed return types to `QMultiMap*`, updated 12 callers
+* **MIDI-004** - `MidiChannel::number()` checked `this == nullptr` (UB in C++) and used useless try/catch. Removed dead guards
+* **MIDI-005** - `PlayerThread::stopped` used `volatile bool` instead of `std::atomic<bool>` - data race between main and player threads
+* **MIDI-006** - `playedNotes` QMap accessed from multiple threads without synchronization. Added `QMutex` protection around all accesses
+* **MIDI-007** - `setMaxLengthMs()` leaked QList from `eventsBetween()`. Added `delete ev`
+* **MIDI-008** - `reloadState()` leaked old `_tracks` list on every undo/redo. Added `delete _tracks` before reassignment
 
 ### MidiEvent Layer (5 fixes)
 
-* **EVT-005** — `OnEvent::moveToChannel()` null dereference when OffEvent is missing. Added null check
-* **EVT-006** — `TimeSignatureEvent::ticksPerMeasure()` used `powf` for integer power-of-2 (float precision loss) and could divide by zero. Replaced with `1 << denominator` and added null/zero guards
-* **EVT-007** — `KeySignatureEvent::save()` OR'd meta type byte 0x59 with channel — latent corruption if channel != 16. Changed to hardcoded `char(0x59)`
-* **EVT-008** — `ProtocolEntry::protocol()` leaked the `copy()` allocation when `file()` is null (during file loading). Added `delete oldObj` fallback — fixes memory leak of 2 objects per TextEvent loaded
-* **EVT-009** — `TempoChangeEvent::msPerTick()` null dereference when `file()` is null. Added null/zero guards with 1.0ms fallback
+* **EVT-005** - `OnEvent::moveToChannel()` null dereference when OffEvent is missing. Added null check
+* **EVT-006** - `TimeSignatureEvent::ticksPerMeasure()` used `powf` for integer power-of-2 (float precision loss) and could divide by zero. Replaced with `1 << denominator` and added null/zero guards
+* **EVT-007** - `KeySignatureEvent::save()` OR'd meta type byte 0x59 with channel - latent corruption if channel != 16. Changed to hardcoded `char(0x59)`
+* **EVT-008** - `ProtocolEntry::protocol()` leaked the `copy()` allocation when `file()` is null (during file loading). Added `delete oldObj` fallback - fixes memory leak of 2 objects per TextEvent loaded
+* **EVT-009** - `TempoChangeEvent::msPerTick()` null dereference when `file()` is null. Added null/zero guards with 1.0ms fallback
 
 ### Tools & Selection (8 fixes)
 
-* **TOOL-001** — `SelectTool::draw()` used the macro literal `SELECTION_TYPE_BOX` (always 2, always true) instead of `stool_type == SELECTION_TYPE_BOX`. All selection types incorrectly drew box rectangles
-* **TOOL-005** — `EventTool::copiedEvents` leaked old clipboard events on each copy operation. Added `qDeleteAll` before `clear()`
-* **CONV-003** — `GpBinaryReader::checkBounds()` integer overflow: `count * N` could wrap negative for large counts. Added `count < 0` / `pointer_ < 0` guards with `size_t` cast
-* **CONV-006** — GP7/8 ZIP `extract()` didn't validate data offset+size against buffer. Added bounds check
-* **CONV-007** — GP7/8 ZIP `inflateData()` trusted claimed uncompressed size for allocation (DoS). Added 256MB cap
-* **CONV-008** — `readDuration()` left-shift overflow from out-of-range signed byte. Clamped to `std::clamp(byte + 2, 0, 7)`
-* **CONV-011** — `SimileMark::simple` on first measure accessed `measures[-1]`. Added `measureIndex > 0` guard
-* **CONV-013** — `GpMidiExport::createBytes()` accessed `raw[0]` on empty vector for unrecognized message types. Added empty check
+* **TOOL-001** - `SelectTool::draw()` used the macro literal `SELECTION_TYPE_BOX` (always 2, always true) instead of `stool_type == SELECTION_TYPE_BOX`. All selection types incorrectly drew box rectangles
+* **TOOL-005** - `EventTool::copiedEvents` leaked old clipboard events on each copy operation. Added `qDeleteAll` before `clear()`
+* **CONV-003** - `GpBinaryReader::checkBounds()` integer overflow: `count * N` could wrap negative for large counts. Added `count < 0` / `pointer_ < 0` guards with `size_t` cast
+* **CONV-006** - GP7/8 ZIP `extract()` didn't validate data offset+size against buffer. Added bounds check
+* **CONV-007** - GP7/8 ZIP `inflateData()` trusted claimed uncompressed size for allocation (DoS). Added 256MB cap
+* **CONV-008** - `readDuration()` left-shift overflow from out-of-range signed byte. Clamped to `std::clamp(byte + 2, 0, 7)`
+* **CONV-011** - `SimileMark::simple` on first measure accessed `measures[-1]`. Added `measureIndex > 0` guard
+* **CONV-013** - `GpMidiExport::createBytes()` accessed `raw[0]` on empty vector for unrecognized message types. Added empty check
 
 ### Medium-Severity Fixes (29 fixes)
 
 #### Protocol & Undo
 
-* **PROTO-003/004** — `endAction()` marked file unsaved and emitted signals even with no active action step. Now only triggers when items were actually recorded
-* **PROTO-009** — `ProtocolItem::release()` deletion guard checked the wrong variable (`entry` instead of `_oldObject`)
+* **PROTO-003/004** - `endAction()` marked file unsaved and emitted signals even with no active action step. Now only triggers when items were actually recorded
+* **PROTO-009** - `ProtocolItem::release()` deletion guard checked the wrong variable (`entry` instead of `_oldObject`)
 
 #### MIDI Engine Correctness
 
-* **MIDI-011** — `PlayerThread` had no destructor — QTimer and QElapsedTimer leaked on every play/stop cycle (Windows). Added `~PlayerThread()`
-* **MIDI-012** — MIDI input `receiveMessage` callback wrote shared state from RtMidi thread without synchronization. Added `QMutex` protection
-* **MIDI-013** — `endInput()` invalidated QMultiMap iterator during container modification. Changed to `erase()` which returns next valid iterator
-* **MIDI-014** — `progAtTick()` off-by-one skipped the first element in backward search. Fixed loop to check `begin()` element
-* **MIDI-015** — Metronome sent triple NoteOn with single NoteOff, creating stuck notes that accumulated. Reduced to single NoteOn
-* **MIDI-016** — `MidiFile(int, Protocol*)` protocol-copy constructor left `channels[]`, `_tracks`, etc. uninitialized. Added safe defaults
-* **MIDI-018** — `MidiInput::inputPorts()` crashed if `init()` failed (null `_midiIn`). Added null check
+* **MIDI-011** - `PlayerThread` had no destructor - QTimer and QElapsedTimer leaked on every play/stop cycle (Windows). Added `~PlayerThread()`
+* **MIDI-012** - MIDI input `receiveMessage` callback wrote shared state from RtMidi thread without synchronization. Added `QMutex` protection
+* **MIDI-013** - `endInput()` invalidated QMultiMap iterator during container modification. Changed to `erase()` which returns next valid iterator
+* **MIDI-014** - `progAtTick()` off-by-one skipped the first element in backward search. Fixed loop to check `begin()` element
+* **MIDI-015** - Metronome sent triple NoteOn with single NoteOff, creating stuck notes that accumulated. Reduced to single NoteOn
+* **MIDI-016** - `MidiFile(int, Protocol*)` protocol-copy constructor left `channels[]`, `_tracks`, etc. uninitialized. Added safe defaults
+* **MIDI-018** - `MidiInput::inputPorts()` crashed if `init()` failed (null `_midiIn`). Added null check
 
 #### MidiEvent Correctness
 
-* **EVT-010** — `PitchBendEvent::toMessage()` sent "cc" instead of "pitchbend" command — wrong MIDI messages during playback
-* **EVT-011** — `_tempID` uninitialized in MidiEvent constructors. Initialized to -1
-* **EVT-012** — Tempo loading used fragile magic-number subtraction (`value -= 50331648`). Replaced with `value &= 0x00FFFFFF` bitmask
-* **EVT-014** — `NoteOnEvent::setNote()` had no range validation. Added `qBound(0, n, 127)`
+* **EVT-010** - `PitchBendEvent::toMessage()` sent "cc" instead of "pitchbend" command - wrong MIDI messages during playback
+* **EVT-011** - `_tempID` uninitialized in MidiEvent constructors. Initialized to -1
+* **EVT-012** - Tempo loading used fragile magic-number subtraction (`value -= 50331648`). Replaced with `value &= 0x00FFFFFF` bitmask
+* **EVT-014** - `NoteOnEvent::setNote()` had no range validation. Added `qBound(0, n, 127)`
 
 #### Tool System
 
-* **TOOL-002** — `NewNoteTool()` constructor reset static `_channel`/`_track` to 0, losing user's selection when StandardTool was created
-* **TOOL-003** — `Tool::setImage()` leaked previous QImage on reassignment. Added `delete _image` before `new`
-* **TOOL-004** — `Tool` copy constructor shallow-copied QImage pointer (shared ownership → double-free risk). Changed to deep copy
-* **TOOL-006** — `EventTool` copy/paste null dereference if OnEvent has no OffEvent. Added null check
-* **TOOL-007** — `EventMoveTool::computeRaster()` null dereference on missing OffEvent. Added null check
-* **TOOL-012** — `TempoTool::release()` leaked TempoDialog after `exec()`. Stack-allocated instead
-* **TOOL-013** — `TimeSignatureTool::release()` leaked TimeSignatureDialog after `exec()`. Stack-allocated instead
+* **TOOL-002** - `NewNoteTool()` constructor reset static `_channel`/`_track` to 0, losing user's selection when StandardTool was created
+* **TOOL-003** - `Tool::setImage()` leaked previous QImage on reassignment. Added `delete _image` before `new`
+* **TOOL-004** - `Tool` copy constructor shallow-copied QImage pointer (shared ownership → double-free risk). Changed to deep copy
+* **TOOL-006** - `EventTool` copy/paste null dereference if OnEvent has no OffEvent. Added null check
+* **TOOL-007** - `EventMoveTool::computeRaster()` null dereference on missing OffEvent. Added null check
+* **TOOL-012** - `TempoTool::release()` leaked TempoDialog after `exec()`. Stack-allocated instead
+* **TOOL-013** - `TimeSignatureTool::release()` leaked TimeSignatureDialog after `exec()`. Stack-allocated instead
 
 #### Converter & Parser
 
-* **CONV-004** — `GpBinaryReader::skip()` didn't validate pointer stayed in bounds. Added negative count guard and `checkBounds()`
-* **CONV-009** — Tuplet `enters=0` from GP6/7 XML caused float division by zero. Added `enters > 0` guard
-* **CONV-012** — `SimileMark::secondOfDouble` with notes underflow accessed negative indices. Added `measureIndex >= 2` bounds check
-* **CONV-014** — GP6/7 outer parser leaked when transferring to inner GP5 object. Fixed `self` pointer transfer to null before `reset()`
-* **CONV-017** — GP1/2 `gpReadStringBSoB` with byte=0 → negative size → same crash as CONV-001. Added `size < 0` guard
+* **CONV-004** - `GpBinaryReader::skip()` didn't validate pointer stayed in bounds. Added negative count guard and `checkBounds()`
+* **CONV-009** - Tuplet `enters=0` from GP6/7 XML caused float division by zero. Added `enters > 0` guard
+* **CONV-012** - `SimileMark::secondOfDouble` with notes underflow accessed negative indices. Added `measureIndex >= 2` bounds check
+* **CONV-014** - GP6/7 outer parser leaked when transferring to inner GP5 object. Fixed `self` pointer transfer to null before `reset()`
+* **CONV-017** - GP1/2 `gpReadStringBSoB` with byte=0 → negative size → same crash as CONV-001. Added `size < 0` guard
 
 #### Terminal & System
 
-* **TERM-001** — `Terminal::execute()` leaked old QProcess on re-execute. Added `deleteLater()` before creating new process
-* **TERM-002** — `Terminal::processStarted()` leaked QTimer on each retry (one per second). Connected `timeout` to `deleteLater()`
-* **MAIN-001** — `wstrtostr()` buffer overflow with multi-byte characters (CJK usernames). Rewrote with two-pass `WideCharToMultiByte`
+* **TERM-001** - `Terminal::execute()` leaked old QProcess on re-execute. Added `deleteLater()` before creating new process
+* **TERM-002** - `Terminal::processStarted()` leaked QTimer on each retry (one per second). Connected `timeout` to `deleteLater()`
+* **MAIN-001** - `wstrtostr()` buffer overflow with multi-byte characters (CJK usernames). Rewrote with two-pass `WideCharToMultiByte`
 
 ### Low-Severity Fixes (8 fixes)
 
-* **MIDI-019** — `MidiChannel::visible()` was hardcoded to `return true` (dead code). Now delegates to `ChannelVisibilityManager`
-* **MIDI-020** — `MidiChannel::setVisible()` used try/catch for control flow. Replaced with `_num` range guard
-* **MIDI-021** — `MidiTrack::reloadState()` called `setNumber()` which re-entered the protocol system during undo. Changed to direct member assignment
-* **EVT-017** — `OffEvent::onEvents` static map was heap-allocated and never freed. Changed to static local storage
-* **TOOL-009** — `GlueTool::mergeNoteGroup()` null dereference on `lastNote->offEvent()`. Added null guard
-* **TOOL-010** — `ToolButton::refreshIcon()` dereference of potentially null tool image. Added null guard
-* **TOOL-011** — `StandardTool` copy constructor didn't copy `newNoteTool` (uninitialized pointer). Added missing copy
-* **MAIN-002** — `MainWindow` heap-allocated in `main()` but never deleted. Added `delete w` before return
+* **MIDI-019** - `MidiChannel::visible()` was hardcoded to `return true` (dead code). Now delegates to `ChannelVisibilityManager`
+* **MIDI-020** - `MidiChannel::setVisible()` used try/catch for control flow. Replaced with `_num` range guard
+* **MIDI-021** - `MidiTrack::reloadState()` called `setNumber()` which re-entered the protocol system during undo. Changed to direct member assignment
+* **EVT-017** - `OffEvent::onEvents` static map was heap-allocated and never freed. Changed to static local storage
+* **TOOL-009** - `GlueTool::mergeNoteGroup()` null dereference on `lastNote->offEvent()`. Added null guard
+* **TOOL-010** - `ToolButton::refreshIcon()` dereference of potentially null tool image. Added null guard
+* **TOOL-011** - `StandardTool` copy constructor didn't copy `newNoteTool` (uninitialized pointer). Added missing copy
+* **MAIN-002** - `MainWindow` heap-allocated in `main()` but never deleted. Added `delete w` before return
 
 ### Guitar Pro 5 Parser Fixes (4 fixes)
 
-* **GP5 readGrace() override** — GP5 grace notes have 5 bytes (fret, dynamic, transition, duration, flags) but MidiEditor inherited GP3/4's 4-byte version. Added `Gp5Parser::readGrace()` override reading the missing dead/onBeat flags byte. This was the primary cause of cumulative byte misalignment
-* **GP5 readMixTableChange() skip(1)** — Added missing `reader.skip(1)` after allTracksFlags byte, matching TuxGuitar's reference implementation
-* **GP5 readMixTableChange() v5.1+ strings** — Changed conditional RSE string reads to always read 2 strings for GP5.1+ files, matching TuxGuitar
-* **GP5 readMeasureHeader() field order** — Moved repeatAlternative (flag 0x10) from before marker/keySignature to after beams section, matching TuxGuitar's byte ordering
+* **GP5 readGrace() override** - GP5 grace notes have 5 bytes (fret, dynamic, transition, duration, flags) but MidiEditor inherited GP3/4's 4-byte version. Added `Gp5Parser::readGrace()` override reading the missing dead/onBeat flags byte. This was the primary cause of cumulative byte misalignment
+* **GP5 readMixTableChange() skip(1)** - Added missing `reader.skip(1)` after allTracksFlags byte, matching TuxGuitar's reference implementation
+* **GP5 readMixTableChange() v5.1+ strings** - Changed conditional RSE string reads to always read 2 strings for GP5.1+ files, matching TuxGuitar
+* **GP5 readMeasureHeader() field order** - Moved repeatAlternative (flag 0x10) from before marker/keySignature to after beams section, matching TuxGuitar's byte ordering
 
-### Deferred Bugs (8 — low risk, high complexity)
+### Deferred Bugs (8 - low risk, high complexity)
 
-* **EVT-013** — On/OffEvent copy constructor dangling pointers (deep protocol architecture issue)
-* **EVT-015** — SysEx VLQ length prefix omission (load/save internally consistent; changing one breaks the other)
-* **EVT-016** — QDataStream status checks throughout loadMidiEvent (too invasive for low crash risk)
-* **EVT-018** — Dead `< 0` checks on `quint8`-sourced values (harmless defensive code)
-* **CONV-015** — Unchecked `std::stoi()` on ~30+ GP6/7 XML sites (needs helper + mass update)
-* **CONV-016** — Custom GP6 XML parser edge cases (design-level issue)
-* **MIDI-017** — RtMidi static objects never deleted (OS reclaims at exit)
-* **TOOL-008** — ScissorsTool protocol recording (already works — `setMidiTime()` defaults to `toProtocol=true`)
+* **EVT-013** - On/OffEvent copy constructor dangling pointers (deep protocol architecture issue)
+* **EVT-015** - SysEx VLQ length prefix omission (load/save internally consistent; changing one breaks the other)
+* **EVT-016** - QDataStream status checks throughout loadMidiEvent (too invasive for low crash risk)
+* **EVT-018** - Dead `< 0` checks on `quint8`-sourced values (harmless defensive code)
+* **CONV-015** - Unchecked `std::stoi()` on ~30+ GP6/7 XML sites (needs helper + mass update)
+* **CONV-016** - Custom GP6 XML parser edge cases (design-level issue)
+* **MIDI-017** - RtMidi static objects never deleted (OS reclaims at exit)
+* **TOOL-008** - ScissorsTool protocol recording (already works - `setMidiTime()` defaults to `toProtocol=true`)
 
 ### Technical Notes
 
 * **Bug audit**: 137 bugs reported by automated analysis, 130 confirmed (7 false positives), 50 already fixed in v1.1.9/v1.2.0, 80 remaining → 72 fixed + 8 deferred
 * **Files modified (40+)**: MidiEvent.cpp, TempoChangeEvent.cpp, TimeSignatureEvent.cpp, KeySignatureEvent.cpp, OnEvent.cpp, NoteOnEvent.cpp, PitchBendEvent.cpp, OffEvent.cpp, ProtocolEntry.cpp, Protocol.h/.cpp, ProtocolStep.cpp, ProtocolItem.cpp, MidiFile.h/.cpp, MidiChannel.cpp, MidiTrack.cpp, MidiInput.h/.cpp, MidiOutput.h/.cpp, PlayerThread.h/.cpp, Metronome.cpp, MidiPlayer.cpp, GpBinaryReader.cpp, Gp345Parser.h/.cpp, Gp678Parser.cpp, GpToNative.cpp, GpMidiExport.cpp, GpUnzip.cpp, GpImporter.cpp, GpModels.h, Gp12Parser.cpp, SelectTool.cpp, EventTool.cpp, EventMoveTool.cpp, NewNoteTool.cpp, Tool.cpp, GlueTool.cpp, ToolButton.cpp, StandardTool.cpp, TempoTool.cpp, TimeSignatureTool.cpp, Terminal.cpp, main.cpp
 * **GP5 parser reference**: TuxGuitar's `GP5InputStream.java` used to identify byte-alignment differences
-* **Bug report**: `Planning/03_bugs.md` — full scan results with verification status
+* **Bug report**: `Planning/03_bugs.md` - full scan results with verification status
 
 </details>
 
 ---
 
-## [1.2.0] - 2026-04-08 — Audio Export, MP3, FluidSynth Hardening
+## [1.2.0] - 2026-04-08 - Audio Export, MP3, FluidSynth Hardening
 
-* **Audio Export** — Export MIDI as WAV, FLAC, or OGG Vorbis using loaded SoundFonts (File → Export Audio, Ctrl+Shift+E)
+* **Audio Export** - Export MIDI as WAV, FLAC, or OGG Vorbis using loaded SoundFonts (File → Export Audio, Ctrl+Shift+E)
 * Export Dialog with format selection (WAV/FLAC/OGG/MP3), quality presets (Draft/CD/Studio/Hi-Res), range options (full song/selection/custom measures), reverb tail toggle, and estimated file size
-* Selection export via right-click context menu — select notes, right-click → "Export Selection as Audio..."
+* Selection export via right-click context menu - select notes, right-click → "Export Selection as Audio..."
 * Export Audio button added to SoundFont settings panel
 * Background export with progress dialog and cancel support
-* **MP3 Export** — Built-in LAME 3.100 encoder compiled as static C library; export directly to MP3 without external tools
-* **Export Completion Dialog** — After export finishes, shows dialog with Open File, Open Folder, and Close buttons
-* **Guitar Pro Audio Export Fix** — Exporting audio from Guitar Pro files (.gp3–.gp8) no longer produces silent/empty output; saves in-memory MIDI to temp file for rendering
-* **SoundFont Enable/Disable** — Per-SoundFont checkboxes in the settings list; uncheck to temporarily disable a font without removing it; state persists across sessions
-* **FFXIV SoundFont Mode Auto-Toggle** — SoundFonts with "ff14" or "ffxiv" in the filename automatically enable/disable FFXIV SoundFont Mode when checked/unchecked
-* **FluidSynth Audio Driver Fallback** — If the preferred audio driver fails (e.g., SDL3 after restart), automatically tries wasapi → dsound → waveout → sdl3 → sdl2
-* **FluidSynth Settings Always Accessible** — SoundFont list and settings are now configurable even when Microsoft GS Wavetable Synth is the active output
-* **FluidSynth Error Dialog** — Shows a clear error message when FluidSynth initialization fails, with automatic revert to previous output
-* **Drum Channel Reset Fix** — Switching from FFXIV SoundFont back to GM mode now properly restores channel 9 drums (bank select 128 + program change); previously drums played as piano
-* **Radio button styling fix** — checked radio buttons now render as proper circles in all 5 themes (dark, light, amoled, materialdark, pink)
+* **MP3 Export** - Built-in LAME 3.100 encoder compiled as static C library; export directly to MP3 without external tools
+* **Export Completion Dialog** - After export finishes, shows dialog with Open File, Open Folder, and Close buttons
+* **Guitar Pro Audio Export Fix** - Exporting audio from Guitar Pro files (.gp3-.gp8) no longer produces silent/empty output; saves in-memory MIDI to temp file for rendering
+* **SoundFont Enable/Disable** - Per-SoundFont checkboxes in the settings list; uncheck to temporarily disable a font without removing it; state persists across sessions
+* **FFXIV SoundFont Mode Auto-Toggle** - SoundFonts with "ff14" or "ffxiv" in the filename automatically enable/disable FFXIV SoundFont Mode when checked/unchecked
+* **FluidSynth Audio Driver Fallback** - If the preferred audio driver fails (e.g., SDL3 after restart), automatically tries wasapi → dsound → waveout → sdl3 → sdl2
+* **FluidSynth Settings Always Accessible** - SoundFont list and settings are now configurable even when Microsoft GS Wavetable Synth is the active output
+* **FluidSynth Error Dialog** - Shows a clear error message when FluidSynth initialization fails, with automatic revert to previous output
+* **Drum Channel Reset Fix** - Switching from FFXIV SoundFont back to GM mode now properly restores channel 9 drums (bank select 128 + program change); previously drums played as piano
+* **Radio button styling fix** - checked radio buttons now render as proper circles in all 5 themes (dark, light, amoled, materialdark, pink)
 
 <details>
 <summary>Full Changelog</summary>
 
 ### Added
-* **MP3 export via LAME** — LAME 3.100 compiled from source as a static C library (`libmp3lame.a`) and linked directly into the build. No DLL or external encoder needed. Export dialog shows MP3 as a format option alongside WAV/FLAC/OGG. Supports VBR quality presets matching the existing quality tiers.
-* **Export completion dialog** — `QMessageBox` with three buttons after any audio export: **Open File** (launches default audio player), **Open Folder** (opens containing directory in Explorer), **Close** (dismiss). Previously there was no feedback after export completion.
-* **SoundFont enable/disable checkboxes** — Each SoundFont in the FluidSynth settings list has a checkbox. Unchecking removes it from the active FluidSynth stack without deleting it from the list. Re-checking reloads it. Disabled state persisted in QSettings across sessions. Dual-state system: runtime (`_soundFontStack` + `_disabledSoundFontPaths`) and pending (`_pendingSoundFontPaths` + `_pendingDisabledPaths`) for before/after FluidSynth initialization.
-* **FFXIV SoundFont Mode auto-toggle** — `updateFfxivModeFromSoundFonts()` scans checked SoundFonts for "ff14" or "ffxiv" in the filename (case-insensitive). Auto-enables FFXIV SoundFont Mode when a matching font is checked; auto-disables when all matching fonts are unchecked. Reads from UI list widget directly to ensure correctness before engine commits.
-* **Audio driver fallback chain** — `FluidSynthEngine::initialize()` tries multiple audio drivers in sequence: user preference → wasapi → dsound → waveout → sdl3 → sdl2. Common with SDL3 failures after a shutdown/restart cycle. Driver combo in settings reflects the actual driver used.
-* **FluidSynth settings always enabled** — Removed `setEnabled(false)` on the FluidSynth settings group when non-FluidSynth output is selected. Users can manage SoundFonts at any time; settings applied when FluidSynth is next activated.
-* **Pre-init SoundFont management** — `addPendingSoundFontPaths()` method allows adding SoundFonts before FluidSynth is initialized. `setSoundFontStack()` and `removeSoundFontByPath()` also update pending paths when engine is not initialized.
-* **FluidSynth error feedback** — `QMessageBox::warning` shown when switching to FluidSynth output fails, with error details. Output automatically reverts to previous working port.
-* **Output port fallback** — `MidiOutput::setOutputPort()` saves previous port; if new port's FluidSynth init fails, previous port restored automatically.
+* **MP3 export via LAME** - LAME 3.100 compiled from source as a static C library (`libmp3lame.a`) and linked directly into the build. No DLL or external encoder needed. Export dialog shows MP3 as a format option alongside WAV/FLAC/OGG. Supports VBR quality presets matching the existing quality tiers.
+* **Export completion dialog** - `QMessageBox` with three buttons after any audio export: **Open File** (launches default audio player), **Open Folder** (opens containing directory in Explorer), **Close** (dismiss). Previously there was no feedback after export completion.
+* **SoundFont enable/disable checkboxes** - Each SoundFont in the FluidSynth settings list has a checkbox. Unchecking removes it from the active FluidSynth stack without deleting it from the list. Re-checking reloads it. Disabled state persisted in QSettings across sessions. Dual-state system: runtime (`_soundFontStack` + `_disabledSoundFontPaths`) and pending (`_pendingSoundFontPaths` + `_pendingDisabledPaths`) for before/after FluidSynth initialization.
+* **FFXIV SoundFont Mode auto-toggle** - `updateFfxivModeFromSoundFonts()` scans checked SoundFonts for "ff14" or "ffxiv" in the filename (case-insensitive). Auto-enables FFXIV SoundFont Mode when a matching font is checked; auto-disables when all matching fonts are unchecked. Reads from UI list widget directly to ensure correctness before engine commits.
+* **Audio driver fallback chain** - `FluidSynthEngine::initialize()` tries multiple audio drivers in sequence: user preference → wasapi → dsound → waveout → sdl3 → sdl2. Common with SDL3 failures after a shutdown/restart cycle. Driver combo in settings reflects the actual driver used.
+* **FluidSynth settings always enabled** - Removed `setEnabled(false)` on the FluidSynth settings group when non-FluidSynth output is selected. Users can manage SoundFonts at any time; settings applied when FluidSynth is next activated.
+* **Pre-init SoundFont management** - `addPendingSoundFontPaths()` method allows adding SoundFonts before FluidSynth is initialized. `setSoundFontStack()` and `removeSoundFontByPath()` also update pending paths when engine is not initialized.
+* **FluidSynth error feedback** - `QMessageBox::warning` shown when switching to FluidSynth output fails, with error details. Output automatically reverts to previous working port.
+* **Output port fallback** - `MidiOutput::setOutputPort()` saves previous port; if new port's FluidSynth init fails, previous port restored automatically.
 
 ### Fixed
-* **Guitar Pro audio export producing silence** — `file->path()` returned the `.gp5`/`.gpx` path which FluidSynth cannot parse. Now saves the in-memory MidiFile to a temporary `.mid` file, exports from that, then cleans up via `_exportTempMidiPath`.
-* **Drum channel playing piano after FFXIV→GM switch** — Two issues: (1) `updateFfxivModeFromSoundFonts()` was called AFTER `setSoundFontEnabled()`, so `applyChannelMode()` still used old FFXIV flag during stack rebuild. Reordered to update mode FIRST. (2) `applyChannelMode()` GM restore didn't reset channel 9 properly — now sends `bank_select(ch9, 128)` + `program_change(ch9, 0)` to restore drum kit, plus `program_change(0)` on all melodic channels.
-* **SoundFont state lost on shutdown** — `shutdown()` only preserved `_loadedFonts` (enabled fonts), losing disabled font paths. Now preserves full stack via `allSoundFontPaths()` → `_pendingSoundFontPaths` + `_pendingDisabledPaths`.
-* **SoundFont list empty before init** — `allSoundFontPaths()` returned empty when `_soundFontStack` was empty (before initialization). Now falls back to `_pendingSoundFontPaths`.
-* **Disabled SoundFonts lost on settings change** (V12-002) — Changing audio driver, sample rate, or reverb engine silently discarded disabled SoundFonts from the stack. Removed redundant `setSoundFontStack()` calls; `shutdown()`+`initialize()` already preserves and restores the full stack.
-* **MP3 export reported success after encoding error** (V12-003) — LAME encoder returned true even when `lame_encode_buffer_interleaved()` reported an error. Now tracks error state, skips flush, deletes corrupt output, and returns false.
-* **Cancel button ineffective during MP3 encoding** (V12-004) — Cancel only worked during WAV rendering phase. Now passes the cancel flag to `LameEncoder::encode()`, which checks it each iteration and aborts cleanly.
-* **Export failure showed file path instead of error** (V12-005) — Error dialog displayed the output file path rather than an actionable message. Now shows descriptive success/failure messages with guidance.
-* **Misleading comment in driver fallback loop** (V12-007) — Removed incorrect comment about re-creating settings+synth per driver attempt.
-* **Radio button styling** — checked radio buttons render as proper circles in all 5 themes.
+* **Guitar Pro audio export producing silence** - `file->path()` returned the `.gp5`/`.gpx` path which FluidSynth cannot parse. Now saves the in-memory MidiFile to a temporary `.mid` file, exports from that, then cleans up via `_exportTempMidiPath`.
+* **Drum channel playing piano after FFXIV→GM switch** - Two issues: (1) `updateFfxivModeFromSoundFonts()` was called AFTER `setSoundFontEnabled()`, so `applyChannelMode()` still used old FFXIV flag during stack rebuild. Reordered to update mode FIRST. (2) `applyChannelMode()` GM restore didn't reset channel 9 properly - now sends `bank_select(ch9, 128)` + `program_change(ch9, 0)` to restore drum kit, plus `program_change(0)` on all melodic channels.
+* **SoundFont state lost on shutdown** - `shutdown()` only preserved `_loadedFonts` (enabled fonts), losing disabled font paths. Now preserves full stack via `allSoundFontPaths()` → `_pendingSoundFontPaths` + `_pendingDisabledPaths`.
+* **SoundFont list empty before init** - `allSoundFontPaths()` returned empty when `_soundFontStack` was empty (before initialization). Now falls back to `_pendingSoundFontPaths`.
+* **Disabled SoundFonts lost on settings change** (V12-002) - Changing audio driver, sample rate, or reverb engine silently discarded disabled SoundFonts from the stack. Removed redundant `setSoundFontStack()` calls; `shutdown()`+`initialize()` already preserves and restores the full stack.
+* **MP3 export reported success after encoding error** (V12-003) - LAME encoder returned true even when `lame_encode_buffer_interleaved()` reported an error. Now tracks error state, skips flush, deletes corrupt output, and returns false.
+* **Cancel button ineffective during MP3 encoding** (V12-004) - Cancel only worked during WAV rendering phase. Now passes the cancel flag to `LameEncoder::encode()`, which checks it each iteration and aborts cleanly.
+* **Export failure showed file path instead of error** (V12-005) - Error dialog displayed the output file path rather than an actionable message. Now shows descriptive success/failure messages with guidance.
+* **Misleading comment in driver fallback loop** (V12-007) - Removed incorrect comment about re-creating settings+synth per driver attempt.
+* **Radio button styling** - checked radio buttons render as proper circles in all 5 themes.
 
 ### Changed
 * Export dialog now shows MP3 as a fourth format option
@@ -992,118 +1046,118 @@ The v1.3.1 SEL-001 fix (early-return when selection unchanged) and v1.3.1.2 hotf
 
 ---
 
-## [1.1.9] - 2026-04-07 — MidiPilot AI Improvements + GUI Bug Sweep
+## [1.1.9] - 2026-04-07 - MidiPilot AI Improvements + GUI Bug Sweep
 
-* Granular agent undo — each tool call gets its own Ctrl+Z step instead of one compound action
-* Token counting fix — OpenAI Responses API, Anthropic, and Gemini usage fields now correctly normalized
-* Persistent conversation history — conversations auto-saved as JSON, loadable from history menu
-* Context window management — sliding-window truncation prevents exceeding model context limits
+* Granular agent undo - each tool call gets its own Ctrl+Z step instead of one compound action
+* Token counting fix - OpenAI Responses API, Anthropic, and Gemini usage fields now correctly normalized
+* Persistent conversation history - conversations auto-saved as JSON, loadable from history menu
+* Context window management - sliding-window truncation prevents exceeding model context limits
 * Token label now shows context window size and warns at 80% usage
 * Agent progress steps now theme-aware (dark/light mode colors)
-* Response streaming (SSE) for Simple mode — text appears incrementally
-* Per-file AI presets — save/load model, provider, mode, FFXIV, effort, and custom instructions per MIDI file
-* 4 runtime bugfixes from Phase 19 testing — stop button crash, streaming JSON dump, vanishing prompt bubble, preset save on unsaved files
+* Response streaming (SSE) for Simple mode - text appears incrementally
+* Per-file AI presets - save/load model, provider, mode, FFXIV, effort, and custom instructions per MIDI file
+* 4 runtime bugfixes from Phase 19 testing - stop button crash, streaming JSON dump, vanishing prompt bubble, preset save on unsaved files
 * MidiPilot Send/Stop buttons now use proper themed icons instead of Unicode emoji (consistent with toolbar style)
-* **45 bug fixes** across 18 GUI source files — memory leaks, crash-causing null derefs, undo/redo corruption, data loss, division-by-zero, deprecated Qt6 API usage, and more
+* **45 bug fixes** across 18 GUI source files - memory leaks, crash-causing null derefs, undo/redo corruption, data loss, division-by-zero, deprecated Qt6 API usage, and more
 
 <details>
 <summary>Full Changelog</summary>
 
-### Phase 19 — MidiPilot AI Improvements
+### Phase 19 - MidiPilot AI Improvements
 
 #### Fixed
-* **Granular agent undo (19.1)** — Previously, all tool calls from one Agent request were wrapped in a single `startNewAction/endAction` pair, so Ctrl+Z reverted everything at once. Now each tool call (e.g. transpose, edit, rename) creates its own protocol step. Undo reverts one action at a time.
-* **Token counting for non-OpenAI providers (19.3)** — `normalizeResponsesApiResponse()` was not copying the `usage` field from OpenAI Responses API responses (`input_tokens`/`output_tokens`). Also added normalization for Anthropic (`input_tokens`/`output_tokens`) and Gemini (`usageMetadata.promptTokenCount`/`candidatesTokenCount`) formats. All downstream code uses canonical `prompt_tokens`/`completion_tokens` field names.
-* **Stop button crash** — Clicking Stop during an API request could crash because `cancel()` called `cancelRequest()` first, which triggered a synchronous `abort()` → `onReplyFinished` → `errorOccurred` double-fire. Fixed by reordering: `cleanup()` runs before `cancelRequest()`.
-* **Simple mode JSON dump** — Streaming in Simple mode displayed raw JSON `{"actions":[...]}` in chat instead of executing it. Added `_streamIsJson` flag to suppress the streaming bubble for JSON action responses; `onStreamFinished` now delegates to `onResponseReceived` for proper action dispatch.
-* **User prompt bubble disappearing** — `onResponseReceived` and `onErrorOccurred` blindly removed the last chat widget (intended for the "Thinking..." indicator), which sometimes deleted the user's own prompt bubble. Now checks for "Thinking" text via `qobject_cast<QLabel*>` before removing.
-* **Preset save on unsaved file** — Saving an AI preset when the MIDI file had never been saved showed an error. Replaced with a `QFileDialog::getSaveFileName` fallback so the user can pick a file path first.
+* **Granular agent undo (19.1)** - Previously, all tool calls from one Agent request were wrapped in a single `startNewAction/endAction` pair, so Ctrl+Z reverted everything at once. Now each tool call (e.g. transpose, edit, rename) creates its own protocol step. Undo reverts one action at a time.
+* **Token counting for non-OpenAI providers (19.3)** - `normalizeResponsesApiResponse()` was not copying the `usage` field from OpenAI Responses API responses (`input_tokens`/`output_tokens`). Also added normalization for Anthropic (`input_tokens`/`output_tokens`) and Gemini (`usageMetadata.promptTokenCount`/`candidatesTokenCount`) formats. All downstream code uses canonical `prompt_tokens`/`completion_tokens` field names.
+* **Stop button crash** - Clicking Stop during an API request could crash because `cancel()` called `cancelRequest()` first, which triggered a synchronous `abort()` → `onReplyFinished` → `errorOccurred` double-fire. Fixed by reordering: `cleanup()` runs before `cancelRequest()`.
+* **Simple mode JSON dump** - Streaming in Simple mode displayed raw JSON `{"actions":[...]}` in chat instead of executing it. Added `_streamIsJson` flag to suppress the streaming bubble for JSON action responses; `onStreamFinished` now delegates to `onResponseReceived` for proper action dispatch.
+* **User prompt bubble disappearing** - `onResponseReceived` and `onErrorOccurred` blindly removed the last chat widget (intended for the "Thinking..." indicator), which sometimes deleted the user's own prompt bubble. Now checks for "Thinking" text via `qobject_cast<QLabel*>` before removing.
+* **Preset save on unsaved file** - Saving an AI preset when the MIDI file had never been saved showed an error. Replaced with a `QFileDialog::getSaveFileName` fallback so the user can pick a file path first.
 
 #### Added
-* **Persistent conversation history (19.2)** — New `ConversationStore` class saves conversations as JSON files in `AppData/MidiPilotHistory/`. Auto-saves after every assistant response (debounced 2s). History button in toolbar shows past conversations sorted by date. Click to load and resume any previous conversation.
-* **Context window management (19.5)** — Before each API request, conversation history is estimated for token count (~4 chars/token). If exceeding 70% of the model's context window, a sliding window keeps the first 2 messages + most recent messages that fit, inserting a truncation marker. Token label now shows `session / contextWindow` and turns yellow at 80% usage.
-* **Model context window lookup** — `AiClient::contextWindowForModel()` returns known context windows for GPT-5/4o/4.1, Claude 3/4, Gemini 1.5/2.0/2.5, o-series models.
-* **Agent progress polish (19.4)** — `AgentStepsWidget` step labels now use theme-aware colors via `Appearance::isDarkModeEnabled()`. Dark and light mode each have distinct pending/active/success/retry/failed colors.
-* **Response streaming (19.6)** — Simple mode now uses SSE streaming (`"stream": true`). Text appears incrementally in a streaming bubble. On completion, the bubble is replaced with a proper styled chat bubble. Handles `[DONE]` sentinel, captures usage from final chunk. Agent mode remains non-streaming.
-* **Per-file AI presets (19.7)** — Gear button now opens a menu with "Open AI Settings" and "Save AI preset for this file". Presets are stored as `<filename>.midipilot.json` sidecar files. Saves provider, model, mode, FFXIV, effort, and custom instructions. Auto-loaded when a file is opened via `onFileChanged()`. Custom instructions are appended to both Agent and Simple mode system prompts.
+* **Persistent conversation history (19.2)** - New `ConversationStore` class saves conversations as JSON files in `AppData/MidiPilotHistory/`. Auto-saves after every assistant response (debounced 2s). History button in toolbar shows past conversations sorted by date. Click to load and resume any previous conversation.
+* **Context window management (19.5)** - Before each API request, conversation history is estimated for token count (~4 chars/token). If exceeding 70% of the model's context window, a sliding window keeps the first 2 messages + most recent messages that fit, inserting a truncation marker. Token label now shows `session / contextWindow` and turns yellow at 80% usage.
+* **Model context window lookup** - `AiClient::contextWindowForModel()` returns known context windows for GPT-5/4o/4.1, Claude 3/4, Gemini 1.5/2.0/2.5, o-series models.
+* **Agent progress polish (19.4)** - `AgentStepsWidget` step labels now use theme-aware colors via `Appearance::isDarkModeEnabled()`. Dark and light mode each have distinct pending/active/success/retry/failed colors.
+* **Response streaming (19.6)** - Simple mode now uses SSE streaming (`"stream": true`). Text appears incrementally in a streaming bubble. On completion, the bubble is replaced with a proper styled chat bubble. Handles `[DONE]` sentinel, captures usage from final chunk. Agent mode remains non-streaming.
+* **Per-file AI presets (19.7)** - Gear button now opens a menu with "Open AI Settings" and "Save AI preset for this file". Presets are stored as `<filename>.midipilot.json` sidecar files. Saves provider, model, mode, FFXIV, effort, and custom instructions. Auto-loaded when a file is opened via `onFileChanged()`. Custom instructions are appended to both Agent and Simple mode system prompts.
 
-### GUI Bug Sweep — 45 fixes across 18 files
+### GUI Bug Sweep - 45 fixes across 18 files
 
 Automated bug-hunter scan of all 98 GUI source files identified 47 potential issues; 45 confirmed, 2 false positives. All fixes applied and verified.
 
 #### Data Loss Prevention (3 fixes)
-* **CORE-006/007/014** — `newFile()`, `loadFile()`, and `load()` now check the return value of `saveBeforeClose()`. Previously, clicking Cancel in the save prompt was ignored and unsaved work was silently discarded.
+* **CORE-006/007/014** - `newFile()`, `loadFile()`, and `load()` now check the return value of `saveBeforeClose()`. Previously, clicking Cancel in the save prompt was ignored and unsaved work was silently discarded.
 
 #### Undo/Redo Protocol Corruption (3 fixes)
-* **CORE-005** — `equalize()` called `endAction()` without a matching `startNewAction()` when ≤1 notes were selected, corrupting the undo stack. Moved `endAction()` inside the guard.
-* **WIDGET-001** — `EventWidget::setModelData()` left the protocol in a dangling state on validation error returns. Added `endAction()` before early returns.
-* **WIDGET-002** — `MiscWidget::mouseReleaseEvent()` left the protocol open when track was null. Added `endAction()` before early returns.
+* **CORE-005** - `equalize()` called `endAction()` without a matching `startNewAction()` when ≤1 notes were selected, corrupting the undo stack. Moved `endAction()` inside the guard.
+* **WIDGET-001** - `EventWidget::setModelData()` left the protocol in a dangling state on validation error returns. Added `endAction()` before early returns.
+* **WIDGET-002** - `MiscWidget::mouseReleaseEvent()` left the protocol open when track was null. Added `endAction()` before early returns.
 
-#### Crash Fixes — Null Derefs & Out-of-Bounds (5 fixes)
-* **CORE-009** — `MatrixWidget::mouseDoubleClickEvent()` null dereference when no file loaded. Added null check.
-* **CORE-013** — `MainWindow::editChannel()` null dereference when `file` is null. Wrapped in `if (file)`.
-* **MISC-004** — `TweakTarget::getTimeOneDivEarlier/Later()` crashed on single-element divs list (out-of-bounds access). Added `if (divs.size() < 2) return time` guard.
-* **MISC-005** — `NoteTweakTarget` and `ValueTweakTarget` missing upper-bound checks — arrow keys could push note/velocity/CC past 127, pitch bend past 16383. Added `qBound()` clamping.
-* **WIDGET-005** — `MiscWidget` `trackIndex` could go out-of-bounds if undo changed data between mouse press and release. Added bounds check.
+#### Crash Fixes - Null Derefs & Out-of-Bounds (5 fixes)
+* **CORE-009** - `MatrixWidget::mouseDoubleClickEvent()` null dereference when no file loaded. Added null check.
+* **CORE-013** - `MainWindow::editChannel()` null dereference when `file` is null. Wrapped in `if (file)`.
+* **MISC-004** - `TweakTarget::getTimeOneDivEarlier/Later()` crashed on single-element divs list (out-of-bounds access). Added `if (divs.size() < 2) return time` guard.
+* **MISC-005** - `NoteTweakTarget` and `ValueTweakTarget` missing upper-bound checks - arrow keys could push note/velocity/CC past 127, pitch bend past 16383. Added `qBound()` clamping.
+* **WIDGET-005** - `MiscWidget` `trackIndex` could go out-of-bounds if undo changed data between mouse press and release. Added bounds check.
 
 #### Memory Leaks (14 fixes)
-* **CORE-001/002** — `forward()` and `back()` leaked heap-allocated `QList` on every call. Changed to stack allocation.
-* **CORE-003/004** — `saveas()` and `load()` leaked heap `QFile` and discarded directory result. Changed to stack `QFile`, assigned `dir` properly.
-* **CORE-008** — `MatrixWidget::paintEvent()` leaked `QPainter` on two early-return paths. Added `delete painter` before returns.
-* **CORE-012** — Multiple dialog functions leaked heap-allocated dialogs. Added `WA_DeleteOnClose` for `show()` dialogs, `delete` after `exec()` dialogs.
-* **DLG-001** — `AboutDialog::loadContributors()` returned heap `QList*` that was never freed. Changed to return by value.
-* **DLG-002/003** — `RecordDialog::enter()` leaked filtered-out MidiEvent objects; no destructor to clean up `_data`. Added destructor and cleanup loop.
-* **DLG-005** — `TransposeDialog` leaked parentless `QButtonGroup`. Added `this` as parent.
-* **DLG-006** — `SettingsDialog` leaked heap-allocated `_settingsWidgets` QList. Changed to stack allocation.
-* **MISC-001** — `Appearance::decode()` leaked `defaultColor` parameter on success path. Added `delete defaultColor` before returning new color.
-* **MISC-002** — `ClickButton::setImageName()` leaked previous `QImage` on reassignment. Added `delete image` before `new`, initialized to `nullptr`.
-* **MISC-010** — `AppearanceSettingsWidget` leaked heap-allocated `_channelItems`/`_trackItems` QLists. Changed to stack allocation.
+* **CORE-001/002** - `forward()` and `back()` leaked heap-allocated `QList` on every call. Changed to stack allocation.
+* **CORE-003/004** - `saveas()` and `load()` leaked heap `QFile` and discarded directory result. Changed to stack `QFile`, assigned `dir` properly.
+* **CORE-008** - `MatrixWidget::paintEvent()` leaked `QPainter` on two early-return paths. Added `delete painter` before returns.
+* **CORE-012** - Multiple dialog functions leaked heap-allocated dialogs. Added `WA_DeleteOnClose` for `show()` dialogs, `delete` after `exec()` dialogs.
+* **DLG-001** - `AboutDialog::loadContributors()` returned heap `QList*` that was never freed. Changed to return by value.
+* **DLG-002/003** - `RecordDialog::enter()` leaked filtered-out MidiEvent objects; no destructor to clean up `_data`. Added destructor and cleanup loop.
+* **DLG-005** - `TransposeDialog` leaked parentless `QButtonGroup`. Added `this` as parent.
+* **DLG-006** - `SettingsDialog` leaked heap-allocated `_settingsWidgets` QList. Changed to stack allocation.
+* **MISC-001** - `Appearance::decode()` leaked `defaultColor` parameter on success path. Added `delete defaultColor` before returning new color.
+* **MISC-002** - `ClickButton::setImageName()` leaked previous `QImage` on reassignment. Added `delete image` before `new`, initialized to `nullptr`.
+* **MISC-010** - `AppearanceSettingsWidget` leaked heap-allocated `_channelItems`/`_trackItems` QLists. Changed to stack allocation.
 
 #### Division by Zero (2 fixes)
-* **CORE-010** — `MatrixWidget::xPosOfMs()`, `msOfXPos()`, `timeMsOfWidth()` could divide by zero with zero-length files or very narrow widget. Added zero-checks.
-* **WIDGET-006** — `MiscWidget::value()` divided by `height()` without checking for zero. Added `if (h <= 0) return 0` guard.
+* **CORE-010** - `MatrixWidget::xPosOfMs()`, `msOfXPos()`, `timeMsOfWidth()` could divide by zero with zero-length files or very narrow widget. Added zero-checks.
+* **WIDGET-006** - `MiscWidget::value()` divided by `height()` without checking for zero. Added `if (h <= 0) return 0` guard.
 
 #### Signal & Resource Management (2 fixes)
-* **CORE-011** — `play()` and `record()` accumulated `timeMsChanged` signal connections on each play/stop cycle, causing N+1 repaints per tick. Added `disconnect()` before `connect()`.
-* **MISC-008** — `Appearance::processNextQueuedIcon()` used try/catch on potentially dangling `QAction*` pointer (undefined behavior). Changed `iconUpdateQueue` to use `QPointer<QAction>` for safe null detection.
+* **CORE-011** - `play()` and `record()` accumulated `timeMsChanged` signal connections on each play/stop cycle, causing N+1 repaints per tick. Added `disconnect()` before `connect()`.
+* **MISC-008** - `Appearance::processNextQueuedIcon()` used try/catch on potentially dangling `QAction*` pointer (undefined behavior). Changed `iconUpdateQueue` to use `QPointer<QAction>` for safe null detection.
 
 #### Logic & Correctness (4 fixes)
-* **WIDGET-003** — `EventWidget::setEditorData()` called `setMaximum()` instead of `setMinimum()` in 7 places (copy-paste error). Time signature allowed numerator 0. Fixed to `setMinimum()`.
-* **WIDGET-008** — `InstrumentChooser::accept()` called `hide()` instead of `QDialog::accept()`, leaving result code as Rejected. Fixed to call base class.
-* **DLG-004** — `TransposeDialog` constructor didn't pass `parent` to `QDialog` base class. Added `: QDialog(parent)` initializer.
-* **DLG-009** — `TempoDialog::accept()` integer overflow in smooth tempo interpolation for long ramps. Changed to `qint64` arithmetic.
+* **WIDGET-003** - `EventWidget::setEditorData()` called `setMaximum()` instead of `setMinimum()` in 7 places (copy-paste error). Time signature allowed numerator 0. Fixed to `setMinimum()`.
+* **WIDGET-008** - `InstrumentChooser::accept()` called `hide()` instead of `QDialog::accept()`, leaving result code as Rejected. Fixed to call base class.
+* **DLG-004** - `TransposeDialog` constructor didn't pass `parent` to `QDialog` base class. Added `: QDialog(parent)` initializer.
+* **DLG-009** - `TempoDialog::accept()` integer overflow in smooth tempo interpolation for long ramps. Changed to `qint64` arithmetic.
 
 #### Download Robustness (2 fixes)
-* **DLG-007** — `DownloadSoundFontDialog` didn't flush remaining network buffer before closing file. Added `readAll()` flush in finished handler.
-* **DLG-008** — Download write errors silently ignored (disk full → corrupt SoundFont). Added return value check on `write()`, abort on failure.
+* **DLG-007** - `DownloadSoundFontDialog` didn't flush remaining network buffer before closing file. Added `readAll()` flush in finished handler.
+* **DLG-008** - Download write errors silently ignored (disk full → corrupt SoundFont). Added return value check on `write()`, abort on failure.
 
 #### Deprecated/Wrong Qt6 API (2 fixes)
-* **WIDGET-009** — `TrackListWidget::dropEvent()` used deprecated `QDropEvent::pos()`. Changed to `position().toPoint()`.
-* **MISC-011** — `PaintWidget::enterEvent(QEvent*)` didn't match Qt6 signature `enterEvent(QEnterEvent*)`. Fixed signature.
+* **WIDGET-009** - `TrackListWidget::dropEvent()` used deprecated `QDropEvent::pos()`. Changed to `position().toPoint()`.
+* **MISC-011** - `PaintWidget::enterEvent(QEvent*)` didn't match Qt6 signature `enterEvent(QEnterEvent*)`. Fixed signature.
 
 #### Initialization & Hardening (5 fixes)
-* **MISC-003** — `GraphicObject::shownInWidget` never initialized (undefined behavior on read). Initialized to `false`.
-* **MISC-009** — `MidiSettingsWidget::_inputPorts/_outputPorts` pointer members uninitialized. Set to `nullptr`.
-* **WIDGET-010** — `ChannelListItem::loudAction/soloAction` uninitialized for channel ≥ 16. Set to `nullptr`.
-* **WIDGET-011** — `ChannelListItem::toggleVisibility()` silent catch-all exception handler. Added `qWarning()` logging.
-* **MISC-006** — `OpenGLPaintWidget::paintGL()` used `static QSize lastSize` shared across all instances, causing unnecessary GPU reallocations. Changed to member `_lastPaintSize`.
+* **MISC-003** - `GraphicObject::shownInWidget` never initialized (undefined behavior on read). Initialized to `false`.
+* **MISC-009** - `MidiSettingsWidget::_inputPorts/_outputPorts` pointer members uninitialized. Set to `nullptr`.
+* **WIDGET-010** - `ChannelListItem::loudAction/soloAction` uninitialized for channel ≥ 16. Set to `nullptr`.
+* **WIDGET-011** - `ChannelListItem::toggleVisibility()` silent catch-all exception handler. Added `qWarning()` logging.
+* **MISC-006** - `OpenGLPaintWidget::paintGL()` used `static QSize lastSize` shared across all instances, causing unnecessary GPU reallocations. Changed to member `_lastPaintSize`.
 
 #### UI & Cosmetic (3 fixes)
-* **DLG-010** — `DeleteOverlapsDialog::paintEvent()` called `update()` on child widget, creating redundant repaint cycles. Removed override.
-* **DLG-011** — `DeleteOverlapsDialog::resizeEvent()` didn't call base class `QDialog::resizeEvent()`. Fixed.
-* **MISC-007** — `AutoUpdater::applyUpdate()` PowerShell command injection via single-quote in paths. Added `'` → `''` escaping.
+* **DLG-010** - `DeleteOverlapsDialog::paintEvent()` called `update()` on child widget, creating redundant repaint cycles. Removed override.
+* **DLG-011** - `DeleteOverlapsDialog::resizeEvent()` didn't call base class `QDialog::resizeEvent()`. Fixed.
+* **MISC-007** - `AutoUpdater::applyUpdate()` PowerShell command injection via single-quote in paths. Added `'` → `''` escaping.
 
 ### Technical Notes
 * **Phase 19 files created:** `src/ai/ConversationStore.h/.cpp`
 * **Phase 19 files modified:** `src/gui/MidiPilotWidget.h/.cpp`, `src/ai/AiClient.h/.cpp`
 * **Bug sweep files modified (18):** `MainWindow.cpp`, `MatrixWidget.cpp`, `EventWidget.cpp`, `MiscWidget.cpp`, `RecordDialog.cpp/.h`, `TransposeDialog.cpp`, `SettingsDialog.cpp/.h`, `AboutDialog.cpp/.h`, `DownloadSoundFontDialog.cpp`, `TempoDialog.cpp`, `DeleteOverlapsDialog.cpp`, `GraphicObject.cpp`, `ClickButton.cpp`, `Appearance.cpp`, `TweakTarget.cpp`, `InstrumentChooser.cpp`, `TrackListWidget.cpp`, `ChannelListWidget.cpp`, `OpenGLPaintWidget.cpp/.h`, `PaintWidget.h`, `MidiSettingsWidget.h`, `AppearanceSettingsWidget.cpp/.h`, `AutoUpdater.cpp`
-* **Bug report:** `Planning/03_bugs.md` — full scan results with verification status
+* **Bug report:** `Planning/03_bugs.md` - full scan results with verification status
 
 </details>
 
 ---
 
-## [1.1.8.1] - 2026-04-06 — Bugfix: FFXIV Channel Fixer
+## [1.1.8.1] - 2026-04-06 - Bugfix: FFXIV Channel Fixer
 
 * Fixed undo crash when reverting Channel Fixer operations
 * Restored Tier 3 guitar track renaming with reliable data source
@@ -1115,14 +1169,14 @@ Automated bug-hunter scan of all 98 GUI source files identified 47 potential iss
 <summary>Full Changelog</summary>
 
 ### Fixed
-* **Undo crash after Channel Fixer** — v1.1.8 introduced `toProtocol=false` as a performance optimization for bulk operations, but this caused the Protocol undo system to record an empty step (discarded by `endAction`). Undoing past the Channel Fixer operation crashed because no undo entry existed and deleted events left dangling pointers. Reverted to `toProtocol=true` (default) so all changes are properly recorded; removed `delete ev` on removed Program Changes since the Protocol system keeps events alive for undo
-* **Tier 3 guitar track renaming restored** — v1.1.8.0 removed all Tier 3 renaming as a workaround for unreliable `chToVariant` data. Now that `guitarChannelMap` is built from `assignedChannel()` (the v1.1.8.0 fix), the reverse-map is reliable again. Tier 3 now detects when a guitar track's first note is on a different variant's channel and renames accordingly (e.g. Overdriven track with first note on Distortion channel → renamed to PowerChords)
-* **Tier 3 crash / wrong channel on first run after Tier 2** — (carried forward from v1.1.8.0) Uses `track->assignedChannel()` as sole source of truth
-* **Free channel reservation Tier 2 only** — (carried forward from v1.1.8.0)
+* **Undo crash after Channel Fixer** - v1.1.8 introduced `toProtocol=false` as a performance optimization for bulk operations, but this caused the Protocol undo system to record an empty step (discarded by `endAction`). Undoing past the Channel Fixer operation crashed because no undo entry existed and deleted events left dangling pointers. Reverted to `toProtocol=true` (default) so all changes are properly recorded; removed `delete ev` on removed Program Changes since the Protocol system keeps events alive for undo
+* **Tier 3 guitar track renaming restored** - v1.1.8.0 removed all Tier 3 renaming as a workaround for unreliable `chToVariant` data. Now that `guitarChannelMap` is built from `assignedChannel()` (the v1.1.8.0 fix), the reverse-map is reliable again. Tier 3 now detects when a guitar track's first note is on a different variant's channel and renames accordingly (e.g. Overdriven track with first note on Distortion channel → renamed to PowerChords)
+* **Tier 3 crash / wrong channel on first run after Tier 2** - (carried forward from v1.1.8.0) Uses `track->assignedChannel()` as sole source of truth
+* **Free channel reservation Tier 2 only** - (carried forward from v1.1.8.0)
 
 ### Added
-* **Tier 2 event cleanup** — Tier 2 (Rebuild) now removes non-essential MIDI events (ControlChange, PitchBend, ChannelPressure, KeyPressure, SysEx, etc.) from all channels. FFXIV performance mode doesn't use these events. Text events (lyrics) and notes are preserved
-* **Context menu channel names** — Right-click "Move to Channel" submenu now shows instrument names (e.g. `0: Piano`, `1: ElectricGuitarOverdriven`) matching the toolbar channel menus, instead of bare channel numbers
+* **Tier 2 event cleanup** - Tier 2 (Rebuild) now removes non-essential MIDI events (ControlChange, PitchBend, ChannelPressure, KeyPressure, SysEx, etc.) from all channels. FFXIV performance mode doesn't use these events. Text events (lyrics) and notes are preserved
+* **Context menu channel names** - Right-click "Move to Channel" submenu now shows instrument names (e.g. `0: Piano`, `1: ElectricGuitarOverdriven`) matching the toolbar channel menus, instead of bare channel numbers
 
 ### Technical Notes
 * **Undo root cause:** `toProtocol=false` prevents `MidiChannel::removeEvent`/`MidiEvent::moveToChannel` from calling `protocol(copy, this)`, so `startNewAction/endAction` recorded 0 items and silently discarded the step
@@ -1132,7 +1186,7 @@ Automated bug-hunter scan of all 98 GUI source files identified 47 potential iss
 
 ---
 
-## [1.1.8] - 2026-04-06 — Mewo Feature Sync
+## [1.1.8] - 2026-04-06 - Mewo Feature Sync
 
 > *Cherry-picking the best upstream features: context menus, note presets, timeline markers, chord detection, MML import, drum presets, and a whole lotta polish.*
 
@@ -1145,32 +1199,32 @@ Automated bug-hunter scan of all 98 GUI source files identified 47 potential iss
 <summary>Full Changelog</summary>
 
 ### Added
-* **Right-Click Context Menu** — right-click on selected events in the piano roll for quick access to Quantize, Copy, Delete, Transpose, Move to Track/Channel, Scale, and Legato operations. Plain right-click opens the menu; Ctrl+Right-Click still creates notes
-* **Note Duration Presets** — when the pencil tool is active, select a fixed note duration (whole, half, quarter, 8th, 16th, 32nd) from the toolbar with keyboard shortcuts (1-6). Shows a semi-transparent ghost preview on hover before clicking
-* **Smooth Playback Scrolling** — playback cursor now smoothly scrolls the viewport instead of jumping by screen-widths. Toggle in Settings → Appearance or Additional Midi Settings
-* **Timeline Markers** — visual CC, Program Change, and Text/Marker event indicators on the timeline:
+* **Right-Click Context Menu** - right-click on selected events in the piano roll for quick access to Quantize, Copy, Delete, Transpose, Move to Track/Channel, Scale, and Legato operations. Plain right-click opens the menu; Ctrl+Right-Click still creates notes
+* **Note Duration Presets** - when the pencil tool is active, select a fixed note duration (whole, half, quarter, 8th, 16th, 32nd) from the toolbar with keyboard shortcuts (1-6). Shows a semi-transparent ghost preview on hover before clicking
+* **Smooth Playback Scrolling** - playback cursor now smoothly scrolls the viewport instead of jumping by screen-widths. Toggle in Settings → Appearance or Additional Midi Settings
+* **Timeline Markers** - visual CC, Program Change, and Text/Marker event indicators on the timeline:
   - Dashed vertical lines through the note area with event-colored markers
   - Dedicated 16px marker row below the ruler with labeled badges (PC0, CC7, lyrics, etc.)
   - Toggleable per type in Settings → Appearance
   - Color by Track or by Channel mode
-* **Status Bar with Chord Detection** — bottom status bar showing selected note info, chord analysis (major/minor/7th/dim/aug/sus), tick position, and event count. Togglable in Settings → System & Performance
-* **MML Importer** — import Music Macro Language (.mml/.3mle) text files as MIDI. Supports 3MLE format used by FFXIV bard performers with multi-track channels, tempo, octave, note length, volume, and program change commands
-* **DrumKit Preset Mapping** — Split Channels dialog now includes a "Drum Kit Preset" dropdown for channel 9 with 17 standard GM drum kits (Standard, Room, Power, Electronic, etc.) that auto-insert the correct Program Change event
-* **DLS SoundFont Support** — file dialog now accepts `.dls` (Downloadable Sound) files alongside `.sf2`/`.sf3`
+* **Status Bar with Chord Detection** - bottom status bar showing selected note info, chord analysis (major/minor/7th/dim/aug/sus), tick position, and event count. Togglable in Settings → System & Performance
+* **MML Importer** - import Music Macro Language (.mml/.3mle) text files as MIDI. Supports 3MLE format used by FFXIV bard performers with multi-track channels, tempo, octave, note length, volume, and program change commands
+* **DrumKit Preset Mapping** - Split Channels dialog now includes a "Drum Kit Preset" dropdown for channel 9 with 17 standard GM drum kits (Standard, Room, Power, Electronic, etc.) that auto-insert the correct Program Change event
+* **DLS SoundFont Support** - file dialog now accepts `.dls` (Downloadable Sound) files alongside `.sf2`/`.sf3`
 
 ### Fixed
-* **Null-byte text event truncation** — MIDI text events containing `\0` null bytes no longer truncate or show `[]` boxes in the UI
-* **SizeChangeTool improvements** — resize handle behavior refined for more precise note length editing
-* **Measure numbers shifting with markers** — measure numbers now use a fixed Y position (`textY = 41`) so they don't jump when the timeline marker bar appears/disappears
-* **TrackList/ChannelList stale toolbar colors** — added `refreshColors()` methods that properly update toolbar palettes on theme change, instead of just repainting
-* **FFXIVChannelFixer memory leak** — Program Change events removed during channel fixing are now properly `delete`d after removal from the channel
-* **FFXIVChannelFixer bulk operation performance** — `moveToChannel()` and `removeEvent()` now accept a `toProtocol` parameter; Channel Fixer passes `false` to skip hundreds of individual undo entries during batch operations
-* **Appearance Settings UI** — collapsible Channel/Track Colors sections now use clickable arrow buttons (▶/▼) instead of checkboxes, readable in all themes. Settings panel wrapped in QScrollArea
+* **Null-byte text event truncation** - MIDI text events containing `\0` null bytes no longer truncate or show `[]` boxes in the UI
+* **SizeChangeTool improvements** - resize handle behavior refined for more precise note length editing
+* **Measure numbers shifting with markers** - measure numbers now use a fixed Y position (`textY = 41`) so they don't jump when the timeline marker bar appears/disappears
+* **TrackList/ChannelList stale toolbar colors** - added `refreshColors()` methods that properly update toolbar palettes on theme change, instead of just repainting
+* **FFXIVChannelFixer memory leak** - Program Change events removed during channel fixing are now properly `delete`d after removal from the channel
+* **FFXIVChannelFixer bulk operation performance** - `moveToChannel()` and `removeEvent()` now accept a `toProtocol` parameter; Channel Fixer passes `false` to skip hundreds of individual undo entries during batch operations
+* **Appearance Settings UI** - collapsible Channel/Track Colors sections now use clickable arrow buttons (▶/▼) instead of checkboxes, readable in all themes. Settings panel wrapped in QScrollArea
 
 ### Changed
-* **Timeline layout** — separate `MarkerArea` rect for the 16px marker row below the 50px ruler; cleaner hit-testing separation
-* **Full-height vertical divider** — the divider between piano/header area and the note area now extends from top to bottom of the widget
-* **Removed bottom/right border lines** — cleaner look without redundant edge borders on the piano roll
+* **Timeline layout** - separate `MarkerArea` rect for the 16px marker row below the 50px ruler; cleaner hit-testing separation
+* **Full-height vertical divider** - the divider between piano/header area and the note area now extends from top to bottom of the widget
+* **Removed bottom/right border lines** - cleaner look without redundant edge borders on the piano roll
 * Version bump to 1.1.8
 
 ### Technical Notes
@@ -1182,7 +1236,7 @@ Automated bug-hunter scan of all 98 GUI source files identified 47 potential iss
 
 ---
 
-## [1.1.7] - 2026-04-05 — The Totally Unnecessary Glow Up
+## [1.1.7] - 2026-04-05 - The Totally Unnecessary Glow Up
 
 > *Adding Dark/Light Mode and a totally useless but cool MIDI Visualizer.*
 
@@ -1196,36 +1250,36 @@ Automated bug-hunter scan of all 98 GUI source files identified 47 potential iss
 <summary>Full Changelog</summary>
 
 ### Added
-* **Dark & Light QSS Themes** — full application theming with seven modes:
-  - **Dark** — deep blue-black palette (`#0d1117` bg, `#58a6ff` accent) for late-night editing sessions
-  - **Light** — clean white palette (`#ffffff` bg, `#0969da` accent) for daytime use
-  - **Sakura** — light cherry blossom theme (`#fff5f8` bg, `#db7093` accents) with slightly pink piano keys
-  - **AMOLED** — pure black `#000000` backgrounds with orange `#e67e22` accents, optimized for OLED screens
-  - **Material Dark** — charcoal `#1e1d23` backgrounds with teal `#04b97f` accents, Material Design aesthetic
-  - **System** — auto-detects your OS dark/light preference
-  - **Classic** — original system-native look, unchanged
+* **Dark & Light QSS Themes** - full application theming with seven modes:
+  - **Dark** - deep blue-black palette (`#0d1117` bg, `#58a6ff` accent) for late-night editing sessions
+  - **Light** - clean white palette (`#ffffff` bg, `#0969da` accent) for daytime use
+  - **Sakura** - light cherry blossom theme (`#fff5f8` bg, `#db7093` accents) with slightly pink piano keys
+  - **AMOLED** - pure black `#000000` backgrounds with orange `#e67e22` accents, optimized for OLED screens
+  - **Material Dark** - charcoal `#1e1d23` backgrounds with teal `#04b97f` accents, Material Design aesthetic
+  - **System** - auto-detects your OS dark/light preference
+  - **Classic** - original system-native look, unchanged
   - Theme selector in Settings → Appearance
   - All standard Qt widgets styled: toolbars, lists, scrollbars, checkboxes, dialogs, menus
   - Custom-painted widgets (piano roll, velocity, misc) auto-adapt via `Appearance` color methods
-* **Dark Title Bar (Windows)** — native Windows dark title bar using DWM API (`DWMWA_USE_IMMERSIVE_DARK_MODE`), applies to all windows and dialogs automatically
-* **Theme Change Restart** — changing themes triggers app restart with confirmation dialog; reopens Settings → Appearance tab automatically via `--open-settings` CLI flag
-* **MIDI Visualizer** — real-time 16-channel equalizer bars in the toolbar:
+* **Dark Title Bar (Windows)** - native Windows dark title bar using DWM API (`DWMWA_USE_IMMERSIVE_DARK_MODE`), applies to all windows and dialogs automatically
+* **Theme Change Restart** - changing themes triggers app restart with confirmation dialog; reopens Settings → Appearance tab automatically via `--open-settings` CLI flag
+* **MIDI Visualizer** - real-time 16-channel equalizer bars in the toolbar:
   - One bar per MIDI channel, green-to-blue color interpolation based on velocity
   - Smooth decay animation at ~30fps
   - Thread-safe: reads atomic `channelActivity` values written by the player thread
-  - Polls `MidiPlayer::isPlaying()` directly — resilient to signal connection breaks
+  - Polls `MidiPlayer::isPlaying()` directly - resilient to signal connection breaks
   - Togglable via Customize Toolbar settings
   - Custom `midi_visualizer.png` icon with dark mode auto-inversion
-* **Note Bar Color Presets** — 10 one-click channel color schemes in Settings → Appearance:
+* **Note Bar Color Presets** - 10 one-click channel color schemes in Settings → Appearance:
   - Default, Rainbow, Neon, Fire, Ocean, Pastel, Sakura, AMOLED, Emerald, Punk
   - Preset selection persisted across sessions
-* **Sakura piano keys** — white keys tinted lavender blush (`#FFF0F5`), black keys dark rose (`#502837`), with matching hover/selected/highlight states
-* **Toolbar icon dark mode adjustment** — black toolbar icons automatically recolored to light gray in dark themes for visibility (colored icons like FFXIV Fix, Explode Chords, MidiPilot preserved as-is)
-* **Checkbox visibility in dark mode** — brighter borders for checkboxes in dark theme
+* **Sakura piano keys** - white keys tinted lavender blush (`#FFF0F5`), black keys dark rose (`#502837`), with matching hover/selected/highlight states
+* **Toolbar icon dark mode adjustment** - black toolbar icons automatically recolored to light gray in dark themes for visibility (colored icons like FFXIV Fix, Explode Chords, MidiPilot preserved as-is)
+* **Checkbox visibility in dark mode** - brighter borders for checkboxes in dark theme
 
 ### Fixed
-* **Color preset combo always showing "Default"** — added `_colorPreset` persistence to QSettings; combo now correctly shows the saved preset when re-entering Settings
-* **Piano key note labels unreadable in dark mode** — C1/C2/C3 octave labels on the piano bar changed from hardcoded `Qt::gray` to light gray (`QColor(200,200,200)`) in dark themes for readability
+* **Color preset combo always showing "Default"** - added `_colorPreset` persistence to QSettings; combo now correctly shows the saved preset when re-entering Settings
+* **Piano key note labels unreadable in dark mode** - C1/C2/C3 octave labels on the piano bar changed from hardcoded `Qt::gray` to light gray (`QColor(200,200,200)`) in dark themes for readability
 
 ### Changed
 * Toolbar inline styles refactored to use centralized `Appearance` helper methods for theme consistency
@@ -1234,14 +1288,14 @@ Automated bug-hunter scan of all 98 GUI source files identified 47 potential iss
 ### Technical Notes
 * **New files:** `src/gui/themes/dark.qss`, `src/gui/themes/light.qss`, `src/gui/themes/pink.qss`, `src/gui/themes/amoled.qss`, `src/gui/themes/materialdark.qss`, `src/gui/MidiVisualizerWidget.h/cpp`, `run_environment/graphics/tool/midi_visualizer.png`
 * **Core modifications:** `Appearance.h/cpp` (theme management, 7 themes, 10 color presets, piano key overrides, DWM dark title bar, icon adjustment), `AppearanceSettingsWidget.h/cpp` (theme selector + preset combo UI), `MainWindow.h/cpp` (toolbar theming, visualizer lifecycle, restart mechanism), `SettingsDialog.h/cpp` (`setCurrentTab()`), `main.cpp` (`--open-settings` CLI arg), `LayoutSettingsWidget.cpp` (visualizer in customize toolbar)
-* **Visualizer lifecycle:** Widget created fresh on each toolbar rebuild via `toolbar->addWidget()` — avoids Qt `QWidgetAction` ownership bugs where `setDefaultWidget()` transfers ownership to the toolbar which destroys the widget on rebuild
-* **AMOLED/Material themes inspired by:** [GTRONICK/QSS](https://github.com/GTRONICK/QSS) (MIT License) — color palettes adapted into our QSS structure
+* **Visualizer lifecycle:** Widget created fresh on each toolbar rebuild via `toolbar->addWidget()` - avoids Qt `QWidgetAction` ownership bugs where `setDefaultWidget()` transfers ownership to the toolbar which destroys the widget on rebuild
+* **AMOLED/Material themes inspired by:** [GTRONICK/QSS](https://github.com/GTRONICK/QSS) (MIT License) - color palettes adapted into our QSS structure
 
 </details>
 
 ---
 
-## [1.1.6.1] - 2026-04-04 — Bugfix: Duplicate Guitar Track Channels
+## [1.1.6.1] - 2026-04-04 - Bugfix: Duplicate Guitar Track Channels
 
 * Fixed duplicate guitar variants mapped to wrong channel in Fix X|V
 * Fixed Tier 3 duplicate guitar notes not migrated to shared channel
@@ -1250,8 +1304,8 @@ Automated bug-hunter scan of all 98 GUI source files identified 47 potential iss
 <summary>Full Changelog</summary>
 
 ### Fixed
-* **Fix X|V Channels: duplicate guitar variants mapped to wrong channel** — when two or more tracks shared the same guitar variant name (e.g. two "ElectricGuitarPowerChords" tracks), the second track was assigned its own channel instead of sharing the first occurrence's channel. This caused the duplicate track to receive a wrong program (e.g. Piano on CH3 instead of Distortion Guitar). Now all tracks with the same guitar variant name share a single channel with the correct program change, in both Rebuild (Tier 2) and Preserve (Tier 3) modes
-* **Fix X|V Channels Tier 3: duplicate guitar notes not migrated** — in Preserve mode, duplicate guitar tracks had their notes stranded on the original channel. Added note migration for duplicate guitar tracks to move events to the shared target channel
+* **Fix X|V Channels: duplicate guitar variants mapped to wrong channel** - when two or more tracks shared the same guitar variant name (e.g. two "ElectricGuitarPowerChords" tracks), the second track was assigned its own channel instead of sharing the first occurrence's channel. This caused the duplicate track to receive a wrong program (e.g. Piano on CH3 instead of Distortion Guitar). Now all tracks with the same guitar variant name share a single channel with the correct program change, in both Rebuild (Tier 2) and Preserve (Tier 3) modes
+* **Fix X|V Channels Tier 3: duplicate guitar notes not migrated** - in Preserve mode, duplicate guitar tracks had their notes stranded on the original channel. Added note migration for duplicate guitar tracks to move events to the shared target channel
 
 ### Changed
 * Version bump to 1.1.6.1
@@ -1260,9 +1314,9 @@ Automated bug-hunter scan of all 98 GUI source files identified 47 potential iss
 
 ---
 
-## [1.1.6] - 2026-04-04 — Guitar Pro Import (GP1–GP8)
+## [1.1.6] - 2026-04-04 - Guitar Pro Import (GP1-GP8)
 
-* Native Guitar Pro import: GP1–GP8 (.gtp, .gp3, .gp4, .gp5, .gpx, .gp)
+* Native Guitar Pro import: GP1-GP8 (.gtp, .gp3, .gp4, .gp5, .gpx, .gp)
 * Fixed GP3/GP4/GP5 binary parser bugs, GP6 BCFZ decompression, GP7/GP8 ZIP extraction
 * GP1/GP2 legacy parser ported from TuxGuitar reference
 * Explode Chords toolbar icon
@@ -1271,60 +1325,60 @@ Automated bug-hunter scan of all 98 GUI source files identified 47 potential iss
 <summary>Full Changelog</summary>
 
 ### Added
-* **Native Guitar Pro import** — all Guitar Pro formats from 1990s DOS to 2024 are now supported:
-  - **GP3 (.gp3)** — Guitar Pro 3 binary format (v3.00)
-  - **GP4 (.gp4)** — Guitar Pro 4 binary format (v4.00–v4.06), adds lyrics, RSE, key signatures
-  - **GP5 (.gp5)** — Guitar Pro 5 binary format (v5.00–v5.10), adds RSE2, extended note effects
-  - **GP6/GPX (.gpx)** — Guitar Pro 6 BCFZ-compressed GPIF XML
-  - **GP7/GP8 (.gp)** — Guitar Pro 7/8 ZIP-packaged GPIF XML
-  - **GP1 (.gtp)** — Guitar Pro 1 legacy DOS format (v1.0–v1.04, French header "GUITARE")
-  - **GP2 (.gtp)** — Guitar Pro 2 legacy DOS format (v2.20–v2.21), adds triplet feel, repeat markers, capo
-  - Header-based format detection — works even with misnamed file extensions
-* **GP3/GP4/GP5 binary parser fixes** (Phase 16.1) — the upstream Meowchestra fork contained an unfinished Guitar Pro parser skeleton that failed on every real-world file. Fixed:
+* **Native Guitar Pro import** - all Guitar Pro formats from 1990s DOS to 2024 are now supported:
+  - **GP3 (.gp3)** - Guitar Pro 3 binary format (v3.00)
+  - **GP4 (.gp4)** - Guitar Pro 4 binary format (v4.00-v4.06), adds lyrics, RSE, key signatures
+  - **GP5 (.gp5)** - Guitar Pro 5 binary format (v5.00-v5.10), adds RSE2, extended note effects
+  - **GP6/GPX (.gpx)** - Guitar Pro 6 BCFZ-compressed GPIF XML
+  - **GP7/GP8 (.gp)** - Guitar Pro 7/8 ZIP-packaged GPIF XML
+  - **GP1 (.gtp)** - Guitar Pro 1 legacy DOS format (v1.0-v1.04, French header "GUITARE")
+  - **GP2 (.gtp)** - Guitar Pro 2 legacy DOS format (v2.20-v2.21), adds triplet feel, repeat markers, capo
+  - Header-based format detection - works even with misnamed file extensions
+* **GP3/GP4/GP5 binary parser fixes** (Phase 16.1) - the upstream Meowchestra fork contained an unfinished Guitar Pro parser skeleton that failed on every real-world file. Fixed:
   - Added missing `Gp5Parser::readNoteEffects()` override for GP5-specific effect flags
   - Fixed field ordering in `readNote()` (`accentuatedNote`/`ghostNote` flags)
   - Added EOF boundary checking to prevent crashes on truncated files
-* **GP6 BCFZ decompression rewrite** (Phase 16.2) — upstream used zlib `inflate()` on BCFZ data which is completely wrong (BCFZ is a custom bit-level LZ77 algorithm, not zlib/DEFLATE). Rewrote `decompressGPX()` with the correct algorithm, ported from C# BardMusicPlayer/LightAmp source code
-* **GP7/GP8 ZIP extraction rewrite** (Phase 16.3) — upstream parsed local file headers which have unreliable sizes when ZIP data descriptors are present. Rewrote to parse the **central directory** from the end of the file for correct entry sizes
-* **GPIF XML node lookup fix** (Phase 16.4) — `getSubnodeByName()` could find nested elements (e.g. `<Bars>` inside `<MasterBar>`) before the top-level collection, causing silent data loss. All lookups now use `directOnly=true`
-* **GP1/GP2 legacy parser** (Phase 16.6) — new `Gp12Parser` classes ported from TuxGuitar's `GP1InputStream.java` / `GP2InputStream.java` reference implementation
-* **Explode Chords to Tracks icon** — toolbar icon added for the Explode Chords tool
+* **GP6 BCFZ decompression rewrite** (Phase 16.2) - upstream used zlib `inflate()` on BCFZ data which is completely wrong (BCFZ is a custom bit-level LZ77 algorithm, not zlib/DEFLATE). Rewrote `decompressGPX()` with the correct algorithm, ported from C# BardMusicPlayer/LightAmp source code
+* **GP7/GP8 ZIP extraction rewrite** (Phase 16.3) - upstream parsed local file headers which have unreliable sizes when ZIP data descriptors are present. Rewrote to parse the **central directory** from the end of the file for correct entry sizes
+* **GPIF XML node lookup fix** (Phase 16.4) - `getSubnodeByName()` could find nested elements (e.g. `<Bars>` inside `<MasterBar>`) before the top-level collection, causing silent data loss. All lookups now use `directOnly=true`
+* **GP1/GP2 legacy parser** (Phase 16.6) - new `Gp12Parser` classes ported from TuxGuitar's `GP1InputStream.java` / `GP2InputStream.java` reference implementation
+* **Explode Chords to Tracks icon** - toolbar icon added for the Explode Chords tool
 
 ### Changed
 * Version bump to 1.1.6
 
 ### Technical Notes
-* **Origin:** Meowchestra/MidiEditor upstream contained a non-functional Guitar Pro parser (`src/converter/GuitarPro/`) with basic structure for GP3–GP7. Binary parsers had field-ordering bugs, BCFZ used the wrong algorithm, ZIP extraction failed on data descriptors, XML lookups returned wrong elements. All bugs were fixed, GP1/GP2 support was added from scratch.
-* **Architecture:** Three parser families — binary (`Gp345Parser` inheritance chain), XML (`Gp678Parser` with BCFZ/ZIP decompression), and legacy (`Gp12Parser` inheritance chain). All share `GpImporter` as entry point with header-based detection.
+* **Origin:** Meowchestra/MidiEditor upstream contained a non-functional Guitar Pro parser (`src/converter/GuitarPro/`) with basic structure for GP3-GP7. Binary parsers had field-ordering bugs, BCFZ used the wrong algorithm, ZIP extraction failed on data descriptors, XML lookups returned wrong elements. All bugs were fixed, GP1/GP2 support was added from scratch.
+* **Architecture:** Three parser families - binary (`Gp345Parser` inheritance chain), XML (`Gp678Parser` with BCFZ/ZIP decompression), and legacy (`Gp12Parser` inheritance chain). All share `GpImporter` as entry point with header-based detection.
 * **Tested formats:** GP1 (You've Got Something There.gtp, 8 tracks/12 measures), GP3 (U2 - Lemon.gp3, 9/199), GP4 (Sakuran.gp4, 5/137), GP5 (Flogging-Molly.gp5, 5/74), GP6 (Sweet Child O Mine.gpx, 6/180), GP7 (The Mirror.gp, 6/147)
 
 </details>
 
 ---
 
-## [1.1.5] - 2026-03-31 — Auto-Updater
+## [1.1.5] - 2026-03-31 - Auto-Updater
 
 * Seamless in-app auto-updater from GitHub Releases (Update Now / After Exit / Download / Skip)
-* Self-update: renames running EXE, extracts new, restarts — no installer needed
+* Self-update: renames running EXE, extracts new, restarts - no installer needed
 * Fixed MidiPilot chat Ctrl+C copy and context menu styling
 
 <details>
 <summary>Full Changelog</summary>
 
 ### Added
-* **Auto-Updater** — seamless in-app update directly from GitHub Releases:
-  - **Update Now**: downloads ZIP, saves your work, replaces the EXE in-place, and restarts automatically — your open MIDI file is reopened after restart
+* **Auto-Updater** - seamless in-app update directly from GitHub Releases:
+  - **Update Now**: downloads ZIP, saves your work, replaces the EXE in-place, and restarts automatically - your open MIDI file is reopened after restart
   - **After Exit**: downloads ZIP in the background, applies the update when you close the application
   - **Download Manual**: opens the GitHub release page in your browser for manual download
   - **Skip**: dismisses the update notification
   - Progress dialog with download size and percentage
-  - Self-update approach: renames running EXE to `.bak`, extracts new files, launches new EXE — no external batch file or installer needed
+  - Self-update approach: renames running EXE to `.bak`, extracts new files, launches new EXE - no external batch file or installer needed
   - Old `.bak` files are automatically cleaned up on next startup
 * **Manual: Auto-Update section** updated with screenshots (Update dialog, Progress bar, Scheduled confirmation)
 
 ### Fixed
-* **MidiPilot chat: Ctrl+C copy** — selected text in chat bubbles can now be copied with Ctrl+C (previously only right-click → Copy worked)
-* **MidiPilot chat: context menu** — replaced the unstyled default system context menu with a compact dark-themed menu (Copy / Select All) that matches the application style
+* **MidiPilot chat: Ctrl+C copy** - selected text in chat bubbles can now be copied with Ctrl+C (previously only right-click → Copy worked)
+* **MidiPilot chat: context menu** - replaced the unstyled default system context menu with a compact dark-themed menu (Copy / Select All) that matches the application style
 
 ### Changed
 * Feature table: "Auto-Update Checker" renamed to "Auto-Updater" reflecting the new in-app update capability
@@ -1334,7 +1388,7 @@ Automated bug-hunter scan of all 98 GUI source files identified 47 potential iss
 
 ---
 
-## [1.1.4.1] - 2026-03-30 — Chat UX Fix
+## [1.1.4.1] - 2026-03-30 - Chat UX Fix
 
 * Fixed MidiPilot chat Ctrl+C copy and styled context menu
 
@@ -1342,8 +1396,8 @@ Automated bug-hunter scan of all 98 GUI source files identified 47 potential iss
 <summary>Full Changelog</summary>
 
 ### Fixed
-* **MidiPilot chat: Ctrl+C copy** — selected text in chat bubbles can now be copied with Ctrl+C (previously only right-click → Copy worked)
-* **MidiPilot chat: context menu** — replaced the unstyled default system context menu with a compact dark-themed menu (Copy / Select All) that matches the application style
+* **MidiPilot chat: Ctrl+C copy** - selected text in chat bubbles can now be copied with Ctrl+C (previously only right-click → Copy worked)
+* **MidiPilot chat: context menu** - replaced the unstyled default system context menu with a compact dark-themed menu (Copy / Select All) that matches the application style
 
 ### Changed
 * Version bump to 1.1.4.1
@@ -1352,7 +1406,7 @@ Automated bug-hunter scan of all 98 GUI source files identified 47 potential iss
 
 ---
 
-## [1.1.4] - 2026-03-29 — Split Channels to Tracks
+## [1.1.4] - 2026-03-29 - Split Channels to Tracks
 
 * Split single-track multi-channel MIDI into one track per instrument
 * Preview dialog with GM instrument names, auto-naming, drum track option
@@ -1362,7 +1416,7 @@ Automated bug-hunter scan of all 98 GUI source files identified 47 potential iss
 <summary>Full Changelog</summary>
 
 ### Added
-* **Split Channels to Tracks** — convert single-track multi-channel GM MIDI files into one track per instrument:
+* **Split Channels to Tracks** - convert single-track multi-channel GM MIDI files into one track per instrument:
   - Toolbar button + menu entry under Tools → Split Channels to Tracks (Ctrl+Shift+E)
   - Preview dialog showing all active channels with GM instrument names and note counts
   - Auto-names tracks from GM Program Change events (e.g. "Synth Bass 1", "Vibraphone", "Drums")
@@ -1380,20 +1434,20 @@ Automated bug-hunter scan of all 98 GUI source files identified 47 potential iss
 
 ---
 
-## [1.1.3.1] - 2026-03-29 — Auto-Save
+## [1.1.3.1] - 2026-03-29 - Auto-Save
 
 * Auto-save with sidecar `.autosave` backups after configurable idle period
 * Crash recovery for untitled documents, orphaned backup detection
-* Configurable interval (30–600s), toggle in Settings → System & Performance
+* Configurable interval (30-600s), toggle in Settings → System & Performance
 
 <details>
 <summary>Full Changelog</summary>
 
 ### Added
-* **Auto-Save** — automatic backup saves to prevent data loss during editing:
+* **Auto-Save** - automatic backup saves to prevent data loss during editing:
   - Saves a sidecar backup (`.autosave`) alongside your file after a configurable idle period
   - Untitled (never-saved) documents are backed up to `AppData/MidiEditor AI/autosave/`
-  - Original file is never overwritten — the backup is a separate `.autosave` file
+  - Original file is never overwritten - the backup is a separate `.autosave` file
   - On next open, if a newer autosave backup exists, offers to recover it
   - On startup, checks for orphaned untitled backups from crashes and offers recovery
   - Backup is automatically deleted on normal save or clean exit
@@ -1410,7 +1464,7 @@ Automated bug-hunter scan of all 98 GUI source files identified 47 potential iss
 
 ---
 
-## [1.1.3] - 2026-03-28 — Prompt Architecture v2, Crash Fix & Provider Selector
+## [1.1.3] - 2026-03-28 - Prompt Architecture v2, Crash Fix & Provider Selector
 
 * Provider selector in MidiPilot footer (OpenAI / OpenRouter / Gemini / Custom)
 * Prompt v2: priority rules, validation block, timing reference, truncation fallback
@@ -1420,16 +1474,16 @@ Automated bug-hunter scan of all 98 GUI source files identified 47 potential iss
 <summary>Full Changelog</summary>
 
 ### Added
-* **Provider selector in MidiPilot footer** — switch between OpenAI, OpenRouter, Gemini, and Custom directly in the chat panel without opening Settings. Automatically swaps API key, base URL, and model list per provider
-* **Prompt: Priority Rule (Phase 12.1)** — mode-specific prompts (e.g. FFXIV) now explicitly override general rules, eliminating the #1 source of FFXIV agent errors (inserting `program_change` when the mode says not to)
-* **Prompt: Final Validation Block (Phase 12.2)** — compact checklist appended to system prompts that the LLM reviews before responding (field requirements, value ranges, FFXIV constraints)
-* **Prompt: Timing Reference (Phase 12.3)** — explicit note duration formulas (quarter = ticksPerQuarter, eighth = ticksPerQuarter/2, etc.) so LLMs no longer miscalculate rhythms
-* **Prompt: Truncation Fallback (Phase 12.4)** — instruction to produce the smallest complete musically coherent version instead of truncated output when a request is too large
-* **Prompt: Schema unification (Phase 12.6)** — Simple mode prompt now always requires the `actions[]` array format, reducing ambiguity (parser still accepts single-action format for backward compat)
-* **Agent mode: Invalid event feedback (Phase 12.5)** — `deserialize()` now collects validation errors and returns them in the tool result (`skippedErrors` array), allowing the LLM to self-correct in subsequent tool calls instead of silently losing events
+* **Provider selector in MidiPilot footer** - switch between OpenAI, OpenRouter, Gemini, and Custom directly in the chat panel without opening Settings. Automatically swaps API key, base URL, and model list per provider
+* **Prompt: Priority Rule (Phase 12.1)** - mode-specific prompts (e.g. FFXIV) now explicitly override general rules, eliminating the #1 source of FFXIV agent errors (inserting `program_change` when the mode says not to)
+* **Prompt: Final Validation Block (Phase 12.2)** - compact checklist appended to system prompts that the LLM reviews before responding (field requirements, value ranges, FFXIV constraints)
+* **Prompt: Timing Reference (Phase 12.3)** - explicit note duration formulas (quarter = ticksPerQuarter, eighth = ticksPerQuarter/2, etc.) so LLMs no longer miscalculate rhythms
+* **Prompt: Truncation Fallback (Phase 12.4)** - instruction to produce the smallest complete musically coherent version instead of truncated output when a request is too large
+* **Prompt: Schema unification (Phase 12.6)** - Simple mode prompt now always requires the `actions[]` array format, reducing ambiguity (parser still accepts single-action format for backward compat)
+* **Agent mode: Invalid event feedback (Phase 12.5)** - `deserialize()` now collects validation errors and returns them in the tool result (`skippedErrors` array), allowing the LLM to self-correct in subsequent tool calls instead of silently losing events
 
 ### Fixed
-* **Crash: New File during playback** — `newFile()` now stops playback before replacing the MIDI file, and `MidiPlayer::stop()` waits for the player thread to finish (`wait()`), preventing a use-after-free crash when the old file was deleted while `PlayerThread` still accessed it on a separate thread
+* **Crash: New File during playback** - `newFile()` now stops playback before replacing the MIDI file, and `MidiPlayer::stop()` waits for the player thread to finish (`wait()`), preventing a use-after-free crash when the old file was deleted while `PlayerThread` still accessed it on a separate thread
 
 ### Changed
 * Removed unused `tsEvents` variable in `EditorContext::captureKeySignature()` (Phase 12.7)
@@ -1439,7 +1493,7 @@ Automated bug-hunter scan of all 98 GUI source files identified 47 potential iss
 
 ---
 
-## [1.1.2.2] - 2026-03-28 — Manual Update: Prompt Examples & CI
+## [1.1.2.2] - 2026-03-28 - Manual Update: Prompt Examples & CI
 
 * Prompt Examples with screenshots and downloadable MIDI files
 * Fixed broken download links, stray `n` artifact, navbar overflow
@@ -1449,13 +1503,13 @@ Automated bug-hunter scan of all 98 GUI source files identified 47 potential iss
 <summary>Full Changelog</summary>
 
 ### Added
-* **Prompt Examples: screenshots & MIDI downloads** — every prompt section (Composing, Editing, Harmony, Arrangement) now includes result screenshots and downloadable MIDI files
-* **New manual assets** — `manual/midi/` and `manual/wav/` directories for hosting example files locally on GitHub Pages
+* **Prompt Examples: screenshots & MIDI downloads** - every prompt section (Composing, Editing, Harmony, Arrangement) now includes result screenshots and downloadable MIDI files
+* **New manual assets** - `manual/midi/` and `manual/wav/` directories for hosting example files locally on GitHub Pages
 
 ### Fixed
-* **Broken download links** — MIDI/WAV links in Prompt Examples pointed to non-existent `../examples/` path (404); now link to `midi/` and `wav/` within the manual
-* **Stray `` `n `` artifact** in 15 HTML pages — a PowerShell newline literal was rendered as visible text in the navbar
-* **Navbar overflow** — reduced font size, gap, and disabled wrapping so all 12 links fit in a single row
+* **Broken download links** - MIDI/WAV links in Prompt Examples pointed to non-existent `../examples/` path (404); now link to `midi/` and `wav/` within the manual
+* **Stray `` `n `` artifact** in 15 HTML pages - a PowerShell newline literal was rendered as visible text in the navbar
+* **Navbar overflow** - reduced font size, gap, and disabled wrapping so all 12 links fit in a single row
 
 ### Changed
 * README: documentation link now points to the manual index instead of directly to the MidiPilot page
@@ -1465,7 +1519,7 @@ Automated bug-hunter scan of all 98 GUI source files identified 47 potential iss
 
 ---
 
-## [1.1.2.1] - 2026-03-26 — Hotfix: SoundFont Persistence & CI Fix
+## [1.1.2.1] - 2026-03-26 - Hotfix: SoundFont Persistence & CI Fix
 
 * Fixed SoundFont stack lost when switching MIDI output
 * Fixed CI/Release FluidSynth download 404
@@ -1474,14 +1528,14 @@ Automated bug-hunter scan of all 98 GUI source files identified 47 potential iss
 <summary>Full Changelog</summary>
 
 ### Fixed
-* **SoundFont stack lost when switching MIDI output** — switching from FluidSynth to another output (e.g. Microsoft GS Wavetable) and back no longer loses loaded SoundFonts; the engine now preserves font paths across shutdown/reinitialize cycles
-* **CI/Release workflow: FluidSynth download 404** — updated FluidSynth v2.5.2 asset URL to match upstream's renamed zip (`fluidsynth-v2.5.2-…` instead of `fluidsynth-2.5.2-…`)
+* **SoundFont stack lost when switching MIDI output** - switching from FluidSynth to another output (e.g. Microsoft GS Wavetable) and back no longer loses loaded SoundFonts; the engine now preserves font paths across shutdown/reinitialize cycles
+* **CI/Release workflow: FluidSynth download 404** - updated FluidSynth v2.5.2 asset URL to match upstream's renamed zip (`fluidsynth-v2.5.2-…` instead of `fluidsynth-2.5.2-…`)
 
 </details>
 
 ---
 
-## [1.1.2] - 2026-03-26 — FluidSynth & FFXIV SoundFont Mode
+## [1.1.2] - 2026-03-26 - FluidSynth & FFXIV SoundFont Mode
 
 * Built-in FluidSynth synthesizer with SoundFont stack management
 * FFXIV SoundFont Mode: melodic channels + per-note drum program injection
@@ -1493,24 +1547,24 @@ Automated bug-hunter scan of all 98 GUI source files identified 47 potential iss
 <summary>Full Changelog</summary>
 
 ### Added
-* **Built-in FluidSynth synthesizer** (upstream merge from [Meowchestra/MidiEditor](https://github.com/Meowchestra/MidiEditor)) — no external softsynth needed. Select *FluidSynth (Built-in Synthesizer)* as MIDI output and load any SF2/SF3 SoundFont directly in Settings
-* **SoundFont stack management** (upstream) — load multiple SoundFonts with drag-and-drop priority ordering; highest-priority font is checked first for presets
-* **SoundFont download dialog** (upstream) — one-click download of recommended SoundFonts (General MIDI, FFXIV) from within the application
-* **FFXIV SoundFont Mode** — single toggle in FluidSynth settings that:
+* **Built-in FluidSynth synthesizer** (upstream merge from [Meowchestra/MidiEditor](https://github.com/Meowchestra/MidiEditor)) - no external softsynth needed. Select *FluidSynth (Built-in Synthesizer)* as MIDI output and load any SF2/SF3 SoundFont directly in Settings
+* **SoundFont stack management** (upstream) - load multiple SoundFonts with drag-and-drop priority ordering; highest-priority font is checked first for presets
+* **SoundFont download dialog** (upstream) - one-click download of recommended SoundFonts (General MIDI, FFXIV) from within the application
+* **FFXIV SoundFont Mode** - single toggle in FluidSynth settings that:
   - Sets all 16 MIDI channels to melodic (bank 0) for FFXIV SoundFonts where percussion uses melodic presets
-  - Injects per-note program changes on CH9 based on track name, so each drum instrument (Snare Drum, Bass Drum, Cymbal, Bongo, Timpani) plays with the correct SoundFont preset — no MIDI file modification needed
-* **Velocity normalization** in Fix X|V Channels — Tier 2 (Rebuild) and Tier 3 (Preserve) now set all NoteOn velocities to 127 (max), since FFXIV performance has no dynamics
-* **Manual: SoundFont & FluidSynth page** — new documentation section covering built-in synth setup, SoundFont management, FFXIV SoundFont Mode, and audio settings
-* **Version in title bar** — application window title now shows `MidiEditor AI v1.1.2` (with version number) on startup, file open, save, and new document
+  - Injects per-note program changes on CH9 based on track name, so each drum instrument (Snare Drum, Bass Drum, Cymbal, Bongo, Timpani) plays with the correct SoundFont preset - no MIDI file modification needed
+* **Velocity normalization** in Fix X|V Channels - Tier 2 (Rebuild) and Tier 3 (Preserve) now set all NoteOn velocities to 127 (max), since FFXIV performance has no dynamics
+* **Manual: SoundFont & FluidSynth page** - new documentation section covering built-in synth setup, SoundFont management, FFXIV SoundFont Mode, and audio settings
+* **Version in title bar** - application window title now shows `MidiEditor AI v1.1.2` (with version number) on startup, file open, save, and new document
 
 ### Fixed
-* **Fix X|V Channels Rebuild mode: guitar notes stuck on wrong channel** — removed an incorrect guitar-channel exemption that prevented notes from being moved to their target channel when the source channel belonged to another guitar variant (e.g., Track 5 PowerChords notes stayed on CH1 instead of moving to CH5)
-* **Transpose dialog button order** — swapped Cancel/Accept buttons back to original MidiEditor layout (Cancel left, Accept right) to match muscle memory from the original editor
+* **Fix X|V Channels Rebuild mode: guitar notes stuck on wrong channel** - removed an incorrect guitar-channel exemption that prevented notes from being moved to their target channel when the source channel belonged to another guitar variant (e.g., Track 5 PowerChords notes stayed on CH1 instead of moving to CH5)
+* **Transpose dialog button order** - swapped Cancel/Accept buttons back to original MidiEditor layout (Cancel left, Accept right) to match muscle memory from the original editor
 
 ### Changed
-* **Fix X|V Channels** — "All Channels Melodic (FFXIV)" checkbox renamed to **"FFXIV SoundFont Mode"** with updated tooltip explaining both melodic channels and drum program injection
-* **Fix X|V Channels result dialog** — now shows velocity normalization count (🔊 Normalized X note velocity(ies) to 127)
-* **Fix X|V Channels tier descriptions** — both Rebuild and Preserve modes now list velocity normalization as a bullet point
+* **Fix X|V Channels** - "All Channels Melodic (FFXIV)" checkbox renamed to **"FFXIV SoundFont Mode"** with updated tooltip explaining both melodic channels and drum program injection
+* **Fix X|V Channels result dialog** - now shows velocity normalization count (🔊 Normalized X note velocity(ies) to 127)
+* **Fix X|V Channels tier descriptions** - both Rebuild and Preserve modes now list velocity normalization as a bullet point
 * Manual: updated Fix X|V Channels page with new screenshots and velocity normalization info
 * README: added FluidSynth / SoundFont section and updated Features table
 * Version bump to 1.1.2
@@ -1519,7 +1573,7 @@ Automated bug-hunter scan of all 98 GUI source files identified 47 potential iss
 
 ---
 
-## [1.1.1] - 2026-03-25 — Upstream merge
+## [1.1.1] - 2026-03-25 - Upstream merge
 
 * Metronome rewrite: GM drum notes instead of WAV files
 * Removed Qt6::Multimedia and Qt6::Xml dependencies
@@ -1529,15 +1583,15 @@ Automated bug-hunter scan of all 98 GUI source files identified 47 potential iss
 <summary>Full Changelog</summary>
 
 ### Changed
-* **Metronome rewrite** — replaced `QSoundEffect` audio playback with General MIDI drum notes on Channel 10 (High/Low Wood Block). No more WAV file dependency, works through the connected MIDI output device. Downbeats and regular beats now use distinct drum sounds
-* **Metronome timing** — all PlayerThread→Metronome signal connections now use `Qt::DirectConnection` for tighter timing in the audio thread
-* **Removed Qt6::Multimedia and Qt6::Xml** dependencies — fewer Qt modules required, smaller deployment footprint
-* **Plugin path fix** — `QCoreApplication::addLibraryPath(appDir + "/plugins")` added before QApplication construction; windeployqt now deploys to `plugins/` subdirectory for reliable Qt plugin discovery
-* **rtmidi updated** — submodule bumped to latest upstream (`a3233c2`)
+* **Metronome rewrite** - replaced `QSoundEffect` audio playback with General MIDI drum notes on Channel 10 (High/Low Wood Block). No more WAV file dependency, works through the connected MIDI output device. Downbeats and regular beats now use distinct drum sounds
+* **Metronome timing** - all PlayerThread→Metronome signal connections now use `Qt::DirectConnection` for tighter timing in the audio thread
+* **Removed Qt6::Multimedia and Qt6::Xml** dependencies - fewer Qt modules required, smaller deployment footprint
+* **Plugin path fix** - `QCoreApplication::addLibraryPath(appDir + "/plugins")` added before QApplication construction; windeployqt now deploys to `plugins/` subdirectory for reliable Qt plugin discovery
+* **rtmidi updated** - submodule bumped to latest upstream (`a3233c2`)
 * Version bump to 1.1.1
 
 ### Removed
-* Metronome WAV/MP3 audio files (no longer needed — metronome clicks via MIDI)
+* Metronome WAV/MP3 audio files (no longer needed - metronome clicks via MIDI)
 * Qt6::Xml and Qt6::Multimedia from build dependencies
 
 </details>
@@ -1555,31 +1609,31 @@ Automated bug-hunter scan of all 98 GUI source files identified 47 potential iss
 <summary>Full Changelog</summary>
 
 ### Added
-* **Fix X|V Channels** — one-click deterministic FFXIV channel fixer (no AI call needed):
+* **Fix X|V Channels** - one-click deterministic FFXIV channel fixer (no AI call needed):
   - Toolbar button + menu entry under Tools → Fix X|V Channels
   - 5-step algorithm: Analyze → Clean all program_change → Migrate channels → Program mapping → Report
   - Guitar tracks automatically get 5 channels for variant switching (Clean, Muted, Overdriven, PowerChords, Special)
   - **Confirmation dialog** with two modes: Rebuild (Full Reassignment) or Preserve (Minimal Changes), auto-detected based on file analysis
-  - **Rich result summary** — HTML-formatted info panel showing channel mapping table, removed/inserted program changes, track renames, and undo hint
-  - **Progress dialog** — shows percentage and phase description during channel fix to prevent apparent UI freeze on large files
+  - **Rich result summary** - HTML-formatted info panel showing channel mapping table, removed/inserted program changes, track renames, and undo hint
+  - **Progress dialog** - shows percentage and phase description during channel fix to prevent apparent UI freeze on large files
   - Entire operation wrapped in a single undo action
-* `FFXIVChannelFixer` class — static deterministic fixer delegated from `setup_channel_pattern` tool
+* `FFXIVChannelFixer` class - static deterministic fixer delegated from `setup_channel_pattern` tool
 * Toolbar migration code ensures Fix X|V button appears for existing users
 
 ### Fixed
-* **QSettings constructor mismatch** — FFXIV tools (`setup_channel_pattern`, `validate_ffxiv`, `convert_drums_ffxiv`) were never sent to the LLM because `ToolDefinitions` read from a different registry path than `MidiPilotWidget` wrote to. Both now use `QSettings("MidiEditor", "NONE")`
-* **Stale channel menus** — "Move events to channel" and similar channel context menus now refresh after Fix X|V Channels (added `updateChannelMenu()` to `updateAll()`)
+* **QSettings constructor mismatch** - FFXIV tools (`setup_channel_pattern`, `validate_ffxiv`, `convert_drums_ffxiv`) were never sent to the LLM because `ToolDefinitions` read from a different registry path than `MidiPilotWidget` wrote to. Both now use `QSettings("MidiEditor", "NONE")`
+* **Stale channel menus** - "Move events to channel" and similar channel context menus now refresh after Fix X|V Channels (added `updateChannelMenu()` to `updateAll()`)
 
 ### Changed
-* **Fix X|V Channels dialog** — removed redundant Tier 1 (Abort) option; Abort button already cancels. Tier labels simplified to "Rebuild (Full Reassignment)" and "Preserve (Minimal Changes)" without tier numbers
-* **Fix X|V Channels result** — replaced debug text popup with structured HTML info log showing success status, channel mapping table, program change stats, and track renames
-* FFXIV system prompts simplified — removed verbose channel/program tables, now instructs the LLM to call `setup_channel_pattern` once
+* **Fix X|V Channels dialog** - removed redundant Tier 1 (Abort) option; Abort button already cancels. Tier labels simplified to "Rebuild (Full Reassignment)" and "Preserve (Minimal Changes)" without tier numbers
+* **Fix X|V Channels result** - replaced debug text popup with structured HTML info log showing success status, channel mapping table, program change stats, and track renames
+* FFXIV system prompts simplified - removed verbose channel/program tables, now instructs the LLM to call `setup_channel_pattern` once
 * UI label renamed from "Fix FFXIV Channels" to "Fix X|V Channels" across all dialogs and menus
 * README: added Fix X|V Channels to Features table, FFXIV constraint table, and Tools reference
 * Manual: new Fix X|V Channels section in MidiPilot page with before/after screenshots and animated GIF
 * Manual: new Fix X|V Channels entry in Tools Menu page
 * Manual: separate Rebuild and Preserve GIF animations replacing single animation
-* **Version single source of truth** — `setApplicationVersion()` now reads from CMake define `MIDIEDITOR_RELEASE_VERSION_STRING_DEF` instead of a hardcoded string. Only update version in `CMakeLists.txt` line 3
+* **Version single source of truth** - `setApplicationVersion()` now reads from CMake define `MIDIEDITOR_RELEASE_VERSION_STRING_DEF` instead of a hardcoded string. Only update version in `CMakeLists.txt` line 3
 * Version bump to 1.1.0
 
 </details>
@@ -1600,7 +1654,7 @@ Automated bug-hunter scan of all 98 GUI source files identified 47 potential iss
   - Concrete 8-track Octett example with guitar switch channels
   - All tracks must include program_change events for ALL used channels at tick 0
   - Guitar switches clarified: 5 variants share channels, no extra tracks needed
-  - Track name determines instrument — channels are cosmetic except for guitar switches
+  - Track name determines instrument - channels are cosmetic except for guitar switches
   - Drum tracks ordered at end (highest track indices)
 * Version bump to 1.0.2
 
@@ -1635,7 +1689,7 @@ Automated bug-hunter scan of all 98 GUI source files identified 47 potential iss
 
 ## [1.0.0] - 2026-03-20
 
-* **MidiPilot AI Assistant** — integrated chat panel with Agent Mode (13 tools), Simple Mode, FFXIV Bard Mode
+* **MidiPilot AI Assistant** - integrated chat panel with Agent Mode (13 tools), Simple Mode, FFXIV Bard Mode
 * Multi-provider support (OpenAI, Gemini, OpenRouter, Ollama, etc.), token tracking, editable system prompts
 * FFXIV Validation tool, GM Drum Conversion tool, API logging, reasoning display
 * Rebranded to MidiEditor AI with CI/CD, GitHub Pages manual
@@ -1645,17 +1699,17 @@ Automated bug-hunter scan of all 98 GUI source files identified 47 potential iss
 <summary>Full Changelog</summary>
 
 ### MidiPilot AI Assistant (New)
-* **MidiPilot** — integrated AI chat panel for composing, editing, and transforming MIDI
-* **Agent Mode** — multi-step autonomous AI with 13 tool functions (create tracks, insert/replace/delete events, set tempo, transpose, etc.)
-* **Simple Mode** — single-step AI for quick edits with lower token usage
-* **FFXIV Bard Mode** — toggle for Final Fantasy XIV performance constraints (C3-C6 range, monophonic, 8-track limit, instrument validation)
-* **FFXIV Validation tool** — checks and auto-fixes MIDI files for FFXIV compliance
-* **GM Drum Conversion tool** — splits GM drum tracks into separate FFXIV tonal drum tracks
-* **Multi-Provider Support** — OpenAI, Google Gemini, OpenRouter, Groq, Ollama, LM Studio, or any custom OpenAI-compatible endpoint
-* **Token Usage Tracking** — displays per-request and session token counts in the status bar
-* **Editable System Prompts** — customize AI behavior via JSON file or built-in editor dialog
-* **API Logging** — all API requests/responses logged to `midipilot_api.log` for debugging
-* **Reasoning Display** — shows AI thinking/reasoning tokens in a collapsible section
+* **MidiPilot** - integrated AI chat panel for composing, editing, and transforming MIDI
+* **Agent Mode** - multi-step autonomous AI with 13 tool functions (create tracks, insert/replace/delete events, set tempo, transpose, etc.)
+* **Simple Mode** - single-step AI for quick edits with lower token usage
+* **FFXIV Bard Mode** - toggle for Final Fantasy XIV performance constraints (C3-C6 range, monophonic, 8-track limit, instrument validation)
+* **FFXIV Validation tool** - checks and auto-fixes MIDI files for FFXIV compliance
+* **GM Drum Conversion tool** - splits GM drum tracks into separate FFXIV tonal drum tracks
+* **Multi-Provider Support** - OpenAI, Google Gemini, OpenRouter, Groq, Ollama, LM Studio, or any custom OpenAI-compatible endpoint
+* **Token Usage Tracking** - displays per-request and session token counts in the status bar
+* **Editable System Prompts** - customize AI behavior via JSON file or built-in editor dialog
+* **API Logging** - all API requests/responses logged to `midipilot_api.log` for debugging
+* **Reasoning Display** - shows AI thinking/reasoning tokens in a collapsible section
 
 ### App & Infrastructure
 * Rebranded from MeowMidiEditor to **MidiEditor AI**
@@ -1666,7 +1720,7 @@ Automated bug-hunter scan of all 98 GUI source files identified 47 potential iss
 * Dark-themed manual with MidiPilot documentation, screenshots, and getting started guide
 
 ### Based On
-* [Meowchestra/MidiEditor](https://github.com/Meowchestra/MidiEditor) v4.3.1 — all upstream features included:
+* [Meowchestra/MidiEditor](https://github.com/Meowchestra/MidiEditor) v4.3.1 - all upstream features included:
   - Strummer tool, Glue tool, Scissors tool, Delete Overlaps tool
   - Explode Chords to Tracks, Convert Pitch Bends
   - Shared Clipboard (cross-instance copy/paste)

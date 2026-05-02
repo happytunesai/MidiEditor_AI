@@ -35,6 +35,7 @@
 #include "../midi/MidiPlayer.h"
 #include "../midi/MidiTrack.h"
 #include "../protocol/Protocol.h"
+#include "../gui/PasteSpecialDialog.h"
 #include "NewNoteTool.h"
 #include "Selection.h"
 #include "SharedClipboard.h"
@@ -45,6 +46,7 @@
 
 QList<MidiEvent *> *EventTool::copiedEvents = new QList<MidiEvent *>;
 int EventTool::_copiedTicksPerQuarter = 0;
+QPointer<MidiFile> EventTool::_copiedSourceFile;
 
 int EventTool::_pasteChannel = -1;
 int EventTool::_pasteTrack = -2;
@@ -206,6 +208,7 @@ void EventTool::copyAction() {
         // Store source file's ticksPerQuarter before copying events
         MidiFile *sourceFile = currentFile();
         _copiedTicksPerQuarter = sourceFile ? sourceFile->ticksPerQuarter() : 192;
+        _copiedSourceFile = sourceFile;
 
         foreach(MidiEvent* event, Selection::instance()->selectedEvents()) {
             // add the current Event
@@ -479,29 +482,78 @@ bool EventTool::copyToSharedClipboard() {
 }
 
 bool EventTool::pasteFromSharedClipboard() {
+    // Legacy entry: preserve existing 1.5.x behaviour by routing every
+    // pasted event onto the current edit target. The Phase 34 dialog and
+    // the new modes are reached via pasteFromSharedClipboardWithOptions().
+    PasteSpecialOptions opts;
+    opts.assignment = PasteAssignment::CurrentEditTarget;
+    return pasteFromSharedClipboardWithOptions(opts);
+}
+
+bool EventTool::pasteFromSharedClipboardWithOptions(const PasteSpecialOptions &opts,
+                                                    bool allowSameProcess) {
     SharedClipboard *clipboard = SharedClipboard::instance();
     if (!clipboard->initialize()) {
         return false;
     }
 
-    // Only paste from shared clipboard if data is from a different process
-    if (!clipboard->hasDataFromDifferentProcess()) {
+    if (allowSameProcess) {
+        if (!clipboard->hasData()) {
+            return false;
+        }
+    } else if (!clipboard->hasDataFromDifferentProcess()) {
         return false;
     }
 
     QList<MidiEvent *> sharedEvents;
-    if (!clipboard->pasteEvents(currentFile(), sharedEvents, true, currentFile()->cursorTick())) {
+    if (!clipboard->pasteEvents(currentFile(), sharedEvents, opts.applyTempoConversion,
+                                opts.targetCursorTick)) {
         return false;
     }
-
     if (sharedEvents.isEmpty()) {
         return false;
     }
 
     // Now actually paste these events using the same logic as regular paste
     if (sharedEvents.count() > 0) {
+        // Resolve target track FIRST so we can bail out without leaving an
+        // open Protocol action (PHASE36-001). currentFile() is guaranteed
+        // non-null at this point because pasteEvents() above already
+        // dereferenced it.
+        int targetChannel = NewNoteTool::editChannel();
+        MidiTrack *targetTrack = currentFile()->track(NewNoteTool::editTrack());
+        if (!targetTrack) {
+            targetTrack = currentFile()->track(0);
+        }
+        if (!targetTrack) {
+            for (MidiEvent *event: sharedEvents) {
+                if (event) delete event;
+            }
+            return false;
+        }
+
         // Begin a new ProtocolAction
         currentFile()->protocol()->startNewAction(QObject::tr("Paste ") + QString::number(sharedEvents.count()) + QObject::tr(" events from shared clipboard"));
+
+        // Phase 36.x -- rescale source ticks into the target file's tick
+        // grid when the two MidiFiles use different ticksPerQuarter. The
+        // local clipboard path (pasteAction) does the same thing via
+        // _copiedTicksPerQuarter; without it a copy from a 480-TPQ file
+        // into a 192-TPQ file (or vice-versa) collapses every event onto
+        // the first beat. Reported regression after the file-to-file
+        // Paste Special routing landed.
+        const int sourceTpq = SharedClipboard::sourceTicksPerQuarter();
+        const int targetTpq = currentFile()->ticksPerQuarter();
+        double tickscale = 1.0;
+        if (sourceTpq > 0 && targetTpq > 0 && sourceTpq != targetTpq) {
+            tickscale = static_cast<double>(targetTpq) / static_cast<double>(sourceTpq);
+        }
+        // PHASE36-006: round to nearest instead of truncating toward zero
+        // so a leading event at originalTime=1 with a downscale of 0.4
+        // doesn't get clamped onto tick 0 and lose its swing.
+        auto scaleTick = [tickscale](int t) {
+            return static_cast<int>(std::lround(tickscale * static_cast<double>(t)));
+        };
 
         // Get first tick using the original timing information (not deserialized timing)
         int firstTick = -1;
@@ -510,8 +562,9 @@ bool EventTool::pasteFromSharedClipboard() {
             int originalTime = originalTiming.first;
 
             if (originalTime != -1) {
-                if (originalTime < firstTick || firstTick < 0) {
-                    firstTick = originalTime;
+                const int scaled = scaleTick(originalTime);
+                if (scaled < firstTick || firstTick < 0) {
+                    firstTick = scaled;
                 }
             }
         }
@@ -522,27 +575,59 @@ bool EventTool::pasteFromSharedClipboard() {
         // Calculate the difference to paste at cursor position
         int diff = currentFile()->cursorTick() - firstTick;
 
-        // Get current editing context (where to paste)
-        int targetChannel = NewNoteTool::editChannel();
-        MidiTrack *targetTrack = currentFile()->track(NewNoteTool::editTrack());
-        if (!targetTrack) {
-            targetTrack = currentFile()->track(0);
-        }
+        // ---- Phase 34: build source-track \u2192 target-track map -----------
+        // Only meaningful when the assignment policy isn't CurrentEditTarget.
+        // For CurrentEditTarget the map is empty and the legacy code path
+        // below uses `targetTrack` / `targetChannel` directly.
+        QHash<int, MidiTrack *> sourceTrackToTarget;
+        const QList<QPair<int, QString>> sourceTracks = SharedClipboard::sourceTrackList();
+        if (opts.assignment != PasteAssignment::CurrentEditTarget) {
+            int unnamedCounter = 1;
+            for (const auto &p : sourceTracks) {
+                const int sourceId = p.first;
+                const QString sourceName = p.second;
+                MidiTrack *resolved = nullptr;
 
-        if (!targetTrack) {
-            // Clean up events
-            for (MidiEvent *event: sharedEvents) {
-                if (event) delete event;
-            }
-            return false;
-        }
+                if (opts.assignment == PasteAssignment::PreserveSourceMapping
+                    && !sourceName.isEmpty()) {
+                    // Try to reuse an existing target track by name.
+                    if (currentFile()->tracks()) {
+                        for (MidiTrack *t : *currentFile()->tracks()) {
+                            if (t && t->name() == sourceName) {
+                                resolved = t;
+                                break;
+                            }
+                        }
+                    }
+                }
 
-        if (!currentFile()) {
-            // Clean up events
-            for (MidiEvent *event: sharedEvents) {
-                if (event) delete event;
+                if (!resolved) {
+                    // Create a new track. addTrack() appends and is itself
+                    // part of the open protocol action, so a single Ctrl+Z
+                    // unwinds it together with the pasted events.
+                    currentFile()->addTrack();
+                    resolved = currentFile()->tracks()
+                                   ? currentFile()->tracks()->last()
+                                   : nullptr;
+                    if (resolved) {
+                        QString newName;
+                        if (opts.assignment == PasteAssignment::NewTracksPerSource) {
+                            newName = sourceName.isEmpty()
+                                          ? QObject::tr("Pasted Track %1").arg(unnamedCounter++)
+                                          : QObject::tr("Pasted: %1").arg(sourceName);
+                        } else { // PreserveSourceMapping with no match
+                            newName = sourceName.isEmpty()
+                                          ? QObject::tr("Pasted Track %1").arg(unnamedCounter++)
+                                          : sourceName;
+                        }
+                        resolved->setName(newName);
+                    }
+                }
+
+                if (resolved) {
+                    sourceTrackToTarget.insert(sourceId, resolved);
+                }
             }
-            return false;
         }
 
         // Clear selection and paste events
@@ -568,13 +653,36 @@ bool EventTool::pasteFromSharedClipboard() {
         std::vector<std::pair<ProtocolEntry *, ProtocolEntry *> > channelCopies;
         std::set<int> copiedChannels;
 
-        // Add target channel for regular events
+        auto snapshotChannelOnce = [&](int chan) {
+            if (chan < 0 || chan > 18) return;
+            if (copiedChannels.find(chan) != copiedChannels.end()) return;
+            MidiChannel *channel = currentFile()->channel(chan);
+            if (!channel) return;
+            ProtocolEntry *channelCopy = channel->copy();
+            channelCopies.push_back(std::make_pair(channelCopy, channel));
+            copiedChannels.insert(chan);
+        };
+
+        // Add target channel for regular events.
+        // - CurrentEditTarget mode: every regular event collapses onto
+        //   targetChannel.
+        // - NewTracks / Preserve modes: each regular event keeps its
+        //   source channel; pre-snapshot every distinct source channel
+        //   so the protocol covers all of them.
         if (!regularEvents.isEmpty()) {
-            if (copiedChannels.find(targetChannel) == copiedChannels.end()) {
-                MidiChannel *channel = currentFile()->channel(targetChannel);
-                ProtocolEntry *channelCopy = channel->copy();
-                channelCopies.push_back(std::make_pair(channelCopy, channel));
-                copiedChannels.insert(targetChannel);
+            if (opts.assignment == PasteAssignment::CurrentEditTarget) {
+                snapshotChannelOnce(targetChannel);
+            } else {
+                for (int i = 0; i < regularEvents.size(); ++i) {
+                    const PasteSourceInfo info =
+                        SharedClipboard::getPasteSourceInfo(tempoEvents.size() + i);
+                    if (info.originalChannel >= 0 && info.originalChannel <= 15) {
+                        snapshotChannelOnce(info.originalChannel);
+                    } else {
+                        // Unknown channel: fall back to the legacy target.
+                        snapshotChannelOnce(targetChannel);
+                    }
+                }
             }
         }
 
@@ -621,7 +729,7 @@ bool EventTool::pasteFromSharedClipboard() {
                 }
 
                 // Calculate new timing
-                int newTime = originalTime + diff;
+                int newTime = scaleTick(originalTime) + diff;
                 if (newTime < 0) newTime = 0;
 
                 // Set event properties
@@ -680,17 +788,32 @@ bool EventTool::pasteFromSharedClipboard() {
                 }
 
                 // Calculate new timing (preserve relative timing, paste at cursor)
-                int newTime = originalTime + diff;
+                int newTime = scaleTick(originalTime) + diff;
+
+                // Phase 34: route per-event according to opts.assignment.
+                int eventChannel = targetChannel;
+                MidiTrack *eventTrack = targetTrack;
+                if (opts.assignment != PasteAssignment::CurrentEditTarget) {
+                    const PasteSourceInfo info =
+                        SharedClipboard::getPasteSourceInfo(regularEventIndex);
+                    if (info.originalChannel >= 0 && info.originalChannel <= 15) {
+                        eventChannel = info.originalChannel;
+                    }
+                    auto it = sourceTrackToTarget.constFind(info.sourceTrackId);
+                    if (it != sourceTrackToTarget.constEnd() && it.value()) {
+                        eventTrack = it.value();
+                    }
+                }
 
                 // Set the event properties safely (timing is already restored in deserializeEvents)
                 event->setFile(currentFile());
 
-                event->setChannel(targetChannel, false);
+                event->setChannel(eventChannel, false);
 
-                event->setTrack(targetTrack, false);
+                event->setTrack(eventTrack, false);
 
-                // Insert into the target channel at the calculated time
-                currentFile()->channel(targetChannel)->insertEvent(event, newTime, false);
+                // Insert into the (possibly per-event) target channel.
+                currentFile()->channel(eventChannel)->insertEvent(event, newTime, false);
 
                 // Accumulate into local selection list (respecting visibility & skipping OffEvents).
                 if (!dynamic_cast<OffEvent *>(event)
@@ -737,6 +860,210 @@ bool EventTool::hasSharedClipboardData() {
     }
     // Only return true if data is from a different process
     return clipboard->hasDataFromDifferentProcess();
+}
+
+MidiFile *EventTool::copiedSourceFile() {
+    return _copiedSourceFile.data();
+}
+
+bool EventTool::localCopyIsForeignTo(MidiFile *current) {
+    if (!current) return false;
+    if (copiedEvents->isEmpty()) return false;
+    // QPointer null-outs when the original file is destroyed; in that
+    // case the local copy is implicitly foreign to whatever is open now.
+    MidiFile *src = _copiedSourceFile.data();
+    return src != current;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 36 -- Copy to Track / Copy to Channel
+//
+// Mirrors the Move-to-Track / Move-to-Channel flow but DUPLICATES the
+// selection instead of re-homing the originals. The new copies become
+// the active selection so the user can immediately transpose, re-velocity,
+// recolour, etc. without having to reselect them.
+//
+// Implementation notes:
+//   * NoteOnEvents must drag their paired OffEvent along; we clone the
+//     paired OffEvent the same way EventTool::pasteAction() does
+//     (see line ~280 above).
+//   * Each touched MidiChannel is snapshotted once via channel->copy()
+//     so the whole action collapses into a single Protocol step
+//     (channel->protocol(snapshot, channel) at the end). insertEvent()
+//     is therefore called with toProtocol=false.
+//   * Meta channels (16 / 17 / 18) refuse Copy-to-Channel because
+//     "channel" doesn't apply to key sig / tempo / time-sig events.
+//     Copy-to-Track has no such restriction -- meta events live on
+//     dedicated tracks too.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// Helper: clone one event onto the chosen track + channel and insert it
+// into `targetFile`. Returns the newly inserted MidiEvent (NoteOn) or
+// nullptr on failure. The paired OffEvent (when the source is a NoteOn)
+// is inserted as a side effect; it is NOT returned because the caller
+// should select only the on-events.
+MidiEvent *cloneEventOnto(MidiEvent *src, MidiTrack *targetTrack,
+                          int targetChannel, MidiFile *targetFile) {
+    if (!src || !targetFile) return nullptr;
+
+    MidiEvent *dup = dynamic_cast<MidiEvent *>(src->copy());
+    if (!dup) return nullptr;
+
+    dup->setFile(targetFile);
+    if (targetTrack) {
+        dup->setTrack(targetTrack, false);
+    }
+    if (targetChannel >= 0) {
+        dup->setChannel(targetChannel, false);
+    }
+
+    const int insertChannel = (targetChannel >= 0)
+        ? targetChannel
+        : dup->channel();
+
+    OnEvent *onDup = dynamic_cast<OnEvent *>(dup);
+    if (onDup) {
+        OnEvent *srcOn = dynamic_cast<OnEvent *>(src);
+        OffEvent *srcOff = srcOn ? srcOn->offEvent() : nullptr;
+        if (srcOff) {
+            OffEvent *offDup = dynamic_cast<OffEvent *>(srcOff->copy());
+            if (offDup) {
+                offDup->setOnEvent(onDup);
+                offDup->setFile(targetFile);
+                if (targetTrack) {
+                    offDup->setTrack(targetTrack, false);
+                }
+                if (targetChannel >= 0) {
+                    offDup->setChannel(targetChannel, false);
+                }
+                targetFile->channel(insertChannel)
+                    ->insertEvent(offDup, srcOff->midiTime(), false);
+            }
+        }
+    }
+
+    targetFile->channel(insertChannel)
+        ->insertEvent(dup, src->midiTime(), false);
+    return dup;
+}
+
+} // namespace
+
+bool EventTool::copySelectionToTrack(MidiTrack *target) {
+    if (!target) return false;
+    MidiFile *file = currentFile();
+    if (!file) return false;
+
+    QList<MidiEvent *> selected = Selection::instance()->selectedEvents();
+    if (selected.isEmpty()) return false;
+
+    file->protocol()->startNewAction(
+        QObject::tr("Copy %1 events to track %2")
+            .arg(selected.size())
+            .arg(target->number()));
+
+    // Snapshot every channel that will receive an insert exactly once.
+    std::vector<std::pair<ProtocolEntry *, ProtocolEntry *>> channelCopies;
+    std::set<int> snapshotted;
+    auto snapshotChannel = [&](int chan) {
+        if (snapshotted.find(chan) != snapshotted.end()) return;
+        MidiChannel *mc = file->channel(chan);
+        if (!mc) return;
+        ProtocolEntry *snap = mc->copy();
+        channelCopies.push_back(std::make_pair(snap, mc));
+        snapshotted.insert(chan);
+    };
+    for (MidiEvent *ev : selected) {
+        if (!ev) continue;
+        if (dynamic_cast<OffEvent *>(ev)) continue; // paired with its OnEvent
+        // PHASE36-004: never duplicate meta events (tempo / time-sig /
+        // key-sig live on channels 17 / 18 / 16). Duplicating them at
+        // identical ticks corrupts the tempo map (last-writer-wins
+        // inside QMultiMap) and silently shifts playback timing.
+        if (ev->channel() >= 16) continue;
+        snapshotChannel(ev->channel());
+    }
+
+    QList<MidiEvent *> newSelection;
+    for (MidiEvent *ev : selected) {
+        if (!ev) continue;
+        if (dynamic_cast<OffEvent *>(ev)) continue;
+        if (ev->channel() >= 16) continue; // see PHASE36-004 above
+        MidiEvent *dup = cloneEventOnto(ev, target, /*targetChannel=*/-1, file);
+        if (dup) newSelection.append(dup);
+    }
+
+    // Commit one channel-state diff per affected channel.
+    for (auto &pair : channelCopies) {
+        ProtocolEntry *snap = pair.first;
+        snap->protocol(snap, pair.second);
+    }
+
+    Selection::instance()->setSelection(newSelection);
+    if (_mainWindow) {
+        _mainWindow->eventWidget()->reportSelectionChangedByTool();
+    }
+
+    file->protocol()->endAction();
+    return !newSelection.isEmpty();
+}
+
+bool EventTool::copySelectionToChannel(int channel) {
+    if (channel < 0 || channel > 15) {
+        // Meta channels (16/17/18) refuse this operation.
+        return false;
+    }
+    MidiFile *file = currentFile();
+    if (!file) return false;
+
+    QList<MidiEvent *> selected = Selection::instance()->selectedEvents();
+    if (selected.isEmpty()) return false;
+
+    file->protocol()->startNewAction(
+        QObject::tr("Copy %1 events to channel %2")
+            .arg(selected.size())
+            .arg(channel));
+
+    // Snapshot the target channel + every source channel.
+    std::vector<std::pair<ProtocolEntry *, ProtocolEntry *>> channelCopies;
+    std::set<int> snapshotted;
+    auto snapshotChannel = [&](int chan) {
+        if (snapshotted.find(chan) != snapshotted.end()) return;
+        MidiChannel *mc = file->channel(chan);
+        if (!mc) return;
+        ProtocolEntry *snap = mc->copy();
+        channelCopies.push_back(std::make_pair(snap, mc));
+        snapshotted.insert(chan);
+    };
+    snapshotChannel(channel);
+
+    QList<MidiEvent *> newSelection;
+    for (MidiEvent *ev : selected) {
+        if (!ev) continue;
+        if (dynamic_cast<OffEvent *>(ev)) continue;
+        // Skip events that already live on a meta channel -- they cannot
+        // be re-routed onto a 0..15 voice channel.
+        if (ev->channel() >= 16) continue;
+
+        // Keep the original track. We only re-channel the duplicate.
+        MidiEvent *dup = cloneEventOnto(ev, ev->track(), channel, file);
+        if (dup) newSelection.append(dup);
+    }
+
+    for (auto &pair : channelCopies) {
+        ProtocolEntry *snap = pair.first;
+        snap->protocol(snap, pair.second);
+    }
+
+    Selection::instance()->setSelection(newSelection);
+    if (_mainWindow) {
+        _mainWindow->eventWidget()->reportSelectionChangedByTool();
+    }
+
+    file->protocol()->endAction();
+    return !newSelection.isEmpty();
 }
 
 void EventTool::recalculateExistingNotesAfterTempoChange(const QList<MidiEvent *> &tempoEvents) {

@@ -3,9 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>MCP Server &mdash; Model Context Protocol | MidiEditor AI Manual</title>
+  <title>MCP Server - Model Context Protocol | MidiEditor AI Manual</title>
   <link rel="icon" type="image/png" href="favicon.png">
-  <meta name="theme-color" content="#0d1117">
+  <meta name="theme-color" content="#0B1020">
   <meta name="description" content="Connect Claude Desktop, VS Code Copilot, Cursor, or any MCP client to MidiEditor AI's built-in MCP server for AI-powered MIDI editing.">
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="site.css">
@@ -23,7 +23,7 @@
     .screenshot-row img { border: 1px solid var(--border); border-radius: 8px; }
     .caption { text-align: center; color: var(--text-muted); font-style: italic; margin-top: 0.5rem; font-size: 0.9rem; }
     .tool-badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.8rem; font-weight: 600; margin-left: 0.5rem; }
-    .badge-read { background: #1f6feb22; color: #58a6ff; border: 1px solid #1f6feb44; }
+    .badge-read { background: #00B8FF22; color: #00B8FF; border: 1px solid #00B8FF44; }
     .badge-write { background: #f0883e22; color: #f0883e; border: 1px solid #f0883e44; }
     .badge-ffxiv { background: #8b5cf622; color: #a78bfa; border: 1px solid #8b5cf644; }
     .step-list { counter-reset: step; list-style: none; padding-left: 0; }
@@ -36,8 +36,7 @@
 <nav class="site-nav" role="navigation" aria-label="Main navigation">
 <div class="container">
     <a href="index.html" class="nav-brand">
-        <span class="brand-icon">&#x1F3B5;</span>
-        <span>MidiEditor AI</span>
+        <img class="brand-logo" src="Midieditor-ai_banner_w.png" alt="MidiEditor AI">
     </a>
     <button class="nav-hamburger" aria-label="Toggle menu" aria-expanded="false">&#x2630;</button>
     <ul class="nav-links">
@@ -50,6 +49,8 @@
                 <a href="midipilot.html">MidiPilot AI</a>
                 <a href="prompt-examples.html">Prompt Examples</a>
                 <a href="ffxiv-channel-fixer.html">FFXIV Channel Fixer</a>
+                <a href="ffxiv-voice-limiter.html">FFXIV Voice Limiter</a>
+                <a href="tempo-conversion.html">Convert Tempo</a>
                 <a href="supported-files.html">Supported Files</a>
                 <a href="themes.html">Themes &amp; Appearance</a>
                 <a href="lyrics.html">Lyric Editor</a>
@@ -71,13 +72,13 @@
 
 <main id="main-content">
 
-<h1 id="mcp-server">MCP Server &mdash; Model Context Protocol</h1>
+<h1 id="mcp-server">MCP Server - Model Context Protocol</h1>
 
 <p>
-MidiEditor AI includes a built-in <b>MCP (Model Context Protocol)</b> server that lets any MCP-compatible AI client &mdash;
-<b>Claude Desktop</b>, <b>VS Code Copilot</b>, <b>Cursor</b>, <b>Windsurf</b>, <b>Continue</b>, and others &mdash;
+MidiEditor AI includes a built-in <b>MCP (Model Context Protocol)</b> server that lets any MCP-compatible AI client -
+<b>Claude Desktop</b>, <b>VS Code Copilot</b>, <b>Cursor</b>, <b>Windsurf</b>, <b>Continue</b>, and others -
 directly use MidiEditor&rsquo;s MIDI editing tools. Instead of copy-pasting between your AI client and the editor,
-the AI can read your MIDI file, create tracks, insert notes, set tempo, and more &mdash; all through a standard protocol.
+the AI can read your MIDI file, create tracks, insert notes, set tempo, and more - all through a standard protocol.
 </p>
 
 <div class="screenshot-single">
@@ -91,7 +92,7 @@ the AI can read your MIDI file, create tracks, insert notes, set tempo, and more
 
 <p>
 The <a href="https://modelcontextprotocol.io" target="_blank" rel="noopener noreferrer">Model Context Protocol</a> is an open standard
-that lets AI models discover and use external tools. Think of it like a USB port for AI &mdash; any AI client that speaks MCP
+that lets AI models discover and use external tools. Think of it like a USB port for AI - any AI client that speaks MCP
 can plug into MidiEditor AI and control it.
 </p>
 
@@ -105,7 +106,7 @@ The difference is that with MCP, <i>you choose</i> which AI client and model to 
 <h2 id="demo-examples">Demo &amp; Examples</h2>
 
 <p>
-See MidiEditor AI's MCP server in action with this AI-composed metal remix of Mozart's <em>Eine kleine Nachtmusik</em> —
+See MidiEditor AI's MCP server in action with this AI-composed metal remix of Mozart's <em>Eine kleine Nachtmusik</em> -
 created using the MCP protocol with shredding guitars, strings, and drums:
 </p>
 
@@ -168,7 +169,7 @@ All 20 measures were created via the MCP protocol with a guitar solo in the midd
 
 <div class="screenshot-single">
     <img src="screenshots/mcp_settings.png" alt="MCP Server settings in AI Settings dialog" width="500" loading="lazy">
-    <div class="caption">MCP Server settings &mdash; enable, configure port, generate auth token, copy config</div>
+    <div class="caption">MCP Server settings - enable, configure port, generate auth token, copy config</div>
 </div>
 
 <h3 id="toolbar-toggle">Toolbar Toggle Button</h3>
@@ -181,11 +182,11 @@ The MCP Server button shows the server status at a glance:
 <div style="display: flex; align-items: center; gap: 2rem; margin: 1.5rem 0; flex-wrap: wrap;">
     <div style="display: flex; align-items: center; gap: 0.75rem;">
         <img src="screenshots/mcp_on.png" alt="MCP Server running (green)" height="25" style="image-rendering: auto;">
-        <span><b>Green</b> &mdash; MCP server is running and accepting connections</span>
+        <span><b>Green</b> - MCP server is running and accepting connections</span>
     </div>
     <div style="display: flex; align-items: center; gap: 0.75rem;">
         <img src="screenshots/mcp_off.png" alt="MCP Server stopped (gray)" height="25" style="image-rendering: auto; filter: invert(1);">
-        <span><b>Gray</b> &mdash; MCP server is stopped</span>
+        <span><b>Gray</b> - MCP server is stopped</span>
     </div>
 </div>
 
@@ -352,7 +353,7 @@ without making tool calls.
 
 <table>
     <tr><th>URI</th><th>Description</th></tr>
-    <tr><td><code>midi://state</code></td><td>Full editor state &mdash; file info, all tracks, cursor, tempo, time signature</td></tr>
+    <tr><td><code>midi://state</code></td><td>Full editor state - file info, all tracks, cursor, tempo, time signature</td></tr>
     <tr><td><code>midi://tracks</code></td><td>Track list with names, channels, and event counts</td></tr>
     <tr><td><code>midi://config</code></td><td>FFXIV mode status, file path, ticks per beat, current tempo</td></tr>
 </table>
@@ -368,19 +369,19 @@ in the <code>clientInfo</code> field. MidiEditor AI displays this in the Protoco
 </p>
 
 <ul>
-    <li><b>Built-in MidiPilot:</b> <code>MidiPilot: Agent insert events &ndash; Flute (20)</code></li>
-    <li><b>MCP (with client info):</b> <code>MidiPilotMCP (VS Code Copilot Claude Opus 4.6): Agent insert events &ndash; Flute (20)</code></li>
-    <li><b>MCP (without client info):</b> <code>MidiPilotMCP: Agent insert events &ndash; Flute (20)</code></li>
+    <li><b>Built-in MidiPilot:</b> <code>MidiPilot: Agent insert events - Flute (20)</code></li>
+    <li><b>MCP (with client info):</b> <code>MidiPilotMCP (VS Code Copilot Claude Opus 4.6): Agent insert events - Flute (20)</code></li>
+    <li><b>MCP (without client info):</b> <code>MidiPilotMCP: Agent insert events - Flute (20)</code></li>
 </ul>
 
 <p>
-This makes it easy to see which actions came from where &mdash; especially useful when both the built-in MidiPilot
+This makes it easy to see which actions came from where - especially useful when both the built-in MidiPilot
 and an external MCP client are used on the same file. Every MCP action supports <b>Ctrl+Z undo</b>, just like built-in actions.
 </p>
 
 <div class="screenshot-single">
     <img src="screenshots/mcp_protocol_prefix.png" alt="Protocol panel showing MidiPilotMCP prefix with client identification" width="500" loading="lazy">
-    <div class="caption">Protocol panel &mdash; MCP actions with client name and model identification</div>
+    <div class="caption">Protocol panel - MCP actions with client name and model identification</div>
 </div>
 
 <hr>
@@ -391,9 +392,9 @@ and an external MCP client are used on the same file. Every MCP action supports 
 
 <table>
     <tr><th>Feature</th><th>Description</th></tr>
-    <tr><td><b>Localhost binding</b></td><td>Listens on <code>127.0.0.1</code> only &mdash; not accessible from the network</td></tr>
+    <tr><td><b>Localhost binding</b></td><td>Listens on <code>127.0.0.1</code> only - not accessible from the network</td></tr>
     <tr><td><b>Origin validation</b></td><td>Rejects requests with non-local Origin headers (DNS rebinding protection)</td></tr>
-    <tr><td><b>Auth token</b></td><td>Optional Bearer token authentication &mdash; generate one in Settings</td></tr>
+    <tr><td><b>Auth token</b></td><td>Optional Bearer token authentication - generate one in Settings</td></tr>
     <tr><td><b>Rate limiting</b></td><td>100 tool calls per minute per session</td></tr>
     <tr><td><b>Session management</b></td><td>Sessions expire after 1 hour of inactivity</td></tr>
 </table>
@@ -459,7 +460,7 @@ AI clients should be aware of these when composing or editing large MIDI files.
 <h3>&ldquo;Rate limit exceeded&rdquo; error</h3>
 <ul>
     <li>The server allows 100 tool calls per minute per session</li>
-    <li>Wait a moment and retry &mdash; the limit resets every 60 seconds</li>
+    <li>Wait a moment and retry - the limit resets every 60 seconds</li>
 </ul>
 
 <hr>
@@ -495,7 +496,7 @@ AI clients should be aware of these when composing or editing large MIDI files.
 
 <footer class="site-footer">
     <div class="footer-links">
-        <a href="https://github.com/happytunesai/MidiEditor_AI" target="_blank" rel="noopener noreferrer">GitHub Repo</a>
+        <a href="https://github.com/happytunesai/MidiEditor_AI" class="repo-link" target="_blank" rel="noopener noreferrer"><img class="repo-logo" src="Midieditor-ai_logo.png" alt="">GitHub Repo</a>
         <a href="https://github.com/happytunesai" target="_blank" rel="noopener noreferrer">All Projects</a>
         <a href="docs-index.html">Documentation</a>
         <a href="changelog.html">Changelog</a>

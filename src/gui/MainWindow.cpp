@@ -75,10 +75,12 @@
 #include "LyricImportDialog.h"
 #include "LyricSyncDialog.h"
 #include "LyricTimelineWidget.h"
+#include "FfxivVoiceLaneWidget.h"
 #include "../midi/LyricManager.h"
 #include "../converter/LrcExporter.h"
 #include "PerformanceSettingsWidget.h"
 #include "NToleQuantizationDialog.h"
+#include "TempoConversionDialog.h"
 #include "ProtocolWidget.h"
 #include "RecordDialog.h"
 #include "SelectionNavigator.h"
@@ -95,9 +97,11 @@
 #include "LyricVisualizerWidget.h"
 #include "McpToggleWidget.h"
 #include "FfxivToggleWidget.h"
+#include "FfxivVoiceGaugeWidget.h"
 #include "AiSettingsWidget.h"
 
 #include "../ai/McpServer.h"
+#include "../ai/FfxivVoiceAnalyzer.h"
 
 #include <QDockWidget>
 
@@ -116,6 +120,7 @@
 #include "../tool/StandardTool.h"
 #include "../tool/StrummerTool.h"
 #include "../tool/TempoTool.h"
+#include "PasteSpecialDialog.h"
 #include "../tool/TimeSignatureTool.h"
 #include "../tool/Tool.h"
 #include "../tool/ToolButton.h"
@@ -167,6 +172,8 @@ MainWindow::MainWindow(QString initFile)
 
     _moveSelectedEventsToChannelMenu = 0;
     _moveSelectedEventsToTrackMenu = 0;
+    _copySelectedEventsToChannelMenu = 0;
+    _copySelectedEventsToTrackMenu = 0;
     _toolbarWidget = nullptr;
     _updateChecker = nullptr;
     _silentUpdateCheck = false;
@@ -202,6 +209,29 @@ MainWindow::MainWindow(QString initFile)
             }
         }
     });
+
+    // Phase 32.5 - Auto-bind FFXIV Voice Limiter analyser to FFXIV SoundFont Mode.
+    // The analyser is a no-op when disabled (zero perf cost for non-FFXIV users).
+    // The user can override with FFXIV/voiceLimiter/userOverride = "off" or "on".
+    {
+        FluidSynthEngine *engine = FluidSynthEngine::instance();
+        QString override = _settings->value("FFXIV/voiceLimiter/userOverride").toString();
+        bool initial;
+        if (override == "off")      initial = false;
+        else if (override == "on")  initial = true;
+        else                        initial = engine && engine->ffxivSoundFontMode();
+        FfxivVoiceAnalyzer::instance()->setEnabled(initial);
+
+        if (engine) {
+            connect(engine, &FluidSynthEngine::ffxivSoundFontModeChanged,
+                    this, [this](bool ffxivOn) {
+                QString ov = _settings->value("FFXIV/voiceLimiter/userOverride").toString();
+                if (ov == "off" || ov == "on")
+                    return; // user chose explicitly; don't auto-toggle
+                FfxivVoiceAnalyzer::instance()->setEnabled(ffxivOn);
+            });
+        }
+    }
 #endif
 
     _quantizationGrid = _settings->value("quantization", 3).toInt();
@@ -252,6 +282,12 @@ MainWindow::MainWindow(QString initFile)
     ffxivToggleAction->setText(tr("FFXIV SoundFont Mode"));
     ffxivToggleAction->setToolTip(tr("Toggle FFXIV SoundFont Mode on/off"));
     _actionMap["ffxiv_toggle"] = ffxivToggleAction;
+
+    _ffxivVoiceGauge = nullptr;  // Created on-demand in toolbar build (Phase 32.1)
+    QAction *ffxivVoiceGaugeAction = new QAction(this);
+    ffxivVoiceGaugeAction->setText(tr("FFXIV Voice Gauge"));
+    ffxivVoiceGaugeAction->setToolTip(tr("FFXIV voice-load gauge \u2014 shows how many of the 16 simultaneous voices are in use"));
+    _actionMap["ffxiv_voice_gauge"] = ffxivVoiceGaugeAction;
 
     startDirectory = QDir::homePath();
 
@@ -412,6 +448,40 @@ MainWindow::MainWindow(QString initFile)
     _lyricArea->setMaximumHeight(200);
     _lyricArea->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
     leftSplitter->addWidget(_lyricArea);
+
+    // Phase 32.3: FFXIV Voice Load Lane (read-only graph beneath the lyric timeline)
+    _voiceLaneArea = new QWidget(leftSplitter);
+    _voiceLaneArea->setContentsMargins(0, 0, 0, 0);
+    QGridLayout *voiceLaneAreaLayout = new QGridLayout(_voiceLaneArea);
+    voiceLaneAreaLayout->setContentsMargins(0, 0, 0, 0);
+    voiceLaneAreaLayout->setHorizontalSpacing(6);
+
+    QLabel *voiceLaneLabel = new QLabel(tr("FFXIV\nVoices"), _voiceLaneArea);
+    voiceLaneLabel->setFixedWidth(110 - voiceLaneAreaLayout->horizontalSpacing());
+    voiceLaneLabel->setAlignment(Qt::AlignCenter);
+    QFont voiceLaneFont = voiceLaneLabel->font();
+    voiceLaneFont.setBold(true);
+    voiceLaneLabel->setFont(voiceLaneFont);
+    voiceLaneAreaLayout->addWidget(voiceLaneLabel, 0, 0, 1, 1);
+
+    _voiceLaneWidget = new FfxivVoiceLaneWidget(mw_matrixWidget, _voiceLaneArea);
+    voiceLaneAreaLayout->addWidget(_voiceLaneWidget, 0, 1, 1, 1);
+
+    QScrollBar *voiceLaneScrollNothing = new QScrollBar(Qt::Vertical, _voiceLaneArea);
+    voiceLaneScrollNothing->setMinimum(0);
+    voiceLaneScrollNothing->setMaximum(0);
+    voiceLaneAreaLayout->addWidget(voiceLaneScrollNothing, 0, 2, 1, 1);
+
+    voiceLaneAreaLayout->setRowStretch(0, 1);
+    _voiceLaneArea->setLayout(voiceLaneAreaLayout);
+    _voiceLaneArea->setMinimumHeight(0);
+    _voiceLaneArea->setMaximumHeight(120);
+    _voiceLaneArea->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    {
+        QSettings _vlSettings("MidiEditor", "NONE");
+        _voiceLaneArea->setVisible(_vlSettings.value("View/showVoiceLane", false).toBool());
+    }
+    leftSplitter->addWidget(_voiceLaneArea);
 
     // Create horizontal scrollbar container as separate splitter widget - but make it non-resizable
     QWidget *scrollBarArea = new QWidget(leftSplitter);
@@ -691,6 +761,7 @@ MainWindow::MainWindow(QString initFile)
     // === MidiPilot Dock Widget (must be created before setupActions because View menu references it) ===
     _midiPilotWidget = new MidiPilotWidget(this);
     _midiPilotDock = new QDockWidget(tr("MidiPilot"), this);
+    _midiPilotDock->setObjectName("midiPilotDock"); // Phase 37.2: targeted by brand QSS
     _midiPilotDock->setWidget(_midiPilotWidget);
     _midiPilotDock->setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
     _midiPilotDock->setMinimumWidth(280);
@@ -937,9 +1008,28 @@ void MainWindow::setFile(MidiFile *newFile) {
     // Update lyric timeline
     _lyricTimeline->setFile(newFile);
 
+    // Phase 32.3: voice load lane
+    if (_voiceLaneWidget) {
+        _voiceLaneWidget->setFile(newFile);
+    }
+
     // Update lyric visualizer
     if (_lyricVisualizer) {
         _lyricVisualizer->setFile(newFile);
+    }
+
+    // Update FFXIV voice gauge (Phase 32.1)
+    if (_ffxivVoiceGauge) {
+        _ffxivVoiceGauge->setFile(newFile);
+    }
+    // Always tell the analyser about the new file so cached results stay
+    // valid across file switches even if the gauge widget isn't currently
+    // in the toolbar.
+    if (newFile) {
+        FfxivVoiceAnalyzer::instance()->watchFile(newFile);
+    }
+    if (oldFile && oldFile != newFile) {
+        FfxivVoiceAnalyzer::instance()->forgetFile(oldFile);
     }
 
     // Auto-show/hide lyric timeline based on lyrics presence
@@ -2296,6 +2386,25 @@ void MainWindow::moveSelectedEventsToTrack(QAction *action) {
     }
 }
 
+// --------------------------------------------------------------------------
+// Phase 36 -- Copy to Track / Copy to Channel slots.
+// Thin wrappers that hand the chosen target index to EventTool, which
+// owns the duplication + Protocol bookkeeping.
+// --------------------------------------------------------------------------
+void MainWindow::copySelectedEventsToChannel(QAction *action) {
+    if (!file || !action) return;
+    const int num = action->data().toInt();
+    EventTool::copySelectionToChannel(num);
+}
+
+void MainWindow::copySelectedEventsToTrack(QAction *action) {
+    if (!file || !action) return;
+    const int num = action->data().toInt();
+    MidiTrack *track = file->track(num);
+    if (!track) return;
+    EventTool::copySelectionToTrack(track);
+}
+
 void MainWindow::updateRecentPathsList() {
     // if file opened put it at the top of the list
     if (file) {
@@ -2360,6 +2469,24 @@ void MainWindow::updateChannelMenu() {
         }
     }
 
+    // Phase 36 -- copy events to channel... mirror Move-to formatting
+    // and add eye icons that mark hidden channels (same convention as
+    // the matrix right-click menu).
+    if (_copySelectedEventsToChannelMenu) {
+        QIcon visIcon(":/run_environment/graphics/tool/all_visible.png");
+        QIcon hidIcon(":/run_environment/graphics/tool/all_invisible.png");
+        foreach(QAction* action, _copySelectedEventsToChannelMenu->actions()) {
+            int channel = action->data().toInt();
+            if (!file) continue;
+            QString label = QString::number(channel) + ": "
+                + MidiFile::instrumentName(file->channel(channel)->progAtTick(0));
+            if (channel == 9 && !label.contains('('))
+                label += " (Drums)";
+            action->setText(label);
+            action->setIcon(file->channel(channel)->visible() ? visIcon : hidIcon);
+        }
+    }
+
     // paste events to channel...
     foreach(QAction* action, _pasteToChannelMenu->actions()) {
         int channel = action->data().toInt();
@@ -2381,6 +2508,9 @@ void MainWindow::updateChannelMenu() {
 
 void MainWindow::updateTrackMenu() {
     _moveSelectedEventsToTrackMenu->clear();
+    if (_copySelectedEventsToTrackMenu) {
+        _copySelectedEventsToTrackMenu->clear();
+    }
     _chooseEditTrack->clear();
     _selectAllFromTrackMenu->clear();
 
@@ -2390,13 +2520,28 @@ void MainWindow::updateTrackMenu() {
 
     for (int i = 0; i < file->numTracks(); i++) {
         QVariant variant(i);
-        QAction *moveToTrackAction = new QAction(QString::number(i) + " " + file->tracks()->at(i)->name(), this);
+        // PHASE36-016: parent QAction to the menu, not to MainWindow,
+        // so that QMenu::clear() at the top of updateTrackMenu() actually
+        // deletes the previous batch (otherwise we leak numTracks
+        // QActions per refresh).
+        QAction *moveToTrackAction = new QAction(QString::number(i) + " " + file->tracks()->at(i)->name(), _moveSelectedEventsToTrackMenu);
         moveToTrackAction->setData(variant);
 
         QString formattedKeySequence = QString("Shift+%1").arg(i);
         moveToTrackAction->setShortcut(QKeySequence::fromString(formattedKeySequence));
 
         _moveSelectedEventsToTrackMenu->addAction(moveToTrackAction);
+
+        if (_copySelectedEventsToTrackMenu) {
+            QIcon visIcon(":/run_environment/graphics/tool/all_visible.png");
+            QIcon hidIcon(":/run_environment/graphics/tool/all_invisible.png");
+            MidiTrack *trk = file->tracks()->at(i);
+            QAction *copyToTrackAction = new QAction(
+                QString::number(i) + ": " + trk->name(), _copySelectedEventsToTrackMenu);
+            copyToTrackAction->setData(variant);
+            copyToTrackAction->setIcon(trk->hidden() ? hidIcon : visIcon);
+            _copySelectedEventsToTrackMenu->addAction(copyToTrackAction);
+        }
     }
 
     for (int i = 0; i < file->numTracks(); i++) {
@@ -3329,12 +3474,149 @@ void MainWindow::transposeNSemitones() {
     d->show();
 }
 
+// --------------------------------------------------------------------------
+// Phase 34 — Paste Special session state.
+//
+// When the user ticks "Don't ask again — use this for the rest of the
+// session" inside PasteSpecialDialog we silence the modal for any further
+// Ctrl+V / Edit → Paste / Edit → Paste Special invocations until the app
+// restarts. The persistent default lives in QSettings ("Editing/pasteSpecialDefault")
+// and is handled separately via the dialog's "Make this the new default" toggle.
+// --------------------------------------------------------------------------
+static bool s_pasteSpecialDontAskSession = false;
+static PasteAssignment s_pasteSpecialSessionAssignment =
+    PasteAssignment::NewTracksPerSource;
+
 void MainWindow::copy() {
     EventTool::copyAction();
 }
 
 void MainWindow::paste() {
+    // If the cross-instance clipboard has data, route Ctrl+V through the
+    // Paste Special flow so the user picks a target mapping (or reuses
+    // the silenced session/persistent default). The same dialog is also
+    // shown when the local in-process clipboard contains a copy that
+    // originated in a *different* MidiFile (e.g. user copied in file A,
+    // opened file B in the same window, then pressed Ctrl+V) -- the
+    // mapping question is just as relevant there as it is across
+    // separate MidiEditor processes. Within the same file we keep the
+    // legacy quick-paste behaviour so daily editing isn't interrupted.
+    if (file && (EventTool::hasSharedClipboardData()
+                 || EventTool::localCopyIsForeignTo(file))) {
+        pasteSpecial();
+        return;
+    }
     EventTool::pasteAction();
+}
+
+void MainWindow::pasteSpecial() {
+    if (!file) {
+        return;
+    }
+    // Eligibility: either cross-process shared clipboard data, or a
+    // local copy that originated in a different MidiFile in this same
+    // process (Phase 36.x "copy in A, open B, paste" flow). When only
+    // the latter applies we relax the cross-process guard inside
+    // EventTool so the same buffer can be replayed through the dialog.
+    const bool crossProcess = EventTool::hasSharedClipboardData();
+    const bool localForeign = EventTool::localCopyIsForeignTo(file);
+    if (!crossProcess && !localForeign) {
+        QMessageBox::information(this, tr("Paste Special"),
+                                 tr("No cross-instance clipboard data is available.\n"
+                                    "Copy events in another MidiEditor window first."));
+        return;
+    }
+    const bool allowSameProcess = !crossProcess && localForeign;
+
+    // Build a summary purely from the clipboard metadata snapshot taken
+    // when SharedClipboard last deserialized. The deserialize step runs
+    // again inside EventTool::pasteFromSharedClipboardWithOptions(); we
+    // intentionally peek the metadata here without consuming events.
+    SharedClipboard *clipboard = SharedClipboard::instance();
+    if (!clipboard->initialize()) {
+        return;
+    }
+    // Trigger a metadata-only deserialize by doing a probe paste into a
+    // throw-away list and then discarding it. We must keep this side
+    // effect to a minimum: deserializeEvents() refreshes g_sourceTracks
+    // and g_pasteSourceInfos.
+    QList<MidiEvent *> probe;
+    if (!clipboard->pasteEvents(file, probe, /*applyTempoConversion=*/false,
+                                file->cursorTick())) {
+        // PHASE36-002: deserializeEvents() can append events before
+        // bailing on a sanity check (truncated buffer, bad nameLen,
+        // etc.). Free them here so a malformed cross-process buffer
+        // doesn't leak NoteOnEvents (which would also stay registered
+        // in OffEvent::onEvents until process exit).
+        qDeleteAll(probe);
+        return;
+    }
+    PasteClipboardSummary summary;
+    summary.totalEvents = probe.size();
+    summary.sourceTracks = SharedClipboard::sourceTrackList();
+    summary.sourceTrackCount = summary.sourceTracks.size();
+    QSet<int> distinctChannels;
+    int minTick = INT_MAX;
+    int maxTick = INT_MIN;
+    for (int i = 0; i < probe.size(); ++i) {
+        const PasteSourceInfo info = SharedClipboard::getPasteSourceInfo(i);
+        if (info.originalChannel >= 0) {
+            distinctChannels.insert(info.originalChannel);
+        }
+        const int t = probe[i] ? probe[i]->midiTime() : -1;
+        if (t >= 0) {
+            minTick = qMin(minTick, t);
+            maxTick = qMax(maxTick, t);
+        }
+    }
+    summary.distinctChannels = distinctChannels.values();
+    std::sort(summary.distinctChannels.begin(), summary.distinctChannels.end());
+    if (minTick != INT_MAX && maxTick != INT_MIN) {
+        const int spanTicks = qMax(0, maxTick - minTick);
+        summary.approxDurationMs = file->msOfTick(spanTicks) - file->msOfTick(0);
+        if (summary.approxDurationMs < 0) summary.approxDurationMs = 0;
+    } else {
+        summary.approxDurationMs = 0;
+    }
+
+    // Discard the probe events so we don't leak memory before the real paste.
+    qDeleteAll(probe);
+
+    // Resolve default assignment from QSettings.
+    const int storedDefault = _settings->value("Editing/pasteSpecialDefault", -1).toInt();
+    PasteAssignment defaultAssignment = (storedDefault >= 0 && storedDefault <= 2)
+        ? static_cast<PasteAssignment>(storedDefault)
+        : PasteAssignment::NewTracksPerSource;
+
+    PasteAssignment chosen = defaultAssignment;
+    if (s_pasteSpecialDontAskSession) {
+        // User opted out of the dialog earlier this session — reuse their
+        // last choice silently. Persistent default still wins if the user
+        // explicitly chose "Make this the new default" back then (it was
+        // already written to QSettings at that point).
+        chosen = s_pasteSpecialSessionAssignment;
+    } else {
+        PasteSpecialDialog dlg(summary, defaultAssignment, this);
+        if (dlg.exec() != QDialog::Accepted) {
+            return;
+        }
+        chosen = dlg.chosenAssignment();
+
+        if (dlg.makeThisTheNewDefault()) {
+            _settings->setValue("Editing/pasteSpecialDefault",
+                                static_cast<int>(chosen));
+        }
+        if (dlg.dontAskAgainThisSession()) {
+            s_pasteSpecialDontAskSession = true;
+            s_pasteSpecialSessionAssignment = chosen;
+        }
+    }
+
+    PasteSpecialOptions opts;
+    opts.assignment = chosen;
+    opts.applyTempoConversion = true;
+    opts.targetCursorTick = file->cursorTick();
+    EventTool::pasteFromSharedClipboardWithOptions(opts, allowSameProcess);
 }
 
 void MainWindow::markEdited() {
@@ -3834,6 +4116,12 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
     editMB->addAction(_pasteAction);
     editMB->addMenu(_pasteOptionsMenu);
 
+    QAction *pasteSpecialAction = new QAction(tr("Paste Special..."), this);
+    pasteSpecialAction->setToolTip(tr("Choose how to map cross-instance clipboard tracks/channels"));
+    connect(pasteSpecialAction, &QAction::triggered, this, &MainWindow::pasteSpecial);
+    editMB->addAction(pasteSpecialAction);
+    _actionMap["pasteSpecial"] = pasteSpecialAction;
+
     editMB->addSeparator();
 
     QAction *askMidiPilotAction = new QAction(tr("Ask MidiPilot..."), this);
@@ -4284,6 +4572,16 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
 
     toolsMB->addSeparator();
 
+    // Phase 33 — Tempo Tools submenu
+    QMenu *tempoToolsMenu = new QMenu(tr("Tempo Tools"), toolsMB);
+    QAction *convertTempoAction = new QAction(tr("Convert Tempo, Preserve Duration..."), this);
+    connect(convertTempoAction, SIGNAL(triggered()), this, SLOT(convertTempoPreserveDuration()));
+    tempoToolsMenu->addAction(convertTempoAction);
+    toolsMB->addMenu(tempoToolsMenu);
+    _actionMap["convert_tempo_preserve_duration"] = convertTempoAction;
+
+    toolsMB->addSeparator();
+
     QAction *quantizeAction = new QAction(tr("Quantify selection"), this);
     _activateWithSelections.append(quantizeAction);
     Appearance::setActionIcon(quantizeAction, ":/run_environment/graphics/tool/quantize.png");
@@ -4490,6 +4788,25 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
     toolsMB->addMenu(_moveSelectedEventsToTrackMenu);
     connect(_moveSelectedEventsToTrackMenu, SIGNAL(triggered(QAction*)), this, SLOT(moveSelectedEventsToTrack(QAction*)));
 
+    // Phase 36 -- Copy to Channel / Copy to Track. Same Tools-menu slot,
+    // disabled when the selection is empty (added to _activateWithSelections
+    // below). Track menu is repopulated from updateTrackMenu().
+    _copySelectedEventsToChannelMenu = new QMenu(tr("Copy events to channel..."), editMB);
+    toolsMB->addMenu(_copySelectedEventsToChannelMenu);
+    connect(_copySelectedEventsToChannelMenu, SIGNAL(triggered(QAction*)),
+            this, SLOT(copySelectedEventsToChannel(QAction*)));
+    for (int i = 0; i < 16; i++) {
+        QVariant variant(i);
+        QAction *copyToChannelAction = new QAction(QString::number(i), this);
+        copyToChannelAction->setData(variant);
+        _copySelectedEventsToChannelMenu->addAction(copyToChannelAction);
+    }
+
+    _copySelectedEventsToTrackMenu = new QMenu(tr("Copy events to track..."), editMB);
+    toolsMB->addMenu(_copySelectedEventsToTrackMenu);
+    connect(_copySelectedEventsToTrackMenu, SIGNAL(triggered(QAction*)),
+            this, SLOT(copySelectedEventsToTrack(QAction*)));
+
     toolsMB->addSeparator();
 
     QAction *setFileLengthMs = new QAction(tr("Set file duration"), this);
@@ -4606,6 +4923,37 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
     });
     viewMB->addAction(_toggleLyricTimeline);
     _actionMap["toggle_lyric_timeline"] = _toggleLyricTimeline;
+
+    // Phase 32.2 (matrix tint overlay) was removed in v1.5.4 — too noisy /
+    // visually unreadable on dense scores.  The voice-load lane below the
+    // velocity lane (Phase 32.3) remains the primary visualiser.  We still
+    // make sure the overlay is force-disabled at startup so any leftover
+    // state on existing installs cannot re-tint the piano roll.
+    if (mw_matrixWidget) mw_matrixWidget->setShowVoiceLoadOverlay(false);
+    {
+        QSettings s("MidiEditor", "NONE");
+        s.remove("View/showVoiceLoad");
+    }
+
+    // Phase 32.3: voice-load lane toggle
+    _toggleVoiceLaneAction = new QAction(tr("Show FFXIV Voice Lane"), this);
+    _toggleVoiceLaneAction->setCheckable(true);
+    {
+        QSettings _vlSettings("MidiEditor", "NONE");
+        bool on = _vlSettings.value("View/showVoiceLane", false).toBool();
+        _toggleVoiceLaneAction->setChecked(on);
+        if (_voiceLaneArea) _voiceLaneArea->setVisible(on);
+    }
+    _toggleVoiceLaneAction->setToolTip(tr(
+        "Show a graph beneath the piano roll plotting the simultaneous\n"
+        "voice count vs the FFXIV 16-voice ceiling."));
+    connect(_toggleVoiceLaneAction, &QAction::toggled, this, [this](bool checked) {
+        QSettings s("MidiEditor", "NONE");
+        s.setValue("View/showVoiceLane", checked);
+        if (_voiceLaneArea) _voiceLaneArea->setVisible(checked);
+    });
+    viewMB->addAction(_toggleVoiceLaneAction);
+    _actionMap["view_voice_lane"] = _toggleVoiceLaneAction;
 
     viewMB->addSeparator();
 
@@ -5451,6 +5799,15 @@ QWidget *MainWindow::createCustomToolbar(QWidget *parent) {
             if (!enabledActions.contains("ffxiv_toggle"))
                 enabledActions << "ffxiv_toggle";
         }
+        if (!actionOrder.contains("ffxiv_voice_gauge")) {
+            int xivIdx = actionOrder.indexOf("ffxiv_toggle");
+            if (xivIdx >= 0)
+                actionOrder.insert(xivIdx + 1, "ffxiv_voice_gauge");
+            else
+                actionOrder << "ffxiv_voice_gauge";
+            if (!enabledActions.contains("ffxiv_voice_gauge"))
+                enabledActions << "ffxiv_voice_gauge";
+        }
     }
 
     // Only prepend essential actions for single row mode
@@ -5667,6 +6024,13 @@ QWidget *MainWindow::createCustomToolbar(QWidget *parent) {
                 currentToolBar->addWidget(_ffxivToggleWidget);
                 continue;
             }
+            // Special handling for ffxiv_voice_gauge: FFXIV voice-load gauge (Phase 32.1)
+            if (actionId == "ffxiv_voice_gauge") {
+                _ffxivVoiceGauge = new FfxivVoiceGaugeWidget(currentToolBar);
+                _ffxivVoiceGauge->setFile(file);
+                currentToolBar->addWidget(_ffxivVoiceGauge);
+                continue;
+            }
 
             if (action) {
                 try {
@@ -5802,10 +6166,24 @@ QWidget *MainWindow::createCustomToolbar(QWidget *parent) {
                 toolBar->addWidget(_ffxivToggleWidget);
                 continue;
             }
+            // Special handling for ffxiv_voice_gauge: FFXIV voice-load gauge (Phase 32.1)
+            if (actionId == "ffxiv_voice_gauge") {
+                _ffxivVoiceGauge = new FfxivVoiceGaugeWidget(toolBar);
+                _ffxivVoiceGauge->setFile(file);
+                toolBar->addWidget(_ffxivVoiceGauge);
+                continue;
+            }
             // Special handling for ffxiv_toggle: create FFXIV SoundFont Mode toggle widget
             if (actionId == "ffxiv_toggle") {
                 _ffxivToggleWidget = new FfxivToggleWidget(toolBar);
                 toolBar->addWidget(_ffxivToggleWidget);
+                continue;
+            }
+            // Special handling for ffxiv_voice_gauge: FFXIV voice-load gauge (Phase 32.1)
+            if (actionId == "ffxiv_voice_gauge") {
+                _ffxivVoiceGauge = new FfxivVoiceGaugeWidget(toolBar);
+                _ffxivVoiceGauge->setFile(file);
+                toolBar->addWidget(_ffxivVoiceGauge);
                 continue;
             }
 
@@ -5961,6 +6339,15 @@ void MainWindow::updateToolbarContents(QWidget *toolbarWidget, QGridLayout *btnL
                 actionOrder << "ffxiv_toggle";
             if (!enabledActions.contains("ffxiv_toggle"))
                 enabledActions << "ffxiv_toggle";
+        }
+        if (!actionOrder.contains("ffxiv_voice_gauge")) {
+            int xivIdx = actionOrder.indexOf("ffxiv_toggle");
+            if (xivIdx >= 0)
+                actionOrder.insert(xivIdx + 1, "ffxiv_voice_gauge");
+            else
+                actionOrder << "ffxiv_voice_gauge";
+            if (!enabledActions.contains("ffxiv_voice_gauge"))
+                enabledActions << "ffxiv_voice_gauge";
         }
     }
 
@@ -6156,6 +6543,13 @@ void MainWindow::updateToolbarContents(QWidget *toolbarWidget, QGridLayout *btnL
                 currentToolBar->addWidget(_ffxivToggleWidget);
                 continue;
             }
+            // Special handling for ffxiv_voice_gauge: FFXIV voice-load gauge (Phase 32.1)
+            if (actionId == "ffxiv_voice_gauge") {
+                _ffxivVoiceGauge = new FfxivVoiceGaugeWidget(currentToolBar);
+                _ffxivVoiceGauge->setFile(file);
+                currentToolBar->addWidget(_ffxivVoiceGauge);
+                continue;
+            }
 
             if (action) {
                 try {
@@ -6269,6 +6663,13 @@ void MainWindow::updateToolbarContents(QWidget *toolbarWidget, QGridLayout *btnL
                 toolBar->addWidget(_ffxivToggleWidget);
                 continue;
             }
+            // Special handling for ffxiv_voice_gauge: FFXIV voice-load gauge (Phase 32.1)
+            if (actionId == "ffxiv_voice_gauge") {
+                _ffxivVoiceGauge = new FfxivVoiceGaugeWidget(toolBar);
+                _ffxivVoiceGauge->setFile(file);
+                toolBar->addWidget(_ffxivVoiceGauge);
+                continue;
+            }
 
             if (action) {
                 try {
@@ -6377,6 +6778,58 @@ void MainWindow::togglePianoEmulation(bool mode) {
 
 void MainWindow::quantizationChanged(QAction *action) {
     _quantizationGrid = action->data().toInt();
+}
+
+void MainWindow::convertTempoPreserveDuration() {
+    if (!file) {
+        return;
+    }
+    TempoConversionScopeHint hint;
+    hint.scope = TempoConversionScope::WholeProject;
+    TempoConversionDialog dialog(file, hint, this);
+    dialog.exec();
+}
+
+void MainWindow::convertTempoForSelection() {
+    if (!file) {
+        return;
+    }
+    TempoConversionScopeHint hint;
+    const QList<MidiEvent *> sel = Selection::instance()->selectedEvents();
+    if (sel.isEmpty()) {
+        hint.scope = TempoConversionScope::WholeProject;
+    } else {
+        hint.scope = TempoConversionScope::SelectedEvents;
+        for (MidiEvent *ev : sel) {
+            if (ev) {
+                hint.selectedEventPtrs.insert(reinterpret_cast<quintptr>(ev));
+            }
+        }
+    }
+    TempoConversionDialog dialog(file, hint, this);
+    dialog.exec();
+}
+
+void MainWindow::convertTempoForTrack(int trackNumber) {
+    if (!file) {
+        return;
+    }
+    TempoConversionScopeHint hint;
+    hint.scope = TempoConversionScope::SelectedTracks;
+    hint.trackIds.insert(trackNumber);
+    TempoConversionDialog dialog(file, hint, this);
+    dialog.exec();
+}
+
+void MainWindow::convertTempoForChannel(int channel) {
+    if (!file) {
+        return;
+    }
+    TempoConversionScopeHint hint;
+    hint.scope = TempoConversionScope::SelectedChannels;
+    hint.channelIds.insert(channel);
+    TempoConversionDialog dialog(file, hint, this);
+    dialog.exec();
 }
 
 void MainWindow::quantizeSelection() {
@@ -6512,6 +6965,12 @@ void MainWindow::checkEnableActionsForSelection() {
     }
     if (_moveSelectedEventsToTrackMenu) {
         _moveSelectedEventsToTrackMenu->setEnabled(enabled);
+    }
+    if (_copySelectedEventsToChannelMenu) {
+        _copySelectedEventsToChannelMenu->setEnabled(enabled);
+    }
+    if (_copySelectedEventsToTrackMenu) {
+        _copySelectedEventsToTrackMenu->setEnabled(enabled);
     }
     if (Tool::currentTool() && Tool::currentTool()->button() && !Tool::currentTool()->button()->isEnabled()) {
         stdToolAction->trigger();

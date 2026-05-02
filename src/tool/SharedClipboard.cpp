@@ -33,11 +33,25 @@
 SharedClipboard *SharedClipboard::_instance = nullptr;
 const QString SharedClipboard::SHARED_MEMORY_KEY = "MidiEditor_Clipboard_v1";
 const QString SharedClipboard::SEMAPHORE_KEY = "MidiEditor_Clipboard_Semaphore_v1";
-const int SharedClipboard::CLIPBOARD_VERSION = 1;
+// v2 (Phase 34) widens the per-event header with sourceTrackId and adds
+// a track-name table at the start of the data block. v1 readers will
+// reject the buffer via the version mismatch in pasteEvents().
+const int SharedClipboard::CLIPBOARD_VERSION = 2;
 const int SharedClipboard::MAX_CLIPBOARD_SIZE = 1024 * 1024; // 1MB max
 
 // Global storage for timing information during deserialization
 static QList<QPair<int, int> > g_originalTimings; // midiTime, channel pairs
+// Phase 34: parallel storage — same length as g_originalTimings.
+static QList<PasteSourceInfo> g_pasteSourceInfos;
+// Phase 34: ordered (trackId, name) list captured by the most recent
+// successful deserialise. Empty for v1 buffers.
+static QList<QPair<int, QString>> g_sourceTracks;
+
+// Phase 36.x: source ticksPerQuarter from the most recent pasteEvents()
+// read, exposed via SharedClipboard::sourceTicksPerQuarter() so the
+// shared-clipboard paste path in EventTool can rescale event timings
+// the same way the local clipboard already does in pasteAction().
+static int g_sourceTicksPerQuarter = 0;
 
 SharedClipboard::SharedClipboard(QObject *parent)
     : QObject(parent)
@@ -182,6 +196,7 @@ bool SharedClipboard::pasteEvents(MidiFile *targetFile, QList<MidiEvent *> &past
     int sourceTicksPerQuarter = header->ticksPerQuarter;
     int sourceTempo = header->tempoBeatsPerQuarter;
     bool hasTempoEvents = (header->hasTempoEvents == 1);
+    g_sourceTicksPerQuarter = sourceTicksPerQuarter;
 
     // Read serialized data - copy it to ensure data integrity
     char *dataPtr = static_cast<char *>(_sharedMemory->data()) + sizeof(ClipboardHeader);
@@ -273,6 +288,34 @@ QByteArray SharedClipboard::serializeEvents(const QList<MidiEvent *> &events, Mi
     QDataStream stream(&data, QIODevice::WriteOnly);
     stream.setByteOrder(QDataStream::BigEndian);
 
+    // ---- v2 prelude: track-name table ----------------------------------
+    // Walk the events once, collect a stable insertion-ordered list of
+    // (trackId -> trackName) for every track referenced. Off-events are
+    // skipped here because we serialise them inline with their OnEvent
+    // below; their track is identical anyway.
+    QList<int> trackOrder;
+    QHash<int, QString> trackNames;
+    for (MidiEvent *event : events) {
+        if (!event) continue;
+        if (dynamic_cast<OffEvent *>(event)) continue;
+        MidiTrack *t = event->track();
+        const int tid = t ? t->number() : -1;
+        if (!trackNames.contains(tid)) {
+            trackNames.insert(tid, t ? t->name() : QString());
+            trackOrder.append(tid);
+        }
+    }
+    stream << static_cast<qint32>(trackOrder.size());
+    for (int tid : trackOrder) {
+        stream << static_cast<qint32>(tid);
+        const QByteArray utf8 = trackNames.value(tid).toUtf8();
+        stream << static_cast<qint32>(utf8.size());
+        if (!utf8.isEmpty()) {
+            stream.writeRawData(utf8.constData(), utf8.size());
+        }
+    }
+
+    // ---- per-event records ---------------------------------------------
     // Write each event with its timing information
     for (MidiEvent *event: events) {
         if (!event) continue;
@@ -284,8 +327,10 @@ QByteArray SharedClipboard::serializeEvents(const QList<MidiEvent *> &events, Mi
         // Write event timing
         int midiTime = event->midiTime();
         int channel = event->channel();
+        const int sourceTrackId = event->track() ? event->track()->number() : -1;
         stream << midiTime;
         stream << channel;
+        stream << static_cast<qint32>(sourceTrackId); // v2 addition
 
         // Write event data
         QByteArray eventData = event->save();
@@ -299,8 +344,10 @@ QByteArray SharedClipboard::serializeEvents(const QList<MidiEvent *> &events, Mi
             OffEvent *off = onEvent->offEvent();
             int offMidiTime = off->midiTime();
             int offChannel = off->channel();
+            const int offTrackId = off->track() ? off->track()->number() : sourceTrackId;
             stream << offMidiTime;
             stream << offChannel;
+            stream << static_cast<qint32>(offTrackId); // v2 addition
             QByteArray offData = off->save();
             int offDataSize = offData.size();
             stream << offDataSize;
@@ -317,20 +364,47 @@ bool SharedClipboard::deserializeEvents(const QByteArray &data, MidiFile *target
 
     events.clear();
     g_originalTimings.clear(); // Clear previous timing data
+    g_pasteSourceInfos.clear();
+    g_sourceTracks.clear();
+
+    // ---- v2 prelude: track-name table ----------------------------------
+    qint32 trackCount = 0;
+    if (stream.device()->bytesAvailable() < 4) return false;
+    stream >> trackCount;
+    if (trackCount < 0 || trackCount > 1024) return false;
+    QHash<int, QString> trackNameById;
+    for (qint32 i = 0; i < trackCount; ++i) {
+        if (stream.device()->bytesAvailable() < 8) return false;
+        qint32 tid = -1;
+        qint32 nameLen = 0;
+        stream >> tid;
+        stream >> nameLen;
+        if (nameLen < 0 || nameLen > 4096) return false;
+        QByteArray nameBytes;
+        if (nameLen > 0) {
+            nameBytes.resize(nameLen);
+            int got = stream.readRawData(nameBytes.data(), nameLen);
+            if (got != nameLen) return false;
+        }
+        const QString name = QString::fromUtf8(nameBytes);
+        trackNameById.insert(tid, name);
+        g_sourceTracks.append(qMakePair(static_cast<int>(tid), name));
+    }
 
     int eventIndex = 0;
     while (!stream.atEnd()) {
         int midiTime, channel, dataSize;
+        qint32 sourceTrackId = -1;
 
-        // Check if we have enough data for the header
+        // v2 per-event header: 4 ints = 16 bytes
         int available = stream.device()->bytesAvailable();
-        if (available < 12) { // 3 ints = 12 bytes
+        if (available < 16) {
             break;
         }
 
-        // Read the three integers
         stream >> midiTime;
         stream >> channel;
+        stream >> sourceTrackId;
         stream >> dataSize;
 
         if (dataSize <= 0 || dataSize > 1024) { // Sanity check
@@ -349,7 +423,8 @@ bool SharedClipboard::deserializeEvents(const QByteArray &data, MidiFile *target
 
         bool ok = false;
         bool endEvent = false;
-        // Use track 0 as default, will be reassigned during paste
+        // Use track 0 as default placeholder; the paste site will reassign
+        // the real target track based on PasteSpecialOptions.
         MidiTrack *defaultTrack = targetFile->track(0);
         if (!defaultTrack) {
             return false;
@@ -360,6 +435,13 @@ bool SharedClipboard::deserializeEvents(const QByteArray &data, MidiFile *target
         if (ok && event && !endEvent) {
             // Store the original timing information in global storage
             g_originalTimings.append(QPair<int, int>(midiTime, channel));
+
+            PasteSourceInfo info;
+            info.originalTime = midiTime;
+            info.originalChannel = channel;
+            info.sourceTrackId = sourceTrackId;
+            info.sourceTrackName = trackNameById.value(sourceTrackId);
+            g_pasteSourceInfos.append(info);
 
             // Don't try to set properties on deserialized events - they can crash
             // Just add the event as-is
@@ -379,6 +461,21 @@ QPair<int, int> SharedClipboard::getOriginalTiming(int index) {
         return g_originalTimings[index];
     }
     return QPair<int, int>(-1, -1); // Invalid
+}
+
+PasteSourceInfo SharedClipboard::getPasteSourceInfo(int index) {
+    if (index >= 0 && index < g_pasteSourceInfos.size()) {
+        return g_pasteSourceInfos[index];
+    }
+    return PasteSourceInfo{};
+}
+
+QList<QPair<int, QString>> SharedClipboard::sourceTrackList() {
+    return g_sourceTracks;
+}
+
+int SharedClipboard::sourceTicksPerQuarter() {
+    return g_sourceTicksPerQuarter;
 }
 
 int SharedClipboard::getCurrentTempo(MidiFile *file, int atTick) {

@@ -84,13 +84,19 @@
         <file>run_environment/graphics/trackwidget/remove.png</file>
         <file>run_environment/graphics/trackwidget/rename.png</file>
         <file>run_environment/graphics/trackwidget/visible.png</file>
+        <!-- Phase 37.1: rebrand to MidiEditor AI. The legacy `icon.png`
+             and `midieditor.png` files now contain the new logo so all
+             existing call sites pick up the rebrand without changes. -->
         <file>run_environment/graphics/icon.png</file>
         <file>run_environment/graphics/midieditor.png</file>
+        <file>run_environment/graphics/Midieditor-ai_logo.png</file>
+        <file>run_environment/graphics/Midieditor-ai_logo_blk.png</file>
         <file>CONTRIBUTORS</file>
         <file>src/gui/themes/dark.qss</file>
         <file>src/gui/themes/light.qss</file>
         <file>src/gui/themes/pink.qss</file>
         <file>src/gui/themes/amoled.qss</file>
         <file>src/gui/themes/materialdark.qss</file>
+        <file>src/gui/themes/midieditorai_brand.qss</file>
     </qresource>
 </RCC>

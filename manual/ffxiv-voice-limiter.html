@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FFXIV Voice Limiter | MidiEditor AI Manual</title>
+<link rel="icon" type="image/png" href="favicon.png">
+<meta name="theme-color" content="#0B1020">
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="site.css">
+<link rel="stylesheet" href="audio.css">
+<style>
+.screenshot-single { text-align: center; margin: 1.5rem 0; }
+.screenshot-single img,
+.screenshot-single video { max-width: 100%; border: 1px solid var(--border); border-radius: 8px; }
+.caption { text-align: center; color: var(--text-muted); font-style: italic; margin-top: 0.5rem; font-size: 0.9rem; }
+.info-table { width: 100%; border-collapse: collapse; margin: 1rem 0 1.5rem; }
+.info-table th, .info-table td { padding: 0.6rem 0.8rem; border: 1px solid var(--border); text-align: left; }
+.info-table th { background: var(--bg-secondary); font-weight: 600; }
+.info-table tr:nth-child(even) td { background: var(--table-alt); }
+.highlight-box {
+    background: var(--bg-card);
+    border-left: 4px solid var(--accent);
+    padding: 1rem 1.25rem;
+    margin: 1.5rem 0;
+    border-radius: 0 8px 8px 0;
+}
+.highlight-box p { margin: 0; }
+.warn-box {
+    background: var(--bg-card);
+    border-left: 4px solid #FFB020;
+    padding: 1rem 1.25rem;
+    margin: 1.5rem 0;
+    border-radius: 0 8px 8px 0;
+}
+.warn-box p { margin: 0; }
+.threshold-row { display: flex; gap: 1rem; flex-wrap: wrap; margin: 1rem 0; }
+.threshold-card {
+    flex: 1 1 180px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem 1.2rem;
+    background: var(--bg-card);
+}
+.threshold-card h4 { margin: 0 0 0.4rem; border: none; }
+.threshold-card p { margin: 0; font-size: 0.92em; color: var(--text-muted); }
+.threshold-green  { border-left: 4px solid #21C36F; }
+.threshold-yellow { border-left: 4px solid #E8C12B; }
+.threshold-red    { border-left: 4px solid #E04040; }
+</style>
+</head>
+<body>
+<nav class="site-nav" role="navigation" aria-label="Main navigation">
+<div class="container">
+    <a href="index.html" class="nav-brand">
+        <img class="brand-logo" src="Midieditor-ai_banner_w.png" alt="MidiEditor AI">
+    </a>
+    <button class="nav-hamburger" aria-label="Toggle menu" aria-expanded="false">&#x2630;</button>
+    <ul class="nav-links">
+        <li><a href="index.html#features">Features</a></li>
+        <li><a href="index.html#showcase">Showcase</a></li>
+        <li class="nav-dropdown">
+            <span class="nav-dropdown-trigger active">Docs &#x25BE;</span>
+            <div class="nav-dropdown-menu">
+                <a href="docs-index.html">Manual Overview</a>
+                <a href="midipilot.html">MidiPilot AI</a>
+                <a href="prompt-examples.html">Prompt Examples</a>
+                <a href="ffxiv-channel-fixer.html">FFXIV Channel Fixer</a>
+                <a href="ffxiv-voice-limiter.html">FFXIV Voice Limiter</a>
+                <a href="tempo-conversion.html">Convert Tempo</a>
+                <a href="supported-files.html">Supported Files</a>
+                <a href="themes.html">Themes &amp; Appearance</a>
+                <a href="lyrics.html">Lyric Editor</a>
+                <a href="soundfont.html">SoundFonts &amp; FluidSynth</a>
+                <a href="mcp-server.html">MCP Server</a>
+                <a href="setup.html">Setup &amp; Installation</a>
+            </div>
+        </li>
+        <li><a href="changelog.html">Changelog</a></li>
+        <li><a href="https://github.com/happytunesai/MidiEditor_AI" target="_blank" rel="noopener noreferrer">GitHub &#x2197;</a></li>
+        <li><a href="download.html" class="nav-cta">&#x2B07; Download</a></li>
+    </ul>
+</div>
+</nav>
+
+<!-- Navigation injected by navigation.js -->
+
+<a href="#main-content" class="skip-link">Skip to main content</a>
+
+<main id="main-content">
+
+<h1>&#x1F3AE; FFXIV Voice Limiter</h1>
+
+<p>
+The <b>FFXIV Voice Limiter</b> is a passive analyser plus two visualisers that surface
+voice-count and note-rate hot-spots in real time so you can see where your arrangement would be
+silently degraded by the FFXIV Bard Performance audio engine <i>before</i> you ever upload it
+to the game.
+</p>
+
+<div class="highlight-box">
+<p>&#x1F4A1; <b>Find it in:</b> the toolbar gauge <img src="screenshots/VoiceLimiter-Gadget.png" alt="Voice Gauge" style="height:1.4em;vertical-align:middle;border:1px solid var(--border);border-radius:4px;">,
+the optional voice-load lane under the velocity strip, and the
+<a href="midipilot.html">MidiPilot</a> <code>analyze_voice_load</code> agent tool.
+The widgets are hidden when FFXIV SoundFont Mode is off so non-FFXIV users pay zero perf cost.</p>
+</div>
+
+<div class="screenshot-single">
+<a href="screenshots/FFXIV-Voices_panel.png" class="lightbox-link">
+<img src="screenshots/FFXIV-Voices_panel.png" alt="FFXIV Voices panel and voice-load lane in the editor" loading="lazy">
+</a>
+<p class="caption">FFXIV Voices panel + voice-load lane: live load against the 16-voice ceiling.</p>
+</div>
+
+<hr>
+
+<h2 id="why">Why this exists - the constraints</h2>
+
+<p>
+In FFXIV's <i>Performance Mode</i> the in-game audio engine has hard, observable ceilings that
+silently truncate or drop notes from the player's arrangement. The MIDI looks fine; what comes
+out of the game does not. Three constraints matter for arranging:
+</p>
+
+<table class="info-table">
+<thead><tr><th>Constraint</th><th>Limit</th><th>Symptom in-game</th></tr></thead>
+<tbody>
+<tr>
+  <td><b>Polyphony / voice ceiling</b></td>
+  <td><b>16 active voices total</b>, across the whole ensemble (not per player)</td>
+  <td>Older notes get cut off; wind / brass becomes inaudible during dense passages.</td>
+</tr>
+<tr>
+  <td><b>Note rate</b></td>
+  <td><b>&le; 14 notes / second per channel</b>, ~50&nbsp;ms minimum interval (locked-60&nbsp;fps assumption)</td>
+  <td>Notes beyond the rate are dropped or merged.</td>
+</tr>
+<tr>
+  <td><b>Range</b></td>
+  <td><b>C3..C6</b> (MIDI 48..84)</td>
+  <td>Out-of-range notes are auto-transposed by the client.</td>
+</tr>
+<tr>
+  <td><b>No native chords</b></td>
+  <td>One key press = one note; arpeggiate or use Power Chord instruments</td>
+  <td>Stacked notes on the same key collapse.</td>
+</tr>
+</tbody>
+</table>
+
+<p>
+The <a href="ffxiv-channel-fixer.html">FFXIV Channel Fixer</a> already enforces <b>range</b> and
+the <i>Bard accuracy</i> path enforces percussion behaviour. What was missing - and what
+this phase adds - is <b>predictive feedback</b> on the polyphony ceiling and the note-rate
+ceiling <i>while you are editing</i>.
+</p>
+
+<hr>
+
+<h2 id="thresholds">Thresholds - relaxed from the documented hard ceiling</h2>
+
+<p>
+The visualiser uses three colour bands. They are intentionally relaxed compared to the documented
+16-voice hard ceiling because empirical in-game testing (and MogNotate observations) shows the
+engine tolerates short bursts above 16 thanks to release-tail truncation. The analyser still
+reports the raw count and overflow against the documented&nbsp;16 for the AI tool.
+</p>
+
+<div class="threshold-row">
+  <div class="threshold-card threshold-green">
+    <h4>&le; 18 voices - Green</h4>
+    <p>Comfortable headroom. The game will reliably play every note.</p>
+  </div>
+  <div class="threshold-card threshold-yellow">
+    <h4>19 - 23 voices - Yellow</h4>
+    <p>Borderline. Short bursts usually survive; sustained passages may drop tail notes.</p>
+  </div>
+  <div class="threshold-card threshold-red">
+    <h4>&ge; 24 voices - Red</h4>
+    <p>Game will drop notes audibly. Thin out the chord, arpeggiate, or move a voice to a
+       different player.</p>
+  </div>
+</div>
+
+<table class="info-table">
+<thead><tr><th>Measurement</th><th>Value</th></tr></thead>
+<tbody>
+<tr><td>Documented voice ceiling</td><td>16 voices total (used as the dashed red line + AI overflow reference)</td></tr>
+<tr><td>Note-rate ceiling</td><td>14 notes / second / channel</td></tr>
+<tr><td>Note-rate sliding window</td><td>250&nbsp;ms (configurable 100&nbsp;ms - 1000&nbsp;ms)</td></tr>
+<tr><td>Yellow-warn threshold</td><td>13 voices (configurable 1 - 15)</td></tr>
+<tr><td>Re-analyse debounce</td><td>100&nbsp;ms after <code>Protocol::actionFinished</code></td></tr>
+<tr><td>Live-update cadence (during playback)</td><td>~30&nbsp;Hz, piggybacking on the playback timer</td></tr>
+</tbody>
+</table>
+
+<hr>
+
+<h2 id="gauge">The toolbar gauge</h2>
+
+<p>
+A compact ~120&times;25&nbsp;px LED-style widget that sits next to the
+<a href="lyrics.html">Lyric Visualizer</a> and <a href="midi-overview.html">MIDI Visualizer</a>:
+</p>
+
+<ul>
+  <li><b>Left readout</b> - <code>N&nbsp;/&nbsp;16</code>, the live voice count at the
+    playhead.</li>
+  <li><b>24-segment LED meter</b> - stereo-style bar that fills green &rarr; yellow &rarr;
+    red as voice count rises. A dedicated tick mark sits at the documented 16-voice ceiling.</li>
+  <li><b>Right overflow slot</b> - <code>+0</code> (green) or e.g. <code>+3</code> (red),
+    the count of voices over the documented ceiling at the playhead.</li>
+  <li><b>Tooltip</b> - <code>Voices: 14 / 16 (max in piece: 22 at bar 17 beat 3.2)</code>.</li>
+  <li><b>Click</b> - toggles the piano-roll voice-load lane.</li>
+  <li><b>Auto-bind</b> - visible only when FFXIV SoundFont Mode is on. Same idiom as the
+    existing <i>X|V</i> toolbar widget from 1.5.2.</li>
+</ul>
+
+<div class="screenshot-single">
+<a href="screenshots/VoiceLimiter-Gadget.png" class="lightbox-link">
+<img src="screenshots/VoiceLimiter-Gadget.png" alt="FFXIV Voice Limiter toolbar gauge" loading="lazy">
+</a>
+<p class="caption">The toolbar gauge: <code>N/16</code> readout, 24-LED meter, ceiling tick, overflow slot.</p>
+</div>
+
+<hr>
+
+<h2 id="lane">The voice-load lane</h2>
+
+<p>
+A companion lane to the existing velocity strip, toggled from <b>View &rarr; Show Voice Lane</b>
+(or by clicking the toolbar gauge):
+</p>
+
+<div class="figure">
+<a href="screenshots/show_voice_lane.png" class="lightbox-link">
+<img src="screenshots/show_voice_lane.png" alt="View menu &rarr; Show Voice Lane toggle" loading="lazy">
+</a>
+<p class="caption"><b>View &rarr; Show Voice Lane</b> - the same toggle is fired by clicking the toolbar gauge.</p>
+</div>
+
+<ul>
+  <li><b>Auto-scaled Y axis</b> - bars rise as voice count rises, sampled per pixel column
+    (or per beat, whichever is finer at the current zoom).</li>
+  <li><b>Soft / red threshold colouring</b> - bars are green &le;&nbsp;18, yellow
+    19-23, red &ge;&nbsp;24, matching the gauge.</li>
+  <li><b>Per-channel rate hot-spot strip</b> - thin red verticals mark any 250&nbsp;ms
+    window that exceeds 14 notes/s on a single channel.</li>
+  <li><b>Dashed red ceiling line</b> - drawn on top with a subtle halo and a <b>16</b>
+    label so the documented hard ceiling is always visible no matter what zoom you're at.</li>
+  <li><b>Click a column</b> - scrolls / cursors the matrix to that tick, same idiom as the
+    protocol panel's <i>Jump to event</i> entries.</li>
+</ul>
+
+<hr>
+
+<h2 id="analyzer">The analyser engine</h2>
+
+<p>
+A headless <code>FfxivVoiceAnalyzer</code> backs all three surfaces (gauge, lane, AI tool). It
+runs once per file (cached, debounced) and again on every
+<code>Protocol::actionFinished</code> - so a multi-event paste or agent tool call only
+triggers one rebuild.
+</p>
+
+<table class="info-table">
+<thead><tr><th>Output</th><th>What it is</th></tr></thead>
+<tbody>
+<tr>
+  <td><code>voiceCountAtTick</code></td>
+  <td>Sparse <code>(tick, count)</code> snapshots taken at every NoteOn/NoteOff transition across
+    the 16 standard MIDI channels (skips meta channels 16/17/18). Built in a single pass.</td>
+</tr>
+<tr>
+  <td><code>peakInBar(barIndex)</code></td>
+  <td>Convenience derived from the snapshots, used by the bar-level overlays.</td>
+</tr>
+<tr>
+  <td><code>RateHotspot[]</code></td>
+  <td><code>{ channel, startTick, endTick, notesPerSecond }</code> entries for any 250&nbsp;ms
+    sliding window exceeding 14 notes/s on a single channel.</td>
+</tr>
+<tr>
+  <td><code>globalPeak</code></td>
+  <td>The overall maximum simultaneous voice count anywhere in the file.</td>
+</tr>
+</tbody>
+</table>
+
+<h3 id="sample-tail">Sample-tail simulation</h3>
+<p>
+A naive NoteOn..NoteOff window <i>under-reports</i> voice load on plucked instruments (harp,
+lute, archlute, all guitar variants) because the audible release tail still occupies an engine
+voice after the OffEvent has already fired. <code>FfxivVoiceLoadCore::sampleTailMs()</code>
+extends each note's audible window by an estimated release per General-MIDI family and per drum
+pitch so the visualiser matches what you actually hear in-game (and what MogNotate measures).
+This is why the gauge can read higher than a quick mental sum of overlapping NoteOns -
+it's the right answer.
+</p>
+
+<h3 id="drum-channel">Drum-channel handling</h3>
+<p>
+A kick + snare hit on CH9 <i>is</i> two simultaneous voices in the in-game engine, not one.
+CH9 is counted exactly like every other channel; no special-casing.
+</p>
+
+<hr>
+
+<h2 id="settings">Settings</h2>
+
+<p><b>Settings &rarr; MIDI &rarr; FFXIV &rarr; Voice Limiter</b>:</p>
+
+<div class="figure">
+<a href="screenshots/ffxiv_voice_limiter_ffxiv_mode.png" class="lightbox-link">
+<img src="screenshots/ffxiv_voice_limiter_ffxiv_mode.png" alt="FFXIV Voice Limiter settings group, auto-bound to FFXIV SoundFont Mode" loading="lazy">
+</a>
+<p class="caption">The Voice Limiter group sits inside the FFXIV settings block and auto-binds to FFXIV SoundFont Mode - turn FFXIV Mode on and the analyser plus both visualisers come along; turn it off and they go away again. A manual override is remembered per install.</p>
+</div>
+
+<table class="info-table">
+<thead><tr><th>Setting</th><th>Default</th><th>Notes</th></tr></thead>
+<tbody>
+<tr>
+  <td>Enable Voice Awareness widgets</td>
+  <td>On (when FFXIV Mode is on)</td>
+  <td>Auto-bound to FFXIV SoundFont Mode the same way the bard-accurate-mode auto-bind from
+    1.5.3 (BARD-MODE-001) works. Manually unchecking it while FFXIV Mode is on persists the
+    OFF choice (<code>FFXIV/voiceLimiter/userOverride = "off"</code>); clearing the override or
+    a fresh install restores the auto-bound behaviour.</td>
+</tr>
+<tr><td>Voice ceiling</td><td>16</td><td>Read-only - matches the game.</td></tr>
+<tr><td>Yellow-warn threshold</td><td>13</td><td>Spinner 1-15.</td></tr>
+<tr><td>Note-rate ceiling</td><td>14 notes/s</td><td>Read-only.</td></tr>
+<tr><td>Note-rate window</td><td>250&nbsp;ms</td><td>Spinner 100-1000&nbsp;ms.</td></tr>
+</tbody>
+</table>
+
+<p>All persisted under <code>FFXIV/voiceLimiter/*</code>.</p>
+
+<hr>
+
+<h2 id="ai-tool">AI tool - <code>analyze_voice_load</code></h2>
+
+<p>
+The agent gets a read-only <code>analyze_voice_load(start_tick, end_tick)</code> tool that
+returns:
+</p>
+<ul>
+  <li><code>globalPeak</code> - the highest simultaneous voice count in the range.</li>
+  <li><code>overflowRanges[]</code> - tick ranges where simultaneous voices exceed&nbsp;16.</li>
+  <li><code>rateHotspots[]</code> - per-channel <code>{channel, startTick, endTick,
+    notesPerSecond}</code> entries that breach the 14&nbsp;notes/s/channel ceiling.</li>
+</ul>
+<p>
+When FFXIV Mode is on, the agent's <code>activeConstraints</code> banner pins the reminder
+<i>"FFXIV: &le;16 voices, &le;14&nbsp;notes/s/channel, C3..C6"</i> so the model self-checks its
+output against the engine ceilings every turn and rewrites dense passages without needing to be
+asked.
+</p>
+
+<hr>
+
+<h2 id="demo">Demo</h2>
+
+<div class="screenshot-single">
+<video controls preload="metadata" style="width:100%; max-width:1200px; height:auto; display:block; margin:0 auto; background:#000;">
+  <source src="screenshots/voice_limiter_ffxiv.webm" type="video/webm">
+  Sorry, your browser doesn't support embedded video. <a href="screenshots/voice_limiter_ffxiv.webm">Download the demo</a>.
+</video>
+<p class="caption">Live voice load updates as the playhead moves through a dense ensemble piece.</p>
+</div>
+
+<hr>
+
+<h2 id="related">Related</h2>
+
+<ul>
+  <li><a href="ffxiv-channel-fixer.html">FFXIV Channel Fixer - one-click range and channel
+    setup</a></li>
+  <li><a href="soundfont.html">SoundFonts &amp; FluidSynth - FFXIV SoundFont Mode</a></li>
+  <li><a href="midipilot.html">MidiPilot - <code>analyze_voice_load</code> tool</a></li>
+  <li><a href="tempo-conversion.html">Convert Tempo, Preserve Duration</a></li>
+  <li><a href="https://ffxiv.consolegameswiki.com/wiki/Performance_Actions" target="_blank" rel="noopener noreferrer">FFXIV Performance Actions wiki &#x2197;</a></li>
+</ul>
+
+</main>
+
+<footer class="site-footer">
+    <div class="footer-links">
+        <a href="https://github.com/happytunesai/MidiEditor_AI" class="repo-link" target="_blank" rel="noopener noreferrer"><img class="repo-logo" src="Midieditor-ai_logo.png" alt="">GitHub Repo</a>
+        <a href="https://github.com/happytunesai" target="_blank" rel="noopener noreferrer">All Projects</a>
+        <a href="docs-index.html">Documentation</a>
+        <a href="changelog.html">Changelog</a>
+        <a href="https://github.com/happytunesai/MidiEditor_AI/issues" target="_blank" rel="noopener noreferrer">Issues</a>
+        <a href="midipilot.html">MidiPilot</a>
+        <a href="supported-files.html">Supported Files</a>
+        <a href="https://www.happytunes.de" target="_blank" rel="noopener noreferrer">Happy Tunes &#x1F3B6;</a>
+    </div>
+    <p class="footer-copy">
+        MidiEditor AI &copy; 2026 &middot;
+        <a href="https://github.com/happytunesai/MidiEditor_AI/blob/main/LICENSE">License</a>
+        &middot; Made with &#x266A; + &#x1F916;
+        &middot; A <a href="https://www.happytunes.de" target="_blank" rel="noopener noreferrer">Happy Tunes</a> project
+    </p>
+</footer>
+
+<button class="scroll-top" id="scrollTopBtn" title="Back to top">&#x2191;</button>
+<script>
+(function() {
+    var btn = document.getElementById('scrollTopBtn');
+    window.addEventListener('scroll', function() {
+        btn.classList.toggle('visible', window.scrollY > 300);
+    });
+    btn.addEventListener('click', function() {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    });
+})();
+</script>
+<script src="lightbox.js"></script>
+<script src="navigation.js"></script>
+<script src="site.js"></script>
+</body>
+</html>

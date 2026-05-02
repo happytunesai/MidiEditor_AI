@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Prompt Examples | MidiEditor AI Manual</title>
 <link rel="icon" type="image/png" href="favicon.png">
-<meta name="theme-color" content="#0d1117">
+<meta name="theme-color" content="#0B1020">
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="site.css">
   <link rel="stylesheet" href="audio.css">
@@ -102,8 +102,7 @@
 <nav class="site-nav" role="navigation" aria-label="Main navigation">
 <div class="container">
     <a href="index.html" class="nav-brand">
-        <span class="brand-icon">&#x1F3B5;</span>
-        <span>MidiEditor AI</span>
+        <img class="brand-logo" src="Midieditor-ai_banner_w.png" alt="MidiEditor AI">
     </a>
     <button class="nav-hamburger" aria-label="Toggle menu" aria-expanded="false">&#x2630;</button>
     <ul class="nav-links">
@@ -116,6 +115,8 @@
                 <a href="midipilot.html">MidiPilot AI</a>
                 <a href="prompt-examples.html">Prompt Examples</a>
                 <a href="ffxiv-channel-fixer.html">FFXIV Channel Fixer</a>
+                <a href="ffxiv-voice-limiter.html">FFXIV Voice Limiter</a>
+                <a href="tempo-conversion.html">Convert Tempo</a>
                 <a href="supported-files.html">Supported Files</a>
                 <a href="themes.html">Themes &amp; Appearance</a>
                 <a href="lyrics.html">Lyric Editor</a>
@@ -178,7 +179,7 @@ Real-world examples showing what MidiPilot can do. Each prompt below has been te
 <h2 id="featured">&#x2B50; Featured: Metal Mozart</h2>
 
 <p>
-This example demonstrates MidiPilot&rsquo;s Agent mode at full power &mdash; composing a complete multi-track arrangement from a single prompt using Gemini 2.5 Flash.
+This example demonstrates MidiPilot&rsquo;s Agent mode at full power - composing a complete multi-track arrangement from a single prompt using Gemini 2.5 Flash.
 </p>
 
 <div class="prompt-box">
@@ -191,11 +192,11 @@ This example demonstrates MidiPilot&rsquo;s Agent mode at full power &mdash; com
     <source src="screenshots/MidiPilot_Agent_run.webm" type="video/webm">
     <img src="screenshots/MidiPilot_Agent_run.gif" alt="MidiPilot Agent mode composing Metal Mozart" width="900" loading="lazy">
 </video>
-<div class="caption">Agent mode: multi-step composition with Gemini 2.5 Flash &mdash; creating tracks, setting tempo, inserting notes</div>
+<div class="caption">Agent mode: multi-step composition with Gemini 2.5 Flash - creating tracks, setting tempo, inserting notes</div>
 </div>
 
 <p>
-The AI executes multiple tool calls iteratively &mdash; creating tracks for each instrument, setting tempo to 160+ BPM, inserting note patterns, and building the arrangement step by step. The status bar shows real-time progress with tool call counts.
+The AI executes multiple tool calls iteratively - creating tracks for each instrument, setting tempo to 160+ BPM, inserting note patterns, and building the arrangement step by step. The status bar shows real-time progress with tool call counts.
 </p>
 
 <div class="screenshot-row">
@@ -212,7 +213,7 @@ The AI executes multiple tool calls iteratively &mdash; creating tracks for each
 <div class="caption">Full agent run: single prompt &rarr; 5 tracks &rarr; 20 measures of Metal Mozart</div>
 
 <h3>&#x1F50A; Audio Preview</h3>
-<p>Hear the result &mdash; the MIDI output played back through GM instruments:</p>
+<p>Hear the result - the MIDI output played back through GM instruments:</p>
 <div class="video-embed">
 <iframe width="560" height="315" src="https://www.youtube.com/embed/CISOpY56lIA?si=9Dn09rXFBo9Y3w_8" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
 </div>
@@ -288,7 +289,7 @@ The AI executes multiple tool calls iteratively &mdash; creating tracks for each
 </div>
 
 <div class="tip">
-<b>Download:</b> <a href="midi/8-bit-game-soundtrack.mid">MIDI file</a> &mdash; This file is also used in the editing examples below.
+<b>Download:</b> <a href="midi/8-bit-game-soundtrack.mid">MIDI file</a> - This file is also used in the editing examples below.
 </div>
 
 <hr>
@@ -338,7 +339,7 @@ The AI executes multiple tool calls iteratively &mdash; creating tracks for each
 
 <div class="screenshot-single">
 <img src="screenshots/8-bit-game-soundtrack_measures.png" alt="AABB form restructured" width="900">
-<div class="caption">Result: Song restructured into AABB form &mdash; measures duplicated and rearranged</div>
+<div class="caption">Result: Song restructured into AABB form - measures duplicated and rearranged</div>
 </div>
 
 <div class="audio-box">
@@ -349,7 +350,7 @@ The AI executes multiple tool calls iteratively &mdash; creating tracks for each
 
 <div class="prompt-box">
 <span class="label">Humanize</span>
-<blockquote>Add slight timing and velocity variations to the piano part to make it sound more human. Keep it subtle &mdash; no more than &plusmn;10 ticks and &plusmn;15 velocity.</blockquote>
+<blockquote>Add slight timing and velocity variations to the piano part to make it sound more human. Keep it subtle - no more than &plusmn;10 ticks and &plusmn;15 velocity.</blockquote>
 </div>
 
 <div class="screenshot-single">
@@ -369,7 +370,7 @@ The AI executes multiple tool calls iteratively &mdash; creating tracks for each
 
 <div class="prompt-box">
 <span class="label">Extend</span>
-<blockquote>The melody on Track 1 is 8 bars. Extend it to 16 bars by developing the existing motifs &mdash; vary the rhythm and add passing tones in the second half.</blockquote>
+<blockquote>The melody on Track 1 is 8 bars. Extend it to 16 bars by developing the existing motifs - vary the rhythm and add passing tones in the second half.</blockquote>
 </div>
 
 <div class="screenshot-single">
@@ -419,7 +420,7 @@ The AI executes multiple tool calls iteratively &mdash; creating tracks for each
 
 <div class="prompt-box">
 <span class="label">Reharmonize</span>
-<blockquote>Reharmonize the melody using jazz substitutions &mdash; try tritone subs, chromatic approach chords, and secondary dominants where appropriate</blockquote>
+<blockquote>Reharmonize the melody using jazz substitutions - try tritone subs, chromatic approach chords, and secondary dominants where appropriate</blockquote>
 </div>
 
 <div class="screenshot-single">
@@ -514,7 +515,7 @@ The AI executes multiple tool calls iteratively &mdash; creating tracks for each
 
 <div class="prompt-box">
 <span class="label">Track split</span>
-<blockquote>This file has all notes on a single track. Split them into separate tracks by channel &mdash; one track per channel, named by their GM instrument.</blockquote>
+<blockquote>This file has all notes on a single track. Split them into separate tracks by channel - one track per channel, named by their GM instrument.</blockquote>
 </div>
 
 <div class="prompt-box">
@@ -524,7 +525,7 @@ The AI executes multiple tool calls iteratively &mdash; creating tracks for each
 
 <div class="prompt-box">
 <span class="label">Range limit</span>
-<blockquote>Clamp all notes to the range C2&ndash;C7. Transpose any notes outside this range by octaves until they fit.</blockquote>
+<blockquote>Clamp all notes to the range C2-C7. Transpose any notes outside this range by octaves until they fit.</blockquote>
 </div>
 
 <hr>
@@ -534,7 +535,7 @@ The AI executes multiple tool calls iteratively &mdash; creating tracks for each
 <h2 id="ffxiv">&#x1F3AE; FFXIV Bard Performance</h2>
 
 <p>
-Enable the <b>FFXIV</b> checkbox before sending these prompts. MidiPilot will enforce Final Fantasy XIV Bard Performance rules: C3&ndash;C6 range, monophonic, max 8 tracks, tonal drum mapping.
+Enable the <b>FFXIV</b> checkbox before sending these prompts. MidiPilot will enforce Final Fantasy XIV Bard Performance rules: C3-C6 range, monophonic, max 8 tracks, tonal drum mapping.
 </p>
 
 <div class="prompt-box">
@@ -554,11 +555,11 @@ Enable the <b>FFXIV</b> checkbox before sending these prompts. MidiPilot will en
 
 <div class="screenshot-single">
 <img src="screenshots/midipilot-ffxiv-validate.png" alt="FFXIV validation and auto-fix" width="900">
-<div class="caption">Agent mode validating FFXIV compliance &mdash; channel remapping, program changes, range verification</div>
+<div class="caption">Agent mode validating FFXIV compliance - channel remapping, program changes, range verification</div>
 </div>
 
 <div class="tip">
-<b>Tip:</b> The FFXIV system prompt automatically configures the AI to follow all Bard Performance constraints. You don&rsquo;t need to repeat the rules in every prompt &mdash; just enable the checkbox.
+<b>Tip:</b> The FFXIV system prompt automatically configures the AI to follow all Bard Performance constraints. You don&rsquo;t need to repeat the rules in every prompt - just enable the checkbox.
 </div>
 
 <hr>
@@ -579,7 +580,7 @@ Enable the <b>FFXIV</b> checkbox before sending these prompts. MidiPilot will en
 
 <footer class="site-footer">
     <div class="footer-links">
-        <a href="https://github.com/happytunesai/MidiEditor_AI" target="_blank" rel="noopener noreferrer">GitHub Repo</a>
+        <a href="https://github.com/happytunesai/MidiEditor_AI" class="repo-link" target="_blank" rel="noopener noreferrer"><img class="repo-logo" src="Midieditor-ai_logo.png" alt="">GitHub Repo</a>
         <a href="https://github.com/happytunesai" target="_blank" rel="noopener noreferrer">All Projects</a>
         <a href="docs-index.html">Documentation</a>
         <a href="changelog.html">Changelog</a>

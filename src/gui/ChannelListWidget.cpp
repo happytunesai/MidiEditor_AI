@@ -18,9 +18,11 @@
 
 #include "ChannelListWidget.h"
 #include <QAction>
+#include <QContextMenuEvent>
 #include <QDebug>
 #include <QGridLayout>
 #include <QLabel>
+#include <QMenu>
 #include <QPainter>
 #include <QToolBar>
 #include <QWidget>
@@ -28,6 +30,7 @@
 #include "Appearance.h"
 #include "ChannelVisibilityManager.h"
 #include "ColoredWidget.h"
+#include "MainWindow.h"
 #include "../midi/MidiChannel.h"
 #include "../midi/MidiFile.h"
 #include "../protocol/Protocol.h"
@@ -249,4 +252,33 @@ void ChannelListWidget::refreshColors() {
         item->refreshColors();
     }
     QListWidget::update();
+}
+
+void ChannelListWidget::contextMenuEvent(QContextMenuEvent *event) {
+    if (!file) {
+        QListWidget::contextMenuEvent(event);
+        return;
+    }
+    QListWidgetItem *item = itemAt(event->pos());
+    if (!item) {
+        QListWidget::contextMenuEvent(event);
+        return;
+    }
+    const int channel = this->row(item);
+    if (channel < 0 || channel > 15) {
+        // Row 16 is the meta row (no MIDI channel) — no tempo conversion entry.
+        QListWidget::contextMenuEvent(event);
+        return;
+    }
+    MainWindow *mw = qobject_cast<MainWindow *>(window());
+    if (!mw) {
+        QListWidget::contextMenuEvent(event);
+        return;
+    }
+    QMenu menu(this);
+    QAction *convertTempoAct = menu.addAction(tr("Convert Tempo, Preserve Duration..."));
+    connect(convertTempoAct, &QAction::triggered, mw, [mw, channel]() {
+        mw->convertTempoForChannel(channel);
+    });
+    menu.exec(event->globalPos());
 }

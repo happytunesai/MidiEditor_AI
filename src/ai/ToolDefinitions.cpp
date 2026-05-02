@@ -1,5 +1,8 @@
 #include "ToolDefinitions.h"
 #include "FFXIVChannelFixer.h"
+#ifndef TOOLDEFINITIONS_TEST_STUB_FFXIV
+#include "FfxivVoiceAnalyzer.h"
+#endif
 
 #include "../gui/MidiPilotWidget.h"
 #include "EditorContext.h"
@@ -17,6 +20,7 @@
 #include <QSet>
 #include <QRegularExpression>
 #include <algorithm>
+#include <climits>
 
 // ---------------------------------------------------------------------------
 // Helper: create a tool schema object in OpenAI format (strict mode)
@@ -417,6 +421,24 @@ QJsonArray ToolDefinitions::toolSchemas(const ToolSchemaOptions &options) {
                 "Call once after all tracks are created/renamed.",
                 makeParams(QJsonObject(), QJsonArray())));
         }
+
+        // analyze_voice_load (Phase 32.6)
+        {
+            QJsonObject props;
+            props["startTick"] = QJsonObject{
+                {"anyOf", QJsonArray{QJsonObject{{"type", "integer"}}, QJsonObject{{"type", "null"}}}},
+                {"description", "Inclusive start tick to restrict the report. Use null for the full file."}};
+            props["endTick"] = QJsonObject{
+                {"anyOf", QJsonArray{QJsonObject{{"type", "integer"}}, QJsonObject{{"type", "null"}}}},
+                {"description", "Inclusive end tick to restrict the report. Use null for the full file."}};
+            tools.append(makeTool(
+                "analyze_voice_load",
+                "Read-only check of the FFXIV 16-voice ceiling and 14 notes/sec/channel rate ceiling. "
+                "Returns globalPeak (max simultaneous voices), overflowRanges (tick spans where voices > 16), "
+                "and rateHotspots (per-channel passages exceeding the rate cap). Use BEFORE finishing dense "
+                "compositions to confirm the file will play in FFXIV without dropped notes.",
+                makeParams(props, {"startTick", "endTick"})));
+        }
     }
 
     return tools;
@@ -542,6 +564,9 @@ QJsonObject ToolDefinitions::executeTool(const QString &toolName,
     }
     if (toolName == "setup_channel_pattern") {
         return execSetupChannelPattern(file, widget);
+    }
+    if (toolName == "analyze_voice_load") {
+        return execAnalyzeVoiceLoad(args, file);
     }
 
     QJsonObject result;
@@ -974,4 +999,122 @@ QJsonObject ToolDefinitions::execSetupChannelPattern(MidiFile *file,
     if (file && file->protocol())
         file->protocol()->endAction();
     return result;
+}
+
+// ---------------------------------------------------------------------------
+// analyze_voice_load — read-only FFXIV voice / rate ceiling report (Phase 32.6)
+// ---------------------------------------------------------------------------
+QJsonObject ToolDefinitions::execAnalyzeVoiceLoad(const QJsonObject &args, MidiFile *file) {
+#ifdef TOOLDEFINITIONS_TEST_STUB_FFXIV
+    Q_UNUSED(args);
+    Q_UNUSED(file);
+    QJsonObject result;
+    result["success"] = false;
+    result["error"] = QStringLiteral("Stub build: analyze_voice_load is unavailable.");
+    return result;
+#else
+    QJsonObject result;
+    if (!file) {
+        result["success"] = false;
+        result["error"] = QStringLiteral("No MIDI file is open.");
+        return result;
+    }
+
+    const bool hasStart = args.contains("startTick") && !args.value("startTick").isNull();
+    const bool hasEnd = args.contains("endTick") && !args.value("endTick").isNull();
+    const int startTick = hasStart ? args.value("startTick").toInt() : INT_MIN;
+    const int endTick = hasEnd ? args.value("endTick").toInt() : INT_MAX;
+
+    auto *analyzer = FfxivVoiceAnalyzer::instance();
+    // Force a synchronous compute so the report is current even when the
+    // analyser is disabled in the UI.
+    FfxivVoiceAnalyzer::Result r = analyzer->recomputeNow(file);
+    if (!r.valid) {
+        result["success"] = false;
+        result["error"] = QStringLiteral("Voice-load analysis is unavailable for this file.");
+        return result;
+    }
+
+    // Compute peak / overflow ranges within [startTick, endTick].
+    int peak = 0;
+    int peakTick = 0;
+    int overflowEvents = 0;
+    QJsonArray overflowRanges;
+    int curOverStart = -1;
+    int curOverPeak = 0;
+
+    const auto &samples = r.voiceSamples;
+    for (int i = 0; i < samples.size(); ++i) {
+        const int t = samples[i].tick;
+        const int v = samples[i].voiceCount;
+        const int nextT = (i + 1 < samples.size()) ? samples[i + 1].tick : t;
+        // Skip samples whose [t, nextT) interval lies entirely outside the range.
+        if (nextT < startTick) continue;
+        if (t > endTick) break;
+
+        if (v > peak) { peak = v; peakTick = t; }
+
+        if (v > FfxivVoiceAnalyzer::kVoiceCeiling) {
+            ++overflowEvents;
+            if (curOverStart < 0) {
+                curOverStart = qMax(t, startTick);
+                curOverPeak = v;
+            } else {
+                curOverPeak = qMax(curOverPeak, v);
+            }
+        } else if (curOverStart >= 0) {
+            QJsonObject range;
+            range["startTick"] = curOverStart;
+            range["endTick"] = qMin(t, endTick);
+            range["peakVoices"] = curOverPeak;
+            overflowRanges.append(range);
+            curOverStart = -1;
+            curOverPeak = 0;
+        }
+    }
+    if (curOverStart >= 0) {
+        QJsonObject range;
+        range["startTick"] = curOverStart;
+        range["endTick"] = qMin(samples.last().tick, endTick);
+        range["peakVoices"] = curOverPeak;
+        overflowRanges.append(range);
+    }
+
+    QJsonArray rateHotspots;
+    for (const auto &h : r.rateHotspots) {
+        if (h.endTick < startTick || h.startTick > endTick) continue;
+        QJsonObject hotspot;
+        hotspot["channel"] = h.channel;
+        hotspot["startTick"] = h.startTick;
+        hotspot["endTick"] = h.endTick;
+        hotspot["notesInWindow"] = h.notesInWindow;
+        hotspot["notesPerSecond"] = h.notesPerSecond;
+        rateHotspots.append(hotspot);
+    }
+
+    result["success"] = true;
+    result["voiceCeiling"] = FfxivVoiceAnalyzer::kVoiceCeiling;
+    result["noteRateCeilingPerChannel"] = FfxivVoiceAnalyzer::kNoteRateCeilingPerChannel;
+    result["noteRateWindowMs"] = FfxivVoiceAnalyzer::kNoteRateWindowMs;
+    result["globalPeak"] = peak;
+    result["globalPeakTick"] = peakTick;
+    result["overflowEventCount"] = overflowEvents;
+    result["overflowRanges"] = overflowRanges;
+    result["rateHotspots"] = rateHotspots;
+    if (hasStart) result["startTick"] = startTick;
+    if (hasEnd) result["endTick"] = endTick;
+    QString summary;
+    if (peak == 0) {
+        summary = QStringLiteral("No notes in range; voice-load is 0/16.");
+    } else if (overflowRanges.isEmpty() && rateHotspots.isEmpty()) {
+        summary = QStringLiteral("OK: peak %1/16 voices, no rate hotspots.").arg(peak);
+    } else {
+        summary = QStringLiteral("WARNING: peak %1/16 voices, %2 overflow range(s), %3 rate hotspot(s).")
+                      .arg(peak)
+                      .arg(overflowRanges.size())
+                      .arg(rateHotspots.size());
+    }
+    result["summary"] = summary;
+    return result;
+#endif // TOOLDEFINITIONS_TEST_STUB_FFXIV
 }

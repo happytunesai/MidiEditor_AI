@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>SoundFonts &amp; FluidSynth - MidiEditor AI Manual</title>
   <link rel="icon" type="image/png" href="favicon.png">
-<meta name="theme-color" content="#0d1117">
+<meta name="theme-color" content="#0B1020">
   <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="site.css">
   <link rel="stylesheet" href="audio.css">
@@ -14,8 +14,7 @@
 <nav class="site-nav" role="navigation" aria-label="Main navigation">
 <div class="container">
     <a href="index.html" class="nav-brand">
-        <span class="brand-icon">&#x1F3B5;</span>
-        <span>MidiEditor AI</span>
+        <img class="brand-logo" src="Midieditor-ai_banner_w.png" alt="MidiEditor AI">
     </a>
     <button class="nav-hamburger" aria-label="Toggle menu" aria-expanded="false">&#x2630;</button>
     <ul class="nav-links">
@@ -28,6 +27,8 @@
                 <a href="midipilot.html">MidiPilot AI</a>
                 <a href="prompt-examples.html">Prompt Examples</a>
                 <a href="ffxiv-channel-fixer.html">FFXIV Channel Fixer</a>
+                <a href="ffxiv-voice-limiter.html">FFXIV Voice Limiter</a>
+                <a href="tempo-conversion.html">Convert Tempo</a>
                 <a href="supported-files.html">Supported Files</a>
                 <a href="themes.html">Themes &amp; Appearance</a>
                 <a href="lyrics.html">Lyric Editor</a>
@@ -55,7 +56,7 @@
 <p>
   MidiEditor AI includes a <b>built-in FluidSynth synthesizer</b> so you can play back MIDI files
   without any external software. FluidSynth renders audio from <b>SoundFont</b> files (.sf2/.sf3)
-  which contain sampled instrument sounds. No drivers, no DAWs, no setup &mdash; just open a file
+  which contain sampled instrument sounds. No drivers, no DAWs, no setup - just open a file
   and press play.
 </p>
 
@@ -84,9 +85,9 @@
 <tr><td><b>Driver</b></td><td>Audio output driver (DirectSound, WASAPI, etc.).</td></tr>
 <tr><td><b>Rate</b></td><td>Sample rate in Hz. Higher values sound better but use more CPU.</td></tr>
 <tr><td><b>Reverb Engine</b></td><td>Choose the reverb algorithm (FDN Reverb is recommended).</td></tr>
-<tr><td><b>Gain</b></td><td>Master volume (0.0 &ndash; 1.0). Click <i>Reset</i> to restore the default.</td></tr>
+<tr><td><b>Gain</b></td><td>Master volume (0.0 - 1.0). Click <i>Reset</i> to restore the default.</td></tr>
 <tr><td><b>Reverb / Chorus</b></td><td>Toggle built-in reverb and chorus effects.</td></tr>
-<tr><td><b>FFXIV SoundFont Mode</b></td><td>Special mode for FFXIV Bard SoundFonts &mdash; see <a href="#ffxiv-mode">below</a>.</td></tr>
+<tr><td><b>FFXIV SoundFont Mode</b></td><td>Special mode for FFXIV Bard SoundFonts - see <a href="#ffxiv-mode">below</a>.</td></tr>
 </table>
 
 <!-- â”€â”€â”€â”€â”€â”€â”€â”€â”€ Managing SoundFonts â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
@@ -98,9 +99,9 @@
 </p>
 
 <ol>
-  <li><b>Add&hellip;</b> &mdash; Browse for any <code>.sf2</code> or <code>.sf3</code> file on your system. It will be copied into the <code>soundfont/</code> folder automatically.</li>
-  <li><b>Download Default&hellip;</b> &mdash; Opens a curated download dialog with popular SoundFonts ready to install with one click.</li>
-  <li><b>Manual</b> &mdash; Drop <code>.sf2</code>/<code>.sf3</code> files directly into the <code>soundfont/</code> folder, then restart MidiEditor or re-open settings.</li>
+  <li><b>Add&hellip;</b> - Browse for any <code>.sf2</code> or <code>.sf3</code> file on your system. It will be copied into the <code>soundfont/</code> folder automatically.</li>
+  <li><b>Download Default&hellip;</b> - Opens a curated download dialog with popular SoundFonts ready to install with one click.</li>
+  <li><b>Manual</b> - Drop <code>.sf2</code>/<code>.sf3</code> files directly into the <code>soundfont/</code> folder, then restart MidiEditor or re-open settings.</li>
 </ol>
 
 <h4 id="download">Download Dialog</h4>
@@ -118,7 +119,7 @@
 <p>Available SoundFonts in the download dialog:</p>
 <table>
 <tr><th>#</th><th>Name</th><th>Size</th><th>Format</th><th>Description</th></tr>
-<tr><td>1</td><td>FFXIV Bard SoundFont (C3-C6 Fixed)</td><td>13.2 MB</td><td>SF2</td><td>FFXIV instrument samples with corrected octave range (C3&ndash;C6). Recommended for bard performance.</td></tr>
+<tr><td>1</td><td>FFXIV Bard SoundFont (C3-C6 Fixed)</td><td>13.2 MB</td><td>SF2</td><td>FFXIV instrument samples with corrected octave range (C3-C6). Recommended for bard performance.</td></tr>
 <tr><td>2</td><td>FFXIV Bard SoundFont (Normal)</td><td>13.2 MB</td><td>SF2</td><td>FFXIV instrument samples with original range.</td></tr>
 <tr><td>3</td><td>GeneralUser GS</td><td>30.8 MB</td><td>SF2</td><td>High-quality General MIDI / GS SoundFont covering all 128 GM programs.</td></tr>
 <tr><td>4</td><td>MS Basic v2.0 (MuseScore 4)</td><td>38 MB</td><td>SF3</td><td>Large General MIDI SoundFont from MuseScore. Compressed SF3 format.</td></tr>
@@ -142,8 +143,8 @@
   <b>Typical stack for FFXIV playback:</b>
 </p>
 <ol>
-  <li><code>FF14-c3c6-fixed.sf2</code> &mdash; FFXIV instruments (top priority)</li>
-  <li><code>GeneralUser-GS.sf2</code> &mdash; fallback for any programs not in the FFXIV font</li>
+  <li><code>FF14-c3c6-fixed.sf2</code> - FFXIV instruments (top priority)</li>
+  <li><code>GeneralUser-GS.sf2</code> - fallback for any programs not in the FFXIV font</li>
 </ol>
 
 <!-- â”€â”€â”€â”€â”€â”€â”€â”€â”€ Enable / Disable â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
@@ -151,7 +152,7 @@
 
 <p>
   Each SoundFont in the list has a <b>checkbox</b>. Unchecking a SoundFont <i>disables</i> it
-  &mdash; it stays in the list but is not loaded into FluidSynth. This is useful when you want to
+  - it stays in the list but is not loaded into FluidSynth. This is useful when you want to
   temporarily mute a SoundFont without removing it from the stack.
 </p>
 
@@ -159,8 +160,8 @@
      alt="SoundFont list with enable/disable checkboxes â€” one item unchecked"/>
 
 <ul>
-  <li><b>Checked</b> &mdash; SoundFont is active and used for playback and <a href="export-audio.html">audio export</a>.</li>
-  <li><b>Unchecked</b> &mdash; SoundFont stays in the list but is not loaded. It won&rsquo;t contribute any sounds.</li>
+  <li><b>Checked</b> - SoundFont is active and used for playback and <a href="export-audio.html">audio export</a>.</li>
+  <li><b>Unchecked</b> - SoundFont stays in the list but is not loaded. It won&rsquo;t contribute any sounds.</li>
 </ul>
 
 <p>
@@ -186,7 +187,7 @@
 </p>
 
 <!-- ───────── FFXIV Toolbar Toggle ───────── -->
-<h4 id="ffxiv-toolbar-toggle">FFXIV SoundFont Mode &mdash; Toolbar Toggle</h4>
+<h4 id="ffxiv-toolbar-toggle">FFXIV SoundFont Mode - Toolbar Toggle</h4>
 
 <p>
   A dedicated <b>XIV</b> button sits next to the <b>MCP</b> button on the main toolbar
@@ -196,7 +197,7 @@
   when the mode is active and dimmed
   (<img src="tools/XIV_off.png" height="20" alt="XIV off" style="vertical-align:middle"/>)
   when it is off. The button stays in sync with the checkbox under
-  <i>MIDI Settings &rarr; FluidSynth &rarr; FFXIV SoundFont Mode</i> &mdash;
+  <i>MIDI Settings &rarr; FluidSynth &rarr; FFXIV SoundFont Mode</i> -
   flipping one updates the other.
 </p>
 
@@ -214,24 +215,24 @@
 
 <ol>
   <li>
-    <b>Snapshot</b> &mdash; the currently enabled non-FFXIV SoundFonts are saved to
+    <b>Snapshot</b> - the currently enabled non-FFXIV SoundFonts are saved to
     settings (<code>FFXIV/savedEnabledSoundFonts</code>) so they can be restored later.
   </li>
   <li>
-    <b>Locate the FFXIV SoundFont</b> &mdash; first check whether one is already in the
+    <b>Locate the FFXIV SoundFont</b> - first check whether one is already in the
     FluidSynth stack, then look in the <code>soundfonts/</code> folder next to
     <code>MidiEditorAI.exe</code>. SoundFonts whose filename contains <code>ff14</code>
     or <code>ffxiv</code> (case-insensitive) are recognized as FFXIV bard SoundFonts.
   </li>
   <li>
-    <b>Auto-download if missing</b> &mdash; if no FFXIV SoundFont is found, you are
+    <b>Auto-download if missing</b> - if no FFXIV SoundFont is found, you are
     prompted to download one. Choosing <i>Yes</i> opens the
     <a href="#download">Download SoundFonts</a> dialog; after the download finishes the
     file is automatically loaded into the engine and selected. Cancelling the download
-    leaves the toggle in the OFF state &mdash; no half-configured mode.
+    leaves the toggle in the OFF state - no half-configured mode.
   </li>
   <li>
-    <b>Activate</b> &mdash; the FFXIV SoundFont is enabled, all other SoundFonts are
+    <b>Activate</b> - the FFXIV SoundFont is enabled, all other SoundFonts are
     temporarily disabled, and FFXIV SoundFont Mode is switched on.
   </li>
 </ol>
@@ -248,7 +249,7 @@
     All FFXIV SoundFonts in the stack are unchecked.
   </li>
   <li>
-    The snapshot taken on enable is restored verbatim &mdash; SoundFonts that were
+    The snapshot taken on enable is restored verbatim - SoundFonts that were
     unloaded in the meantime are re-loaded so the previous selection is recreated.
   </li>
   <li>
@@ -257,7 +258,7 @@
     sane fallback so playback keeps working.
   </li>
   <li>
-    <b>Microsoft GS Wavetable Synth fallback</b> &mdash; if the FluidSynth SoundFont
+    <b>Microsoft GS Wavetable Synth fallback</b> - if the FluidSynth SoundFont
     stack is completely empty after step&nbsp;3, the active MIDI output is switched
     to <i>Microsoft GS Wavetable Synth</i> (or whichever <i>Microsoft &hellip; Synth</i>
     port is available). You'll see a short info dialog noting the switch.
@@ -267,7 +268,7 @@
 <p>
   This means you can install MidiEditor AI on a fresh machine, click the
   <b>XIV</b> button once, accept the download prompt, and be ready to play FFXIV
-  bard files &mdash; and clicking the button again returns you to your previous
+  bard files - and clicking the button again returns you to your previous
   General MIDI setup, or to Microsoft GS as a guaranteed last-resort output.
 </p>
 
@@ -321,7 +322,7 @@
 
 <footer class="site-footer">
     <div class="footer-links">
-        <a href="https://github.com/happytunesai/MidiEditor_AI" target="_blank" rel="noopener noreferrer">GitHub Repo</a>
+        <a href="https://github.com/happytunesai/MidiEditor_AI" class="repo-link" target="_blank" rel="noopener noreferrer"><img class="repo-logo" src="Midieditor-ai_logo.png" alt="">GitHub Repo</a>
         <a href="https://github.com/happytunesai" target="_blank" rel="noopener noreferrer">All Projects</a>
         <a href="docs-index.html">Documentation</a>
         <a href="changelog.html">Changelog</a>

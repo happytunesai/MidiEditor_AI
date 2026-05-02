@@ -1099,6 +1099,10 @@ void Appearance::applyStyle() {
     } else if (_theme == ThemeMaterial) {
         wantDark = true;
         qssPath = ":/src/gui/themes/materialdark.qss";
+    } else if (_theme == ThemeBrand) {
+        // Phase 37.2: MidiEditor AI brand theme.
+        wantDark = true;
+        qssPath = ":/src/gui/themes/midieditorai_brand.qss";
     } else if (_theme == ThemePink) {
         wantDark = false;
         qssPath = ":/src/gui/themes/pink.qss";
@@ -1231,7 +1235,7 @@ bool Appearance::isDarkModeEnabled() {
 
 bool Appearance::shouldUseDarkMode() {
     // If using the new theme system, consult theme directly
-    if (_theme == ThemeDark || _theme == ThemeAmoled || _theme == ThemeMaterial) {
+    if (_theme == ThemeDark || _theme == ThemeAmoled || _theme == ThemeMaterial || _theme == ThemeBrand) {
         darkModeResult = true;
         cachedStyle = _applicationStyle.toLower();
         return true;
@@ -1277,6 +1281,7 @@ bool Appearance::shouldUseDarkMode() {
 // Color scheme methods
 QColor Appearance::backgroundColor() {
     if (_theme == ThemePink) return QColor(160, 130, 140);
+    if (_theme == ThemeBrand) return QColor(0x0B, 0x10, 0x20); // brand --bg
     if (shouldUseDarkMode()) {
         return QColor(45, 45, 45); // Dark gray
     }
@@ -1285,6 +1290,7 @@ QColor Appearance::backgroundColor() {
 
 QColor Appearance::backgroundShade() {
     if (_theme == ThemePink) return QColor(200, 180, 190);
+    if (_theme == ThemeBrand) return QColor(0x16, 0x22, 0x38); // brand --bg-card
     if (shouldUseDarkMode()) {
         return QColor(60, 60, 60); // Dark gray shade
     }
@@ -1321,6 +1327,7 @@ QColor Appearance::grayColor() {
 
 QColor Appearance::pianoWhiteKeyColor() {
     if (_theme == ThemePink) return QColor(255, 240, 245); // Lavender blush - slightly pink
+    if (_theme == ThemeBrand) return QColor(0xEA, 0xF3, 0xFF); // brand --text -- bright white-blue keys
     if (shouldUseDarkMode()) {
         return QColor(170, 170, 170); // Lighter gray for dark mode piano keys
     }
@@ -1337,6 +1344,7 @@ QColor Appearance::pianoBlackKeyColor() {
 
 QColor Appearance::pianoWhiteKeyHoverColor() {
     if (_theme == ThemePink) return QColor(240, 180, 200); // Pink hover
+    if (_theme == ThemeBrand) return QColor(0x7C, 0xE8, 0xFF); // brand cyan-light hover
     if (shouldUseDarkMode()) {
         return QColor(100, 100, 100); // Dark gray for hover in dark mode
     }
@@ -1353,6 +1361,7 @@ QColor Appearance::pianoBlackKeyHoverColor() {
 
 QColor Appearance::pianoWhiteKeySelectedColor() {
     if (_theme == ThemePink) return QColor(245, 200, 215); // Pink selected
+    if (_theme == ThemeBrand) return QColor(0x25, 0xD6, 0xFF); // brand --accent-hover for selected
     if (shouldUseDarkMode()) {
         return QColor(150, 150, 150); // Light gray for selected in dark mode
     }
@@ -1369,6 +1378,7 @@ QColor Appearance::pianoBlackKeySelectedColor() {
 
 QColor Appearance::stripHighlightColor() {
     if (_theme == ThemePink) return QColor(255, 230, 240);
+    if (_theme == ThemeBrand) return QColor(0x16, 0x22, 0x38); // brand --bg-card
     if (shouldUseDarkMode()) {
         return QColor(70, 70, 70); // Dark gray
     }
@@ -1377,6 +1387,7 @@ QColor Appearance::stripHighlightColor() {
 
 QColor Appearance::stripNormalColor() {
     if (_theme == ThemePink) return QColor(255, 210, 225);
+    if (_theme == ThemeBrand) return QColor(0x10, 0x19, 0x2A); // brand --bg-secondary
     if (shouldUseDarkMode()) {
         return QColor(55, 55, 55); // Darker gray
     }
@@ -1384,6 +1395,7 @@ QColor Appearance::stripNormalColor() {
 }
 
 QColor Appearance::rangeLineColor() {
+    if (_theme == ThemeBrand) return QColor(0x1E, 0x3A, 0x6E); // brand selection blue
     if (shouldUseDarkMode()) {
         return QColor(120, 105, 85); // Brighter cream for dark mode
     }
@@ -1391,6 +1403,7 @@ QColor Appearance::rangeLineColor() {
 }
 
 QColor Appearance::velocityBackgroundColor() {
+    if (_theme == ThemeBrand) return QColor(0x10, 0x19, 0x2A); // brand --bg-secondary
     if (shouldUseDarkMode()) {
         return QColor(60, 75, 85); // Dark blue-gray
     }
@@ -1398,6 +1411,7 @@ QColor Appearance::velocityBackgroundColor() {
 }
 
 QColor Appearance::velocityGridColor() {
+    if (_theme == ThemeBrand) return QColor(0x29, 0x3A, 0x55); // brand --border
     if (shouldUseDarkMode()) {
         return QColor(80, 95, 105); // Lighter blue-gray
     }
@@ -1412,6 +1426,7 @@ QColor Appearance::systemTextColor() {
 }
 
 QColor Appearance::systemWindowColor() {
+    if (_theme == ThemeBrand) return QColor(0x0B, 0x10, 0x20); // brand --bg
     if (shouldUseDarkMode()) {
         return QColor(35, 35, 35); // Darker background for time area in dark mode
     }
@@ -1433,6 +1448,9 @@ QColor Appearance::infoBoxTextColor() {
 }
 
 QColor Appearance::toolbarBackgroundColor() {
+    if (_theme == ThemeBrand) {
+        return QColor(0x10, 0x19, 0x2A); // brand --bg-secondary
+    }
     if (_theme == ThemeDark || (_theme == ThemeSystem && isDarkModeEnabled())) {
         return QColor(22, 27, 34); // #161b22 matches dark.qss
     } else if (_theme == ThemeLight || (_theme == ThemeSystem && !isDarkModeEnabled())) {
@@ -1575,6 +1593,7 @@ QColor Appearance::pianoKeyLineHighlightColor() {
 }
 
 QColor Appearance::measureTextColor() {
+    if (_theme == ThemeBrand) return QColor(0xEA, 0xF3, 0xFF); // brand --text
     if (shouldUseDarkMode()) {
         return QColor(200, 200, 200); // Light gray for dark mode
     }
@@ -1582,6 +1601,7 @@ QColor Appearance::measureTextColor() {
 }
 
 QColor Appearance::measureBarColor() {
+    if (_theme == ThemeBrand) return QColor(0x1B, 0x2B, 0x47); // slightly lifted navy so the measure pill stands off the timeline
     if (shouldUseDarkMode()) {
         return QColor(100, 100, 100); // Medium gray for dark mode
     }
@@ -1589,6 +1609,7 @@ QColor Appearance::measureBarColor() {
 }
 
 QColor Appearance::measureLineColor() {
+    if (_theme == ThemeBrand) return QColor(0x29, 0x3A, 0x55); // brand --border
     if (shouldUseDarkMode()) {
         return QColor(120, 120, 120); // Medium gray for dark mode
     }
@@ -1596,6 +1617,7 @@ QColor Appearance::measureLineColor() {
 }
 
 QColor Appearance::timelineGridColor() {
+    if (_theme == ThemeBrand) return QColor(0x29, 0x3A, 0x55); // brand --border
     if (shouldUseDarkMode()) {
         return QColor(100, 100, 100); // Medium gray for dark mode
     }

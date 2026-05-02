@@ -162,6 +162,7 @@ public:
         ThemePink     = 4,  ///< Light theme with cherry blossom accents
         ThemeAmoled   = 5,  ///< Pure black OLED theme with orange accents
         ThemeMaterial = 6,  ///< Material Design dark with teal accents
+        ThemeBrand    = 7,  ///< MidiEditor AI brand theme (Phase 37.2)
     };
 
     /**

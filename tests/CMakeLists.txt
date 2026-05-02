@@ -153,6 +153,26 @@ else()
 endif()
 
 # -----------------------------------------------------------------------------
+# test_ffxiv_voice_analyzer
+# -----------------------------------------------------------------------------
+# Validates the pure voice-load + note-rate logic in
+# src/ai/FfxivVoiceLoadCore (Phase 32.4). The core has no MidiFile,
+# MidiChannel, or Qt GUI dependencies, so the test compiles only that
+# single .cpp.
+add_executable(test_ffxiv_voice_analyzer
+    test_ffxiv_voice_analyzer.cpp
+    ../src/ai/FfxivVoiceLoadCore.cpp
+)
+target_include_directories(test_ffxiv_voice_analyzer PRIVATE
+    ../src/ai
+)
+target_link_libraries(test_ffxiv_voice_analyzer PRIVATE
+    Qt6::Core
+    Qt6::Test
+)
+add_test(NAME FfxivVoiceAnalyzer COMMAND test_ffxiv_voice_analyzer)
+
+# -----------------------------------------------------------------------------
 # test_selection
 # -----------------------------------------------------------------------------
 # Validates the global Selection singleton in src/tool/Selection.
@@ -288,6 +308,9 @@ add_executable(test_tool_definitions
 )
 target_include_directories(test_tool_definitions PRIVATE
     ../src/ai
+)
+target_compile_definitions(test_tool_definitions PRIVATE
+    TOOLDEFINITIONS_TEST_STUB_FFXIV
 )
 target_link_libraries(test_tool_definitions PRIVATE
     Qt6::Core
@@ -523,6 +546,74 @@ target_link_libraries(test_midi_channel PRIVATE
 add_test(NAME MidiChannel COMMAND test_midi_channel)
 
 # -----------------------------------------------------------------------------
+# test_tempo_conversion_service
+# -----------------------------------------------------------------------------
+# Validates src/converter/TempoConversionService — Phase 33's
+# "Convert Tempo, Preserve Duration" headless engine. Same ODR-shim
+# strategy as test_midi_channel: real MidiChannel + the four event types
+# we construct (NoteOnEvent, OffEvent, OnEvent, TempoChangeEvent +
+# ProgChangeEvent for the OnEvent dependency) + the protocol/* TUs +
+# the real ChannelVisibilityManager (header-only deps). MidiFile,
+# MidiTrack, MidiEvent base, GraphicObject, EventWidget, Appearance are
+# defined out-of-line in the test TU. The MidiEvent::setMidiTime shim
+# is smarter than other tests' — it actually re-keys events in their
+# channel's QMultiMap so the service's tick-scaling pass produces the
+# expected map state.
+add_executable(test_tempo_conversion_service
+    test_tempo_conversion_service.cpp
+    ../src/converter/TempoConversionService.cpp
+    ../src/midi/MidiChannel.cpp
+    ../src/gui/ChannelVisibilityManager.cpp
+    ../src/MidiEvent/NoteOnEvent.cpp
+    ../src/MidiEvent/OffEvent.cpp
+    ../src/MidiEvent/OnEvent.cpp
+    ../src/MidiEvent/TempoChangeEvent.cpp
+    ../src/MidiEvent/ProgChangeEvent.cpp
+    ../src/protocol/Protocol.cpp
+    ../src/protocol/ProtocolStep.cpp
+    ../src/protocol/ProtocolItem.cpp
+    ../src/protocol/ProtocolEntry.cpp
+)
+target_include_directories(test_tempo_conversion_service PRIVATE
+    ../src/converter
+    ../src/midi
+    ../src/MidiEvent
+    ../src/protocol
+    ../src/gui
+)
+target_link_libraries(test_tempo_conversion_service PRIVATE
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Widgets
+    Qt6::Test
+)
+add_test(NAME TempoConversionService COMMAND test_tempo_conversion_service)
+
+# -----------------------------------------------------------------------------
+# test_paste_special_dialog
+# -----------------------------------------------------------------------------
+# Phase 34 GUI-only coverage of PasteSpecialDialog: default radio
+# selection per PasteAssignment, chosenAssignment() follows toggling,
+# the "Make this the new default" checkbox cascade, and a smoke check
+# that the summary label surfaces event count + source track names.
+# Compiles only PasteSpecialDialog.cpp; no MidiFile / MidiEvent / EventTool
+# linkage so the test stays headless and self-contained.
+add_executable(test_paste_special_dialog
+    test_paste_special_dialog.cpp
+    ../src/gui/PasteSpecialDialog.cpp
+)
+target_include_directories(test_paste_special_dialog PRIVATE
+    ../src/gui
+)
+target_link_libraries(test_paste_special_dialog PRIVATE
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Widgets
+    Qt6::Test
+)
+add_test(NAME PasteSpecialDialog COMMAND test_paste_special_dialog)
+
+# -----------------------------------------------------------------------------
 # test_text_event
 # -----------------------------------------------------------------------------
 # Validates SMF byte encoding (FF <type> <varlen> <utf8>) and accessors for
@@ -697,6 +788,10 @@ if(WIN32)
         AgentRunnerState
         AgentToolPolicy
         StreamingFallback
+        FfxivVoiceAnalyzer
+        TempoConversionService
+        PromptProfiles
+        PasteSpecialDialog
         PROPERTIES
             ENVIRONMENT "PATH=${_qt_bin_dir};$ENV{PATH}"
     )

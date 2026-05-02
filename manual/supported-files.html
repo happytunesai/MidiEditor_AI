@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Supported Files | MidiEditor AI Manual</title>
 <link rel="icon" type="image/png" href="favicon.png">
-<meta name="theme-color" content="#0d1117">
+<meta name="theme-color" content="#0B1020">
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="site.css">
   <link rel="stylesheet" href="audio.css">
@@ -98,8 +98,7 @@
 <nav class="site-nav" role="navigation" aria-label="Main navigation">
 <div class="container">
     <a href="index.html" class="nav-brand">
-        <span class="brand-icon">&#x1F3B5;</span>
-        <span>MidiEditor AI</span>
+        <img class="brand-logo" src="Midieditor-ai_banner_w.png" alt="MidiEditor AI">
     </a>
     <button class="nav-hamburger" aria-label="Toggle menu" aria-expanded="false">&#x2630;</button>
     <ul class="nav-links">
@@ -112,6 +111,8 @@
                 <a href="midipilot.html">MidiPilot AI</a>
                 <a href="prompt-examples.html">Prompt Examples</a>
                 <a href="ffxiv-channel-fixer.html">FFXIV Channel Fixer</a>
+                <a href="ffxiv-voice-limiter.html">FFXIV Voice Limiter</a>
+                <a href="tempo-conversion.html">Convert Tempo</a>
                 <a href="supported-files.html">Supported Files</a>
                 <a href="themes.html">Themes &amp; Appearance</a>
                 <a href="lyrics.html">Lyric Editor</a>
@@ -137,7 +138,7 @@
 <h1>&#x1F4C2; Supported Files</h1>
 
 <p>
-MidiEditor AI can natively open <b>four file-format families</b>: standard MIDI, Guitar Pro tablature, MusicXML scores, and MuseScore project files. Non-MIDI formats are converted to MIDI on-the-fly with tempo, time signature, key signature, and instrument mapping preserved &mdash; no external converter or third-party software required.
+MidiEditor AI can natively open <b>four file-format families</b>: standard MIDI, Guitar Pro tablature, MusicXML scores, and MuseScore project files. Non-MIDI formats are converted to MIDI on-the-fly with tempo, time signature, key signature, and instrument mapping preserved - no external converter or third-party software required.
 </p>
 
 <div class="highlight-box">
@@ -164,14 +165,14 @@ MidiEditor AI can natively open <b>four file-format families</b>: standard MIDI,
 <tr>
 <td><b>MIDI</b></td>
 <td><code>.mid</code>, <code>.midi</code></td>
-<td>Native &mdash; Standard MIDI File</td>
+<td>Native - Standard MIDI File</td>
 <td>None (loaded directly)</td>
 <td><code>.mid</code></td>
 </tr>
 <tr>
 <td><b>Guitar Pro</b></td>
 <td><code>.gp</code>, <code>.gp3</code>, <code>.gp4</code>, <code>.gp5</code>, <code>.gpx</code>, <code>.gtp</code></td>
-<td>Guitar Pro 1&ndash;8</td>
+<td>Guitar Pro 1-8</td>
 <td>Tab &rarr; MIDI on open</td>
 <td><code>.mid</code></td>
 </tr>
@@ -192,7 +193,7 @@ MidiEditor AI can natively open <b>four file-format families</b>: standard MIDI,
 </table>
 
 <div class="highlight-box">
-<p>&#x26A0;&#xFE0F; <b>One-way conversion:</b> Imported files are converted to MIDI in memory. Saving keeps the result as a MIDI file &mdash; the original Guitar Pro / MusicXML / MuseScore document is not modified, and round-trip back to those formats is not supported.</p>
+<p>&#x26A0;&#xFE0F; <b>One-way conversion:</b> Imported files are converted to MIDI in memory. Saving keeps the result as a MIDI file - the original Guitar Pro / MusicXML / MuseScore document is not modified, and round-trip back to those formats is not supported.</p>
 </div>
 
 <hr>
@@ -205,12 +206,12 @@ MidiEditor AI can natively open <b>four file-format families</b>: standard MIDI,
 <tr><th>Extensions</th><td><code>.mid</code>, <code>.midi</code></td></tr>
 <tr><th>Type</th><td>Standard MIDI File (SMF) format 0 and format 1</td></tr>
 <tr><th>Tracks</th><td>Up to 32, mapped to 19 channels (16 standard + 3 meta)</td></tr>
-<tr><th>Editing</th><td>Full read/write &mdash; everything MidiEditor AI does ultimately works on MIDI in memory</td></tr>
+<tr><th>Editing</th><td>Full read/write - everything MidiEditor AI does ultimately works on MIDI in memory</td></tr>
 </table>
 
 <hr>
 
-<h2 id="guitar-pro">&#x1F3B8; Guitar Pro (GP1&ndash;GP8)</h2>
+<h2 id="guitar-pro">&#x1F3B8; Guitar Pro (GP1-GP8)</h2>
 
 <p>
 MidiEditor AI natively opens every Guitar Pro format released between 1993 and 2024. Files are converted to MIDI on-the-fly with tempo, time signature, key signature, tuning, and instrument mapping preserved.
@@ -229,14 +230,14 @@ MidiEditor AI natively opens every Guitar Pro format released between 1993 and 2
 <tr>
 <td><b>GP1</b></td>
 <td><code>.gtp</code></td>
-<td>v1.0 &ndash; v1.04</td>
+<td>v1.0 - v1.04</td>
 <td>Gp12Parser</td>
 <td>Binary (DOS, French header &ldquo;GUITARE&rdquo;)</td>
 </tr>
 <tr>
 <td><b>GP2</b></td>
 <td><code>.gtp</code></td>
-<td>v2.20 &ndash; v2.21</td>
+<td>v2.20 - v2.21</td>
 <td>Gp12Parser</td>
 <td>Binary (DOS, adds triplet feel, repeats, capo)</td>
 </tr>
@@ -250,14 +251,14 @@ MidiEditor AI natively opens every Guitar Pro format released between 1993 and 2
 <tr>
 <td><b>GP4</b></td>
 <td><code>.gp4</code></td>
-<td>v4.00 &ndash; v4.06</td>
+<td>v4.00 - v4.06</td>
 <td>Gp345Parser</td>
 <td>Binary (adds lyrics, RSE, key signatures)</td>
 </tr>
 <tr>
 <td><b>GP5</b></td>
 <td><code>.gp5</code></td>
-<td>v5.00 &ndash; v5.10</td>
+<td>v5.00 - v5.10</td>
 <td>Gp345Parser</td>
 <td>Binary (adds RSE2, extended note effects)</td>
 </tr>
@@ -271,7 +272,7 @@ MidiEditor AI natively opens every Guitar Pro format released between 1993 and 2
 <tr>
 <td><b>GP7 / GP8</b></td>
 <td><code>.gp</code></td>
-<td>v7.x &ndash; v8.x</td>
+<td>v7.x - v8.x</td>
 <td>Gp678Parser</td>
 <td>ZIP-packaged GPIF XML</td>
 </tr>
@@ -281,28 +282,28 @@ MidiEditor AI natively opens every Guitar Pro format released between 1993 and 2
 
 <div class="timeline">
 <div class="timeline-item">
-<span class="year">1993</span> &mdash; <span class="desc"><b>GP1</b> released as a DOS application in France. Binary format with a French header (&ldquo;FICHIER GUITARE&rdquo;). Basic tablature storage for guitar tracks.</span>
+<span class="year">1993</span> - <span class="desc"><b>GP1</b> released as a DOS application in France. Binary format with a French header (&ldquo;FICHIER GUITARE&rdquo;). Basic tablature storage for guitar tracks.</span>
 </div>
 <div class="timeline-item">
-<span class="year">1997</span> &mdash; <span class="desc"><b>GP2</b> adds triplet feel, repeat markers, and capo support. Still a DOS binary format.</span>
+<span class="year">1997</span> - <span class="desc"><b>GP2</b> adds triplet feel, repeat markers, and capo support. Still a DOS binary format.</span>
 </div>
 <div class="timeline-item">
-<span class="year">1999</span> &mdash; <span class="desc"><b>GP3</b> moves to Windows. New binary format (<code>.gp3</code>) with multi-track support, tempo changes, and text annotations.</span>
+<span class="year">1999</span> - <span class="desc"><b>GP3</b> moves to Windows. New binary format (<code>.gp3</code>) with multi-track support, tempo changes, and text annotations.</span>
 </div>
 <div class="timeline-item">
-<span class="year">2001</span> &mdash; <span class="desc"><b>GP4</b> adds lyrics, Realistic Sound Engine (RSE), and key signatures. Format mostly backward-compatible with GP3.</span>
+<span class="year">2001</span> - <span class="desc"><b>GP4</b> adds lyrics, Realistic Sound Engine (RSE), and key signatures. Format mostly backward-compatible with GP3.</span>
 </div>
 <div class="timeline-item">
-<span class="year">2005</span> &mdash; <span class="desc"><b>GP5</b> introduces RSE2 with real instrument samples, tablature for bass/banjo/drums, and extended note effects (slides, hammer-on, tremolo bar).</span>
+<span class="year">2005</span> - <span class="desc"><b>GP5</b> introduces RSE2 with real instrument samples, tablature for bass/banjo/drums, and extended note effects (slides, hammer-on, tremolo bar).</span>
 </div>
 <div class="timeline-item">
-<span class="year">2010</span> &mdash; <span class="desc"><b>GP6</b> completely new format: GPIF XML compressed with the proprietary <b>BCFZ</b> algorithm (custom bit-level LZ77, <i>not</i> zlib). Extension changes to <code>.gpx</code>.</span>
+<span class="year">2010</span> - <span class="desc"><b>GP6</b> completely new format: GPIF XML compressed with the proprietary <b>BCFZ</b> algorithm (custom bit-level LZ77, <i>not</i> zlib). Extension changes to <code>.gpx</code>.</span>
 </div>
 <div class="timeline-item">
-<span class="year">2017</span> &mdash; <span class="desc"><b>GP7</b> switches from BCFZ to standard <b>ZIP</b> packaging around the same GPIF XML. Extension becomes <code>.gp</code>.</span>
+<span class="year">2017</span> - <span class="desc"><b>GP7</b> switches from BCFZ to standard <b>ZIP</b> packaging around the same GPIF XML. Extension becomes <code>.gp</code>.</span>
 </div>
 <div class="timeline-item">
-<span class="year">2024</span> &mdash; <span class="desc"><b>GP8</b> continues the ZIP+XML format with minor schema additions. Same <code>.gp</code> extension.</span>
+<span class="year">2024</span> - <span class="desc"><b>GP8</b> continues the ZIP+XML format with minor schema additions. Same <code>.gp</code> extension.</span>
 </div>
 </div>
 
@@ -396,7 +397,7 @@ MidiEditor AI does <b>not</b> rely on the file extension to determine the GP for
 <li><b>Missing instruments:</b> If a Guitar Pro instrument has no GM equivalent, it falls back to <b>Acoustic Grand Piano</b> (program 0). You can reassign it manually in the Track Editor.</li>
 <li><b>Drum tracks:</b> Guitar Pro drum tracks are mapped to MIDI Channel 9 with GM percussion mapping.</li>
 <li><b>Effects accuracy:</b> Bends and slides are approximated using MIDI pitch bend. Complex GP effects like palm muting or natural harmonics have no direct MIDI equivalent and are omitted.</li>
-<li><b>Repeat sections:</b> Repeat markers in GP2+ files are unrolled during import &mdash; the resulting MIDI contains the fully expanded arrangement.</li>
+<li><b>Repeat sections:</b> Repeat markers in GP2+ files are unrolled during import - the resulting MIDI contains the fully expanded arrangement.</li>
 </ul>
 
 <hr>
@@ -447,10 +448,10 @@ MusicXML is the de-facto interchange format for music notation. MidiEditor AI im
 <h3 id="musicxml-tips">MusicXML Tips</h3>
 
 <ul>
-<li><b>Compressed vs plain:</b> <code>.mxl</code> is just a ZIP wrapper around <code>.musicxml</code> &mdash; pick whichever your notation app exports more easily.</li>
+<li><b>Compressed vs plain:</b> <code>.mxl</code> is just a ZIP wrapper around <code>.musicxml</code> - pick whichever your notation app exports more easily.</li>
 <li><b>Lyrics:</b> <code>&lt;lyric&gt;</code> elements are not yet imported as MIDI text events. Use the Lyric Editor to add lyrics after import.</li>
 <li><b>Articulations &amp; dynamics:</b> Slurs, staccato, and dynamic markings are notation-only concepts; they do not currently translate to MIDI velocity changes.</li>
-<li><b>Repeat sections:</b> Repeat barlines and voltas are not yet expanded &mdash; the imported MIDI contains a single linear pass through the score.</li>
+<li><b>Repeat sections:</b> Repeat barlines and voltas are not yet expanded - the imported MIDI contains a single linear pass through the score.</li>
 <li><b>One-way:</b> MidiEditor AI saves edits back as MIDI, not MusicXML. To round-trip, re-export from your notation software.</li>
 </ul>
 
@@ -534,7 +535,7 @@ MidiEditor AI reads MuseScore 3/4 project files directly, without going through 
 </div>
 
 <div class="highlight-box">
-<p>&#x1F4A1; <b>Tip:</b> You can also ask <a href="midipilot.html">MidiPilot</a> to help: <i>&ldquo;Convert this import for FFXIV 8-player ensemble, constrain range to C3&ndash;C6, make all tracks monophonic&rdquo;</i></p>
+<p>&#x1F4A1; <b>Tip:</b> You can also ask <a href="midipilot.html">MidiPilot</a> to help: <i>&ldquo;Convert this import for FFXIV 8-player ensemble, constrain range to C3-C6, make all tracks monophonic&rdquo;</i></p>
 </div>
 
 <hr>
@@ -542,7 +543,7 @@ MidiEditor AI reads MuseScore 3/4 project files directly, without going through 
 <h2 id="general-tips">General Tips</h2>
 
 <ul>
-<li><b>One-way conversion:</b> Imported files become MIDI in memory. Editing and saving keeps the result as <code>.mid</code> &mdash; the original file is never overwritten.</li>
+<li><b>One-way conversion:</b> Imported files become MIDI in memory. Editing and saving keeps the result as <code>.mid</code> - the original file is never overwritten.</li>
 <li><b>Header detection:</b> File extension is a hint, not a hard requirement. Misnamed files are usually still recognized correctly.</li>
 <li><b>After import:</b> The result is a standard MIDI file. All MidiEditor AI tools (Split Channels, Explode Chords, MidiPilot AI, FFXIV Channel Fixer, Lyric Editor, etc.) work on the imported data.</li>
 <li><b>Notation-only data:</b> Articulations, dynamics, slurs, and other purely notational markings are not yet converted to MIDI velocity / controller changes. Future versions may add this.</li>
@@ -553,7 +554,7 @@ MidiEditor AI reads MuseScore 3/4 project files directly, without going through 
 
 <footer class="site-footer">
     <div class="footer-links">
-        <a href="https://github.com/happytunesai/MidiEditor_AI" target="_blank" rel="noopener noreferrer">GitHub Repo</a>
+        <a href="https://github.com/happytunesai/MidiEditor_AI" class="repo-link" target="_blank" rel="noopener noreferrer"><img class="repo-logo" src="Midieditor-ai_logo.png" alt="">GitHub Repo</a>
         <a href="https://github.com/happytunesai" target="_blank" rel="noopener noreferrer">All Projects</a>
         <a href="docs-index.html">Documentation</a>
         <a href="changelog.html">Changelog</a>

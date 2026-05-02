@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Tools Menu - MidiEditor AI Manual</title>
   <link rel="icon" type="image/png" href="favicon.png">
-<meta name="theme-color" content="#0d1117">
+<meta name="theme-color" content="#0B1020">
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="site.css">
   <link rel="stylesheet" href="audio.css">
@@ -14,8 +14,7 @@
 <nav class="site-nav" role="navigation" aria-label="Main navigation">
 <div class="container">
     <a href="index.html" class="nav-brand">
-        <span class="brand-icon">&#x1F3B5;</span>
-        <span>MidiEditor AI</span>
+        <img class="brand-logo" src="Midieditor-ai_banner_w.png" alt="MidiEditor AI">
     </a>
     <button class="nav-hamburger" aria-label="Toggle menu" aria-expanded="false">&#x2630;</button>
     <ul class="nav-links">
@@ -308,7 +307,7 @@
 			<img src="tools/XIV_off.png" height="20" alt="XIV off" style="vertical-align:middle"/>
 			when off.
 			On <b>enable</b>: snapshots the currently active non-FFXIV SoundFont selection, then activates the
-			FFXIV bard SoundFont &mdash; if no FFXIV SoundFont is installed locally, the
+			FFXIV bard SoundFont - if no FFXIV SoundFont is installed locally, the
 			<i>Download SoundFonts</i> dialog opens automatically so it can be fetched in one step.
 			On <b>disable</b>: restores the snapshotted SoundFonts, falling back to <i>Microsoft GS Wavetable Synth</i>
 			if the FluidSynth stack is empty.
@@ -330,8 +329,60 @@
 		<td valign="top"><img src="tools/explode_chords_to_tracks.png" width="20px" height="20px"/></td>
 		<td>
 			<i>Explode Chords to Tracks</i><br>
-			Splits polyphonic chords into separate monophonic tracks — one note per voice.
+			Splits polyphonic chords into separate monophonic tracks - one note per voice.
 			Useful for preparing FFXIV ensemble arrangements where each instrument must play a single note at a time.
+		</td>
+	</tr>
+
+	<tr>
+		<td valign="top"><img src="screenshots/copy_to_x_tool.png" width="40px"/></td>
+		<td>
+			<i>Copy events to track&hellip; / Copy events to channel&hellip;</i><br>
+			Duplicates the current selection 1:1 onto another track or channel (0-15) while leaving the originals
+			in place. The new copies become the active selection so an immediate <i>Octave Up</i> or velocity edit
+			only affects the duplicates. NoteOn/Off pairing is preserved; the whole action is a single undo step.
+			Disabled when the selection is empty. Available from the matrix right-click menu as well. -
+			<a href="editing-midi-files.html#copy-to-track-channel">full reference</a>.
+		</td>
+	</tr>
+
+	<tr>
+		<td valign="top"><img src="screenshots/ConvertTempo_Tool.png" width="40px"/></td>
+		<td>
+			<i>Tempo Tools &rarr; Convert Tempo, Preserve Duration&hellip;</i><br>
+			Time-preserving tempo conversion. Enter source / target BPM and a scope (whole file, events only,
+			per channel, or selected events) and every event tick is rescaled by <code>target/source</code> while
+			the tempo meta is rewritten in one atomic, undoable operation. A 90&nbsp;BPM vocal lined up against
+			a 180&nbsp;BPM project keeps the same real-time playback speed. Also available from the
+			channel/track right-click menu. -
+			<a href="tempo-conversion.html">dedicated reference page</a>.
+		</td>
+	</tr>
+
+	<tr>
+		<td valign="top"><img src="screenshots/VoiceLimiter-Gadget.png" width="40px"/></td>
+		<td>
+			<i>FFXIV Voice Limiter / Analyze Voice Load</i><br>
+			Read-only audit of simultaneous voices against the in-game 16-voice ceiling. Surfaces a per-tick voice
+			peak, overflow ranges (where simultaneous voices &gt; 16), and per-channel rate hotspots
+			(passages exceeding 14 notes&nbsp;/&nbsp;sec&nbsp;/&nbsp;channel). Available as a toolbar gauge,
+			an optional voice-load lane under the velocity strip, and the <code>analyze_voice_load</code> AI tool. -
+			<a href="ffxiv-voice-limiter.html">dedicated reference page</a> with thresholds, the analyser engine
+			and the demo video.
+		</td>
+	</tr>
+
+	<tr>
+		<td valign="top">&nbsp;</td>
+		<td>
+			<i>Edit &rarr; Paste Special&hellip;</i><br>
+			When you copy from another MidiEditor&nbsp;AI instance and paste into a different file,
+			Ctrl+V now opens the <b>Paste Special</b> dialog instead of collapsing every event onto the
+			current edit track. Three modes: <i>Create new tracks per source</i> (default), <i>Preserve source
+			track + channel mapping (1:1)</i>, and <i>Paste to current edit track + channel (legacy)</i>.
+			Track creation is part of the same protocol action so a single Ctrl+Z undoes the paste and the
+			new tracks together. <i>Don&rsquo;t ask again this session</i> silences the modal for the rest
+			of the session.
 		</td>
 	</tr>
 
@@ -342,7 +393,7 @@
 
 <footer class="site-footer">
     <div class="footer-links">
-        <a href="https://github.com/happytunesai/MidiEditor_AI" target="_blank" rel="noopener noreferrer">GitHub Repo</a>
+        <a href="https://github.com/happytunesai/MidiEditor_AI" class="repo-link" target="_blank" rel="noopener noreferrer"><img class="repo-logo" src="Midieditor-ai_logo.png" alt="">GitHub Repo</a>
         <a href="https://github.com/happytunesai" target="_blank" rel="noopener noreferrer">All Projects</a>
         <a href="docs-index.html">Documentation</a>
         <a href="changelog.html">Changelog</a>

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Lyric Editor &amp; Visualizer - MidiEditor AI Manual</title>
   <link rel="icon" type="image/png" href="favicon.png">
-<meta name="theme-color" content="#0d1117">
+<meta name="theme-color" content="#0B1020">
   <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="site.css">
   <link rel="stylesheet" href="audio.css">
@@ -14,8 +14,7 @@
 <nav class="site-nav" role="navigation" aria-label="Main navigation">
 <div class="container">
     <a href="index.html" class="nav-brand">
-        <span class="brand-icon">&#x1F3B5;</span>
-        <span>MidiEditor AI</span>
+        <img class="brand-logo" src="Midieditor-ai_banner_w.png" alt="MidiEditor AI">
     </a>
     <button class="nav-hamburger" aria-label="Toggle menu" aria-expanded="false">&#x2630;</button>
     <ul class="nav-links">
@@ -28,6 +27,8 @@
                 <a href="midipilot.html">MidiPilot AI</a>
                 <a href="prompt-examples.html">Prompt Examples</a>
                 <a href="ffxiv-channel-fixer.html">FFXIV Channel Fixer</a>
+                <a href="ffxiv-voice-limiter.html">FFXIV Voice Limiter</a>
+                <a href="tempo-conversion.html">Convert Tempo</a>
                 <a href="supported-files.html">Supported Files</a>
                 <a href="lyrics.html">Lyric Editor</a>
                 <a href="themes.html">Themes &amp; Appearance</a>
@@ -60,7 +61,7 @@
 </p>
 
 <p>
-  All lyric operations support <b>full undo/redo</b> via Ctrl+Z / Ctrl+Y &mdash; each drag, resize,
+  All lyric operations support <b>full undo/redo</b> via Ctrl+Z / Ctrl+Y - each drag, resize,
   split, merge, and import is a separate, undoable action.
 </p>
 
@@ -85,13 +86,13 @@
 <h4>Key Features</h4>
 
 <ul>
-  <li><b>Colored blocks</b> &mdash; Each lyric phrase is rendered as a rounded rectangle with text.
+  <li><b>Colored blocks</b> - Each lyric phrase is rendered as a rounded rectangle with text.
       Color follows your chosen Lyric Color Mode (Fixed Color or Track Color).</li>
-  <li><b>Playback highlighting</b> &mdash; The currently playing block is expanded vertically with
+  <li><b>Playback highlighting</b> - The currently playing block is expanded vertically with
       a glow effect, lighter color, drop shadow, and bold text.</li>
-  <li><b>Scroll &amp; zoom sync</b> &mdash; The timeline stays in sync with the piano roll via the
+  <li><b>Scroll &amp; zoom sync</b> - The timeline stays in sync with the piano roll via the
       shared horizontal scrollbar.</li>
-  <li><b>Resizable</b> &mdash; Drag the splitter handle to resize between ~60px and ~200px height.</li>
+  <li><b>Resizable</b> - Drag the splitter handle to resize between ~60px and ~200px height.</li>
 </ul>
 
 <h4 id="editing">Editing Lyric Blocks</h4>
@@ -120,17 +121,17 @@
 </p>
 
 <ul>
-  <li><b>Edit Text&hellip;</b> &mdash; Open inline editor for the block text</li>
-  <li><b>Delete Block</b> &mdash; Remove the selected block</li>
-  <li><b>Split at Cursor</b> &mdash; Divide the block into two at the mouse position</li>
-  <li><b>Merge with Next</b> &mdash; Combine the current block with the next one</li>
-  <li><b>Insert Block Before / After</b> &mdash; Create a new empty block adjacent to the selection</li>
+  <li><b>Edit Text&hellip;</b> - Open inline editor for the block text</li>
+  <li><b>Delete Block</b> - Remove the selected block</li>
+  <li><b>Split at Cursor</b> - Divide the block into two at the mouse position</li>
+  <li><b>Merge with Next</b> - Combine the current block with the next one</li>
+  <li><b>Insert Block Before / After</b> - Create a new empty block adjacent to the selection</li>
 </ul>
 
 <p>Right-clicking on empty space shows:</p>
 <ul>
-  <li><b>Insert Block Here</b> &mdash; Create a new block at the click position</li>
-  <li><b>Lyric Settings&hellip;</b> &mdash; Open appearance settings for lyric blocks</li>
+  <li><b>Insert Block Here</b> - Create a new block at the click position</li>
+  <li><b>Lyric Settings&hellip;</b> - Open appearance settings for lyric blocks</li>
 </ul>
 
 <hr>
@@ -139,7 +140,7 @@
 
 <p>
   The Sync Lyrics dialog lets you time lyric phrases to the music in real time.
-  Play the song and <b>hold the Space bar</b> while each phrase is being sung &mdash;
+  Play the song and <b>hold the Space bar</b> while each phrase is being sung -
   press for the start, release for the end.
 </p>
 
@@ -153,7 +154,7 @@
 
 <ol>
   <li>Import or create your lyric phrases first (via text import or manual entry).</li>
-  <li>Open the Sync dialog &mdash; your phrases appear in a <b>teleprompter view</b> (next 8 upcoming).</li>
+  <li>Open the Sync dialog - your phrases appear in a <b>teleprompter view</b> (next 8 upcoming).</li>
   <li>Press <b>Play</b> to start playback.</li>
   <li><b>Hold Space</b> while each phrase is being sung:
     <ul>
@@ -273,13 +274,13 @@
 <h4>Display</h4>
 
 <ul>
-  <li><b>Current phrase</b> &mdash; Large, bold text with a left-to-right color sweep that shows
+  <li><b>Current phrase</b> - Large, bold text with a left-to-right color sweep that shows
       progress through the phrase.</li>
-  <li><b>Next phrase</b> &mdash; Smaller, dimmed preview text below.</li>
-  <li><b>Progress bar</b> &mdash; Thin bar at the bottom showing phrase progress.</li>
-  <li><b>Dynamic sizing</b> &mdash; Width adapts (200&ndash;600px) based on phrase length.</li>
-  <li><b>Idle state</b> &mdash; Shows &ldquo;&#x266A; &#x266A; &#x266A;&rdquo; when no lyrics are loaded.</li>
-  <li><b>Stopped state</b> &mdash; Displays the song title from lyric metadata when playback is stopped.</li>
+  <li><b>Next phrase</b> - Smaller, dimmed preview text below.</li>
+  <li><b>Progress bar</b> - Thin bar at the bottom showing phrase progress.</li>
+  <li><b>Dynamic sizing</b> - Width adapts (200-600px) based on phrase length.</li>
+  <li><b>Idle state</b> - Shows &ldquo;&#x266A; &#x266A; &#x266A;&rdquo; when no lyrics are loaded.</li>
+  <li><b>Stopped state</b> - Displays the song title from lyric metadata when playback is stopped.</li>
 </ul>
 
 <p align="center">
@@ -295,18 +296,18 @@
 
 <div style="display:flex; gap:1.5rem; justify-content:center; flex-wrap:wrap; margin:1.2rem 0;">
   <figure style="margin:0; text-align:center;">
-    <video autoplay loop muted playsinline loading="lazy" width="450" aria-label="Lyric Visualizer sweep — Dark theme">
+    <video autoplay loop muted playsinline loading="lazy" width="450" aria-label="Lyric Visualizer sweep - Dark theme">
       <source src="screenshots/lyric_visualizer_sweep_dark.webm" type="video/webm">
       Your browser does not support the video tag.
     </video>
-    <figcaption style="font-size:0.85em; opacity:0.7; margin-top:0.3rem;">Dark theme &mdash; SRT lyrics</figcaption>
+    <figcaption style="font-size:0.85em; opacity:0.7; margin-top:0.3rem;">Dark theme - SRT lyrics</figcaption>
   </figure>
   <figure style="margin:0; text-align:center;">
-    <video autoplay loop muted playsinline loading="lazy" width="450" aria-label="Lyric Visualizer sweep — Sakura theme">
+    <video autoplay loop muted playsinline loading="lazy" width="450" aria-label="Lyric Visualizer sweep - Sakura theme">
       <source src="screenshots/lyric_visualizer_sweep_sakura.webm" type="video/webm">
       Your browser does not support the video tag.
     </video>
-    <figcaption style="font-size:0.85em; opacity:0.7; margin-top:0.3rem;">Sakura theme &mdash; built-in lyrics</figcaption>
+    <figcaption style="font-size:0.85em; opacity:0.7; margin-top:0.3rem;">Sakura theme - built-in lyrics</figcaption>
   </figure>
 </div>
 
@@ -368,7 +369,7 @@
 <h3 id="tips">&#x1F4A1; Tips</h3>
 
 <ul>
-  <li>Import plain text lyrics first, then use <b>Tap-to-Sync</b> to time them to the music &mdash;
+  <li>Import plain text lyrics first, then use <b>Tap-to-Sync</b> to time them to the music -
       this is usually faster than creating blocks manually.</li>
   <li>Use <b>Split at Cursor</b> to break long phrases into syllable-level blocks for tighter karaoke timing.</li>
   <li>The Lyric Visualizer automatically appears in the toolbar when lyrics are loaded and hides when they&rsquo;re removed.</li>
@@ -405,7 +406,7 @@
 <button class="scroll-top" aria-label="Scroll to top">&#x2191;</button>
 
 <footer>
-<p>&copy; 2025 MidiEditor AI &mdash; <a href="https://github.com/happytunesai/MidiEditor_AI">GitHub</a></p>
+<p>&copy; 2025 MidiEditor AI - <a href="https://github.com/happytunesai/MidiEditor_AI">GitHub</a></p>
 </footer>
 
 <script src="lightbox.js"></script>

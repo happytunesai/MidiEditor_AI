@@ -161,6 +161,7 @@ const QStringList kFfxivToolNames = {
     QStringLiteral("validate_ffxiv"),
     QStringLiteral("convert_drums_ffxiv"),
     QStringLiteral("setup_channel_pattern"),
+    QStringLiteral("analyze_voice_load"),
 };
 
 // Valid JSON Schema "type" values we expect inside parameters.
@@ -249,6 +250,8 @@ private slots:
 
     // -----------------------------------------------------------------
     void toolSchemas_ffxivOn_appendsThreeFfxivTools() {
+        // Name kept for history; current FFXIV bundle is 4 tools (validate_ffxiv,
+        // convert_drums_ffxiv, setup_channel_pattern, analyze_voice_load).
         setFfxivMode(true);
         QJsonArray tools = ToolDefinitions::toolSchemas();
         QCOMPARE(tools.size(), kCoreToolNames.size() + kFfxivToolNames.size());

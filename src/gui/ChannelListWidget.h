@@ -177,6 +177,12 @@ public slots:
     /** \brief Refreshes colors for theme changes */
     void refreshColors();
 
+protected:
+    /**
+     * \brief Right-click context menu (Phase 33: Convert Tempo, Preserve Duration).
+     */
+    void contextMenuEvent(QContextMenuEvent *event) override;
+
 private:
     /** \brief The associated MIDI file */
     MidiFile *file;

@@ -177,6 +177,11 @@ protected:
     void dropEvent(QDropEvent *event) override;
 
     /**
+     * \brief Right-click context menu (Phase 33: Convert Tempo, Preserve Duration).
+     */
+    void contextMenuEvent(QContextMenuEvent *event) override;
+
+    /**
      * \brief Handles MIME data drops for internal moves.
      * \param index Target index for the drop
      * \param data MIME data being dropped

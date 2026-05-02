@@ -90,6 +90,8 @@ private:
                                              MidiPilotWidget *widget);
     static QJsonObject execSetupChannelPattern(MidiFile *file,
                                                MidiPilotWidget *widget);
+    // Phase 32.6: read-only voice-load analysis for the agent
+    static QJsonObject execAnalyzeVoiceLoad(const QJsonObject &args, MidiFile *file);
 };
 
 #endif // TOOLDEFINITIONS_H

@@ -254,8 +254,9 @@
     var themeTabs = document.querySelectorAll('.theme-tab');
     var previewImg = document.querySelector('.theme-preview-img');
     if (themeTabs.length && previewImg) {
-        var themeKeys = ['dark', 'light', 'classic', 'sakura', 'amoled', 'material_dark'];
+        var themeKeys = ['midieditor_ai', 'dark', 'light', 'classic', 'sakura', 'amoled', 'material_dark'];
         var themeMap = {
+            midieditor_ai: 'screenshots/MidiEditor_AI_theme.png',
             dark: 'screenshots/dark_theme.png',
             light: 'screenshots/light_theme.png',
             classic: 'screenshots/classic_theme.png',

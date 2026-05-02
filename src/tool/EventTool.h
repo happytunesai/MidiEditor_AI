@@ -21,8 +21,11 @@
 
 #include "EditorTool.h"
 
+#include <QPointer>
+
 // Forward declarations
 class MidiEvent;
+class MidiFile;
 class MidiTrack;
 class SharedClipboard;
 
@@ -131,10 +134,58 @@ public:
     static bool pasteFromSharedClipboard();
 
     /**
+     * \brief Phase 34 \u2014 paste from the shared clipboard with explicit
+     * routing options (track / channel assignment policy).
+     * \param opts See PasteSpecialDialog.h.
+     * \param allowSameProcess When true the cross-process guard is
+     *        relaxed so the same MidiEditor instance can paste its own
+     *        clipboard via the Paste Special flow. This is used when a
+     *        copy from a previously-loaded file should be routed into a
+     *        newly-opened file in the same window (Phase 36.x).
+     */
+    static bool pasteFromSharedClipboardWithOptions(const struct PasteSpecialOptions &opts,
+                                                    bool allowSameProcess = false);
+
+    /**
      * \brief Checks if shared clipboard has data.
      * \return True if shared clipboard contains events
      */
     static bool hasSharedClipboardData();
+
+    /**
+     * \brief Returns the MidiFile that owned the selection at the time of
+     * the most recent copyAction(). May be null when nothing has been
+     * copied yet, or when the original file has been destroyed (QPointer
+     * tracks lifetime safely).
+     */
+    static MidiFile *copiedSourceFile();
+
+    /**
+     * \brief True when the local copy buffer is non-empty AND originated
+     * from a different MidiFile than the one passed in. Used by
+     * MainWindow::paste() to route Ctrl+V through Paste Special when the
+     * user copies in file A, opens file B, and then pastes \u2014 mirroring
+     * the cross-process behaviour but for the in-process \"open another
+     * file\" workflow.
+     */
+    static bool localCopyIsForeignTo(MidiFile *current);
+
+    /**
+     * \brief Phase 36 -- duplicate the current selection onto another
+     * track, leaving the originals in place. The new copies become the
+     * active selection so the user can immediately transpose / re-edit.
+     * Wraps a single Protocol step. No-op (returns false) when the
+     * selection is empty or the target track is null.
+     */
+    static bool copySelectionToTrack(MidiTrack *target);
+
+    /**
+     * \brief Phase 36 -- duplicate the current selection onto another
+     * channel (0..15). Originals are kept; the new copies become the
+     * active selection. Refuses meta channels (16/17/18) and returns
+     * false. Wraps a single Protocol step.
+     */
+    static bool copySelectionToChannel(int channel);
 
     /**
      * \brief Recalculates existing note positions after tempo/time signature changes.
@@ -201,6 +252,14 @@ public:
 
     /** \brief Ticks per quarter of the source file at copy time */
     static int _copiedTicksPerQuarter;
+
+    /** \brief MidiFile that owned the selection at the time of the last
+     *  copyAction(). Tracked via QPointer so it null-out\u2019s automatically
+     *  if the originating file is destroyed (e.g. closed without saving).
+     *  Compared in MainWindow::paste() to detect the
+     *  \"copy in file A, open file B, paste\" workflow.
+     */
+    static QPointer<MidiFile> _copiedSourceFile;
 
 protected:
     /** \brief Flag indicating if the last clipboard operation was a cut */

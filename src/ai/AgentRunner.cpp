@@ -175,6 +175,16 @@ AgentRunner::AgentWorkingState AgentRunner::initialWorkingState(const QString &u
     state.activeConstraints = QStringLiteral(
         "All exposed tools remain available. After a rejected write, choose a "
         "different valid action instead of retrying with placeholder values.");
+    // Phase 32.6: surface FFXIV game limits whenever FFXIV mode is active so
+    // the model is reminded every turn (and gets the analyze_voice_load tool
+    // listed in its toolset).
+    if (QSettings(QStringLiteral("MidiEditor"), QStringLiteral("NONE"))
+            .value(QStringLiteral("AI/ffxiv_mode"), false).toBool()) {
+        state.activeConstraints += QStringLiteral(
+            " FFXIV Bard Performance: <=16 simultaneous voices, "
+            "<=14 notes/sec per channel, range C3..C6. Call analyze_voice_load "
+            "after dense passages to verify before finishing.");
+    }
     if (state.taskType == TaskType::Composition) {
         state.nextStepHint = QStringLiteral(
             "Use fewer coherent write rounds: set tempo/tracks, then insert substantial musical sections.");
@@ -260,6 +270,8 @@ void AgentRunner::updateWorkingStateFromToolResult(AgentWorkingState &state,
             : QStringLiteral("get_editor_state succeeded: %1 tracks").arg(tracks.size());
     } else if (toolName == QStringLiteral("validate_ffxiv")) {
         appendFact(state, result.value(QStringLiteral("summary")).toString(QStringLiteral("FFXIV validation completed")));
+    } else if (toolName == QStringLiteral("analyze_voice_load")) {
+        appendFact(state, result.value(QStringLiteral("summary")).toString(QStringLiteral("Voice-load analysis completed")));
     } else if (toolName == QStringLiteral("setup_channel_pattern")) {
         appendFact(state, QStringLiteral("FFXIV channel pattern configured"));
     }

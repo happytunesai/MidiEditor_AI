@@ -51,6 +51,7 @@ class TrackListWidget;
 class QComboBox;
 class MiscWidget;
 class LyricTimelineWidget;
+class FfxivVoiceLaneWidget;
 class QGridLayout;
 class MidiTrack;
 class QShowEvent;
@@ -467,6 +468,19 @@ public slots:
     void moveSelectedEventsToTrack(QAction *action);
 
     /**
+     * \brief Phase 36 -- duplicates selected events onto a specific
+     * channel (0..15). Originals stay; the copies become the new
+     * selection.
+     */
+    void copySelectedEventsToChannel(QAction *action);
+
+    /**
+     * \brief Phase 36 -- duplicates selected events onto a specific
+     * track. Originals stay; the copies become the new selection.
+     */
+    void copySelectedEventsToTrack(QAction *action);
+
+    /**
      * \brief Updates the recent files list.
      */
     void updateRecentPathsList();
@@ -532,6 +546,8 @@ public slots:
     void copy();
 
     void paste();
+
+    void pasteSpecial();
 
     void addTrack();
 
@@ -733,6 +749,28 @@ public slots:
      * \brief Quantizes the selected events to the current grid.
      */
     void quantizeSelection();
+
+    /**
+     * \brief Opens the time-preserving tempo conversion dialog (Phase 33).
+     *        Whole-project scope; called from the Tools menu.
+     */
+    void convertTempoPreserveDuration();
+
+    /**
+     * \brief Opens the tempo conversion dialog pre-filled with the current
+     *        selection (Phase 33). Called from the matrix right-click menu.
+     */
+    void convertTempoForSelection();
+
+    /**
+     * \brief Opens the tempo conversion dialog pre-filled with one track id.
+     */
+    void convertTempoForTrack(int trackNumber);
+
+    /**
+     * \brief Opens the tempo conversion dialog pre-filled with one channel.
+     */
+    void convertTempoForChannel(int channel);
 
     /**
      * \brief Opens the N-tole quantization dialog.
@@ -975,7 +1013,8 @@ private:
 
     /** \brief Various context and action menus */
     QMenu *_recentPathsMenu, *_deleteChannelMenu, *_moveSelectedEventsToTrackMenu, *_moveSelectedEventsToChannelMenu,
-    *_pasteToTrackMenu, *_pasteToChannelMenu, *_selectAllFromTrackMenu, *_selectAllFromChannelMenu, *_pasteOptionsMenu;
+    *_pasteToTrackMenu, *_pasteToChannelMenu, *_selectAllFromTrackMenu, *_selectAllFromChannelMenu, *_pasteOptionsMenu,
+    *_copySelectedEventsToTrackMenu, *_copySelectedEventsToChannelMenu;
 
     /** \brief Lower tab widget for additional panels */
     QTabWidget *lowerTabWidget;
@@ -1033,6 +1072,14 @@ private:
 
     /** \brief Action to toggle lyric timeline visibility */
     QAction *_toggleLyricTimeline;
+
+    /** \brief Phase 32.2: action to toggle FFXIV voice-load overlay on the matrix */
+    QAction *_toggleVoiceLoadOverlay = nullptr;
+
+    /** \brief Phase 32.3: voice-load lane (graph beneath the velocity lane) */
+    FfxivVoiceLaneWidget *_voiceLaneWidget = nullptr;
+    QWidget *_voiceLaneArea = nullptr;
+    QAction *_toggleVoiceLaneAction = nullptr;
 
     // === Setup and Toolbar Methods ===
 
@@ -1141,6 +1188,9 @@ private:
     /** \brief MCP server toggle button in toolbar */
     McpToggleWidget *_mcpToggleWidget = nullptr;
     class FfxivToggleWidget *_ffxivToggleWidget = nullptr;
+
+    /** \brief FFXIV voice-load gauge in toolbar (Phase 32.1) */
+    class FfxivVoiceGaugeWidget *_ffxivVoiceGauge = nullptr;
 
     /** \brief Status bar labels for cursor/selection/chord info */
     QLabel *_statusCursorLabel = nullptr;

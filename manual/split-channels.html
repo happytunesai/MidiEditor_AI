@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Split Channels to Tracks | MidiEditor AI Manual</title>
 <link rel="icon" type="image/png" href="favicon.png">
-<meta name="theme-color" content="#0d1117">
+<meta name="theme-color" content="#0B1020">
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="site.css">
   <link rel="stylesheet" href="audio.css">
@@ -42,8 +42,7 @@
 <nav class="site-nav" role="navigation" aria-label="Main navigation">
 <div class="container">
     <a href="index.html" class="nav-brand">
-        <span class="brand-icon">&#x1F3B5;</span>
-        <span>MidiEditor AI</span>
+        <img class="brand-logo" src="Midieditor-ai_banner_w.png" alt="MidiEditor AI">
     </a>
     <button class="nav-hamburger" aria-label="Toggle menu" aria-expanded="false">&#x2630;</button>
     <ul class="nav-links">
@@ -56,6 +55,8 @@
                 <a href="midipilot.html">MidiPilot AI</a>
                 <a href="prompt-examples.html">Prompt Examples</a>
                 <a href="ffxiv-channel-fixer.html">FFXIV Channel Fixer</a>
+                <a href="ffxiv-voice-limiter.html">FFXIV Voice Limiter</a>
+                <a href="tempo-conversion.html">Convert Tempo</a>
                 <a href="supported-files.html">Supported Files</a>
                 <a href="themes.html">Themes &amp; Appearance</a>
                 <a href="lyrics.html">Lyric Editor</a>
@@ -83,7 +84,7 @@
 <p>
 The <b>Split Channels to Tracks</b> tool converts a single-track multi-channel MIDI file (Format&nbsp;0) into
 one track per channel (Format&nbsp;1 style). This is essential for working with GM MIDI files downloaded from
-the internet, where all instruments are crammed into a single track &mdash; making it impossible to hide, solo,
+the internet, where all instruments are crammed into a single track - making it impossible to hide, solo,
 recolor, or edit individual instrument parts.
 </p>
 
@@ -104,7 +105,7 @@ Track names are automatically derived from GM Program Change events.
 <div class="step-grid">
 <div class="step-card">
 <h4>1&#xFE0F;&#x20E3; Analyze</h4>
-<p>Scans channels 0&ndash;15 for events on the source track. Counts notes and reads the first Program Change to identify the instrument.</p>
+<p>Scans channels 0-15 for events on the source track. Counts notes and reads the first Program Change to identify the instrument.</p>
 </div>
 <div class="step-card">
 <h4>2&#xFE0F;&#x20E3; Preview</h4>
@@ -131,10 +132,10 @@ Track names are automatically derived from GM Program Change events.
 
 <p>The dialog shows:</p>
 <ul>
-<li><b>Channel</b> &mdash; MIDI channel number (0&ndash;15)</li>
-<li><b>Program</b> &mdash; GM program number, or "Drums" for channel 9</li>
-<li><b>Track Name</b> &mdash; Auto-detected instrument name from the GM program table</li>
-<li><b>Notes</b> &mdash; Number of note events on that channel</li>
+<li><b>Channel</b> - MIDI channel number (0-15)</li>
+<li><b>Program</b> - GM program number, or "Drums" for channel 9</li>
+<li><b>Track Name</b> - Auto-detected instrument name from the GM program table</li>
+<li><b>Notes</b> - Number of note events on that channel</li>
 </ul>
 
 <h3 id="options">Options</h3>
@@ -162,7 +163,7 @@ Track names are automatically derived from GM Program Change events.
 </tr>
 <tr>
 <td><b>Insert at end of track list</b></td>
-<td>&mdash;</td>
+<td>-</td>
 <td>New tracks are appended at the bottom of the track list.</td>
 </tr>
 </table>
@@ -214,10 +215,10 @@ You can now hide, solo, mute, recolor, and edit each instrument independently.
 <h2 id="tips">Tips</h2>
 
 <ul>
-<li><b>Undo:</b> The entire split is a single undo action &mdash; press <b>Ctrl+Z</b> to revert everything.</li>
+<li><b>Undo:</b> The entire split is a single undo action - press <b>Ctrl+Z</b> to revert everything.</li>
 <li><b>Source track selection:</b> The tool operates on the <b>current edit track</b> (shown in the "Add new events to..." dropdown at the bottom of the editor).</li>
 <li><b>Multiple tracks:</b> If your file already has multiple tracks, run the tool on each one separately.</li>
-<li><b>Meta events:</b> Tempo and time signature events live on the meta channel &mdash; the source track is preserved if it still contains meta events, even with "Remove empty source track" checked.</li>
+<li><b>Meta events:</b> Tempo and time signature events live on the meta channel - the source track is preserved if it still contains meta events, even with "Remove empty source track" checked.</li>
 <li><b>Works great with Fix X|V:</b> After splitting, you can use <a href="ffxiv-channel-fixer.html">Fix X|V Channels</a> to set up the FFXIV channel mapping for each track.</li>
 </ul>
 
@@ -225,7 +226,7 @@ You can now hide, solo, mute, recolor, and edit each instrument independently.
 
 <footer class="site-footer">
     <div class="footer-links">
-        <a href="https://github.com/happytunesai/MidiEditor_AI" target="_blank" rel="noopener noreferrer">GitHub Repo</a>
+        <a href="https://github.com/happytunesai/MidiEditor_AI" class="repo-link" target="_blank" rel="noopener noreferrer"><img class="repo-logo" src="Midieditor-ai_logo.png" alt="">GitHub Repo</a>
         <a href="https://github.com/happytunesai" target="_blank" rel="noopener noreferrer">All Projects</a>
         <a href="docs-index.html">Documentation</a>
         <a href="changelog.html">Changelog</a>
