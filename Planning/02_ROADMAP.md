@@ -10704,7 +10704,7 @@ Palet:
 
 | Upstream SHA | Title | Files | Why pull |
 |---|---|---|---|
-| 35f1ee | Preserve Unmatched Percussion on Channel 9 | src/support/FFXIVChannelFixer.cpp (+26/-1) | Direct bugfix in a code path we own. FFXIV-relevant, isolated, low risk. |
+| a35f1ee | Preserve Unmatched Percussion on Channel 9 | src/support/FFXIVChannelFixer.cpp (+26/-1) | Direct bugfix in a code path we own. FFXIV-relevant, isolated, low risk. |
 | e2d107f | SoundFont Update - SGM Pro 13 | src/gui/DownloadSoundFontDialog.cpp (3 lines) | Trivial URL bump, keeps the download dialog pointing at the current asset. |
 | 8997ad7 | Improve pixmap subpixel antialiasing with fractional scaling | MatrixWidget.cpp, ProtocolWidget.cpp (+9/-3) | Closes upstream #53. Pure rendering quality fix at HiDPI / 125% / 150% scaling. |
 | 366a92f | Option to disable startup update check | MainWindow.cpp, PerformanceSettingsWidget.{h,cpp} (+37/-3) | Closes upstream #52. Adds a setting; doesn't change defaults. Useful QoL. |
@@ -10720,7 +10720,7 @@ Palet:
 
 | Upstream SHA | Title | Files | Notes |
 |---|---|---|---|
-| 169605 | File Duration Improvements & Trim Start Tool | 9 files (+416/-19), brand-new TrimStartDialog.{h,cpp} | Self-contained new tool. Easy adoption; check our keybinds for collisions. |
+| f169605 | File Duration Improvements & Trim Start Tool | 9 files (+416/-19), brand-new TrimStartDialog.{h,cpp} | Self-contained new tool. Easy adoption; check our keybinds for collisions. |
 | 80f3732 (memory-fix slice) | NoteOnEvent memory cleanup, SplitChannels Force Split option | NoteOnEvent.{h,cpp}, SplitChannelsDialog.{h,cpp} | Pull only the memory cleanup + Force Split; skip the Bard Metal Preset (we have our own FFXIV preset family). |
 | 21fe86b (focus-tracking slice) | Channel/track focus follows cursor + program-change attribution | Subset of MainWindow.cpp, ChannelListWidget, MatrixWidget | UX upgrade. Conflicts likely with our context-menu / track-tab work; needs a careful manual port. |
 
@@ -10739,11 +10739,11 @@ Palet:
 * 849c18e MusicXML & MuseScore Converter - shipped in our 1.4.0.
 * 81bc83f Text Encoding Fallback / uchardet / Remove QMake - we keep
   QMake as reference and don't bundle uchardet.
-* 47390a Theme Presets,  f62353 Airy Theme - we run our own
+* f47390a Theme Presets, 0f62353 Airy Theme - we run our own
   ThemeManager + brand theme (Phase 37.2).
 * d116783 Velocity Tool, Track Context Menu - we have UX-CTX-001
   and our own Move-to / Octave context menu.
-* d4e8cf FFXIV Track Rename Presets, 253b159 FFXIV Condense -
+* ad4e8cf FFXIV Track Rename Presets, 253b159 FFXIV Condense -
   shipped in our 1.2.x FFXIV Channel Fixer.
 * c8d1e6c Toggleable Toolbar - we expose this through our own
   toolbar customisation already.
@@ -10760,7 +10760,7 @@ Palet:
    `--author` and we add `Co-authored-by: Meowchestra ...` in
    the commit trailer.
 3. **Test coverage?** Tier-1 fixes should each get at least one
-   regression test in our 	ests/ harness before landing.
+   regression test in our `tests/` harness before landing.
 4. **Release cadence:** Tier 1 = 1.6.1 hotfix. Tier 2 = 1.7.0
    feature release. Tier 3 = on demand only.
 
@@ -10881,7 +10881,7 @@ Palet:
 
 ### 39.8 - Optional AI tool (post-MVP)
 
-* nalyze_mix_balance(start_tick, end_tick) - read-only report
+* `analyze_mix_balance(start_tick, end_tick)` - read-only report
   that compares average velocity per channel to the active
   Equalizer preset and flags channels likely to clip or get drowned
   out.
