@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -13,8 +13,8 @@
 /* Hero section */
 .hero {
     text-align: center;
-    padding: 2.5rem 1rem 1.5rem;
-    margin-bottom: 1rem;
+    padding: 0.25rem 1rem 1.25rem;
+    margin-bottom: 0.5rem;
 }
 .hero pre {
     display: inline-block;
@@ -165,7 +165,9 @@
     font-size: .82em; font-weight: 600; color: #333;
 }
 .chat-demo-body {
-    padding: .75rem; min-height: 140px; max-height: 360px;
+    /* Pin to a fixed height so the demo doesn't grow / shrink between
+       iterations and shove the rest of the page around as you read. */
+    padding: .75rem; height: 360px;
     display: flex; flex-direction: column; gap: .35rem;
     overflow-y: auto; background: #fff;
 }
@@ -301,6 +303,7 @@
                 <a href="themes.html">Themes &amp; Appearance</a>
                 <a href="lyrics.html">Lyric Editor</a>
                 <a href="soundfont.html">SoundFonts &amp; FluidSynth</a>
+                <a href="shortcuts.html">Keyboard Shortcuts</a>
                 <a href="mcp-server.html">MCP Server</a>
                 <a href="setup.html">Setup &amp; Installation</a>
             </div>
@@ -323,7 +326,7 @@
 <div class="hero">
 <pre id="ascii-logo" aria-label="MidiEditor AI"></pre>
 <p class="tagline" id="hero-tagline" style="opacity:0">Your complete guide to the AI-powered MIDI editor</p>
-    <span class="version-badge" id="hero-badge" style="opacity:0">v1.6.0 &middot; Manual</span>
+    <span class="version-badge" id="hero-badge" style="opacity:0">v1.6.1 &middot; Manual</span>
 
 <!-- Fake Chat Demo -->
 <div class="chat-demo" id="chat-demo">
@@ -551,6 +554,20 @@
 <li><a href="supported-files.html#musescore">&#x1F3BB; MuseScore (.mscz / .mscx)</a></li>
 <li><a href="supported-files.html#workflow-ffxiv">&#x1F3AE; Score &rarr; FFXIV Workflow</a></li>
 <li><a href="supported-files.html#general-tips">&#x1F4A1; Tips</a></li>
+</ul>
+</div>
+
+<div class="section-card">
+<h3><span class="icon">&#x2328;&#xFE0F;</span> Keyboard Shortcuts</h3>
+<p class="card-desc">Full reference of every keyboard shortcut shipped with MidiEditor AI &mdash; 78 actions organised by category, each with its action ID for rebinding under <em>Settings &rarr; Keybinds</em>.</p>
+<ul>
+<li><a href="shortcuts.html#file">&#x1F4C1; File</a></li>
+<li><a href="shortcuts.html#edit">&#x270F;&#xFE0F; Edit &amp; Selection</a></li>
+<li><a href="shortcuts.html#tools">&#x1F6E0;&#xFE0F; Tools (F1&hellip;F11)</a></li>
+<li><a href="shortcuts.html#tweak">&#x1F39B;&#xFE0F; Tweak (precision nudge)</a></li>
+<li><a href="shortcuts.html#duration">&#x1F3BC; Note Duration Presets</a></li>
+<li><a href="shortcuts.html#playback">&#x25B6;&#xFE0F; Playback</a></li>
+<li><a href="shortcuts.html#mouse">&#x1F5B1;&#xFE0F; Mouse Modifiers</a></li>
 </ul>
 </div>
 

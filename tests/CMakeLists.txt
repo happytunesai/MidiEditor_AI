@@ -173,6 +173,25 @@ target_link_libraries(test_ffxiv_voice_analyzer PRIVATE
 add_test(NAME FfxivVoiceAnalyzer COMMAND test_ffxiv_voice_analyzer)
 
 # -----------------------------------------------------------------------------
+# test_ffxiv_equalizer_service
+# -----------------------------------------------------------------------------
+# Validates the per-instrument volume mixer service used by the FFXIV
+# SoundFont Equalizer (Phase 39). The service is intentionally Qt-only
+# (no FluidSynth, no MidiFile), so the test compiles a single .cpp.
+add_executable(test_ffxiv_equalizer_service
+    test_ffxiv_equalizer_service.cpp
+    ../src/midi/FfxivEqualizerService.cpp
+)
+target_include_directories(test_ffxiv_equalizer_service PRIVATE
+    ../src/midi
+)
+target_link_libraries(test_ffxiv_equalizer_service PRIVATE
+    Qt6::Core
+    Qt6::Test
+)
+add_test(NAME FfxivEqualizerService COMMAND test_ffxiv_equalizer_service)
+
+# -----------------------------------------------------------------------------
 # test_selection
 # -----------------------------------------------------------------------------
 # Validates the global Selection singleton in src/tool/Selection.
@@ -789,6 +808,7 @@ if(WIN32)
         AgentToolPolicy
         StreamingFallback
         FfxivVoiceAnalyzer
+        FfxivEqualizerService
         TempoConversionService
         PromptProfiles
         PasteSpecialDialog

@@ -243,6 +243,14 @@ private:
 
     /** \brief Spin box for auto-save interval in seconds */
     QSpinBox *_autoSaveIntervalSpin;
+
+    // === Updater Controls (1.6.1 / upstream 366a92f) ===
+
+    /** \brief Group box for updater settings */
+    QGroupBox *_updaterGroup;
+
+    /** \brief Checkbox for checking for updates on startup */
+    QCheckBox *_checkUpdatesOnStartup;
 };
 
 #endif // PERFORMANCESETTINGSWIDGET_H_

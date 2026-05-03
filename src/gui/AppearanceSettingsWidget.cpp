@@ -56,7 +56,7 @@ AppearanceSettingsWidget::AppearanceSettingsWidget(QWidget *parent)
         "Sakura",
         "AMOLED",
         "Material Dark",
-        "MidiEditor AI"
+        "MidiEditor AI (Default)"
     });
     themeCombo->setCurrentIndex(static_cast<int>(Appearance::theme()));
     connect(themeCombo, SIGNAL(currentIndexChanged(int)), this, SLOT(themeChanged(int)));

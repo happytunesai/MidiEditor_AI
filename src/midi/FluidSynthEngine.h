@@ -277,9 +277,30 @@ public:
     void saveSettings(QSettings *settings);
 
     /**
+    /**
      * \brief Loads all FluidSynth settings from QSettings.
      */
     void loadSettings(QSettings *settings);
+
+    /**
+     * \brief Plays a short Do-Re-Mi-Sol arpeggio (C4 D4 E4 G4) on the
+     * given GM program — used by the FFXIV SoundFont Equalizer dialog
+     * so the user can audition each instrument while sliding its gain.
+     *
+     * The preview is routed on a dedicated channel (15) so it does not
+     * collide with whatever the live MIDI player is doing on channels
+     * 0..14, and goes through the same `sendMidiData()` path as live
+     * playback so the FfxivEqualizerService gain factor is applied
+     * exactly the same way as during normal playback.
+     *
+     * \param program GM program number 0..127. For drum-kit preview,
+     *                pass any percussion preset number (e.g. 117 BassDrum)
+     *                and set \a isDrum=true to also route the test
+     *                sequence to GM standard kit keys instead of pitches.
+     * \param isDrum  If true, plays kick/snare/hat/crash on CH9 instead
+     *                of the C-D-E-G arpeggio on CH15.
+     */
+    void playPreviewArpeggio(int program, bool isDrum = false);
 
 signals:
     void soundFontLoaded(int sfontId, const QString &path);
@@ -323,6 +344,20 @@ private:
     /// `GEN_ATTENUATION` per channel in bard mode.
     static int bardProgramAttenuationCb(int program);
 
+    /// Phase 39 (FFXIV-EQ-001): convert an EQ gain factor (0.0..2.0)
+    /// to additional `GEN_ATTENUATION` centibels. gain=1.0 → 0 cB,
+    /// gain=0.5 → +60 cB (quieter), gain=2.0 → -60 cB (louder).
+    /// Returns a sentinel high value (well past audible) for gain<=0
+    /// so a muted slot is fully silent.
+    static float ffxivEqualizerCb(float gain);
+
+    /// Phase 39: push the combined (bard + EQ) `GEN_ATTENUATION` for
+    /// the given channel using the channel's last-seen program. Pass
+    /// channel = -1 to refresh all 16 channels. Cheap no-op outside
+    /// FFXIV SoundFont mode. Wired to FfxivEqualizerService::mixChanged
+    /// in initialize() so live slider edits affect playback instantly.
+    void applyFfxivEqualizerAttenuation(int channel = -1);
+
     /// fluid_player_t playback callback used by exportAudio() so offline
     /// rendering applies the same FFXIV bank-select / program-fallback as
     /// live playback. \a data is the export fluid_synth_t*.
@@ -338,6 +373,11 @@ private:
     // doesn't overwrite the program a Snare Drum / Bass Drum track
     // already requested via an injected PC.
     static bool    _exportExplicitPC[16];
+    /// Phase 39: per-channel current program — needed so the offline
+    /// playback callback can ask FfxivEqualizerService for the right
+    /// gain factor on every NoteOn (the GM/FFXIV program isn't
+    /// reachable from the fluid_synth_t* alone). Updated on every PC.
+    static int     _exportCurrentProgram[16];
 
     fluid_settings_t *_settings;
     fluid_synth_t *_synth;

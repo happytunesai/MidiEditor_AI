@@ -202,6 +202,7 @@ private:
     QCheckBox *_reverbCheckBox;
     QCheckBox *_chorusCheckBox;
     QCheckBox *_ffxivModeCheckBox;
+    QPushButton *_ffxivEqualizerBtn = nullptr;
     QComboBox *_ffxivVoiceLimiterCombo = nullptr;
 
 private slots:
@@ -219,6 +220,7 @@ private slots:
     void onChorusToggled(bool enabled);
     void onFfxivModeToggled(bool enabled);
     void onFfxivVoiceLimiterModeChanged(int index);
+    void onOpenFfxivEqualizer();
     void refreshSoundFontList();
     void onSoundFontItemChanged(QListWidgetItem *item);
     void showDownloadSoundFontDialog();

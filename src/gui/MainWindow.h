@@ -584,6 +584,13 @@ public slots:
     void fixFFXIVChannels();
 
     /**
+     * \brief Opens the FFXIV SoundFont per-instrument volume mixer
+     *        (Phase 39). Modal dialog; only enabled while FFXIV
+     *        SoundFont Mode is on. No-op without FluidSynth support.
+     */
+    void openFfxivEqualizer();
+
+    /**
      * \brief Imports lyrics from an SRT subtitle file.
      */
     void importLyricsSrt();
@@ -1080,6 +1087,14 @@ private:
     FfxivVoiceLaneWidget *_voiceLaneWidget = nullptr;
     QWidget *_voiceLaneArea = nullptr;
     QAction *_toggleVoiceLaneAction = nullptr;
+    /** \brief 1.6.1 (UX-VOICE-LANE-002): auto-show the voice lane while FFXIV
+     *  SoundFont Mode is active, hide it again when FFXIV mode flips off.
+     *  Composes with `_toggleVoiceLaneAction` (always-show) via OR. */
+    QAction *_voiceLaneAutoFollowAction = nullptr;
+
+    /** \brief 1.6.1 (UX-VOICE-LANE-002): apply the (always-show OR auto+ffxiv-on)
+     *  visibility rule to `_voiceLaneArea`. Safe to call from any signal. */
+    void updateVoiceLaneVisibility();
 
     // === Setup and Toolbar Methods ===
 

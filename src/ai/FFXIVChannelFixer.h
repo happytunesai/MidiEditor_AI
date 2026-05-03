@@ -62,6 +62,13 @@ private:
 
     // Map instrument base name → GM program number (-1 if unknown)
     static int programNumber(const QString &baseName);
+
+    // 1.6.1 (upstream a35f1ee): for an unmatched track, return the MIDI
+    // channel that carries the majority of its NoteOn events, or -1 if
+    // the track has no notes at all. Used to keep generically-named drum
+    // tracks (e.g. "Drums", "Perc") on channel 9 instead of letting the
+    // Tier-2 numeric assignment ruin their GM percussion mapping.
+    static int dominantNoteChannel(MidiFile *file, MidiTrack *track);
 };
 
 #endif // FFXIVCHANNELFIXER_H

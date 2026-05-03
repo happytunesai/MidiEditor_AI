@@ -26,6 +26,14 @@ protected:
     void paintEvent(QPaintEvent *event) override;
     void mousePressEvent(QMouseEvent *event) override;
 
+public slots:
+    /// 1.6.1 (UX-VOICE-LANE-001): mirror the MatrixWidget playback cursor
+    /// inside the FFXIV Voices lane so the user can see where playback is
+    /// against the voice-load chart. Wired from MainWindow::play()/record()
+    /// the same way `_lyricTimeline` is, because PlayerThread is recreated
+    /// per `MidiPlayer::play()` call on Windows.
+    void onPlaybackPositionChanged(int /*ms*/) { update(); }
+
 private slots:
     void onAnalysisUpdated(MidiFile *file);
 

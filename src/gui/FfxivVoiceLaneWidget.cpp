@@ -5,6 +5,7 @@
 #include "FfxivVoiceLaneWidget.h"
 #include "MatrixWidget.h"
 #include "../midi/MidiFile.h"
+#include "../midi/MidiPlayer.h"
 #include "../ai/FfxivVoiceAnalyzer.h"
 
 #include <QPainter>
@@ -26,9 +27,16 @@ FfxivVoiceLaneWidget::FfxivVoiceLaneWidget(MatrixWidget *matrixWidget, QWidget *
 }
 
 void FfxivVoiceLaneWidget::setFile(MidiFile *file) {
+    if (_file) {
+        disconnect(_file, SIGNAL(cursorPositionChanged()), this, SLOT(update()));
+    }
     _file = file;
     if (file) {
         FfxivVoiceAnalyzer::instance()->watchFile(file);
+        // 1.6.1 (UX-VOICE-LANE-001): redraw when the user moves the play
+        // cursor (ruler click, scrub, keyboard arrows) so the marker on
+        // the voice lane tracks it without waiting for playback.
+        connect(file, SIGNAL(cursorPositionChanged()), this, SLOT(update()));
     }
     update();
 }
@@ -215,6 +223,45 @@ void FfxivVoiceLaneWidget::paintEvent(QPaintEvent * /*event*/) {
         p.fillRect(tagRect, QColor(0, 0, 0, 180));
         p.setPen(QColor(255, 200, 200));
         p.drawText(tagRect, Qt::AlignCenter, tag);
+    }
+
+    // 1.6.1 (UX-VOICE-LANE-001): draw the same playback / edit cursor that
+    // MatrixWidget paints on top of the piano roll, so the user can see
+    // exactly where they are inside the voice-load chart. Two markers:
+    //   1. The edit cursor (file->cursorTick()) as a thin gray line with
+    //      a small downward triangle at the top, matching MatrixWidget.
+    //   2. The live playback cursor (MidiPlayer::timeMs()) as a brighter
+    //      cyan line, only while playback is running.
+    {
+        const int H2 = height();
+        // Edit cursor
+        int curX = xPosOfTick(_file->cursorTick());
+        if (curX >= 0 && curX < W) {
+            p.setPen(QColor(180, 180, 180));
+            p.drawLine(curX, 0, curX, H2);
+            // small triangle marker at the top edge so it's recognisable
+            // as the same kind of cursor MatrixWidget shows.
+            QPointF tri[3] = {
+                QPointF(curX - 4, 0),
+                QPointF(curX + 4, 0),
+                QPointF(curX,     5),
+            };
+            p.setBrush(QColor(180, 180, 180));
+            p.setPen(Qt::NoPen);
+            p.drawPolygon(tri, 3);
+        }
+        // Live playback cursor
+        if (MidiPlayer::isPlaying()) {
+            int playTick = _file->tick(MidiPlayer::timeMs());
+            int playX = xPosOfTick(playTick);
+            if (playX >= 0 && playX < W) {
+                QPen playPen(QColor(0, 184, 255));  // brand cyan
+                playPen.setWidth(1);
+                p.setPen(playPen);
+                p.setBrush(Qt::NoBrush);
+                p.drawLine(playX, 0, playX, H2);
+            }
+        }
     }
 }
 

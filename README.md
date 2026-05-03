@@ -13,7 +13,7 @@
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-0078D6?logo=windows)](https://github.com/happytunesai/MidiEditor_AI/releases)
 
-**Version:** 1.6.0
+**Version:** 1.6.1
 **Status:** Release
 
 📥 **[Download Latest Release](https://github.com/happytunesai/MidiEditor_AI/releases/latest)**
@@ -91,6 +91,7 @@ MidiPilot is the AI brain embedded directly in MidiEditor AI. Open the sidebar, 
 | ⏱️ **Convert Tempo (Preserve Duration)** *(new in 1.6.0)* | Time-preserving tempo conversion - rescales every event tick by `target/source` and rewrites the tempo meta in one undoable step. Available for whole file / events only / per channel / selected events |
 | 🎻 **FFXIV Voice Limiter / Analyze Voice Load** *(new in 1.6.0)* | Read-only audit against the in-game 16-voice ceiling - per-tick voice peak, overflow ranges, per-channel rate hotspots; optional voice-load lane under the velocity strip |
 | 📥 **Paste Special** *(new in 1.6.0)* | Cross-instance Ctrl+V opens a dialog: *Create new tracks per source* (default), *Preserve source mapping (1:1)*, or *Paste to current edit track* (legacy). Track creation + paste are a single undo step |
+| 🎚️ **FFXIV SoundFont Equalizer** *(new in 1.6.1)* | Per-instrument volume mixer for the FFXIV bard SoundFont with 0-200 % gain sliders, mute, master gain, per-row ▶ Preview (C-D-E-G arpeggio or kick/snare/hat/crash), built-in *FFXIV Default* preset and unlimited user presets. Slider edits affect live playback **and** offline export instantly via `GEN_ATTENUATION`. Reachable from *Tools* and from *Settings → MIDI I/O → FluidSynth* |
 | 🎵 **Quantization** | Event quantization and control change visualization |
 | 🎤 **MIDI Recording** | Record from connected MIDI devices (keyboards, digital pianos) |
 
@@ -540,7 +541,12 @@ MidiEditor_AI/
 ├── examples/                  # AI-generated MIDI examples
 ├── .github/workflows/         # CI/CD (build + release)
 ├── CMakeLists.txt             # CMake build configuration
-└── build.bat                  # Local build script
+└── scripts/                   # Local helper scripts
+    ├── build.bat              # Build (Release + windeployqt)
+    ├── build_clean.bat        # Wipe build/ + reset settings, then build
+    ├── build_tests.bat        # Reconfigure with -DBUILD_TESTING=ON, build, ctest
+    ├── reset_settings.bat     # Wipe HKCU\Software\MidiEditor (no rebuild)
+    └── release.bat            # Build + package + zip a distributable
 ```
 
 ## 🤝 Credits & Acknowledgments

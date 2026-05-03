@@ -34,6 +34,8 @@
 #include <cmath>
 #include <cstring>
 
+#include "FfxivEqualizerService.h"
+
 // ============================================================================
 // Singleton
 // ============================================================================
@@ -174,6 +176,22 @@ bool FluidSynthEngine::initialize() {
     // Apply runtime bard-accuracy state (reverb/chorus/polyphony) after
     // SoundFonts are loaded so we override any sf_init defaults.
     applyBardAccuracySettings();
+
+    // Phase 39 (FFXIV-EQ-001): live slider edits in the FFXIV SoundFont
+    // Equalizer dialog must affect playback instantly. Wire the
+    // service's mixChanged signal to refresh GEN_ATTENUATION on every
+    // channel. Use a direct connection because we are on the main thread
+    // (the dialog mutates the service from the GUI thread). The connection
+    // is set up exactly once (singleton initialize is idempotent above).
+    static bool eqConnected = false;
+    if (!eqConnected) {
+        connect(FfxivEqualizerService::instance(),
+                &FfxivEqualizerService::mixChanged,
+                this, [this]() { applyFfxivEqualizerAttenuation(-1); });
+        eqConnected = true;
+    }
+    // Push the current EQ gains in case FFXIV mode is already on.
+    applyFfxivEqualizerAttenuation(-1);
 
     return true;
 }
@@ -545,6 +563,26 @@ void FluidSynthEngine::sendMidiData(const QByteArray &data) {
                     // Force max velocity; dynamics flow through CC7/CC11 (cubic curve)
                     vel = 127;
                 }
+                // Phase 39 (FFXIV-EQ-001): per-instrument volume mixer.
+                // The user's FFXIV SoundFont Equalizer preset multiplies
+                // the NoteOn velocity by a per-program factor (gainFor()
+                // already folds in the master gain). Gated on FFXIV mode
+                // so non-FFXIV users pay zero overhead. A muted slot
+                // returns 0.0f — drop the NoteOn entirely (skip both
+                // fluid_synth_noteon and the bard bookkeeping below).
+                if (_ffxivSoundFontMode) {
+                    int prog = _bardCurrentProgram[channel];
+                    bool isDrum = (channel == 9);
+                    float g = FfxivEqualizerService::instance()->gainFor(prog, isDrum);
+                    if (g <= 0.0f) {
+                        // Muted — swallow this NoteOn. The matching
+                        // NoteOff still fires later but is harmless
+                        // because no voice was started.
+                        break;
+                    }
+                    int scaled = static_cast<int>(vel * g + 0.5f);
+                    vel = qBound(1, scaled, 127);
+                }
                 fluid_synth_noteon(_synth, channel, key, vel);
                 if (bardActive) {
                     _bardNoteOnMs[channel][key] = _bardClock.isValid() ? _bardClock.elapsed() : 0;
@@ -618,9 +656,9 @@ void FluidSynthEngine::sendMidiData(const QByteArray &data) {
             _bardCurrentProgram[channel] = program;
             // In bard mode, normalise per-preset loudness via additive
             // initialAttenuation (gen 48 = GEN_ATTENUATION, in cB).
-            if (_ffxivSoundFontMode && _bardAccurateMode) {
-                fluid_synth_set_gen(_synth, channel, GEN_ATTENUATION,
-                                    static_cast<float>(bardProgramAttenuationCb(program)));
+            // Phase 39: combined with the EQ user gain via the helper.
+            if (_ffxivSoundFontMode) {
+                applyFfxivEqualizerAttenuation(channel);
             }
             if (_ffxivSoundFontMode && program != origProgram) {
                 qDebug() << "FluidSynth: Program change ch" << channel
@@ -797,6 +835,7 @@ void FluidSynthEngine::exportAudio(const ExportOptions &options) {
     _exportMutedChannelsMask = options.mutedChannelsMask;
     _exportBardActive = (_ffxivSoundFontMode && _bardAccurateMode);
     for (int ch = 0; ch < 16; ++ch) _exportExplicitPC[ch] = false;
+    for (int ch = 0; ch < 16; ++ch) _exportCurrentProgram[ch] = 0;
     if (_ffxivSoundFontMode || _exportMutedChannelsMask != 0) {
         fluid_player_set_playback_callback(player, &FluidSynthEngine::exportPlaybackCallback, expSynth);
     }
@@ -960,6 +999,7 @@ int FluidSynthEngine::exportPlaybackCallback(void *data, fluid_midi_event_t *eve
             // injected PCs (Snare/Bass-Drum/Cymbal tracks recognised by
             // name), the program is already correct — falling back
             // here would clobber it (e.g. Snare key 60 → Bongo).
+            int activeProgram = _exportCurrentProgram[channel];
             if (!_exportExplicitPC[channel]) {
                 int prog = ffxivDrumProgramForGmNote(key);
                 if (prog >= 0) {
@@ -967,8 +1007,19 @@ int FluidSynthEngine::exportPlaybackCallback(void *data, fluid_midi_event_t *eve
                     fluid_synth_program_change(synth, channel, prog);
                     fluid_synth_set_gen(synth, channel, GEN_ATTENUATION,
                                         static_cast<float>(bardProgramAttenuationCb(prog)));
+                    activeProgram = prog;
+                    _exportCurrentProgram[channel] = prog;
                 }
             }
+            // Phase 39 (FFXIV-EQ-001): apply per-program equalizer gain
+            // so offline renders match live playback. A muted slot
+            // returns 0.0 — swallow the NoteOn entirely.
+            float g = FfxivEqualizerService::instance()->gainFor(activeProgram, /*isDrum=*/true);
+            if (g <= 0.0f) {
+                return FLUID_OK;
+            }
+            int scaled = static_cast<int>(vel * g + 0.5f);
+            vel = qBound(1, scaled, 127);
             // Trigger the note directly (mirrors live `fluid_synth_noteon`)
             // instead of forwarding via handle_midi_event, which can
             // re-interpret the channel as a drum channel and silently
@@ -1021,7 +1072,34 @@ int FluidSynthEngine::exportPlaybackCallback(void *data, fluid_midi_event_t *eve
         // Remember that the file gave us an explicit program for this
         // channel so the CH9 GM-key fallback above doesn't overwrite
         // it on the next NoteOn.
-        if (channel >= 0 && channel < 16) _exportExplicitPC[channel] = true;
+        if (channel >= 0 && channel < 16) {
+            _exportExplicitPC[channel] = true;
+            _exportCurrentProgram[channel] = program;
+        }
+        return FLUID_OK;
+    }
+
+    // Phase 39 (FFXIV-EQ-001): equalizer gain for non-drum NoteOns in
+    // the offline render. Mirrors the live-playback hook in
+    // sendMidiData() so exported MP3/WAV matches what the user heard.
+    // We trap NoteOns here (instead of letting them fall through to
+    // handle_midi_event below) so we can pre-scale the velocity by the
+    // active preset's per-program factor. Muted slots drop the note.
+    if (_exportBardActive && type == 0x90 && channel >= 0 && channel < 16) {
+        int vel = fluid_midi_event_get_velocity(event);
+        int key = fluid_midi_event_get_key(event);
+        if (vel > 0) {
+            int activeProgram = _exportCurrentProgram[channel];
+            float g = FfxivEqualizerService::instance()->gainFor(activeProgram, /*isDrum=*/false);
+            if (g <= 0.0f) {
+                return FLUID_OK;
+            }
+            int scaled = static_cast<int>(vel * g + 0.5f);
+            vel = qBound(1, scaled, 127);
+            fluid_synth_noteon(synth, channel, key, vel);
+        } else {
+            fluid_synth_noteoff(synth, channel, key);
+        }
         return FLUID_OK;
     }
 
@@ -1032,6 +1110,7 @@ int FluidSynthEngine::exportPlaybackCallback(void *data, fluid_midi_event_t *eve
 quint32 FluidSynthEngine::_exportMutedChannelsMask = 0;
 bool    FluidSynthEngine::_exportBardActive = false;
 bool    FluidSynthEngine::_exportExplicitPC[16] = {false};
+int     FluidSynthEngine::_exportCurrentProgram[16] = {0};
 
 // ============================================================================
 // Audio Settings
@@ -1206,18 +1285,18 @@ void FluidSynthEngine::applyBardAccuracySettings() {
             _bardCC11[ch] = 127;
             // push neutral CC11 so any prior expression doesn't bleed through
             fluid_synth_cc(_synth, ch, 11, 127);
-            // Apply per-program loudness trim for whatever program is
-            // currently active on the channel (defaults to 0 if no PC
-            // has arrived yet, which gives the "loud" attenuation since
-            // program 0 = Piano in our table).
-            fluid_synth_set_gen(_synth, ch, GEN_ATTENUATION,
-                                static_cast<float>(bardProgramAttenuationCb(_bardCurrentProgram[ch])));
         }
+        // Phase 39: push combined bard+EQ attenuation in one pass.
+        applyFfxivEqualizerAttenuation(-1);
     } else {
         // Leaving bard mode: clear our additive attenuation so non-bard
-        // playback is back to the SoundFont's baked level.
+        // playback is back to the SoundFont's baked level. If FFXIV mode
+        // is still on, re-apply just the EQ contribution.
         for (int ch = 0; ch < 16; ++ch) {
             fluid_synth_set_gen(_synth, ch, GEN_ATTENUATION, 0.0f);
+        }
+        if (_ffxivSoundFontMode) {
+            applyFfxivEqualizerAttenuation(-1);
         }
     }
 
@@ -1363,6 +1442,45 @@ int FluidSynthEngine::bardProgramAttenuationCb(int program) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Phase 39 (FFXIV-EQ-001) — Equalizer attenuation helpers
+// ---------------------------------------------------------------------------
+float FluidSynthEngine::ffxivEqualizerCb(float gain) {
+    if (gain <= 0.0f) {
+        // Muted — push to a value well past audible. SF spec caps at
+        // 1440 cB (= 144 dB), but FluidSynth clamps internally too.
+        return 1440.0f;
+    }
+    // Amplitude-domain dB: 20 * log10(gain). Centibels = 1/10 dB.
+    // Sign: positive cB = MORE attenuation (quieter), so flip sign.
+    return static_cast<float>(-200.0 * std::log10(static_cast<double>(gain)));
+}
+
+void FluidSynthEngine::applyFfxivEqualizerAttenuation(int channel) {
+    if (!_initialized || !_synth) return;
+    // Outside FFXIV mode we leave the SoundFont's baked attenuation alone.
+    if (!_ffxivSoundFontMode) return;
+
+    auto applyOne = [this](int ch) {
+        int prog = _bardCurrentProgram[ch];
+        bool isDrum = (ch == 9);
+        // Bard-normalisation atten only contributes when bard mode is on,
+        // matching the original behaviour in applyBardAccuracySettings().
+        float bardCb = _bardAccurateMode
+                           ? static_cast<float>(bardProgramAttenuationCb(prog))
+                           : 0.0f;
+        float eqCb = ffxivEqualizerCb(
+            FfxivEqualizerService::instance()->gainFor(prog, isDrum));
+        fluid_synth_set_gen(_synth, ch, GEN_ATTENUATION, bardCb + eqCb);
+    };
+
+    if (channel < 0) {
+        for (int ch = 0; ch < 16; ++ch) applyOne(ch);
+    } else if (channel >= 0 && channel < 16) {
+        applyOne(channel);
+    }
+}
+
 bool FluidSynthEngine::ffxivSoundFontMode() const {
     return _ffxivSoundFontMode;
 }
@@ -1472,6 +1590,80 @@ void FluidSynthEngine::loadSettings(QSettings *settings) {
         setSoundFontStack(fontPaths);
         _pendingSoundFontPaths.clear();
         _pendingDisabledPaths.clear();
+    }
+}
+
+// ============================================================================
+// Phase 39: Equalizer dialog test-tone preview.
+// ============================================================================
+void FluidSynthEngine::playPreviewArpeggio(int program, bool isDrum) {
+    if (!_initialized || !_synth) return;
+
+    // Use a dedicated channel that the live MIDI player isn't likely to
+    // touch. CH9 for drum previews (GM percussion convention), CH15 for
+    // melodic so we don't fight the channel-15 metadata channel that
+    // some files use \u2014 we are an interactive auditioner, not a
+    // long-running track.
+    const int channel = isDrum ? 9 : 15;
+
+    // FFXIV SoundFont only has bank 0; force-select to avoid surprises
+    // if a previously-loaded MIDI moved this channel to another bank.
+    fluid_synth_bank_select(_synth, channel, 0);
+    fluid_synth_program_change(_synth, channel, program);
+    // Track the current program on the preview channel so the
+    // mixChanged-driven applyFfxivEqualizerAttenuation() refresh can
+    // re-push the correct gain while the arpeggio is still playing.
+    _bardCurrentProgram[channel] = program;
+
+    // Phase 39 (FFXIV-EQ-001): the preview is the user's auditioning
+    // tool — the EQ MUST always affect it, even if FFXIV mode happens
+    // to be off when the dialog is open. Push GEN_ATTENUATION directly
+    // from the EQ gain so the slider's effect is immediately audible.
+    {
+        float g = FfxivEqualizerService::instance()->gainFor(program, isDrum);
+        fluid_synth_set_gen(_synth, channel, GEN_ATTENUATION,
+                            ffxivEqualizerCb(g));
+    }
+
+    // For melodic instruments: C4-D4-E4-G4 (Do-Re-Mi-Sol) at ~250 ms
+    // per note. For drums: kick / snare / hat / crash so the user
+    // hears all four percussion presets at a glance.
+    QList<int> keys;
+    if (isDrum) {
+        keys << 36 << 38 << 42 << 49; // GM kick, snare, closed hat, crash
+    } else {
+        keys << 60 << 62 << 64 << 67; // C, D, E, G (octave 4)
+    }
+
+    const int noteOnSpacingMs = 250;
+    const int noteHoldMs      = 220;
+    QPointer<FluidSynthEngine> self(this);
+    for (int i = 0; i < keys.size(); ++i) {
+        int key = keys[i];
+        int onDelay  = i * noteOnSpacingMs;
+        int offDelay = onDelay + noteHoldMs;
+        QTimer::singleShot(onDelay, this, [self, channel, key]() {
+            if (!self || !self->_synth) return;
+            // Phase 39 (FFXIV-EQ-001): GEN_ATTENUATION is already pushed
+            // for this channel above (and refreshed on every slider edit
+            // via the mixChanged hook). Here we only need to swallow the
+            // NoteOn for muted slots, since GEN_ATTENUATION clamps to a
+            // finite value and a muted preset must be truly silent.
+            int currentProg = 0;
+            fluid_synth_get_program(self->_synth, channel,
+                                    nullptr, nullptr, &currentProg);
+            float g = FfxivEqualizerService::instance()->gainFor(
+                currentProg, /*isDrum=*/(channel == 9));
+            if (g <= 0.0f) return; // muted — silent preview
+            // A solid mid-velocity gives the SoundFont a chance to use
+            // its medium-loudness layer; the GEN_ATTENUATION applied
+            // above provides the actual gain trim.
+            fluid_synth_noteon(self->_synth, channel, key, 110);
+        });
+        QTimer::singleShot(offDelay, this, [self, channel, key]() {
+            if (!self || !self->_synth) return;
+            fluid_synth_noteoff(self->_synth, channel, key);
+        });
     }
 }
 

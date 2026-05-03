@@ -219,7 +219,14 @@ void MatrixWidget::paintEvent(QPaintEvent *event) {
 
     if (totalRepaint) {
         this->pianoKeys.clear();
-        pixmap = new QPixmap(width(), height());
+        // 1.6.1 (upstream 8997ad7): allocate the back-buffer at the device
+        // pixel ratio so the cached pixmap matches the actual screen pixel
+        // grid at fractional scaling (125% / 150%). Without setDevicePixelRatio
+        // the pixmap was upscaled by Qt at paint time, blurring everything.
+        qreal dpr = devicePixelRatioF();
+        pixmap = new QPixmap(size() * dpr);
+        pixmap->setDevicePixelRatio(dpr);
+        pixmap->fill(_cachedBackgroundColor);
         QPainter *pixpainter = new QPainter(pixmap);
 
         // Apply cached user-configurable performance settings

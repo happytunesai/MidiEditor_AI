@@ -129,6 +129,7 @@
 #include "../protocol/Protocol.h"
 #include "../ai/FFXIVChannelFixer.h"
 #include "FFXIVFixerDialog.h"
+#include "FfxivEqualizerDialog.h"
 #include "../converter/GuitarPro/GpImporter.h"
 #include "../converter/MML/MmlImporter.h"
 #include "../converter/MusicXml/MusicXmlImporter.h"
@@ -155,6 +156,7 @@
 
 #ifdef FLUIDSYNTH_SUPPORT
 #include "../midi/FluidSynthEngine.h"
+#include "../midi/FfxivEqualizerService.h"
 #ifdef LAME_SUPPORT
 #include "../midi/LameEncoder.h"
 #endif
@@ -198,6 +200,9 @@ MainWindow::MainWindow(QString initFile)
 
 #ifdef FLUIDSYNTH_SUPPORT
     FluidSynthEngine::instance()->loadSettings(_settings);
+    // Phase 39 (FFXIV-EQ-001): seed the equalizer service from QSettings
+    // so the active preset is restored before any playback starts.
+    FfxivEqualizerService::instance()->loadFromSettings(_settings);
     connect(FluidSynthEngine::instance(), &FluidSynthEngine::engineRestarted, this, [this]() {
         if (this->file && MidiOutput::isConnected()) {
             MidiOutput::resetChannelPrograms();
@@ -477,10 +482,11 @@ MainWindow::MainWindow(QString initFile)
     _voiceLaneArea->setMinimumHeight(0);
     _voiceLaneArea->setMaximumHeight(120);
     _voiceLaneArea->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-    {
-        QSettings _vlSettings("MidiEditor", "NONE");
-        _voiceLaneArea->setVisible(_vlSettings.value("View/showVoiceLane", false).toBool());
-    }
+    // 1.6.1 (UX-VOICE-LANE-002): initial visibility is decided by the
+    // shared (always-show OR auto+ffxiv-on) rule, applied centrally in
+    // updateVoiceLaneVisibility(). The View menu actions are wired up
+    // later in createMenubar(); they will reapply the same rule on toggle.
+    updateVoiceLaneVisibility();
     leftSplitter->addWidget(_voiceLaneArea);
 
     // Create horizontal scrollbar container as separate splitter widget - but make it non-resizable
@@ -841,8 +847,11 @@ MainWindow::MainWindow(QString initFile)
         _mcpServer->start(mcpPort);
     }
 
-    // Check for updates silently on startup
-    QTimer::singleShot(2000, this, [this](){ checkForUpdates(true); });
+    // Check for updates silently on startup (1.6.1 / upstream 366a92f:
+    // can be disabled via Performance Settings -> Updates).
+    if (_settings->value("updater/check_on_startup", true).toBool()) {
+        QTimer::singleShot(2000, this, [this](){ checkForUpdates(true); });
+    }
 }
 
 MainWindow::~MainWindow() {
@@ -1152,6 +1161,16 @@ void MainWindow::play() {
         disconnect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _lyricTimeline, SLOT(onPlaybackPositionChanged(int)));
         connect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _lyricTimeline, SLOT(onPlaybackPositionChanged(int)));
 
+        // 1.6.1 (UX-VOICE-LANE-001): keep the FFXIV Voices lane's playback
+        // cursor in sync with the matrix widget. Re-establish on every
+        // play() because PlayerThread is recreated on Windows.
+        if (_voiceLaneWidget) {
+            disconnect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _voiceLaneWidget, SLOT(onPlaybackPositionChanged(int)));
+            connect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _voiceLaneWidget, SLOT(onPlaybackPositionChanged(int)));
+            disconnect(MidiPlayer::playerThread(), SIGNAL(playerStopped()), _voiceLaneWidget, SLOT(update()));
+            connect(MidiPlayer::playerThread(), SIGNAL(playerStopped()), _voiceLaneWidget, SLOT(update()));
+        }
+
         // Connect lyric visualizer playback signals
         // On Windows, PlayerThread is destroyed/recreated each play(), breaking toolbar-time connections
         if (_lyricVisualizer) {
@@ -1218,6 +1237,14 @@ void MainWindow::record() {
             // Connect lyric timeline playback cursor (record mode)
             disconnect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _lyricTimeline, SLOT(onPlaybackPositionChanged(int)));
             connect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _lyricTimeline, SLOT(onPlaybackPositionChanged(int)));
+
+            // 1.6.1 (UX-VOICE-LANE-001): same FFXIV voice-lane reconnect for record mode.
+            if (_voiceLaneWidget) {
+                disconnect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _voiceLaneWidget, SLOT(onPlaybackPositionChanged(int)));
+                connect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _voiceLaneWidget, SLOT(onPlaybackPositionChanged(int)));
+                disconnect(MidiPlayer::playerThread(), SIGNAL(playerStopped()), _voiceLaneWidget, SLOT(update()));
+                connect(MidiPlayer::playerThread(), SIGNAL(playerStopped()), _voiceLaneWidget, SLOT(update()));
+            }
 
             // Connect lyric visualizer playback signals (record mode)
             if (_lyricVisualizer) {
@@ -2238,6 +2265,45 @@ void MainWindow::fixFFXIVChannels() {
     }
 }
 
+void MainWindow::openFfxivEqualizer() {
+#ifdef FLUIDSYNTH_SUPPORT
+    // Modal — the dialog is live-preview but reverts on Cancel, so a
+    // user can twiddle while playing back without leaving stale state.
+    FfxivEqualizerDialog dlg(this);
+    dlg.exec();
+#else
+    QMessageBox::information(this, tr("FFXIV SoundFont Equalizer"),
+        tr("FluidSynth support is not compiled in."));
+#endif
+}
+
+// 1.6.1 (UX-VOICE-LANE-002): central visibility rule for the FFXIV Voice
+// Lane. The lane is visible if EITHER the user explicitly turned it on in
+// the View menu (View/showVoiceLane = "always show"), OR auto-follow is
+// enabled (View/voiceLaneAutoFollowFfxiv, default on) AND FFXIV SoundFont
+// Mode is currently active. This lets the lane appear/hide together with
+// the FFXIV toolbar toggle without forcing users who want it permanently
+// visible to give that up.
+void MainWindow::updateVoiceLaneVisibility() {
+    if (!_voiceLaneArea) return;
+
+    QSettings s("MidiEditor", "NONE");
+    bool alwaysShow = s.value("View/showVoiceLane", false).toBool();
+    bool autoFollow = s.value("View/voiceLaneAutoFollowFfxiv", true).toBool();
+
+    bool ffxivOn = false;
+#ifdef FLUIDSYNTH_SUPPORT
+    if (FluidSynthEngine *engine = FluidSynthEngine::instance()) {
+        ffxivOn = engine->ffxivSoundFontMode();
+    }
+#endif
+
+    const bool shouldShow = alwaysShow || (autoFollow && ffxivOn);
+    if (_voiceLaneArea->isVisible() != shouldShow) {
+        _voiceLaneArea->setVisible(shouldShow);
+    }
+}
+
 void MainWindow::deleteOverlaps() {
     if (!file) {
         return;
@@ -2298,6 +2364,19 @@ void MainWindow::deleteSelectedEvents() {
 
             // Remove all events from this channel at once
             foreach(MidiEvent* ev, eventsByChannel[channelNum]) {
+                // 1.6.1 (upstream 21fe86b crash-fix slice): refuse to delete
+                // the very last TempoChange (CH17) or TimeSignature (CH18)
+                // event if it lives at tick 0 and is the only event on its
+                // channel. MidiFile invariants assume at least one tempo /
+                // time-signature anchor at tick 0; removing it crashed
+                // playback and saving in upstream issue reports.
+                if (channelNum == 17 || channelNum == 18) {
+                    if (ev->midiTime() == 0
+                        && channel->eventMap()->count(0) <= 1) {
+                        continue;
+                    }
+                }
+
                 // Handle track name events
                 if (channelNum == 16 && (MidiEvent *) (ev->track()->nameEvent()) == ev) {
                     ev->track()->setNameEvent(0);
@@ -4517,6 +4596,27 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
     toolsMB->addAction(fixFFXIVAction);
     _actionMap["fix_ffxiv_channels"] = fixFFXIVAction;
 
+#ifdef FLUIDSYNTH_SUPPORT
+    // Phase 39 (FFXIV-EQ-001): per-instrument volume mixer.
+    // Auto-enabled only while FFXIV SoundFont Mode is active so the
+    // entry doesn't confuse non-FFXIV users.
+    QAction *equalizerAction = new QAction(tr("FFXIV SoundFont Equalizer..."), this);
+    connect(equalizerAction, &QAction::triggered, this, &MainWindow::openFfxivEqualizer);
+    toolsMB->addAction(equalizerAction);
+    _actionMap["ffxiv_equalizer"] = equalizerAction;
+    {
+        FluidSynthEngine *engine = FluidSynthEngine::instance();
+        bool ffxivOn = engine && engine->ffxivSoundFontMode();
+        equalizerAction->setEnabled(ffxivOn);
+        if (engine) {
+            connect(engine, &FluidSynthEngine::ffxivSoundFontModeChanged,
+                    equalizerAction, [equalizerAction](bool on) {
+                equalizerAction->setEnabled(on);
+            });
+        }
+    }
+#endif
+
     toolsMB->addSeparator();
 
     // Lyrics submenu
@@ -4935,25 +5035,62 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
         s.remove("View/showVoiceLoad");
     }
 
-    // Phase 32.3: voice-load lane toggle
+    // Phase 32.3: voice-load lane toggle.
+    // 1.6.1 (UX-VOICE-LANE-002): two cooperating switches now drive the
+    // lane's visibility, combined via OR in updateVoiceLaneVisibility():
+    //   1. "Show FFXIV Voice Lane"            (View/showVoiceLane,            default off)
+    //         -> always show the lane regardless of FFXIV SoundFont Mode.
+    //   2. "Auto-show with FFXIV SoundFont Mode" (View/voiceLaneAutoFollowFfxiv, default on)
+    //         -> show the lane while FFXIV mode is on, hide it when off.
+    //   With both unchecked the lane stays hidden until the user opts back in.
     _toggleVoiceLaneAction = new QAction(tr("Show FFXIV Voice Lane"), this);
     _toggleVoiceLaneAction->setCheckable(true);
     {
         QSettings _vlSettings("MidiEditor", "NONE");
-        bool on = _vlSettings.value("View/showVoiceLane", false).toBool();
-        _toggleVoiceLaneAction->setChecked(on);
-        if (_voiceLaneArea) _voiceLaneArea->setVisible(on);
+        _toggleVoiceLaneAction->setChecked(_vlSettings.value("View/showVoiceLane", false).toBool());
     }
     _toggleVoiceLaneAction->setToolTip(tr(
-        "Show a graph beneath the piano roll plotting the simultaneous\n"
-        "voice count vs the FFXIV 16-voice ceiling."));
+        "Always show the voice-load graph beneath the piano roll.\n"
+        "Plots the simultaneous voice count vs the FFXIV 16-voice ceiling."));
     connect(_toggleVoiceLaneAction, &QAction::toggled, this, [this](bool checked) {
         QSettings s("MidiEditor", "NONE");
         s.setValue("View/showVoiceLane", checked);
-        if (_voiceLaneArea) _voiceLaneArea->setVisible(checked);
+        updateVoiceLaneVisibility();
     });
     viewMB->addAction(_toggleVoiceLaneAction);
     _actionMap["view_voice_lane"] = _toggleVoiceLaneAction;
+
+    // 1.6.1 (UX-VOICE-LANE-002): companion auto-follow toggle.
+    _voiceLaneAutoFollowAction = new QAction(tr("Auto-show FFXIV Voice Lane with FFXIV SoundFont Mode"), this);
+    _voiceLaneAutoFollowAction->setCheckable(true);
+    {
+        QSettings _vlSettings("MidiEditor", "NONE");
+        _voiceLaneAutoFollowAction->setChecked(_vlSettings.value("View/voiceLaneAutoFollowFfxiv", true).toBool());
+    }
+    _voiceLaneAutoFollowAction->setToolTip(tr(
+        "When enabled, the FFXIV Voice Lane appears automatically while\n"
+        "FFXIV SoundFont Mode is on and hides again when you turn it off.\n"
+        "Independent of the explicit \"Show FFXIV Voice Lane\" toggle above."));
+    connect(_voiceLaneAutoFollowAction, &QAction::toggled, this, [this](bool checked) {
+        QSettings s("MidiEditor", "NONE");
+        s.setValue("View/voiceLaneAutoFollowFfxiv", checked);
+        updateVoiceLaneVisibility();
+    });
+    viewMB->addAction(_voiceLaneAutoFollowAction);
+    _actionMap["view_voice_lane_auto"] = _voiceLaneAutoFollowAction;
+
+#ifdef FLUIDSYNTH_SUPPORT
+    // 1.6.1 (UX-VOICE-LANE-002): listen for the FFXIV SoundFont Mode flip
+    // (toolbar XIV button, settings checkbox, or programmatic) and reapply
+    // the visibility rule. Idempotent when auto-follow is off.
+    if (FluidSynthEngine *engine = FluidSynthEngine::instance()) {
+        connect(engine, &FluidSynthEngine::ffxivSoundFontModeChanged,
+                this, [this](bool /*on*/) { updateVoiceLaneVisibility(); });
+    }
+#endif
+
+    // Apply the rule once now that both actions exist.
+    updateVoiceLaneVisibility();
 
     viewMB->addSeparator();
 
@@ -5711,7 +5848,11 @@ QWidget *MainWindow::createCustomToolbar(QWidget *parent) {
 
     // Use custom settings only if customization is enabled AND we have valid action order
     // If customization is disabled, always use defaults regardless of stored action order
-    if (!customizeEnabled) {
+    // Fresh installs (or first launch after settings reset) also fall through to the
+    // default loader so the toolbar isn't empty when customization is on but no order
+    // has ever been persisted yet (TOOLBAR-DEFAULT-001 follow-up).
+    const bool firstRunNoOrder = actionOrder.isEmpty();
+    if (!customizeEnabled || firstRunNoOrder) {
         // Use minimal default toolbar (not comprehensive - that's for customize UI only)
         actionOrder = LayoutSettingsWidget::getDefaultToolbarOrder();
 
@@ -6252,7 +6393,11 @@ void MainWindow::updateToolbarContents(QWidget *toolbarWidget, QGridLayout *btnL
 
     // Use custom settings only if customization is enabled AND we have valid action order
     // If customization is disabled, always use defaults regardless of stored action order
-    if (!customizeEnabled) {
+    // Fresh installs (or first launch after settings reset) also fall through to the
+    // default loader so the toolbar isn't empty when customization is on but no order
+    // has ever been persisted yet (TOOLBAR-DEFAULT-001 follow-up).
+    const bool firstRunNoOrder = actionOrder.isEmpty();
+    if (!customizeEnabled || firstRunNoOrder) {
         // Use minimal default toolbar (not comprehensive - that's for customize UI only)
         actionOrder = LayoutSettingsWidget::getDefaultToolbarOrder();
 

@@ -3,9 +3,14 @@ REM ============================================================
 REM  MidiEditor AI — Release Build & Package Script
 REM  Builds Release binary, deploys Qt, copies assets, creates zip
 REM  Requires: VS 2019 Build Tools + Qt 6.5.3 (MSVC 2019 x64)
+REM
+REM  Lives under scripts/ — pushd into project root so all relative
+REM  paths (CMakeLists.txt, build/, run_environment/, ...) resolve
+REM  exactly as they did when this lived next to the sources.
 REM ============================================================
 
 setlocal enabledelayedexpansion
+pushd "%~dp0.."
 
 REM --- Configuration ---
 set QT_DIR=C:\Qt\6.5.3\msvc2019_64
@@ -32,6 +37,7 @@ echo [1/6] Setting up MSVC 2019 x64 environment...
 call %VCVARS% >nul 2>&1
 if %ERRORLEVEL% neq 0 (
     echo ERROR: Failed to initialize MSVC environment!
+    popd
     pause
     exit /b 1
 )
@@ -41,6 +47,7 @@ echo [2/6] CMake Configure...
 %CMAKE_EXE% -S . -B build -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=%QT_DIR%
 if %ERRORLEVEL% neq 0 (
     echo ERROR: CMake configuration failed!
+    popd
     pause
     exit /b 1
 )
@@ -50,6 +57,7 @@ echo [3/6] Building Release...
 %CMAKE_EXE% --build build --config Release
 if %ERRORLEVEL% neq 0 (
     echo ERROR: Build failed!
+    popd
     pause
     exit /b 1
 )
@@ -82,6 +90,7 @@ if exist "%RELEASE_ZIP%" del "%RELEASE_ZIP%"
 powershell -Command "Compress-Archive -Path '%RELEASE_DIR%\*' -DestinationPath '%RELEASE_ZIP%'"
 if %ERRORLEVEL% neq 0 (
     echo ERROR: Failed to create zip!
+    popd
     pause
     exit /b 1
 )
@@ -93,4 +102,5 @@ echo   Zip: %RELEASE_ZIP%
 echo   Dir: %RELEASE_DIR%\MidiEditorAI.exe
 echo ============================================
 echo.
+popd
 pause

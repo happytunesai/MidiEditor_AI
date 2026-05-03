@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Keyboard Shortcuts - MidiEditor AI Manual</title>
+  <link rel="icon" type="image/png" href="favicon.png">
+  <meta name="theme-color" content="#0B1020">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="site.css">
+  <style>
+    table.shortcuts-table { width: 100%; border-collapse: collapse; margin: 0.75rem 0 1.5rem 0; }
+    table.shortcuts-table th, table.shortcuts-table td { padding: 0.45rem 0.7rem; vertical-align: top; }
+    table.shortcuts-table th { text-align: left; }
+    table.shortcuts-table td.kbd-cell { white-space: nowrap; width: 1%; }
+    table.shortcuts-table td.id-cell { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 0.85em; color: var(--text-muted); white-space: nowrap; }
+    kbd { display: inline-block; padding: 1px 6px; margin: 0 1px; border: 1px solid #4a5570; border-bottom-width: 2px; border-radius: 4px; background: #1a2238; font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 0.85em; color: #e5ecff; }
+    kbd + kbd { margin-left: 1px; }
+    .kbd-sep { color: var(--text-muted); margin: 0 2px; }
+    .toc-shortcuts { background: rgba(46, 75, 134, 0.18); border-left: 3px solid #4ec9ff; padding: 0.9rem 1.1rem 1rem 1.4rem; border-radius: 8px; margin: 1rem 0 2rem 0; }
+    .toc-shortcuts > b { display: block; margin-bottom: 0.6rem; color: #e5ecff; letter-spacing: 0.02em; }
+    .toc-grid {
+        list-style: none; margin: 0; padding: 0;
+        display: grid; gap: 0.5rem;
+        grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    }
+    .toc-grid li { margin: 0; }
+    .toc-grid a {
+        display: flex; align-items: center; gap: 0.55rem;
+        padding: 0.5rem 0.75rem;
+        font-size: 0.85rem; font-weight: 600; line-height: 1.2;
+        color: #c9d6e6; text-decoration: none;
+        background: linear-gradient(135deg, #10192A 0%, #162238 100%);
+        border: 1px solid var(--border, #2a3550);
+        border-radius: 8px;
+        box-shadow: rgba(0,0,0,0.35) 0 2px 4px, rgba(60,68,82,0.30) 0 -2px 0 inset;
+        transition: transform .15s, box-shadow .15s, background .2s, color .2s, border-color .2s;
+    }
+    .toc-grid a .toc-icon { font-size: 1.05rem; line-height: 1; flex: 0 0 auto; }
+    .toc-grid a .toc-label { flex: 1 1 auto; }
+    .toc-grid a:hover {
+        color: #fff;
+        background: linear-gradient(135deg, #162238 0%, #1B2B47 100%);
+        border-color: #4ec9ff;
+        transform: translateY(-2px);
+        box-shadow: rgba(0,0,0,0.4) 0 5px 10px, rgba(78,201,255,0.18) 0 0 0 1px inset;
+    }
+    .toc-grid a:active {
+        transform: translateY(1px);
+        box-shadow: rgba(0,0,0,0.5) 0 2px 5px inset;
+    }
+    .note-box { border: 1px solid #4a5570; background: rgba(46, 75, 134, 0.12); padding: 0.7rem 1rem; border-radius: 6px; margin: 1rem 0; }
+    .note-box.tip { border-color: #4ec9ff; }
+    .note-box.warn { border-color: #ffb84d; }
+  </style>
+</head>
+<body>
+<nav class="site-nav" role="navigation" aria-label="Main navigation">
+<div class="container">
+    <a href="index.html" class="nav-brand">
+        <img class="brand-logo" src="Midieditor-ai_banner_w.png" alt="MidiEditor AI">
+    </a>
+    <button class="nav-hamburger" aria-label="Toggle menu" aria-expanded="false">&#x2630;</button>
+    <ul class="nav-links">
+        <li><a href="index.html#features">Features</a></li>
+        <li><a href="index.html#showcase">Showcase</a></li>
+        <li class="nav-dropdown">
+            <span class="nav-dropdown-trigger active">Docs &#x25BE;</span>
+            <div class="nav-dropdown-menu">
+                <a href="docs-index.html">Manual Overview</a>
+                <a href="midipilot.html">MidiPilot AI</a>
+                <a href="prompt-examples.html">Prompt Examples</a>
+                <a href="ffxiv-channel-fixer.html">FFXIV Channel Fixer</a>
+                <a href="ffxiv-voice-limiter.html">FFXIV Voice Limiter</a>
+                <a href="tempo-conversion.html">Convert Tempo</a>
+                <a href="supported-files.html">Supported Files</a>
+                <a href="themes.html">Themes &amp; Appearance</a>
+                <a href="lyrics.html">Lyric Editor</a>
+                <a href="soundfont.html">SoundFonts &amp; FluidSynth</a>
+                <a href="shortcuts.html">Keyboard Shortcuts</a>
+                <a href="mcp-server.html">MCP Server</a>
+                <a href="setup.html">Setup &amp; Installation</a>
+            </div>
+        </li>
+        <li><a href="changelog.html">Changelog</a></li>
+        <li><a href="https://github.com/happytunesai/MidiEditor_AI" target="_blank" rel="noopener noreferrer">GitHub &#x2197;</a></li>
+        <li><a href="download.html" class="nav-cta">&#x2B07; Download</a></li>
+    </ul>
+</div>
+</nav>
+
+<a href="#main-content" class="skip-link">Skip to main content</a>
+
+<main id="main-content">
+
+<h2>Keyboard Shortcuts</h2>
+
+<p>
+  This page lists every keyboard shortcut shipped with MidiEditor AI. Each row also shows the
+  internal <em>action ID</em> &mdash; you can use that ID in
+  <b>Settings &rarr; Keybinds</b> to rebind a shortcut, clear it, or restore the default.
+</p>
+
+<div class="note-box tip">
+  <b>Tip &mdash; rebinding shortcuts.</b> Open
+  <b>Edit &rarr; Settings &rarr; Keybinds</b>, find the action by its name (or scroll to its ID),
+  click the field next to it and press the new key combination. The dialog warns about duplicate
+  bindings and offers a <b>Reset</b> button per row plus a global <b>Reset All to Defaults</b>.
+  Custom bindings are stored under <code>QSettings("MidiEditor", "NONE")</code> in the
+  <code>shortcuts/</code> group.
+</div>
+
+<div class="note-box">
+  <b>Notation.</b>
+  <kbd>Ctrl</kbd> is shown for Windows / Linux. On macOS, replace it with <kbd>Cmd</kbd>
+  (Qt maps <code>QKeySequence::*</code> portably). Where the source uses
+  <code>QKeySequence::Save</code> / <code>::New</code> / etc., the platform native binding applies.
+</div>
+
+<!-- ───────── Table of contents ───────── -->
+<div class="toc-shortcuts">
+  <b>On this page:</b>
+  <ul class="toc-grid">
+    <li><a href="#file"><span class="toc-icon">📁</span><span class="toc-label">File</span></a></li>
+    <li><a href="#edit"><span class="toc-icon">✏️</span><span class="toc-label">Edit &amp; Selection</span></a></li>
+    <li><a href="#navigation"><span class="toc-icon">🧭</span><span class="toc-label">Navigation</span></a></li>
+    <li><a href="#tools"><span class="toc-icon">🔧</span><span class="toc-label">Tools</span></a></li>
+    <li><a href="#editing-ops"><span class="toc-icon">⚙️</span><span class="toc-label">Editing operations</span></a></li>
+    <li><a href="#tweak"><span class="toc-icon">🎛️</span><span class="toc-label">Tweak (nudge)</span></a></li>
+    <li><a href="#duration"><span class="toc-icon">⏲️</span><span class="toc-label">Note durations</span></a></li>
+    <li><a href="#transpose"><span class="toc-icon">🎼</span><span class="toc-label">Transpose &amp; align</span></a></li>
+    <li><a href="#quantize"><span class="toc-icon">📐</span><span class="toc-label">Quantize</span></a></li>
+    <li><a href="#midi-tools"><span class="toc-icon">🤖</span><span class="toc-label">MIDI / FFXIV / AI</span></a></li>
+    <li><a href="#view"><span class="toc-icon">🔍</span><span class="toc-label">View &amp; zoom</span></a></li>
+    <li><a href="#playback"><span class="toc-icon">▶️</span><span class="toc-label">Playback</span></a></li>
+    <li><a href="#midi"><span class="toc-icon">🚨</span><span class="toc-label">MIDI panic / thru</span></a></li>
+    <li><a href="#tracks"><span class="toc-icon">🎚️</span><span class="toc-label">Move to track</span></a></li>
+  </ul>
+</div>
+
+<!-- ───────── File ───────── -->
+<h3 id="file">File</h3>
+
+<table class="shortcuts-table">
+<tr><th>Shortcut</th><th>Action</th><th>Action ID</th></tr>
+<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>N</kbd></td><td>New file</td><td class="id-cell">new</td></tr>
+<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>O</kbd></td><td>Open&hellip;</td><td class="id-cell">open</td></tr>
+<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>S</kbd></td><td>Save</td><td class="id-cell">save</td></tr>
+<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd></td><td>Save as&hellip;</td><td class="id-cell">save_as</td></tr>
+<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>E</kbd></td><td>Export Audio&hellip; (WAV / FLAC / OGG / MP3)</td><td class="id-cell">export_audio</td></tr>
+<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>Q</kbd></td><td>Quit</td><td class="id-cell">quit</td></tr>
+</table>
+
+<!-- ───────── Edit & Selection ───────── -->
+<h3 id="edit">Edit &amp; Selection</h3>
+
+<table class="shortcuts-table">
+<tr><th>Shortcut</th><th>Action</th><th>Action ID</th></tr>
+<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>Z</kbd></td><td>Undo</td><td class="id-cell">undo</td></tr>
+<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>Y</kbd></td><td>Redo</td><td class="id-cell">redo</td></tr>
+<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>A</kbd></td><td>Select all visible events</td><td class="id-cell">select_all</td></tr>
+<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>C</kbd></td><td>Copy events</td><td class="id-cell">copy</td></tr>
+<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>V</kbd></td><td>Paste events (opens <a href="editing-midi-files.html#paste-special">Paste Special</a> dialog for cross-instance clipboard)</td><td class="id-cell">paste</td></tr>
+<tr><td class="kbd-cell"><kbd>Del</kbd></td><td>Remove selected events</td><td class="id-cell">delete</td></tr>
+</table>
+
+<!-- ───────── Navigation ───────── -->
+<h3 id="navigation">Navigation</h3>
+
+<p>Step through the current selection one event at a time:</p>
+
+<table class="shortcuts-table">
+<tr><th>Shortcut</th><th>Action</th><th>Action ID</th></tr>
+<tr><td class="kbd-cell"><kbd>&uarr;</kbd></td><td>Navigate selection up</td><td class="id-cell">navigate_up</td></tr>
+<tr><td class="kbd-cell"><kbd>&darr;</kbd></td><td>Navigate selection down</td><td class="id-cell">navigate_down</td></tr>
+<tr><td class="kbd-cell"><kbd>&larr;</kbd></td><td>Navigate selection left</td><td class="id-cell">navigate_left</td></tr>
+<tr><td class="kbd-cell"><kbd>&rarr;</kbd></td><td>Navigate selection right</td><td class="id-cell">navigate_right</td></tr>
+</table>
+
+<!-- ───────── Tools ───────── -->
+<h3 id="tools">Tools (Pencil, Eraser, Select, Move&hellip;)</h3>
+
+<table class="shortcuts-table">
+<tr><th>Shortcut</th><th>Action</th><th>Action ID</th></tr>
+<tr><td class="kbd-cell"><kbd>F1</kbd></td><td>Standard tool (move / select smart)</td><td class="id-cell">standard_tool</td></tr>
+<tr><td class="kbd-cell"><kbd>F2</kbd></td><td>Pencil &mdash; create new notes</td><td class="id-cell">new_note</td></tr>
+<tr><td class="kbd-cell"><kbd>F3</kbd></td><td>Eraser &mdash; remove notes</td><td class="id-cell">remove_notes</td></tr>
+<tr><td class="kbd-cell"><kbd>F4</kbd></td><td>Single selection</td><td class="id-cell">select_single</td></tr>
+<tr><td class="kbd-cell"><kbd>F5</kbd></td><td>Box selection</td><td class="id-cell">select_box</td></tr>
+<tr><td class="kbd-cell"><kbd>F6</kbd></td><td>Select left of cursor</td><td class="id-cell">select_left</td></tr>
+<tr><td class="kbd-cell"><kbd>F7</kbd></td><td>Select right of cursor</td><td class="id-cell">select_right</td></tr>
+<tr><td class="kbd-cell"><kbd>F8</kbd></td><td>Move tool (free)</td><td class="id-cell">move_all</td></tr>
+<tr><td class="kbd-cell"><kbd>F9</kbd></td><td>Move tool (left/right only)</td><td class="id-cell">move_lr</td></tr>
+<tr><td class="kbd-cell"><kbd>F10</kbd></td><td>Move tool (up/down only)</td><td class="id-cell">move_ud</td></tr>
+<tr><td class="kbd-cell"><kbd>F11</kbd></td><td>Resize tool (change note length)</td><td class="id-cell">size_change</td></tr>
+<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>F1</kbd></td><td>Measure tool</td><td class="id-cell">measure</td></tr>
+<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>F2</kbd></td><td>Time signature tool</td><td class="id-cell">time_signature</td></tr>
+<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>F3</kbd></td><td>Tempo tool</td><td class="id-cell">tempo</td></tr>
+</table>
+
+<!-- ───────── Editing operations ───────── -->
+<h3 id="editing-ops">Editing operations</h3>
+
+<table class="shortcuts-table">
+<tr><th>Shortcut</th><th>Action</th><th>Action ID</th></tr>
+<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>G</kbd></td><td>Glue notes (same channel)</td><td class="id-cell">glue</td></tr>
+<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>G</kbd></td><td>Glue notes (all channels)</td><td class="id-cell">glue_all_channels</td></tr>
+<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>X</kbd></td><td>Scissors &mdash; cut note at cursor</td><td class="id-cell">scissors</td></tr>
+<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>D</kbd></td><td>Delete overlaps</td><td class="id-cell">delete_overlaps</td></tr>
+<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>B</kbd></td><td>Convert pitch bends to notes</td><td class="id-cell">convert_pitch_bend_to_notes</td></tr>
+<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>E</kbd></td><td>Explode chords to tracks</td><td class="id-cell">explode_chords_to_tracks</td></tr>
+<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>E</kbd></td><td>Split channels to tracks</td><td class="id-cell">split_channels_to_tracks</td></tr>
+<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>S</kbd></td><td>Strum selection</td><td class="id-cell">strum</td></tr>
+<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>M</kbd></td><td>Toggle Magnet (snap to grid)</td><td class="id-cell">magnet</td></tr>
+</table>
+
+<!-- ───────── Tweak ───────── -->
+<h3 id="tweak">Tweak &mdash; precision nudge of selected events</h3>
+
+<p>
+  The <b>Tweak</b> family of shortcuts adjusts a single property (time / start / end / note / value)
+  of the current selection by a small, medium, or large step. First pick a target with
+  <kbd>Ctrl</kbd>+<kbd>1</kbd>&hellip;<kbd>5</kbd>, then nudge with the increase / decrease
+  shortcuts below.
+</p>
+
+<table class="shortcuts-table">
+<tr><th>Shortcut</th><th>Action</th><th>Action ID</th></tr>
+<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>1</kbd></td><td>Tweak target = Time</td><td class="id-cell">tweak_time</td></tr>
+<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>2</kbd></td><td>Tweak target = Start time</td><td class="id-cell">tweak_start_time</td></tr>
+<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>3</kbd></td><td>Tweak target = End time</td><td class="id-cell">tweak_end_time</td></tr>
+<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>4</kbd></td><td>Tweak target = Note (pitch)</td><td class="id-cell">tweak_note</td></tr>
+<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>5</kbd></td><td>Tweak target = Value (velocity / CC)</td><td class="id-cell">tweak_value</td></tr>
+<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>9</kbd></td><td>Small decrease</td><td class="id-cell">tweak_small_decrease</td></tr>
+<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>0</kbd></td><td>Small increase</td><td class="id-cell">tweak_small_increase</td></tr>
+<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>9</kbd></td><td>Medium decrease</td><td class="id-cell">tweak_medium_decrease</td></tr>
+<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>0</kbd></td><td>Medium increase</td><td class="id-cell">tweak_medium_increase</td></tr>
+<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>9</kbd></td><td>Large decrease</td><td class="id-cell">tweak_large_decrease</td></tr>
+<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>0</kbd></td><td>Large increase</td><td class="id-cell">tweak_large_increase</td></tr>
+</table>
+
+<!-- ───────── Note duration presets ───────── -->
+<h3 id="duration">Note duration presets</h3>
+
+<p>
+  When the <b>Pencil</b> tool is active, these shortcuts pick the next note's length.
+  <kbd>Alt</kbd>+<kbd>`</kbd> falls back to free drag-to-size mode.
+</p>
+
+<table class="shortcuts-table">
+<tr><th>Shortcut</th><th>Action</th><th>Action ID</th></tr>
+<tr><td class="kbd-cell"><kbd>Alt</kbd>+<kbd>`</kbd></td><td>Drag mode (no fixed duration)</td><td class="id-cell">duration_drag</td></tr>
+<tr><td class="kbd-cell"><kbd>Alt</kbd>+<kbd>1</kbd></td><td>Whole note (1/1)</td><td class="id-cell">duration_1</td></tr>
+<tr><td class="kbd-cell"><kbd>Alt</kbd>+<kbd>2</kbd></td><td>Half note (1/2)</td><td class="id-cell">duration_2</td></tr>
+<tr><td class="kbd-cell"><kbd>Alt</kbd>+<kbd>3</kbd></td><td>Quarter note (1/4)</td><td class="id-cell">duration_4</td></tr>
+<tr><td class="kbd-cell"><kbd>Alt</kbd>+<kbd>4</kbd></td><td>8th note (1/8)</td><td class="id-cell">duration_8</td></tr>
+<tr><td class="kbd-cell"><kbd>Alt</kbd>+<kbd>5</kbd></td><td>16th note (1/16)</td><td class="id-cell">duration_16</td></tr>
+<tr><td class="kbd-cell"><kbd>Alt</kbd>+<kbd>6</kbd></td><td>32nd note (1/32)</td><td class="id-cell">duration_32</td></tr>
+<tr><td class="kbd-cell"><kbd>Alt</kbd>+<kbd>7</kbd></td><td>64th note (1/64)</td><td class="id-cell">duration_64</td></tr>
+<tr><td class="kbd-cell"><kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>1</kbd></td><td>Triplet (1/3)</td><td class="id-cell">duration_3</td></tr>
+<tr><td class="kbd-cell"><kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>2</kbd></td><td>Quintuplet (1/5)</td><td class="id-cell">duration_5</td></tr>
+<tr><td class="kbd-cell"><kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>3</kbd></td><td>Sextuplet (1/6)</td><td class="id-cell">duration_6</td></tr>
+<tr><td class="kbd-cell"><kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>4</kbd></td><td>Septuplet (1/7)</td><td class="id-cell">duration_7</td></tr>
+<tr><td class="kbd-cell"><kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>5</kbd></td><td>Nonuplet (1/9)</td><td class="id-cell">duration_9</td></tr>
+<tr><td class="kbd-cell"><kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>6</kbd></td><td>8th triplet (1/12)</td><td class="id-cell">duration_12</td></tr>
+<tr><td class="kbd-cell"><kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>7</kbd></td><td>16th triplet (1/24)</td><td class="id-cell">duration_24</td></tr>
+<tr><td class="kbd-cell"><kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>8</kbd></td><td>32nd triplet (1/48)</td><td class="id-cell">duration_48</td></tr>
+</table>
+
+<!-- ───────── Transpose & alignment ───────── -->
+<h3 id="transpose">Transpose &amp; alignment</h3>
+
+<table class="shortcuts-table">
+<tr><th>Shortcut</th><th>Action</th><th>Action ID</th></tr>
+<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>T</kbd></td><td>Transpose selection (semitones dialog)</td><td class="id-cell">transpose</td></tr>
+<tr><td class="kbd-cell"><kbd>Shift</kbd>+<kbd>&uarr;</kbd></td><td>Transpose octave up</td><td class="id-cell">transpose_up</td></tr>
+<tr><td class="kbd-cell"><kbd>Shift</kbd>+<kbd>&darr;</kbd></td><td>Transpose octave down</td><td class="id-cell">transpose_down</td></tr>
+<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>&larr;</kbd></td><td>Align left</td><td class="id-cell">align_left</td></tr>
+<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>&rarr;</kbd></td><td>Align right</td><td class="id-cell">align_right</td></tr>
+<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>&uarr;</kbd></td><td>Equalize selection</td><td class="id-cell">equalize</td></tr>
+</table>
+
+<!-- ───────── Quantize ───────── -->
+<h3 id="quantize">Quantize</h3>
+
+<table class="shortcuts-table">
+<tr><th>Shortcut</th><th>Action</th><th>Action ID</th></tr>
+<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>Q</kbd></td><td>Quantize selection (uses current grid)</td><td class="id-cell">quantize</td></tr>
+<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>H</kbd></td><td>Quantize tuplet&hellip; (dialog)</td><td class="id-cell">quantize_ntuplet_dialog</td></tr>
+<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>H</kbd></td><td>Repeat last tuplet quantization</td><td class="id-cell">quantize_ntuplet_repeat</td></tr>
+</table>
+
+<!-- ───────── MIDI / FFXIV / AI tools ───────── -->
+<h3 id="midi-tools">MIDI / FFXIV / AI tools</h3>
+
+<table class="shortcuts-table">
+<tr><th>Shortcut</th><th>Action</th><th>Action ID</th></tr>
+<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>I</kbd></td><td>Toggle MidiPilot panel (AI sidebar)</td><td class="id-cell">toggle_midipilot</td></tr>
+<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>L</kbd></td><td>Toggle Lyric Timeline</td><td class="id-cell">toggle_lyric_timeline</td></tr>
+<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>L</kbd></td><td>Import lyrics (SRT)&hellip;</td><td class="id-cell">import_lyrics_srt</td></tr>
+</table>
+
+<p>
+  See <a href="midipilot.html">MidiPilot AI</a> for in-panel chat keys
+  (<kbd>Enter</kbd> = send, <kbd>Shift</kbd>+<kbd>Enter</kbd> = newline) and
+  <a href="ffxiv-channel-fixer.html">FFXIV Channel Fixer</a> /
+  <a href="ffxiv-voice-limiter.html">Voice Limiter</a> for those tools' modal dialogs.
+</p>
+
+<!-- ───────── View & zoom ───────── -->
+<h3 id="view">View &amp; zoom</h3>
+
+<table class="shortcuts-table">
+<tr><th>Shortcut</th><th>Action</th><th>Action ID</th></tr>
+<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>+</kbd></td><td>Zoom horizontal in</td><td class="id-cell">zoom_hor_in</td></tr>
+<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>-</kbd></td><td>Zoom horizontal out</td><td class="id-cell">zoom_hor_out</td></tr>
+<tr><td class="kbd-cell"><kbd>Shift</kbd>+<kbd>+</kbd></td><td>Zoom vertical in</td><td class="id-cell">zoom_ver_in</td></tr>
+<tr><td class="kbd-cell"><kbd>Shift</kbd>+<kbd>-</kbd></td><td>Zoom vertical out</td><td class="id-cell">zoom_ver_out</td></tr>
+<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>Backspace</kbd></td><td>Restore default zoom</td><td class="id-cell">zoom_std</td></tr>
+<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Backspace</kbd></td><td>Reset view (zoom + scroll)</td><td class="id-cell">reset_view</td></tr>
+</table>
+
+<!-- ───────── Playback ───────── -->
+<h3 id="playback">Playback</h3>
+
+<table class="shortcuts-table">
+<tr><th>Shortcut</th><th>Action</th><th>Action ID</th></tr>
+<tr><td class="kbd-cell"><kbd>Space</kbd> or <kbd>Ctrl</kbd>+<kbd>P</kbd></td><td>Play / Stop toggle</td><td class="id-cell">play_stop</td></tr>
+<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>Space</kbd> <span class="kbd-sep">(macOS:</span> <kbd>Cmd</kbd>+<kbd>Space</kbd><span class="kbd-sep">)</span></td><td>Pause</td><td class="id-cell">pause</td></tr>
+<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>R</kbd></td><td>Record</td><td class="id-cell">record</td></tr>
+<tr><td class="kbd-cell"><kbd>Alt</kbd>+<kbd>&uarr;</kbd>, <kbd>Alt</kbd>+<kbd>Home</kbd>, <kbd>Shift</kbd>+<kbd>J</kbd></td><td>Back to begin</td><td class="id-cell">back_to_begin</td></tr>
+<tr><td class="kbd-cell"><kbd>Alt</kbd>+<kbd>&larr;</kbd></td><td>Previous measure</td><td class="id-cell">back</td></tr>
+<tr><td class="kbd-cell"><kbd>Alt</kbd>+<kbd>&rarr;</kbd></td><td>Next measure</td><td class="id-cell">forward</td></tr>
+<tr><td class="kbd-cell"><kbd>Alt</kbd>+<kbd>,</kbd></td><td>Previous marker</td><td class="id-cell">back_marker</td></tr>
+<tr><td class="kbd-cell"><kbd>Alt</kbd>+<kbd>.</kbd></td><td>Next marker</td><td class="id-cell">forward_marker</td></tr>
+</table>
+
+<!-- ───────── MIDI ───────── -->
+<h3 id="midi">MIDI panic / thru</h3>
+
+<table class="shortcuts-table">
+<tr><th>Shortcut</th><th>Action</th><th>Action ID</th></tr>
+<tr><td class="kbd-cell"><kbd>Esc</kbd></td><td>MIDI panic &mdash; All Notes Off on every channel</td><td class="id-cell">panic</td></tr>
+</table>
+
+<!-- ───────── Tracks ───────── -->
+<h3 id="tracks">Move selection to track</h3>
+
+<p>
+  When tracks <code>0&hellip;9</code> exist, <kbd>Shift</kbd>+<kbd>0</kbd>&hellip;<kbd>9</kbd> moves
+  the current selection to that track index. The shortcut is regenerated each time the track menu
+  is rebuilt, so it always matches the current track count.
+</p>
+
+<table class="shortcuts-table">
+<tr><th>Shortcut</th><th>Action</th></tr>
+<tr><td class="kbd-cell"><kbd>Shift</kbd>+<kbd>0</kbd>&hellip;<kbd>9</kbd></td><td>Move selected events to track 0&hellip;9</td></tr>
+</table>
+
+<div class="note-box warn">
+  <b>Note &mdash; tool shortcuts use function keys.</b> The tool shortcuts
+  <kbd>F1</kbd>&hellip;<kbd>F11</kbd> and <kbd>Ctrl</kbd>+<kbd>F1</kbd>/<kbd>F2</kbd>/<kbd>F3</kbd>
+  may be intercepted by the OS, screen reader, or window manager (especially on Linux).
+  If a tool shortcut does nothing, rebind it under
+  <b>Settings &rarr; Keybinds</b>.
+</div>
+
+<!-- ───────── Mouse ───────── -->
+<h3 id="mouse">Mouse modifiers</h3>
+
+<p>
+  These are not configurable via Settings &rarr; Keybinds because they are mouse interactions, not
+  keyboard actions, but they're worth knowing:
+</p>
+
+<table class="shortcuts-table">
+<tr><th>Gesture</th><th>Action</th></tr>
+<tr><td class="kbd-cell">Right-click on note</td><td>Context menu (Quantize, Copy, Delete, Transpose, Move to Track/Channel, Scale, Legato, Export selection&hellip;)</td></tr>
+<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+Right-click</td><td>Create note at click position</td></tr>
+<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+drag (Box select)</td><td>Toggle &mdash; <em>removes</em> events inside box from current selection (since v1.3.3)</td></tr>
+<tr><td class="kbd-cell"><kbd>Shift</kbd>+drag (Box select)</td><td>Add events inside box to current selection</td></tr>
+<tr><td class="kbd-cell">Mouse wheel</td><td>Vertical scroll</td></tr>
+<tr><td class="kbd-cell"><kbd>Shift</kbd>+wheel</td><td>Horizontal scroll</td></tr>
+<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+wheel</td><td>Zoom horizontal</td></tr>
+</table>
+
+<p style="margin-top:2rem; color: var(--text-muted); font-style: italic; font-size: 0.9em;">
+  This page is hand-curated against the action registry in
+  <code>src/gui/MainWindow.cpp</code> (the <code>_defaultShortcuts</code> map). If you
+  add a new action with <code>setShortcut()</code> in the source, please update this page
+  as well.
+</p>
+
+</main>
+
+<footer class="site-footer">
+    <div class="footer-links">
+        <a href="https://github.com/happytunesai/MidiEditor_AI" class="repo-link" target="_blank" rel="noopener noreferrer"><img class="repo-logo" src="Midieditor-ai_logo.png" alt="">GitHub Repo</a>
+        <a href="https://github.com/happytunesai" target="_blank" rel="noopener noreferrer">All Projects</a>
+        <a href="docs-index.html">Documentation</a>
+        <a href="changelog.html">Changelog</a>
+        <a href="https://github.com/happytunesai/MidiEditor_AI/issues" target="_blank" rel="noopener noreferrer">Issues</a>
+        <a href="midipilot.html">MidiPilot</a>
+        <a href="supported-files.html">Supported Files</a>
+        <a href="https://www.happytunes.de" target="_blank" rel="noopener noreferrer">Happy Tunes &#x1F3B6;</a>
+    </div>
+    <p class="footer-copy">
+        MidiEditor AI &copy; 2026 &middot;
+        <a href="https://github.com/happytunesai/MidiEditor_AI/blob/main/LICENSE">License</a>
+        &middot; Made with &#x266A; + &#x1F916;
+        &middot; A <a href="https://www.happytunes.de" target="_blank" rel="noopener noreferrer">Happy Tunes</a> project
+    </p>
+</footer>
+<button class="scroll-top" aria-label="Scroll to top">&#x2191;</button>
+<script src="lightbox.js"></script>
+<script src="navigation.js"></script>
+<script src="site.js"></script>
+</body>
+</html>

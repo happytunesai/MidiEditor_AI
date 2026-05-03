@@ -42,6 +42,23 @@ void PerformanceSettingsWidget::setupUI() {
     QVBoxLayout *mainLayout = new QVBoxLayout(this);
     setLayout(mainLayout);
 
+    // Updates Group (1.6.1 / upstream 366a92f - lets the user disable the
+    // silent startup update check, which also disables the GitHub API call
+    // on launch for offline / privacy-sensitive setups).
+    _updaterGroup = new QGroupBox(tr("Updates"), this);
+    QGridLayout *updaterLayout = new QGridLayout(_updaterGroup);
+
+    _checkUpdatesOnStartup = new QCheckBox(tr("Check for updates at startup"), this);
+    _checkUpdatesOnStartup->setToolTip(tr("Automatically check for new versions when the application starts."));
+    updaterLayout->addWidget(_checkUpdatesOnStartup, 0, 0, 1, 2);
+
+    QLabel *updaterDesc = new QLabel(tr("If unchecked, MidiEditor AI will not contact the GitHub release API on startup."), this);
+    updaterDesc->setWordWrap(true);
+    updaterDesc->setStyleSheet("color: gray; font-size: 11px; margin-left: 10px;");
+    updaterLayout->addWidget(updaterDesc, 1, 0, 1, 2);
+
+    mainLayout->addWidget(_updaterGroup);
+
     // High DPI Scaling Group
     QGroupBox *scalingGroup = new QGroupBox(tr("High DPI Scaling"), this);
     QGridLayout *scalingLayout = new QGridLayout(scalingGroup);
@@ -233,6 +250,9 @@ void PerformanceSettingsWidget::loadSettings() {
     // Set loading flag to prevent change events during initialization
     _isLoading = true;
 
+    // Load updater settings (1.6.1 / upstream 366a92f)
+    _checkUpdatesOnStartup->setChecked(_settings->value("updater/check_on_startup", true).toBool());
+
     // Load rendering quality settings (default to high quality)
     _enableAntialiasing->setChecked(_settings->value("rendering/antialiasing", true).toBool());
     _enableSmoothPixmapTransform->setChecked(_settings->value("rendering/smooth_pixmap_transform", true).toBool());
@@ -274,6 +294,9 @@ void PerformanceSettingsWidget::loadSettings() {
 }
 
 bool PerformanceSettingsWidget::accept() {
+    // Save updater settings (1.6.1 / upstream 366a92f)
+    _settings->setValue("updater/check_on_startup", _checkUpdatesOnStartup->isChecked());
+
     // Save rendering quality settings
     _settings->setValue("rendering/antialiasing", _enableAntialiasing->isChecked());
     _settings->setValue("rendering/smooth_pixmap_transform", _enableSmoothPixmapTransform->isChecked());
@@ -445,6 +468,9 @@ void PerformanceSettingsWidget::widgetSizeUnlockChanged(bool enabled) {
 }
 
 void PerformanceSettingsWidget::resetToDefaults() {
+    // Updater defaults (1.6.1 / upstream 366a92f)
+    _checkUpdatesOnStartup->setChecked(true);
+
     // Rendering quality defaults
     _enableAntialiasing->setChecked(true);
     _enableSmoothPixmapTransform->setChecked(true);

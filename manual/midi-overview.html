@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -33,6 +33,7 @@
                 <a href="themes.html">Themes &amp; Appearance</a>
                 <a href="lyrics.html">Lyric Editor</a>
                 <a href="soundfont.html">SoundFonts &amp; FluidSynth</a>
+                <a href="shortcuts.html">Keyboard Shortcuts</a>
                 <a href="mcp-server.html">MCP Server</a>
                 <a href="setup.html">Setup &amp; Installation</a>
             </div>
@@ -49,149 +50,378 @@
 
 <a href="#main-content" class="skip-link">Skip to main content</a>
 
+<style>
+    /* ───────── MIDI Overview — page-local refresh ───────── */
+    .midi-hero {
+        display: flex; flex-direction: column; gap: 0.6rem;
+        padding: 1.4rem 1.6rem;
+        margin: 0 0 2rem;
+        border-radius: 14px;
+        background: linear-gradient(135deg, rgba(0,184,255,0.10) 0%, rgba(124,92,255,0.10) 100%);
+        border: 1px solid rgba(78,201,255,0.35);
+        box-shadow: rgba(0,0,0,0.35) 0 6px 18px;
+    }
+    .midi-hero .eyebrow {
+        font-size: 0.72rem; font-weight: 700; letter-spacing: 0.14em;
+        text-transform: uppercase; color: #4ec9ff;
+    }
+    .midi-hero h2 { margin: 0; border: none; padding: 0; font-size: 1.9em; }
+    .midi-hero p { margin: 0; color: #d8e2f2; }
+
+    .midi-stats {
+        display: grid; gap: 0.75rem; margin: 1rem 0 2rem;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    }
+    .midi-stat {
+        padding: 0.85rem 1rem;
+        background: linear-gradient(135deg, #10192A 0%, #162238 100%);
+        border: 1px solid var(--border, #2a3550);
+        border-radius: 10px;
+        text-align: center;
+        box-shadow: rgba(0,0,0,0.3) 0 2px 6px, rgba(60,68,82,0.30) 0 -2px 0 inset;
+    }
+    .midi-stat .num {
+        display: block;
+        font-size: 1.8rem; font-weight: 700; line-height: 1.1;
+        background: linear-gradient(135deg, #00B8FF, #7C5CFF);
+        -webkit-background-clip: text; background-clip: text;
+        -webkit-text-fill-color: transparent; color: transparent;
+    }
+    .midi-stat .lbl {
+        display: block;
+        margin-top: 0.25rem;
+        font-size: 0.78rem; font-weight: 600;
+        color: #c9d6e6; letter-spacing: 0.02em;
+    }
+
+    .event-grid {
+        display: grid; gap: 0.85rem; margin: 1rem 0 2rem;
+        grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    }
+    .event-card {
+        display: flex; flex-direction: column; gap: 0.4rem;
+        padding: 1rem 1.1rem;
+        background: linear-gradient(135deg, #10192A 0%, #162238 100%);
+        border: 1px solid var(--border, #2a3550);
+        border-radius: 12px;
+        box-shadow: rgba(0,0,0,0.3) 0 2px 6px, rgba(60,68,82,0.30) 0 -2px 0 inset;
+        transition: transform .15s, box-shadow .15s, border-color .2s;
+    }
+    .event-card:hover {
+        transform: translateY(-2px);
+        border-color: #4ec9ff;
+        box-shadow: rgba(0,0,0,0.4) 0 6px 14px, rgba(78,201,255,0.18) 0 0 0 1px inset;
+    }
+    .event-card .event-head {
+        display: flex; align-items: center; gap: 0.55rem;
+    }
+    .event-card .event-icon {
+        font-size: 1.25rem; line-height: 1;
+        flex: 0 0 auto;
+        width: 2rem; height: 2rem;
+        display: inline-flex; align-items: center; justify-content: center;
+        border-radius: 8px;
+        background: linear-gradient(135deg, rgba(0,184,255,0.18), rgba(124,92,255,0.18));
+        border: 1px solid rgba(78,201,255,0.35);
+    }
+    .event-card .event-title {
+        font-weight: 700; color: #e5ecff; font-size: 0.98rem;
+    }
+    .event-card .event-meta {
+        font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+        font-size: 0.78rem; color: #7C8AA0;
+    }
+    .event-card p { margin: 0.2rem 0 0; color: #d8e2f2; font-size: 0.9rem; line-height: 1.55; }
+
+    .midi-callout {
+        display: grid; gap: 1rem; margin: 1.5rem 0 0;
+        grid-template-columns: 1fr;
+    }
+    @media (min-width: 720px) { .midi-callout { grid-template-columns: 1fr 1fr; } }
+    .midi-callout .panel {
+        padding: 1rem 1.2rem;
+        border-radius: 12px;
+        background: rgba(13,17,23,0.55);
+        border: 1px solid var(--border, #2a3550);
+    }
+    .midi-callout .panel h4 {
+        margin: 0 0 0.4rem;
+        color: #4ec9ff;
+        border: none; padding: 0;
+        font-size: 0.92rem; letter-spacing: 0.04em; text-transform: uppercase;
+    }
+    .midi-callout .panel p { margin: 0; color: #d8e2f2; font-size: 0.92rem; }
+
+    .learn-more {
+        margin: 2rem 0 1rem;
+        padding: 1.1rem 1.3rem;
+        border-radius: 12px;
+        background: linear-gradient(135deg, rgba(0,184,255,0.08) 0%, rgba(124,92,255,0.08) 100%);
+        border: 1px solid rgba(78,201,255,0.35);
+    }
+    .learn-more h3 {
+        margin: 0 0 0.5rem;
+        border: none; padding: 0;
+        color: #e5ecff; font-size: 1.05rem;
+    }
+    .learn-more-links {
+        list-style: none; padding: 0; margin: 0.6rem 0 0;
+        display: grid; gap: 0.5rem;
+        grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    }
+    .learn-more-links a {
+        display: flex; align-items: center; gap: 0.55rem;
+        padding: 0.55rem 0.8rem;
+        font-size: 0.86rem; font-weight: 600; color: #c9d6e6;
+        background: linear-gradient(135deg, #10192A 0%, #162238 100%);
+        border: 1px solid var(--border, #2a3550);
+        border-radius: 8px;
+        text-decoration: none;
+        transition: transform .15s, border-color .2s, color .2s, box-shadow .15s;
+    }
+    .learn-more-links a:hover {
+        color: #fff;
+        border-color: #4ec9ff;
+        transform: translateY(-2px);
+        box-shadow: rgba(0,0,0,0.4) 0 5px 10px, rgba(78,201,255,0.18) 0 0 0 1px inset;
+    }
+    .learn-more-links a .ext { margin-left: auto; opacity: 0.7; font-size: 0.85em; }
+</style>
+
 <main id="main-content">
-<h2>Midi - a Short Overview</h2>
+
+<div class="midi-hero">
+    <span class="eyebrow">🎼 Primer</span>
+    <h2 id="overview">MIDI — A Short Overview</h2>
+    <p>
+        <b>MIDI</b> (Musical Instrument Digital Interface) is a digital protocol for describing
+        <i>performances</i> — not audio. Instead of recorded sound, a MIDI file stores a
+        timeline of compact <i>events</i> like &ldquo;press note&nbsp;60 with velocity&nbsp;100 on
+        channel&nbsp;1&rdquo;. Any synthesizer that follows the spec — software or hardware —
+        can then play the same file with a completely different sound.
+    </p>
+    <p>
+        MIDE editors like this one let you <b>record, view, and reshape</b> those events
+        directly. Below is the bare minimum vocabulary you need to feel comfortable in the
+        editor; for the full normative spec head over to <a href="https://midi.org/" target="_blank" rel="noopener noreferrer">midi.org</a>.
+    </p>
+</div>
+
+<div class="midi-stats">
+    <div class="midi-stat"><span class="num">16</span><span class="lbl">Channels</span></div>
+    <div class="midi-stat"><span class="num">128</span><span class="lbl">Notes (C-1…G9)</span></div>
+    <div class="midi-stat"><span class="num">128</span><span class="lbl">Velocities</span></div>
+    <div class="midi-stat"><span class="num">128</span><span class="lbl">GM Programs</span></div>
+    <div class="midi-stat"><span class="num">10</span><span class="lbl">Drum channel</span></div>
+</div>
+
+<h3 id="tracksandchannels">Tracks &amp; Channels</h3>
 
 <p>
-	Midi (Musical Instrument Digital Interface) is a digital interface allowing
-	the user to control virtual music instruments on his computer or on other
-	hardware components. In general, the Midi protocol is used to exchange commands
-	like &quot;play note X with velocity Y on instrument Z&quot; or similar.
+    A MIDI file groups events into <b>tracks</b> — logical lanes that usually map to
+    one instrument or section (lead, bass, strings, drums…). Tracks are an editing
+    convenience; the playback engine only cares about <b>channels</b>.
 </p>
 
 <p>
-	Those commands are usually stored and exchanged using so-called Midi events. They
-	can contain information about the notes which are currently played, the sounds
-	which belong to each (virtual) instrument, or general information about the song, e.g.
-	about the key, the meter, or the song's name. While the above mentioned commands are
-	definitely the most often used, there are many other commands, which can e.g. control
-	the sustain pedal of a piano or define an instrument's overall volume. The events
-	are presented below in more detail.
+    There are <b>16 MIDI channels</b> per port, each carrying its own sound (set by a
+    <i>Program Change</i>). By long-standing General MIDI convention, <b>channel&nbsp;10</b>
+    is reserved for percussion — every note number on that channel maps to a different
+    drum hit instead of a pitch. A single track can route different events to different
+    channels (handy for split string sections, layered pads, or splitting a guitar into
+    palm-mute and clean voices).
 </p>
 
-<h3 id="tracksandchannels">Tracks and Channels</h3>
+<div class="midi-callout">
+    <div class="panel">
+        <h4>🎚️ Track</h4>
+        <p>Editor-side grouping. Used for color-coding, mute/solo, and visual layout.
+        Has no effect on what the synth plays.</p>
+    </div>
+    <div class="panel">
+        <h4>📡 Channel</h4>
+        <p>Playback-side address (1–16). Determines which voice / patch produces the
+        sound and is what the synthesizer actually receives.</p>
+    </div>
+</div>
+
+<h3 id="events">MIDI Events</h3>
 
 <p>
-	The different virtual instruments are organized in tracks, where each track refers to
-	one instrument or a group of instruments. Hence, each Midi event is assigned to a track.
-	Each note will be assigned to the track of the instrument which plays the note,
-	while events, which do not belong to a specific instrument (key, meter, etc.), are usually
-	assigned to a specific track (&quot;Tempo Track&quot;). Moreover, each note and other
-	instrument-specific events are assigned to a channel. There are 16 channels where each
-	channel has a defined sound (e.g. &quot;Piano&quot; or &quot;String Ensemble&quot;).
-	While it may sound redundant to have each note assigned to a track and a channel, the
-	concept makes sense. This is, because the information about the different tracks is only
-	known to the device requesting another device to play the note. The other device
-	will only receive information about the channel on which to play the note, which reduces
-	the traffic needed to exchange the information. Hence, the tracks are (mostly) for
-	a user's orientation when editing a file. Usually, all notes within a single track are also
-	assigned to one specific channel. However, there are exceptions, e.g. when a group
-	of strings is divided into two parts where one part plays pizzicato and the other part
-	plays legato; in this case both groups can be noted in the same track but they have
-	to use different channels, as each group has another sound.
+    Everything in a MIDI file is an event with a tick-accurate timestamp. The editor
+    surfaces these in the event list, the matrix, and the various tool dialogs. Below
+    are the ones you'll meet most often.
 </p>
 
-<h3 id="events">Midi Events</h3>
+<div class="event-grid">
+    <div class="event-card">
+        <div class="event-head">
+            <span class="event-icon">🎹</span>
+            <div>
+                <div class="event-title">Note On / Off</div>
+                <div class="event-meta">key 0–127 · vel 0–127</div>
+            </div>
+        </div>
+        <p>The pair that defines a played note. <b>Note On</b> with velocity > 0 starts
+        the sound; <b>Note Off</b> (or Note On with velocity 0) ends it.</p>
+    </div>
+
+    <div class="event-card">
+        <div class="event-head">
+            <span class="event-icon">🥁</span>
+            <div>
+                <div class="event-title">Drum notes (Ch 10)</div>
+                <div class="event-meta">key = drum hit</div>
+            </div>
+        </div>
+        <p>On channel&nbsp;10 the note number selects a drum (kick, snare, hi-hat…)
+        rather than a pitch. The General MIDI drum map is the de-facto standard.</p>
+    </div>
+
+    <div class="event-card">
+        <div class="event-head">
+            <span class="event-icon">⏱️</span>
+            <div>
+                <div class="event-title">Tempo Change</div>
+                <div class="event-meta">BPM (μs / quarter)</div>
+            </div>
+        </div>
+        <p>Sets the playback tempo at a given tick. Multiple tempo events can be
+        used to script accelerandos, ritardandos and fermatas.</p>
+    </div>
+
+    <div class="event-card">
+        <div class="event-head">
+            <span class="event-icon">𝄴</span>
+            <div>
+                <div class="event-title">Time Signature</div>
+                <div class="event-meta">numer / denom</div>
+            </div>
+        </div>
+        <p>Defines the meter — e.g. 4/4, 3/4, 7/8. Drives the bar grid in the
+        editor and any quantize / strum tools that need beat alignment.</p>
+    </div>
+
+    <div class="event-card">
+        <div class="event-head">
+            <span class="event-icon">𝄢</span>
+            <div>
+                <div class="event-title">Key Signature</div>
+                <div class="event-meta">sharps/flats · maj/min</div>
+            </div>
+        </div>
+        <p>Marks the song's tonal centre. Used for transpose helpers and any
+        AI prompt that needs to reason about scale-aware edits.</p>
+    </div>
+
+    <div class="event-card">
+        <div class="event-head">
+            <span class="event-icon">🎛️</span>
+            <div>
+                <div class="event-title">Program Change</div>
+                <div class="event-meta">0–127 (GM patch)</div>
+            </div>
+        </div>
+        <p>Switches the instrument assigned to a channel — &ldquo;Acoustic Grand
+        Piano&rdquo;, &ldquo;Church Organ&rdquo;, &ldquo;Distortion Guitar&rdquo;, etc.</p>
+    </div>
+
+    <div class="event-card">
+        <div class="event-head">
+            <span class="event-icon">🎚️</span>
+            <div>
+                <div class="event-title">Control Change (CC)</div>
+                <div class="event-meta">128 controllers · 0–127</div>
+            </div>
+        </div>
+        <p>Per-channel automation: volume (CC&nbsp;7), pan (CC&nbsp;10), modulation
+        (CC&nbsp;1), sustain pedal (CC&nbsp;64) and many more.</p>
+    </div>
+
+    <div class="event-card">
+        <div class="event-head">
+            <span class="event-icon">↕️</span>
+            <div>
+                <div class="event-title">Pitch Bend</div>
+                <div class="event-meta">14-bit · ±2 semitones default</div>
+            </div>
+        </div>
+        <p>Smoothly bends every note on a channel. The default range is ±2 semitones
+        and can be widened via RPN messages.</p>
+    </div>
+
+    <div class="event-card">
+        <div class="event-head">
+            <span class="event-icon">🤲</span>
+            <div>
+                <div class="event-title">Aftertouch</div>
+                <div class="event-meta">poly / channel pressure</div>
+            </div>
+        </div>
+        <p>How hard you keep pressing after the note starts. Comes in poly
+        (per-key) and channel (whole channel) flavours.</p>
+    </div>
+
+    <div class="event-card">
+        <div class="event-head">
+            <span class="event-icon">📝</span>
+            <div>
+                <div class="event-title">Text / Lyric Events</div>
+                <div class="event-meta">meta-event</div>
+            </div>
+        </div>
+        <p>Free-form text: track names, copyright, lyrics, and the karaoke metadata
+        used by MidiEditor AI's lyric editor.</p>
+    </div>
+
+    <div class="event-card">
+        <div class="event-head">
+            <span class="event-icon">🛠️</span>
+            <div>
+                <div class="event-title">System Exclusive (SysEx)</div>
+                <div class="event-meta">manufacturer-specific</div>
+            </div>
+        </div>
+        <p>Vendor escape hatch. Synth makers use SysEx to push patches, request
+        firmware data, and send anything outside the core spec.</p>
+    </div>
+</div>
+
+<h3 id="io">MIDI I/O</h3>
 
 <p>
-	The following list shows the different Midi events and provides an overview of their
-	functionality.
+    Whether your synthesizer is a DLL running inside the editor or a hardware keyboard
+    connected over USB, MidiEditor talks to it the same way: through a <b>MIDI port</b>.
+    Pick the input port to record, the output port to play back. On Windows the editor
+    ships with the bundled <a href="soundfont.html">FluidSynth</a> output so you always
+    have something to listen to, even with no hardware attached.
 </p>
-
-<ul>
-	<li>
-		<i>Note On/Off Events</i>
-		<p>
-			Each note is represented by two events, where one event indicates the start
-			of a note and the other event is used to stop the note. The note height is represented
-			by a number from 0 (C0) to 127 (G10) and the note's velocity (loudness) has
-			a range from 0 to 127. The note is assigned to a channel, where the channel's
-			configuration specifies the voice of the note.
-		</p>
-	</li>
-	<li>
-		<i>Tempo Change Events</i>
-		<p>
-			A Tempo Change Events sets the current tempo. The tempo is set in beats per
-			minute (BPM). Higher values indicate a faster tempo.
-		</p>
-	</li>
-	<li>
-		<i>Time Signature Events</i>
-		<p>
-			Any meter change is represented by a Time Signature Event in Midi. The event
-			holds two parameters, the numerator and the denominator of the meter. E.g.,
-			in order to represent an <i>alla breve</i> meter, the numerator would be set
-			to 2 and the denominator would be set to half notes.
-		</p>
-	</li>
-	<li>
-		<i>Key Signature Events</i>
-		<p>
-			A Key Signature Event defines the song's key (<i>C major</i>, <i>G minor</i>, ...).
-		</p>
-	</li>
-	<li>
-		<i>Program Change Events</i>
-		<p>
-			In order to define the voice (or instrument) assigned to each channel, a
-			Program Change Event can be used. E.g., after the program <i>Church Organ</i>
-			has been set for channel 5, all notes played on channel 5 will be played
-			with an organ's voice.
-		</p>
-	</li>
-	<li>
-		<i>Control Change Events</i>
-		<p>
-			Besides the voice assigned to each channel, a lot of other properties
-			regarding a channel's sound can be controlled using Control Change Events.
-			Up to 128 different controls exist for each channel where a value between
-			0 and 127 can be assigned to each control. The available controls include
-			the sustain pedal of a piano, the channel's overall volume, and the
-			modulation wheel.
-		</p>
-	</li>
-	<li>
-		<i>Key/Channel Pressure Events</i>
-		<p>
-			These events control the pressure for each note (Key Pressure Events)
-			or for all notes played on a given channel (Channel Pressure Events).
-		</p>
-	</li>
-	<li>
-		<i>Pitch Bend Events</i>
-		<p>
-			The Pitch Bend Events are used to modify the pitch of a given channel.
-		</p>
-	</li>
-	<li>
-		<i>Text Events</i>
-		<p>
-			Lyrics, instrument/tracknames or general information (Copyright etc.) can
-			be stored in TextEvents.
-		</p>
-	</li>
-	<li>
-		<i>System Exclusive Events</i>
-		<p>
-			System Exclusive Events are used by manufacturers to provide a way
-			to send device-specific messages.
-		</p>
-	</li>
-</ul>
-
-<h3 id="io">Midi I/O</h3>
 
 <p>
- 	While synthesizers can easily be installed and run on a computer, a lot
-	of hardware exists which can be used to play or record Midi data (e.g.
-	digital pianos or hardware synthesizers). Such additional hardware is usually connected
-	to the computer using a USB port. Whether or not a synthesizer or a keyboard
-	is running on a computer or an additional hardware which is connected to a computer
-	does not affect the way how the device is used within a Midi software
-	(e.g. MidiEditor). In both cases, a Midi port will be existing for each device
-	to allow the software to receive data from or to send data to the device.
+    Modern setups can also speak <b>RTP-MIDI</b> (MIDI over the network) and
+    <b>USB-MIDI</b> class-compliant devices — both appear as ordinary ports here. For
+    FFXIV bards specifically, the editor exposes the <a href="ffxiv-channel-fixer.html">FFXIV
+    Channel Fixer</a> and the <a href="ffxiv-voice-limiter.html">Voice Limiter</a> to keep
+    the in-game audio engine happy.
 </p>
+
+<div class="learn-more">
+    <h3>📚 Learn more</h3>
+    <p>
+        Looking for the authoritative spec or a deeper dive? These are the references the
+        editor and its docs were built against.
+    </p>
+    <ul class="learn-more-links">
+        <li><a href="https://midi.org/" target="_blank" rel="noopener noreferrer"><span>🌐</span><span>midi.org — The MIDI Association</span><span class="ext">↗</span></a></li>
+        <li><a href="https://midi.org/specifications" target="_blank" rel="noopener noreferrer"><span>📄</span><span>Official MIDI specifications</span><span class="ext">↗</span></a></li>
+        <li><a href="https://midi.org/general-midi" target="_blank" rel="noopener noreferrer"><span>🎼</span><span>General MIDI (GM) sound set</span><span class="ext">↗</span></a></li>
+        <li><a href="https://midi.org/midi-2-0" target="_blank" rel="noopener noreferrer"><span>✨</span><span>MIDI 2.0 overview</span><span class="ext">↗</span></a></li>
+        <li><a href="https://en.wikipedia.org/wiki/MIDI" target="_blank" rel="noopener noreferrer"><span>📖</span><span>Wikipedia: MIDI</span><span class="ext">↗</span></a></li>
+        <li><a href="supported-files.html"><span>📂</span><span>Supported file formats</span></a></li>
+        <li><a href="editing-midi-files.html"><span>✏️</span><span>Editing MIDI in this editor</span></a></li>
+        <li><a href="shortcuts.html"><span>⌨️</span><span>Keyboard shortcuts</span></a></li>
+    </ul>
+</div>
 
 </main>
 

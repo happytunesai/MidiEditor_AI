@@ -52,11 +52,25 @@ html { scroll-behavior: smooth; scroll-padding-top: calc(var(--nav-height) + 1re
 
 body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-    background: var(--bg);
+    background: var(--gradient-hero) fixed;
     color: var(--text);
     line-height: 1.7;
     font-size: 16px;
     overflow-x: hidden;
+    position: relative;
+}
+
+/* Subtle grid pattern behind every page (matches the index hero look). */
+body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background-image:
+        linear-gradient(rgba(0,184,255,0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(0,184,255,0.04) 1px, transparent 1px);
+    background-size: 60px 60px;
 }
 
 a { color: var(--link); text-decoration: none; transition: color .2s; }
@@ -208,105 +222,201 @@ img { max-width: 100%; height: auto; }
 }
 
 /* =========================================================
-   DOC SUB-NAV — 3D push-button bar for manual pages
+   DOC SIDEBAR — categorised left rail for manual pages
+   Replaces the old horizontal .doc-subnav pill bar (1.6.1).
+   On wide screens the sidebar is permanently docked on the
+   left. On narrow screens it collapses behind a hamburger
+   toggle that lives just below the main site-nav.
    ========================================================= */
-.doc-subnav {
-    --subnav-height: 56px;
-    position: fixed; top: var(--nav-height); left: 0; right: 0;
-    z-index: 999;
-    background: rgba(13,17,23,0.92);
+:root {
+    --doc-sidebar-width: 240px;
+    --doc-sidebar-toggle-h: 44px;
+    --doc-sidebar-gap: 20px;     /* breathing room left of the rail */
+    --doc-content-gap: 32px;     /* gap between rail and prose column */
+}
+
+.doc-sidebar {
+    position: fixed;
+    top: calc(var(--nav-height) + var(--doc-sidebar-gap));
+    left: 0;
+    bottom: 0;
+    width: var(--doc-sidebar-width);
+    z-index: 950;
+    background: rgba(13,17,23,0.96);
     backdrop-filter: blur(12px) saturate(1.4);
     -webkit-backdrop-filter: blur(12px) saturate(1.4);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    transform: translateX(-100%);
+    transition: transform .25s ease;
+    overflow: hidden;
+}
+.doc-sidebar.is-open { transform: translateX(0); }
+
+.doc-sidebar-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 1rem 0.5rem;
     border-bottom: 1px solid var(--border);
-    display: flex; align-items: center; justify-content: center;
-    gap: 0.5rem;
-    padding: 0 1rem;
-    height: var(--subnav-height);
-    overflow-x: auto;
-    overflow-y: hidden;
+    flex: 0 0 auto;
+}
+.doc-sidebar-title {
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #C9D6E6;
+}
+.doc-sidebar-close {
+    appearance: none;
+    background: transparent;
+    border: none;
+    color: #C9D6E6;
+    font-size: 1.4rem;
+    line-height: 1;
+    padding: 0 0.4rem;
+    cursor: pointer;
+    border-radius: 4px;
+}
+.doc-sidebar-close:hover { color: #fff; background: rgba(255,255,255,0.06); }
+
+.doc-sidebar-scroll {
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 0.5rem 0 1.25rem;
     scrollbar-width: thin;
     scrollbar-color: var(--border) transparent;
+    flex: 1 1 auto;
 }
-.doc-subnav::-webkit-scrollbar { height: 4px; }
-.doc-subnav::-webkit-scrollbar-track { background: transparent; }
-.doc-subnav::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+.doc-sidebar-scroll::-webkit-scrollbar { width: 6px; }
+.doc-sidebar-scroll::-webkit-scrollbar-track { background: transparent; }
+.doc-sidebar-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 
-/* 3D push-buttons */
-.doc-subnav a {
-    appearance: none;
-    display: inline-flex; align-items: center; justify-content: center;
-    gap: 0.35rem;
-    height: 36px;
-    padding: 0 0.85rem;
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-    font-size: 0.78rem;
-    font-weight: 600;
-    white-space: nowrap;
+.doc-sidebar-group { margin: 0.4rem 0 0.6rem; }
+.doc-sidebar-group-title {
+    padding: 0.55rem 1.1rem 0.25rem;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.10em;
+    text-transform: uppercase;
+    color: #7C8AA0;
+}
+.doc-sidebar-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+.doc-sidebar-list li { margin: 0; }
+
+.doc-sidebar-link {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.45rem 1.1rem 0.45rem 1.4rem;
+    font-size: 0.85rem;
+    font-weight: 500;
     color: #C9D6E6;
     text-decoration: none;
-    border: none;
-    border-radius: 8px;
-    background: linear-gradient(135deg, #10192A 0%, #162238 100%);
-    box-shadow:
-        rgba(0,0,0,0.5) 0 2px 4px,
-        rgba(0,0,0,0.3) 0 7px 13px -3px,
-        rgba(60,68,82,0.35) 0 -2px 0 inset;
-    cursor: pointer;
-    transition: box-shadow .15s, transform .15s, background .2s, color .2s;
-    will-change: box-shadow, transform;
-    flex-shrink: 0;
-    position: relative;
+    border-left: 2px solid transparent;
+    transition: background .15s, color .15s, border-color .15s;
 }
-
-.doc-subnav a:hover {
-    color: #fff;
-    background: linear-gradient(135deg, #162238 0%, #1B2B47 100%);
-    box-shadow:
-        rgba(0,0,0,0.5) 0 4px 8px,
-        rgba(0,0,0,0.3) 0 7px 13px -3px,
-        rgba(60,68,82,0.35) 0 -2px 0 inset;
-    transform: translateY(-2px);
-}
-
-.doc-subnav a:active {
-    box-shadow: rgba(0,0,0,0.6) 0 3px 7px inset;
-    transform: translateY(2px);
-}
-
-/* Active / selected page — pressed down */
-.doc-subnav a.active {
-    color: #fff;
-    background: linear-gradient(135deg, #00B8FF 0%, #7C5CFF 100%);
-    box-shadow:
-        rgba(0,184,255,0.28) 0 0 12px,
-        rgba(0,0,0,0.5) 0 2px 6px inset;
-    transform: translateY(1px);
-}
-.doc-subnav a.active:hover {
-    box-shadow:
-        rgba(0,184,255,0.40) 0 0 16px,
-        rgba(0,0,0,0.5) 0 2px 6px inset;
-    transform: translateY(1px);
-}
-
-/* Emoji icons in buttons */
-.doc-subnav a .icon {
-    font-size: 0.9rem;
+.doc-sidebar-link .icon {
+    font-size: 1rem;
     line-height: 1;
+    width: 1.2em;
+    text-align: center;
+}
+.doc-sidebar-link .label { flex: 1 1 auto; }
+
+.doc-sidebar-link:hover {
+    background: rgba(124,92,255,0.08);
+    color: #fff;
+}
+.doc-sidebar-link.active {
+    color: #fff;
+    background: linear-gradient(90deg, rgba(0,184,255,0.18) 0%, rgba(124,92,255,0.10) 100%);
+    border-left-color: #00B8FF;
+    font-weight: 600;
 }
 
-/* Responsive: make scrollable on small screens */
-@media (max-width: 860px) {
-    .doc-subnav {
-        justify-content: flex-start;
-        gap: 0.4rem;
-        padding: 0 0.75rem;
+/* Hamburger toggle. Visible only on narrow screens where the
+   sidebar drawer is hidden until requested. */
+.doc-sidebar-toggle {
+    position: fixed;
+    top: calc(var(--nav-height) + 8px);
+    left: 12px;
+    z-index: 951;
+    appearance: none;
+    display: none; /* shown by media query below */
+    align-items: center;
+    gap: 0.4rem;
+    height: var(--doc-sidebar-toggle-h);
+    padding: 0 0.85rem;
+    color: #fff;
+    font-size: 0.78rem;
+    font-weight: 600;
+    background: linear-gradient(135deg, #10192A 0%, #162238 100%);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    cursor: pointer;
+    box-shadow: rgba(0,0,0,0.4) 0 4px 12px;
+}
+.doc-sidebar-toggle:hover {
+    background: linear-gradient(135deg, #162238 0%, #1B2B47 100%);
+}
+.doc-sidebar-toggle[aria-expanded="true"] {
+    background: linear-gradient(135deg, #00B8FF 0%, #7C5CFF 100%);
+    border-color: transparent;
+}
+.doc-sidebar-toggle-icon { font-size: 1.05rem; line-height: 1; }
+
+/* Translucent backdrop behind drawer on small screens. */
+.doc-sidebar-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 940;
+    background: rgba(0,0,0,0.45);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .2s ease;
+}
+.doc-sidebar-backdrop.is-open {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+/* Wide screens: dock the sidebar permanently on the left as a floating card. */
+@media (min-width: 1200px) {
+    .doc-sidebar {
+        transform: translateX(var(--doc-sidebar-gap));
+        bottom: var(--doc-sidebar-gap);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        box-shadow: rgba(0,0,0,0.45) 0 10px 28px, rgba(0,0,0,0.25) 0 2px 6px;
+        overflow: hidden;
     }
-    .doc-subnav a {
-        font-size: 0.72rem;
-        height: 32px;
-        padding: 0 0.65rem;
+    .doc-sidebar-header { display: none; }
+    .doc-sidebar-backdrop { display: none; }
+    .doc-sidebar-toggle  { display: none; }
+    body {
+        /* Keep the readable column at its original ~960 px width but grow
+           the body envelope so the centred text isn't squished by the
+           sidebar. The inner content stays 960 px wide and sits to the
+           right of the floating rail with a comfortable gap. */
+        max-width: calc(1104px + var(--doc-sidebar-gap) + var(--doc-sidebar-width) + var(--doc-content-gap)) !important;
+        padding-left: calc(var(--doc-sidebar-gap) + var(--doc-sidebar-width) + var(--doc-content-gap)) !important;
     }
+}
+
+/* Narrow screens: hidden drawer + visible hamburger. */
+@media (max-width: 1199px) {
+    .doc-sidebar-toggle { display: inline-flex; }
+    .doc-sidebar.is-open {
+        box-shadow: rgba(0,0,0,0.45) 0 8px 24px;
+    }
+    body.doc-sidebar-locked { overflow: hidden; }
 }
 
 /* =========================================================

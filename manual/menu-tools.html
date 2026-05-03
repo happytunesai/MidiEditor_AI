@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
@@ -31,6 +31,7 @@
                 <a href="themes.html">Themes &amp; Appearance</a>
                 <a href="lyrics.html">Lyric Editor</a>
                 <a href="soundfont.html">SoundFonts &amp; FluidSynth</a>
+                <a href="shortcuts.html">Keyboard Shortcuts</a>
                 <a href="mcp-server.html">MCP Server</a>
                 <a href="setup.html">Setup &amp; Installation</a>
             </div>
@@ -369,6 +370,26 @@
 			an optional voice-load lane under the velocity strip, and the <code>analyze_voice_load</code> AI tool. -
 			<a href="ffxiv-voice-limiter.html">dedicated reference page</a> with thresholds, the analyser engine
 			and the demo video.
+		</td>
+	</tr>
+
+	<tr>
+		<td valign="top"><img src="screenshots/FFXIV-SoundFont-Equalizer-toolmenu.png" width="40px"/></td>
+		<td>
+			<i>FFXIV SoundFont Equalizer</i><br>
+			Per-instrument volume mixer for the FFXIV SoundFont. Each row controls one bard preset
+			(Lute, Harp, Piano, Flute, Trumpet, GM Drum Kit, electric guitars, &hellip;) with a
+			0&nbsp;-&nbsp;200&nbsp;% gain slider, mute checkbox, per-row reset, and a
+			<b>&#9654;&nbsp;Preview</b> button that plays a short C-D-E-G arpeggio (or
+			kick/snare/hat/crash for the drum kit) so you can audition the change immediately.
+			Includes a global master gain, a curated <i>FFXIV Default</i> preset, and unlimited
+			user presets persisted under <code>FFXIV/equalizerPresets</code>.
+			Slider edits affect live playback and offline audio export the moment you move them
+			(<code>GEN_ATTENUATION</code> is pushed to FluidSynth on every <code>mixChanged</code>).
+			Reachable from the <i>Tools</i> menu and from
+			<i>Settings &rarr; MIDI I/O &rarr; FluidSynth &rarr; Open FFXIV SoundFont Equalizer&hellip;</i>;
+			both entries auto-enable when FFXIV SoundFont Mode is on. -
+			<a href="soundfont.html#ffxiv-equalizer">dedicated reference</a>.
 		</td>
 	</tr>
 

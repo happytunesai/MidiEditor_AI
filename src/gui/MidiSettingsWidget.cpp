@@ -47,6 +47,7 @@
 #include "../midi/MidiOutput.h"
 #include "DownloadSoundFontDialog.h"
 #include "FfxivSoundFontHelper.h"
+#include "FfxivEqualizerDialog.h"
 #include "MainWindow.h"
 #endif
 
@@ -333,6 +334,16 @@ MidiSettingsWidget::MidiSettingsWidget(QWidget *parent)
     fsLayout->addWidget(_ffxivModeCheckBox);
     connect(_ffxivModeCheckBox, SIGNAL(toggled(bool)), this, SLOT(onFfxivModeToggled(bool)));
 
+    // Phase 39 (FFXIV-EQ-001): one-click access to the equalizer dialog
+    // straight from the FluidSynth settings panel. Enabled state mirrors
+    // the FFXIV mode checkbox — there's nothing to equalize otherwise.
+    _ffxivEqualizerBtn = new QPushButton(tr("Open FFXIV SoundFont Equalizer..."), _fluidSynthSettingsGroup);
+    _ffxivEqualizerBtn->setToolTip(tr("Per-instrument volume mixer for the FFXIV SoundFont.\nLet you trim each instrument's loudness and save presets."));
+    _ffxivEqualizerBtn->setEnabled(_ffxivModeCheckBox->isChecked());
+    fsLayout->addWidget(_ffxivEqualizerBtn);
+    connect(_ffxivEqualizerBtn, &QPushButton::clicked, this, &MidiSettingsWidget::onOpenFfxivEqualizer);
+    connect(_ffxivModeCheckBox, &QCheckBox::toggled, _ffxivEqualizerBtn, &QPushButton::setEnabled);
+
     // FFXIV Voice Limiter mode (Phase 32.5)
     QHBoxLayout *voiceLimRow = new QHBoxLayout();
     voiceLimRow->addWidget(new QLabel(tr("FFXIV Voice Limiter:"), _fluidSynthSettingsGroup));
@@ -600,6 +611,15 @@ void MidiSettingsWidget::onFfxivModeToggled(bool enabled) {
     refreshSoundFontList();
 }
 
+// Phase 39 (FFXIV-EQ-001): open the equalizer modally from the
+// FluidSynth settings panel. Mirrors MainWindow::openFfxivEqualizer()
+// so the dialog is reachable from both the Tools menu and the
+// settings dialog as the user requested.
+void MidiSettingsWidget::onOpenFfxivEqualizer() {
+    FfxivEqualizerDialog dlg(window());
+    dlg.exec();
+}
+
 void MidiSettingsWidget::onFfxivVoiceLimiterModeChanged(int /*index*/) {
     if (!_ffxivVoiceLimiterCombo)
         return;
@@ -637,7 +657,18 @@ void MidiSettingsWidget::refreshSoundFontList() {
 void MidiSettingsWidget::showDownloadSoundFontDialog() {
     DownloadSoundFontDialog *dialog = new DownloadSoundFontDialog(this);
     connect(dialog, &DownloadSoundFontDialog::soundFontDownloaded, this, [this](const QString &path) {
-        FluidSynthEngine::instance()->loadSoundFont(path);
+        FluidSynthEngine *engine = FluidSynthEngine::instance();
+        // Belt-and-suspenders: if the engine hasn't been initialized yet
+        // (no playback in this session), loadSoundFont() returns -1 and the
+        // path is silently dropped. addPendingSoundFontPaths() makes sure
+        // the SF survives until the engine is initialized AND saveSettings()
+        // can persist it. See bug B-FIELD-002 (1.6.1).
+        engine->addPendingSoundFontPaths(QStringList{path});
+        engine->loadSoundFont(path);
+        // Persist immediately so the new SoundFont survives a crash before
+        // normal app shutdown.
+        QSettings settings;
+        engine->saveSettings(&settings);
         refreshSoundFontList();
     });
     dialog->exec();

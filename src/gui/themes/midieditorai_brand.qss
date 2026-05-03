@@ -451,6 +451,24 @@ QComboBox QAbstractItemView {
     outline: none;
 }
 
+/* Explicit per-row styling so the popup highlight tracks the mouse,
+ * not a stale rect drawn by the platform fallback. Without these the
+ * Brand theme's QAbstractItemView block left items unstyled and the
+ * hover band landed in dead space below the popup. */
+QComboBox QAbstractItemView::item {
+    background: transparent;
+    color: #EAF3FF;
+    padding: 5px 10px;
+    border-radius: 4px;
+    min-height: 20px;
+}
+
+QComboBox QAbstractItemView::item:hover,
+QComboBox QAbstractItemView::item:selected {
+    background-color: #1E3A6E;
+    color: #25D6FF;
+}
+
 /* ─── Check Box & Radio Button ───────────────────────────────────────── */
 
 QCheckBox, QRadioButton {

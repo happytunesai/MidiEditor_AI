@@ -133,7 +133,12 @@ void FfxivVoiceGaugeWidget::onFfxivModeChanged(bool enabled)
 void FfxivVoiceGaugeWidget::updateVisibility()
 {
 #ifdef FLUIDSYNTH_SUPPORT
-    setVisible(_ffxivOn);
+    // Always show the gauge once FluidSynth support is compiled in, even when
+    // FFXIV SoundFont mode is currently OFF. The meter then sits at "0/16"
+    // as a visible placeholder so first-run users can see where the gauge
+    // lives in the toolbar (B-FFXIV-GAUGE-VIS-001). When FFXIV mode is off
+    // the painter naturally renders an empty meter.
+    setVisible(true);
 #else
     setVisible(false);
 #endif

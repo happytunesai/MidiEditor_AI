@@ -80,8 +80,8 @@ bool Appearance::_useRoundedScaling = false;
 int Appearance::_msaaSamples = 2;
 bool Appearance::_enableVSync = false;
 bool Appearance::_useHardwareAcceleration = false;
-bool Appearance::_toolbarTwoRowMode = false;
-bool Appearance::_toolbarCustomizeEnabled = false;
+bool Appearance::_toolbarTwoRowMode = true; // Default to double-row layout (curated MidiEditor AI default since 1.6.1)
+bool Appearance::_toolbarCustomizeEnabled = true; // Customize toolbar on by default since 1.6.1 - ship full curated 2-row layout
 QStringList Appearance::_toolbarActionOrder = QStringList();
 QStringList Appearance::_toolbarEnabledActions = QStringList();
 bool Appearance::_smoothPlaybackScrolling = false;
@@ -125,13 +125,18 @@ void Appearance::init(QSettings *settings) {
         }
     }
     _applicationStyle = settings->value("application_style", defaultStyle).toString();
-    _theme = static_cast<Theme>(settings->value("theme", ThemeSystem).toInt());
+    // 1.6.1: First-run installs default to the MidiEditor AI brand theme
+    // (Phase 37.2). Existing users keep whatever theme they had selected -
+    // QSettings::value() only returns the default when the key is missing,
+    // and the key is written back on every saveSettings() so any user who
+    // has launched a previous version will already have an explicit value.
+    _theme = static_cast<Theme>(settings->value("theme", ThemeBrand).toInt());
     _toolbarIconSize = settings->value("toolbar_icon_size", 20).toInt();
     _ignoreSystemScaling = settings->value("ignore_system_scaling", false).toBool();
     _ignoreFontScaling = settings->value("ignore_font_scaling", false).toBool();
     _useRoundedScaling = settings->value("use_rounded_scaling", false).toBool();
-    _toolbarTwoRowMode = settings->value("toolbar_two_row_mode", false).toBool();
-    _toolbarCustomizeEnabled = settings->value("toolbar_customize_enabled", false).toBool();
+    _toolbarTwoRowMode = settings->value("toolbar_two_row_mode", true).toBool(); // 1.6.1+ default = double row
+    _toolbarCustomizeEnabled = settings->value("toolbar_customize_enabled", true).toBool(); // 1.6.1+ default = on
     _toolbarActionOrder = settings->value("toolbar_action_order", QStringList()).toStringList();
     _toolbarEnabledActions = settings->value("toolbar_enabled_actions", QStringList()).toStringList();
 

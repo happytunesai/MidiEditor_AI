@@ -128,6 +128,34 @@ QJsonObject FFXIVChannelFixer::analyzeFile(MidiFile *file) {
     return result;
 }
 
+// 1.6.1 (upstream a35f1ee): scan all 16 channels and return whichever one
+// owns the most NoteOn events from `track`. Returns -1 if the track has
+// no NoteOn events at all (in which case the caller should fall back to
+// the numeric/sequential assignment).
+int FFXIVChannelFixer::dominantNoteChannel(MidiFile *file, MidiTrack *track) {
+    if (!file || !track) return -1;
+    QHash<int, int> noteCount;
+    for (int ch = 0; ch < 16; ch++) {
+        MidiChannel *channel = file->channel(ch);
+        if (!channel) continue;
+        QMultiMap<int, MidiEvent *> *events = channel->eventMap();
+        for (auto it = events->begin(); it != events->end(); ++it) {
+            if (it.value()->track() == track
+                && dynamic_cast<NoteOnEvent *>(it.value())) {
+                noteCount[ch]++;
+            }
+        }
+    }
+    int bestCh = -1, bestCount = 0;
+    for (auto it = noteCount.begin(); it != noteCount.end(); ++it) {
+        if (it.value() > bestCount) {
+            bestCount = it.value();
+            bestCh = it.key();
+        }
+    }
+    return bestCh;
+}
+
 // ---------------------------------------------------------------------------
 // fixChannels  â€” the main entry point (3-tier smart detection)
 // ---------------------------------------------------------------------------
@@ -330,12 +358,26 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
                 // Duplicate guitar variant: reuse first occurrence's channel
                 channelFor[t] = guitarChannelMap[baseNames[t]];
             } else {
-                int ch = t;
-                if (ch > 15) ch = 15;
-                channelFor[t] = ch;
-                // Register first-seen guitar variant
-                if (hasGuitar && isGuitar(baseNames[t]))
-                    guitarChannelMap[baseNames[t]] = ch;
+                // 1.6.1 (upstream a35f1ee): a track that we couldn't match
+                // against any FFXIV instrument and that isn't a guitar
+                // variant might still be a drum track that just doesn't
+                // carry an FFXIV-canonical name (e.g. "Drums", "Perc",
+                // unnamed). If its NoteOn events are predominantly on
+                // channel 9, keep it on 9 - otherwise the GM percussion
+                // mapping is destroyed by the numeric assignment below.
+                bool unmatched = !isGuitar(baseNames[t])
+                                 && programNumber(baseNames[t]) < 0;
+                if (unmatched
+                    && dominantNoteChannel(file, file->track(t)) == 9) {
+                    channelFor[t] = 9;
+                } else {
+                    int ch = t;
+                    if (ch > 15) ch = 15;
+                    channelFor[t] = ch;
+                    // Register first-seen guitar variant
+                    if (hasGuitar && isGuitar(baseNames[t]))
+                        guitarChannelMap[baseNames[t]] = ch;
+                }
             }
             usedChannels.insert(channelFor[t]);
         }

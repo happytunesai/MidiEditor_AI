@@ -357,7 +357,13 @@ void LayoutSettingsWidget::populateActionsList(bool forceRepopulation) {
     // ALWAYS use clean defaults of the FULL customized list
     // This means: comprehensive action order with default enabled/disabled states
     QStringList orderToUse = getComprehensiveActionOrder(); // Full list in proper order
-    QStringList defaultEnabledActions = getDefaultEnabledActions(); // Default enabled states
+    // Use the curated MidiEditor AI default-enabled list so the customize UI
+    // shows the same set of checked entries that createCustomToolbar() actually
+    // renders on first launch (TOOLBAR-DEFAULT-001 follow-up). Previously this
+    // used the older getDefaultEnabledActions() list which left several entries
+    // (move_*, transpose_*, thru, panic, ...) unchecked even though the real
+    // toolbar enabled them, making the customize dialog look out of sync.
+    QStringList defaultEnabledActions = getDefaultToolbarEnabledActions();
 
     // Use empty enabled actions list to force default enabled state
     QStringList enabledActions;
@@ -928,28 +934,31 @@ QStringList LayoutSettingsWidget::getDefaultEnabledActions() {
 }
 
 void LayoutSettingsWidget::getDefaultRowDistribution(QStringList &row1Actions, QStringList &row2Actions) {
-    // Single source of truth for how actions are distributed between rows
+    // Single source of truth for how actions are distributed between rows.
+    // Must match getDefaultToolbarRowDistribution() below so the customize UI
+    // shows the same arrangement that createCustomToolbar() actually renders
+    // on first launch (TOOLBAR-DEFAULT-001 follow-up).
     row1Actions.clear();
     row2Actions.clear();
 
-    // Row 1: Editing and tool actions
+    // Row 1: Editing / tools / AI / FFXIV-control toggles
     row1Actions << "standard_tool" << "select_left" << "select_right" << "select_single" << "select_box" << "separator3"
-            << "new_note" << "remove_notes" << "copy" << "paste" << "separator4"
-            << "glue" << "glue_all_channels" << "scissors" << "delete_overlaps" << "separator5"
-            << "move_all" << "move_lr" << "move_ud" << "size_change" << "separator6"
-            << "transpose" << "transpose_up" << "transpose_down" << "separator7"
-            << "align_left" << "equalize" << "align_right" << "separator8"
-            << "quantize" << "magnet" << "separator9"
+            << "new_note" << "remove_notes" << "copy" << "separator4"
+            << "glue" << "scissors" << "delete_overlaps" << "separator5"
+            << "move_all" << "move_lr" << "move_ud"
+            << "align_left" << "equalize" << "align_right" << "separator6"
+            << "quantize" << "magnet" << "separator7"
             << "measure" << "time_signature" << "tempo"
             << "explode_chords_to_tracks" << "split_channels_to_tracks" << "fix_ffxiv_channels"
-            << "toggle_midipilot" << "separator14" << "midi_visualizer" << "lyric_visualizer" << "mcp_toggle" << "ffxiv_toggle" << "ffxiv_voice_gauge";
+            << "toggle_midipilot" << "separator14" << "mcp_toggle" << "ffxiv_toggle";
 
-    // Row 2: Playback and view actions
+    // Row 2: Playback / view / status widgets (visualizer, lyric, voice gauge)
     row2Actions << "back_to_begin" << "back_marker" << "back" << "play" << "pause"
             << "stop" << "record" << "forward" << "forward_marker" << "separator10"
             << "metronome"
             << "zoom_hor_in" << "zoom_hor_out" << "zoom_ver_in" << "zoom_ver_out"
-            << "lock" << "separator11" << "thru" << "panic";
+            << "lock" << "separator11" << "thru" << "panic"
+            << "ffxiv_voice_gauge" << "midi_visualizer" << "lyric_visualizer";
 }
 
 QStringList LayoutSettingsWidget::getEssentialActionIds() {
@@ -980,60 +989,54 @@ QList<ToolbarActionInfo> LayoutSettingsWidget::getEssentialActionInfos() {
 // These provide minimal default toolbars with only commonly used actions
 
 QStringList LayoutSettingsWidget::getDefaultToolbarOrder() {
-    // Minimal default toolbar order - only essential + commonly used actions
-    // This is what users see when customization is disabled
+    // Curated MidiEditor AI default toolbar order (1.6.1+).
+    // Mirrors the shipped 2-row layout, kept in sync with getDefaultToolbarRowDistribution() below.
     QStringList order;
-    order << "standard_tool" << "select_left" << "select_right" << "separator3"
-            << "new_note" << "remove_notes" << "copy" << "paste" << "separator4"
+    order << "standard_tool" << "select_left" << "select_right" << "select_single" << "select_box" << "separator3"
+            << "new_note" << "remove_notes" << "copy" << "separator4"
             << "glue" << "scissors" << "delete_overlaps" << "separator5"
-            << "back_to_begin" << "back_marker" << "back" << "play" << "pause"
-            << "stop" << "record" << "forward" << "forward_marker" << "separator6"
-            << "metronome" << "align_left" << "equalize" << "align_right" << "separator7"
-            << "zoom_hor_in" << "zoom_hor_out" << "zoom_ver_in" << "zoom_ver_out"
-            << "lock" << "separator8" << "quantize" << "magnet" << "separator9"
+            << "move_all" << "move_lr" << "move_ud"
+            << "align_left" << "equalize" << "align_right" << "separator6"
+            << "quantize" << "magnet" << "separator7"
             << "measure" << "time_signature" << "tempo"
             << "explode_chords_to_tracks" << "split_channels_to_tracks" << "fix_ffxiv_channels"
-            << "separator10" << "toggle_midipilot" << "separator14" << "midi_visualizer" << "lyric_visualizer" << "mcp_toggle" << "ffxiv_toggle" << "ffxiv_voice_gauge";
+            << "toggle_midipilot" << "separator14" << "mcp_toggle" << "ffxiv_toggle" << "row_separator"
+            << "back_to_begin" << "back_marker" << "back" << "play" << "pause"
+            << "stop" << "record" << "forward" << "forward_marker" << "separator10"
+            << "metronome" << "zoom_hor_in" << "zoom_hor_out" << "zoom_ver_in" << "zoom_ver_out"
+            << "lock" << "separator11" << "thru" << "panic"
+            << "ffxiv_voice_gauge" << "midi_visualizer" << "lyric_visualizer";
     return order;
 }
 
 QStringList LayoutSettingsWidget::getDefaultToolbarEnabledActions() {
-    // All actions in the default toolbar are enabled by default
-    // Include all separators used in both single and double row distributions
-    QStringList enabled = getDefaultToolbarOrder();
-    
-    // Add separator10 which is used in double row distribution but not in single row order
-    if (!enabled.contains("separator10")) {
-        enabled << "separator10";
-    }
-    // Add separator11 which is used in double row distribution but not in single row order
-    if (!enabled.contains("separator11")) {
-        enabled << "separator11";
-    }
-    
-    return enabled;
+    // Curated MidiEditor AI default enabled list (1.6.1+).
+    // First-run users see every tool from the curated layout enabled (no hidden surprises);
+    // they can hide individual entries afterwards via Settings -> Customize Toolbar.
+    return getDefaultToolbarOrder();
 }
 
 void LayoutSettingsWidget::getDefaultToolbarRowDistribution(QStringList &row1Actions, QStringList &row2Actions) {
-    // Default toolbar row distribution - simpler than comprehensive
+    // Curated MidiEditor AI default 2-row distribution (1.6.1+).
+    // Row 1 = editing / tools / AI / FFXIV. Row 2 = transport / view / status widgets.
     row1Actions.clear();
     row2Actions.clear();
 
-    // Row 1: Editing tools
-    row1Actions << "standard_tool" << "select_left" << "select_right" << "separator3"
-            << "new_note" << "remove_notes" << "copy" << "paste" << "separator4"
+    // Row 1: editing tools, AI / FFXIV controls
+    row1Actions << "standard_tool" << "select_left" << "select_right" << "select_single" << "select_box" << "separator3"
+            << "new_note" << "remove_notes" << "copy" << "separator4"
             << "glue" << "scissors" << "delete_overlaps" << "separator5"
-            << "separator6" // Keep for consistency even though move actions not in default toolbar
-            << "separator7" // Keep for consistency even though transpose actions not in default toolbar
-            << "align_left" << "equalize" << "align_right" << "separator8"
-            << "quantize" << "magnet" << "separator9"
+            << "move_all" << "move_lr" << "move_ud"
+            << "align_left" << "equalize" << "align_right" << "separator6"
+            << "quantize" << "magnet" << "separator7"
             << "measure" << "time_signature" << "tempo"
-            << "explode_chords_to_tracks" << "split_channels_to_tracks" << "fix_ffxiv_channels";
+            << "explode_chords_to_tracks" << "split_channels_to_tracks" << "fix_ffxiv_channels"
+            << "toggle_midipilot" << "separator14" << "mcp_toggle" << "ffxiv_toggle";
 
-    // Row 2: Playback and view
+    // Row 2: transport, zoom, MIDI I/O, status widgets
     row2Actions << "back_to_begin" << "back_marker" << "back" << "play" << "pause"
             << "stop" << "record" << "forward" << "forward_marker" << "separator10"
             << "metronome" << "zoom_hor_in" << "zoom_hor_out" << "zoom_ver_in" << "zoom_ver_out"
-            << "lock" << "separator11"
-            << "toggle_midipilot" << "separator14" << "midi_visualizer" << "lyric_visualizer" << "mcp_toggle" << "ffxiv_toggle" << "ffxiv_voice_gauge";
+            << "lock" << "separator11" << "thru" << "panic"
+            << "ffxiv_voice_gauge" << "midi_visualizer" << "lyric_visualizer";
 }

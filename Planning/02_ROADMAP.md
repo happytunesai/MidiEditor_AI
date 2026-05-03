@@ -10769,22 +10769,25 @@ Palet:
 
 ## Phase 39: FFXIV SoundFont Equalizer (Per-Instrument Volume Mixer)
 
-> Status: Planned, no code yet. Target: 1.7.0 alongside Tier-2
-> upstream pulls.
+> Status: ✅ **Shipped in 1.6.1 (2026-05-03)**. Implementation summary
+> in CHANGELOG entry FFXIV-EQ-001. Below is the original plan, kept
+> for reference; deviations from the plan are noted at the end.
 >
 > Goal: replace the current "tweak FluidSynth gain in Settings"
 > workflow with a dedicated, instrument-level mixer that ships with
 > a curated default preset and lets every user save their own.
 
-### 39.1 - User-facing entry point
+### 39.1 - User-facing entry point ✅
 
-* **Midi menu -> FFXIV Mode -> SoundFont Equalizer...**
-  Visible only when FFXIV SoundFont Mode is active (mirrors the
-  Voice Limiter and Channel Fixer entries).
-* Optional toolbar button next to the existing FFXIV gauge for
-  one-click reopen during a session.
+* ✅ **Tools menu → FFXIV SoundFont Equalizer…** (auto-enabled when
+  FFXIV SoundFont Mode is on, disabled otherwise — wired to
+  `FluidSynthEngine::ffxivSoundFontModeChanged`).
+* ✅ **Settings → MIDI I/O → FluidSynth → Open FFXIV SoundFont
+  Equalizer…** button — same gating, equivalent entry point. Replaces
+  the planned toolbar button (decided during implementation; the
+  settings panel is the natural pair to the FFXIV Mode checkbox).
 
-### 39.2 - Equalizer dialog UX
+### 39.2 - Equalizer dialog UX ✅
 
 * One row per instrument exposed by the loaded SoundFont (Lute,
   Harp, Piano, Flute, Oboe, Clarinet, Trumpet, Trombone, Horn,
@@ -10804,7 +10807,7 @@ Palet:
   * Live preview toggle (auditions changes against the playing file)
   * Apply / Cancel / Reset to default preset
 
-### 39.3 - Storage model
+### 39.3 - Storage model ✅ *(simplified)*
 
 * Presets persisted as JSON under
   `QSettings("MidiEditor", "NONE")/FFXIV/equalizerPresets/<name>`
@@ -10828,7 +10831,7 @@ Palet:
 * Built-in **FFXIV Default** preset shipped read-only in the
   binary; user copies become editable.
 
-### 39.4 - Audio path integration
+### 39.4 - Audio path integration ✅ *(GEN_ATTENUATION instead of velocity scaling)*
 
 * New service `FfxivEqualizerService` (`src/midi/FfxivEqualizerService.{h,cpp}`):
   * Owns the active preset.
@@ -10844,7 +10847,7 @@ Palet:
 * All hooks gated by `FFXIV SoundFont Mode is on` so non-FFXIV users
   pay zero overhead.
 
-### 39.5 - Default preset philosophy
+### 39.5 - Default preset philosophy ✅
 
 * Curate the shipped FFXIV Default preset based on what
   sounds balanced in-game. The defaults should:
@@ -10854,7 +10857,7 @@ Palet:
 * Document the curated values in `Planning/06_FFXIV_Equalizer.md`
   so future preset bumps are explainable.
 
-### 39.6 - Files & touchpoints
+### 39.6 - Files & touchpoints ✅
 
 * New:
   * `src/midi/FfxivEqualizerService.{h,cpp}`
@@ -10868,7 +10871,7 @@ Palet:
   * `src/gui/MainWindow.cpp` (Midi menu entry, dialog launcher)
   * `src/ai/ToolDefinitions.cpp` (optional read-only AI tool: see 39.8)
 
-### 39.7 - Safety / edge cases
+### 39.7 - Safety / edge cases ✅
 
 * Velocity clamp: scaled velocity must stay within 1..127
   (zero becomes 1 to keep the NoteOn alive; mute uses the dedicated
@@ -10879,7 +10882,7 @@ Palet:
   "FFXIV Default".
 * Backup-on-overwrite for user presets (one-level undo via QSettings).
 
-### 39.8 - Optional AI tool (post-MVP)
+### 39.8 - Optional AI tool (post-MVP) ⏸️ *(deferred to 1.7.x)*
 
 * `analyze_mix_balance(start_tick, end_tick)` - read-only report
   that compares average velocity per channel to the active
@@ -10888,7 +10891,7 @@ Palet:
 * Useful for AI-assisted mixing prompts: *"the lead lute is too
   quiet vs the drums - suggest preset adjustments."*
 
-### 39.9 - Open decisions for review
+### 39.9 - Open decisions for review ✅ *(resolved)*
 
 1. **Per-channel vs per-instrument vs per-program?** Recommendation:
    per-program (so the same Lute on CH1 and CH5 shares a slider).
@@ -10900,4 +10903,26 @@ Palet:
    toggle between them. Defer to 1.7.x if MVP lands well.
 4. **FFXIV Mode coupling?** Auto-disable the dialog when FFXIV Mode
    is off, mirroring the Voice Limiter auto-bind from 1.6.0.
+
+### 39.10 - Shipped deviations from the original plan
+
+* **Audio path:** the plan called for velocity multiplication on every
+  NoteOn. The implementation uses FluidSynth `GEN_ATTENUATION`
+  (gen 48, centibels) per channel instead — `ffxivEqualizerCb(g) =
+  -200·log10(g)`, with `1440 cB` (effectively silent) for muted /
+  zero-gain slots. This is the canonical FluidSynth volume mechanism,
+  doesn't quantise small gain changes the way 7-bit velocity would,
+  and applies uniformly to live playback **and** the offline
+  exporter callback without a second code path.
+* **Storage:** instead of a JSON blob per preset, presets are stored
+  as flat QSettings keys (`FFXIV/equalizerPresets/<name>/master`
+  + `FFXIV/equalizerPresets/<name>/programs/<int>` =
+  `QStringList["gainStr","muted01"]`). Simpler, native to the rest
+  of the app, and survives partial writes.
+* **Preview:** replaced "live preview toggle that auditions the
+  playing file" with a per-row **▶ Preview** button that plays a
+  short C-D-E-G arpeggio (or kick / snare / hat / crash for the GM
+  Drum Kit row). Cleaner UX, no debounce edge cases, and works even
+  when no file is loaded.
+* **AI tool (39.8):** `analyze_mix_balance` deferred to 1.7.x.
 
