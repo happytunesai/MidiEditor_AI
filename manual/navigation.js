@@ -26,7 +26,8 @@
                 { href: 'export-audio.html', icon: '💾', name: 'Export Audio' },
                 { href: 'tempo-conversion.html', icon: '⏱️', name: 'Tempo Conversion' },
                 { href: 'menu-tools.html', icon: '🔧', name: 'Tools Menu' },
-                { href: 'shortcuts.html', icon: '⌨️', name: 'Keyboard Shortcuts' }
+                { href: 'shortcuts.html', icon: '⌨️', name: 'Keyboard Shortcuts' },
+                { href: 'logging.html',   icon: '📝', name: 'Logging' }
             ]
         },
         {
@@ -35,6 +36,18 @@
                 { href: 'midipilot.html', icon: '🤖', name: 'MidiPilot' },
                 { href: 'prompt-examples.html', icon: '💬', name: 'Prompt Examples' },
                 { href: 'mcp-server.html', icon: '🔗', name: 'MCP Server' }
+            ]
+        },
+        {
+            title: 'Collaboration',
+            pages: [
+                { href: 'collaboration.html',     icon: '🤝', name: 'Overview' },
+                { href: 'collab-pr.html',         icon: '📝', name: 'Async PR' },
+                { href: 'collab-discord.html',    icon: '📢', name: 'Discord' },
+                { href: 'collab-lan.html',        icon: '🏠', name: 'LAN Live' },
+                { href: 'collab-wan.html',        icon: '🌐', name: 'WAN Live' },
+                { href: 'collab-cloudflare.html', icon: '☁️', name: 'Self-host Cloudflare' },
+                { href: 'collab-settings.html',   icon: '⚙️', name: 'Settings Reference' }
             ]
         },
         {

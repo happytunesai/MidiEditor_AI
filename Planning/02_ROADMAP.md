@@ -10926,3 +10926,134 @@ Palet:
   when no file is loaded.
 * **AI tool (39.8):** `analyze_mix_balance` deferred to 1.7.x.
 
+---
+
+## Phase 40: Collaboration - Async PRs + Live LAN/WAN ✅ (v1.7.0)
+
+> **Status (2026-05-09):** v1.7.0 ships full async PR + live LAN/WAN
+> co-edit with up to 8 multi-peer joiners. 4-PC production-tested.
+> **Canonical reference: [09_COLLABORATION.md](09_COLLABORATION.md)** -
+> per-sub-phase status, full schemas, and decision rationale live there.
+> This roadmap entry is a compact summary.
+
+### Vision
+
+Multiple humans (and optionally AI agents) work on the same MIDI file
+together:
+
+- **Live** - per-tick state-diff sync over LAN multicast or WAN WebRTC.
+  Up to 8 peers per session.
+- **Async** - GitHub-style PR workflow with self-contained smart-paste
+  tokens; recipient cherry-picks individual hunks. Optional Discord
+  webhook for one-click distribution.
+
+Server-less by default. LAN sessions discover via UDP multicast + a
+4-char pairing code. WAN sessions exchange WebRTC SDPs through a tiny
+Cloudflare Worker rendezvous (5-min TTL, no account, no MIDI traffic
+touches the worker, free tier comfortably enough for hobby use).
+
+### Architectural pivot - state-diff over op-log
+
+The original idea was to broadcast every `Protocol::startNewAction`
+callsite (op-log model) - would have required retrofitting 126
+callsites in MidiEditor. Pivoted to a **state-diff** model: a PR /
+live-sync hunk is the diff between two MIDI snapshots, identified by
+event tuples and Blake2b-hashed for the wire. This sidesteps the
+retrofit problem entirely, keeps every existing tool's behaviour
+byte-identical, and works for human edits, AI edits, and
+importer-driven edits alike. See `MidiDiff` / `MidiSnapshot` /
+`PrApply` in `src/collab/`.
+
+Free property: a peer that edits while disconnected lands the entire
+offline diff as one catch-up hunk on rejoin. No replay ordering, no
+missed events, no merge conflicts within the same identity tuple.
+Verified 2026-05-08 by deleting notes during a forced WAN drop -
+they propagated cleanly to the host the moment LIVE returned.
+
+### Sub-phase status (v1.7.0 release gate)
+
+Numbering is inherited from [09_COLLABORATION.md](09_COLLABORATION.md)
+(the `9.x` prefix refers to that planning doc, not Phase 9 of this
+roadmap which is about editable system prompts).
+
+| Group | Status | Highlights |
+|-------|--------|------------|
+| **9.1** Async PRs | ✅ shipped (1.7.0) | `PrBundle` zip + smart-paste tokens, cherry-pick `PrReviewDialog`, `CollabHistoryWidget`, sidecar JSON next to each `.mid` |
+| **9.2** Discord webhook | ✅ shipped (1.7.0) | Auto-POST embed + smart-paste token to Discord channel; per-share opt-out |
+| **9.5** LAN Live Mode | ✅ shipped (1.7.0) | Multicast discovery, TCP transport, sync timer, returning-peer reconciliation, review-mode toggle, mid-session sidecar refresh, manual-IP fallback |
+| **9.6** WAN Live Mode (1:1) | ✅ shipped (1.7.0) | WebRTC `RTCDataChannel`, Cloudflare Worker rendezvous, settings UI for ICE timeout / auto-reconnect / log level, in-process Connection Test, full sync coverage for tempo / time-sig / aftertouch / file length |
+| **9.7a** Pre-flight `/health` | ✅ shipped (1.7.0) | Pre-flight rendezvous health check + Copy-invite buttons (LAN+WAN) |
+| **9.7b** Encrypted LAN wire | 📋 parked | QSslSocket + ephemeral cert; queued behind explicit user need |
+| **9.7c** Host auto-promotion | 📋 parked | Gated on multi-peer becoming official; queued |
+| **9.8** Multi-peer WAN | ✅ shipped (1.7.0) | Joiner-initiated protocol (worker v3), `WebRtcLiveServer` multi-transport (`QHash<QString, WebRtcTransport*>`), role flip, ghost-peer protection (10s heartbeat / 30s deadline). 4-PC production-tested at 1.8 KB/s host-out |
+| **9.9** Show Mode | 📋 planned (1.7.1) | Hat-passing presentation mode - one peer edits, others watch. ~3 dev days |
+| **9.10** Live-Painting UX | 📋 planned (1.8+) | Streaming presenter cursor / selection / shortcut toasts on top of Show Mode |
+| **9.3** AI as PR creator | ⏸ paused | Design locked, building deferred per current direction |
+
+Each sub-phase shipped independently and remains independently
+disable-able via *Settings → Collaboration*. Building with
+`-DMIDIEDITOR_ENABLE_COLLAB=OFF` produces a binary with zero
+references to any `Collab*` / `Lan*` / `WebRtc*` / `Pr*` symbol -
+non-invasive guarantee per [09_COLLABORATION §4](09_COLLABORATION.md).
+
+### Related modules
+
+| Area | Files |
+|------|-------|
+| Async-PR core | `src/collab/CollabService`, `CollabHistoryFile`, `MidiDiff`, `MidiSnapshot`, `PrBundle`, `PrApply` |
+| Live transports | `LanDiscovery`, `LanTransport`, `LanLiveSession`, `WebRtcTransport`, `WebRtcLiveServer/Client`, `RtcRendezvousClient`, `IceConfig` |
+| Reconciliation & merge | `HistoryReconciliation` |
+| Diagnostics | `WebRtcSmokeTest`, `WanConnectionTest`, `LoggingConfig` |
+| GUI | `src/gui/collab/CollabSettingsWidget`, `CollabHistoryWidget`, `Pr{Create,Review}Dialog`, `LanLive{Start,Join}Dialog`, `WebRtc{Start,Join}Dialog`, `ReturningPeerDialog`, `WelcomeBackDialog` |
+| Touched core | `src/midi/MidiFile.{h,cpp}` (`setEndTick`), `src/main.cpp` (logging init), `src/gui/MainWindow.cpp` (menu wiring + LIVE indicator), `src/ai/MidiEventSerializer.{h,cpp}` (extended for tempo / time-sig / key-sig / text / aftertouch + `track` field round-trip) |
+| Out-of-tree | `cloudflare/rendezvous.js` - Cloudflare Worker (~120 LoC), in-tree under [`cloudflare/`](../cloudflare/) |
+
+### v1.7.0 production validation (2026-05-08)
+
+- **Multi-peer WAN at 4 PCs**: 1 host + 3 joiners, staggered joins,
+  clean shutdown. ~1.8 KB/s peak host-out at 3 active peers -
+  comfortable headroom on a 50 Mbit upstream. Phase 9.8e (adaptive
+  rate / queueing) ❌ dropped as not needed.
+- **Ghost-peer dedup** (BUG-COLLAB-030): hard-disabling network on a
+  client leaves the host's TCP socket "Connected" until OS keepalive
+  (Windows ~2 h). The 10s heartbeat / 30s silence-deadline kicks
+  zombies automatically; manual reconnect from the same machine also
+  dedups via hello-handshake `machineId` match.
+- **Channel-sync hardening** (BUG-COLLAB-031): `track` field added to
+  `serializeProgChangeEvent` / `serializeControlChangeEvent` /
+  `serializePitchBendEvent`; `PrApply::insertEvent` got a defensive
+  `trackIdx = 0` fallback. Verified by 2-PC instrument-change sync test.
+- **MITM hardening** (BUG-COLLAB-032): `host-answer` POST in
+  `cloudflare/rendezvous.js` got the same 409-overwrite guard that
+  BUG-COLLAB-019 closed on `joiner-offer`. **Cloudflare redeploy
+  required to take effect.**
+- **Cloudflare per-IP throttling** (known, not blocking): two clients
+  running Connection Test simultaneously from the same public IP can
+  have one fail. Cloudflare Workers free tier appears to rate-limit /
+  pool connections per source IP. Real WAN sessions across different
+  households (different IPs) are unaffected. VPN routing fixes the
+  same-household case if it ever bites.
+
+### Polish + hardening shipped alongside
+
+HTTP/1.1 enforcement (Qt6 HTTP/2 vs firewall inspection), `/health`
+pre-flight probe, SSL/network error logging, Cloudflare KV `list()`
+→ explicit-index workaround (resolved 30+s startup delays),
+in-app silent-firewall-block detection + manual troubleshooting docs,
+work-on-copy auto-rewrite to `.mid` for non-MIDI source files
+(BUG-COLLAB-029).
+
+### What's next
+
+- **Phase 9.9 Show Mode** (v1.7.1) - watch-only variant of Live Mode
+  where one peer at a time holds "the hat" (= editing rights). Strict
+  request-and-approve hat passing. Use cases: AI demos, MIDI
+  tutorials, classroom teaching. ~3 dev days. Full design in
+  [09_COLLABORATION §15.2](09_COLLABORATION.md).
+- **Phase 9.10 Live-Painting UX** (v1.8+) - streaming presenter
+  cursor / selection / shortcut toasts on top of Show Mode for richer
+  watch-along.
+- **Server-mode via Cloudflare Durable Objects** ($5/mo) - parked as
+  v1.8+ fallback if star-topology ever hits saturation in real-world
+  use. Not currently needed.
+

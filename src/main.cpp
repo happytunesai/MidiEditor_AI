@@ -29,8 +29,175 @@
 #include "midi/MidiInput.h"
 #include "midi/MidiOutput.h"
 #include "ai/EditorContext.h"
+#include "LoggingConfig.h"
 
+#include <QDateTime>
 #include <QFile>
+#include <QMutex>
+#include <QStandardPaths>
+#include <QTextStream>
+
+// File-based logging so users can attach a log when something crashes
+// (e.g. LAN Live join). Writes to <exe-dir>/midieditor_ai.log so the user
+// can find it instantly without hunting through %LocalAppData%.
+//
+// Rotation policy (revised 2026-05-08 after a Live-session test produced
+// 60 MB of log in a few minutes when Info-level was enabled):
+//   • Active log capped at 10 MB
+//   • On overflow, rotate: .log → .log.1, .log.1 → .log.2, .log.2 → .log.3,
+//     oldest .log.3 deleted. Total disk usage capped at ~40 MB.
+//   • Rotation triggers in-flight (during the running process) — the
+//     earlier code only checked at startup, so a long-running session
+//     could fill the disk with no recovery until restart.
+namespace {
+QFile *g_logFile = nullptr;
+QMutex g_logMutex;
+QString g_logPath;                     // remembered so the in-process
+                                       // rotate path can find the base
+qint64 g_logBytes = 0;                 // bytes written since last rotate
+constexpr qint64 kLogMaxBytes = 10 * 1024 * 1024;  // 10 MB
+constexpr int kLogRotateBackups = 3;   // .1 .2 .3
+
+// Caller MUST hold g_logMutex.
+void rotateLogFiles_locked() {
+    if (g_logPath.isEmpty()) return;
+    if (g_logFile && g_logFile->isOpen()) {
+        g_logFile->flush();
+        g_logFile->close();
+    }
+    // .2 → .3, .1 → .2, base → .1 (oldest .3 dropped first)
+    for (int i = kLogRotateBackups; i >= 1; --i) {
+        QString dst = g_logPath + QStringLiteral(".%1").arg(i);
+        QString src = (i == 1) ? g_logPath
+                                : g_logPath + QStringLiteral(".%1").arg(i - 1);
+        QFile::remove(dst);
+        if (QFileInfo::exists(src)) QFile::rename(src, dst);
+    }
+    if (g_logFile) {
+        g_logFile->setFileName(g_logPath);
+        if (!g_logFile->open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) {
+            // Reopening failed — fall back to stderr-only.
+            delete g_logFile;
+            g_logFile = nullptr;
+        }
+    }
+    g_logBytes = 0;
+}
+
+void midiEditorLogHandler(QtMsgType type, const QMessageLogContext &ctx, const QString &msg) {
+    QMutexLocker lock(&g_logMutex);
+    const char *level = "DBG";
+    switch (type) {
+        case QtDebugMsg:    level = "DBG"; break;
+        case QtInfoMsg:     level = "INF"; break;
+        case QtWarningMsg:  level = "WRN"; break;
+        case QtCriticalMsg: level = "ERR"; break;
+        case QtFatalMsg:    level = "FTL"; break;
+    }
+    QString line = QStringLiteral("%1 %2 [%3] %4\n")
+                       .arg(QDateTime::currentDateTime().toString(Qt::ISODateWithMs))
+                       .arg(QString::fromLatin1(level))
+                       .arg(ctx.category ? QString::fromLatin1(ctx.category) : QStringLiteral("default"))
+                       .arg(msg);
+    QByteArray utf = line.toUtf8();
+    if (g_logFile && g_logFile->isOpen()) {
+        g_logFile->write(utf);
+        g_logFile->flush();
+        g_logBytes += utf.size();
+        if (g_logBytes >= kLogMaxBytes) {
+            rotateLogFiles_locked();
+        }
+    }
+    fputs(utf.constData(), stderr);
+    if (type == QtFatalMsg) {
+        if (g_logFile && g_logFile->isOpen()) g_logFile->flush();
+        abort();
+    }
+}
+
+#ifdef Q_OS_WIN
+#include <windows.h>
+LONG WINAPI midiEditorCrashHandler(EXCEPTION_POINTERS *info) {
+    QMutexLocker lock(&g_logMutex);
+    QString msg = QStringLiteral(
+        "%1 FTL [crash] UNHANDLED EXCEPTION code=0x%2 addr=0x%3 — process is about to die\n")
+        .arg(QDateTime::currentDateTime().toString(Qt::ISODateWithMs))
+        .arg(QString::number(info->ExceptionRecord->ExceptionCode, 16))
+        .arg(QString::number(reinterpret_cast<quintptr>(info->ExceptionRecord->ExceptionAddress), 16));
+    if (g_logFile && g_logFile->isOpen()) {
+        g_logFile->write(msg.toUtf8());
+        g_logFile->flush();
+        g_logFile->close();
+    }
+    fputs(msg.toUtf8().constData(), stderr);
+    return EXCEPTION_CONTINUE_SEARCH;  // let WER take over for the actual crash dialog
+}
+#endif
+
+void installFileLogHandler() {
+    // Primary: next to the executable. Easy to find, no env-var hunting.
+    QString primary = QCoreApplication::applicationDirPath() + QStringLiteral("/midieditor_ai.log");
+    // Fallback: %LocalAppData%/MidiEditor AI/midieditor_ai.log if exe-dir
+    // isn't writable (rare — Program Files install with read-only perms).
+    QString fallback;
+    QString dataDir = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
+    if (!dataDir.isEmpty()) {
+        QDir().mkpath(dataDir);
+        fallback = dataDir + QStringLiteral("/midieditor_ai.log");
+    }
+
+    // Cleanup of the legacy `.prev` rotation slot from earlier builds —
+    // we now use numbered `.1/.2/.3` backups and don't want stale files
+    // lingering with a 60 MB Info-spam payload.
+    QFile::remove(primary + QStringLiteral(".prev"));
+    if (!fallback.isEmpty()) QFile::remove(fallback + QStringLiteral(".prev"));
+
+    auto tryOpen = [](const QString &path) -> QFile * {
+        if (path.isEmpty()) return nullptr;
+        QFileInfo fi(path);
+        // Pre-rotate at startup if the existing log already overflows.
+        // Subsequent overflows are handled in-flight by midiEditorLogHandler.
+        if (fi.exists() && fi.size() >= kLogMaxBytes) {
+            for (int i = kLogRotateBackups; i >= 1; --i) {
+                QString dst = path + QStringLiteral(".%1").arg(i);
+                QString src = (i == 1) ? path
+                                        : path + QStringLiteral(".%1").arg(i - 1);
+                QFile::remove(dst);
+                if (QFileInfo::exists(src)) QFile::rename(src, dst);
+            }
+        }
+        QFile *f = new QFile(path);
+        if (!f->open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) {
+            delete f;
+            return nullptr;
+        }
+        return f;
+    };
+
+    g_logFile = tryOpen(primary);
+    QString chosen = primary;
+    if (!g_logFile) {
+        g_logFile = tryOpen(fallback);
+        chosen = fallback;
+    }
+    if (!g_logFile) return;
+    g_logPath = chosen;
+    g_logBytes = g_logFile->size();  // continue counting from existing length
+
+    qInstallMessageHandler(midiEditorLogHandler);
+    QString header = QStringLiteral("\n========== %1 startup (log path: %2) ==========\n")
+                         .arg(QDateTime::currentDateTime().toString(Qt::ISODateWithMs))
+                         .arg(chosen);
+    QByteArray hdrUtf = header.toUtf8();
+    g_logFile->write(hdrUtf);
+    g_logFile->flush();
+    g_logBytes += hdrUtf.size();
+
+#ifdef Q_OS_WIN
+    SetUnhandledExceptionFilter(midiEditorCrashHandler);
+#endif
+}
+}
 
 #ifdef NO_CONSOLE_MODE
 #include <tchar.h>
@@ -200,6 +367,16 @@ int main(int argc, char *argv[]) {
 #endif
     a.setApplicationName("MidiEditor AI");
     a.setQuitOnLastWindowClosed(true);
+
+    // File log handler — must be after setApplicationName so QStandardPaths
+    // resolves to the right %LocalAppData% subdir.
+    installFileLogHandler();
+    // Plan §11.10i: apply user-configured Qt logging filter rules so the
+    // chosen level / per-category overrides are in effect from the very
+    // first qInfo / qCDebug call. Default (no QSettings entry) is
+    // Warnings, matching Qt's own default.
+    LoggingConfig::applyFromSettings();
+    qInfo() << "MidiEditor AI" << a.applicationVersion() << "starting up";
 
     a.setAttribute(Qt::AA_CompressHighFrequencyEvents, true);
     a.setAttribute(Qt::AA_CompressTabletEvents, true);

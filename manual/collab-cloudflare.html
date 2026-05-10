@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Self-Host the Cloudflare Rendezvous | MidiEditor AI Manual</title>
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="icon" type="image/x-icon" href="favicon.ico" sizes="any">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <meta name="theme-color" content="#0B1020">
+  <meta name="description" content="Deploy your own Cloudflare Worker for WAN Live rendezvous. Free tier, 5-minute setup, full control over rate limits and uptime.">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="site.css">
+  <link rel="stylesheet" href="audio.css">
+  <style>
+    .screenshot-single { text-align: center; margin: 1.5rem 0; }
+    .screenshot-single img { max-width: 100%; border: 1px solid var(--border); border-radius: 8px; }
+    .caption { text-align: center; color: var(--text-muted); font-style: italic; margin-top: 0.5rem; font-size: 0.9rem; }
+    .step-list { counter-reset: step; list-style: none; padding-left: 0; }
+    .step-list li { counter-increment: step; padding: 0.8rem 0 0.8rem 3rem; position: relative; border-bottom: 1px solid var(--border); }
+    .step-list li::before { content: counter(step); position: absolute; left: 0; top: 0.7rem; width: 2rem; height: 2rem; background: var(--accent); color: #fff; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.9rem; }
+    .step-list li:last-child { border-bottom: none; }
+    .step-list li b { color: var(--text); }
+    .todo { background: rgba(255, 200, 0, 0.08); border-left: 3px solid #d29922; padding: 0.7rem 1rem; margin: 1rem 0; font-style: italic; color: var(--text-muted); }
+
+    /* Architecture diagram (ASCII fallback for accessibility / no-CSS) */
+    .arch-diagram {
+      background: var(--bg-card); border: 1px solid var(--border);
+      border-radius: 10px; padding: 1.4rem 1rem; margin: 1.5rem 0;
+      font-family: 'Cascadia Code', 'Consolas', monospace;
+      font-size: 0.78rem; line-height: 1.5; color: var(--text);
+      overflow-x: auto;
+      white-space: pre;
+    }
+
+    /* Detailed animated rendezvous flow - same shape as the WAN-page
+       version, but with explicit per-step labels that highlight as
+       each step's dot animates. 12-second loop covering all 6 steps
+       of the v3 protocol. */
+    .rdv-flow {
+        position: relative;
+        background: linear-gradient(135deg, #10192A 0%, #162238 100%);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 1.5rem 1rem 1rem;
+        margin: 1.5rem 0;
+    }
+    .rdv-stage {
+        position: relative;
+        display: flex;
+        justify-content: space-around;
+        align-items: flex-start;
+        height: 200px;
+        padding-top: 15px;
+    }
+    .rdv-actor {
+        position: relative; z-index: 2;
+        flex: 0 0 130px;
+        text-align: center;
+    }
+    .rdv-actor .icon-wrap {
+        width: 64px; height: 64px;
+        margin: 0 auto 0.4rem;
+        border-radius: 50%;
+        background: var(--bg-card);
+        border: 2px solid var(--border);
+        display: flex; align-items: center; justify-content: center;
+        font-size: 1.6em;
+        transition: opacity 0.4s, box-shadow 0.4s;
+    }
+    .rdv-actor.host .icon-wrap   { border-color: #58a6ff; }
+    .rdv-actor.cloud .icon-wrap  { border-color: #f0883e; }
+    .rdv-actor.joiner .icon-wrap { border-color: #2ea043; }
+    .rdv-actor .label {
+        font-size: 0.85em; color: var(--text); line-height: 1.25;
+    }
+    .rdv-actor .label small {
+        color: var(--text-muted); font-size: 0.85em;
+    }
+    /* Cloudflare bright during steps 1-5 (≈70 % of cycle), dim during
+       step 6 when traffic goes direct. */
+    .rdv-actor.cloud .icon-wrap {
+        animation: rdv-cloud-pulse 12s linear infinite;
+    }
+    @keyframes rdv-cloud-pulse {
+        0%,  68% { opacity: 1; box-shadow: 0 0 14px #f0883e; }
+        72%, 96% { opacity: 0.3; box-shadow: 0 0 0 #f0883e; }
+        100%     { opacity: 1; box-shadow: 0 0 14px #f0883e; }
+    }
+    .rdv-track-top {
+        position: absolute;
+        top: 47px; left: 12%; right: 12%; height: 2px;
+        background: linear-gradient(90deg,
+            transparent 0%,
+            rgba(240,136,62,0.35) 18%,
+            rgba(240,136,62,0.35) 82%,
+            transparent 100%);
+        z-index: 1;
+    }
+    .rdv-track-direct {
+        position: absolute;
+        top: 165px; left: 14%; right: 14%; height: 2px;
+        background: rgba(46,160,67,0.5);
+        opacity: 0;
+        z-index: 1;
+        animation: rdv-direct-reveal 12s linear infinite;
+    }
+    .rdv-track-direct::before,
+    .rdv-track-direct::after {
+        content: "";
+        position: absolute;
+        top: -86px; width: 2px; height: 86px;
+        background: rgba(46,160,67,0.5);
+    }
+    .rdv-track-direct::before { left: 0; }
+    .rdv-track-direct::after  { right: 0; }
+    @keyframes rdv-direct-reveal {
+        0%, 68% { opacity: 0; }
+        72%, 96% { opacity: 1; }
+        100%    { opacity: 0; }
+    }
+    .rdv-dot {
+        position: absolute;
+        width: 10px; height: 10px;
+        border-radius: 50%;
+        transform: translate(-50%, -50%);
+        z-index: 3;
+        will-change: left, opacity;
+    }
+    /* Blue dot - host's actions (steps 1, 3, 4) */
+    .rdv-dot.host-actions {
+        top: 47px;
+        background: #58a6ff;
+        box-shadow: 0 0 10px #58a6ff, 0 0 4px #58a6ff;
+        animation: cf-host-actions 12s linear infinite;
+    }
+    @keyframes cf-host-actions {
+        /* Step 1 (POST /session): 0-14 % */
+        0%   { left: 14%; opacity: 0; }
+        1%   { opacity: 1; }
+        7%   { left: 50%; opacity: 1; }
+        7.5% { opacity: 0; }
+        8%   { left: 50%; opacity: 0; }
+        8.5% { opacity: 1; }
+        13%  { left: 14%; opacity: 1; }
+        14%  { opacity: 0; }
+        /* Idle 14-28 % (joiner step 2) */
+        28%  { left: 14%; opacity: 0; }
+        /* Step 3 (GET /joiner-offers): 28-42 % */
+        29%  { opacity: 1; }
+        35%  { left: 50%; opacity: 1; }
+        35.5%{ opacity: 0; }
+        36%  { left: 50%; opacity: 0; }
+        36.5%{ opacity: 1; }
+        41%  { left: 14%; opacity: 1; }
+        42%  { opacity: 0; }
+        /* Step 4 (POST /host-answer): 42-56 % */
+        43%  { left: 14%; opacity: 1; }
+        49%  { left: 50%; opacity: 1; }
+        49.5%{ opacity: 0; }
+        50%  { left: 50%; opacity: 0; }
+        50.5%{ opacity: 1; }
+        55%  { left: 14%; opacity: 1; }
+        56%  { opacity: 0; }
+        100% { left: 14%; opacity: 0; }
+    }
+    /* Green dot - joiner's actions (steps 2, 5) */
+    .rdv-dot.joiner-actions {
+        top: 47px;
+        background: #2ea043;
+        box-shadow: 0 0 10px #2ea043, 0 0 4px #2ea043;
+        animation: cf-joiner-actions 12s linear infinite;
+    }
+    @keyframes cf-joiner-actions {
+        0%   { left: 86%; opacity: 0; }
+        /* Step 2 (POST joiner-offer): 14-28 % */
+        14%  { left: 86%; opacity: 0; }
+        15%  { opacity: 1; }
+        21%  { left: 50%; opacity: 1; }
+        21.5%{ opacity: 0; }
+        22%  { left: 50%; opacity: 0; }
+        22.5%{ opacity: 1; }
+        27%  { left: 86%; opacity: 1; }
+        28%  { opacity: 0; }
+        /* Step 5 (GET host-answer): 56-70 % */
+        56%  { left: 86%; opacity: 0; }
+        57%  { opacity: 1; }
+        63%  { left: 50%; opacity: 1; }
+        63.5%{ opacity: 0; }
+        64%  { left: 50%; opacity: 0; }
+        64.5%{ opacity: 1; }
+        69%  { left: 86%; opacity: 1; }
+        70%  { opacity: 0; }
+        100% { left: 86%; opacity: 0; }
+    }
+    /* Phase 6 (70-100 %): direct DTLS dots on bottom track */
+    .rdv-dot.direct-fwd {
+        top: 165px;
+        background: #2ea043;
+        box-shadow: 0 0 10px #2ea043, 0 0 4px #2ea043;
+        animation: cf-direct-fwd 12s linear infinite;
+    }
+    .rdv-dot.direct-back {
+        top: 165px;
+        background: #58a6ff;
+        box-shadow: 0 0 10px #58a6ff, 0 0 4px #58a6ff;
+        animation: cf-direct-back 12s linear infinite;
+    }
+    @keyframes cf-direct-fwd {
+        0%, 72% { left: 14%; opacity: 0; }
+        74%     { opacity: 1; }
+        86%     { left: 86%; opacity: 1; }
+        88%     { opacity: 0; }
+        100%    { left: 86%; opacity: 0; }
+    }
+    @keyframes cf-direct-back {
+        0%, 80% { left: 86%; opacity: 0; }
+        82%     { opacity: 1; }
+        94%     { left: 14%; opacity: 1; }
+        96%     { opacity: 0; }
+        100%    { left: 14%; opacity: 0; }
+    }
+    /* 6-step list below the diagram, each highlighting in turn */
+    .rdv-step-list {
+        list-style: none;
+        margin: 0; padding: 0;
+        font-size: 0.88em;
+        line-height: 1.55;
+    }
+    .rdv-step-list li {
+        padding: 0.3rem 0.6rem;
+        border-radius: 4px;
+        opacity: 0.4;
+        transition: opacity 0.25s, background 0.25s, color 0.25s;
+        font-family: 'Cascadia Code', 'Consolas', monospace;
+        font-size: 0.92em;
+    }
+    .rdv-step-list li b {
+        font-family: var(--font-sans, sans-serif);
+    }
+    .rdv-step-list li:nth-child(1) { animation: rdv-step1 12s linear infinite; }
+    .rdv-step-list li:nth-child(2) { animation: rdv-step2 12s linear infinite; }
+    .rdv-step-list li:nth-child(3) { animation: rdv-step3 12s linear infinite; }
+    .rdv-step-list li:nth-child(4) { animation: rdv-step4 12s linear infinite; }
+    .rdv-step-list li:nth-child(5) { animation: rdv-step5 12s linear infinite; }
+    .rdv-step-list li:nth-child(6) { animation: rdv-step6 12s linear infinite; }
+    @keyframes rdv-step1 {
+        0%, 14% { opacity: 1; background: rgba(88,166,255,0.12); color: var(--text); }
+        15%, 100% { opacity: 0.4; background: transparent; color: var(--text-muted); }
+    }
+    @keyframes rdv-step2 {
+        14%, 28% { opacity: 1; background: rgba(46,160,67,0.12); color: var(--text); }
+        0%, 13.99%, 28.01%, 100% { opacity: 0.4; background: transparent; color: var(--text-muted); }
+    }
+    @keyframes rdv-step3 {
+        28%, 42% { opacity: 1; background: rgba(88,166,255,0.12); color: var(--text); }
+        0%, 27.99%, 42.01%, 100% { opacity: 0.4; background: transparent; color: var(--text-muted); }
+    }
+    @keyframes rdv-step4 {
+        42%, 56% { opacity: 1; background: rgba(88,166,255,0.12); color: var(--text); }
+        0%, 41.99%, 56.01%, 100% { opacity: 0.4; background: transparent; color: var(--text-muted); }
+    }
+    @keyframes rdv-step5 {
+        56%, 70% { opacity: 1; background: rgba(46,160,67,0.12); color: var(--text); }
+        0%, 55.99%, 70.01%, 100% { opacity: 0.4; background: transparent; color: var(--text-muted); }
+    }
+    @keyframes rdv-step6 {
+        70%, 100% { opacity: 1; background: rgba(46,160,67,0.18); color: var(--text); font-weight: 600; }
+        0%, 69.99% { opacity: 0.4; background: transparent; color: var(--text-muted); font-weight: normal; }
+    }
+    @media (max-width: 600px) {
+        .rdv-stage { height: 180px; }
+        .rdv-actor { flex-basis: 90px; }
+        .rdv-actor .icon-wrap { width: 50px; height: 50px; font-size: 1.2em; }
+        .rdv-actor .label { font-size: 0.75em; }
+        .rdv-track-top { top: 40px; }
+        .rdv-track-direct { top: 150px; }
+        .rdv-track-direct::before,
+        .rdv-track-direct::after { top: -80px; height: 80px; }
+        .rdv-dot.host-actions, .rdv-dot.joiner-actions { top: 40px; }
+        .rdv-dot.direct-fwd, .rdv-dot.direct-back { top: 150px; }
+        .rdv-step-list li { font-size: 0.8em; }
+    }
+
+    /* Endpoint reference card */
+    .endpoint-table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: 0.92em; }
+    .endpoint-table th, .endpoint-table td { padding: 0.6rem 0.8rem; text-align: left; border-bottom: 1px solid var(--border); }
+    .endpoint-table th { color: var(--accent); background: rgba(88,166,255,0.05); font-weight: 600; }
+    .endpoint-table td code { background: rgba(255,255,255,0.04); padding: 0.1em 0.35em; border-radius: 3px; }
+
+    /* Cost callout */
+    .cost-note {
+      background: linear-gradient(135deg, #10192A 0%, #162238 100%);
+      border-left: 4px solid #2ea043; border-radius: 8px;
+      padding: 1rem 1.2rem; margin: 1.5rem 0;
+    }
+    .cost-note h4 { margin: 0 0 0.4rem; border-bottom: none; font-size: 1em; }
+    .cost-note p { margin: 0.2rem 0; font-size: 0.92em; }
+  </style>
+</head>
+<body>
+<nav class="site-nav" role="navigation" aria-label="Main navigation">
+<div class="container">
+    <a href="index.html" class="nav-brand"><img class="brand-logo" src="Midieditor-ai_banner_w.png" alt="MidiEditor AI"></a>
+    <button class="nav-hamburger" aria-label="Toggle menu" aria-expanded="false">&#x2630;</button>
+    <ul class="nav-links">
+        <li><a href="index.html#features">Features</a></li>
+        <li><a href="index.html#showcase">Showcase</a></li>
+        <li class="nav-dropdown">
+            <span class="nav-dropdown-trigger active">Docs &#x25BE;</span>
+            <div class="nav-dropdown-menu">
+                <a href="docs-index.html">Manual Overview</a>
+                <a href="midipilot.html">MidiPilot AI</a>
+                <a href="collaboration.html">Collaboration</a>
+                <a href="prompt-examples.html">Prompt Examples</a>
+                <a href="ffxiv-channel-fixer.html">FFXIV Channel Fixer</a>
+                <a href="supported-files.html">Supported Files</a>
+                <a href="themes.html">Themes &amp; Appearance</a>
+                <a href="lyrics.html">Lyric Editor</a>
+                <a href="soundfont.html">SoundFonts &amp; FluidSynth</a>
+                <a href="shortcuts.html">Keyboard Shortcuts</a>
+                <a href="mcp-server.html">MCP Server</a>
+                <a href="setup.html">Setup &amp; Installation</a>
+            </div>
+        </li>
+        <li><a href="changelog.html">Changelog</a></li>
+        <li><a href="https://github.com/happytunesai/MidiEditor_AI" target="_blank" rel="noopener noreferrer">GitHub &#x2197;</a></li>
+        <li><a href="download.html" class="nav-cta">&#x2B07; Download</a></li>
+    </ul>
+</div>
+</nav>
+
+<a href="#main-content" class="skip-link">Skip to main content</a>
+
+<main id="main-content">
+
+<p style="margin-bottom: 0.4rem;"><a href="collaboration.html">&larr; Collaboration overview</a></p>
+<h1 id="cloudflare">&#x2601;&#xFE0F; Self-Host the Cloudflare Rendezvous</h1>
+
+<p>
+WAN Live ships with a default rendezvous URL hosted by Happy Tunes. It works out of the box, but
+the free tier is shared with everyone - if you run lots of sessions, build CI bots that smoke-
+test connections, or just want a custom domain, deploy your own Cloudflare Worker. The script is
+~120 lines, and the free tier covers <b>100&thinsp;000 requests/day</b>, which is enough for hundreds
+of sessions.
+</p>
+
+<div class="cost-note">
+<h4>&#x1F4B0; Cost: $0/month for hobby use</h4>
+<p>Cloudflare Workers free tier: 100k requests/day, KV reads 100k/day, KV writes 1k/day. Each
+session uses ~4 requests + ~3 KV writes (offer, answer, polling). You can run hundreds of sessions
+per day without ever leaving the free tier. <em>Source: Cloudflare pricing as of 2026-05.</em></p>
+</div>
+
+<div class="screenshot-single">
+    <img src="screenshots/cloudflare_example_url.png" alt="Browser showing the rendezvous Worker /health endpoint returning JSON" loading="lazy">
+    <div class="caption">Once deployed, your Worker's <code>/health</code> endpoint returns
+    a small JSON blob that confirms it's live.</div>
+</div>
+
+<hr>
+
+<h2 id="why">Why self-host?</h2>
+<ul>
+<li><b>Privacy.</b> Your rendezvous, your logs - the default operator can see who connects when (just metadata, no MIDI).</li>
+<li><b>Quota.</b> The shared default is rate-limited per IP. Heavy users hit it.</li>
+<li><b>Custom domain.</b> Use <code>rdv.your-band.com</code> instead of <code>workers.dev</code>.</li>
+<li><b>Uptime control.</b> If the default goes down, your sessions still work.</li>
+<li><b>It's tiny.</b> The Worker is ~120 LoC, all in <a href="https://github.com/happytunesai/MidiEditor_AI/blob/main/cloudflare/rendezvous.js" target="_blank" rel="noopener noreferrer">cloudflare/rendezvous.js</a>.</li>
+</ul>
+
+<hr>
+
+<h2 id="architecture">How rendezvous works</h2>
+
+<p>
+The Worker is a tiny key-value store with an HTTP front. Each session
+uses three short-lived records (5-minute TTL): a session marker, the
+joiner's offer SDP, and the host's answer SDP. Once both sides have
+each other's SDP, the peers establish a <em>direct</em> DTLS-encrypted
+WebRTC connection - the Worker isn't in the path anymore.
+</p>
+
+<div class="rdv-flow" aria-hidden="true">
+    <div class="rdv-stage">
+        <div class="rdv-actor host">
+            <div class="icon-wrap">&#x1F5A5;&#xFE0F;</div>
+            <div class="label">PC 1<br><small>Host</small></div>
+        </div>
+        <div class="rdv-actor cloud">
+            <div class="icon-wrap">&#x2601;&#xFE0F;</div>
+            <div class="label">Cloudflare<br><small>Worker + KV</small></div>
+        </div>
+        <div class="rdv-actor joiner">
+            <div class="icon-wrap">&#x1F5A5;&#xFE0F;</div>
+            <div class="label">PC 2<br><small>Joiner</small></div>
+        </div>
+        <div class="rdv-track-top"></div>
+        <div class="rdv-dot host-actions"></div>
+        <div class="rdv-dot joiner-actions"></div>
+        <div class="rdv-track-direct"></div>
+        <div class="rdv-dot direct-fwd"></div>
+        <div class="rdv-dot direct-back"></div>
+    </div>
+    <ol class="rdv-step-list">
+        <li><b>1.</b> <code>POST /session</code> - host registers, gets a 4-char code (e.g. <code>AB12</code>)</li>
+        <li><b>2.</b> <code>POST /code/AB12/joiner-offer</code> - joiner publishes its WebRTC offer SDP</li>
+        <li><b>3.</b> <code>GET /code/AB12/joiner-offers</code> - host polls for new joiners, receives the offer</li>
+        <li><b>4.</b> <code>POST /code/AB12/host-answer</code> - host returns its answer SDP for that joiner</li>
+        <li><b>5.</b> <code>GET /code/AB12/host-answer/&lt;joinerId&gt;</code> - joiner picks up the answer</li>
+        <li><b>6.</b> <b>Direct DTLS handshake</b> peer-to-peer - <em>Cloudflare no longer in the path</em></li>
+    </ol>
+</div>
+
+<p style="font-size: 0.9em; color: var(--text-muted); margin-top: 0.5rem;">
+The Worker only sees five small HTTPS calls per joiner (steps 1-5,
+~5&nbsp;KB total). After the SDPs have been exchanged, ICE finds a
+path between the peers and DTLS handshakes them directly - your
+MIDI edits never traverse Cloudflare. Each step in the list above
+highlights as its dot animates; the green dots in step 6 represent
+direct peer-to-peer traffic on the new bottom track.
+</p>
+
+<hr>
+
+<h2 id="walkthrough">Five-minute deploy walkthrough</h2>
+
+<ol class="step-list">
+<li><b>Sign up at <a href="https://dash.cloudflare.com" target="_blank" rel="noopener noreferrer">dash.cloudflare.com</a>.</b> Free tier
+is fine. You don't need a domain to start - you'll get <code>your-worker.workers.dev</code>.</li>
+
+<li><b>Create the KV namespace.</b> In the Cloudflare dashboard:
+<em>Workers &amp; Pages &rarr; KV &rarr; Create namespace</em>. Name it
+<code>RDV</code>. <span style="color: var(--text-muted);">The Worker
+code references the binding by this exact name - spelling matters.</span>
+<div class="screenshot-single">
+    <img src="screenshots/cloudflare_KV_menu.png" alt="Cloudflare dashboard, KV namespaces menu, with Create button highlighted" loading="lazy">
+</div>
+<div class="screenshot-single">
+    <img src="screenshots/cloudflare_worker_kv_create.png" alt="Naming the new KV namespace 'RDV'" loading="lazy">
+    <div class="caption">Create the KV namespace named <code>RDV</code>.</div>
+</div>
+</li>
+
+<li><b>Create the Worker.</b> <em>Workers &amp; Pages &rarr; Create
+application &rarr; Create Worker</em>. Pick any name - e.g.
+<code>midi-rendezvous</code>. Click <em>Deploy</em> on the default
+&quot;Hello World&quot; template; we'll replace the code in the next step.
+<div class="screenshot-single">
+    <img src="screenshots/Cloudflare_worker.png" alt="Cloudflare Workers list with the Create Worker button" loading="lazy">
+</div>
+<div class="screenshot-single">
+    <img src="screenshots/cloudflare_hello_world.png" alt="Cloudflare default Hello World worker template" loading="lazy">
+</div>
+<div class="screenshot-single">
+    <img src="screenshots/cloudflare_deploy_hello_world.png" alt="Deploy button on the Hello World template" loading="lazy">
+    <div class="caption">Deploy the default template first - we just need a Worker shell to paste into.</div>
+</div>
+</li>
+
+<li><b>Paste the rendezvous code.</b> On the Worker page, click
+<em>Edit code</em>. Open
+<a href="https://github.com/happytunesai/MidiEditor_AI/blob/main/cloudflare/rendezvous.js" target="_blank" rel="noopener noreferrer">cloudflare/rendezvous.js</a>
+in the GitHub repo, copy the full contents (header comment included),
+paste into the Cloudflare editor replacing the Hello-World body, then
+click <em>Save and Deploy</em>.
+<div class="screenshot-single">
+    <img src="screenshots/cloudflare_edit_code_hello_world.png" alt="Cloudflare Worker editor showing the default code" loading="lazy">
+</div>
+<div class="screenshot-single">
+    <img src="screenshots/cloudflare_save_code.png" alt="Save and Deploy button in the Worker editor" loading="lazy">
+    <div class="caption">Save &amp; Deploy after pasting <code>rendezvous.js</code>.</div>
+</div>
+</li>
+
+<li><b>Bind the KV namespace to the Worker.</b> Worker page &rarr;
+<em>Settings &rarr; Variables and Secrets</em> &rarr; scroll to
+<em>KV Namespace Bindings</em>. Click <em>Add binding</em>:
+<ul>
+<li><b>Variable name:</b> <code>RDV</code> (must match exactly - the
+Worker code reads <code>env.RDV.put(&hellip;)</code>)</li>
+<li><b>KV namespace:</b> pick the <code>RDV</code> namespace you created in step 2</li>
+</ul>
+Click <em>Deploy</em> to publish the binding.
+<div class="screenshot-single">
+    <img src="screenshots/cloudflare_add_binding.png" alt="Worker Settings → Variables and Secrets, with the Add binding entry visible" loading="lazy">
+</div>
+<div class="screenshot-single">
+    <img src="screenshots/cloudflare_add_binding_menu.png" alt="Add binding dialog opening, with KV Namespace selected as the binding type" loading="lazy">
+</div>
+<div class="screenshot-single">
+    <img src="screenshots/cloudflare_add_binding_variable_kv_namespace.png" alt="Binding dialog filled with variable name RDV and the RDV namespace" loading="lazy">
+    <div class="caption">Variable name <code>RDV</code> bound to the namespace also called <code>RDV</code>.</div>
+</div>
+</li>
+
+<li><b>Test with <code>/health</code>.</b> Open
+<code>https://your-worker.workers.dev/health</code> in a browser. You
+should get JSON like:
+<pre><code>{
+  "service": "midi-rdv",
+  "version": 3,
+  "protocol": "joiner-initiated-multi-peer",
+  "maxPeersPerSession": 8,
+  "docs": "https://github.com/happytunesai/MidiEditor_AI/tree/main/cloudflare"
+}</code></pre>
+If you see this, the Worker is live. If you get a 404 or 5xx, double
+check that the deploy ran and the KV binding name is exactly
+<code>RDV</code>.
+<div class="screenshot-single">
+    <img src="screenshots/cloudflare_code_offers.png" alt="Worker live tail showing successful requests" loading="lazy">
+    <div class="caption">Worker live tail (optional) lets you watch requests fly through during a session.</div>
+</div>
+</li>
+
+<li><b>Point MidiEditor at it.</b> Open <em>Edit &rarr; Settings &rarr;
+Collaboration</em> &rarr; <em>Rendezvous URL</em>. Paste your worker URL
+(without <code>/health</code> - just the base, e.g.
+<code>https://midi-rendezvous.your-name.workers.dev</code>). Click
+<em>Test connection</em>. You should see a green &quot;Connection
+looks great&quot;.
+<div class="screenshot-single">
+    <img src="screenshots/cloudflare_collabsettings_own_url.png" alt="MidiEditor Settings, Collaboration tab, custom rendezvous URL pasted" loading="lazy">
+    <div class="caption">Paste your Worker URL into the Rendezvous URL field; close the dialog to save.</div>
+</div>
+</li>
+
+<li><b>You're done.</b> Start a WAN session as usual - your code,
+SDPs, and answer-poll all flow through your own Worker now.</li>
+</ol>
+
+<hr>
+
+<h2 id="endpoints">Endpoint reference</h2>
+
+<p>For the curious, here's exactly what the Worker exposes. Every record TTL is 5 minutes.</p>
+
+<table class="endpoint-table">
+<thead>
+<tr><th>Method</th><th>Path</th><th>Body</th><th>Returns</th><th>Purpose</th></tr>
+</thead>
+<tbody>
+<tr><td><code>GET</code></td><td><code>/health</code></td><td>-</td><td>JSON: service info</td>
+    <td>Pre-flight, monitoring</td></tr>
+<tr><td><code>POST</code></td><td><code>/session</code></td><td><code>{sessionId, displayName}</code></td><td><code>{code, expiresInSec}</code></td>
+    <td>Host announces a new session, gets a 4-char code</td></tr>
+<tr><td><code>GET</code></td><td><code>/code/&lt;c&gt;</code></td><td>-</td><td><code>{sessionId, displayName}</code></td>
+    <td>Joiner verifies the code is valid before initiating</td></tr>
+<tr><td><code>POST</code></td><td><code>/code/&lt;c&gt;/joiner-offer</code></td><td><code>{joinerId, sdp}</code></td><td><code>{ok: true}</code></td>
+    <td>Joiner publishes their WebRTC offer (one per joiner)</td></tr>
+<tr><td><code>GET</code></td><td><code>/code/&lt;c&gt;/joiner-offers</code></td><td>-</td><td><code>{offers:[{joinerId,sdp,ts},&hellip;]}</code></td>
+    <td>Host polls for pending offers; returns all not-yet-paired ones</td></tr>
+<tr><td><code>POST</code></td><td><code>/code/&lt;c&gt;/host-answer</code></td><td><code>{joinerId, sdp}</code></td><td><code>{ok: true}</code></td>
+    <td>Host publishes the answer SDP for one specific joiner</td></tr>
+<tr><td><code>GET</code></td><td><code>/code/&lt;c&gt;/host-answer/&lt;joinerId&gt;</code></td><td>-</td><td><code>{sdp}</code></td>
+    <td>Joiner polls for their specific answer</td></tr>
+</tbody>
+</table>
+
+<p>
+The 4-character alphabet excludes visually ambiguous characters (no
+0/O/1/I/L), giving 28&Hat;4 &asymp; 614&thinsp;000 codes. The
+5-minute TTL means stale codes auto-expire; collisions are detected
+and re-rolled on the host side. Each joiner generates its own random
+joinerId (16 url-safe chars) so the host can route answers to the
+right peer.
+</p>
+
+<hr>
+
+<h2 id="security">Security notes</h2>
+
+<ul>
+<li><b>Joiner-offer slots can't be overwritten.</b> Once a joinerId
+slot is filled the worker returns 409 on a second POST for the same
+ID. This blocks an attacker who'd otherwise race to claim a slot ahead
+of a legitimate joiner. Each joiner generates a fresh random joinerId
+on connect, so a real collision is astronomically unlikely.</li>
+<li><b>DTLS fingerprint in the SDP.</b> Both peers verify the other's
+certificate fingerprint as part of the WebRTC handshake. The Worker
+sees the SDPs but can't impersonate either party unless it actively
+swaps both SDPs - an attack you'd only see if Cloudflare itself
+became hostile.</li>
+<li><b>No persistent data.</b> Records have a 5-minute TTL. Failed
+sessions leave no trace.</li>
+<li><b>Soft per-session slot cap.</b> Worker rejects new joiners with
+503 once 8 slots are filled. Protects host bandwidth, doesn't escalate
+into the global 100k req/day quota.</li>
+<li><b>Per-IP rate limiting (optional).</b> Cloudflare's WAF lets you
+add a rate-limit rule (60 req/IP/min is plenty for legitimate users
+and stops naive scanners cold). Highly recommended on shared
+deployments - in your Worker's <em>Security</em> settings, add a rule
+matching path <code>/code/*</code> with a 60-per-minute threshold.</li>
+</ul>
+
+<hr>
+
+<h2 id="custom-domain">Custom domain</h2>
+
+<p>
+The default <code>your-worker.workers.dev</code> URL works fine, but
+mapping a real domain looks more polished and stays stable if you
+ever rename the Worker:
+</p>
+
+<ol>
+<li>Add the domain to your Cloudflare account (free for any registrar).</li>
+<li>Worker page &rarr; <em>Settings &rarr; Triggers &rarr; Add Custom
+Domain</em>. Pick a subdomain like <code>rdv.your-band.com</code>.</li>
+<li>Cloudflare auto-provisions an SSL cert and wires DNS for you.</li>
+<li>Update <em>Settings &rarr; Collaboration &rarr; Rendezvous URL</em>
+in MidiEditor to the new URL.</li>
+</ol>
+
+<p>
+Your existing <code>workers.dev</code> URL keeps working in parallel
+- you can roll the change to your users without breaking anyone in
+the middle of a session.
+</p>
+
+<hr>
+
+<h2 id="turn">Adding a TURN server</h2>
+
+<p>
+For peers behind symmetric NAT (rare on home networks, common on some
+mobile carriers and corporate VPNs), STUN alone isn't enough -
+they need a TURN server to actually relay traffic. MidiEditor doesn't
+ship with a TURN URL because TURN incurs real bandwidth costs.
+</p>
+
+<p>Three options if you need TURN:</p>
+
+<ul>
+<li><b>Self-host Coturn</b> on a small VPS (~&euro;5/month).
+Maximum control, full bandwidth. Drop the URL into the ICE list.</li>
+<li><b>Twilio Network Traversal</b>. Pay-per-GB, no server to run.</li>
+<li><b>Metered.ca / similar TURN-as-a-service</b>. Generous free
+tier for hobby use.</li>
+</ul>
+
+<p>
+MidiEditor's ICE server list is a comma-separated set of
+<code>stun:</code> and <code>turn:</code> URLs. Internal config - for
+v1.7 we don't surface a UI for it; edit your QSettings store under
+<code>Collab/wan/iceServers</code> if you need to override the
+defaults. A future release will expose this in Settings.
+</p>
+
+<hr>
+
+<h2 id="troubleshooting">Troubleshooting</h2>
+
+<ul>
+<li><b><code>/health</code> returns Cloudflare error 1101 / 1042</b> -
+the Worker threw an exception at startup. Most common cause: the KV
+binding isn't there or has a wrong variable name. Worker page &rarr;
+<em>Settings &rarr; Variables</em> &rarr; verify <code>RDV</code> is
+bound to the right namespace.</li>
+<li><b><code>POST /session</code> returns 500</b> - the Worker can't
+write to KV. Often this means the namespace was deleted but the
+binding wasn't updated. Re-bind to a fresh KV namespace and re-deploy.</li>
+<li><b>Legitimate joiner gets 409</b> - another browser tab is
+holding the same joinerId. Tell the joiner to close any extra tabs /
+copies of MidiEditor and try again. Each fresh client picks a new ID.</li>
+<li><b>Connection Test says &quot;Bad&quot;</b> - either the
+rendezvous URL is wrong, the Worker is still deploying (give it 60
+seconds), or DNS hasn't propagated for a custom domain. Open the URL
+in a browser and confirm the JSON appears.</li>
+<li><b>Worker hits the 100k req/day cap</b> - you're being scanned
+or you have a lot of sessions. Add the rate-limit rule from the
+security section. If legit traffic genuinely exceeds 100k/day, upgrade
+to Workers Paid ($5/mo) for 10M req/day.</li>
+</ul>
+
+</main>
+
+<footer class="site-footer">
+    <div class="footer-links">
+        <a href="https://github.com/happytunesai/MidiEditor_AI" class="repo-link" target="_blank" rel="noopener noreferrer"><img class="repo-logo" src="Midieditor-ai_logo.png" alt="">GitHub Repo</a>
+        <a href="docs-index.html">Documentation</a>
+        <a href="collaboration.html">Collaboration</a>
+        <a href="https://github.com/happytunesai/MidiEditor_AI/blob/main/cloudflare/README.md" target="_blank" rel="noopener noreferrer">Worker repo README</a>
+        <a href="https://github.com/happytunesai/MidiEditor_AI/issues" target="_blank" rel="noopener noreferrer">Issues</a>
+    </div>
+    <p class="footer-copy">MidiEditor AI &copy; 2026 &middot; <a href="https://github.com/happytunesai/MidiEditor_AI/blob/main/LICENSE">License</a></p>
+</footer>
+
+<button class="scroll-top" aria-label="Scroll to top">&#x2191;</button>
+<script src="lightbox.js"></script>
+<script src="navigation.js"></script>
+<script src="site.js"></script>
+</body>
+</html>

@@ -71,6 +71,13 @@ private:
     static QJsonObject serializeControlChangeEvent(MidiEvent *event);
     static QJsonObject serializePitchBendEvent(MidiEvent *event);
     static QJsonObject serializeProgChangeEvent(MidiEvent *event);
+    // Plan §11.10j — meta + non-note channel-aftertouch events.
+    static QJsonObject serializeTempoEvent(MidiEvent *event);
+    static QJsonObject serializeTimeSigEvent(MidiEvent *event);
+    static QJsonObject serializeKeySigEvent(MidiEvent *event);
+    static QJsonObject serializeTextEvent(MidiEvent *event);
+    static QJsonObject serializeChannelPressureEvent(MidiEvent *event);
+    static QJsonObject serializeKeyPressureEvent(MidiEvent *event);
 
     static const char *NOTE_NAMES[];
 };

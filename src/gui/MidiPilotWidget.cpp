@@ -53,6 +53,13 @@
 #include "../tool/NewNoteTool.h"
 #include "../midi/MidiFile.h"
 #include "../midi/MidiChannel.h"
+#ifdef MIDIEDITOR_COLLAB_ENABLED
+#include "../collab/CollabService.h"
+#include "../collab/MidiDiff.h"
+#include "../collab/MidiSnapshot.h"
+#include "../collab/PrBundle.h"
+#include "collab/PrReviewDialog.h"
+#endif
 #include "../midi/MidiTrack.h"
 #include "../MidiEvent/MidiEvent.h"
 #include "../MidiEvent/NoteOnEvent.h"
@@ -532,7 +539,13 @@ void MidiPilotWidget::setupUi() {
     _modeCombo = new QComboBox(this);
     _modeCombo->addItem("Simple", "simple");
     _modeCombo->addItem("Agent", "agent");
-    _modeCombo->setToolTip("Simple: single-shot edits\nAgent: multi-step autonomous editing");
+#ifdef MIDIEDITOR_COLLAB_ENABLED
+    _modeCombo->addItem("Agent (PR)", "agent_pr");
+#endif
+    _modeCombo->setToolTip("Simple: single-shot edits\n"
+                           "Agent: multi-step autonomous editing\n"
+                           "Agent (PR): same as Agent, but on finish you review the changes "
+                           "and decide what to keep");
     _modeCombo->setFixedHeight(28);
     QSettings modeSettings("MidiEditor", "NONE");
     int modeIdx = _modeCombo->findData(modeSettings.value("AI/mode", "simple").toString());
@@ -984,6 +997,14 @@ void MidiPilotWidget::focusInput() {
 
 void MidiPilotWidget::onFileChanged(MidiFile *f) {
     _file = f;
+#ifdef MIDIEDITOR_COLLAB_ENABLED
+    // Drop any pending PR-mode snapshot — it was captured against the
+    // old file's events. Diffing it against the new file would produce
+    // garbage (every event "added", every old event "removed"). Per
+    // BUG-COLLAB-009.
+    _prModeSnapshotBefore = QJsonArray();
+    _prModeUserMessage.clear();
+#endif
     refreshContext();
     AiClient::clearLog();
     if (_file) {
@@ -1113,7 +1134,17 @@ void MidiPilotWidget::onSendMessage() {
     _inputField->setEnabled(false);
     _sendButton->setEnabled(false);
 
-    if (currentMode() == "agent") {
+    if (currentMode() == "agent" || currentMode() == "agent_pr") {
+#ifdef MIDIEDITOR_COLLAB_ENABLED
+        // PR mode: capture a snapshot of the file before the agent makes
+        // any changes. After the agent finishes, we'll diff against this
+        // to build a PrReviewDialog so the user can pick which changes to
+        // keep / revert.
+        if (currentMode() == "agent_pr" && _file) {
+            _prModeSnapshotBefore = MidiSnapshot::ofFile(_file);
+            _prModeUserMessage = fullMessage;
+        }
+#endif
         // Pre-flight capability check — if we previously observed that
         // the chosen model has no tool-calling support, don't even try
         // (would just return HTTP 404 again). Surface a friendly bubble
@@ -1908,10 +1939,47 @@ void MidiPilotWidget::onAgentFinished(const QString &finalMessage) {
 
     scheduleSave();
     refreshContext();
+
+#ifdef MIDIEDITOR_COLLAB_ENABLED
+    // Phase 9.3 — Agent (PR) mode: the agent finished successfully on the
+    // live file. Diff before/after to surface a PrReviewDialog so the user
+    // can pick which changes to keep and which to revert.
+    if (!_prModeSnapshotBefore.isEmpty() && _file) {
+        QJsonArray after = MidiSnapshot::ofFile(_file);
+        QJsonArray hunks = MidiDiff::compute(_prModeSnapshotBefore, after, _file->ticksPerQuarter());
+        QString prMessage = _prModeUserMessage;
+        // Reset PR-mode state so further (non-PR) saves aren't confused.
+        _prModeSnapshotBefore = QJsonArray();
+        _prModeUserMessage.clear();
+
+        if (hunks.isEmpty()) {
+            addChatBubble(QStringLiteral("system"),
+                tr("Agent finished without making any MIDI changes — nothing to review."));
+        } else {
+            PrBundle bundle;
+            bundle.sessionId = CollabService::instance()->sessionId();
+            bundle.author = QStringLiteral("AI");
+            bundle.machineId = QStringLiteral("ai-local");
+            bundle.parentHash = CollabService::instance()->currentHead();
+            bundle.timestamp = QDateTime::currentSecsSinceEpoch();
+            bundle.message = prMessage.isEmpty() ? finalMessage : prMessage;
+            bundle.hunks = hunks;
+            PrReviewDialog dlg(bundle, _file, PrReviewDialog::Mode::ReviewApplied, this);
+            dlg.exec();
+        }
+    }
+#endif
 }
 
 void MidiPilotWidget::onAgentError(const QString &error) {
     _isAgentRunning = false;
+
+#ifdef MIDIEDITOR_COLLAB_ENABLED
+    // Phase 9.3 — drop any pending PR-mode snapshot so the next agent run
+    // doesn't diff against a stale "before" baseline.
+    _prModeSnapshotBefore = QJsonArray();
+    _prModeUserMessage.clear();
+#endif
 
     // Stop the thought-cursor pulse and freeze the thought label at its
     // final accumulated text.

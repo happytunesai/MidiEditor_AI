@@ -137,6 +137,15 @@ public:
     int endTick();
 
     /**
+     * \brief Set the file's end tick directly. Protocol-aware (push/pop a
+     *  state for undo) and triggers a maxTime recompute. Used by the
+     *  collaboration sync layer to propagate Insert-measures changes
+     *  that grow the file length without adding any events on the
+     *  shifted side. No-op if \a tick equals the current value.
+     */
+    void setEndTick(int tick);
+
+    /**
      * \brief Converts MIDI time to milliseconds.
      * \param midiTime Time in MIDI ticks
      * \return Time in milliseconds

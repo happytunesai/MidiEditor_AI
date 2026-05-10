@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>MIDI Overview - MidiEditor AI Manual</title>
   <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="icon" type="image/x-icon" href="favicon.ico" sizes="any">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <meta name="theme-color" content="#0B1020">
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="site.css">
@@ -51,7 +53,7 @@
 <a href="#main-content" class="skip-link">Skip to main content</a>
 
 <style>
-    /* ───────── MIDI Overview — page-local refresh ───────── */
+    /* ───────── MIDI Overview - page-local refresh ───────── */
     .midi-hero {
         display: flex; flex-direction: column; gap: 0.6rem;
         padding: 1.4rem 1.6rem;
@@ -192,12 +194,12 @@
 
 <div class="midi-hero">
     <span class="eyebrow">🎼 Primer</span>
-    <h2 id="overview">MIDI — A Short Overview</h2>
+    <h2 id="overview">MIDI - A Short Overview</h2>
     <p>
         <b>MIDI</b> (Musical Instrument Digital Interface) is a digital protocol for describing
-        <i>performances</i> — not audio. Instead of recorded sound, a MIDI file stores a
+        <i>performances</i> - not audio. Instead of recorded sound, a MIDI file stores a
         timeline of compact <i>events</i> like &ldquo;press note&nbsp;60 with velocity&nbsp;100 on
-        channel&nbsp;1&rdquo;. Any synthesizer that follows the spec — software or hardware —
+        channel&nbsp;1&rdquo;. Any synthesizer that follows the spec - software or hardware -
         can then play the same file with a completely different sound.
     </p>
     <p>
@@ -218,7 +220,7 @@
 <h3 id="tracksandchannels">Tracks &amp; Channels</h3>
 
 <p>
-    A MIDI file groups events into <b>tracks</b> — logical lanes that usually map to
+    A MIDI file groups events into <b>tracks</b> - logical lanes that usually map to
     one instrument or section (lead, bass, strings, drums…). Tracks are an editing
     convenience; the playback engine only cares about <b>channels</b>.
 </p>
@@ -226,7 +228,7 @@
 <p>
     There are <b>16 MIDI channels</b> per port, each carrying its own sound (set by a
     <i>Program Change</i>). By long-standing General MIDI convention, <b>channel&nbsp;10</b>
-    is reserved for percussion — every note number on that channel maps to a different
+    is reserved for percussion - every note number on that channel maps to a different
     drum hit instead of a pitch. A single track can route different events to different
     channels (handy for split string sections, layered pads, or splitting a guitar into
     palm-mute and clean voices).
@@ -240,7 +242,7 @@
     </div>
     <div class="panel">
         <h4>📡 Channel</h4>
-        <p>Playback-side address (1–16). Determines which voice / patch produces the
+        <p>Playback-side address (1-16). Determines which voice / patch produces the
         sound and is what the synthesizer actually receives.</p>
     </div>
 </div>
@@ -259,7 +261,7 @@
             <span class="event-icon">🎹</span>
             <div>
                 <div class="event-title">Note On / Off</div>
-                <div class="event-meta">key 0–127 · vel 0–127</div>
+                <div class="event-meta">key 0-127 · vel 0-127</div>
             </div>
         </div>
         <p>The pair that defines a played note. <b>Note On</b> with velocity > 0 starts
@@ -298,7 +300,7 @@
                 <div class="event-meta">numer / denom</div>
             </div>
         </div>
-        <p>Defines the meter — e.g. 4/4, 3/4, 7/8. Drives the bar grid in the
+        <p>Defines the meter - e.g. 4/4, 3/4, 7/8. Drives the bar grid in the
         editor and any quantize / strum tools that need beat alignment.</p>
     </div>
 
@@ -319,10 +321,10 @@
             <span class="event-icon">🎛️</span>
             <div>
                 <div class="event-title">Program Change</div>
-                <div class="event-meta">0–127 (GM patch)</div>
+                <div class="event-meta">0-127 (GM patch)</div>
             </div>
         </div>
-        <p>Switches the instrument assigned to a channel — &ldquo;Acoustic Grand
+        <p>Switches the instrument assigned to a channel - &ldquo;Acoustic Grand
         Piano&rdquo;, &ldquo;Church Organ&rdquo;, &ldquo;Distortion Guitar&rdquo;, etc.</p>
     </div>
 
@@ -331,7 +333,7 @@
             <span class="event-icon">🎚️</span>
             <div>
                 <div class="event-title">Control Change (CC)</div>
-                <div class="event-meta">128 controllers · 0–127</div>
+                <div class="event-meta">128 controllers · 0-127</div>
             </div>
         </div>
         <p>Per-channel automation: volume (CC&nbsp;7), pan (CC&nbsp;10), modulation
@@ -399,7 +401,7 @@
 
 <p>
     Modern setups can also speak <b>RTP-MIDI</b> (MIDI over the network) and
-    <b>USB-MIDI</b> class-compliant devices — both appear as ordinary ports here. For
+    <b>USB-MIDI</b> class-compliant devices - both appear as ordinary ports here. For
     FFXIV bards specifically, the editor exposes the <a href="ffxiv-channel-fixer.html">FFXIV
     Channel Fixer</a> and the <a href="ffxiv-voice-limiter.html">Voice Limiter</a> to keep
     the in-game audio engine happy.
@@ -412,7 +414,7 @@
         editor and its docs were built against.
     </p>
     <ul class="learn-more-links">
-        <li><a href="https://midi.org/" target="_blank" rel="noopener noreferrer"><span>🌐</span><span>midi.org — The MIDI Association</span><span class="ext">↗</span></a></li>
+        <li><a href="https://midi.org/" target="_blank" rel="noopener noreferrer"><span>🌐</span><span>midi.org - The MIDI Association</span><span class="ext">↗</span></a></li>
         <li><a href="https://midi.org/specifications" target="_blank" rel="noopener noreferrer"><span>📄</span><span>Official MIDI specifications</span><span class="ext">↗</span></a></li>
         <li><a href="https://midi.org/general-midi" target="_blank" rel="noopener noreferrer"><span>🎼</span><span>General MIDI (GM) sound set</span><span class="ext">↗</span></a></li>
         <li><a href="https://midi.org/midi-2-0" target="_blank" rel="noopener noreferrer"><span>✨</span><span>MIDI 2.0 overview</span><span class="ext">↗</span></a></li>

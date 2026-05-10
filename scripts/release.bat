@@ -16,6 +16,7 @@ REM --- Configuration ---
 set QT_DIR=C:\Qt\6.5.3\msvc2019_64
 set CMAKE_EXE="C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe"
 set VCVARS="C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools\VC\Auxiliary\Build\vcvars64.bat"
+set FLUIDSYNTH_DIR=%CD%\fluidsynth\fluidsynth-v2.5.2-win10-x64-cpp11
 
 REM --- Read version from CMakeLists.txt ---
 for /f "tokens=2 delims=()" %%v in ('findstr /C:"MIDIEDITOR_RELEASE_VERSION_STRING" CMakeLists.txt ^| findstr /C:"set"') do (
@@ -44,7 +45,7 @@ if %ERRORLEVEL% neq 0 (
 
 REM --- CMake Configure ---
 echo [2/6] CMake Configure...
-%CMAKE_EXE% -S . -B build -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=%QT_DIR%
+%CMAKE_EXE% -S . -B build -G "NMake Makefiles" -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=%QT_DIR% -DFLUIDSYNTH_DIR=%FLUIDSYNTH_DIR%
 if %ERRORLEVEL% neq 0 (
     echo ERROR: CMake configuration failed!
     popd
@@ -83,6 +84,14 @@ if exist "run_environment\graphics" xcopy /s /e /y "run_environment\graphics" "%
 if exist "run_environment\midieditor.ico" copy /y "run_environment\midieditor.ico" "%RELEASE_DIR%\" >nul
 if exist "run_environment\mozart_turkish_march.mid" copy /y "run_environment\mozart_turkish_march.mid" "%RELEASE_DIR%\" >nul
 if exist "run_environment\updater.bat" copy /y "run_environment\updater.bat" "%RELEASE_DIR%\" >nul
+
+REM Copy top-level docs + license. xcopy above already brought the FluidSynth
+REM DLLs (libfluidsynth-3.dll / SDL3.dll / sndfile.dll) from build\bin\ via
+REM CMake's POST_BUILD copy hook, so they land in the ZIP automatically.
+REM LICENSE is mandatory for GPL-3 redistribution.
+if exist "LICENSE"      copy /y "LICENSE"      "%RELEASE_DIR%\" >nul
+if exist "README.md"    copy /y "README.md"    "%RELEASE_DIR%\" >nul
+if exist "CHANGELOG.md" copy /y "CHANGELOG.md" "%RELEASE_DIR%\" >nul
 
 REM --- Create zip ---
 echo [6/6] Creating %RELEASE_ZIP%...

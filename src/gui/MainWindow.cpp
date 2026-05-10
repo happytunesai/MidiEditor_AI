@@ -20,6 +20,7 @@
 #include <QAction>
 #include <QActionGroup>
 #include <QApplication>
+#include <QClipboard>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QIcon>
@@ -32,6 +33,7 @@
 #include <QMessageBox>
 #include <QMimeData>
 #include <QProgressDialog>
+#include <QSet>
 #include <QSettings>
 #include <QSplitter>
 #include <QTabWidget>
@@ -57,6 +59,24 @@
 
 #include "Appearance.h"
 #include "AboutDialog.h"
+#ifdef MIDIEDITOR_COLLAB_ENABLED
+#include "../collab/CollabService.h"
+#include "../collab/LanLiveSession.h"
+#include "../collab/PrBundle.h"
+#include "collab/CollabHistoryWidget.h"
+#include "collab/LanLiveJoinDialog.h"
+#include "collab/LanLiveStartDialog.h"
+#include "collab/PrCreateDialog.h"
+#include "collab/PrReviewDialog.h"
+#include "collab/ReturningPeerDialog.h"
+#include "collab/WelcomeBackDialog.h"
+#endif
+#ifdef MIDIEDITOR_WEBRTC_ENABLED
+#include "../collab/WebRtcSmokeTest.h"
+#include "collab/WebRtcStartDialog.h"
+#include "collab/WebRtcJoinDialog.h"
+#include "../collab/RtcRendezvousClient.h"
+#endif
 #include "ChannelVisibilityManager.h"
 #include "ChannelListWidget.h"
 #include "CompleteMidiSetupDialog.h"
@@ -730,6 +750,30 @@ MainWindow::MainWindow(QString initFile)
     lowerTabWidget->addTab(_eventWidget, tr("Event"));
     MidiEvent::setEventWidget(_eventWidget);
 
+#ifdef MIDIEDITOR_COLLAB_ENABLED
+    {
+        CollabHistoryWidget *collabHistory = new CollabHistoryWidget(lowerTabWidget);
+        int collabTabIndex = lowerTabWidget->addTab(collabHistory, tr("Collaboration"));
+        QTabWidget *tabBar = lowerTabWidget;
+        auto refreshCollabTab = [tabBar, collabTabIndex]() {
+            CollabService *svc = CollabService::instance();
+            bool show = svc->isEnabled() && svc->hasCurrentFile();
+            tabBar->setTabVisible(collabTabIndex, show);
+        };
+        refreshCollabTab();
+        connect(CollabService::instance(), &CollabService::enabledChanged, this,
+                [refreshCollabTab](bool) { refreshCollabTab(); });
+        connect(CollabService::instance(), &CollabService::currentFileStateChanged, this,
+                refreshCollabTab);
+        // When the user clicks a hunk and the widget updates the global
+        // Selection, repaint the piano roll so the highlight shows.
+        connect(collabHistory, &CollabHistoryWidget::selectionApplied, this, [this]() {
+            if (_matrixWidgetContainer) _matrixWidgetContainer->update();
+            if (eventWidget()) eventWidget()->reload();
+        });
+    }
+#endif
+
     // below add two rows for choosing track/channel new events shall be assigned to
     chooserWidget = new QWidget(rightSplitter);
     chooserWidget->setMinimumWidth(350);
@@ -834,6 +878,63 @@ MainWindow::MainWindow(QString initFile)
     statusBar()->addPermanentWidget(_statusCursorLabel);
     statusBar()->addPermanentWidget(_statusSelectionLabel);
     statusBar()->addPermanentWidget(_statusChordLabel);
+
+#ifdef MIDIEDITOR_COLLAB_ENABLED
+    _statusLiveSessionLabel = new QLabel(this);
+    _statusLiveSessionLabel->setStyleSheet(
+        "QLabel { padding: 2px 8px; border-radius: 3px; "
+        "background: #c33; color: white; font-weight: bold; }");
+    _statusLiveSessionLabel->hide();
+    statusBar()->addPermanentWidget(_statusLiveSessionLabel);
+
+    auto refreshLiveLabel = [this]() {
+        LanLiveSession *svc = LanLiveSession::instance();
+        // Suffix for pending-review queue (Phase 9.5h, §11.10c).
+        int pending = svc->pendingReviewHunkCount();
+        QString reviewSuffix = pending > 0
+            ? tr("  •  %1 pending review").arg(pending)
+            : QString();
+        // Transport tag: musicians don't think in LAN/WAN, so surface it
+        // as Local/Online (Plan §11.10k).
+        QString transportTag;
+        switch (svc->transport()) {
+            case LanLiveSession::Transport::Lan:  transportTag = tr("Local");  break;
+            case LanLiveSession::Transport::Wan:  transportTag = tr("Online"); break;
+            case LanLiveSession::Transport::None: transportTag = QString();    break;
+        }
+        QString prefix = transportTag.isEmpty()
+            ? QStringLiteral("● LIVE")
+            : QStringLiteral("● LIVE [%1]").arg(transportTag);
+        switch (svc->role()) {
+            case LanLiveSession::Role::Hosting: {
+                int n = svc->peerCount();
+                QString core = (n == 0)
+                    ? tr("%1: hosting (%2) — waiting for peers").arg(prefix, svc->pairingCode())
+                    : tr("%1: hosting (%2) — %3 peer(s)").arg(prefix, svc->pairingCode()).arg(n);
+                _statusLiveSessionLabel->setText(core + reviewSuffix);
+                _statusLiveSessionLabel->show();
+                break;
+            }
+            case LanLiveSession::Role::Joined:
+                _statusLiveSessionLabel->setText(
+                    tr("%1: joined %2").arg(prefix, svc->hostDisplayName()) + reviewSuffix);
+                _statusLiveSessionLabel->show();
+                break;
+            case LanLiveSession::Role::Idle:
+                _statusLiveSessionLabel->hide();
+                break;
+        }
+    };
+    connect(LanLiveSession::instance(), &LanLiveSession::roleChanged,
+            this, [refreshLiveLabel](LanLiveSession::Role) { refreshLiveLabel(); });
+    connect(LanLiveSession::instance(), &LanLiveSession::peerCountChanged,
+            this, [refreshLiveLabel](int) { refreshLiveLabel(); });
+    connect(LanLiveSession::instance(), &LanLiveSession::peerLabelsChanged,
+            this, refreshLiveLabel);
+    connect(LanLiveSession::instance(), &LanLiveSession::pendingReviewChanged,
+            this, [refreshLiveLabel](int) { refreshLiveLabel(); });
+    refreshLiveLabel();
+#endif
 
     // Load initial file immediately - no need for artificial delay
     loadInitFile();
@@ -988,6 +1089,9 @@ void MainWindow::setFile(MidiFile *newFile) {
     Tool::setFile(newFile);
     _midiPilotWidget->onFileChanged(newFile);
     if (_mcpServer) _mcpServer->setFile(newFile);
+#ifdef MIDIEDITOR_COLLAB_ENABLED
+    CollabService::instance()->onFileLoaded(newFile, newFile ? newFile->path() : QString());
+#endif
     this->file = newFile;
     connect(newFile, SIGNAL(trackChanged()), this, SLOT(updateTrackMenu()));
     setWindowTitle(QApplication::applicationName() + " v" + QApplication::applicationVersion() + " - " + newFile->path() + "[*]");
@@ -1517,6 +1621,9 @@ void MainWindow::save() {
         } else {
             setWindowModified(false);
             cleanupAutoSave();
+#ifdef MIDIEDITOR_COLLAB_ENABLED
+            CollabService::instance()->onFileSaved(file, file->path());
+#endif
         }
     } else {
         saveas();
@@ -1568,6 +1675,9 @@ void MainWindow::saveas() {
         updateRecentPathsList();
         setWindowModified(false);
         cleanupAutoSave();
+#ifdef MIDIEDITOR_COLLAB_ENABLED
+        CollabService::instance()->onFileSaved(file, newPath);
+#endif
     } else {
         QMessageBox::warning(this, tr("Error"), QString(tr("The file could not be saved. Please make sure that the destination directory exists and that you have the correct access rights to write into this directory.")));
     }
@@ -3571,6 +3681,100 @@ void MainWindow::copy() {
 }
 
 void MainWindow::paste() {
+#ifdef MIDIEDITOR_COLLAB_ENABLED
+    // First-pass discriminator: if the clipboard text is a smart-paste
+    // collab token, divert to the PR review flow. Anything that doesn't
+    // start with the unique scheme prefix falls through to the existing
+    // paste handler below — cross-instance event paste, etc.
+    if (file && CollabService::instance()->isEnabled()) {
+        QString cb = QApplication::clipboard()->text();
+        // BUG-COLLAB-028: Discord wraps tokens in triple backticks (per
+        // WebhookClient.cpp), and users frequently paste with trailing
+        // newlines or surrounding spaces. looksLikeToken is strict
+        // (text.startsWith), so without cleanup the most common Discord
+        // copy-flow silently falls through to the regular paste path.
+        cb = cb.trimmed();
+        // Strip surrounding markdown code fences if present.
+        if (cb.startsWith(QStringLiteral("```")) && cb.endsWith(QStringLiteral("```"))
+            && cb.length() >= 6) {
+            cb = cb.mid(3, cb.length() - 6).trimmed();
+        }
+        // Some clients use single backticks for inline code.
+        else if (cb.startsWith(QLatin1Char('`')) && cb.endsWith(QLatin1Char('`'))
+                 && cb.length() >= 2) {
+            cb = cb.mid(1, cb.length() - 2).trimmed();
+        }
+        if (PrBundle::looksLikeToken(cb)) {
+            QString error;
+            PrBundle bundle = PrBundle::fromInlineToken(cb, &error);
+            if (!bundle.isValid()) {
+                // Decode failed (truncated payload, wrong base64, oversized
+                // expansion, etc.). Don't swallow the user's paste — show a
+                // brief warning and fall through to the regular paste path
+                // so harmless near-tokens or accidental copies can't lock
+                // out Ctrl+V on the matrix.
+                QMessageBox::warning(this, tr("PR token"),
+                    tr("Could not decode the smart-paste token.\n\n%1\n\nFalling back to a regular paste.").arg(error));
+                // intentional fallthrough: do NOT return here
+            } else {
+                // Phase 9.5i transport-agnostic lookup: if the
+                // bundle's sessionId belongs to a different local
+                // file, offer to switch to it before reviewing.
+                // Otherwise fall through to the existing flow where
+                // PrReviewDialog shows the cross-session warning.
+                QString currentSession = CollabService::instance()->sessionId();
+                if (!bundle.sessionId.isEmpty()
+                    && bundle.sessionId != currentSession) {
+                    QString matchPath = CollabService::instance()
+                                           ->findFileBySessionId(bundle.sessionId);
+                    if (!matchPath.isEmpty()
+                        && (!file || file->path() != matchPath)) {
+                        auto answer = QMessageBox::question(this,
+                            tr("Smart-paste token"),
+                            tr("This PR was created against a different file "
+                               "you have locally:\n\n%1\n\n"
+                               "Switch to it and apply the PR there?")
+                                .arg(matchPath),
+                            QMessageBox::Yes | QMessageBox::No,
+                            QMessageBox::Yes);
+                        if (answer == QMessageBox::Yes) {
+                            openFile(matchPath);
+                            // Fall through with the now-active file.
+                        }
+                    }
+                }
+                // Plan §11.10n auto-init for the Ctrl+V token-paste
+                // path — same rationale as the Import-PR menu and the
+                // Live-Session entry points. The user is about to
+                // merge a PR; any commit it produces should land in
+                // this file's collaboration history.
+                if (file && !CollabService::instance()->isCurrentFileInitialized()
+                    && !file->path().isEmpty()
+                    && QFile(file->path()).exists()) {
+                    CollabService::instance()->initializeCurrentFile(
+                        file, tr("Auto-init for PR import"));
+                }
+                PrReviewDialog dlg(bundle, file, PrReviewDialog::Mode::PreApply, this);
+                int result = dlg.exec();
+                // After a successful merge the token is consumed — clear it
+                // from the OS clipboard so subsequent Ctrl+V (e.g. an internal
+                // event copy made between paste-and-paste) is not intercepted
+                // again by the same stale token. We only clear when the
+                // clipboard still holds the exact text we processed: if the
+                // user copied something else in the meantime, we leave their
+                // current clipboard alone.
+                if (result == QDialog::Accepted) {
+                    QClipboard *clipboard = QApplication::clipboard();
+                    if (clipboard->text() == cb) {
+                        clipboard->clear();
+                    }
+                }
+                return;
+            }
+        }
+    }
+#endif
+
     // If the cross-instance clipboard has data, route Ctrl+V through the
     // Paste Special flow so the user picks a target mapping (or reuses
     // the silenced session/persistent default). The same dialog is also
@@ -4056,6 +4260,572 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
     fileMB->addAction(_exportAudioAction);
     _actionMap["export_audio"] = _exportAudioAction;
     _exportAudioAction->setEnabled(false);
+#endif
+
+#ifdef MIDIEDITOR_COLLAB_ENABLED
+    fileMB->addSeparator();
+    QMenu *collabMenu = fileMB->addMenu(tr("Collaboration"));
+    // Plan §11.10n: explicit "Initialize for this file…" action removed.
+    // The master toggle in Settings is the user's opt-in; per-file
+    // initialization is now done transparently the moment the file is
+    // first used in a collab context (host/join session, Create PR).
+    // Programmatic API stays in `CollabService::initializeCurrentFile`
+    // for tests + the auto-init call sites below.
+
+    QAction *collabCreatePrAction = new QAction(tr("Create PR..."), this);
+    collabCreatePrAction->setStatusTip(tr("Create a shareable PR from the current file's latest commit — copy as token or save as bundle file."));
+    collabMenu->addAction(collabCreatePrAction);
+    connect(collabCreatePrAction, &QAction::triggered, this, [this]() {
+        CollabService *svc = CollabService::instance();
+        if (!svc->isEnabled()) return;
+        // Auto-init on demand — clicking Create PR is itself the
+        // explicit consent. Same rule as the live-session paths.
+        if (!svc->isCurrentFileInitialized()) {
+            if (!file || file->path().isEmpty() || !QFile(file->path()).exists()) {
+                QMessageBox::information(this, tr("Save first"),
+                    tr("Save the file first — collaboration history is stored in a sidecar next to the .mid on disk."));
+                return;
+            }
+            if (!svc->initializeCurrentFile(file, tr("Auto-init for PR"))) {
+                QMessageBox::warning(this, tr("Could not initialize collaboration"),
+                    tr("Could not write the collaboration sidecar. Check directory "
+                       "permissions for the folder containing the MIDI file."));
+                return;
+            }
+        }
+        PrCreateDialog dlg(this);
+        dlg.exec();
+    });
+
+    QAction *collabCompactAction = new QAction(tr("Compact history..."), this);
+    collabCompactAction->setStatusTip(tr("Strip diff data from older commits to shrink the sidecar. Authors, messages, and the hash chain are preserved."));
+    collabMenu->addAction(collabCompactAction);
+    connect(collabCompactAction, &QAction::triggered, this, [this]() {
+        CollabService *svc = CollabService::instance();
+        if (!svc->isEnabled() || !svc->isCurrentFileInitialized()) return;
+        const int kKeepLast = 50;
+        QMessageBox::StandardButton reply = QMessageBox::question(this,
+            tr("Compact collaboration history?"),
+            tr("This strips diff data (hunks) from commits older than the last %1.\n\n"
+               "Author, message, and hash chain are preserved — only the bulky "
+               "before/after event arrays are dropped. This is one-way: removed "
+               "hunks cannot be restored.\n\n"
+               "Continue?").arg(kKeepLast),
+            QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+        if (reply != QMessageBox::Yes) return;
+        int n = svc->compactHistory(kKeepLast);
+        QMessageBox::information(this, tr("Compact history"),
+            n == 0 ? tr("No older commits had hunk data — nothing to compact.")
+                   : tr("Stripped hunk data from %1 commit(s).").arg(n));
+    });
+
+    QAction *collabImportPrAction = new QAction(tr("Import PR..."), this);
+    collabImportPrAction->setStatusTip(tr("Import a PR bundle file (.midiedit-pr.json) and review its hunks before merging."));
+    collabMenu->addAction(collabImportPrAction);
+    connect(collabImportPrAction, &QAction::triggered, this, [this]() {
+        CollabService *svc = CollabService::instance();
+        if (!svc->isEnabled() || !file) return;
+        QString path = QFileDialog::getOpenFileName(this,
+            tr("Import PR bundle"),
+            QString(),
+            tr("MidiEditor PR bundle (*.midiedit-pr.json);;All files (*.*)"));
+        if (path.isEmpty()) return;
+        QString error;
+        PrBundle bundle = PrBundle::fromBundleFile(path, &error);
+        if (!bundle.isValid()) {
+            QMessageBox::warning(this, tr("Import failed"),
+                tr("Could not load the PR bundle.\n\n%1").arg(error));
+            return;
+        }
+        // Plan §11.10n auto-init: importing a PR is a collab action,
+        // so transparent init makes the merge land in this file's
+        // history. Without this, the apply succeeds but the
+        // Collaboration tab shows nothing because onFileSaved
+        // short-circuits on uninitialised files.
+        if (!svc->isCurrentFileInitialized()
+            && !file->path().isEmpty()
+            && QFile(file->path()).exists()) {
+            svc->initializeCurrentFile(file, tr("Auto-init for PR import"));
+        }
+        PrReviewDialog dlg(bundle, file, PrReviewDialog::Mode::PreApply, this);
+        dlg.exec();
+    });
+
+    collabMenu->addSeparator();
+
+    // Plan §11.10n hosting safety net: when `Collab/host/workOnCopy` is
+    // ON, hosting saves the current file as Documents/MidiEditor_AI/shared/
+    // <name>_shared.mid and switches the editor to the copy before the
+    // session starts. Original stays untouched. Default off (existing
+    // workflow keeps editing the original directly). Returns false if
+    // the user wanted a copy but the save / open failed — caller bails.
+    auto prepareHostFile = [this](const QString &flowName) -> bool {
+        QSettings probe(QStringLiteral("MidiEditor"), QStringLiteral("NONE"));
+        // Default ON: no one has shipped a session against this build
+        // yet (Plan §11.10n revision 2026-05-07), so the safer default
+        // doesn't break anyone's existing workflow. Users who want the
+        // original-edit behaviour explicitly turn it off in Settings.
+        if (!probe.value(QStringLiteral("Collab/host/workOnCopy"), true).toBool())
+            return true;  // setting off — host on the original
+        if (!file || file->path().isEmpty()) {
+            // Untitled file → no path to base the copy on. Tell the user
+            // to save first; the copy lives next to the original on disk.
+            QMessageBox::information(this, flowName,
+                tr("This file hasn't been saved yet. Save it first — "
+                   "\"work on a copy when hosting\" needs the original "
+                   "on disk to base the copy off."));
+            return false;
+        }
+        QString sharedRoot = QDir(QStandardPaths::writableLocation(
+                                      QStandardPaths::DocumentsLocation))
+                                 .filePath(QStringLiteral("MidiEditor_AI/shared"));
+        QDir().mkpath(sharedRoot);
+
+        QFileInfo origInfo(file->path());
+        QString stem = origInfo.completeBaseName();
+        QString suffix = origInfo.suffix();
+        // Import-only formats route through dedicated importers in openFile
+        // (GuitarPro / MML / MusicXML / MuseScore). MidiFile::save() always
+        // writes MIDI bytes, so a copy with the original suffix would be
+        // rejected by the importer on re-open ("Guitar Pro file could not
+        // be imported"). Force `.mid` for the shared copy in those cases —
+        // the original on disk stays untouched in its native format.
+        const QString lowerSuffix = suffix.toLower();
+        static const QSet<QString> kImportOnlySuffixes = {
+            QStringLiteral("gtp"),  QStringLiteral("gp3"),  QStringLiteral("gp4"),
+            QStringLiteral("gp5"),  QStringLiteral("gp6"),  QStringLiteral("gp7"),
+            QStringLiteral("gp8"),  QStringLiteral("gpx"),  QStringLiteral("gp"),
+            QStringLiteral("mml"),  QStringLiteral("3mle"),
+            QStringLiteral("musicxml"), QStringLiteral("xml"), QStringLiteral("mxl"),
+            QStringLiteral("mscz"), QStringLiteral("mscx"),
+        };
+        const QString effectiveSuffix = kImportOnlySuffixes.contains(lowerSuffix)
+            ? QStringLiteral("mid") : suffix;
+        QString sharedName;
+        if (stem.endsWith(QStringLiteral("_shared"), Qt::CaseInsensitive)) {
+            sharedName = effectiveSuffix.isEmpty()
+                ? stem
+                : stem + QStringLiteral(".") + effectiveSuffix;
+        } else if (effectiveSuffix.isEmpty()) {
+            sharedName = stem + QStringLiteral("_shared");
+        } else {
+            sharedName = stem + QStringLiteral("_shared.") + effectiveSuffix;
+        }
+        QString basePath = QDir(sharedRoot).filePath(sharedName);
+        // Don't clobber a previous session's copy — append a numeric
+        // suffix until unique.
+        QString sharedPath = basePath;
+        int n = 2;
+        while (QFile::exists(sharedPath)) {
+            QFileInfo bp(basePath);
+            sharedPath = bp.absolutePath() + QStringLiteral("/")
+                + bp.completeBaseName() + QStringLiteral("_") + QString::number(n)
+                + (bp.suffix().isEmpty() ? QString() : QStringLiteral(".") + bp.suffix());
+            n++;
+        }
+
+        if (!file->save(sharedPath)) {
+            QMessageBox::warning(this, flowName,
+                tr("Could not write the session copy to %1. The "
+                   "session has not started.").arg(sharedPath));
+            return false;
+        }
+        // Switch the editor to the copy. openFile updates `this->file`
+        // via setFile so subsequent code sees the copy. The original is
+        // preserved on disk untouched.
+        openFile(sharedPath);
+        if (!file || file->path() != sharedPath) {
+            QMessageBox::warning(this, flowName,
+                tr("Wrote the session copy to %1 but couldn't open it. "
+                   "Try opening it manually.").arg(sharedPath));
+            return false;
+        }
+        statusBar()->showMessage(
+            tr("Hosting on a copy: %1 (original unchanged)").arg(sharedPath),
+            6000);
+        return true;
+    };
+
+    QAction *lanStartAction = new QAction(tr("Start LAN Live Session..."), this);
+    lanStartAction->setStatusTip(tr("Host a real-time co-editing session for peers on the same local network."));
+    collabMenu->addAction(lanStartAction);
+    connect(lanStartAction, &QAction::triggered, this, [this, prepareHostFile]() {
+        if (!file) {
+            QMessageBox::information(this, tr("LAN Live Session"),
+                tr("Open a MIDI file first — there's nothing to sync yet."));
+            return;
+        }
+        if (!prepareHostFile(tr("LAN Live Session"))) return;
+        LanLiveSession *svc = LanLiveSession::instance();
+        QString code = svc->startHosting(file);
+        if (code.isEmpty()) {
+            QMessageBox::warning(this, tr("LAN Live Session"),
+                tr("Could not start the LAN session (TCP port or multicast bind failed)."));
+            return;
+        }
+        // Non-modal — user keeps editing while the dialog is up.
+        LanLiveStartDialog *dlg = new LanLiveStartDialog(this);
+        dlg->setAttribute(Qt::WA_DeleteOnClose);
+        dlg->show();
+    });
+
+    QAction *lanJoinAction = new QAction(tr("Join LAN Live Session..."), this);
+    lanJoinAction->setStatusTip(tr("Connect to a peer on the same local network using their pairing code."));
+    collabMenu->addAction(lanJoinAction);
+    connect(lanJoinAction, &QAction::triggered, this, [this]() {
+        // file may be null — host will offer to ship its .mid in that case.
+        LanLiveJoinDialog dlg(file, this);
+        dlg.exec();
+    });
+
+    // File-transfer-on-join: host always ships its .mid so the joining peer
+    // ends up editing the host's file. We never touch the user's existing
+    // files on disk — bytes are written to a private per-session cache dir,
+    // and the open file (if any) is detached from the LAN session before
+    // the swap so the about-to-be-deleted MidiFile pointer never lingers in
+    // LanLiveSession::_file.
+    connect(LanLiveSession::instance(), &LanLiveSession::fileTransferOffered,
+            this, [this](const QString &filename, const QByteArray &bytes) {
+                QString prompt = file
+                    ? tr("The host wants to share this MIDI file:\n\n%1\n\n"
+                         "Open it? It will be saved to your shared folder as "
+                         "\"<name>_shared.mid\" — your currently loaded file is "
+                         "not touched.\nChoosing No ends the session.").arg(filename)
+                    : tr("The host wants to share this MIDI file with you:\n\n%1\n\n"
+                         "Open it? It will be saved to your shared folder as "
+                         "\"<name>_shared.mid\".\nChoosing No ends the session — "
+                         "there's nothing to edit without a file.").arg(filename);
+                auto answer = QMessageBox::question(
+                    this, tr("LAN Live Session"), prompt,
+                    QMessageBox::Yes | QMessageBox::No,
+                    QMessageBox::Yes);
+                if (answer != QMessageBox::Yes) {
+                    LanLiveSession::instance()->leaveSession();
+                    return;
+                }
+
+                // Shared-files folder under Documents/MidiEditor_AI/shared/. Files
+                // get a "_shared" suffix in the basename so the user can tell
+                // at a glance they came from a peer rather than from their
+                // own work. We never overwrite the user's own files because
+                // this directory is only ever written to by the LAN flow.
+                QString sharedRoot = QDir(QStandardPaths::writableLocation(
+                                              QStandardPaths::DocumentsLocation))
+                                         .filePath(QStringLiteral("MidiEditor_AI/shared"));
+                QDir().mkpath(sharedRoot);
+
+                // Sanitize the filename to avoid path traversal in case the
+                // host sent something malicious, and append "_shared" to the
+                // stem — but only if it's not already there. Without this
+                // guard, re-sharing a previously-received file stacks the
+                // suffix forever ("foo_shared_shared_shared.mid").
+                QString rawName = QFileInfo(filename).fileName();
+                if (rawName.isEmpty()) rawName = QStringLiteral("from-host.mid");
+                QFileInfo rawInfo(rawName);
+                QString stem = rawInfo.completeBaseName();
+                QString suffix = rawInfo.suffix();
+                // Defense against an older host that bundled MIDI bytes
+                // under an import-only suffix (e.g. work-on-copy bug shipped
+                // a `.gp3` whose contents were actually MIDI). Detect via
+                // the SMF magic and rewrite the suffix to `.mid`, otherwise
+                // openFile would route the bytes to GpImporter and fail.
+                const bool isMidiBytes = bytes.startsWith("MThd");
+                const QString lowerRawSuffix = suffix.toLower();
+                static const QSet<QString> kImportOnlySuffixesRecv = {
+                    QStringLiteral("gtp"),  QStringLiteral("gp3"),  QStringLiteral("gp4"),
+                    QStringLiteral("gp5"),  QStringLiteral("gp6"),  QStringLiteral("gp7"),
+                    QStringLiteral("gp8"),  QStringLiteral("gpx"),  QStringLiteral("gp"),
+                    QStringLiteral("mml"),  QStringLiteral("3mle"),
+                    QStringLiteral("musicxml"), QStringLiteral("xml"), QStringLiteral("mxl"),
+                    QStringLiteral("mscz"), QStringLiteral("mscx"),
+                };
+                if (isMidiBytes && kImportOnlySuffixesRecv.contains(lowerRawSuffix)) {
+                    suffix = QStringLiteral("mid");
+                }
+                QString sharedName;
+                if (stem.endsWith(QStringLiteral("_shared"), Qt::CaseInsensitive)) {
+                    sharedName = suffix.isEmpty()
+                        ? stem
+                        : stem + QStringLiteral(".") + suffix;
+                } else if (suffix.isEmpty()) {
+                    sharedName = stem + QStringLiteral("_shared");
+                } else {
+                    sharedName = stem + QStringLiteral("_shared.") + suffix;
+                }
+                QString savePath = QDir(sharedRoot).filePath(sharedName);
+
+                QFile out(savePath);
+                if (!out.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+                    QMessageBox::warning(this, tr("LAN Live Session"),
+                        tr("Could not write the received MIDI to %1.").arg(savePath));
+                    LanLiveSession::instance()->leaveSession();
+                    return;
+                }
+                out.write(bytes);
+                out.close();
+
+                // Detach LanLiveSession from the old MidiFile *before*
+                // openFile() destroys it. Then re-attach to the new one.
+                MidiFile *preOpen = file;
+                LanLiveSession::instance()->setActiveFile(nullptr);
+                openFile(savePath);
+                if (file && file != preOpen) {
+                    LanLiveSession::instance()->setActiveFile(file);
+                } else {
+                    // openFile() failed (parse error, AV blocked write, etc.):
+                    // setFile() never ran, so this->file still points at the
+                    // pre-swap MidiFile (or is null if we joined empty). Don't
+                    // re-attach — that would stream the wrong file to the host.
+                    QMessageBox::warning(this, tr("LAN Live Session"),
+                        tr("Could not open the received MIDI file. "
+                           "The session has been ended."));
+                    LanLiveSession::instance()->leaveSession();
+                }
+            });
+
+    // Returning-peer reconciliation (Phase 9.5g): host-side dialog when
+    // a peer rejoins with commits we don't have.
+    connect(LanLiveSession::instance(), &LanLiveSession::returningPeerArrived,
+            this, [this](const QString &peerName, const QString &peerToken,
+                          const PrBundle &bundle) {
+                ReturningPeerDialog *dlg = new ReturningPeerDialog(
+                    peerName, peerToken, bundle, file, this);
+                dlg->setAttribute(Qt::WA_DeleteOnClose);
+                dlg->show();
+            });
+
+    // Welcome-back summary on the peer side after a fast-forward or
+    // host-decided merge.
+    connect(LanLiveSession::instance(), &LanLiveSession::welcomeBackOffered,
+            this, [this](const QString &hostName, int acceptedHunkCount,
+                          int rejectedCommitCount, const QString &divergedFilePath) {
+                WelcomeBackDialog *dlg = new WelcomeBackDialog(
+                    hostName, acceptedHunkCount, rejectedCommitCount,
+                    divergedFilePath, this);
+                dlg->setAttribute(Qt::WA_DeleteOnClose);
+                dlg->show();
+            });
+
+    // Phase 9.5i: a host announcement matched a local sidecar — open
+    // that file and bind it to LanLiveSession before the TCP connect
+    // fires so `hello` carries the right sessionId. Synchronous slot:
+    // by the time the emit returns in onPeerFound, the file is loaded
+    // and bound, and connectToHost can proceed.
+    connect(LanLiveSession::instance(), &LanLiveSession::switchToFileBeforeConnect,
+            this, [this](const QString &midiPath) {
+                if (file && file->path() == midiPath) return;  // already there
+                openFile(midiPath);
+                if (file && file->path() == midiPath) {
+                    LanLiveSession::instance()->setActiveFile(file);
+                    statusBar()->showMessage(
+                        tr("Opened local copy of session file before connecting"),
+                        4000);
+                }
+            });
+
+    // The leave action serves both LAN and WAN sessions — its label
+    // tracks the active transport so the menu doesn't say "LAN" while
+    // you're on WAN. See Plan §11.10k. Placed at the bottom of the
+    // collab menu (after Pause/Review entries) so destructive actions
+    // sit furthest from the start/join entries that share a click
+    // target — see the addAction call further down.
+    QAction *lanLeaveAction = new QAction(tr("Leave Live Session"), this);
+    lanLeaveAction->setStatusTip(tr("End the current Live Session."));
+    connect(lanLeaveAction, &QAction::triggered, this, []() {
+        LanLiveSession::instance()->leaveSession();
+    });
+    auto refreshLeaveLabel = [lanLeaveAction]() {
+        LanLiveSession *svc = LanLiveSession::instance();
+        switch (svc->transport()) {
+            case LanLiveSession::Transport::Lan:
+                lanLeaveAction->setText(tr("Leave Local Live Session"));
+                lanLeaveAction->setStatusTip(tr("End the current Local Live Session."));
+                break;
+            case LanLiveSession::Transport::Wan:
+                lanLeaveAction->setText(tr("Leave Online Live Session"));
+                lanLeaveAction->setStatusTip(tr("End the current Online Live Session."));
+                break;
+            case LanLiveSession::Transport::None:
+                lanLeaveAction->setText(tr("Leave Live Session"));
+                lanLeaveAction->setStatusTip(tr("End the current Live Session."));
+                break;
+        }
+    };
+    connect(LanLiveSession::instance(), &LanLiveSession::roleChanged,
+            this, [refreshLeaveLabel](LanLiveSession::Role) { refreshLeaveLabel(); });
+    refreshLeaveLabel();
+
+#ifdef MIDIEDITOR_WEBRTC_ENABLED
+    // Phase 9.6 — code-based WAN session entries. The 4-character code
+    // is exchanged via the Cloudflare rendezvous worker; once the data
+    // channel opens, edits flow over WebRTC peer-to-peer.
+    collabMenu->addSeparator();
+    QAction *rtcStartAction = new QAction(tr("Start WAN Live Session…"), this);
+    rtcStartAction->setStatusTip(tr("Host a live session over the internet — "
+                                     "share a 4-character code with one peer to connect."));
+    collabMenu->addAction(rtcStartAction);
+    // Plan §11.10l (Phase 9.7 polish): rendezvous pre-flight. Health-
+    // check the configured URL with a 3 s budget before kicking off
+    // ICE gathering so an unreachable rendezvous surfaces a clear
+    // error in seconds, not after the full ICE+POST timeout (~15 s).
+    auto preflightRendezvous = [this](const QString &flowName,
+                                       std::function<void()> proceed) {
+        statusBar()->showMessage(tr("Checking rendezvous…"));
+        QApplication::setOverrideCursor(Qt::WaitCursor);
+        auto *probe = new RtcRendezvousClient(this);
+        connect(probe, &RtcRendezvousClient::pingResult, this,
+            [this, probe, flowName, proceedFn = std::move(proceed)]
+            (bool ok, qint64 latencyMs, const QString &reason) mutable {
+                QApplication::restoreOverrideCursor();
+                statusBar()->clearMessage();
+                probe->deleteLater();
+                if (ok) {
+                    qDebug() << "Rendezvous OK in" << latencyMs << "ms";
+                    proceedFn();
+                    return;
+                }
+                QMessageBox::warning(this, flowName,
+                    tr("Could not reach the rendezvous service.\n\n"
+                       "Reason: %1\n"
+                       "URL:    %2\n\n"
+                       "Open Settings → Collaboration → WAN Live Session — "
+                       "rendezvous to switch to a different URL or clear "
+                       "the field to use the bundled default.")
+                        .arg(reason, RtcRendezvousClient::configuredUrl()));
+            });
+        probe->ping();
+    };
+
+    connect(rtcStartAction, &QAction::triggered, this,
+            [this, preflightRendezvous, prepareHostFile]() {
+        if (!file) {
+            QMessageBox::information(this, tr("WAN Live Session"),
+                tr("Open a MIDI file first — there's nothing to sync yet."));
+            return;
+        }
+        if (!prepareHostFile(tr("WAN Live Session"))) return;
+        preflightRendezvous(tr("WAN Live Session"), [this]() {
+            LanLiveSession *svc = LanLiveSession::instance();
+            if (!svc->startHostingWan(file)) {
+                QMessageBox::warning(this, tr("WAN Live Session"),
+                    tr("Could not start the WAN session (transport setup failed)."));
+                return;
+            }
+            // Non-modal — user keeps editing while the dialog is up.
+            WebRtcStartDialog *dlg = new WebRtcStartDialog(this);
+            dlg->setAttribute(Qt::WA_DeleteOnClose);
+            dlg->show();
+        });
+    });
+
+    QAction *rtcJoinAction = new QAction(tr("Join WAN Live Session…"), this);
+    rtcJoinAction->setStatusTip(tr("Connect to a peer over the internet using the "
+                                    "4-character code they shared with you."));
+    collabMenu->addAction(rtcJoinAction);
+    connect(rtcJoinAction, &QAction::triggered, this,
+            [this, preflightRendezvous]() {
+        preflightRendezvous(tr("Join WAN Live Session"), [this]() {
+            // file may be null — host will offer to ship its .mid in that case.
+            WebRtcJoinDialog dlg(file, this);
+            dlg.exec();
+        });
+    });
+#endif
+
+    // Review-mode toggle (§11.10c) — pause auto-apply of incoming live
+    // edits so the user can review them in PrReviewDialog before they
+    // land. Persisted across sessions via QSettings. Applies to both
+    // LAN and WAN sessions; the QSettings key kept its `Collab/lan/`
+    // prefix for backwards-compat with users who already enabled it.
+    QAction *lanReviewModeAction = new QAction(tr("Pause incoming live edits for review"), this);
+    lanReviewModeAction->setCheckable(true);
+    lanReviewModeAction->setChecked(LanLiveSession::instance()->isReviewModeEnabled());
+    lanReviewModeAction->setStatusTip(
+        tr("Queue incoming live edits (LAN and WAN) instead of applying them "
+           "immediately. Use 'Review pending live edits…' to inspect and apply."));
+    collabMenu->addAction(lanReviewModeAction);
+    connect(lanReviewModeAction, &QAction::toggled, this, [](bool on) {
+        LanLiveSession::instance()->setReviewMode(on);
+    });
+    connect(LanLiveSession::instance(), &LanLiveSession::reviewModeChanged,
+            this, [lanReviewModeAction](bool enabled) {
+                if (lanReviewModeAction->isChecked() != enabled)
+                    lanReviewModeAction->setChecked(enabled);
+            });
+
+    QAction *lanReviewPendingAction = new QAction(tr("Review pending live edits…"), this);
+    lanReviewPendingAction->setStatusTip(
+        tr("Open the cherry-pick review dialog for incoming live edits "
+           "(LAN or WAN) that have been paused."));
+    collabMenu->addAction(lanReviewPendingAction);
+    connect(lanReviewPendingAction, &QAction::triggered, this, [this]() {
+        LanLiveSession *svc = LanLiveSession::instance();
+        if (svc->pendingReviewHunkCount() == 0) {
+            QMessageBox::information(this, tr("Review pending live edits"),
+                tr("No queued live edits to review."));
+            return;
+        }
+        if (!file) {
+            QMessageBox::warning(this, tr("Review pending live edits"),
+                tr("Open a MIDI file first."));
+            return;
+        }
+        PrBundle bundle = svc->pendingReviewBundle();
+        PrReviewDialog dlg(bundle, file, PrReviewDialog::Mode::PreApply, this);
+        if (dlg.exec() == QDialog::Accepted) {
+            // PrReviewDialog applied the accepted hunks to our file
+            // and recorded the merge in the collab log via
+            // CollabService::onFileSaved. We just need to clear the
+            // queue and re-baseline so the next sync tick doesn't
+            // re-broadcast the just-applied delta to peers.
+            svc->acknowledgeReviewApplied();
+        }
+        // Cancel: keep queue intact for later review.
+    });
+
+    // Leave Live Session at the very bottom of the collab menu so the
+    // destructive action sits furthest from accidental clicks.
+    collabMenu->addSeparator();
+    collabMenu->addAction(lanLeaveAction);
+
+    auto refreshCollabMenu = [collabMenu, collabCreatePrAction, collabCompactAction, collabImportPrAction,
+                              lanStartAction, lanJoinAction, lanLeaveAction,
+                              lanReviewModeAction, lanReviewPendingAction]() {
+        CollabService *svc = CollabService::instance();
+        bool enabled = svc->isEnabled();
+        collabMenu->menuAction()->setVisible(enabled);
+        // Plan §11.10n: Create PR / Compact don't require pre-init —
+        // they auto-init on first use. Stay enabled whenever there's
+        // a file open. (Compact still requires _initialized to do
+        // anything useful, but its handler already short-circuits in
+        // that case, and the user-visible action shouldn't grey out
+        // before they ever clicked it.)
+        collabCreatePrAction->setEnabled(enabled && svc->hasCurrentFile());
+        collabCompactAction->setEnabled(enabled && svc->isCurrentFileInitialized());
+        collabImportPrAction->setEnabled(enabled && svc->hasCurrentFile());
+
+        LanLiveSession::Role lanRole = LanLiveSession::instance()->role();
+        bool lanIdle = (lanRole == LanLiveSession::Role::Idle);
+        // Hosting still needs a file (we ship its bytes to clients), but
+        // joining is always available — the host will provide the .mid.
+        lanStartAction->setEnabled(enabled && lanIdle && svc->hasCurrentFile());
+        lanJoinAction->setEnabled(enabled && lanIdle);
+        lanLeaveAction->setEnabled(enabled && !lanIdle);
+        lanReviewModeAction->setEnabled(enabled);
+        lanReviewPendingAction->setEnabled(
+            enabled && LanLiveSession::instance()->pendingReviewHunkCount() > 0);
+    };
+    // Pending count changes during a session — refresh the menu so
+    // "Review pending…" toggles enabled/disabled as hunks arrive.
+    connect(LanLiveSession::instance(), &LanLiveSession::pendingReviewChanged,
+            this, [refreshCollabMenu](int) { refreshCollabMenu(); });
+    QObject::connect(LanLiveSession::instance(), &LanLiveSession::roleChanged,
+                     this, [refreshCollabMenu]() { refreshCollabMenu(); });
+    refreshCollabMenu();
+    connect(CollabService::instance(), &CollabService::enabledChanged, this,
+            [refreshCollabMenu](bool) { refreshCollabMenu(); });
+    connect(CollabService::instance(), &CollabService::currentFileStateChanged, this,
+            refreshCollabMenu);
 #endif
 
     fileMB->addSeparator();
@@ -5459,6 +6229,35 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
     QAction *checkUpdatesAction = new QAction(tr("Check for updates"), this);
     connect(checkUpdatesAction, &QAction::triggered, this, [this](){ checkForUpdates(false); });
     helpMB->addAction(checkUpdatesAction);
+
+#ifdef MIDIEDITOR_WEBRTC_ENABLED
+    // Phase 9.6 / §11.10g: developer-only WebRTC diagnostics. End users
+    // get the production-handshake "Test connection" button in
+    // Settings → Collaboration instead. These two entries appear only
+    // when MIDIEDITOR_DEV is set in the environment so contributors can
+    // flip them on without rebuilding.
+    if (qEnvironmentVariableIsSet("MIDIEDITOR_DEV")) {
+        helpMB->addSeparator();
+        QAction *webrtcSmokeAction = new QAction(tr("WebRTC STUN Test (debug)"), this);
+        connect(webrtcSmokeAction, &QAction::triggered, this, [this]() {
+            WebRtcSmokeTest::runStunPing();
+            QMessageBox::information(this, tr("WebRTC STUN Test"),
+                tr("ICE gathering started. Watch the log for 'midieditor.collab.rtc.smoke' "
+                   "entries — a candidate with 'typ srflx' confirms STUN works."));
+        });
+        helpMB->addAction(webrtcSmokeAction);
+
+        QAction *webrtcLoopbackAction = new QAction(tr("WebRTC Loopback Test (debug)"), this);
+        connect(webrtcLoopbackAction, &QAction::triggered, this, [this]() {
+            WebRtcSmokeTest::runLoopback();
+            QMessageBox::information(this, tr("WebRTC Loopback Test"),
+                tr("Two in-process transports started. Watch the log — "
+                   "look for 'ROUND-TRIP COMPLETE' confirming framed "
+                   "messages flow bidirectionally over DTLS."));
+        });
+        helpMB->addAction(webrtcLoopbackAction);
+    }
+#endif
 
     // Use full custom toolbar with settings integration
     // Apply any stored custom shortcuts from settings after defining defaults

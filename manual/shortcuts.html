@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Keyboard Shortcuts - MidiEditor AI Manual</title>
   <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="icon" type="image/x-icon" href="favicon.ico" sizes="any">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
   <meta name="theme-color" content="#0B1020">
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="site.css">
@@ -97,12 +99,12 @@
 
 <p>
   This page lists every keyboard shortcut shipped with MidiEditor AI. Each row also shows the
-  internal <em>action ID</em> &mdash; you can use that ID in
+  internal <em>action ID</em> - you can use that ID in
   <b>Settings &rarr; Keybinds</b> to rebind a shortcut, clear it, or restore the default.
 </p>
 
 <div class="note-box tip">
-  <b>Tip &mdash; rebinding shortcuts.</b> Open
+  <b>Tip - rebinding shortcuts.</b> Open
   <b>Edit &rarr; Settings &rarr; Keybinds</b>, find the action by its name (or scroll to its ID),
   click the field next to it and press the new key combination. The dialog warns about duplicate
   bindings and offers a <b>Reset</b> button per row plus a global <b>Reset All to Defaults</b>.
@@ -183,8 +185,8 @@
 <table class="shortcuts-table">
 <tr><th>Shortcut</th><th>Action</th><th>Action ID</th></tr>
 <tr><td class="kbd-cell"><kbd>F1</kbd></td><td>Standard tool (move / select smart)</td><td class="id-cell">standard_tool</td></tr>
-<tr><td class="kbd-cell"><kbd>F2</kbd></td><td>Pencil &mdash; create new notes</td><td class="id-cell">new_note</td></tr>
-<tr><td class="kbd-cell"><kbd>F3</kbd></td><td>Eraser &mdash; remove notes</td><td class="id-cell">remove_notes</td></tr>
+<tr><td class="kbd-cell"><kbd>F2</kbd></td><td>Pencil - create new notes</td><td class="id-cell">new_note</td></tr>
+<tr><td class="kbd-cell"><kbd>F3</kbd></td><td>Eraser - remove notes</td><td class="id-cell">remove_notes</td></tr>
 <tr><td class="kbd-cell"><kbd>F4</kbd></td><td>Single selection</td><td class="id-cell">select_single</td></tr>
 <tr><td class="kbd-cell"><kbd>F5</kbd></td><td>Box selection</td><td class="id-cell">select_box</td></tr>
 <tr><td class="kbd-cell"><kbd>F6</kbd></td><td>Select left of cursor</td><td class="id-cell">select_left</td></tr>
@@ -205,7 +207,7 @@
 <tr><th>Shortcut</th><th>Action</th><th>Action ID</th></tr>
 <tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>G</kbd></td><td>Glue notes (same channel)</td><td class="id-cell">glue</td></tr>
 <tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>G</kbd></td><td>Glue notes (all channels)</td><td class="id-cell">glue_all_channels</td></tr>
-<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>X</kbd></td><td>Scissors &mdash; cut note at cursor</td><td class="id-cell">scissors</td></tr>
+<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>X</kbd></td><td>Scissors - cut note at cursor</td><td class="id-cell">scissors</td></tr>
 <tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>D</kbd></td><td>Delete overlaps</td><td class="id-cell">delete_overlaps</td></tr>
 <tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>B</kbd></td><td>Convert pitch bends to notes</td><td class="id-cell">convert_pitch_bend_to_notes</td></tr>
 <tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>E</kbd></td><td>Explode chords to tracks</td><td class="id-cell">explode_chords_to_tracks</td></tr>
@@ -215,7 +217,7 @@
 </table>
 
 <!-- ───────── Tweak ───────── -->
-<h3 id="tweak">Tweak &mdash; precision nudge of selected events</h3>
+<h3 id="tweak">Tweak - precision nudge of selected events</h3>
 
 <p>
   The <b>Tweak</b> family of shortcuts adjusts a single property (time / start / end / note / value)
@@ -340,7 +342,7 @@
 
 <table class="shortcuts-table">
 <tr><th>Shortcut</th><th>Action</th><th>Action ID</th></tr>
-<tr><td class="kbd-cell"><kbd>Esc</kbd></td><td>MIDI panic &mdash; All Notes Off on every channel</td><td class="id-cell">panic</td></tr>
+<tr><td class="kbd-cell"><kbd>Esc</kbd></td><td>MIDI panic - All Notes Off on every channel</td><td class="id-cell">panic</td></tr>
 </table>
 
 <!-- ───────── Tracks ───────── -->
@@ -358,7 +360,7 @@
 </table>
 
 <div class="note-box warn">
-  <b>Note &mdash; tool shortcuts use function keys.</b> The tool shortcuts
+  <b>Note - tool shortcuts use function keys.</b> The tool shortcuts
   <kbd>F1</kbd>&hellip;<kbd>F11</kbd> and <kbd>Ctrl</kbd>+<kbd>F1</kbd>/<kbd>F2</kbd>/<kbd>F3</kbd>
   may be intercepted by the OS, screen reader, or window manager (especially on Linux).
   If a tool shortcut does nothing, rebind it under
@@ -377,7 +379,7 @@
 <tr><th>Gesture</th><th>Action</th></tr>
 <tr><td class="kbd-cell">Right-click on note</td><td>Context menu (Quantize, Copy, Delete, Transpose, Move to Track/Channel, Scale, Legato, Export selection&hellip;)</td></tr>
 <tr><td class="kbd-cell"><kbd>Ctrl</kbd>+Right-click</td><td>Create note at click position</td></tr>
-<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+drag (Box select)</td><td>Toggle &mdash; <em>removes</em> events inside box from current selection (since v1.3.3)</td></tr>
+<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+drag (Box select)</td><td>Toggle - <em>removes</em> events inside box from current selection (since v1.3.3)</td></tr>
 <tr><td class="kbd-cell"><kbd>Shift</kbd>+drag (Box select)</td><td>Add events inside box to current selection</td></tr>
 <tr><td class="kbd-cell">Mouse wheel</td><td>Vertical scroll</td></tr>
 <tr><td class="kbd-cell"><kbd>Shift</kbd>+wheel</td><td>Horizontal scroll</td></tr>

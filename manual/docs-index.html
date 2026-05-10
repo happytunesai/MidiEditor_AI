@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>MidiEditor AI Manual</title>
 <link rel="icon" type="image/png" href="favicon.png">
+<link rel="icon" type="image/x-icon" href="favicon.ico" sizes="any">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 <meta name="theme-color" content="#0B1020">
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="site.css">
@@ -326,7 +328,7 @@
 <div class="hero">
 <pre id="ascii-logo" aria-label="MidiEditor AI"></pre>
 <p class="tagline" id="hero-tagline" style="opacity:0">Your complete guide to the AI-powered MIDI editor</p>
-    <span class="version-badge" id="hero-badge" style="opacity:0">v1.6.1 &middot; Manual</span>
+    <span class="version-badge" id="hero-badge" style="opacity:0">v1.7.0 &middot; Manual</span>
 
 <!-- Fake Chat Demo -->
 <div class="chat-demo" id="chat-demo">
@@ -406,6 +408,98 @@
 <li><a href="prompt-examples.html#arrangement">&#x1F3BB; Arrangement &amp; Orchestration</a></li>
 <li><a href="prompt-examples.html#conversion">&#x1F504; MIDI Conversion &amp; Cleanup</a></li>
 <li><a href="prompt-examples.html#ffxiv">&#x1F3AE; FFXIV Bard Performance</a></li>
+</ul>
+</div>
+
+</div>
+
+<!-- Collaboration -->
+<h2>&#x1F91D; Collaboration</h2>
+
+<div class="section-grid">
+
+<div class="section-card">
+<h3><span class="icon">&#x1F91D;</span> Collaboration Overview</h3>
+<p class="card-desc">Four modes - Async PR, Discord, LAN Live, WAN Live - one diff engine. Pick a mode based on realtime needs, audience, and how chatty you want the editor to be.</p>
+<ul>
+<li><a href="collaboration.html#modes">&#x1F4DA; Pick your mode</a></li>
+<li><a href="collaboration.html#comparison">&#x2696;&#xFE0F; Mode comparison</a></li>
+<li><a href="collaboration.html#concepts">&#x1F4D6; Common concepts</a></li>
+<li><a href="collaboration.html#privacy">&#x1F50E; Privacy &amp; data flow</a></li>
+</ul>
+</div>
+
+<div class="section-card">
+<h3><span class="icon">&#x1F4DD;</span> Async PR</h3>
+<p class="card-desc">Smart-paste tokens, the Review dialog, and the Create-PR flow - ship a change-set as text, recipient pastes <code>Ctrl+V</code> to review.</p>
+<ul>
+<li><a href="collab-pr.html#quick-start">&#x1F680; Quick start</a></li>
+<li><a href="collab-pr.html#create-pr">&#x270F;&#xFE0F; Creating a PR</a></li>
+<li><a href="collab-pr.html#receiving">&#x1F4E5; Receiving a PR</a></li>
+<li><a href="collab-pr.html#token-formats">&#x1F517; Token formats</a></li>
+<li><a href="collab-pr.html#history">&#x1F4DC; History tab</a></li>
+</ul>
+</div>
+
+<div class="section-card">
+<h3><span class="icon">&#x1F4E2;</span> Discord</h3>
+<p class="card-desc">Auto-post each PR's smart-paste token + summary embed to a Discord channel via webhook. Same review flow as Async PR on the receiving end.</p>
+<ul>
+<li><a href="collab-discord.html#discord-side">&#x1F517; Discord-side setup</a></li>
+<li><a href="collab-discord.html#midieditor-side">&#x2699;&#xFE0F; MidiEditor side</a></li>
+<li><a href="collab-discord.html#what-gets-posted">&#x1F4E8; What gets posted</a></li>
+<li><a href="collab-discord.html#troubleshooting">&#x2753; Troubleshooting</a></li>
+</ul>
+</div>
+
+<div class="section-card">
+<h3><span class="icon">&#x1F3E0;</span> LAN Live</h3>
+<p class="card-desc">Real-time co-editing on the same network. UDP multicast discovery, TCP transport, file-transfer-on-join, bi-directional sync every 200&nbsp;ms.</p>
+<ul>
+<li><a href="collab-lan.html#quick-start">&#x1F680; Quick start</a></li>
+<li><a href="collab-lan.html#hosting">&#x1F3AF; Hosting</a></li>
+<li><a href="collab-lan.html#joining">&#x1F517; Joining</a></li>
+<li><a href="collab-lan.html#sync-rules">&#x1F501; Sync rules</a></li>
+<li><a href="collab-lan.html#review-mode">&#x1F441;&#xFE0F; Review mode</a></li>
+<li><a href="collab-lan.html#troubleshooting">&#x2753; Troubleshooting</a></li>
+</ul>
+</div>
+
+<div class="section-card">
+<h3><span class="icon">&#x1F310;</span> WAN Live</h3>
+<p class="card-desc">Real-time co-editing across the internet. WebRTC + DTLS, Cloudflare Worker rendezvous, 4-character codes, NAT traversal via STUN.</p>
+<ul>
+<li><a href="collab-wan.html#quick-start">&#x1F680; Quick start</a></li>
+<li><a href="collab-wan.html#connection-test">&#x1F4E1; Connection Test</a></li>
+<li><a href="collab-wan.html#ice">&#x1F9CA; ICE / STUN / TURN</a></li>
+<li><a href="collab-wan.html#auto-reconnect">&#x1F501; Auto-reconnect</a></li>
+<li><a href="collab-wan.html#recovery">&#x1F6A8; Recovery scenarios</a></li>
+<li><a href="collab-wan.html#troubleshooting">&#x2753; Troubleshooting</a></li>
+</ul>
+</div>
+
+<div class="section-card">
+<h3><span class="icon">&#x2601;&#xFE0F;</span> Self-host Cloudflare</h3>
+<p class="card-desc">Deploy your own rendezvous Worker in five minutes. Free tier covers 100k requests/day. Privacy, custom domains, ratelimit ownership.</p>
+<ul>
+<li><a href="collab-cloudflare.html#why">&#x1F4A1; Why self-host?</a></li>
+<li><a href="collab-cloudflare.html#architecture">&#x1F5FA;&#xFE0F; How rendezvous works</a></li>
+<li><a href="collab-cloudflare.html#walkthrough">&#x1F680; Five-minute walkthrough</a></li>
+<li><a href="collab-cloudflare.html#endpoints">&#x1F4D1; Endpoint reference</a></li>
+<li><a href="collab-cloudflare.html#security">&#x1F510; Security notes</a></li>
+<li><a href="collab-cloudflare.html#turn">&#x1F501; Adding a TURN server</a></li>
+</ul>
+</div>
+
+<div class="section-card">
+<h3><span class="icon">&#x2699;&#xFE0F;</span> Settings Reference</h3>
+<p class="card-desc">Every toggle on the Collaboration tab - identity, hosting safety, WAN rendezvous, Discord webhook, logging.</p>
+<ul>
+<li><a href="collab-settings.html#identity">&#x1F464; Identity</a></li>
+<li><a href="collab-settings.html#hosting-safety">&#x1F6E1;&#xFE0F; Hosting safety</a></li>
+<li><a href="collab-settings.html#wan-rendezvous">&#x1F310; WAN Rendezvous</a></li>
+<li><a href="collab-settings.html#discord">&#x1F4E2; Discord webhook</a></li>
+<li><a href="collab-settings.html#logging">&#x1F4DD; Logging</a></li>
 </ul>
 </div>
 
@@ -559,7 +653,7 @@
 
 <div class="section-card">
 <h3><span class="icon">&#x2328;&#xFE0F;</span> Keyboard Shortcuts</h3>
-<p class="card-desc">Full reference of every keyboard shortcut shipped with MidiEditor AI &mdash; 78 actions organised by category, each with its action ID for rebinding under <em>Settings &rarr; Keybinds</em>.</p>
+<p class="card-desc">Full reference of every keyboard shortcut shipped with MidiEditor AI - 78 actions organised by category, each with its action ID for rebinding under <em>Settings &rarr; Keybinds</em>.</p>
 <ul>
 <li><a href="shortcuts.html#file">&#x1F4C1; File</a></li>
 <li><a href="shortcuts.html#edit">&#x270F;&#xFE0F; Edit &amp; Selection</a></li>
@@ -568,6 +662,20 @@
 <li><a href="shortcuts.html#duration">&#x1F3BC; Note Duration Presets</a></li>
 <li><a href="shortcuts.html#playback">&#x25B6;&#xFE0F; Playback</a></li>
 <li><a href="shortcuts.html#mouse">&#x1F5B1;&#xFE0F; Mouse Modifiers</a></li>
+</ul>
+</div>
+
+<div class="section-card">
+<h3><span class="icon">&#x1F4DD;</span> Logging</h3>
+<p class="card-desc">Five severity levels with live preview &amp; size estimates, in-flight rotation at 10&nbsp;MB, advanced per-category filter rules. The bridge between &ldquo;something feels off&rdquo; and a useful bug report.</p>
+<ul>
+<li><a href="logging.html#severity-legend">&#x1F3F7;&#xFE0F; The four severities</a></li>
+<li><a href="logging.html#levels">&#x1F4CA; The five levels</a></li>
+<li><a href="logging.html#examples">&#x1F50D; Sample log lines per level</a></li>
+<li><a href="logging.html#size">&#x26A0;&#xFE0F; File size &amp; performance trade-offs</a></li>
+<li><a href="logging.html#rotation">&#x1F4C2; File location &amp; rotation</a></li>
+<li><a href="logging.html#advanced">&#x2699;&#xFE0F; Per-category overrides</a></li>
+<li><a href="logging.html#when-to-attach">&#x1F4E2; When to attach to an issue</a></li>
 </ul>
 </div>
 

@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Collaboration - PRs, Discord & Live Sessions | MidiEditor AI Manual</title>
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="icon" type="image/x-icon" href="favicon.ico" sizes="any">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <meta name="theme-color" content="#0B1020">
+  <meta name="description" content="MidiEditor AI's collaboration toolkit: async PRs with smart-paste tokens, Discord webhooks, real-time LAN co-editing, and WAN sessions over WebRTC + Cloudflare rendezvous.">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="site.css">
+  <link rel="stylesheet" href="audio.css">
+  <style>
+    /* Mode-selector cards.
+       Locked to 2 columns so the 4 modes always sit as a clean 2x2:
+       async (PR + Discord) on top, realtime (LAN + WAN) below.
+       Below 700 px viewport it stacks to 1 column. */
+    .mode-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 1.25rem;
+      margin: 1.5rem 0 2rem;
+    }
+    @media (max-width: 700px) {
+      .mode-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+    .mode-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.4rem;
+      display: flex;
+      flex-direction: column;
+      transition: border-color 0.2s, transform 0.2s, box-shadow 0.2s;
+    }
+    .mode-card:hover {
+      border-color: var(--accent);
+      transform: translateY(-3px);
+      box-shadow: 0 6px 24px rgba(88, 166, 255, 0.12);
+    }
+    .mode-card .mode-icon {
+      font-size: 2em;
+      margin-bottom: 0.3rem;
+    }
+    .mode-card h3 {
+      margin: 0 0 0.3rem;
+      font-size: 1.15em;
+      border-bottom: none;
+    }
+    .mode-card .mode-tag {
+      color: var(--accent);
+      font-size: 0.85em;
+      font-weight: 600;
+      margin-bottom: 0.6rem;
+    }
+    .mode-card .mode-desc {
+      color: var(--text-muted);
+      font-size: 0.92em;
+      line-height: 1.5;
+      margin: 0 0 0.8rem;
+      flex: 1;
+    }
+    .mode-card .when {
+      font-size: 0.85em;
+      color: var(--text-muted);
+      padding: 0.6rem;
+      background: rgba(88, 166, 255, 0.05);
+      border-radius: 6px;
+      margin-bottom: 0.8rem;
+    }
+    .mode-card .when strong { color: var(--text); }
+    .mode-card .mode-link {
+      display: inline-block;
+      color: var(--accent);
+      font-weight: 600;
+      text-decoration: none;
+      align-self: flex-start;
+    }
+    .mode-card .mode-link:hover { text-decoration: underline; }
+
+    /* Comparison matrix */
+    .matrix {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1.5rem 0;
+      font-size: 0.92em;
+    }
+    .matrix th, .matrix td {
+      padding: 0.6rem 0.8rem;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+    .matrix th {
+      color: var(--accent);
+      font-weight: 600;
+      background: rgba(88, 166, 255, 0.05);
+    }
+    .matrix tr:hover td { background: rgba(88, 166, 255, 0.03); }
+    .matrix .yes { color: #2ea043; font-weight: 600; }
+    .matrix .no  { color: #f85149; font-weight: 600; }
+    .matrix .partial { color: #d29922; font-weight: 600; }
+
+    /* Concept cards (smaller than mode-cards) */
+    .concept-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 1rem;
+      margin: 1rem 0 1.5rem;
+    }
+    .concept-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem;
+    }
+    .concept-card h4 {
+      margin: 0 0 0.4rem;
+      font-size: 1em;
+      color: var(--text);
+      border-bottom: none;
+    }
+    .concept-card p {
+      margin: 0;
+      font-size: 0.9em;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    /* Privacy callout */
+    .privacy-note {
+      background: linear-gradient(135deg, #10192A 0%, #162238 100%);
+      border: 1px solid var(--border);
+      border-left: 4px solid var(--accent);
+      border-radius: 8px;
+      padding: 1.2rem 1.4rem;
+      margin: 1.5rem 0;
+    }
+    .privacy-note h3 {
+      margin: 0 0 0.5rem;
+      border-bottom: none;
+      font-size: 1.05em;
+    }
+    .privacy-note p { margin: 0.3rem 0; font-size: 0.92em; }
+    .privacy-note ul { margin: 0.5rem 0 0 1.2rem; font-size: 0.92em; }
+    .privacy-note li { margin: 0.25rem 0; }
+
+    /* Quick-start banner reused from docs-index */
+    .quick-start {
+      background: linear-gradient(135deg, #10192A 0%, #162238 100%);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.5rem 1.75rem;
+      margin: 1.5rem 0;
+      display: flex;
+      align-items: center;
+      gap: 1.25rem;
+    }
+    .quick-start .qs-icon { font-size: 2.2em; flex-shrink: 0; }
+    .quick-start h3 { margin: 0 0 0.3rem; border-bottom: none; font-size: 1.1em; }
+    .quick-start p { margin: 0; color: var(--text-muted); font-size: 0.92em; }
+
+    .screenshot-single { text-align: center; margin: 1.5rem 0; }
+    .screenshot-single img { max-width: 100%; border: 1px solid var(--border); border-radius: 8px; }
+    .caption { text-align: center; color: var(--text-muted); font-style: italic; margin-top: 0.5rem; font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+<nav class="site-nav" role="navigation" aria-label="Main navigation">
+<div class="container">
+    <a href="index.html" class="nav-brand">
+        <img class="brand-logo" src="Midieditor-ai_banner_w.png" alt="MidiEditor AI">
+    </a>
+    <button class="nav-hamburger" aria-label="Toggle menu" aria-expanded="false">&#x2630;</button>
+    <ul class="nav-links">
+        <li><a href="index.html#features">Features</a></li>
+        <li><a href="index.html#showcase">Showcase</a></li>
+        <li class="nav-dropdown">
+            <span class="nav-dropdown-trigger active">Docs &#x25BE;</span>
+            <div class="nav-dropdown-menu">
+                <a href="docs-index.html">Manual Overview</a>
+                <a href="midipilot.html">MidiPilot AI</a>
+                <a href="collaboration.html">Collaboration</a>
+                <a href="prompt-examples.html">Prompt Examples</a>
+                <a href="ffxiv-channel-fixer.html">FFXIV Channel Fixer</a>
+                <a href="supported-files.html">Supported Files</a>
+                <a href="themes.html">Themes &amp; Appearance</a>
+                <a href="lyrics.html">Lyric Editor</a>
+                <a href="soundfont.html">SoundFonts &amp; FluidSynth</a>
+                <a href="shortcuts.html">Keyboard Shortcuts</a>
+                <a href="mcp-server.html">MCP Server</a>
+                <a href="setup.html">Setup &amp; Installation</a>
+            </div>
+        </li>
+        <li><a href="changelog.html">Changelog</a></li>
+        <li><a href="https://github.com/happytunesai/MidiEditor_AI" target="_blank" rel="noopener noreferrer">GitHub &#x2197;</a></li>
+        <li><a href="download.html" class="nav-cta">&#x2B07; Download</a></li>
+    </ul>
+</div>
+</nav>
+
+<a href="#main-content" class="skip-link">Skip to main content</a>
+
+<main id="main-content">
+
+<h1 id="collaboration">&#x1F91D; Collaboration</h1>
+
+<p>
+MidiEditor AI ships <b>four collaboration modes</b>, all server-less, all opt-in: share a snapshot via
+a smart-paste token, post your work to a Discord channel, co-edit live on the local network, or
+co-edit live across the internet over WebRTC. Pick a mode based on whether you need realtime, who
+your audience is, and how chatty you want the editor to be on the wire.
+</p>
+
+<div class="screenshot-single">
+    <img src="screenshots/collaboration_menu.png" alt="MidiEditor AI Collab menu open, showing all four mode entry points: Create PR, Start LAN, Start WAN, plus settings" loading="lazy">
+    <div class="caption">The Collab menu - one entry per mode, plus settings access.</div>
+</div>
+
+<div class="quick-start">
+<span class="qs-icon">&#x1F680;</span>
+<div>
+<h3>First time here?</h3>
+<p>If you just want to try it: open a MIDI file, hit <b>Edit &rarr; Settings &rarr; Collaboration</b>, set a
+display name, then <b>Collab &rarr; Start LAN Live Session&hellip;</b>. The other person clicks <b>Join LAN Live Session&hellip;</b>
+and types the 4-character code. That's the entire setup.</p>
+</div>
+</div>
+
+<hr>
+
+<h2 id="modes">Pick your mode</h2>
+
+<div class="mode-grid">
+
+<div class="mode-card">
+    <div class="mode-icon">&#x1F4DD;</div>
+    <h3>Async PR</h3>
+    <div class="mode-tag">Snapshot &amp; review</div>
+    <p class="mode-desc">Bundle your changes into a single token, send it through any channel
+    (chat, email, file drop), recipient pastes <code>Ctrl+V</code> into the editor and reviews
+    each hunk before merging.</p>
+    <div class="when"><strong>Best for:</strong> async work, AI-agent output, large changes,
+    when you want the receiver to cherry-pick.</div>
+    <a class="mode-link" href="collab-pr.html">Read more &rarr;</a>
+</div>
+
+<div class="mode-card">
+    <div class="mode-icon">&#x1F4E2;</div>
+    <h3>Discord</h3>
+    <div class="mode-tag">Webhook broadcast</div>
+    <p class="mode-desc">Post a smart-paste token plus a summary embed to a Discord channel
+    every time you click <em>Create PR</em>. The token is the same one as the Async PR mode.</p>
+    <div class="when"><strong>Best for:</strong> band channels, sharing in a community, audit
+    trail of what was sent when.</div>
+    <a class="mode-link" href="collab-discord.html">Read more &rarr;</a>
+</div>
+
+<div class="mode-card">
+    <div class="mode-icon">&#x1F3E0;</div>
+    <h3>LAN Live</h3>
+    <div class="mode-tag">Same network, real-time</div>
+    <p class="mode-desc">UDP multicast peer discovery, direct TCP for the data. The host's file
+    auto-transfers to the joiner. Edits flow both ways every 200&nbsp;ms.</p>
+    <div class="when"><strong>Best for:</strong> two PCs in the same room, office network, VPN.
+    No internet required.</div>
+    <a class="mode-link" href="collab-lan.html">Read more &rarr;</a>
+</div>
+
+<div class="mode-card">
+    <div class="mode-icon">&#x1F310;</div>
+    <h3>WAN Live</h3>
+    <div class="mode-tag">Across the internet</div>
+    <p class="mode-desc">WebRTC + DTLS over a Cloudflare-Worker rendezvous. NAT traversal via
+    STUN. Same 4-character code, same live-edit pipeline as LAN.</p>
+    <div class="when"><strong>Best for:</strong> remote bandmate, friends in another city, or
+    just two PCs that aren't on the same LAN.</div>
+    <a class="mode-link" href="collab-wan.html">Read more &rarr;</a>
+</div>
+
+</div>
+
+<hr>
+
+<h2 id="comparison">Mode comparison</h2>
+
+<p>
+All four modes share the same diff engine and apply pipeline. They differ in <em>how the bytes
+get from one machine to the other</em> and what kind of latency / setup that implies.
+</p>
+
+<table class="matrix">
+<thead>
+<tr>
+    <th>Feature</th>
+    <th>Async PR</th>
+    <th>Discord</th>
+    <th>LAN Live</th>
+    <th>WAN Live</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+    <td><b>Realtime?</b></td>
+    <td><span class="no">No</span> - manual review</td>
+    <td><span class="no">No</span> - manual review</td>
+    <td><span class="yes">Yes</span> (~200 ms)</td>
+    <td><span class="yes">Yes</span> (~200 ms + WAN RTT)</td>
+</tr>
+<tr>
+    <td><b>Internet required?</b></td>
+    <td><span class="no">No</span> - works offline</td>
+    <td><span class="yes">Yes</span> - Discord API</td>
+    <td><span class="no">No</span></td>
+    <td><span class="yes">Yes</span> - rendezvous + STUN</td>
+</tr>
+<tr>
+    <td><b>Encryption on the wire</b></td>
+    <td>n/a (file payload only)</td>
+    <td>HTTPS to Discord</td>
+    <td><span class="partial">Plain TCP</span> on LAN</td>
+    <td><span class="yes">DTLS</span> end-to-end</td>
+</tr>
+<tr>
+    <td><b>Third-party server in path</b></td>
+    <td><span class="yes">None</span></td>
+    <td>Discord</td>
+    <td><span class="yes">None</span></td>
+    <td>Cloudflare (handshake only)</td>
+</tr>
+<tr>
+    <td><b>Multi-peer (3+)</b></td>
+    <td>Yes (re-share the token)</td>
+    <td>Yes (channel members)</td>
+    <td>Yes (host-star topology)</td>
+    <td><span class="yes">Yes</span> - up to 8 peers per session</td>
+</tr>
+<tr>
+    <td><b>Setup time</b></td>
+    <td>~5 s (paste token)</td>
+    <td>~2 min (webhook URL)</td>
+    <td>~10 s (discovery)</td>
+    <td>~30 s (code share + handshake)</td>
+</tr>
+<tr>
+    <td><b>Reviewer can cherry-pick?</b></td>
+    <td><span class="yes">Yes</span></td>
+    <td><span class="yes">Yes</span> (same review dialog)</td>
+    <td><span class="partial">Review-mode toggle</span></td>
+    <td><span class="partial">Review-mode toggle</span></td>
+</tr>
+</tbody>
+</table>
+
+<hr>
+
+<h2 id="concepts">Common concepts</h2>
+
+<p>
+Every mode shares these building blocks - learn them once, recognise them across the UI.
+</p>
+
+<div class="concept-grid">
+
+<div class="concept-card">
+<h4>&#x1F464; Identity</h4>
+<p>A <em>display name</em> (you pick it) plus a <em>machine UUID</em> (auto-generated, stays on
+this PC). No accounts, no passwords, no key exchange.</p>
+</div>
+
+<div class="concept-card">
+<h4>&#x1F4D2; Sidecar (<code>.collab</code>)</h4>
+<p>A small JSON file next to your <code>.mid</code> that records who changed what, when. Acts
+as your local commit log. Optional - only created once you opt in to collab on a file.</p>
+</div>
+
+<div class="concept-card">
+<h4>&#x1F517; Smart-paste token</h4>
+<p>Compact text that encodes a full PR bundle (zlib + base64-url). Starts with
+<code>mep://</code> so MidiEditor recognises it on <code>Ctrl+V</code>.</p>
+</div>
+
+<div class="concept-card">
+<h4>&#x1F511; Session ID</h4>
+<p>A per-file random ID stored inside the sidecar. Used by Live mode to figure out whether your
+local copy and the host's copy are tracking the same logical file.</p>
+</div>
+
+<div class="concept-card">
+<h4>&#x1F501; Auto-init</h4>
+<p>The first time you create a PR, import a token, or start a Live Session, MidiEditor adds the
+sidecar and a session ID for you. Nothing happens until you opt in.</p>
+</div>
+
+<div class="concept-card">
+<h4>&#x1F6E1;&#xFE0F; Work-on-copy</h4>
+<p>When hosting a Live Session, MidiEditor saves a <code>&lt;name&gt;_shared.mid</code> in
+<code>Documents/MidiEditor_AI/shared</code> and edits that. Your original stays untouched.
+On by default.</p>
+</div>
+
+<div class="concept-card">
+<h4>&#x1F4DC; History tab</h4>
+<p>The <em>Collaboration History</em> tab shows every commit on the current file
+(local + remote). Each row expands to show the per-hunk diff that produced it.</p>
+</div>
+
+<div class="concept-card">
+<h4>&#x1F510; DTLS / WebRTC</h4>
+<p>WAN Live uses a self-signed DTLS certificate per session, fingerprinted in the SDP. Once the
+handshake completes, MIDI traffic flows peer-to-peer - the rendezvous server never sees your
+edits.</p>
+</div>
+
+</div>
+
+<hr>
+
+<h2 id="privacy">Privacy &amp; data flow</h2>
+
+<div class="privacy-note">
+<h3>&#x1F50E; What leaves your machine, and when</h3>
+<p>Collab is opt-in across the board. With every feature off (default), nothing collab-related
+ever touches the network.</p>
+<ul>
+<li><b>Async PR &amp; Discord:</b> nothing until you click <em>Create PR</em>. Then either a token
+appears on your clipboard (PR), or one HTTPS POST goes to your configured Discord webhook URL.</li>
+<li><b>LAN Live:</b> while hosting / joined, UDP multicast announces your machine on the local
+broadcast group. The MIDI bytes themselves stay between the two PCs over plain TCP.</li>
+<li><b>WAN Live:</b> three small HTTPS calls to the rendezvous Worker (offer / get / answer),
+then a STUN exchange (your public IP becomes visible to the peer), then DTLS direct. The Worker
+never sees the MIDI traffic.</li>
+<li><b>Telemetry:</b> none. The editor doesn't phone home for anything except the optional
+<a href="setup.html#updates">auto-updater</a> - same as without collab enabled.</li>
+</ul>
+</div>
+
+<hr>
+
+<h2 id="first-aid">First-time gotcha: Windows firewall</h2>
+
+<div class="privacy-note" style="border-left-color: #d29922;">
+<h3>&#x26A0;&#xFE0F; If "Connection Test" fails on first run</h3>
+<p>
+Most likely cause on Windows: <b>Windows Defender Firewall (or your
+antivirus) silently blocks the app's outbound HTTPS</b> without
+showing the usual "allow this app to access network" prompt. The
+rendezvous URL works in your browser, but the in-app Connection Test
+times out with no specific error.
+</p>
+<p><b>One-time fix:</b></p>
+<ol style="margin: 0.5rem 0 0.5rem 1.2rem;">
+<li>Windows Security &rarr; Firewall &amp; network protection &rarr;
+    <em>Allow an app through firewall</em></li>
+<li>Add <code>MidiEditorAI.exe</code>, check both Private + Public</li>
+<li>If you have third-party AV (Bitdefender / Norton / Kaspersky /
+    McAfee / ESET), add an exception there as well</li>
+</ol>
+<p style="margin-top: 0.5rem;">
+The Connection Test now detects this signature and shows a specific
+hint inline. Full details on
+<a href="collab-wan.html#firewall">the WAN troubleshooting page</a>.
+</p>
+</div>
+
+<hr>
+
+<h2 id="next-steps">Where to next?</h2>
+
+<div class="section-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.25rem; margin: 1.5rem 0;">
+
+<div class="mode-card">
+    <h3>Async PR</h3>
+    <p class="mode-desc">Smart-paste tokens, the Review dialog, and the Create-PR flow.</p>
+    <a class="mode-link" href="collab-pr.html">Read &rarr;</a>
+</div>
+
+<div class="mode-card">
+    <h3>Discord</h3>
+    <p class="mode-desc">Webhook setup, embed format, what gets posted, what doesn't.</p>
+    <a class="mode-link" href="collab-discord.html">Read &rarr;</a>
+</div>
+
+<div class="mode-card">
+    <h3>LAN Live</h3>
+    <p class="mode-desc">Discovery, pairing code, file-transfer-on-join, multi-peer host.</p>
+    <a class="mode-link" href="collab-lan.html">Read &rarr;</a>
+</div>
+
+<div class="mode-card">
+    <h3>WAN Live</h3>
+    <p class="mode-desc">WebRTC, the rendezvous worker, Connection Test, auto-reconnect.</p>
+    <a class="mode-link" href="collab-wan.html">Read &rarr;</a>
+</div>
+
+<div class="mode-card">
+    <h3>Self-host Cloudflare</h3>
+    <p class="mode-desc">Deploy your own rendezvous Worker in five minutes. Cost: free tier.</p>
+    <a class="mode-link" href="collab-cloudflare.html">Walkthrough &rarr;</a>
+</div>
+
+<div class="mode-card">
+    <h3>Settings reference</h3>
+    <p class="mode-desc">Every toggle on the Collaboration tab, what it does, and when to flip it.</p>
+    <a class="mode-link" href="collab-settings.html">Reference &rarr;</a>
+</div>
+
+</div>
+
+</main>
+
+<footer class="site-footer">
+    <div class="footer-links">
+        <a href="https://github.com/happytunesai/MidiEditor_AI" class="repo-link" target="_blank" rel="noopener noreferrer"><img class="repo-logo" src="Midieditor-ai_logo.png" alt="">GitHub Repo</a>
+        <a href="https://github.com/happytunesai" target="_blank" rel="noopener noreferrer">All Projects</a>
+        <a href="docs-index.html">Documentation</a>
+        <a href="changelog.html">Changelog</a>
+        <a href="https://github.com/happytunesai/MidiEditor_AI/issues" target="_blank" rel="noopener noreferrer">Issues</a>
+        <a href="midipilot.html">MidiPilot</a>
+        <a href="supported-files.html">Supported Files</a>
+        <a href="https://www.happytunes.de" target="_blank" rel="noopener noreferrer">Happy Tunes &#x1F3B6;</a>
+    </div>
+    <p class="footer-copy">
+        MidiEditor AI &copy; 2026 &middot;
+        <a href="https://github.com/happytunesai/MidiEditor_AI/blob/main/LICENSE">License</a>
+        &middot; Made with &#x266A; + &#x1F916;
+        &middot; A <a href="https://www.happytunes.de" target="_blank" rel="noopener noreferrer">Happy Tunes</a> project
+    </p>
+</footer>
+
+<button class="scroll-top" aria-label="Scroll to top">&#x2191;</button>
+<script src="lightbox.js"></script>
+<script src="navigation.js"></script>
+<script src="site.js"></script>
+</body>
+</html>

@@ -7,6 +7,105 @@
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Test Widgets)
 
 # -----------------------------------------------------------------------------
+# test_midi_diff
+# -----------------------------------------------------------------------------
+# Validates the MidiDiff algorithm in src/collab/MidiDiff. MidiDiff is pure
+# JSON-in/JSON-out and depends only on Qt's JSON / container types, so the
+# test executable links only the single .cpp.
+add_executable(test_midi_diff
+    test_midi_diff.cpp
+    ../src/collab/MidiDiff.cpp
+)
+target_include_directories(test_midi_diff PRIVATE
+    ../src/collab
+)
+target_link_libraries(test_midi_diff PRIVATE
+    Qt6::Core
+    Qt6::Test
+)
+add_test(NAME MidiDiff COMMAND test_midi_diff)
+
+# -----------------------------------------------------------------------------
+# test_pr_bundle
+# -----------------------------------------------------------------------------
+# Validates the PrBundle codec (smart-paste token + JSON bundle file) in
+# src/collab/PrBundle. Pure QString / QJson / QByteArray; no MidiFile dep.
+add_executable(test_pr_bundle
+    test_pr_bundle.cpp
+    ../src/collab/PrBundle.cpp
+)
+target_include_directories(test_pr_bundle PRIVATE
+    ../src/collab
+)
+target_link_libraries(test_pr_bundle PRIVATE
+    Qt6::Core
+    Qt6::Test
+)
+add_test(NAME PrBundle COMMAND test_pr_bundle)
+
+# -----------------------------------------------------------------------------
+# test_midi_hash
+# -----------------------------------------------------------------------------
+# Validates MidiHash::sha256OfFile in src/collab/MidiHash. Pure
+# QCryptographicHash + QFile - no MidiFile dep. Test compiles only the
+# single .cpp.
+add_executable(test_midi_hash
+    test_midi_hash.cpp
+    ../src/collab/MidiHash.cpp
+)
+target_include_directories(test_midi_hash PRIVATE
+    ../src/collab
+)
+target_link_libraries(test_midi_hash PRIVATE
+    Qt6::Core
+    Qt6::Test
+)
+add_test(NAME MidiHash COMMAND test_midi_hash)
+
+# -----------------------------------------------------------------------------
+# test_collab_identity
+# -----------------------------------------------------------------------------
+# Validates CollabIdentity (display name + machine UUID) in
+# src/collab/CollabIdentity. Sandboxes QSettings via
+# QStandardPaths::setTestModeEnabled(true) so the developer's real
+# Collab/identity/* keys are never touched. Pure Qt - no MidiFile, no
+# network deps.
+add_executable(test_collab_identity
+    test_collab_identity.cpp
+    ../src/collab/CollabIdentity.cpp
+)
+target_include_directories(test_collab_identity PRIVATE
+    ../src/collab
+)
+target_link_libraries(test_collab_identity PRIVATE
+    Qt6::Core
+    Qt6::Test
+)
+add_test(NAME CollabIdentity COMMAND test_collab_identity)
+
+# -----------------------------------------------------------------------------
+# test_history_reconciliation
+# -----------------------------------------------------------------------------
+# Validates the pure logic helpers in src/collab/HistoryReconciliation:
+# findMergeBase, tailHashes, commitsSinceFork, synthesizeBundle, classify.
+# synthesizeBundle returns a PrBundle by value, so PrBundle.cpp is linked
+# in (same .cpp the test_pr_bundle harness already pulls in). No MidiFile
+# dep, no network, no QSettings.
+add_executable(test_history_reconciliation
+    test_history_reconciliation.cpp
+    ../src/collab/HistoryReconciliation.cpp
+    ../src/collab/PrBundle.cpp
+)
+target_include_directories(test_history_reconciliation PRIVATE
+    ../src/collab
+)
+target_link_libraries(test_history_reconciliation PRIVATE
+    Qt6::Core
+    Qt6::Test
+)
+add_test(NAME HistoryReconciliation COMMAND test_history_reconciliation)
+
+# -----------------------------------------------------------------------------
 # test_xml_score_to_midi
 # -----------------------------------------------------------------------------
 # Validates the shared SMF (Standard MIDI File) byte writer used by both the
@@ -780,6 +879,88 @@ target_link_libraries(test_mml_converter PRIVATE
 )
 add_test(NAME MmlConverter COMMAND test_mml_converter)
 
+# -----------------------------------------------------------------------------
+# test_gp_binary_reader
+# -----------------------------------------------------------------------------
+# Validates the byte-stream extractor used by every Guitar Pro 3/4/5 binary
+# parser (src/converter/GuitarPro/GpBinaryReader). The class is pure STL —
+# no Qt, no MidiFile, no project deps — so the test compiles only the single
+# .cpp and links nothing else from the project.
+add_executable(test_gp_binary_reader
+    test_gp_binary_reader.cpp
+    ../src/converter/GuitarPro/GpBinaryReader.cpp
+)
+target_include_directories(test_gp_binary_reader PRIVATE
+    ../src/converter/GuitarPro
+)
+target_link_libraries(test_gp_binary_reader PRIVATE
+    Qt6::Core
+    Qt6::Test
+)
+add_test(NAME GpBinaryReader COMMAND test_gp_binary_reader)
+
+# -----------------------------------------------------------------------------
+# test_mml_midi_writer
+# -----------------------------------------------------------------------------
+# Validates the SMF byte serializer that turns an MmlSong into a Standard
+# MIDI File byte stream. MmlMidiWriter has zero MidiFile / GUI deps; it walks
+# the header-only POD structs in MmlModels.h and emits raw bytes via
+# QByteArray. The test compiles only that single .cpp.
+add_executable(test_mml_midi_writer
+    test_mml_midi_writer.cpp
+    ../src/converter/MML/MmlMidiWriter.cpp
+)
+target_include_directories(test_mml_midi_writer PRIVATE
+    ../src/converter/MML
+)
+target_link_libraries(test_mml_midi_writer PRIVATE
+    Qt6::Core
+    Qt6::Test
+)
+add_test(NAME MmlMidiWriter COMMAND test_mml_midi_writer)
+
+# -----------------------------------------------------------------------------
+# test_three_mle_parser
+# -----------------------------------------------------------------------------
+# Validates the 3MLE INI-format parser that converts FFXIV bard scores
+# (multi-channel MML in [Settings] / [ChannelN] sections) into an MmlSong.
+# ThreeMleParser delegates per-channel MML parsing to MmlLexer + MmlParser
+# (already covered by test_mml_converter); the harness pulls all three .cpps
+# in so the lexer/parser symbols resolve at link time.
+add_executable(test_three_mle_parser
+    test_three_mle_parser.cpp
+    ../src/converter/MML/ThreeMleParser.cpp
+    ../src/converter/MML/MmlLexer.cpp
+    ../src/converter/MML/MmlParser.cpp
+)
+target_include_directories(test_three_mle_parser PRIVATE
+    ../src/converter/MML
+)
+target_link_libraries(test_three_mle_parser PRIVATE
+    Qt6::Core
+    Qt6::Test
+)
+add_test(NAME ThreeMleParser COMMAND test_three_mle_parser)
+
+# -----------------------------------------------------------------------------
+# test_drum_kit_preset
+# -----------------------------------------------------------------------------
+# Validates the DrumKitPreset static factory (GM / Rock / Jazz percussion
+# groupings used by the drum-roll lane mapper). Pure data factory — no Qt
+# parent / signal deps — the test compiles only that one .cpp.
+add_executable(test_drum_kit_preset
+    test_drum_kit_preset.cpp
+    ../src/gui/DrumKitPreset.cpp
+)
+target_include_directories(test_drum_kit_preset PRIVATE
+    ../src/gui
+)
+target_link_libraries(test_drum_kit_preset PRIVATE
+    Qt6::Core
+    Qt6::Test
+)
+add_test(NAME DrumKitPreset COMMAND test_drum_kit_preset)
+
 # Make Qt DLLs visible to the tests at runtime on Windows.
 if(WIN32)
     get_target_property(_qmake_exe Qt6::qmake IMPORTED_LOCATION)
@@ -812,6 +993,15 @@ if(WIN32)
         TempoConversionService
         PromptProfiles
         PasteSpecialDialog
+        GpBinaryReader
+        MmlMidiWriter
+        ThreeMleParser
+        DrumKitPreset
+        MidiDiff
+        PrBundle
+        MidiHash
+        CollabIdentity
+        HistoryReconciliation
         PROPERTIES
             ENVIRONMENT "PATH=${_qt_bin_dir};$ENV{PATH}"
     )

@@ -180,6 +180,15 @@ private:
     QComboBox *_modeCombo;
     QLabel *_tokenLabel;
 
+#ifdef MIDIEDITOR_COLLAB_ENABLED
+    // Phase 9.3: snapshot of the file taken just before the agent starts
+    // when running in "Agent (PR)" mode. Used at the end of the agent run
+    // to compute hunks via MidiDiff for a PrReviewDialog (review-applied
+    // mode). Empty when not in PR mode.
+    QJsonArray _prModeSnapshotBefore;
+    QString _prModeUserMessage;
+#endif
+
     // Footer (status, model, settings)
     QFrame *_statusBar;
     QLabel *_statusLabel;

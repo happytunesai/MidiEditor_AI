@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Collaboration Settings | MidiEditor AI Manual</title>
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="icon" type="image/x-icon" href="favicon.ico" sizes="any">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <meta name="theme-color" content="#0B1020">
+  <meta name="description" content="Reference for every toggle on the Collaboration settings tab: identity, hosting safety, WAN rendezvous, Discord webhook, logging.">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="site.css">
+  <link rel="stylesheet" href="audio.css">
+  <style>
+    .screenshot-single { text-align: center; margin: 1.5rem 0; }
+    .screenshot-single img { max-width: 100%; border: 1px solid var(--border); border-radius: 8px; }
+    .caption { text-align: center; color: var(--text-muted); font-style: italic; margin-top: 0.5rem; font-size: 0.9rem; }
+    .video-frame { text-align: center; margin: 1rem 0 0; }
+    .video-frame video {
+        max-width: 100%; height: auto;
+        border: 2px solid var(--border); border-radius: 10px;
+        box-shadow: 0 6px 24px rgba(0,0,0,0.45);
+        background: #000;
+    }
+    .video-frame .caption { margin-top: 0.55rem; }
+    .todo { background: rgba(255, 200, 0, 0.08); border-left: 3px solid #d29922; padding: 0.7rem 1rem; margin: 1rem 0; font-style: italic; color: var(--text-muted); }
+    .setting { background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.2rem; margin: 0.8rem 0; }
+    .setting h4 { margin: 0 0 0.4rem; font-size: 1em; border-bottom: none; }
+    .setting .meta { font-size: 0.85em; color: var(--text-muted); margin-top: 0.4rem; }
+    .setting .meta b { color: var(--text); }
+  </style>
+</head>
+<body>
+<nav class="site-nav" role="navigation" aria-label="Main navigation">
+<div class="container">
+    <a href="index.html" class="nav-brand"><img class="brand-logo" src="Midieditor-ai_banner_w.png" alt="MidiEditor AI"></a>
+    <button class="nav-hamburger" aria-label="Toggle menu" aria-expanded="false">&#x2630;</button>
+    <ul class="nav-links">
+        <li><a href="index.html#features">Features</a></li>
+        <li><a href="index.html#showcase">Showcase</a></li>
+        <li class="nav-dropdown">
+            <span class="nav-dropdown-trigger active">Docs &#x25BE;</span>
+            <div class="nav-dropdown-menu">
+                <a href="docs-index.html">Manual Overview</a>
+                <a href="midipilot.html">MidiPilot AI</a>
+                <a href="collaboration.html">Collaboration</a>
+                <a href="prompt-examples.html">Prompt Examples</a>
+                <a href="ffxiv-channel-fixer.html">FFXIV Channel Fixer</a>
+                <a href="supported-files.html">Supported Files</a>
+                <a href="themes.html">Themes &amp; Appearance</a>
+                <a href="lyrics.html">Lyric Editor</a>
+                <a href="soundfont.html">SoundFonts &amp; FluidSynth</a>
+                <a href="shortcuts.html">Keyboard Shortcuts</a>
+                <a href="mcp-server.html">MCP Server</a>
+                <a href="setup.html">Setup &amp; Installation</a>
+            </div>
+        </li>
+        <li><a href="changelog.html">Changelog</a></li>
+        <li><a href="https://github.com/happytunesai/MidiEditor_AI" target="_blank" rel="noopener noreferrer">GitHub &#x2197;</a></li>
+        <li><a href="download.html" class="nav-cta">&#x2B07; Download</a></li>
+    </ul>
+</div>
+</nav>
+
+<a href="#main-content" class="skip-link">Skip to main content</a>
+
+<main id="main-content">
+
+<p style="margin-bottom: 0.4rem;"><a href="collaboration.html">&larr; Collaboration overview</a></p>
+<h1 id="collab-settings">&#x2699;&#xFE0F; Collaboration Settings</h1>
+
+<p>
+Reference for every toggle on the <em>Edit &rarr; Settings &rarr; Collaboration</em> tab. Defaults
+are chosen so an unconfigured editor never touches the network: enable Collab on a per-feature
+basis as needed.
+</p>
+
+<div class="screenshot-single">
+    <img src="screenshots/collaboration_settings.png" alt="MidiEditor Settings dialog open on the Collaboration tab" loading="lazy">
+    <div class="caption">The complete Collaboration tab - identity at the top, then hosting safety, WAN rendezvous, Discord webhook, and logging.</div>
+</div>
+
+<hr>
+
+<h2 id="identity">Identity</h2>
+
+<div class="setting">
+<h4>Display name</h4>
+<p>The name shown to peers in Live sessions and in the History tab. No uniqueness check - pick
+whatever you want.</p>
+<div class="meta"><b>Default:</b> system username. <b>Storage:</b> local QSettings only.</div>
+</div>
+
+<p>The machine UUID is derived once and stored next to the settings; it's not user-editable
+(it's there to let multiple PCs with the same display name still get distinct authorship in
+history).</p>
+
+<hr>
+
+<h2 id="hosting-safety">Hosting safety</h2>
+
+<div class="setting">
+<h4>Work on a copy when hosting</h4>
+<p>When checked, starting a Live session saves <code>&lt;name&gt;_shared.mid</code> in
+<code>Documents/MidiEditor_AI/shared</code> and switches the editor to that copy. Your original
+file stays untouched on disk.</p>
+<div class="meta"><b>Default:</b> ON. <b>Recommended:</b> leave it on. Originals are precious;
+a copy is cheap.</div>
+</div>
+
+<p>
+A note on non-MIDI source files: when you host on a Guitar Pro
+(<code>.gp3</code>/<code>.gp4</code>/<code>.gp5</code>/&hellip;), MML, MusicXML, or
+MuseScore file, the shared copy is written as <code>&lt;name&gt;_shared.mid</code>
+- MidiEditor's editor works on a MIDI representation internally, and
+saving to disk always produces MIDI bytes regardless of the source
+extension. Your original on disk stays in its native format,
+untouched.
+</p>
+
+<hr>
+
+<h2 id="wan-rendezvous">WAN Rendezvous</h2>
+
+<div class="setting">
+<h4>Rendezvous URL</h4>
+<p>Where MidiEditor posts the offer SDP and polls for the answer SDP during WAN handshake.</p>
+<div class="meta"><b>Default:</b> Happy Tunes shared endpoint (rate-limited). <b>Self-host:</b>
+see <a href="collab-cloudflare.html">the Cloudflare walkthrough</a>.</div>
+</div>
+
+<div class="setting">
+<h4>Test connection</h4>
+<p>Two-stage diagnostic: pre-flight <code>GET /health</code> against
+the URL, then an in-process two-transport DTLS handshake (host
+candidates only, no STUN). Reports a quality grade.</p>
+<div class="meta"><b>When to run:</b> after changing the URL, when
+sessions fail to connect.</div>
+<div class="video-frame">
+    <video src="screenshots/collab_connection_test.webm"
+           muted autoplay loop playsinline></video>
+    <div class="caption">Connection Test in action - pre-flight
+    <code>/health</code>, rendezvous round-trip, DTLS loopback,
+    quality grade reported. The full sequence runs in under 6 seconds
+    when the network is healthy.</div>
+</div>
+</div>
+
+<div class="setting">
+<h4>ICE gathering timeout</h4>
+<p>Max wait for STUN to finish gathering candidates before the SDP is published anyway.</p>
+<div class="meta"><b>Default:</b> 8&nbsp;000 ms. <b>Raise if:</b> your STUN endpoint is slow / far.</div>
+</div>
+
+<div class="setting">
+<h4>Auto-reconnect on transport failure</h4>
+<p>When checked, a Live session that loses its WebRTC channel will
+restart the rendezvous flow with the same code, up to <em>Max retry
+attempts</em> times. Each peer's reconnect is independent - one
+joiner's failed retry doesn't kick the others.</p>
+<div class="meta"><b>Default:</b> OFF. <b>Caveat:</b> won't recover
+when the host restarts and gets a new code; in that case the joiner
+has to enter the new code manually.</div>
+</div>
+
+<div class="setting">
+<h4>Max retry attempts</h4>
+<p>How many auto-reconnect tries before MidiEditor gives up and leaves
+the session. Each retry waits ~2 seconds before the next attempt.</p>
+<div class="meta"><b>Default:</b> 2. <b>Range:</b> 1-5.</div>
+</div>
+
+<hr>
+
+<h2 id="discord">Discord webhook</h2>
+
+<div class="setting">
+<h4>Webhook URL</h4>
+<p>Discord webhook URL. When non-empty, <em>Create PR</em> posts an embed + smart-paste token to
+the channel attached to this webhook.</p>
+<div class="meta"><b>Default:</b> empty (= no posting). <b>Format:</b>
+<code>https://discord.com/api/webhooks/&lt;id&gt;/&lt;token&gt;</code>.</div>
+</div>
+
+<p>
+Even with a URL set, every individual <em>Create PR</em> dialog has a
+checkbox to skip the post for that one share - useful for private
+one-offs you don't want broadcast to the channel. See the
+<a href="collab-discord.html">Discord page</a> for the full webhook
+setup and embed format.
+</p>
+
+<hr>
+
+<h2 id="logging">Logging</h2>
+
+<div class="setting">
+<h4>Verbose collab logging</h4>
+<p>Promotes the <code>midieditor.collab.*</code> log categories to debug-level. Shows every wire
+frame, ICE candidate, and snapshot diff. Big output - only enable when troubleshooting.</p>
+<div class="meta"><b>Default:</b> OFF. <b>Log location:</b> see button below.</div>
+</div>
+
+<div class="setting">
+<h4>Open log file</h4>
+<p>Reveals the active <code>midieditor_ai.log</code> in your file
+manager. The log lives next to the <code>MidiEditorAI.exe</code>.</p>
+<div class="meta"><b>Rotation:</b> 10 MB cap, with three numbered
+backups (<code>.log.1</code> / <code>.2</code> / <code>.3</code>). 40 MB
+total disk budget, oldest dropped first.</div>
+</div>
+
+<p>For the general <em>Logging</em> settings (level, file path,
+rotation, per-category overrides), open the <em>Logging</em> tab in
+Settings - or read the dedicated
+<a href="logging.html"><b>Logging manual page</b></a> which walks
+through each level with sample output, size estimates, and when to
+attach a log to an issue. The Verbose-collab-logging checkbox here is
+just an overlay on top of whatever level you've picked there.</p>
+
+</main>
+
+<footer class="site-footer">
+    <div class="footer-links">
+        <a href="https://github.com/happytunesai/MidiEditor_AI" class="repo-link" target="_blank" rel="noopener noreferrer"><img class="repo-logo" src="Midieditor-ai_logo.png" alt="">GitHub Repo</a>
+        <a href="docs-index.html">Documentation</a>
+        <a href="collaboration.html">Collaboration</a>
+        <a href="https://github.com/happytunesai/MidiEditor_AI/issues" target="_blank" rel="noopener noreferrer">Issues</a>
+    </div>
+    <p class="footer-copy">MidiEditor AI &copy; 2026 &middot; <a href="https://github.com/happytunesai/MidiEditor_AI/blob/main/LICENSE">License</a></p>
+</footer>
+
+<button class="scroll-top" aria-label="Scroll to top">&#x2191;</button>
+<script src="lightbox.js"></script>
+<script src="navigation.js"></script>
+<script src="site.js"></script>
+</body>
+</html>

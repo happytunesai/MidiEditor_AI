@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Async PR &amp; Smart-Paste Tokens | MidiEditor AI Manual</title>
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="icon" type="image/x-icon" href="favicon.ico" sizes="any">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <meta name="theme-color" content="#0B1020">
+  <meta name="description" content="Send a MIDI change-set as a smart-paste token. Recipient pastes Ctrl+V into MidiEditor and reviews each hunk before merging.">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="site.css">
+  <link rel="stylesheet" href="audio.css">
+  <style>
+    .screenshot-single { text-align: center; margin: 1.5rem 0; }
+    .screenshot-single img { max-width: 100%; border: 1px solid var(--border); border-radius: 8px; }
+    .caption { text-align: center; color: var(--text-muted); font-style: italic; margin-top: 0.5rem; font-size: 0.9rem; }
+    .step-list { counter-reset: step; list-style: none; padding-left: 0; }
+    .step-list li { counter-increment: step; padding: 0.8rem 0 0.8rem 3rem; position: relative; border-bottom: 1px solid var(--border); }
+    .step-list li::before { content: counter(step); position: absolute; left: 0; top: 0.7rem; width: 2rem; height: 2rem; background: var(--accent); color: #fff; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.9rem; }
+    .step-list li:last-child { border-bottom: none; }
+    .todo { background: rgba(255, 200, 0, 0.08); border-left: 3px solid #d29922; padding: 0.7rem 1rem; margin: 1rem 0; font-style: italic; color: var(--text-muted); }
+  </style>
+</head>
+<body>
+<nav class="site-nav" role="navigation" aria-label="Main navigation">
+<div class="container">
+    <a href="index.html" class="nav-brand">
+        <img class="brand-logo" src="Midieditor-ai_banner_w.png" alt="MidiEditor AI">
+    </a>
+    <button class="nav-hamburger" aria-label="Toggle menu" aria-expanded="false">&#x2630;</button>
+    <ul class="nav-links">
+        <li><a href="index.html#features">Features</a></li>
+        <li><a href="index.html#showcase">Showcase</a></li>
+        <li class="nav-dropdown">
+            <span class="nav-dropdown-trigger active">Docs &#x25BE;</span>
+            <div class="nav-dropdown-menu">
+                <a href="docs-index.html">Manual Overview</a>
+                <a href="midipilot.html">MidiPilot AI</a>
+                <a href="collaboration.html">Collaboration</a>
+                <a href="prompt-examples.html">Prompt Examples</a>
+                <a href="ffxiv-channel-fixer.html">FFXIV Channel Fixer</a>
+                <a href="supported-files.html">Supported Files</a>
+                <a href="themes.html">Themes &amp; Appearance</a>
+                <a href="lyrics.html">Lyric Editor</a>
+                <a href="soundfont.html">SoundFonts &amp; FluidSynth</a>
+                <a href="shortcuts.html">Keyboard Shortcuts</a>
+                <a href="mcp-server.html">MCP Server</a>
+                <a href="setup.html">Setup &amp; Installation</a>
+            </div>
+        </li>
+        <li><a href="changelog.html">Changelog</a></li>
+        <li><a href="https://github.com/happytunesai/MidiEditor_AI" target="_blank" rel="noopener noreferrer">GitHub &#x2197;</a></li>
+        <li><a href="download.html" class="nav-cta">&#x2B07; Download</a></li>
+    </ul>
+</div>
+</nav>
+
+<a href="#main-content" class="skip-link">Skip to main content</a>
+
+<main id="main-content">
+
+<p style="margin-bottom: 0.4rem;"><a href="collaboration.html">&larr; Collaboration overview</a></p>
+<h1 id="async-pr">&#x1F4DD; Async PR &amp; Smart-Paste Tokens</h1>
+
+<p>
+Bundle a change-set into a single token, send it through any channel (Discord, email, file
+drop), and the recipient hits <code>Ctrl+V</code> in MidiEditor to review each hunk before merging.
+This is the simplest collab mode - no servers, no realtime, just text.
+</p>
+
+<div class="screenshot-single">
+    <img src="screenshots/Create-PR_dialog.png" alt="Create PR dialog with title, message, and Copy inline token button" loading="lazy">
+    <div class="caption">The Create-PR dialog - pick title and message, then copy a single token to share.</div>
+</div>
+
+<hr>
+
+<h2 id="when">When to use it</h2>
+<p>
+PRs shine when realtime co-editing would be the wrong tool: an AI agent
+just generated a draft you want to look over before merging; a friend
+sent a few-bar suggestion you want to cherry-pick from; you're working
+across timezones and don't want to wait for the other side to be online.
+A PR is a snapshot of your changes since the last share - the
+recipient sees a per-hunk diff and chooses what to merge.
+</p>
+<p>
+Compared to a Live Session, a PR is asynchronous, leaves no servers
+running, and gives the receiver explicit veto power on every change.
+For small back-and-forth changes between two people on the same
+network, a Live Session is faster; for larger reviewable change-sets,
+the PR flow is better.
+</p>
+
+<hr>
+
+<h2 id="quick-start">Quick start</h2>
+<ol class="step-list">
+<li>Make some edits in your MIDI file, save it (so the changes are
+    captured in the local commit history).</li>
+<li>Open <em>Collab &rarr; Create PR&hellip;</em>. Pick a short title
+    and an optional longer message describing what's in the change.</li>
+<li>Click <em>Copy inline token</em>. The clipboard now holds a
+    single string that fully encodes your change-set.</li>
+<li>Paste the token into Discord, email, a chat, a text file -
+    anywhere it'll reach the recipient.</li>
+<li>The recipient opens MidiEditor with their copy of the file, hits
+    <code>Ctrl+V</code> in the matrix view, and the Review dialog opens.</li>
+</ol>
+
+<hr>
+
+<h2 id="create-pr">Creating a PR</h2>
+
+<p>
+Open <em>Collab &rarr; Create PR&hellip;</em> after you've made and
+saved some edits. The dialog shows what'll be included in the bundle
+and gives you two share modes:
+</p>
+
+<ul>
+<li><b>Inline token</b> - the entire bundle is base64-encoded into
+the token text itself (<code>mep://&lt;sessionId&gt;:inline:&hellip;</code>).
+Self-contained, no follow-up download. Works for change-sets up to
+roughly 30 KB compressed; larger PRs nudge you toward the link form.</li>
+<li><b>Link token</b> - for very large bundles. Saves the bundle
+file to disk and produces a token that points at the URL where you've
+hosted it (<code>mep://&lt;sessionId&gt;:link:&lt;url&gt;</code>). Useful
+when you're sharing through a hosting platform that strips long messages.</li>
+</ul>
+
+<p>
+The PR's <em>scope</em> is automatically "everything since your last
+share" - the local commit history (sidecar file) is the source of
+truth. If you've shared 3 PRs already, the 4th covers only the
+changes since the 3rd.
+</p>
+
+<p>
+When the inline token gets long, the dialog still lets you copy it in
+one click. If your audience is Discord, the bundled
+<a href="collab-discord.html">Webhook integration</a> can post the same
+token to a channel automatically.
+</p>
+
+<hr>
+
+<h2 id="receiving">Receiving a PR</h2>
+
+<div class="screenshot-single">
+    <img src="screenshots/Review-PR.png" alt="Review PR dialog showing per-hunk cherry-pick checkboxes and a summary of additions, removals, and modifications" loading="lazy">
+    <div class="caption">The Review dialog - check the hunks you want, leave the rest for now or never.</div>
+</div>
+
+<p>
+Copy a smart-paste token from anywhere - chat, mail, file. In
+MidiEditor, with your copy of the file open, press
+<code>Ctrl+V</code> while the matrix view has focus. The Review
+dialog opens automatically.
+</p>
+
+<p>
+The dialog lists every change as a hunk - events added,
+removed, or modified, grouped by track and channel. Each hunk has a
+checkbox; uncheck to skip. When you click <em>Apply</em>, only the
+selected hunks merge into your file as a single undo step. Anything
+you skipped stays in the bundle for next time (you can always paste
+the same token again to revisit them).
+</p>
+
+<p>
+If the token's session ID doesn't match the file you have open,
+MidiEditor warns you with a "PR is from a different session" dialog
+- useful catch for "I pasted into the wrong file" cases.
+</p>
+
+<hr>
+
+<h2 id="token-formats">Token formats</h2>
+
+<p>
+Both forms start with the unique <code>mep://</code> scheme so
+<code>Ctrl+V</code> can route them to the Review dialog instead of
+falling through to a normal paste:
+</p>
+
+<ul>
+<li><code>mep://&lt;sessionId&gt;:inline:&lt;base64-zlib&gt;</code>
+- the bundle is encoded directly into the token. Roughly
+1.4&times; the bundle's compressed size in characters.</li>
+<li><code>mep://&lt;sessionId&gt;:link:&lt;url&gt;</code> - the
+token holds only a URL pointing at the bundle file. The file itself
+must be reachable when the recipient pastes - otherwise the
+Review dialog reports a download error and the token is harmless to
+discard.</li>
+</ul>
+
+<p>
+The recipient never has to know which form was used - the
+Review dialog handles both transparently.
+</p>
+
+<hr>
+
+<h2 id="history">History tab</h2>
+
+<div class="screenshot-single">
+    <img src="screenshots/collaboration_tab.png" alt="Collaboration history tab showing per-commit rows with author, message, and hunk count" loading="lazy">
+    <div class="caption">The Collab History tab in the right side panel - one row per commit, expandable for per-hunk detail.</div>
+</div>
+
+<p>
+The <em>Collab History</em> tab (right side panel, next to Tracks /
+Channels / Protocol / Event) shows every commit on the current
+file's local history. Each row is one save: timestamp, author, hunk
+counts. Expanding a row reveals the per-hunk summary - useful
+for verifying a PR's contents before sharing it, or for understanding
+how the file got into its current state after a few merges.
+</p>
+
+<p>
+The history lives in a small <code>.midiedit-collab.json</code>
+sidecar file next to the <code>.mid</code>. Sharing the sidecar is
+optional - in a Live Session it gets shipped automatically;
+in async PRs the bundle carries only the slice you chose.
+</p>
+
+<hr>
+
+<h2 id="troubleshooting">Troubleshooting</h2>
+
+<ul>
+<li><b>"Token doesn't start with <code>mep://</code>"</b> -
+the token had surrounding whitespace, line breaks, or markdown
+backticks (e.g. when pasted from a Discord code block). MidiEditor
+auto-trims those before checking, so pasting <code>```mep://...```</code>
+works as well as the bare token. If you still see this, the source
+copy lost characters - ask the sender to re-share.</li>
+<li><b>"PR is from a different session"</b> - the file you have
+open isn't the same logical file the PR was created from. Open the
+right file (or accept that you're cross-merging with the warning's
+context).</li>
+<li><b>"Could not decode the smart-paste token"</b> - truncated
+payload (the token got cut off in transit, e.g. by a 2000-char chat
+limit). Ask the sender to use the link-token form instead.</li>
+<li><b>"Cherry-pick failed"</b> - one of the hunks couldn't
+find its target event in the current file (likely the file already
+moved past the PR's parent commit through other edits). The bundle
+stays valid; try again after pulling other changes, or only check
+the hunks that still apply.</li>
+</ul>
+
+</main>
+
+<footer class="site-footer">
+    <div class="footer-links">
+        <a href="https://github.com/happytunesai/MidiEditor_AI" class="repo-link" target="_blank" rel="noopener noreferrer"><img class="repo-logo" src="Midieditor-ai_logo.png" alt="">GitHub Repo</a>
+        <a href="docs-index.html">Documentation</a>
+        <a href="collaboration.html">Collaboration</a>
+        <a href="https://github.com/happytunesai/MidiEditor_AI/issues" target="_blank" rel="noopener noreferrer">Issues</a>
+    </div>
+    <p class="footer-copy">MidiEditor AI &copy; 2026 &middot; <a href="https://github.com/happytunesai/MidiEditor_AI/blob/main/LICENSE">License</a></p>
+</footer>
+
+<button class="scroll-top" aria-label="Scroll to top">&#x2191;</button>
+<script src="lightbox.js"></script>
+<script src="navigation.js"></script>
+<script src="site.js"></script>
+</body>
+</html>

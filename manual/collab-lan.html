@@ -1,0 +1,692 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LAN Live Session | MidiEditor AI Manual</title>
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="icon" type="image/x-icon" href="favicon.ico" sizes="any">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <meta name="theme-color" content="#0B1020">
+  <meta name="description" content="Real-time co-editing on the same network. UDP multicast discovery, TCP transport, file-transfer-on-join, bi-directional sync.">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="site.css">
+  <link rel="stylesheet" href="audio.css">
+  <style>
+    .screenshot-single { text-align: center; margin: 1.5rem 0; }
+    .screenshot-single img { max-width: 100%; border: 1px solid var(--border); border-radius: 8px; }
+    .caption { text-align: center; color: var(--text-muted); font-style: italic; margin-top: 0.5rem; font-size: 0.9rem; }
+    .step-list { counter-reset: step; list-style: none; padding-left: 0; }
+    .step-list li { counter-increment: step; padding: 0.8rem 0 0.8rem 3rem; position: relative; border-bottom: 1px solid var(--border); }
+    .step-list li::before { content: counter(step); position: absolute; left: 0; top: 0.7rem; width: 2rem; height: 2rem; background: var(--accent); color: #fff; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.9rem; }
+    .step-list li:last-child { border-bottom: none; }
+
+    /* Side-by-side live demo with animated bridge between the two PCs */
+    .dual-demo {
+        display: flex; align-items: center; gap: 0.5rem;
+        margin: 1.5rem 0;
+    }
+    .demo-pane {
+        flex: 1; min-width: 0; text-align: center;
+    }
+    .demo-pane video {
+        width: 100%; height: auto;
+        border: 2px solid var(--border); border-radius: 10px;
+        box-shadow: 0 6px 24px rgba(0,0,0,0.45);
+        background: #000;
+    }
+    .demo-pane .demo-label {
+        margin-top: 0.55rem;
+        color: var(--text);
+        font-weight: 600; font-size: 0.95em;
+    }
+    .demo-pane .demo-sublabel {
+        color: var(--text-muted);
+        font-size: 0.85em;
+    }
+    .demo-bridge {
+        position: relative;
+        flex: 0 0 110px;
+        height: 110px;
+        align-self: center;
+    }
+    .demo-bridge .bridge-label {
+        position: absolute;
+        top: 8px; left: 50%; transform: translateX(-50%);
+        font-size: 0.78em; font-weight: 700;
+        color: var(--accent); letter-spacing: 0.05em;
+        white-space: nowrap;
+    }
+    .demo-bridge .bridge-icon {
+        position: absolute;
+        top: 50%; left: 50%; transform: translate(-50%, -50%);
+        font-size: 1.6em; opacity: 0.55;
+    }
+    .demo-bridge::before {
+        content: "";
+        position: absolute;
+        top: 50%; left: 0; right: 0;
+        height: 2px;
+        background: linear-gradient(90deg,
+            transparent 0%,
+            var(--accent) 20%,
+            var(--accent) 80%,
+            transparent 100%);
+        opacity: 0.35;
+        transform: translateY(-50%);
+    }
+    .demo-bridge .dot {
+        position: absolute;
+        top: 50%;
+        width: 10px; height: 10px; border-radius: 50%;
+        background: var(--accent);
+        box-shadow: 0 0 8px var(--accent), 0 0 14px var(--accent);
+        transform: translateY(-50%);
+        will-change: left, right, opacity;
+    }
+    @keyframes flow-lr {
+        0%   { left: -6%;  opacity: 0; }
+        15%  { opacity: 1; }
+        85%  { opacity: 1; }
+        100% { left: 106%; opacity: 0; }
+    }
+    @keyframes flow-rl {
+        0%   { left: 106%; opacity: 0; }
+        15%  { opacity: 1; }
+        85%  { opacity: 1; }
+        100% { left: -6%;  opacity: 0; }
+    }
+    .demo-bridge .d1 { animation: flow-lr 2.4s linear infinite 0.0s; background: #58a6ff; box-shadow: 0 0 8px #58a6ff; }
+    .demo-bridge .d2 { animation: flow-lr 2.4s linear infinite 0.8s; background: #58a6ff; box-shadow: 0 0 8px #58a6ff; }
+    .demo-bridge .d3 { animation: flow-rl 2.4s linear infinite 0.4s; background: #2ea043; box-shadow: 0 0 8px #2ea043; }
+    .demo-bridge .d4 { animation: flow-rl 2.4s linear infinite 1.2s; background: #2ea043; box-shadow: 0 0 8px #2ea043; }
+
+    @media (max-width: 700px) {
+        .dual-demo { flex-direction: column; }
+        .demo-bridge {
+            flex: 0 0 60px; width: 100%; height: 60px;
+            transform: rotate(90deg);
+        }
+    }
+
+    /* LAN rendezvous animation - matches the WAN/Cloudflare two-track
+       look (top track for handshake, bottom track for direct data),
+       but with only two actors because the host IS the rendezvous.
+       The +rendezvous badge and multicast ripples make that explicit:
+       no third actor in the middle, the code-and-handshake work
+       happens locally on the host's machine. */
+    .rdv-flow {
+        position: relative;
+        background: linear-gradient(135deg, #10192A 0%, #162238 100%);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 1.5rem 1rem 1rem;
+        margin: 1.5rem 0;
+    }
+    .rdv-stage {
+        position: relative;
+        display: flex;
+        justify-content: space-around;
+        align-items: flex-start;
+        height: 200px;
+        padding-top: 15px;
+    }
+    .rdv-actor {
+        position: relative; z-index: 2;
+        flex: 0 0 140px;
+        text-align: center;
+    }
+    .rdv-actor .icon-wrap {
+        position: relative;
+        width: 64px; height: 64px;
+        margin: 0 auto 0.4rem;
+        border-radius: 50%;
+        background: var(--bg-card);
+        border: 2px solid var(--border);
+        display: flex; align-items: center; justify-content: center;
+        font-size: 1.6em;
+    }
+    .rdv-actor.host .icon-wrap   { border-color: #58a6ff; }
+    .rdv-actor.joiner .icon-wrap { border-color: #2ea043; }
+    .rdv-actor .label {
+        font-size: 0.85em; color: var(--text); line-height: 1.25;
+    }
+    .rdv-actor .label small {
+        color: var(--text-muted); font-size: 0.85em;
+    }
+    .rdv-actor .badge {
+        display: inline-block;
+        margin-top: 0.25rem;
+        padding: 1px 8px;
+        font-size: 0.72em; font-weight: 600;
+        background: rgba(88,166,255,0.18);
+        color: #58a6ff;
+        border-radius: 10px;
+    }
+    /* Multicast ripple - concentric blue circles from host icon.
+       Active during phase 1 (≈0-48 %), invisible during phase 2 to
+       match the "Cloudflare dimming" pattern from the WAN page. */
+    .rdv-actor.host .icon-wrap::before,
+    .rdv-actor.host .icon-wrap::after {
+        content: "";
+        position: absolute;
+        inset: -4px;
+        border-radius: 50%;
+        border: 2px solid #58a6ff;
+        opacity: 0;
+        pointer-events: none;
+    }
+    .rdv-actor.host .icon-wrap::before {
+        animation: lan-ripple 6s ease-out infinite;
+    }
+    .rdv-actor.host .icon-wrap::after {
+        animation: lan-ripple 6s ease-out infinite 0.8s;
+    }
+    @keyframes lan-ripple {
+        0%        { transform: scale(1);   opacity: 0; }
+        4%        { transform: scale(1);   opacity: 0.7; }
+        38%       { transform: scale(3);   opacity: 0; }
+        48%, 100% { transform: scale(3);   opacity: 0; }
+    }
+    /* Top track at icon-center vertical (always visible) - discovery */
+    .rdv-track-top {
+        position: absolute;
+        top: 47px; left: 12%; right: 12%; height: 2px;
+        background: linear-gradient(90deg,
+            transparent 0%,
+            rgba(88,166,255,0.35) 18%,
+            rgba(88,166,255,0.35) 82%,
+            transparent 100%);
+        z-index: 1;
+    }
+    /* Bottom direct-TCP track - appears in phase 2 */
+    .rdv-track-direct {
+        position: absolute;
+        top: 165px; left: 14%; right: 14%; height: 2px;
+        background: rgba(46,160,67,0.5);
+        opacity: 0;
+        z-index: 1;
+        animation: rdv-direct-reveal 6s linear infinite;
+    }
+    .rdv-track-direct::before,
+    .rdv-track-direct::after {
+        content: "";
+        position: absolute;
+        top: -86px; width: 2px; height: 86px;
+        background: rgba(46,160,67,0.5);
+    }
+    .rdv-track-direct::before { left: 0; }
+    .rdv-track-direct::after  { right: 0; }
+    @keyframes rdv-direct-reveal {
+        0%, 48%  { opacity: 0; }
+        52%, 95% { opacity: 1; }
+        100%     { opacity: 0; }
+    }
+    /* Animated dots */
+    .rdv-dot {
+        position: absolute;
+        width: 10px; height: 10px;
+        border-radius: 50%;
+        transform: translate(-50%, -50%);
+        z-index: 3;
+        will-change: left, opacity;
+    }
+    /* Phase 1: blue dot does host → joiner (multicast announce reaches
+       the joiner) then joiner → host (joiner enters code, opens TCP). */
+    .rdv-dot.lan-discover {
+        top: 47px;
+        background: #58a6ff;
+        box-shadow: 0 0 10px #58a6ff, 0 0 4px #58a6ff;
+        animation: lan-discover 6s linear infinite;
+    }
+    @keyframes lan-discover {
+        /* Host → Joiner (announce arrival): 0-18 % */
+        0%   { left: 14%; opacity: 0; }
+        3%   { opacity: 1; }
+        17%  { left: 86%; opacity: 1; }
+        20%  { opacity: 0; }
+        /* Idle while joiner reads/types the code: 20-28 % */
+        /* Joiner → Host (TCP connect): 28-45 % */
+        28%  { left: 86%; opacity: 0; }
+        31%  { opacity: 1; }
+        44%  { left: 14%; opacity: 1; }
+        47%  { opacity: 0; }
+        /* Idle during phase 2 */
+        100% { left: 14%; opacity: 0; }
+    }
+    /* Phase 2: direct TCP dots on bottom track, both directions */
+    .rdv-dot.lan-direct-1 {
+        top: 165px;
+        background: #2ea043;
+        box-shadow: 0 0 10px #2ea043, 0 0 4px #2ea043;
+        animation: lan-direct-fwd 6s linear infinite;
+    }
+    .rdv-dot.lan-direct-2 {
+        top: 165px;
+        background: #2ea043;
+        box-shadow: 0 0 10px #2ea043, 0 0 4px #2ea043;
+        animation: lan-direct-back 6s linear infinite;
+    }
+    @keyframes lan-direct-fwd {
+        0%, 53% { left: 14%; opacity: 0; }
+        58% { opacity: 1; }
+        90% { left: 86%; opacity: 1; }
+        93% { opacity: 0; }
+        100% { left: 86%; opacity: 0; }
+    }
+    @keyframes lan-direct-back {
+        0%, 63% { left: 86%; opacity: 0; }
+        68% { opacity: 1; }
+        96% { left: 14%; opacity: 1; }
+        99% { opacity: 0; }
+        100% { left: 14%; opacity: 0; }
+    }
+    .rdv-caption {
+        text-align: center;
+        font-size: 0.85em;
+        color: var(--text-muted);
+        margin-top: 0.5rem;
+        line-height: 1.5;
+    }
+    .rdv-caption .phase-label { font-weight: 700; }
+    .rdv-caption .phase-label.discover { color: #58a6ff; }
+    .rdv-caption .phase-label.tcp { color: #2ea043; }
+    .rdv-link-paragraph {
+        text-align: center;
+        margin: 0.8rem 0 0;
+        font-size: 0.92em;
+    }
+    @media (max-width: 600px) {
+        .rdv-stage { height: 180px; }
+        .rdv-actor { flex-basis: 110px; }
+        .rdv-actor .icon-wrap { width: 50px; height: 50px; font-size: 1.2em; }
+        .rdv-actor .label { font-size: 0.75em; }
+        .rdv-track-top { top: 40px; }
+        .rdv-track-direct { top: 150px; }
+        .rdv-track-direct::before,
+        .rdv-track-direct::after { top: -80px; height: 80px; }
+        .rdv-dot.lan-discover { top: 40px; }
+        .rdv-dot.lan-direct-1, .rdv-dot.lan-direct-2 { top: 150px; }
+    }
+  </style>
+</head>
+<body>
+<nav class="site-nav" role="navigation" aria-label="Main navigation">
+<div class="container">
+    <a href="index.html" class="nav-brand"><img class="brand-logo" src="Midieditor-ai_banner_w.png" alt="MidiEditor AI"></a>
+    <button class="nav-hamburger" aria-label="Toggle menu" aria-expanded="false">&#x2630;</button>
+    <ul class="nav-links">
+        <li><a href="index.html#features">Features</a></li>
+        <li><a href="index.html#showcase">Showcase</a></li>
+        <li class="nav-dropdown">
+            <span class="nav-dropdown-trigger active">Docs &#x25BE;</span>
+            <div class="nav-dropdown-menu">
+                <a href="docs-index.html">Manual Overview</a>
+                <a href="midipilot.html">MidiPilot AI</a>
+                <a href="collaboration.html">Collaboration</a>
+                <a href="prompt-examples.html">Prompt Examples</a>
+                <a href="ffxiv-channel-fixer.html">FFXIV Channel Fixer</a>
+                <a href="supported-files.html">Supported Files</a>
+                <a href="themes.html">Themes &amp; Appearance</a>
+                <a href="lyrics.html">Lyric Editor</a>
+                <a href="soundfont.html">SoundFonts &amp; FluidSynth</a>
+                <a href="shortcuts.html">Keyboard Shortcuts</a>
+                <a href="mcp-server.html">MCP Server</a>
+                <a href="setup.html">Setup &amp; Installation</a>
+            </div>
+        </li>
+        <li><a href="changelog.html">Changelog</a></li>
+        <li><a href="https://github.com/happytunesai/MidiEditor_AI" target="_blank" rel="noopener noreferrer">GitHub &#x2197;</a></li>
+        <li><a href="download.html" class="nav-cta">&#x2B07; Download</a></li>
+    </ul>
+</div>
+</nav>
+
+<a href="#main-content" class="skip-link">Skip to main content</a>
+
+<main id="main-content">
+
+<p style="margin-bottom: 0.4rem;"><a href="collaboration.html">&larr; Collaboration overview</a></p>
+<h1 id="lan-live">&#x1F3E0; LAN Live Session</h1>
+
+<p>
+Two or more PCs on the same network can co-edit a MIDI file in realtime.
+UDP multicast handles peer discovery, TCP carries the data, and the
+host's file auto-transfers to anyone who joins. Edits flow in every
+direction every 200&nbsp;ms.
+</p>
+
+<div class="dual-demo">
+    <div class="demo-pane">
+        <video src="screenshots/live_LAN_pc1.webm" muted autoplay loop playsinline></video>
+        <div class="demo-label">PC 1 - Host</div>
+        <div class="demo-sublabel">Edits Live, ships diffs every 200 ms</div>
+    </div>
+    <div class="demo-bridge" aria-hidden="true">
+        <div class="bridge-label">LAN sync</div>
+        <div class="bridge-icon">&#x1F3E0;</div>
+        <div class="dot d1"></div>
+        <div class="dot d2"></div>
+        <div class="dot d3"></div>
+        <div class="dot d4"></div>
+    </div>
+    <div class="demo-pane">
+        <video src="screenshots/live_LAN_pc2.webm" muted autoplay loop playsinline></video>
+        <div class="demo-label">PC 2 - Joiner</div>
+        <div class="demo-sublabel">Sees host's edits within ~200 ms</div>
+    </div>
+</div>
+
+<p style="text-align: center; color: var(--text-muted); font-style: italic; font-size: 0.9rem;">
+Two screen captures recorded simultaneously on a real LAN session. Notes
+typed on either side land on the other within a tick.
+</p>
+
+<div class="rdv-flow" aria-hidden="true">
+    <div class="rdv-stage">
+        <div class="rdv-actor host">
+            <div class="icon-wrap">&#x1F5A5;&#xFE0F;</div>
+            <div class="label">PC 1<br><small>Host</small></div>
+            <div class="badge">+ rendezvous</div>
+        </div>
+        <div class="rdv-actor joiner">
+            <div class="icon-wrap">&#x1F5A5;&#xFE0F;</div>
+            <div class="label">PC 2<br><small>Joiner</small></div>
+        </div>
+        <!-- Top track: discovery / handshake (always visible) -->
+        <div class="rdv-track-top"></div>
+        <!-- Phase 1: blue ripples + dot host → joiner → host -->
+        <div class="rdv-dot lan-discover"></div>
+        <!-- Bottom track: direct TCP (appears in phase 2) -->
+        <div class="rdv-track-direct"></div>
+        <!-- Phase 2: green dots flow directly between host and joiner -->
+        <div class="rdv-dot lan-direct-1"></div>
+        <div class="rdv-dot lan-direct-2"></div>
+    </div>
+    <div class="rdv-caption">
+        <span class="phase-label discover">Phase 1 (blue):</span>
+        Host generates the 4-character code locally, announces via UDP
+        multicast on the local network (the ripples around the host),
+        joiner discovers the host and opens a TCP connection back -
+        <span class="phase-label tcp">Phase 2 (green):</span>
+        direct TCP carries every MIDI edit, no external service in path
+    </div>
+</div>
+
+<p class="rdv-link-paragraph">
+LAN sessions don't touch the internet at all - the host
+generates and verifies the pairing code on its own. For sessions
+across the internet, see <a href="collab-wan.html"><b>WAN Live
+Session</b> &rarr;</a>
+</p>
+
+<hr>
+
+<h2 id="when">When to use it</h2>
+
+<p>
+LAN Live Session is the right pick when everyone's on the same network -
+band rehearsal room, office, home Wi-Fi, classroom, even a VPN that
+forwards multicast. No internet required, no third-party server in the
+path, lowest possible latency. The host's PC acts as the central hub
+(host-star topology) and accepts up to 8 simultaneous joiners.
+</p>
+
+<p>
+For users on different networks (across the internet), pick
+<a href="collab-wan.html">WAN Live Session</a> instead - same UX, same
+features, just routed via WebRTC + a tiny rendezvous worker.
+</p>
+
+<hr>
+
+<h2 id="quick-start">Quick start</h2>
+
+<ol class="step-list">
+<li>Host opens a MIDI file, picks <em>Collab &rarr; Start LAN Live
+    Session&hellip;</em>. A 4-character pairing code appears.</li>
+<li>Each joiner picks <em>Collab &rarr; Join LAN Live Session&hellip;</em>.
+    The host shows up in the discovery list automatically.</li>
+<li>Joiner either double-clicks the host entry or types the 4-character
+    code if discovery is blocked on their network.</li>
+<li>The host's file transfers automatically. The status bar on both
+    sides flips to <code>LIVE [Local] &middot; N peer(s)</code> and
+    edits start flowing.</li>
+</ol>
+
+<hr>
+
+<h2 id="hosting">Hosting</h2>
+
+<div class="screenshot-single">
+    <img src="screenshots/collab_live_lan_host.png" alt="LAN Live Session start dialog showing the 4-character pairing code, copy code / copy invite buttons, and a peer list" loading="lazy">
+    <div class="caption">The Start dialog - share the code or click <em>Copy invite</em> for a paste-ready message.</div>
+</div>
+
+<p>
+The Start dialog gives you a 4-character code (excluding ambiguous
+letters and digits like I, L, O, 0, 1) plus two buttons:
+</p>
+
+<ul>
+<li><b>Copy code</b> - copies just the four characters, e.g.
+<code>K7XP</code>. For voice / in-person sharing.</li>
+<li><b>Copy invite</b> - copies a small prepared sentence with the
+code embedded, ready to drop into chat.</li>
+</ul>
+
+<p>
+The dialog also shows a peer list that grows live as joiners arrive.
+The status bar in the main window mirrors the count:
+<code>LIVE [Local] &middot; 1 peer</code> when the first joiner is in,
+<code>2 peers</code> next, and so on.
+</p>
+
+<p>
+By default, hosting starts with the <em>Work on a copy</em> safety net
+turned on. Your file is duplicated to
+<code>Documents/MidiEditor_AI/shared/&lt;name&gt;_shared.mid</code> and the
+editor switches to that copy. Your original on disk stays untouched.
+</p>
+
+<hr>
+
+<h2 id="joining">Joining</h2>
+
+<div class="screenshot-single">
+    <img src="screenshots/collab_join_lan_session.png" alt="LAN Live Session join dialog showing the discovery list and a manual-IP fallback field" loading="lazy">
+    <div class="caption">The Join dialog - pick a discovered host or use Manual IP if multicast is blocked.</div>
+</div>
+
+<div class="screenshot-single">
+    <img src="screenshots/collab_live_lan_client.png" alt="Client view of an active LAN Live Session with the LIVE indicator and peer label" loading="lazy">
+    <div class="caption">Client side of an active session - the LIVE indicator shows the host's name and peer count.</div>
+</div>
+
+<p>
+The Join dialog scans the local network via UDP multicast and lists
+every host that's currently sharing. Double-click the entry, or type
+the 4-character code if you got it via voice / chat.
+</p>
+
+<p>
+Some networks (managed switches, hotel Wi-Fi, certain VPN
+configurations) block multicast. If the host doesn't appear in the
+list, expand <em>Connect manually</em>, paste the host's IP and port
+shown in the host's Start dialog, and the join goes direct via TCP.
+</p>
+
+<div class="screenshot-single">
+    <img src="screenshots/collab_lan_session_midi_download_request.png" alt="Modal asking the joiner to confirm receiving the host's MIDI file" loading="lazy">
+    <div class="caption">When you join, the host's file transfers to your machine into <code>Documents/MidiEditor_AI/shared/</code>.</div>
+</div>
+
+<p>
+The first time you join a session you confirm the file transfer in a
+modal. The host's <code>.mid</code> arrives as
+<code>&lt;name&gt;_shared.mid</code> next to the existing shared
+folder. From here on the editor edits the shared copy - if you had
+your own version of the file open, it stays untouched on disk.
+</p>
+
+<hr>
+
+<h2 id="sync-rules">What's synced</h2>
+
+<div class="screenshot-single">
+    <img src="screenshots/live_lan_session.png" alt="MidiEditor with an active LAN Live session: matrix view, peer labels, and LIVE [Local] indicator" loading="lazy">
+    <div class="caption">An active LAN session in the editor - LIVE indicator, peer count, and the realtime sync running quietly in the background.</div>
+</div>
+
+<ul>
+<li><b>Note events</b> (note-on, note-off, durations, velocities,
+positions).</li>
+<li><b>Controller events</b> (CCs, pitch bend, channel/key pressure,
+program changes).</li>
+<li><b>Meta events</b> (tempo, time signature, key signature, text,
+track name).</li>
+<li><b>File length</b> (end-tick) - insertions and deletions of
+empty measures propagate cleanly in both directions.</li>
+<li><b>Track structure</b> - new tracks created by one peer (e.g. via
+<a href="split-channels.html">Split Channels</a>) auto-extend on
+receivers.</li>
+</ul>
+
+<p>What's deliberately <em>not</em> synced:</p>
+
+<ul>
+<li><b>Selection state</b> - each peer keeps their own selection.</li>
+<li><b>View / scroll position</b> - each peer scrolls their own matrix.</li>
+<li><b>Undo history</b> - each peer's undo stack is per-PC, not shared.
+The collab history (right-side panel) shows the merged log instead.</li>
+<li><b>Mute / solo state</b> - local-only, doesn't bleed across peers.</li>
+</ul>
+
+<hr>
+
+<h2 id="reconciliation">Returning peers &amp; reconciliation</h2>
+
+<p>
+Live sessions are tolerant of leave-and-rejoin. If a peer drops (Wi-Fi
+hiccup, app restart) and rejoins the same session, MidiEditor compares
+the local commit history against the host's and either fast-forwards
+the rejoiner (if their state is a subset of the host's) or surfaces a
+<em>diverged-history</em> dialog where the host can pick which edits
+to accept.
+</p>
+
+<p>
+For most short interruptions you'll never see a dialog - the
+returning peer just catches up. The diverged dialog only appears
+when the rejoining peer made offline edits that the host doesn't have.
+</p>
+
+<hr>
+
+<h2 id="review-mode">Review mode (host approves edits)</h2>
+
+<p>
+By default, edits from any peer apply on every other peer immediately.
+For situations where the host wants veto power - teaching scenario,
+testing an AI agent's output, untrusted joiner - toggle <em>Collab
+&rarr; Review mode</em>. Incoming hunks queue up instead of applying;
+the host cherry-picks via the Review dialog (same UI as the
+<a href="collab-pr.html">async PR</a> review) before they take effect.
+</p>
+
+<hr>
+
+<h2 id="leaving">Leaving cleanly</h2>
+
+<p>
+Pick <em>Collab &rarr; Leave Live Session</em> on either side.
+Everyone else sees the peer count tick down and the editor returns to
+solo mode. The shared file in
+<code>Documents/MidiEditor_AI/shared/</code> stays on disk so you can
+re-open it later or save a Save-As copy back to your real working
+location. Originals (the file you started from before hosting / joining)
+stay untouched if work-on-copy was on.
+</p>
+
+<hr>
+
+<h2 id="troubleshooting">Troubleshooting</h2>
+
+<h3 id="firewall-lan">"Host can't see me" / "Connection refused"</h3>
+<p>
+Same root cause as the WAN firewall issue: Windows Defender (or third-party
+antivirus) silently blocks the app's UDP multicast announcements and TCP
+sockets without a popup prompt. Add <code>MidiEditorAI.exe</code> to the
+firewall allow-list for <em>both</em> Private and Public:
+</p>
+<ol>
+<li>Windows Security &rarr; Firewall &amp; network protection &rarr;
+    <em>Allow an app through firewall</em></li>
+<li>Add <code>MidiEditorAI.exe</code>, check both Private + Public</li>
+<li>If you have third-party AV, add an exception there too</li>
+</ol>
+<p>See <a href="collab-wan.html#firewall">the WAN troubleshooting page</a>
+for the full walkthrough - the fix is identical.</p>
+
+<h3 id="discovery">"Host doesn't appear in the discovery list"</h3>
+<ul>
+<li><b>Multicast disabled on your LAN.</b> Some routers / managed switches
+block multicast. Use the <em>Manual IP</em> fallback in the Join dialog -
+host shows its IP in the LIVE indicator.</li>
+<li><b>Different network segments.</b> Wi-Fi guest network + wired LAN
+are usually isolated. Both PCs must be on the same SSID / same VLAN.</li>
+<li><b>VPN active.</b> A VPN can re-route multicast through a tunnel
+that doesn't reach the local LAN. Pause the VPN or use Manual IP.</li>
+<li><b>Windows network type set to "Public".</b> Windows blocks
+discovery on Public networks by default. Set to <em>Private</em>
+in network settings, or add the app to the firewall exception list
+under both profiles.</li>
+</ul>
+
+<h3 id="ghost-notes">"Ghost notes after sync"</h3>
+<p>
+Symptom: the file plays notes that aren't visible in the editor, or
+the end-tick keeps resetting after a delete-measures operation. This
+was a sync-loop fixed in v1.7.0 - the receiver now removes events
+past a shrunken end-tick atomically with the file-length change. If
+you ever see this on v1.7.0 or later, please file an issue with the
+<code>midieditor_ai.log</code> that's saved next to the executable.
+</p>
+
+<h3 id="too-large">"Live sync paused - last edit was too large to send"</h3>
+<p>
+Single hunks frame exceeded the 16 MiB negotiated max-message-size on
+the wire. Save the file (Ctrl+S), then split your edit into smaller
+chunks (e.g. apply the same tool twice on half the events each time).
+The status message clears as soon as the next sync tick has a
+fits-in-budget diff.
+</p>
+
+<h3 id="other-issues-lan">Other</h3>
+<ul>
+<li><b>"Couldn't write the received MIDI to %1"</b> - antivirus quarantined
+the shared-folder. Check Documents/MidiEditor_AI/shared/ exists and is
+writable.</li>
+<li><b>Both PCs disconnect after ~30 s</b> - one side has heartbeat
+disabled or a packet-filter that drops idle TCP. Check both PCs'
+firewalls.</li>
+</ul>
+
+</main>
+
+<footer class="site-footer">
+    <div class="footer-links">
+        <a href="https://github.com/happytunesai/MidiEditor_AI" class="repo-link" target="_blank" rel="noopener noreferrer"><img class="repo-logo" src="Midieditor-ai_logo.png" alt="">GitHub Repo</a>
+        <a href="docs-index.html">Documentation</a>
+        <a href="collaboration.html">Collaboration</a>
+        <a href="https://github.com/happytunesai/MidiEditor_AI/issues" target="_blank" rel="noopener noreferrer">Issues</a>
+    </div>
+    <p class="footer-copy">MidiEditor AI &copy; 2026 &middot; <a href="https://github.com/happytunesai/MidiEditor_AI/blob/main/LICENSE">License</a></p>
+</footer>
+
+<button class="scroll-top" aria-label="Scroll to top">&#x2191;</button>
+<script src="lightbox.js"></script>
+<script src="navigation.js"></script>
+<script src="site.js"></script>
+</body>
+</html>

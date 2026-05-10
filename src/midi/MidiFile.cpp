@@ -518,6 +518,15 @@ int MidiFile::endTick() {
     return midiTicks;
 }
 
+void MidiFile::setEndTick(int tick) {
+    if (tick == midiTicks) return;
+    if (tick < 0) tick = 0;
+    ProtocolEntry *toCopy = copy();
+    midiTicks = tick;
+    ProtocolEntry::protocol(toCopy, this);
+    calcMaxTime();
+}
+
 int MidiFile::timeMS(int midiTime) {
     return msOfTick(midiTime);
 }

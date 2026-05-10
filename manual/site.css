@@ -400,13 +400,21 @@ img { max-width: 100%; height: auto; }
     .doc-sidebar-header { display: none; }
     .doc-sidebar-backdrop { display: none; }
     .doc-sidebar-toggle  { display: none; }
-    body {
+    /* Only widen the body envelope and reserve sidebar space on pages that
+       actually have a sidebar. Marketing pages (index / download / changelog
+       without sidebar etc.) load only site.css and would otherwise get a
+       padding-left without `margin: 0 auto`, sticking them to the left edge
+       on wide viewports. The :has() selector limits this to docs pages where
+       navigation.js has injected the rail. */
+    body:has(.doc-sidebar) {
         /* Keep the readable column at its original ~960 px width but grow
            the body envelope so the centred text isn't squished by the
            sidebar. The inner content stays 960 px wide and sits to the
            right of the floating rail with a comfortable gap. */
         max-width: calc(1104px + var(--doc-sidebar-gap) + var(--doc-sidebar-width) + var(--doc-content-gap)) !important;
         padding-left: calc(var(--doc-sidebar-gap) + var(--doc-sidebar-width) + var(--doc-content-gap)) !important;
+        margin-left: auto !important;
+        margin-right: auto !important;
     }
 }
 
@@ -876,6 +884,7 @@ img { max-width: 100%; height: auto; }
 .footer-links {
     display: flex; flex-wrap: wrap; gap: 1.5rem;
     justify-content: center;
+    align-items: center;
     margin-bottom: 1.5rem;
 }
 .footer-links a {

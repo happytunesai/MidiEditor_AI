@@ -1212,6 +1212,11 @@ private:
     QLabel *_statusSelectionLabel = nullptr;
     QLabel *_statusChordLabel = nullptr;
 
+    /** \brief Status bar indicator for active LAN Live Session (hosting or
+     *  joined). Hidden when role is Idle. Built-in even when collab is
+     *  compiled out, so the layout stays stable. */
+    QLabel *_statusLiveSessionLabel = nullptr;
+
     /** \brief Dock widget containing MidiPilot */
     QDockWidget *_midiPilotDock = nullptr;
 

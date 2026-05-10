@@ -40,6 +40,11 @@
 #include "../gui/Appearance.h"
 #include "../gui/ChannelVisibilityManager.h"
 #include "../midi/MidiOutput.h"
+#ifdef MIDIEDITOR_COLLAB_ENABLED
+#include "../collab/CollabService.h"
+#include <QHelpEvent>
+#include <QToolTip>
+#endif
 
 #include <QList>
 #include <QSettings>
@@ -810,6 +815,24 @@ void MatrixWidget::paintChannel(QPainter *painter, int channel) {
             }
             event->draw(painter, eventColor);
 
+#ifdef MIDIEDITOR_COLLAB_ENABLED
+            // Phase 9.1e+: events that came in via a PR merge get an
+            // orange overlay border so the user can spot at a glance
+            // what was contributed by a peer in this session. The
+            // tag is session-only — it goes away on file load/unload
+            // (the permanent record lives in the Collaboration tab).
+            if (CollabService::instance()->hasAnyEventAuthors() &&
+                !CollabService::instance()->eventAuthor(event).isEmpty()) {
+                QPen oldPen = painter->pen();
+                QPen overlayPen(QColor(0xFF, 0x90, 0x20));  // brand orange
+                overlayPen.setWidth(2);
+                painter->setPen(overlayPen);
+                painter->setBrush(Qt::NoBrush);
+                painter->drawRoundedRect(x, y, width, height, 2, 2);
+                painter->setPen(oldPen);
+            }
+#endif
+
             if (cachedSelection.contains(event)) {
                 painter->setPen(Qt::gray);
                 painter->drawLine(lineNameWidth, y, this->width(), y);
@@ -1388,6 +1411,33 @@ void MatrixWidget::mouseMoveEvent(QMouseEvent *event) {
     if (!MidiPlayer::isPlaying()) {
         update();
     }
+}
+
+bool MatrixWidget::event(QEvent *e) {
+#ifdef MIDIEDITOR_COLLAB_ENABLED
+    if (e->type() == QEvent::ToolTip && objects && CollabService::instance()->hasAnyEventAuthors()) {
+        QHelpEvent *he = static_cast<QHelpEvent *>(e);
+        const int hx = he->pos().x();
+        const int hy = he->pos().y();
+        // Iterate the rendered events and hit-test their bounding boxes.
+        // objects is rendered topmost-first (prepend in paintEvent), so the
+        // first hit wins.
+        for (MidiEvent *ev : *objects) {
+            if (!ev) continue;
+            if (hx < ev->x() || hx > ev->x() + ev->width()) continue;
+            if (hy < ev->y() || hy > ev->y() + ev->height()) continue;
+            QString author = CollabService::instance()->eventAuthor(ev);
+            if (!author.isEmpty()) {
+                QToolTip::showText(he->globalPos(),
+                    tr("From PR: %1").arg(author), this);
+                return true;
+            }
+            break;  // hit-tested an event with no author tag — don't show anything
+        }
+        QToolTip::hideText();
+    }
+#endif
+    return PaintWidget::event(e);
 }
 
 void MatrixWidget::resizeEvent(QResizeEvent *event) {

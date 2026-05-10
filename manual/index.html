@@ -12,6 +12,8 @@
 <meta property="og:image" content="https://midieditor-ai.de/midipilot_ai_OG.png">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" type="image/png" href="favicon.png">
+<link rel="icon" type="image/x-icon" href="favicon.ico" sizes="any">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="preconnect" href="https://github.com" crossorigin>
 <meta name="theme-color" content="#0B1020">
 <link rel="stylesheet" href="site.css">
@@ -177,7 +179,7 @@
     "description": "AI-powered MIDI editor with intelligent copilot, Guitar Pro import, FFXIV bard mode, and FluidSynth playback.",
     "url": "https://midieditor-ai.de",
     "downloadUrl": "https://github.com/happytunesai/MidiEditor_AI/releases/latest",
-    "softwareVersion": "1.6.1",
+    "softwareVersion": "1.7.0",
     "license": "https://github.com/happytunesai/MidiEditor_AI/blob/main/LICENSE",
     "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
 }
@@ -240,7 +242,7 @@
              onerror="this.parentElement.style.display='none';">
     </div>
 
-    <span class="hero-badge">v1.6.1 &middot; Open Source &middot; Windows</span>
+    <span class="hero-badge">v1.7.0 &middot; Open Source &middot; Windows</span>
 
     <h1 class="hero-title">
         The <span class="text-gradient">AI-Powered</span> MIDI Editor
@@ -252,7 +254,7 @@
 
     <div class="hero-actions">
         <a href="download.html" class="btn btn-primary">
-            &#x2B07; Download v1.6.1
+            &#x2B07; Download v1.7.0
         </a>
         <a href="docs-index.html" class="btn btn-secondary" target="_blank" rel="noopener noreferrer">
             &#x1F4D6; Documentation
@@ -309,6 +311,13 @@
                     and natural language MIDI editing. Compose, harmonize, fix, and refine - just ask.</p>
         </div>
         <div class="feature-card">
+            <span class="card-icon">&#x1F91D;</span>
+            <h3>Real-time Collaboration</h3>
+            <p>Co-edit MIDI files live with up to 8 peers over LAN or WAN, peer-to-peer over
+               WebRTC + DTLS. Async PR workflow with smart-paste tokens, optional Discord
+               webhook for sharing, and a 6-second Connection Test diagnostic.</p>
+        </div>
+        <div class="feature-card">
             <span class="card-icon">&#x1F4C2;</span>
             <h3>Score &amp; Tab Import</h3>
             <p>Open Guitar Pro (GP1-GP8), MusicXML (.musicxml / .xml / .mxl),
@@ -328,9 +337,10 @@
         </div>
         <div class="feature-card">
             <span class="card-icon">&#x1F3A8;</span>
-            <h3>8 Themes &amp; MIDI Visualizer</h3>
-            <p>MidiEditor AI brand, Dark, Light, Sakura, AMOLED, Material Dark, System, Classic.
-               10 color presets for note bars. Real-time MIDI visualizer for playback.</p>
+            <h3>7 Themes &amp; MIDI Visualizer</h3>
+            <p>MidiEditor AI brand, Dark, Light, Classic, Sakura, AMOLED, Material Dark, plus
+               Follow-OS auto-switch. 10 color presets for note bars. Real-time MIDI visualizer
+               for playback.</p>
         </div>
         <div class="feature-card">
             <span class="card-icon">&#x1F3A4;</span>
@@ -345,17 +355,11 @@
                copy/paste, recording, multi-track support, and smooth playback scrolling.</p>
         </div>
         <div class="feature-card">
-            <span class="card-icon">&#x1F500;</span>
-            <h3>Channel-to-Track Splitter</h3>
-            <p>Split multi-channel MIDI files into one track per channel with correct
-               GM instrument names. Ideal for GM-0 piano files and multi-instrument imports.</p>
-        </div>
-        <div class="feature-card">
             <span class="card-icon">&#x1F6E0;</span>
-            <h3>Additional Tools</h3>
-            <p>Chord Explode, delete overlapping notes, convert pitch bends to discrete notes,
-               show markers for Program Changes / Control Changes / Text events,
-               C3-C6 octave range markers, and smooth auto-scroll during playback.</p>
+            <h3>Editing Tools &amp; Channel Splitter</h3>
+            <p>Split multi-channel MIDI files into one track per channel with GM names,
+               explode chords, delete overlapping notes, convert pitch bends to discrete notes,
+               plus markers for Program Changes / CC / text events and C3-C6 octave guides.</p>
         </div>
     </div>
 </div>
@@ -449,6 +453,25 @@
                 <div class="slide-caption">Smooth Playback Scrolling - Fluid auto-scroll follows the cursor</div>
             </div>
             <div class="showcase-slide">
+                <video autoplay loop muted playsinline loading="lazy" aria-label="LAN Live Session">
+                    <source src="screenshots/live_LAN_pc1.webm" type="video/webm">
+                    <img src="screenshots/collab_live_lan_host.png" alt="LAN Live Session" loading="lazy">
+                </video>
+                <div class="slide-caption">LAN Live Session - Real-time co-editing on the local network with multicast peer discovery</div>
+            </div>
+            <div class="showcase-slide">
+                <video autoplay loop muted playsinline loading="lazy" aria-label="WAN Live Session">
+                    <source src="screenshots/live_WAN_pc_1.webm" type="video/webm">
+                </video>
+                <div class="slide-caption">WAN Live Session - Multi-peer co-editing peer-to-peer over WebRTC + Cloudflare rendezvous</div>
+            </div>
+            <div class="showcase-slide">
+                <video autoplay loop muted playsinline loading="lazy" aria-label="WAN Connection Test">
+                    <source src="screenshots/collab_connection_test.webm" type="video/webm">
+                </video>
+                <div class="slide-caption">Connection Test - 6-second WAN diagnostic with quality grade and silent-firewall detection</div>
+            </div>
+            <div class="showcase-slide">
                 <video autoplay loop muted playsinline loading="lazy" aria-label="FFXIV Channel Fixer - Preserve Mode">
                     <source src="screenshots/ffxiv_channel_fix_Preserve.webm" type="video/webm">
                     <img src="screenshots/midipilot-ffxiv-channelfix_fixed.png" alt="FFXIV Channel Fixer Preserve" loading="lazy">
@@ -477,6 +500,9 @@
             <button class="dot" aria-label="Slide 12"></button>
             <button class="dot" aria-label="Slide 13"></button>
             <button class="dot" aria-label="Slide 14"></button>
+            <button class="dot" aria-label="Slide 15"></button>
+            <button class="dot" aria-label="Slide 16"></button>
+            <button class="dot" aria-label="Slide 17"></button>
         </div>
     </div>
 </div>
@@ -519,7 +545,7 @@
             <span class="stat-label">File Formats</span>
         </div>
         <div class="stat-item">
-            <span class="stat-number text-gradient" data-target="8">0</span>
+            <span class="stat-number text-gradient" data-target="7">0</span>
             <span class="stat-label">Themes</span>
         </div>
         <div class="stat-item">
@@ -528,7 +554,7 @@
         </div>
         <div class="stat-item">
             <span class="stat-number text-gradient" data-target="30" data-suffix="+">0</span>
-            <span class="stat-label">Years of GP Formats</span>
+            <span class="stat-label">Years of Score Formats</span>
         </div>
     </div>
 </div>
@@ -542,14 +568,14 @@
     </div>
     <div class="whats-new reveal">
         <span class="latest-badge">Latest</span>
-        <h3>v1.6.1 - May 2026</h3>
-        <p class="whats-new-subtitle">Voice Limiter, Tempo Conversion, Paste Special &amp; Copy to Track/Channel</p>
+        <h3>v1.7.0 - May 2026</h3>
+        <p class="whats-new-subtitle">Collaboration: PRs, Discord, LAN &amp; WAN Live Sessions</p>
         <ul>
-            <li><strong>FFXIV Voice Limiter</strong> - live toolbar gauge + piano-roll voice lane visualise the in-game 16-voice ceiling and the 14&nbsp;notes/sec/channel rate cap so dense arrangements can be audited <em>before</em> a performance drops notes. Auto-binds to FFXIV SoundFont Mode</li>
-            <li><strong>Convert Tempo, Preserve Duration</strong> - new dialog under <em>Tools &rarr; Tempo Tools</em> (and via right-click on tracks / channels) scales every event tick by <em>target/source</em> and rewrites the tempo meta in one undoable action, so a 90&nbsp;BPM vocal lines up with a 180&nbsp;BPM project at the same real-time speed</li>
-            <li><strong>Paste Special - cross-instance track/channel assignment</strong> - pasting from another MidiEditor instance no longer collapses everything onto the current edit track. Pick <em>Create new tracks per source</em>, <em>Preserve source mapping</em>, or <em>Paste to current target</em>; one Ctrl+Z reverts paste <em>and</em> any new tracks together</li>
-            <li><strong>Copy to Track / Copy to Channel</strong> - new <em>Tools</em> entries duplicate the current selection 1:1 onto another track or channel and select the duplicates so an immediate <em>Octave Up</em> only touches the copies</li>
-            <li><strong>Move-to context-menu eye icons fixed in dark themes</strong> - the visibility cue next to each entry in the matrix <em>Move to Track</em> / <em>Move to Channel</em> submenus is now readable in every theme (legacy bug since 1.4.2)</li>
+            <li><strong>Real-time multi-peer Live Sessions over LAN and WAN</strong> - host an editing session, share a 4-character pairing code, and up to 8 peers can co-edit a single MIDI file in real-time peer-to-peer over WebRTC + DTLS. State-diff sync recovers offline edits as one catch-up diff on rejoin; auto-reconnect, ghost-peer protection, and a Connection Test diagnostic round it out (<a href="collaboration.html">read more</a>)</li>
+            <li><strong>Async PR workflow with smart-paste tokens</strong> - <em>Edit &rarr; Create PR&hellip;</em> packages your diff into a token that collaborators paste with Ctrl+V; the Review dialog opens with per-hunk cherry-pick for a code-review-style loop with no GitHub account needed (<a href="collab-pr.html">read more</a>)</li>
+            <li><strong>Discord webhook integration</strong> - drop a webhook URL into Settings and <em>Create PR</em> posts a rich embed plus the smart-paste token to the channel, with a per-share opt-out for private one-offs (<a href="collab-discord.html">read more</a>)</li>
+            <li><strong>Logging Settings tab with colour-coded severity levels</strong> - five radio-selected levels (Critical / Warning / Info / Debug / Trace) with live preview, size warnings, 10&nbsp;MB rotation, and a dedicated <a href="logging.html">Logging manual page</a> with sample output and "when to attach a log to an issue" guidance</li>
+            <li><strong>Cloudflare Worker shipped in-tree</strong> - the small KV-backed rendezvous service is included under <code>cloudflare/</code> with a deploy walkthrough, so users who don't want the shared Happy Tunes endpoint can self-host on the free tier in under five minutes (<a href="collab-cloudflare.html">read more</a>)</li>
         </ul>
         <a href="changelog.html" class="changelog-link">View Full Changelog &rarr;</a>
     </div>
@@ -588,6 +614,7 @@
             <tr><td>Octave Transpose</td><td><span class="cross">&#x2716;</span></td><td><span class="check">&#x2714;</span></td></tr>
             <tr><td>Lyric Editor &amp; Visualizer</td><td><span class="cross">&#x2716;</span></td><td><span class="check">&#x2714;</span></td></tr>
             <tr><td>MCP Server (AI Tool Protocol)</td><td><span class="cross">&#x2716;</span></td><td><span class="check">&#x2714;</span></td></tr>
+            <tr><td>Real-time Collaboration (LAN / WAN / PR / Discord)</td><td><span class="cross">&#x2716;</span></td><td><span class="check">&#x2714;</span></td></tr>
         </tbody>
     </table>
     </div>
@@ -603,7 +630,7 @@
     </div>
     <div class="hero-actions reveal" style="margin-bottom: 1.5rem;">
         <a href="download.html" class="btn btn-primary" style="font-size: 1.15rem; padding: 1rem 2.5rem;">
-            &#x2B07; Download MidiEditor AI v1.6.1
+            &#x2B07; Download MidiEditor AI v1.7.0
         </a>
     </div>
     <p class="reveal" style="color: var(--text-muted); font-size: .9rem;">

@@ -1,6 +1,15 @@
 cmake_minimum_required(VERSION 3.20 FATAL_ERROR)
 
-set(MIDIEDITOR_RELEASE_VERSION_STRING "1.6.1")
+# Propagate CMake's IPO/LTO policy to FetchContent-fetched subprojects
+# (libdatachannel, usrsctp, libjuice). Without this, those projects'
+# older `cmake_minimum_required` leaves CMP0069 at OLD, so any
+# `set_target_properties(... INTERPROCEDURAL_OPTIMIZATION ON)` they do
+# is silently ignored AND CMake emits a "policy CMP0069 is not set"
+# warning per affected target. Setting the default to NEW honours their
+# IPO request and silences the warnings.
+set(CMAKE_POLICY_DEFAULT_CMP0069 NEW)
+
+set(MIDIEDITOR_RELEASE_VERSION_STRING "1.7.0")
 project(MidiEditorAI VERSION ${MIDIEDITOR_RELEASE_VERSION_STRING} LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -75,6 +84,14 @@ endif()
 
 # Options
 option(GENERATE_REPOSITORY "generate repository to update online repositories" OFF)
+
+# Collaboration features (Phase 9.1+, async PR-style editing).
+# Default ON because the runtime is fully gated by an opt-in toggle (Settings ->
+# Collaboration -> Enable collaboration features) and the on-disk footprint is
+# zero until the user explicitly initialises a file. Builders who want a slim
+# build can disable this option to exclude src/collab and src/gui/collab from
+# the source list entirely.
+option(MIDIEDITOR_ENABLE_COLLAB "Enable collaboration features (PR-style async editing)" ON)
 if(PLAT_LINUX)
     execute_process(COMMAND lsb_release -si OUTPUT_VARIABLE LINUX_DISTRO OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
     if(LINUX_DISTRO STREQUAL "Ubuntu")
@@ -309,6 +326,19 @@ target_include_directories(MidiEditorAI PRIVATE
 )
 message(STATUS "Added project include directories")
 
+# Collaboration sources (gated by option). When enabled, both the headless
+# service code (src/collab) and the GUI surface (src/gui/collab) are added.
+# When disabled, the MIDIEDITOR_COLLAB_ENABLED preprocessor define is absent
+# so SettingsDialog.cpp and any future call sites compile without referencing
+# any Collab* symbols.
+if(MIDIEDITOR_ENABLE_COLLAB)
+    target_include_directories(MidiEditorAI PRIVATE src/collab)
+    target_compile_definitions(MidiEditorAI PRIVATE MIDIEDITOR_COLLAB_ENABLED=1)
+    message(STATUS "Collaboration features: ENABLED (Phase 9.1)")
+else()
+    message(STATUS "Collaboration features: DISABLED")
+endif()
+
 # Optional zlib for Guitar Pro 6/7/8 support (ZIP-based formats)
 set(GP678_ENABLED OFF)
 find_package(ZLIB QUIET)
@@ -330,6 +360,140 @@ else()
     endif()
 endif()
 
+# ----------------------------------------------------------------------
+# WebRTC support via libdatachannel (Phase 9.6, Plan §11.10)
+#
+# Pulls libdatachannel via FetchContent and links it as a static lib.
+# We disable everything we don't need (audio/video media, websocket,
+# examples, tests) to keep the binary footprint small — typical add
+# is ~6-8 MB statically linked. Source: github.com/paullouisageneau,
+# MPL-2.0; not affiliated with Google. We separately use Google's
+# free STUN server pool as a runtime config — that's just URLs in
+# Settings, no Google code in the binary.
+#
+# Crypto: we use MbedTLS for DTLS rather than OpenSSL because it's
+# much smaller (~1-2 MB vs ~5-8 MB), builds cleanly under CMake on
+# MSVC without external installation, and is a vetted open-source
+# implementation. libdatachannel calls find_package(MbedTLS 3
+# REQUIRED); OVERRIDE_FIND_PACKAGE (CMake 3.24+) routes that through
+# our FetchContent-built copy so no system install is needed.
+# ----------------------------------------------------------------------
+option(MIDIEDITOR_ENABLE_WEBRTC "Enable WebRTC live-mode transport via libdatachannel" ON)
+if(MIDIEDITOR_ENABLE_WEBRTC)
+    include(FetchContent)
+
+    # OpenSSL pre-build + install via janbar/openssl-cmake (a CMake
+    # wrapper around the upstream OpenSSL source tree). libdatachannel
+    # calls find_package(OpenSSL REQUIRED), which respects
+    # CMAKE_PREFIX_PATH — so we install OpenSSL to a build-local
+    # prefix and prepend it before libdatachannel's find_package fires.
+    #
+    # Why OpenSSL instead of MbedTLS: MbedTLS 3.6.2's PSA-crypto
+    # headers have known C++ inclusion bugs on MSVC (struct return
+    # types break under C linkage), which would block libdatachannel's
+    # build. OpenSSL is the more battle-tested path for MSVC C++
+    # consumers — adds ~5 MB to the final binary (vs ~1-2 MB for
+    # MbedTLS), worth the reliability.
+    FetchContent_Declare(
+        openssl_src
+        GIT_REPOSITORY https://github.com/janbar/openssl-cmake.git
+        GIT_TAG        1.1.1w-20231130
+        GIT_SHALLOW    TRUE
+    )
+    FetchContent_GetProperties(openssl_src)
+    if(NOT openssl_src_POPULATED)
+        message(STATUS "Fetching OpenSSL source (CMake wrapper)...")
+        FetchContent_Populate(openssl_src)
+    endif()
+    set(OPENSSL_INSTALL_DIR "${CMAKE_BINARY_DIR}/_deps/openssl-install")
+    if(NOT EXISTS "${OPENSSL_INSTALL_DIR}/include/openssl/ssl.h")
+        message(STATUS "Building OpenSSL (one-time, takes a few minutes)...")
+        execute_process(
+            COMMAND ${CMAKE_COMMAND}
+                -S "${openssl_src_SOURCE_DIR}"
+                -B "${openssl_src_BINARY_DIR}"
+                -G "${CMAKE_GENERATOR}"
+                # janbar/openssl-cmake 1.1.1w-20231130 declares
+                # cmake_minimum_required(VERSION 3.0) which CMake 4.x
+                # refuses outright (compat with < 3.5 was dropped). Pin
+                # the policy floor to 3.5 just for the OpenSSL sub-build
+                # so its old policy semantics (POLICY CMP0xxx defaults)
+                # stay intact without us editing the upstream tree.
+                -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+                -DCMAKE_BUILD_TYPE=Release
+                -DCMAKE_INSTALL_PREFIX=${OPENSSL_INSTALL_DIR}
+                -DBUILD_SHARED_LIBS=OFF
+                -DWITH_APPS=OFF
+            RESULT_VARIABLE _ossl_cfg
+            OUTPUT_QUIET
+        )
+        if(NOT _ossl_cfg EQUAL 0)
+            message(FATAL_ERROR "OpenSSL configure failed (rc=${_ossl_cfg})")
+        endif()
+        execute_process(
+            COMMAND ${CMAKE_COMMAND}
+                --build "${openssl_src_BINARY_DIR}"
+                --target install
+                --config Release
+            RESULT_VARIABLE _ossl_build
+            OUTPUT_QUIET
+        )
+        if(NOT _ossl_build EQUAL 0)
+            message(FATAL_ERROR "OpenSSL build/install failed (rc=${_ossl_build})")
+        endif()
+        message(STATUS "OpenSSL installed to ${OPENSSL_INSTALL_DIR}")
+    endif()
+    set(OPENSSL_ROOT_DIR "${OPENSSL_INSTALL_DIR}" CACHE PATH "" FORCE)
+    set(OPENSSL_USE_STATIC_LIBS ON CACHE BOOL "" FORCE)
+    # janbar/openssl-cmake names libs with platform/version suffixes
+    # (e.g. libcrypto-1_1-x64.lib). FindOpenSSL.cmake's default name
+    # search doesn't pick those up, AND it overrides any cache pinning
+    # we attempt before calling it. Workaround: copy the produced libs
+    # to the standard names FindOpenSSL expects (libcrypto.lib,
+    # libssl.lib). This is a one-time per-build-dir setup; subsequent
+    # configures hit the if(NOT EXISTS) guard.
+    if(NOT EXISTS "${OPENSSL_INSTALL_DIR}/lib/libcrypto.lib")
+        file(GLOB _ossl_crypto "${OPENSSL_INSTALL_DIR}/lib/libcrypto*.lib")
+        file(GLOB _ossl_ssl    "${OPENSSL_INSTALL_DIR}/lib/libssl*.lib")
+        list(GET _ossl_crypto 0 _crypto_src)
+        list(GET _ossl_ssl    0 _ssl_src)
+        configure_file("${_crypto_src}" "${OPENSSL_INSTALL_DIR}/lib/libcrypto.lib" COPYONLY)
+        configure_file("${_ssl_src}"    "${OPENSSL_INSTALL_DIR}/lib/libssl.lib"    COPYONLY)
+        message(STATUS "Aliased OpenSSL libs to libcrypto.lib / libssl.lib")
+    endif()
+    list(APPEND CMAKE_PREFIX_PATH "${OPENSSL_INSTALL_DIR}")
+
+    # libdatachannel — now its find_package(OpenSSL REQUIRED) succeeds
+    # via OPENSSL_ROOT_DIR + the prefix path above.
+    set(NO_MEDIA      ON CACHE BOOL "" FORCE)
+    set(NO_WEBSOCKET  ON CACHE BOOL "" FORCE)
+    set(NO_EXAMPLES   ON CACHE BOOL "" FORCE)
+    set(NO_TESTS      ON CACHE BOOL "" FORCE)
+    FetchContent_Declare(
+        libdatachannel
+        GIT_REPOSITORY https://github.com/paullouisageneau/libdatachannel.git
+        GIT_TAG        v0.21.2
+        GIT_SHALLOW    TRUE
+    )
+    # libdatachannel's transitive deps (deps/plog/CMakeLists.txt:1 declares
+    # cmake_minimum_required(VERSION 3.0)) trip CMake 4.x's hard cutoff at
+    # 3.5. Pin the policy floor as a directory-scope variable so the
+    # FetchContent_MakeAvailable add_subdirectory() chain inherits it
+    # without us having to patch the upstream tree. Stays scoped to this
+    # block (the variable is local; cache state is unaffected).
+    set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
+    FetchContent_MakeAvailable(libdatachannel)
+    # Use the static target (datachannel-static) so we don't depend on
+    # datachannel.dll at runtime — keeps the deployment a single .exe
+    # plus Qt/FluidSynth DLLs we already ship. The shared lib is still
+    # built but unused; we just don't ship it.
+    target_link_libraries(MidiEditorAI PRIVATE LibDataChannel::LibDataChannelStatic)
+    target_compile_definitions(MidiEditorAI PRIVATE MIDIEDITOR_WEBRTC_ENABLED RTC_STATIC)
+    message(STATUS "libdatachannel + OpenSSL WebRTC enabled (Phase 9.6, static link)")
+else()
+    message(STATUS "WebRTC disabled — set MIDIEDITOR_ENABLE_WEBRTC=ON to enable")
+endif()
+
 # Source files - be more specific to avoid test/doc/example files
 file(GLOB SOURCES_MAIN "src/*.cpp")
 file(GLOB SOURCES_MIDIEVENT "src/MidiEvent/*.cpp")
@@ -337,6 +501,15 @@ file(GLOB SOURCES_GUI "src/gui/*.cpp")
 file(GLOB SOURCES_PROTOCOL "src/protocol/*.cpp")
 file(GLOB SOURCES_TOOL "src/tool/*.cpp")
 file(GLOB SOURCES_AI "src/ai/*.cpp")
+if(MIDIEDITOR_ENABLE_COLLAB)
+    # CONFIGURE_DEPENDS: re-glob at build time when new files appear in
+    # src/collab/ or src/gui/collab/ so multi-config generators (Visual
+    # Studio) don't need a manual `cmake configure` after each new file.
+    # Supported since CMake 3.12 (Ninja/Make) and 3.20 (VS) — we already
+    # require 3.20 at the top of this file.
+    file(GLOB SOURCES_COLLAB CONFIGURE_DEPENDS "src/collab/*.cpp")
+    file(GLOB SOURCES_GUI_COLLAB CONFIGURE_DEPENDS "src/gui/collab/*.cpp")
+endif()
 file(GLOB SOURCES_CONVERTER_BASE "src/converter/*.cpp")
 file(GLOB SOURCES_CONVERTER "src/converter/GuitarPro/*.cpp")
 file(GLOB SOURCES_CONVERTER_MML "src/converter/MML/*.cpp")
@@ -360,6 +533,8 @@ set(SOURCES
     ${SOURCES_PROTOCOL}
     ${SOURCES_TOOL}
     ${SOURCES_AI}
+    ${SOURCES_COLLAB}
+    ${SOURCES_GUI_COLLAB}
     ${SOURCES_CONVERTER_BASE}
     ${SOURCES_CONVERTER}
     ${SOURCES_CONVERTER_MML}
@@ -394,6 +569,10 @@ file(GLOB HEADERS_GUI "src/gui/*.h")
 file(GLOB HEADERS_PROTOCOL "src/protocol/*.h")
 file(GLOB HEADERS_TOOL "src/tool/*.h")
 file(GLOB HEADERS_AI "src/ai/*.h")
+if(MIDIEDITOR_ENABLE_COLLAB)
+    file(GLOB HEADERS_COLLAB CONFIGURE_DEPENDS "src/collab/*.h")
+    file(GLOB HEADERS_GUI_COLLAB CONFIGURE_DEPENDS "src/gui/collab/*.h")
+endif()
 file(GLOB HEADERS_CONVERTER "src/converter/GuitarPro/*.h")
 file(GLOB HEADERS_CONVERTER_MML "src/converter/MML/*.h")
 file(GLOB HEADERS_CONVERTER_MUSICXML "src/converter/MusicXml/*.h")
@@ -410,6 +589,8 @@ set(HEADERS
     ${HEADERS_PROTOCOL}
     ${HEADERS_TOOL}
     ${HEADERS_AI}
+    ${HEADERS_COLLAB}
+    ${HEADERS_GUI_COLLAB}
     ${HEADERS_CONVERTER}
     ${HEADERS_CONVERTER_MML}
     ${HEADERS_CONVERTER_MUSICXML}

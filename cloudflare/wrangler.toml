@@ -1,0 +1,16 @@
+# Cloudflare Workers config for the MidiEditor AI rendezvous service.
+# Used by the `wrangler deploy` CLI flow. If you deploy via the web UI
+# (paste the rendezvous.js into the Workers editor) you can ignore this
+# file — it just gives the CLI version a clean default name + KV
+# binding.
+#
+# Replace `<YOUR-KV-NAMESPACE-ID>` after running `wrangler kv:namespace
+# create RDV` (the CLI prints the id you paste here).
+
+name = "midi-rdv"
+main = "rendezvous.js"
+compatibility_date = "2026-05-06"
+
+[[kv_namespaces]]
+binding = "RDV"
+id = "<YOUR-KV-NAMESPACE-ID>"

@@ -34,6 +34,10 @@
 #include "InstrumentSettingsWidget.h"
 #include "ControlChangeSettingsWidget.h"
 #include "AiSettingsWidget.h"
+#include "LoggingSettingsWidget.h"
+#ifdef MIDIEDITOR_COLLAB_ENABLED
+#include "collab/CollabSettingsWidget.h"
+#endif
 
 SettingsDialog::SettingsDialog(QString title, QSettings *settings, QWidget *parent)
     : QDialog(parent) {
@@ -101,6 +105,10 @@ SettingsDialog::SettingsDialog(QString title, QSettings *settings, QWidget *pare
     addSetting(new KeybindsSettingsWidget(this, central));
     addSetting(new PerformanceSettingsWidget(settings, central));
     addSetting(new AiSettingsWidget(settings, central));
+#ifdef MIDIEDITOR_COLLAB_ENABLED
+    addSetting(new CollabSettingsWidget(settings, central));
+#endif
+    addSetting(new LoggingSettingsWidget(central));
 }
 
 void SettingsDialog::addSetting(SettingsWidget *settingWidget) {

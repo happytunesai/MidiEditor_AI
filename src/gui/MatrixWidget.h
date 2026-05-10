@@ -452,6 +452,13 @@ protected:
     void mouseMoveEvent(QMouseEvent *event);
 
     /**
+     * \brief Generic event filter — handles QEvent::ToolTip so that hovering
+     *        over a PR-merged event shows "From: <author>" (Phase 9.1e+).
+     *        Falls through to the default handler for all other events.
+     */
+    bool event(QEvent *event) override;
+
+    /**
      * \brief Handles widget resize events.
      * \param event The resize event
      */

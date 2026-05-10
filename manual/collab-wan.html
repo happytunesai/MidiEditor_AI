@@ -1,0 +1,715 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>WAN Live Session | MidiEditor AI Manual</title>
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="icon" type="image/x-icon" href="favicon.ico" sizes="any">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <meta name="theme-color" content="#0B1020">
+  <meta name="description" content="Real-time MIDI co-editing across the internet. WebRTC + DTLS, Cloudflare Worker rendezvous, 4-character codes, NAT traversal via STUN.">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="site.css">
+  <link rel="stylesheet" href="audio.css">
+  <style>
+    .screenshot-single { text-align: center; margin: 1.5rem 0; }
+    .screenshot-single img { max-width: 100%; border: 1px solid var(--border); border-radius: 8px; }
+    .caption { text-align: center; color: var(--text-muted); font-style: italic; margin-top: 0.5rem; font-size: 0.9rem; }
+    .step-list { counter-reset: step; list-style: none; padding-left: 0; }
+    .step-list li { counter-increment: step; padding: 0.8rem 0 0.8rem 3rem; position: relative; border-bottom: 1px solid var(--border); }
+    .step-list li::before { content: counter(step); position: absolute; left: 0; top: 0.7rem; width: 2rem; height: 2rem; background: var(--accent); color: #fff; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.9rem; }
+    .step-list li:last-child { border-bottom: none; }
+    .todo { background: rgba(255, 200, 0, 0.08); border-left: 3px solid #d29922; padding: 0.7rem 1rem; margin: 1rem 0; font-style: italic; color: var(--text-muted); }
+    .quality-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin: 1rem 0; }
+    .quality-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; }
+    .quality-card.excellent { border-left: 4px solid #2ea043; }
+    .quality-card.ok        { border-left: 4px solid #58a6ff; }
+    .quality-card.inconc    { border-left: 4px solid #d29922; }
+    .quality-card.bad       { border-left: 4px solid #f85149; }
+    .quality-card h4 { margin: 0 0 0.4rem; font-size: 1em; border-bottom: none; }
+
+    /* Side-by-side live demo with animated bridge between the two PCs.
+       WAN variant uses warmer accent (#f0883e) to evoke long-distance /
+       internet hops vs LAN's blue. */
+    .dual-demo { display: flex; align-items: center; gap: 0.5rem; margin: 1.5rem 0; }
+    .demo-pane { flex: 1; min-width: 0; text-align: center; }
+    .demo-pane video {
+        width: 100%; height: auto;
+        border: 2px solid var(--border); border-radius: 10px;
+        box-shadow: 0 6px 24px rgba(0,0,0,0.45);
+        background: #000;
+    }
+    .demo-pane .demo-label {
+        margin-top: 0.55rem; color: var(--text);
+        font-weight: 600; font-size: 0.95em;
+    }
+    .demo-pane .demo-sublabel { color: var(--text-muted); font-size: 0.85em; }
+    .demo-bridge {
+        position: relative; flex: 0 0 110px; height: 110px;
+        align-self: center;
+    }
+    .demo-bridge .bridge-label {
+        position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
+        font-size: 0.78em; font-weight: 700;
+        color: #f0883e; letter-spacing: 0.05em; white-space: nowrap;
+    }
+    .demo-bridge .bridge-icon {
+        position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+        font-size: 1.6em; opacity: 0.55;
+    }
+    .demo-bridge::before {
+        content: "";
+        position: absolute; top: 50%; left: 0; right: 0; height: 2px;
+        background: linear-gradient(90deg,
+            transparent 0%, #f0883e 20%, #f0883e 80%, transparent 100%);
+        opacity: 0.35; transform: translateY(-50%);
+    }
+    .demo-bridge .dot {
+        position: absolute; top: 50%;
+        width: 10px; height: 10px; border-radius: 50%;
+        background: #f0883e;
+        box-shadow: 0 0 8px #f0883e, 0 0 14px #f0883e;
+        transform: translateY(-50%); will-change: left, opacity;
+    }
+    @keyframes flow-lr {
+        0%   { left: -6%;  opacity: 0; }
+        15%  { opacity: 1; }
+        85%  { opacity: 1; }
+        100% { left: 106%; opacity: 0; }
+    }
+    @keyframes flow-rl {
+        0%   { left: 106%; opacity: 0; }
+        15%  { opacity: 1; }
+        85%  { opacity: 1; }
+        100% { left: -6%;  opacity: 0; }
+    }
+    .demo-bridge .d1 { animation: flow-lr 2.6s linear infinite 0.0s; }
+    .demo-bridge .d2 { animation: flow-lr 2.6s linear infinite 0.85s; background: #2ea043; box-shadow: 0 0 8px #2ea043; }
+    .demo-bridge .d3 { animation: flow-rl 2.6s linear infinite 0.4s;  background: #58a6ff; box-shadow: 0 0 8px #58a6ff; }
+    .demo-bridge .d4 { animation: flow-rl 2.6s linear infinite 1.3s; }
+
+    @media (max-width: 700px) {
+        .dual-demo { flex-direction: column; }
+        .demo-bridge {
+            flex: 0 0 60px; width: 100%; height: 60px;
+            transform: rotate(90deg);
+        }
+    }
+
+    /* Rendezvous handshake-flow animation (Plan §11.10f).
+       Two parallel tracks make the data-flow story explicit:
+         • Top track (orange): always visible, shows phase-1 SDP
+           handshake. BOTH PCs bounce a dot off the Cloudflare worker
+           in parallel, returning to themselves after the worker
+           processes their request.
+         • Bottom track (green): only appears in phase 2. Connects
+           PC1 ↔ PC2 directly via short vertical stems, bypassing
+           the Cloudflare icon. Shows DTLS-encrypted MIDI traffic
+           after the handshake completes.
+       6 s loop, infinite. */
+    .rdv-flow {
+        position: relative;
+        background: linear-gradient(135deg, #10192A 0%, #162238 100%);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 1.5rem 1rem 1rem;
+        margin: 1.5rem 0;
+    }
+    .rdv-stage {
+        position: relative;
+        display: flex;
+        justify-content: space-around;
+        align-items: flex-start;
+        height: 200px;
+        padding-top: 15px;
+    }
+    .rdv-actor {
+        position: relative; z-index: 2;
+        flex: 0 0 110px;
+        text-align: center;
+    }
+    .rdv-actor .icon-wrap {
+        width: 64px; height: 64px;
+        margin: 0 auto 0.4rem;
+        border-radius: 50%;
+        background: var(--bg-card);
+        border: 2px solid var(--border);
+        display: flex; align-items: center; justify-content: center;
+        font-size: 1.6em;
+        transition: opacity 0.4s, box-shadow 0.4s;
+    }
+    .rdv-actor.host .icon-wrap   { border-color: #58a6ff; }
+    .rdv-actor.cloud .icon-wrap  { border-color: #f0883e; }
+    .rdv-actor.joiner .icon-wrap { border-color: #2ea043; }
+    .rdv-actor .label {
+        font-size: 0.85em; color: var(--text); line-height: 1.25;
+    }
+    .rdv-actor .label small {
+        color: var(--text-muted); font-size: 0.85em;
+    }
+    /* Cloudflare pulses bright during phase 1, dims during phase 2 */
+    .rdv-actor.cloud .icon-wrap {
+        animation: rdv-cloud-pulse 6s linear infinite;
+    }
+    @keyframes rdv-cloud-pulse {
+        0%   { opacity: 1;   box-shadow: 0 0 0 #f0883e; }
+        15%  { opacity: 1;   box-shadow: 0 0 18px #f0883e; }
+        45%  { opacity: 1;   box-shadow: 0 0 0 #f0883e; }
+        50%  { opacity: 0.3; box-shadow: 0 0 0 #f0883e; }
+        95%  { opacity: 0.3; box-shadow: 0 0 0 #f0883e; }
+        100% { opacity: 1;   box-shadow: 0 0 0 #f0883e; }
+    }
+    /* Top track at icon-center vertical (always visible) */
+    .rdv-track-top {
+        position: absolute;
+        top: 47px; left: 12%; right: 12%; height: 2px;
+        background: linear-gradient(90deg,
+            transparent 0%,
+            rgba(240,136,62,0.35) 18%,
+            rgba(240,136,62,0.35) 82%,
+            transparent 100%);
+        z-index: 1;
+    }
+    /* Bottom direct-P2P track - appears in phase 2 with vertical
+       stems linking icon-bottom to the horizontal track. The stems
+       and track all fade in together via .rdv-track-direct opacity. */
+    .rdv-track-direct {
+        position: absolute;
+        top: 165px; left: 14%; right: 14%; height: 2px;
+        background: rgba(46,160,67,0.5);
+        opacity: 0;
+        z-index: 1;
+        animation: rdv-direct-reveal 6s linear infinite;
+    }
+    .rdv-track-direct::before,
+    .rdv-track-direct::after {
+        content: "";
+        position: absolute;
+        top: -86px; width: 2px; height: 86px;
+        background: rgba(46,160,67,0.5);
+    }
+    .rdv-track-direct::before { left: 0; }
+    .rdv-track-direct::after  { right: 0; }
+    @keyframes rdv-direct-reveal {
+        0%, 48%  { opacity: 0; }
+        52%, 95% { opacity: 1; }
+        100%     { opacity: 0; }
+    }
+    /* Animated dots - share base styles, differ only in track + path */
+    .rdv-dot {
+        position: absolute;
+        width: 10px; height: 10px;
+        border-radius: 50%;
+        transform: translate(-50%, -50%);
+        z-index: 3;
+        will-change: left, opacity;
+    }
+    /* Phase 1 (0-40%): both PCs bounce a dot off Cloudflare in
+       parallel, showing the bidirectional handshake. */
+    .rdv-dot.wan-handshake-pc1,
+    .rdv-dot.wan-handshake-pc2 {
+        top: 47px;
+        background: #f0883e;
+        box-shadow: 0 0 10px #f0883e, 0 0 4px #f0883e;
+    }
+    .rdv-dot.wan-handshake-pc1 {
+        animation: wan-handshake-pc1 6s linear infinite;
+    }
+    .rdv-dot.wan-handshake-pc2 {
+        animation: wan-handshake-pc2 6s linear infinite;
+    }
+    @keyframes wan-handshake-pc1 {
+        /* PC1 → CF (0-15%) → idle (15-18%) → CF → PC1 (18-33%) */
+        0%   { left: 14%; opacity: 0; }
+        3%   { opacity: 1; }
+        15%  { left: 50%; opacity: 1; }
+        17%  { opacity: 0; }
+        18%  { left: 50%; opacity: 0; }
+        20%  { opacity: 1; }
+        33%  { left: 14%; opacity: 1; }
+        36%  { opacity: 0; }
+        100% { left: 14%; opacity: 0; }
+    }
+    @keyframes wan-handshake-pc2 {
+        /* Mirrored: PC2 → CF (0-15%) → idle → CF → PC2 (18-33%) */
+        0%   { left: 86%; opacity: 0; }
+        3%   { opacity: 1; }
+        15%  { left: 50%; opacity: 1; }
+        17%  { opacity: 0; }
+        18%  { left: 50%; opacity: 0; }
+        20%  { opacity: 1; }
+        33%  { left: 86%; opacity: 1; }
+        36%  { opacity: 0; }
+        100% { left: 86%; opacity: 0; }
+    }
+    /* Phase 2 (50-100%): direct dots travel on the bottom track,
+       visually parallel to the now-dimmed Cloudflare icon. */
+    .rdv-dot.wan-direct-1,
+    .rdv-dot.wan-direct-2 {
+        top: 165px;
+    }
+    .rdv-dot.wan-direct-1 {
+        background: #2ea043;
+        box-shadow: 0 0 10px #2ea043, 0 0 4px #2ea043;
+        animation: wan-direct-fwd 6s linear infinite;
+    }
+    .rdv-dot.wan-direct-2 {
+        background: #58a6ff;
+        box-shadow: 0 0 10px #58a6ff, 0 0 4px #58a6ff;
+        animation: wan-direct-back 6s linear infinite;
+    }
+    @keyframes wan-direct-fwd {
+        0%, 53% { left: 14%; opacity: 0; }
+        58% { opacity: 1; }
+        90% { left: 86%; opacity: 1; }
+        93% { opacity: 0; }
+        100% { left: 86%; opacity: 0; }
+    }
+    @keyframes wan-direct-back {
+        0%, 63% { left: 86%; opacity: 0; }
+        68% { opacity: 1; }
+        96% { left: 14%; opacity: 1; }
+        99% { opacity: 0; }
+        100% { left: 14%; opacity: 0; }
+    }
+    .rdv-caption {
+        text-align: center;
+        font-size: 0.85em;
+        color: var(--text-muted);
+        margin-top: 0.5rem;
+        line-height: 1.5;
+    }
+    .rdv-caption .phase-label { font-weight: 700; }
+    .rdv-caption .phase-label.cf { color: #f0883e; }
+    .rdv-caption .phase-label.dtls { color: #2ea043; }
+    .rdv-link-paragraph {
+        text-align: center;
+        margin: 0.8rem 0 0;
+        font-size: 0.92em;
+    }
+    @media (max-width: 600px) {
+        .rdv-stage { height: 180px; }
+        .rdv-actor { flex-basis: 80px; }
+        .rdv-actor .icon-wrap { width: 50px; height: 50px; font-size: 1.2em; }
+        .rdv-actor .label { font-size: 0.75em; }
+        .rdv-track-top { top: 40px; }
+        .rdv-track-direct { top: 150px; }
+        .rdv-track-direct::before,
+        .rdv-track-direct::after { top: -80px; height: 80px; }
+        .rdv-dot.wan-handshake-pc1,
+        .rdv-dot.wan-handshake-pc2 { top: 40px; }
+        .rdv-dot.wan-direct-1,
+        .rdv-dot.wan-direct-2 { top: 150px; }
+    }
+  </style>
+</head>
+<body>
+<nav class="site-nav" role="navigation" aria-label="Main navigation">
+<div class="container">
+    <a href="index.html" class="nav-brand"><img class="brand-logo" src="Midieditor-ai_banner_w.png" alt="MidiEditor AI"></a>
+    <button class="nav-hamburger" aria-label="Toggle menu" aria-expanded="false">&#x2630;</button>
+    <ul class="nav-links">
+        <li><a href="index.html#features">Features</a></li>
+        <li><a href="index.html#showcase">Showcase</a></li>
+        <li class="nav-dropdown">
+            <span class="nav-dropdown-trigger active">Docs &#x25BE;</span>
+            <div class="nav-dropdown-menu">
+                <a href="docs-index.html">Manual Overview</a>
+                <a href="midipilot.html">MidiPilot AI</a>
+                <a href="collaboration.html">Collaboration</a>
+                <a href="prompt-examples.html">Prompt Examples</a>
+                <a href="ffxiv-channel-fixer.html">FFXIV Channel Fixer</a>
+                <a href="supported-files.html">Supported Files</a>
+                <a href="themes.html">Themes &amp; Appearance</a>
+                <a href="lyrics.html">Lyric Editor</a>
+                <a href="soundfont.html">SoundFonts &amp; FluidSynth</a>
+                <a href="shortcuts.html">Keyboard Shortcuts</a>
+                <a href="mcp-server.html">MCP Server</a>
+                <a href="setup.html">Setup &amp; Installation</a>
+            </div>
+        </li>
+        <li><a href="changelog.html">Changelog</a></li>
+        <li><a href="https://github.com/happytunesai/MidiEditor_AI" target="_blank" rel="noopener noreferrer">GitHub &#x2197;</a></li>
+        <li><a href="download.html" class="nav-cta">&#x2B07; Download</a></li>
+    </ul>
+</div>
+</nav>
+
+<a href="#main-content" class="skip-link">Skip to main content</a>
+
+<main id="main-content">
+
+<p style="margin-bottom: 0.4rem;"><a href="collaboration.html">&larr; Collaboration overview</a></p>
+<h1 id="wan-live">&#x1F310; WAN Live Session</h1>
+
+<p>
+Same realtime co-editing as <a href="collab-lan.html">LAN Live</a>, but
+across the internet. WebRTC carries the data with DTLS encryption. A
+tiny Cloudflare Worker handles the introduction (rendezvous), then the
+peers talk directly - the Worker never sees your MIDI traffic. Up
+to 8 joiners per session.
+</p>
+
+<div class="dual-demo">
+    <div class="demo-pane">
+        <video src="screenshots/live_WAN_pc_1.webm" muted autoplay loop playsinline></video>
+        <div class="demo-label">PC 1 - Host</div>
+        <div class="demo-sublabel">Edits flow over WebRTC + DTLS</div>
+    </div>
+    <div class="demo-bridge" aria-hidden="true">
+        <div class="bridge-label">WAN sync</div>
+        <div class="bridge-icon">&#x1F310;</div>
+        <div class="dot d1"></div>
+        <div class="dot d2"></div>
+        <div class="dot d3"></div>
+        <div class="dot d4"></div>
+    </div>
+    <div class="demo-pane">
+        <video src="screenshots/live_WAN_pc2.webm" muted autoplay loop playsinline></video>
+        <div class="demo-label">PC 2 - Joiner</div>
+        <div class="demo-sublabel">Sees host's edits over the internet</div>
+    </div>
+</div>
+
+<p style="text-align: center; color: var(--text-muted); font-style: italic; font-size: 0.9rem;">
+Two screen captures from a real WAN session over the internet. Same
+~200 ms tick rate as LAN, plus the round-trip latency of your link.
+</p>
+
+<div class="rdv-flow" aria-hidden="true">
+    <div class="rdv-stage">
+        <div class="rdv-actor host">
+            <div class="icon-wrap">&#x1F5A5;&#xFE0F;</div>
+            <div class="label">PC 1<br><small>Host</small></div>
+        </div>
+        <div class="rdv-actor cloud">
+            <div class="icon-wrap">&#x2601;&#xFE0F;</div>
+            <div class="label">Cloudflare<br><small>Worker + KV</small></div>
+        </div>
+        <div class="rdv-actor joiner">
+            <div class="icon-wrap">&#x1F5A5;&#xFE0F;</div>
+            <div class="label">PC 2<br><small>Joiner</small></div>
+        </div>
+        <!-- Top track: rendezvous via Cloudflare (always visible) -->
+        <div class="rdv-track-top"></div>
+        <!-- Phase 1: both PCs bounce off Cloudflare in parallel -->
+        <div class="rdv-dot wan-handshake-pc1"></div>
+        <div class="rdv-dot wan-handshake-pc2"></div>
+        <!-- Bottom track: direct P2P (appears in phase 2) -->
+        <div class="rdv-track-direct"></div>
+        <!-- Phase 2: dots travel directly between PCs, bypassing CF -->
+        <div class="rdv-dot wan-direct-1"></div>
+        <div class="rdv-dot wan-direct-2"></div>
+    </div>
+    <div class="rdv-caption">
+        <span class="phase-label cf">Phase 1 (orange):</span>
+        Both peers exchange SDPs with Cloudflare in parallel
+        (4-character code, ~5 KB total) -
+        <span class="phase-label dtls">Phase 2 (green/blue):</span>
+        direct DTLS bypasses Cloudflare, MIDI traffic is peer-to-peer
+    </div>
+</div>
+
+<p class="rdv-link-paragraph">
+The Cloudflare Worker is just a 5-minute-TTL mailbox - it sees
+the SDPs but never your MIDI traffic. Want full quota / a custom
+domain / your own logs?
+<a href="collab-cloudflare.html"><b>Self-host the Cloudflare rendezvous</b> &rarr;</a>
+</p>
+
+<hr>
+
+<h2 id="when">When to use it</h2>
+
+<p>
+WAN Live is for everyone <em>not</em> on the same LAN: remote
+bandmate, friend in another city, classroom-from-home. Up to 8 joiners
+per session (host + 7 others). The same diff/apply pipeline as LAN, so
+the editing experience is identical - just routed through a
+Cloudflare Worker for the initial handshake and then peer-to-peer over
+DTLS-encrypted WebRTC.
+</p>
+
+<p>
+For users on the same network, prefer
+<a href="collab-lan.html">LAN Live Session</a> - same UX, no
+internet involved, lowest possible latency.
+</p>
+
+<hr>
+
+<h2 id="quick-start">Quick start</h2>
+<ol class="step-list">
+<li>Host opens a MIDI file, picks <em>Collab &rarr; Start WAN Live
+    Session&hellip;</em>.</li>
+<li>A 4-character code appears. Click <em>Copy invite</em> to grab a
+    paste-ready message.</li>
+<li>Each joiner picks <em>Collab &rarr; Join WAN Live Session&hellip;</em>
+    and types the code.</li>
+<li>~5-10&nbsp;s of ICE / DTLS handshake, then everyone is
+    connected. Status bar shows <code>LIVE [Online] &middot; N peer(s)</code>.</li>
+</ol>
+
+<hr>
+
+<h2 id="connection-test">Connection Test</h2>
+
+<p>
+Open <em>Settings &rarr; Collaboration &rarr; Test connection</em>
+before starting a real session. The test runs in three stages:
+</p>
+
+<ol>
+<li><b>Pre-flight ping</b> - <code>GET /health</code> against your
+configured rendezvous URL. 5-second timeout. Surfaces unreachable
+servers / firewall blocks within seconds.</li>
+<li><b>Rendezvous round-trip</b> - posts a session, receives a code,
+the in-process &quot;peer&quot; verifies the code, posts an offer, the
+&quot;host&quot; reads it.</li>
+<li><b>WebRTC loopback</b> - both transports run inside this same
+process, do an ICE / DTLS handshake against each other via local
+host candidates, then send a single ping/pong frame.</li>
+</ol>
+
+<p>
+The result is one of four buckets:
+</p>
+
+<div class="quality-grid">
+<div class="quality-card excellent">
+<h4>Connection looks great</h4>
+<p>Rendezvous fast, handshake clean. Real WAN sessions will work.</p>
+</div>
+<div class="quality-card ok">
+<h4>Connection works, slower than expected</h4>
+<p>Successful but rendezvous or handshake took longer than 3&nbsp;s.
+Real sessions still work; consider raising <em>ICE timeout</em> if
+your network is consistently slow.</p>
+</div>
+<div class="quality-card inconc">
+<h4>Test inconclusive</h4>
+<p>Rendezvous worked but the WebRTC loopback didn't. Most often this
+is NAT hairpinning - some routers don't loop their own public IP
+back to themselves. <em>Real two-PC sessions usually still work</em>.
+Verify by hosting on one PC and joining from another.</p>
+</div>
+<div class="quality-card bad">
+<h4>Connection failed</h4>
+<p>Either the rendezvous is unreachable (URL wrong, firewall block,
+DNS) or the WebRTC stack couldn't bind locally. The dialog includes a
+specific failure stage and reason - usually the firewall, see
+<a href="#firewall">below</a>.</p>
+</div>
+</div>
+
+<p>
+The test is non-destructive and can be re-run any time you change
+network settings. With Collab disabled, the button stays clickable so
+you can verify your setup before opting in.
+</p>
+
+<hr>
+
+<h2 id="ice">ICE, STUN, gathering timeout</h2>
+
+<p>
+WebRTC needs to discover candidate IP/port pairs that two peers can
+use to reach each other. That's ICE (Interactive Connectivity
+Establishment), and it relies on a STUN server to learn each peer's
+public IP. MidiEditor ships with a default list of free public STUN
+endpoints (Google's). For 95% of home / office connections that's all
+you need.
+</p>
+
+<p>
+The <em>ICE timeout</em> setting (default 8&nbsp;s) caps how long
+gathering can take before MidiEditor publishes the SDP with whichever
+candidates it has. Slow / blocked STUN endpoints can stall gathering
+otherwise; raising this to 12-15&nbsp;s may help on flaky
+connections.
+</p>
+
+<p>
+TURN servers (which actually relay traffic when peer-to-peer fails) are
+<em>not</em> in the bundled list. They cost real bandwidth and we
+don't pay for one by default. Symmetric NATs (rare on home networks,
+common on some mobile carriers and VPNs) require a TURN; you can run
+your own (e.g. Coturn) and add the URL to the rendezvous configuration.
+See <a href="collab-cloudflare.html#turn">Adding a TURN server</a>.
+</p>
+
+<hr>
+
+<h2 id="auto-reconnect">Auto-reconnect</h2>
+
+<p>
+When enabled (off by default), a transport failure during a Live
+Session triggers an automatic re-handshake on the same code, up to
+<em>Max retry attempts</em> times. Useful for transient flaps -
+Wi-Fi roam, brief ISP hiccup. Doesn't help when the host restarts and
+gets a new code; in that case the joiner has to re-enter the new code
+manually.
+</p>
+
+<p>
+A dropped peer never affects the others - reconnection is per-peer.
+A failed retry on one joiner doesn't kick everyone else.
+</p>
+
+<hr>
+
+<h2 id="rendezvous">Rendezvous</h2>
+
+<p>
+The Cloudflare Worker is a tiny key-value mailbox. Each session is one
+short-lived record (5-minute TTL). Joiners post their offer SDPs to
+the Worker; the host polls a list of pending offers and replies with
+an answer SDP per joiner. Once both sides have each other's SDP, ICE
+finds a path between them and DTLS handshakes peer-to-peer - the
+Worker isn't in the path anymore.
+</p>
+
+<p>
+The default URL ships with the build and is shared across all users.
+For heavier use, custom domains, or full uptime control, deploy your
+own - see <a href="collab-cloudflare.html">Self-host the Cloudflare
+rendezvous</a>. Setup takes about five minutes and the free tier
+covers ~100k sessions/day.
+</p>
+
+<hr>
+
+<h2 id="recovery">Recovery scenarios</h2>
+
+<ul>
+<li><b>Code expired</b> (5-minute TTL) - the rendezvous returns 404
+and the join dialog reports &quot;code not found&quot;. Host generates
+a fresh one.</li>
+<li><b>Host restarted</b> - the new code is different from the old.
+Joiner's auto-reconnect tries the old code (because we can't re-prompt
+the user), fails, and the user has to re-enter the new code manually.
+A documented asymmetry; the alternative was promiscuous code reuse and
+we picked safety over convenience.</li>
+<li><b>NAT changed mid-session</b> (e.g. router rebooted, VPN
+toggled) - ICE re-gathers candidates and tries to recover. May drop
+briefly. Auto-reconnect catches this if enabled.</li>
+<li><b>16 MiB-frame edit</b> - a single sync hunk exceeded the
+WebRTC max-message-size cap (e.g. inserting hundreds of measures into
+a dense file in one action). The status bar shows &quot;Live sync
+paused - last edit was too large to send&quot;. Save and split the
+change into smaller steps; the status clears on the next normal sync
+tick.</li>
+</ul>
+
+<hr>
+
+<h2 id="troubleshooting">Troubleshooting</h2>
+
+<h3 id="firewall">"Connection works in browser but not in MidiEditor"</h3>
+<p>
+The classic <em>silent firewall block</em>: the rendezvous URL opens fine in a
+browser (or returns JSON via PowerShell <code>Invoke-WebRequest</code>), but the
+Connection Test inside MidiEditor times out after 5 s with no specific error.
+On Windows this almost always means the OS firewall is silently dropping
+outbound HTTPS from the app without showing the usual <em>"allow this app to
+access network"</em> prompt.
+</p>
+<p><b>Fix on Windows:</b></p>
+<ol>
+<li><b>Windows Security &rarr; Firewall &amp; network protection &rarr; "Allow an
+    app through firewall"</b></li>
+<li>Click <em>Change settings</em>, then <em>Allow another app&hellip;</em></li>
+<li>Browse to <code>MidiEditorAI.exe</code> (where you installed the app)</li>
+<li>Add it, then check both <em>Private</em> and <em>Public</em> boxes</li>
+</ol>
+<p><b>Fix when third-party antivirus is involved</b> (Bitdefender, Norton,
+Kaspersky, McAfee, ESET, etc.): each AV has its own "Application Control" or
+firewall list. Add an exception for <code>MidiEditorAI.exe</code> there as
+well. AV-side blocks often happen <em>without</em> any visible prompt because
+the AV's "trusted apps" filter only allows signed / well-known executables by
+default.</p>
+<p>
+Future MidiEditor releases may be code-signed, which usually eliminates the
+silent-block behaviour on Windows. For unsigned development builds, the
+firewall exception is a one-time setup.
+</p>
+
+<h3 id="other-issues">Other common errors</h3>
+
+<p><b>"Couldn't reach rendezvous"</b> / Connection Test reports
+<em>health failed</em>:</p>
+<ul>
+<li>Open the URL in a browser. JSON response = rendezvous works → likely
+the firewall block above.</li>
+<li>404 / 5xx in the browser = rendezvous URL is wrong or Worker isn't
+deployed. Check Settings &rarr; Collaboration &rarr; <em>Rendezvous URL</em> and
+re-deploy <a href="collab-cloudflare.html">your Worker</a> if you self-host.</li>
+<li>DNS not resolving = corporate / hotel network DNS filter. Try a phone
+hotspot to confirm.</li>
+</ul>
+
+<p><b>"ICE failed" / handshake never completes</b>:</p>
+<ul>
+<li>Both sides on symmetric NAT (rare on home networks, common on some
+mobile carriers / corporate VPNs). Solution: configure a TURN server
+- see <a href="collab-cloudflare.html#turn">Adding a TURN server</a>.</li>
+<li>One side blocks UDP entirely. Test with phone hotspot to verify.</li>
+<li>Try Connection Test on both ends - if both report "Inconclusive",
+NAT hairpinning is the issue, real two-PC sessions usually still work.</li>
+</ul>
+
+<p><b>"Connected but no edits flow"</b>:</p>
+<ul>
+<li>Check the <em>review-mode</em> toggle in the Collab menu - if on,
+incoming hunks queue for manual approval instead of applying.</li>
+<li>The two peers might be on different files / different
+<em>sessionIds</em>. Open <em>Collab History</em> tab on both and confirm
+the head hash matches.</li>
+<li>Status bar shows <em>"Live sync paused - last edit was too large"</em>?
+Save and split the change - one frame can't exceed 16 MiB.</li>
+</ul>
+
+<p><b>"This code has already been used"</b> / 409 from rendezvous:</p>
+<ul>
+<li>Security feature - the worker refuses to overwrite an existing
+joiner-offer slot. This blocks MITM scanners that would race to claim
+a code's answer slot ahead of a legitimate joiner. The collision is
+also caught when two joiners pick the same random ID by accident, which
+is astronomically rare. Solution: the joiner re-runs <em>Join WAN Live
+Session</em> - a fresh joinerId is generated each time.</li>
+</ul>
+
+<p><b>"Session is full" / 503 from rendezvous:</b></p>
+<ul>
+<li>Soft cap of 8 peers per session (Phase 9.8). Wait for an existing
+peer to leave, or start a new session.</li>
+</ul>
+
+<p><b>Connection Test "Inconclusive"</b>:</p>
+<ul>
+<li>The <em>in-process</em> WebRTC loopback failed but rendezvous worked.
+Most common cause: NAT hairpinning - some routers don't loopback their
+own public IP. Real WAN sessions take a different network path so they
+usually still work. Verify by hosting on one PC and joining from
+another.</li>
+</ul>
+
+</main>
+
+<footer class="site-footer">
+    <div class="footer-links">
+        <a href="https://github.com/happytunesai/MidiEditor_AI" class="repo-link" target="_blank" rel="noopener noreferrer"><img class="repo-logo" src="Midieditor-ai_logo.png" alt="">GitHub Repo</a>
+        <a href="docs-index.html">Documentation</a>
+        <a href="collaboration.html">Collaboration</a>
+        <a href="https://github.com/happytunesai/MidiEditor_AI/issues" target="_blank" rel="noopener noreferrer">Issues</a>
+    </div>
+    <p class="footer-copy">MidiEditor AI &copy; 2026 &middot; <a href="https://github.com/happytunesai/MidiEditor_AI/blob/main/LICENSE">License</a></p>
+</footer>
+
+<button class="scroll-top" aria-label="Scroll to top">&#x2191;</button>
+<script src="lightbox.js"></script>
+<script src="navigation.js"></script>
+<script src="site.js"></script>
+</body>
+</html>

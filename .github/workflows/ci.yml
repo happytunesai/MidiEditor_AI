@@ -131,12 +131,27 @@ jobs:
           & windeployqt build\bin\MidiEditorAI.exe --release --compiler-runtime --no-translations --no-system-d3d-compiler --no-opengl-sw
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
 
+          # Runtime assets
           Copy-Item -Recurse run_environment\graphics build\bin\graphics
+          if (Test-Path run_environment\metronome) {
+            Copy-Item -Recurse run_environment\metronome build\bin\metronome
+          }
           Copy-Item run_environment\midieditor.ico build\bin\
           if (Test-Path run_environment\mozart_turkish_march.mid) {
             Copy-Item run_environment\mozart_turkish_march.mid build\bin\
           }
-          "- [x] **Package** - Qt deployed, artifact ready" >> $env:GITHUB_STEP_SUMMARY
+          if (Test-Path run_environment\updater.bat) {
+            Copy-Item run_environment\updater.bat build\bin\
+          }
+          # Top-level docs + license. LICENSE is mandatory for GPL-3 distribution;
+          # README + CHANGELOG ride along so users have the release notes offline.
+          # FluidSynth DLLs (libfluidsynth-3.dll / SDL3.dll / sndfile.dll) are
+          # already in build\bin\ via CMake's POST_BUILD copy hook, so no extra
+          # copy needed for those.
+          Copy-Item LICENSE      build\bin\
+          Copy-Item README.md    build\bin\
+          Copy-Item CHANGELOG.md build\bin\
+          "- [x] **Package** - Qt deployed, runtime assets + docs bundled" >> $env:GITHUB_STEP_SUMMARY
 
       - name: "\u2B06\uFE0F Upload artifact"
         uses: actions/upload-artifact@v7
