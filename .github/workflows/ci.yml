@@ -148,9 +148,12 @@ jobs:
           # FluidSynth DLLs (libfluidsynth-3.dll / SDL3.dll / sndfile.dll) are
           # already in build\bin\ via CMake's POST_BUILD copy hook, so no extra
           # copy needed for those.
-          Copy-Item LICENSE      build\bin\
-          Copy-Item README.md    build\bin\
-          Copy-Item CHANGELOG.md build\bin\
+          # Test-Path guards mirror release.bat's `if exist` behaviour — without
+          # them a missing top-level file would hard-fail the step on pwsh
+          # ($ErrorActionPreference='stop' is the GitHub Actions default).
+          if (Test-Path LICENSE)      { Copy-Item LICENSE      build\bin\ }
+          if (Test-Path README.md)    { Copy-Item README.md    build\bin\ }
+          if (Test-Path CHANGELOG.md) { Copy-Item CHANGELOG.md build\bin\ }
           "- [x] **Package** - Qt deployed, runtime assets + docs bundled" >> $env:GITHUB_STEP_SUMMARY
 
       - name: "\u2B06\uFE0F Upload artifact"

@@ -559,7 +559,8 @@ SDPs, and answer-poll all flow through your own Worker now.</li>
 
 <p>
 The 4-character alphabet excludes visually ambiguous characters (no
-0/O/1/I/L), giving 28&Hat;4 &asymp; 614&thinsp;000 codes. The
+0/O/1/I/L) and uses the remaining 31 (A-Z minus I/L/O = 23, plus 2-9 = 8),
+giving 31&Hat;4 &asymp; 923&thinsp;000 codes. The
 5-minute TTL means stale codes auto-expire; collisions are detected
 and re-rolled on the host side. Each joiner generates its own random
 joinerId (16 url-safe chars) so the host can route answers to the

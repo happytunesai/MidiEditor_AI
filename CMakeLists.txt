@@ -9,7 +9,7 @@ cmake_minimum_required(VERSION 3.20 FATAL_ERROR)
 # IPO request and silences the warnings.
 set(CMAKE_POLICY_DEFAULT_CMP0069 NEW)
 
-set(MIDIEDITOR_RELEASE_VERSION_STRING "1.7.0")
+set(MIDIEDITOR_RELEASE_VERSION_STRING "1.7.1")
 project(MidiEditorAI VERSION ${MIDIEDITOR_RELEASE_VERSION_STRING} LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -477,12 +477,17 @@ if(MIDIEDITOR_ENABLE_WEBRTC)
     )
     # libdatachannel's transitive deps (deps/plog/CMakeLists.txt:1 declares
     # cmake_minimum_required(VERSION 3.0)) trip CMake 4.x's hard cutoff at
-    # 3.5. Pin the policy floor as a directory-scope variable so the
-    # FetchContent_MakeAvailable add_subdirectory() chain inherits it
-    # without us having to patch the upstream tree. Stays scoped to this
-    # block (the variable is local; cache state is unaffected).
+    # 3.5. Pin the policy floor as a non-cached directory-scope variable
+    # right before FetchContent_MakeAvailable so the add_subdirectory()
+    # chain inherits it without us having to patch the upstream tree.
+    # `unset(... PARENT_SCOPE)` doesn't apply here because we ARE in the
+    # top-level scope; instead we manually unset() right after the
+    # MakeAvailable to keep any downstream add_subdirectory (like tests/
+    # at the bottom of this file) from inheriting the loosened policy
+    # floor. Cache state is unaffected throughout (BUG-COLLAB-039).
     set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
     FetchContent_MakeAvailable(libdatachannel)
+    unset(CMAKE_POLICY_VERSION_MINIMUM)
     # Use the static target (datachannel-static) so we don't depend on
     # datachannel.dll at runtime — keeps the deployment a single .exe
     # plus Qt/FluidSynth DLLs we already ship. The shared lib is still

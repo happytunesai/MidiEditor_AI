@@ -106,6 +106,55 @@ target_link_libraries(test_history_reconciliation PRIVATE
 add_test(NAME HistoryReconciliation COMMAND test_history_reconciliation)
 
 # -----------------------------------------------------------------------------
+# test_ice_config
+# -----------------------------------------------------------------------------
+# Validates IceConfig (STUN/TURN URI list I/O via QSettings) in
+# src/collab/IceConfig. The IceConfig header gates its declarations on
+# MIDIEDITOR_WEBRTC_ENABLED, so the test target defines it. No
+# libdatachannel symbols are referenced from IceConfig.cpp, so the test
+# stays a single-cpp build with just Qt6::Core. Sandboxed via
+# QStandardPaths::setTestModeEnabled.
+add_executable(test_ice_config
+    test_ice_config.cpp
+    ../src/collab/IceConfig.cpp
+)
+target_include_directories(test_ice_config PRIVATE
+    ../src/collab
+)
+target_compile_definitions(test_ice_config PRIVATE
+    MIDIEDITOR_WEBRTC_ENABLED
+)
+target_link_libraries(test_ice_config PRIVATE
+    Qt6::Core
+    Qt6::Test
+)
+add_test(NAME IceConfig COMMAND test_ice_config)
+
+# -----------------------------------------------------------------------------
+# test_rtc_signaling_token
+# -----------------------------------------------------------------------------
+# Validates RtcSignalingToken (base64 + zlib codec for WebRTC offer/answer
+# tokens, Plan §11.10) in src/collab/RtcSignalingToken. The header is
+# gated on MIDIEDITOR_WEBRTC_ENABLED so the test target defines it.
+# qCompress/qUncompress + QByteArray::toBase64 are the only deps; no
+# libdatachannel linkage. Symmetric to test_pr_bundle.
+add_executable(test_rtc_signaling_token
+    test_rtc_signaling_token.cpp
+    ../src/collab/RtcSignalingToken.cpp
+)
+target_include_directories(test_rtc_signaling_token PRIVATE
+    ../src/collab
+)
+target_compile_definitions(test_rtc_signaling_token PRIVATE
+    MIDIEDITOR_WEBRTC_ENABLED
+)
+target_link_libraries(test_rtc_signaling_token PRIVATE
+    Qt6::Core
+    Qt6::Test
+)
+add_test(NAME RtcSignalingToken COMMAND test_rtc_signaling_token)
+
+# -----------------------------------------------------------------------------
 # test_xml_score_to_midi
 # -----------------------------------------------------------------------------
 # Validates the shared SMF (Standard MIDI File) byte writer used by both the
@@ -943,6 +992,51 @@ target_link_libraries(test_three_mle_parser PRIVATE
 add_test(NAME ThreeMleParser COMMAND test_three_mle_parser)
 
 # -----------------------------------------------------------------------------
+# test_collab_history_file
+# -----------------------------------------------------------------------------
+# Validates the sidecar-JSON I/O of src/collab/CollabHistoryFile (Phase 9.1b):
+# sidecarPathFor() path translation, tolerant field parsing in loadFromJson,
+# QSaveFile-based atomic save/load round-trip, appendCommit / ensureSessionId,
+# and compactHistory(N) hunk-stripping while preserving audit metadata.
+# Pure Qt (QJson + QSaveFile + QUuid) — no MidiFile dep, no network, no
+# QSettings. The test compiles only the single .cpp; QTemporaryDir scopes
+# all on-disk fixtures.
+add_executable(test_collab_history_file
+    test_collab_history_file.cpp
+    ../src/collab/CollabHistoryFile.cpp
+)
+target_include_directories(test_collab_history_file PRIVATE
+    ../src/collab
+)
+target_link_libraries(test_collab_history_file PRIVATE
+    Qt6::Core
+    Qt6::Test
+)
+add_test(NAME CollabHistoryFile COMMAND test_collab_history_file)
+
+# -----------------------------------------------------------------------------
+# test_logging_config
+# -----------------------------------------------------------------------------
+# Validates src/LoggingConfig (Phase 9.6f): coarse log-level mapping to Qt
+# filter-rules, per-category override layering + ordering, the collab-verbose
+# flag, and the loadLevel / loadPerCategory / applyAndPersist persistence
+# round-trip. Sandboxes QSettings via QStandardPaths::setTestModeEnabled(true)
+# so Logging/* and Collab/verboseLogging keys never touch the dev config.
+# Pure Qt — no MidiFile, no network deps.
+add_executable(test_logging_config
+    test_logging_config.cpp
+    ../src/LoggingConfig.cpp
+)
+target_include_directories(test_logging_config PRIVATE
+    ../src
+)
+target_link_libraries(test_logging_config PRIVATE
+    Qt6::Core
+    Qt6::Test
+)
+add_test(NAME LoggingConfig COMMAND test_logging_config)
+
+# -----------------------------------------------------------------------------
 # test_drum_kit_preset
 # -----------------------------------------------------------------------------
 # Validates the DrumKitPreset static factory (GM / Rock / Jazz percussion
@@ -1002,6 +1096,10 @@ if(WIN32)
         MidiHash
         CollabIdentity
         HistoryReconciliation
+        CollabHistoryFile
+        LoggingConfig
+        IceConfig
+        RtcSignalingToken
         PROPERTIES
             ENVIRONMENT "PATH=${_qt_bin_dir};$ENV{PATH}"
     )

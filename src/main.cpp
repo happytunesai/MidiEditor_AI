@@ -49,6 +49,16 @@
 //   • Rotation triggers in-flight (during the running process) — the
 //     earlier code only checked at startup, so a long-running session
 //     could fill the disk with no recovery until restart.
+
+// Win32 includes BEFORE the anonymous namespace — otherwise the typedefs
+// HINSTANCE / LPSTR / WINAPI / EXCEPTION_POINTERS land inside the anon
+// namespace and the global-scope WinMain (in the NO_CONSOLE_MODE branch
+// below) can't see them. <windows.h> has header-guards so the later
+// re-include in the NO_CONSOLE_MODE block is a no-op (BUG-COLLAB-035).
+#ifdef Q_OS_WIN
+#include <windows.h>
+#endif
+
 namespace {
 QFile *g_logFile = nullptr;
 QMutex g_logMutex;
@@ -116,7 +126,9 @@ void midiEditorLogHandler(QtMsgType type, const QMessageLogContext &ctx, const Q
 }
 
 #ifdef Q_OS_WIN
-#include <windows.h>
+// <windows.h> is included at file scope above the anonymous namespace —
+// see the BUG-COLLAB-035 comment there. We only need the WINAPI typedefs
+// here; the actual include has already happened.
 LONG WINAPI midiEditorCrashHandler(EXCEPTION_POINTERS *info) {
     QMutexLocker lock(&g_logMutex);
     QString msg = QStringLiteral(

@@ -57,6 +57,19 @@ public:
     bool ffxivMode() const;
 
     /**
+     * \brief Abort whatever request is currently in flight (agent or
+     * simple) and restore the input UI to an idle, usable state.
+     *
+     * Agent mode routes through AgentRunner::cancel() which emits
+     * errorOccurred → onAgentError (self-resets). Simple mode calls the
+     * deliberately-silent AiClient::cancelRequest() (AgentRunner relies
+     * on that silence to avoid a double errorOccurred), so this helper
+     * resets the simple-mode UI itself. Safe to call when nothing is
+     * running — it is a no-op in that case. (BUG-MIDIPILOT-001)
+     */
+    void abortActiveRequest();
+
+    /**
      * \brief Executes an action silently (no chat bubbles). Used by Agent Mode tool calls.
      */
     QJsonObject executeAction(const QJsonObject &actionObj);
@@ -184,7 +197,12 @@ private:
     // Phase 9.3: snapshot of the file taken just before the agent starts
     // when running in "Agent (PR)" mode. Used at the end of the agent run
     // to compute hunks via MidiDiff for a PrReviewDialog (review-applied
-    // mode). Empty when not in PR mode.
+    // mode). Empty when not in PR mode. The Agent (PR) mode itself is
+    // currently hidden behind the compile-time flag
+    // MIDIPILOT_EXPERIMENTAL_AGENT_PR (defined in MidiPilotWidget.cpp,
+    // default 0) because the apply-then-review UX overlaps with Protocol
+    // undo. These members stay declared so the surrounding code paths
+    // continue to compile cleanly even when the flag is off.
     QJsonArray _prModeSnapshotBefore;
     QString _prModeUserMessage;
 #endif

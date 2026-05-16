@@ -13,7 +13,7 @@
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-0078D6?logo=windows)](https://github.com/happytunesai/MidiEditor_AI/releases)
 
-**Version:** 1.7.0
+**Version:** 1.7.1
 **Status:** Release
 
 📥 **[Download Latest Release](https://github.com/happytunesai/MidiEditor_AI/releases/latest)**
@@ -57,7 +57,7 @@ MidiPilot is the AI brain embedded directly in MidiEditor AI. Open the sidebar, 
 |---------|-------------|
 | 🤖 **MidiPilot AI Copilot** | Compose, edit, and transform MIDI via natural language chat with live Agent streaming |
 | 🤝 **Real-time Collaboration**  | Live multi-peer Live Sessions over LAN or WAN (peer-to-peer WebRTC + DTLS, up to 8 peers), async PR workflow with smart-paste tokens, optional Discord webhook for sharing, and a 6-second Connection Test diagnostic |
-| 📝 **Logging Settings**  | Five colour-coded severity levels (Critical / Warning / Info / Debug / Trace) selected via radio buttons with live preview, size warnings before enabling Debug/Trace, 10 MB file rotation with 3 backups, per-category overrides, and an *Open log file* shortcut |
+| 📝 **Logging Settings**  | Five radio-selectable levels (Off / Errors / Warnings / Info / Debug) with live preview of the lines you'll see at each level, a size-callout warning that escalates with the level, 10 MB file rotation with 3 backups, per-category overrides, and an *Open log file* shortcut |
 | 🔒 **Lock Side Panels During Playback**  | Opt-in setting under *Settings → System & Performance* that restores the legacy v1.4.1-and-earlier behaviour of disabling the side panels for the duration of playback / recording |
 | 🎨 **7 Themes** | MidiEditor AI brand (default), Dark, Light, Classic, Sakura, AMOLED, Material Dark, plus a Follow-OS auto-switch. 10 color presets for note bars |
 | 🎹 **Full MIDI Editor** | Edit, record, and play MIDI files with track/channel/event editing |
@@ -471,7 +471,7 @@ Co-edit MIDI files live with up to 8 peers, peer-to-peer over WebRTC + DTLS. Or 
 
 ## 📝 Logging 
 
-Five-level severity ladder (Critical → Warning → Info → Debug → Trace) selected via radio buttons in *Settings → Logging*, with a live preview of which lines you'll see at each level and a size warning before enabling Debug or Trace.
+Five-level ladder (Off → Errors → Warnings → Info → Debug) selected via radio buttons in *Settings → Logging*, with a live preview of which lines you'll see at each level and a size-callout warning that escalates as the level climbs.
 
 <p align="center">
   <img src="manual/screenshots/settings_logging.png" alt="Logging settings tab" width="600"/>

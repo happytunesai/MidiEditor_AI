@@ -10764,6 +10764,84 @@ Palet:
 4. **Release cadence:** Tier 1 = 1.6.1 hotfix. Tier 2 = 1.7.0
    feature release. Tier 3 = on demand only.
 
+### 38.6 - Upstream Triage (2026-05-14 cut)
+
+> Cut against `upstream/main` at SHA `8559f07` (tag `4.5.0`, "Bump
+> Version - 4.5.0", 2026-05-03). Last sync: 2026-05-02 at SHA
+> `dfa4593` (boundary of 38.3). 11 new commits between cuts. The
+> previous fetch reported `+ 8418348...8559f07 main -> upstream/main
+> (forced update)`, but the 11 commits below all have AuthorDates
+> 2026-05-01..2026-05-03 and the `dfa4593` SHA is unchanged from
+> 38.3 — the force-push rewrote history *upstream* of `dfa4593`
+> (likely the original 4.4.x tag history we never tracked), not the
+> 4.5.0 window. No previously-classified SHA shifted. Release tags
+> `4.4.0` (`87f2a77`, pre-cut), `4.4.1` (`0108a85`, pre-cut), and
+> `4.5.0` (`8559f07`) all bracket pre-2026-05-02 work; the entire
+> 11-commit window is the 4.5.0 release.
+
+#### Tier 1 - Easy wins
+
+| Upstream SHA | Title | Files | LoC | Why pull |
+|---|---|---|---|---|
+| f9ec0b3 (Selection slice) | Defensive null-then-delete in `Selection::setFile` | `src/tool/Selection.cpp` | +6/-4 | Sets `_selectionInstance = nullptr` *before* deleting the old instance. Defensive against re-entrancy if `~Selection` ever calls back into a singleton path. Tiny, isolated, applies cleanly on top of our by-value Selection. Skip the rest of f9ec0b3 (see Tier 3 below). |
+| 840d3a4 | Rainbow Octave Scale strip style | `Appearance.h` (+2/-1), `AppearanceSettingsWidget.cpp` (+1/-1), `MatrixWidget.cpp` (+12/-4) | +18/-6 | Adds a new `rainbowOctavesScale` strip mode that darkens black-key rows on top of the existing rainbow-octave coloring. Pure additive enum value, isolated `paintEvent` branch. Doesn't touch our Voice Lane / chord highlighter / Lyric Lane overlays. |
+
+#### Tier 2 - Bigger features worth porting
+
+| Upstream SHA | Title | Files | LoC | Notes |
+|---|---|---|---|---|
+| 36d424f | Portable Mode & Immediate Settings Sync | 25 files: Appearance.{h,cpp}, main.cpp, MidiInput.cpp, MidiOutput.cpp, FluidSynthEngine.{h,cpp}, PerformanceSettingsWidget.{h,cpp}, MainWindow.cpp, MidiSettingsWidget.{h,cpp}, AppearanceSettingsWidget.cpp, GameSupportSettingsWidget.cpp, KeybindsSettingsWidget.cpp, SplitChannelsDialog.cpp, StatusBarSettingsWidget.cpp, DrumKitPreset.cpp, ControlChangeSettingsWidget.cpp, InstrumentChooser.cpp, InstrumentSettingsWidget.cpp, UpdateManager.cpp, MidiEvent.cpp, InstrumentDefinitions.{h,cpp} | +714/-140 | **User-facing value: high** — a portable mode (INI next to EXE, no registry writes) is genuinely useful for our user base (USB-stick installs for FFXIV gigs, sandboxed setups, A/B-testing two builds side-by-side). **Conflict expectation: very high.** Touches Appearance.{h,cpp} (we run a 7-theme ThemeManager + brand theme on top of upstream's Appearance), main.cpp (we have our own logging singleton + crash handler + anon-namespace structure from Phase 15), MainWindow.cpp (deeply diverged — menu wiring, FFXIV/MidiPilot/Collab/MCP integration), and FluidSynthEngine (we have FFXIV bard-accurate mode + GEN_ATTENUATION mixer). The "immediate settings sync" sub-feature (writing changes through `Appearance::save()` after every setter, and via `settings->sync()` from MidiInput/MidiOutput setters) is independently useful and lower-conflict than the portable-mode plumbing. **Recommendation:** manual port in two slices. Slice A = "immediate settings sync" (the per-setter `save()` and `settings->sync()` calls). Slice B = "portable mode" proper (the `Appearance::settings(parent)` factory + `Appearance::isPortable()` detection + `loadEarlySettings(appDir)`). Slice A is safe Tier-1-ish if we extract it surgically. Slice B is the real Tier-2 lift; ~1-2 dev days for the manual port + a full settings-roundtrip test pass. Recommend the user run `git apply --check` on Slice A first, then plan Slice B as a 1.7.x candidate. |
+| 4512050 | Audio Export Progress, libsndfile Transcoding | `AudioExportDialog.{h,cpp}`, `FluidSynthEngine.{h,cpp}`, `Appearance.cpp` | +385/-41 | **Two unrelated changes bundled.** Part 1: an animated "Encoding..." pulse + percentage progress bar in `AudioExportDialog`. Part 2: replaces direct format output with a "render to high-precision intermediate WAV, then transcode via libsndfile" model for all formats. **Part 1 (progress UX):** worth porting — but our audio export lives in `src/gui/ExportDialog.cpp`, not a separate `AudioExportDialog`. Manual port: re-implement the QTimer pulse + percentage in our own dialog. **Part 2 (libsndfile transcoding):** **license + binary-size flag.** libsndfile is LGPL-2.1 and ~700 KB (per agent-spec heads-up). It would be a new third-party dependency, and our current pipeline (FluidSynth + LAME 3.100 statically linked) already handles WAV/FLAC/OGG/MP3 without it. Upstream's motivation is precision (intermediate float-PCM render) and Opus support. Unless we hit a measurable precision issue or want to add Opus, the dep cost (license, binary size, CMake wiring — upstream does it via xmake only, not CMake) outweighs the benefit. **Recommendation:** Cherry-pick the progress UX idea manually into our ExportDialog. Skip the libsndfile rewrite; revisit if/when we need Opus output. |
+
+#### Tier 3 - Skip (with reason)
+
+| Upstream SHA | Title | Reason for skip |
+|---|---|---|
+| dfa4593 | Improve Selection Performance & Delete Overlaps | **Already skipped in 38.3.** Re-listed here only because it falls inside the 4.5.0 release window by CommitDate; SHA and LoC delta are unchanged. The 38.3 rationale stands: it re-touches the Selection / SelectTool / EventMoveTool / SizeChangeTool stack we re-architected for the v1.3.2 by-value-Selection regression. No new evidence of a perf problem in our tree. Do not re-evaluate unless a real perf issue surfaces against our code. |
+| c99781c | Glissando Improvements | Continuation of the `dde3fda` Glissando family we skipped in 38.3. Refines hover-state handling + delay timing for the piano-as-keyboard glissando feature, which we do not ship. Touches MatrixWidget.cpp lines that overlap our chord-highlighter and Voice-Lane hover paths. Skip. (Persistent skip family — flag for future rounds.) |
+| e606c14 | Piano Emulation Overhaul | +1399/-64 — large feature for the piano-emulation-as-keyboard-input mode. Adds a global `qApp->installEventFilter(this)` in MainWindow, ~600 LoC in KeybindsSettingsWidget, ~530 LoC in MatrixWidget. We do not ship piano-emulation-as-keyboard, and the global event filter would fight our MidiPilot / Collab / MCP keyboard-shortcut surface. Skip. |
+| 660b049 | Harden Update Manager | Patches a PowerShell-script-helper update flow we don't have. Our `AutoUpdater.cpp` does in-process rename + Expand-Archive + restart (no external script), so the upstream fixes (PID→process-name, `MyInvocation.MyCommand.Definition` self-delete, `settings->sync()` race-window guard) have **no analogue in our code path**. The `MainWindow::performEarlyCleanup` change clears `updater/pending_update_file` QSettings keys we don't write. Skip — structurally incompatible. |
+| 6f0188e | Update Checker Improvements | Introduces upstream's `UpdateManager` class + `UpdateAvailableDialog` + a JSON-driven release-data flow with different signal signatures (`updateAvailableData(version, releaseObj)` vs. our `updateAvailable(version, releaseUrl, zipDownloadUrl, zipSize)`). Our `UpdateChecker` already has a richer `ChangelogSummary` struct + HTML changelog parser, our own `UpdateDialogs.cpp` (245 LoC), and integrates with our `AutoUpdater` self-update flow. Adopting upstream's surface would require ripping out and re-wiring everything we built in Phase 15. Skip — structurally incompatible. |
+| f9ec0b3 (Save Confirm slice) | Prettier Save Confirmation dialog | Adds a custom `SaveConfirmDialog` (83 LoC new) replacing the QMessageBox in MainWindow. Conflicts with our heavily-diverged MainWindow.cpp close-flow (which already coordinates Collab session shutdown, MidiPilot, dirty-state via Protocol, etc.). The visual upgrade is minor cosmetic polish. Skip the dialog itself; keep only the Selection.cpp defensive null-then-delete (already pulled as Tier-1 above). |
+| dbbde46 | Base Palette | Three-line `setStyleSheet("QListWidget { background-color: palette(base); } ...")` hack. We **already solve this better** through `Appearance::listBorderStyle()` which returns a theme-aware per-listwidget stylesheet (7 themes + dark/light + brand-cyan border). Pulling upstream's one-liner would regress our themed list-widget borders. Skip — superseded by ThemeManager. |
+
+#### Out-of-scope (no-pull, recorded for completeness)
+
+* `8559f07` Bump Version - 4.5.0 — release version bump (CHANGELOG, CMakeLists.txt version literal, packaging XML, main.cpp version string, xmake.lua). Our own versioning is independent; no action.
+
+#### Recommendation
+
+The 4.5.0 window is dominated by feature work in areas we don't
+ship (Piano Emulation, Glissando) and update-flow plumbing that's
+structurally incompatible with our `AutoUpdater` (Harden Update
+Manager, Update Checker Improvements). **Highest-value low-risk
+pull this round: the Selection-slice from `f9ec0b3` (6-line
+defensive fix) plus `840d3a4` Rainbow Octave Scale (additive enum
+value, ~18 LoC).** Both clean cherry-picks, both compatible with
+our existing code, both shippable as a 1.7.1 polish increment with
+`Co-authored-by: Meowchestra ...` attribution.
+
+**Tier-2 deferred decisions** for the user:
+
+1. **Portable Mode (`36d424f`):** real user-facing value (USB-stick
+   FFXIV-gig install, sandboxed setups) but ~1-2 dev days for the
+   manual port through our diverged Appearance/main/MainWindow. Worth
+   a 1.7.x slot if multi-machine portability is a real use case for
+   gig prep. Suggest splitting: pull "immediate settings sync"
+   (Slice A) first as a low-risk QoL improvement, then plan
+   "portable mode" (Slice B) as a 1.7.x feature.
+2. **Audio Export Progress (`4512050` Part 1 only):** lift the
+   QTimer pulse + percentage idea into our `ExportDialog.cpp`.
+   Small (~30 LoC manual port). Reject the libsndfile dependency
+   (LGPL-2.1, ~700 KB, CMake wiring needed — upstream only did
+   xmake) unless we hit a precision/Opus need.
+
+**Persistent skip flag** (for future agent runs): the
+Glissando/Piano-Emulation/UpdateManager/UpdateChecker commit
+families have all been classified Tier-3 in two consecutive rounds
+(38.3 + 38.6). Future triage can short-circuit any commit touching
+*only* those code paths without re-reading the diff.
+
 
 ---
 

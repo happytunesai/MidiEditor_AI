@@ -470,10 +470,17 @@ void MidiPilotWidget::setupUi() {
     _agentDockArea->setVisible(false);
     mainLayout->addWidget(_agentDockArea);
 
-    // === Setup Prompt (shown when no API key, overlaps chat area) ===
+    // === Setup Prompt (shown when no API key, replaces the chat area) ===
+    // Takes _chatScroll's place in mainLayout via the same stretch=1, so the
+    // welcome panel occupies the vertical area that chat would have — input
+    // frame and status bar stay pinned at the bottom of the panel instead
+    // of floating in the middle. Inner stretches centre the title/desc/
+    // button within the available height.
     _setupWidget = new QWidget(this);
     QVBoxLayout *setupLayout = new QVBoxLayout(_setupWidget);
-    setupLayout->setAlignment(Qt::AlignCenter);
+    setupLayout->setContentsMargins(12, 12, 12, 12);
+    setupLayout->setSpacing(8);
+    setupLayout->addStretch(1);
 
     QLabel *setupTitle = new QLabel("Welcome to MidiPilot", _setupWidget);
     setupTitle->setStyleSheet("font-size: 14px; font-weight: bold;");
@@ -494,7 +501,9 @@ void MidiPilotWidget::setupUi() {
     connect(openSettings, &QPushButton::clicked, this, &MidiPilotWidget::onSettingsClicked);
     setupLayout->addWidget(openSettings, 0, Qt::AlignCenter);
 
-    mainLayout->addWidget(_setupWidget);
+    setupLayout->addStretch(1);
+
+    mainLayout->addWidget(_setupWidget, 1);
 
     // === Input Area (multi-line, with buttons) ===
     QFrame *inputFrame = new QFrame(this);
@@ -539,13 +548,24 @@ void MidiPilotWidget::setupUi() {
     _modeCombo = new QComboBox(this);
     _modeCombo->addItem("Simple", "simple");
     _modeCombo->addItem("Agent", "agent");
-#ifdef MIDIEDITOR_COLLAB_ENABLED
+
+    // Compile-time gate for the experimental "Agent (PR)" mode (Phase 9.3).
+    // Disabled by default for end-user builds — the apply-then-review UX
+    // overlaps with Protocol undo (Ctrl+Z), which already reverts an entire
+    // agent run in one step, so the extra dialog adds noise without benefit
+    // for most users. The downstream code path (snapshot before agent run,
+    // diff via MidiDiff::compute, PrReviewDialog in ReviewApplied mode) is
+    // intentionally left compiled in so a developer can flip this to 1 and
+    // rebuild for re-evaluation without re-implementing anything. Not a
+    // runtime toggle — there's no UI for it, and no QSettings hook.
+#define MIDIPILOT_EXPERIMENTAL_AGENT_PR 0
+
+#if defined(MIDIEDITOR_COLLAB_ENABLED) && MIDIPILOT_EXPERIMENTAL_AGENT_PR
     _modeCombo->addItem("Agent (PR)", "agent_pr");
 #endif
+
     _modeCombo->setToolTip("Simple: single-shot edits\n"
-                           "Agent: multi-step autonomous editing\n"
-                           "Agent (PR): same as Agent, but on finish you review the changes "
-                           "and decide what to keep");
+                           "Agent: multi-step autonomous editing");
     _modeCombo->setFixedHeight(28);
     QSettings modeSettings("MidiEditor", "NONE");
     int modeIdx = _modeCombo->findData(modeSettings.value("AI/mode", "simple").toString());
@@ -583,9 +603,8 @@ void MidiPilotWidget::setupUi() {
     _stopButton->setFlat(true);
     _stopButton->setVisible(false);
     connect(_stopButton, &QPushButton::clicked, this, [this]() {
-        if (_isAgentRunning && _agentRunner) {
-            _agentRunner->cancel();
-        }
+        // Works for both agent and simple mode (BUG-MIDIPILOT-001).
+        abortActiveRequest();
     });
     inputBtnLayout->addWidget(_stopButton);
 
@@ -1014,7 +1033,42 @@ void MidiPilotWidget::onFileChanged(MidiFile *f) {
     }
 }
 
+void MidiPilotWidget::abortActiveRequest() {
+    if (_isAgentRunning && _agentRunner) {
+        // AgentRunner::cancel() aborts the reply AND emits errorOccurred,
+        // which lands in onAgentError → _isAgentRunning=false + UI reset.
+        _agentRunner->cancel();
+        return;
+    }
+    if (_client && _client->isBusy()) {
+        // Simple mode. AiClient::cancelRequest() is intentionally silent
+        // (no errorOccurred) because AgentRunner relies on that to avoid a
+        // double signal — so we have to reset the simple-mode UI here.
+        _client->cancelRequest();
+        _isAgentRunning = false;
+        _simpleRetryCount = 0;
+        _lastSimpleMessage.clear();
+        setStatus(tr("Stopped"), "gray");
+        _inputField->setEnabled(true);
+        _sendButton->setEnabled(true);
+        _sendButton->setVisible(true);
+        _stopButton->setVisible(false);
+    }
+}
+
 void MidiPilotWidget::onNewChat() {
+    // Never clear history / delete chat-bubble widgets while a request is
+    // in flight — the live agent / streaming callbacks still hold pointers
+    // to _thoughtLabel, the streaming bubble and _agentStepsWidget. Deleting
+    // them here is a use-after-free (BUG-MIDIPILOT-001). Abort first, bail,
+    // let the user click New Chat again once it has settled.
+    if (_isAgentRunning || (_client && _client->isBusy())) {
+        abortActiveRequest();
+        setStatus(tr("Stopped the running request — click New Chat again to clear"),
+                  "orange");
+        return;
+    }
+
     // Only ask for confirmation if there are messages in the chat
     if (!_conversationHistory.isEmpty()) {
         QMessageBox msgBox(this);
@@ -1282,6 +1336,11 @@ void MidiPilotWidget::onSendMessage() {
 
         _client->sendStreamingRequest(simplePrompt,
                                        historyForApi, fullMessage);
+        // Give simple mode a Stop affordance too — mirror the agent path's
+        // send→stop button swap so a stalled streaming request is always
+        // recoverable without resorting to New Chat (BUG-MIDIPILOT-001).
+        _sendButton->setVisible(false);
+        _stopButton->setVisible(true);
         // Stash for self-healing retry on transient errors.
         _lastSimpleSystemPrompt = simplePrompt;
         _lastSimpleHistory = historyForApi;
@@ -1300,8 +1359,15 @@ void MidiPilotWidget::onSendMessage() {
 }
 
 void MidiPilotWidget::onResponseReceived(const QString &content, const QJsonObject &fullResponse) {
-    // Ignore AiClient signals during Agent Mode (AgentRunner handles them)
-    if (_isAgentRunning) return;
+    // Agent mode routes AiClient signals through AgentRunner — ignore them
+    // here. But cross-check the runner's REAL state: if _isAgentRunning is
+    // stale-true (a terminal agent signal was missed) a genuine simple-mode
+    // response would otherwise be swallowed forever, leaving the input
+    // permanently disabled (BUG-MIDIPILOT-001). Recover from the stale flag.
+    if (_isAgentRunning) {
+        if (_agentRunner && _agentRunner->isRunning()) return;
+        _isAgentRunning = false;  // stale — fall through and handle normally
+    }
 
     // Successful response — reset the simple-mode self-healing retry counter.
     _simpleRetryCount = 0;
@@ -1333,6 +1399,10 @@ void MidiPilotWidget::onResponseReceived(const QString &content, const QJsonObje
     setStatus("Ready", "green");
     _inputField->setEnabled(true);
     _sendButton->setEnabled(true);
+    // Restore the send/stop button swap from the simple-mode send path
+    // (BUG-MIDIPILOT-001). No-op for agent mode (already handled there).
+    _sendButton->setVisible(true);
+    _stopButton->setVisible(false);
 
     // Append assistant message to conversation history
     QJsonObject assistantMsg;
@@ -1530,8 +1600,13 @@ void MidiPilotWidget::onStreamFinished(const QString &fullContent, const QJsonOb
 }
 
 void MidiPilotWidget::onErrorOccurred(const QString &errorMessage) {
-    // Ignore AiClient signals during Agent Mode (AgentRunner handles them)
-    if (_isAgentRunning) return;
+    // Same stale-flag guard as onResponseReceived (BUG-MIDIPILOT-001):
+    // a missed terminal agent signal must not make a real simple-mode
+    // error vanish, leaving the UI stuck in "Processing…".
+    if (_isAgentRunning) {
+        if (_agentRunner && _agentRunner->isRunning()) return;
+        _isAgentRunning = false;  // stale — fall through and surface it
+    }
 
     // Reset streaming state
     _streamIsJson = false;
@@ -1626,6 +1701,9 @@ void MidiPilotWidget::onErrorOccurred(const QString &errorMessage) {
     setStatus("Error", "red");
     _inputField->setEnabled(true);
     _sendButton->setEnabled(true);
+    // Restore send/stop swap (BUG-MIDIPILOT-001).
+    _sendButton->setVisible(true);
+    _stopButton->setVisible(false);
 
     QString surfaced = errorMessage;
     if (_simpleRetryCount > 0)
