@@ -130,6 +130,17 @@ public:
     static EditorTool *currentTool();
 
     /**
+     * \brief Register a callback fired after every setCurrentTool().
+     *        Used by the Show-Mode follow-the-host code (Phase 9.9f
+     *        §15.2) to know when the local tool changed without
+     *        polling. Plain function pointer (not a Qt signal) so
+     *        the Tool module stays QObject-free and free of any
+     *        dependency on the GUI / collab layers.
+     */
+    typedef void (*ToolChangedFn)(EditorTool *newTool);
+    static void setToolChangedCallback(ToolChangedFn cb);
+
+    /**
 		 * \brief sets the static current MidiFile.
 		 */
     static void setFile(MidiFile *file);

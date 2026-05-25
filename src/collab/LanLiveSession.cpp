@@ -316,6 +316,28 @@ void LanLiveSession::resetState() {
     _lastBroadcastSidecarHead.clear();
     _lastBroadcastEndTick = -1;
     _transport = Transport::None;
+    // Phase 9.9 §15.2: a fresh resetState reverts the editing-rights
+    // model to Edit so the next session starts from a known-good
+    // default regardless of what the previous one ended with.
+    _mode = SessionMode::Edit;
+    _presenterMachineId.clear();
+    // Phase 9.11a §15.3: clear the per-sender chat rate-limit table —
+    // a fresh session shouldn't inherit rate-limit timers from an
+    // older one (would let the first message after rejoin sneak in
+    // faster than allowed, or block a legitimate early message).
+    _lastChatMsBySender.clear();
+    // v1.7.2 §15.4: legacy-host flags reset per session so the
+    // warning can fire again next time the user joins a different
+    // (older) host.
+    _gotSessionWelcome = false;
+    _legacyHostWarningEmitted = false;
+    // Phase 9.9f §15.2: stop any pending viewState broadcast — the
+    // timer object itself is kept (cheap to reuse next session).
+    if (_viewStateThrottle && _viewStateThrottle->isActive())
+        _viewStateThrottle->stop();
+    _viewStatePending = false;
+    _pendingTrackVisibility.clear();
+    _pendingChannelVisibility.clear();
     // BUG-COLLAB-024: invalidate any pending reconnect timer so it
     // can't restart the session the user just torn down.
     ++_retryGeneration;
@@ -342,7 +364,7 @@ void LanLiveSession::resetState() {
     }
 }
 
-QString LanLiveSession::startHosting(MidiFile *file) {
+QString LanLiveSession::startHosting(MidiFile *file, SessionMode mode) {
     if (!file) return QString();
     leaveSession();
 
@@ -360,9 +382,15 @@ QString LanLiveSession::startHosting(MidiFile *file) {
     _file = file;
     rewireProtocolListener();
     _pairingCode = LanDiscovery::generatePairingCode();
+    // Phase 9.9 §15.2: host = initial presenter. We set this BEFORE
+    // any peer can connect so the very first `sessionWelcome` we ship
+    // already carries the right pointer.
+    _mode = mode;
+    _presenterMachineId = CollabIdentity::machineId();
     qCInfo(lanLog) << "session: startHosting code=" << _pairingCode
                    << "tracks=" << file->numTracks()
-                   << "ticksPerQuarter=" << file->ticksPerQuarter();
+                   << "ticksPerQuarter=" << file->ticksPerQuarter()
+                   << "mode=" << LiveSession::modeToWire(_mode);
 
     // Spin up TCP server first so we know the port for the announcement.
     auto *lanSrv = new LanServer(this);
@@ -408,6 +436,12 @@ QString LanLiveSession::startHosting(MidiFile *file) {
 
     _transport = Transport::Lan;
     setRole(Role::Hosting);
+    // bugfix 2026-05-21: surface the chosen mode to the GUI layer
+    // explicitly. roleChanged alone isn't enough because applyShowModeLock
+    // checks _mode, and on the host the mode was set above but the GUI
+    // lambda doesn't know to re-check after roleChanged unless it's
+    // told. sessionModeChanged is the unified entry point.
+    emit sessionModeChanged();
     emit statusMessage(tr("Hosting LAN session — code %1, port %2.").arg(_pairingCode).arg(port));
     return _pairingCode;
 }
@@ -455,7 +489,7 @@ void LanLiveSession::joinSession(MidiFile *file, const QString &pairingCode) {
 
 #ifdef MIDIEDITOR_WEBRTC_ENABLED
 
-bool LanLiveSession::startHostingWan(MidiFile *file) {
+bool LanLiveSession::startHostingWan(MidiFile *file, SessionMode mode) {
     if (!file) return false;
     leaveSession();
     _retryAttempt = 0;  // fresh session — caller restores via retry timer if applicable
@@ -469,8 +503,12 @@ bool LanLiveSession::startHostingWan(MidiFile *file) {
 
     _file = file;
     rewireProtocolListener();
+    // Phase 9.9 §15.2: host = initial presenter. Same rationale as LAN path.
+    _mode = mode;
+    _presenterMachineId = CollabIdentity::machineId();
     qCInfo(lanLog) << "session: startHostingWan tracks=" << file->numTracks()
-                   << "ticksPerQuarter=" << file->ticksPerQuarter();
+                   << "ticksPerQuarter=" << file->ticksPerQuarter()
+                   << "mode=" << LiveSession::modeToWire(_mode);
 
     // Create the WebRTC server first; it'll start ICE gathering and emit
     // offerReady once the SDP is finalized. Wire the same ILiveServer
@@ -557,6 +595,11 @@ bool LanLiveSession::startHostingWan(MidiFile *file) {
                     int max = loadAutoReconnectMaxAttempts();
                     emit statusMessage(tr("Reconnecting (attempt %1 of %2)…")
                                            .arg(next).arg(max));
+                    // Phase 9.9 §15.2: leaveSession()/resetState() reverts
+                    // _mode to Edit, so capture the current mode here
+                    // before tearing down — otherwise a Show-mode session
+                    // would silently downgrade to Edit on auto-reconnect.
+                    SessionMode retryMode = _mode;
                     leaveSession();
                     // startHostingWan resets _retryAttempt = 0 (because it
                     // can't tell a user-fresh-start from a retry); we
@@ -569,9 +612,9 @@ bool LanLiveSession::startHostingWan(MidiFile *file) {
                     // and the lambda exits before re-starting hosting.
                     int gen = _retryGeneration;
                     QTimer::singleShot(kRetryBackoffMs, this,
-                        [this, retryFile, next, gen]() {
+                        [this, retryFile, next, gen, retryMode]() {
                             if (gen != _retryGeneration) return;
-                            startHostingWan(retryFile);
+                            startHostingWan(retryFile, retryMode);
                             _retryAttempt = next;
                         });
                     return;
@@ -590,6 +633,8 @@ bool LanLiveSession::startHostingWan(MidiFile *file) {
 
     _transport = Transport::Wan;
     setRole(Role::Hosting);
+    // bugfix 2026-05-21: surface the chosen mode — see startHosting.
+    emit sessionModeChanged();
     emit statusMessage(tr("Starting WAN session — contacting rendezvous…"));
     rtcSrv->start(loadIceGatheringTimeoutMs());  // begin ICE gathering → eventual offerReady
     return true;
@@ -741,6 +786,665 @@ QStringList LanLiveSession::peerLabels() const {
     return names;
 }
 
+QList<QPair<QString, QString>> LanLiveSession::connectedPeerInfo() const {
+    QList<QPair<QString, QString>> out;
+    if (_role != Role::Hosting || !_server) return out;
+    for (IPeerLink *p : _server->peers()) {
+        QString mid = p->peerMachineId();
+        if (mid.isEmpty()) continue;  // hello hasn't completed yet — skip
+        QString label = p->peerLabel();
+        if (label.isEmpty()) label = QStringLiteral("(anonymous)");
+        out.append(qMakePair(mid, label));
+    }
+    return out;
+}
+
+// ---------------------------------------------------------------------
+// Hat-passing public API (Phase 9.9b §15.2)
+// ---------------------------------------------------------------------
+
+void LanLiveSession::requestHat() {
+    // Only meaningful in Show mode; Edit mode has no presenter pointer.
+    if (_mode != SessionMode::Edit && _role != Role::Idle) {
+        // Already hold the hat → no-op (caller's UI shouldn't expose
+        // the request button in that case, but be defensive).
+        if (isPresenter()) {
+            qCDebug(lanLog) << "session: requestHat ignored — local peer is presenter";
+            return;
+        }
+    } else {
+        // Edit mode or no session → no-op.
+        qCDebug(lanLog) << "session: requestHat ignored — not in Show mode";
+        return;
+    }
+
+    QByteArray frame = encodeRequestHat();
+    if (_role == Role::Hosting && _server) {
+        // Host is requesting the hat from a remote presenter. Route
+        // locally: the host's own onServerMessage path treats the
+        // frame the same way as if it came from a peer.
+        handleIncomingRequestHat(nullptr,
+                                  CollabIdentity::machineId(),
+                                  CollabIdentity::displayName());
+    } else if (_role == Role::Joined && _client && _client->isConnected()) {
+        _client->sendMessage(frame);
+        recordSent(frame.size(), 1);
+    }
+}
+
+void LanLiveSession::transferHatTo(const QString &machineId,
+                                   const QString &targetDisplayName) {
+    if (machineId.isEmpty()) return;
+    if (_mode != SessionMode::Show) return;
+    if (!isPresenter()) {
+        // Defensive: only the current presenter can transfer. Viewers
+        // who somehow trigger this (stale UI state) are silently dropped.
+        qCWarning(lanLog) << "session: transferHatTo called while not presenter — ignored";
+        return;
+    }
+    // No-op when transferring to ourselves.
+    if (machineId == CollabIdentity::machineId()) {
+        qCDebug(lanLog) << "session: transferHatTo self — ignored";
+        return;
+    }
+
+    if (_role == Role::Hosting) {
+        // Host is the presenter → run the authoritative path locally.
+        handleIncomingHatTransferred(
+            nullptr,
+            CollabIdentity::machineId(),
+            machineId,
+            targetDisplayName,
+            QStringLiteral("transfer"));
+    } else if (_role == Role::Joined && _client && _client->isConnected()) {
+        QByteArray frame = encodeHatTransferred(
+            machineId, targetDisplayName, QStringLiteral("transfer"));
+        _client->sendMessage(frame);
+        recordSent(frame.size(), 1);
+    }
+}
+
+bool LanLiveSession::hostCanTakeHat() const {
+    if (_role != Role::Hosting) return false;
+    if (_mode != SessionMode::Show) return false;
+    // Host is already presenter → no take-over needed.
+    if (isPresenter()) return false;
+    // The current presenter must be absent from the connected peer
+    // list. The heartbeat eviction logic already removes peers that
+    // have been silent past the 30 s deadline (BUG-COLLAB-030), so
+    // "not in peer list" is the right signal for "presenter is gone".
+    if (!_server) return true;
+    for (IPeerLink *p : _server->peers()) {
+        if (p->peerMachineId() == _presenterMachineId) return false;
+    }
+    return true;
+}
+
+void LanLiveSession::hostTakeHat() {
+    if (!hostCanTakeHat()) {
+        qCDebug(lanLog) << "session: hostTakeHat — not permitted";
+        return;
+    }
+    qCInfo(lanLog) << "session: host taking the hat (presenter"
+                   << _presenterMachineId.left(8) << "is silent)";
+    // Host bypasses the "sender must be current presenter" rule via
+    // the host-takeover reason. handleIncomingHatTransferred is aware
+    // of this and skips the equality check when reason matches.
+    handleIncomingHatTransferred(
+        nullptr,
+        CollabIdentity::machineId(),
+        CollabIdentity::machineId(),
+        CollabIdentity::displayName(),
+        QStringLiteral("host-takeover"));
+}
+
+void LanLiveSession::yieldHat() {
+    if (_mode != SessionMode::Show) return;
+    if (!isPresenter()) return;
+    if (_role == Role::Hosting) {
+        // Presenter is the host already — yield to self is a no-op.
+        qCDebug(lanLog) << "session: yieldHat — host is presenter, no-op";
+        return;
+    }
+    // Send the yield to the host; host's handleIncomingYieldHat
+    // validates + does the actual hatTransferred broadcast.
+    QByteArray frame = encodeYieldHat();
+    if (_client && _client->isConnected()) {
+        _client->sendMessage(frame);
+        recordSent(frame.size(), 1);
+    }
+}
+
+// ---------------------------------------------------------------------
+// Hat-passing handlers (Phase 9.9b §15.2)
+// ---------------------------------------------------------------------
+
+void LanLiveSession::handleIncomingRequestHat(IPeerLink *fromPeer,
+                                              const QString &requesterMachineId,
+                                              const QString &requesterDisplayName) {
+    // Race-resolution per §15.2: if the requester is already the
+    // current presenter (because a `hatTransferred` we just shipped
+    // landed between them sending and us receiving), drop silently.
+    if (!_presenterMachineId.isEmpty()
+        && requesterMachineId == _presenterMachineId) {
+        qCInfo(lanLog) << "server: requestHat from"
+                       << requesterDisplayName
+                       << "dropped — already the presenter (race)";
+        return;
+    }
+    // Host-routed forwarding: where is the presenter?
+    if (_presenterMachineId == CollabIdentity::machineId()) {
+        // Host IS the presenter → emit the local notification signal.
+        emit hatRequested(requesterDisplayName, requesterMachineId);
+        return;
+    }
+    // Presenter is a remote peer → forward the requestHat frame to it.
+    if (_server) {
+        for (IPeerLink *p : _server->peers()) {
+            if (p->peerMachineId() == _presenterMachineId) {
+                QJsonObject o = LiveSession::encodeRequestHatJson(
+                    requesterMachineId, requesterDisplayName);
+                QByteArray frame =
+                    QJsonDocument(o).toJson(QJsonDocument::Compact);
+                p->sendMessage(frame);
+                recordSent(frame.size(), 1);
+                return;
+            }
+        }
+        // Presenter not found in peer list — silently drop. The host's
+        // own host-takeover privilege (hostCanTakeHat / hostTakeHat)
+        // is the recovery path; nothing to reject back to the requester.
+        qCWarning(lanLog) << "server: requestHat from"
+                          << requesterDisplayName
+                          << "— presenter peer not found, dropping";
+        Q_UNUSED(fromPeer);
+    }
+}
+
+void LanLiveSession::handleIncomingHatTransferred(
+        IPeerLink *fromPeer,
+        const QString &senderMachineId,
+        const QString &newPresenterMachineId,
+        const QString &newPresenterDisplayName,
+        const QString &reason) {
+
+    if (_role != Role::Hosting) {
+        // Defensive: only the host runs the authoritative path.
+        // A non-host receiving this would be a protocol error.
+        qCWarning(lanLog) << "session: handleIncomingHatTransferred called as non-host — bug";
+        return;
+    }
+
+    const bool isHostTakeover = (reason == QLatin1String("host-takeover"));
+
+    // Host-takeover is a HOST-ONLY privilege — fromPeer == nullptr is
+    // the marker that the host's own code path is calling us (via
+    // hostTakeHat -> handleIncomingHatTransferred(nullptr, ...)). A
+    // remote peer that ships {reason:"host-takeover"} to escalate
+    // privileges gets rejected with the same treatment as any other
+    // unauthorised transfer attempt. Without this guard, the special-
+    // case skip below would let any peer seize the hat by lying about
+    // the reason field.
+    if (isHostTakeover && fromPeer != nullptr) {
+        qCWarning(lanLog) << "server: hatTransferred with host-takeover "
+                             "reason from remote peer rejected "
+                             "(privilege escalation attempt)";
+        QByteArray frame = encodeHatRejected(
+            tr("Host-takeover is a host-only privilege."));
+        fromPeer->sendMessage(frame);
+        recordSent(frame.size(), 1);
+        return;
+    }
+
+    // Authorisation: either the sender IS the current presenter, or
+    // this is the host's special-privilege host-takeover (which is
+    // only allowed when the current presenter is silent past the
+    // heartbeat deadline — gated by hostCanTakeHat at the caller).
+    if (!isHostTakeover) {
+        if (_presenterMachineId.isEmpty()
+            || senderMachineId != _presenterMachineId) {
+            qCWarning(lanLog) << "server: hatTransferred from"
+                              << senderMachineId.left(8)
+                              << "rejected — sender is not the current presenter";
+            if (fromPeer) {
+                QByteArray frame = encodeHatRejected(
+                    tr("Only the current presenter can transfer the hat."));
+                fromPeer->sendMessage(frame);
+                recordSent(frame.size(), 1);
+            }
+            return;
+        }
+    }
+
+    // Validate the target is still connected (or is the host itself).
+    bool targetReachable = (newPresenterMachineId == CollabIdentity::machineId());
+    if (!targetReachable && _server) {
+        for (IPeerLink *p : _server->peers()) {
+            if (p->peerMachineId() == newPresenterMachineId) {
+                targetReachable = true;
+                break;
+            }
+        }
+    }
+    if (!targetReachable) {
+        QString reasonText = tr("%1 has disconnected — the hat stays with you.")
+                                 .arg(newPresenterDisplayName.isEmpty()
+                                      ? tr("the target peer")
+                                      : newPresenterDisplayName);
+        qCInfo(lanLog) << "server: hatTransferred target not connected ("
+                       << newPresenterMachineId.left(8) << "), rejecting";
+        if (fromPeer) {
+            QByteArray frame = encodeHatRejected(reasonText);
+            fromPeer->sendMessage(frame);
+            recordSent(frame.size(), 1);
+        } else {
+            // Host's own transfer attempt failed — surface locally.
+            emit hatTransferRejected(reasonText);
+        }
+        return;
+    }
+
+    // Authorised + target reachable → commit and broadcast.
+    qCInfo(lanLog) << "server: hat transferred to"
+                   << newPresenterMachineId.left(8)
+                   << "(" << newPresenterDisplayName << "), reason=" << reason;
+    _presenterMachineId = newPresenterMachineId;
+    QByteArray frame = encodeHatTransferred(
+        newPresenterMachineId, newPresenterDisplayName, reason);
+    if (_server) {
+        int peers = _server->peerCount();
+        if (peers > 0 && _server->broadcast(frame))
+            recordSent(frame.size(), peers);
+    }
+    // Emit the local signal too — the host is one of the peers whose
+    // UI needs to refresh on a hat change. sessionModeChanged is the
+    // canonical "re-evaluate the show-mode lock" trigger.
+    emit hatTransferred(newPresenterMachineId, newPresenterDisplayName, reason);
+    emit sessionModeChanged();
+}
+
+void LanLiveSession::handleClientHatTransferred(
+        const QString &newPresenterMachineId,
+        const QString &newPresenterDisplayName,
+        const QString &reason) {
+    if (_mode != SessionMode::Show) {
+        qCWarning(lanLog) << "client: hatTransferred received in Edit mode — ignoring";
+        return;
+    }
+    qCInfo(lanLog) << "client: hat transferred to"
+                   << newPresenterMachineId.left(8)
+                   << "(" << newPresenterDisplayName << "), reason=" << reason;
+    _presenterMachineId = newPresenterMachineId;
+    emit hatTransferred(newPresenterMachineId, newPresenterDisplayName, reason);
+    emit sessionModeChanged();
+}
+
+void LanLiveSession::handleIncomingHatRejected(const QString &reason) {
+    qCInfo(lanLog) << "session: hat transfer rejected:" << reason;
+    emit hatTransferRejected(reason);
+}
+
+void LanLiveSession::handleIncomingYieldHat(IPeerLink *fromPeer) {
+    if (_role != Role::Hosting) return;
+    if (_mode != SessionMode::Show) return;
+    QString senderMid = fromPeer ? fromPeer->peerMachineId() : QString();
+    if (senderMid.isEmpty() || senderMid != _presenterMachineId) {
+        qCWarning(lanLog) << "server: yieldHat from non-presenter"
+                          << senderMid.left(8) << "— dropping";
+        return;
+    }
+    qCInfo(lanLog) << "server: presenter" << senderMid.left(8)
+                   << "yielded the hat; returning to host";
+    _presenterMachineId = CollabIdentity::machineId();
+    QByteArray frame = encodeHatTransferred(
+        CollabIdentity::machineId(),
+        CollabIdentity::displayName(),
+        QStringLiteral("yield"));
+    if (_server) {
+        int peers = _server->peerCount();
+        if (peers > 0 && _server->broadcast(frame))
+            recordSent(frame.size(), peers);
+    }
+    // Also fire locally so the host's own UI refreshes (status bar,
+    // PRESENTING indicator). sessionModeChanged drives the lock /
+    // refreshLiveLabel pipeline.
+    emit hatTransferred(CollabIdentity::machineId(),
+                        CollabIdentity::displayName(),
+                        QStringLiteral("yield"));
+    emit sessionModeChanged();
+}
+
+bool LanLiveSession::isHunkSenderAuthorised(const QString &senderMachineId,
+                                            const QString &senderDisplayName,
+                                            int hunkCount) {
+    if (_mode == SessionMode::Edit) return true;
+    if (_role == Role::Idle) return true;
+    if (senderMachineId == _presenterMachineId) return true;
+    // Show mode + unauthorised sender → diagnostics signal + drop.
+    qCWarning(lanLog) << "session: dropping" << hunkCount
+                      << "Show-mode hunk(s) from unauthorised sender"
+                      << senderMachineId.left(8)
+                      << "(" << senderDisplayName << ")";
+    emit unauthorisedHunkDropped(senderMachineId, senderDisplayName, hunkCount);
+    return false;
+}
+
+// ---------------------------------------------------------------------
+// Chat side-channel (Phase 9.11 §15.3)
+// ---------------------------------------------------------------------
+
+void LanLiveSession::sendChatMessage(const QString &text) {
+    if (text.isEmpty()) return;
+    if (_role == Role::Idle) return;
+    qint64 nowMs = QDateTime::currentMSecsSinceEpoch();
+    QByteArray frame = encodeChat(text, nowMs);
+    if (_role == Role::Hosting) {
+        // Host runs the inbound path locally so its own messages are
+        // subject to the same rate-limit + size cap as a peer's, and
+        // get re-broadcast to all connected peers from a single place.
+        QJsonDocument doc = QJsonDocument::fromJson(frame);
+        if (doc.isObject()) handleIncomingChat(nullptr, doc.object(), frame);
+    } else if (_role == Role::Joined && _client && _client->isConnected()) {
+        _client->sendMessage(frame);
+        recordSent(frame.size(), 1);
+    }
+}
+
+void LanLiveSession::handleIncomingChat(IPeerLink *fromPeer,
+                                        const QJsonObject &obj,
+                                        const QByteArray &payload) {
+    if (_role != Role::Hosting) {
+        qCWarning(lanLog) << "session: handleIncomingChat called as non-host — bug";
+        return;
+    }
+    QString senderMid, displayName, text;
+    qint64 timestampMs = 0;
+    LiveSession::decodeChatJson(obj, &senderMid, &displayName, &text, &timestampMs);
+
+    // Size cap. UTF-8 byte count, not character count — a peer sending
+    // 4 KiB of multi-byte characters still gets dropped.
+    if (text.toUtf8().size() > LiveSession::kChatTextMaxBytes) {
+        qCWarning(lanLog) << "chat: dropping oversize message from"
+                          << senderMid.left(8)
+                          << "(" << text.toUtf8().size() << "bytes)";
+        emit chatMessageDropped(senderMid, tr("message too large"));
+        if (fromPeer) {
+            // No structured error frame for chat (§15.3 explicitly
+            // out-of-scope); the sender's UI just won't see their
+            // message appear on other peers.
+        }
+        return;
+    }
+
+    // Rate limit per sender.
+    qint64 lastMs = _lastChatMsBySender.value(senderMid, 0);
+    if (lastMs > 0
+        && (timestampMs - lastMs) < LiveSession::kChatRateLimitMsPerSender) {
+        qCDebug(lanLog) << "chat: rate-limited message from"
+                        << senderMid.left(8);
+        emit chatMessageDropped(senderMid, tr("rate limit"));
+        return;
+    }
+    _lastChatMsBySender.insert(senderMid, timestampMs);
+
+    // Surface to local UI. CAVEAT (bugfix 2026-05-21): the host's own
+    // sendChatMessage path also routes through handleIncomingChat —
+    // so the local CollabChatWidget already appended optimistically
+    // before this point. Emitting chatMessageReceived for the host's
+    // own machineId would double-append. Skip the signal in that case;
+    // the broadcastExcept below still re-broadcasts to other peers.
+    if (senderMid != CollabIdentity::machineId()) {
+        emit chatMessageReceived(senderMid, displayName, text, timestampMs);
+    }
+
+    // Re-broadcast to every other peer. Use broadcastExcept so the
+    // original sender doesn't see their own message echoed (their UI
+    // appended it optimistically before the wire send).
+    if (_server) {
+        int others = _server->peerCount() - (fromPeer ? 1 : 0);
+        if (others > 0) {
+            bool ok = _server->broadcastExcept(payload, fromPeer);
+            if (ok) recordSent(payload.size(), others);
+        }
+    }
+}
+
+void LanLiveSession::handleClientChat(const QJsonObject &obj) {
+    QString senderMid, displayName, text;
+    qint64 timestampMs = 0;
+    LiveSession::decodeChatJson(obj, &senderMid, &displayName, &text, &timestampMs);
+    emit chatMessageReceived(senderMid, displayName, text, timestampMs);
+}
+
+// ---------------------------------------------------------------------
+// Follow-the-host viewState (Phase 9.9f §15.2)
+// ---------------------------------------------------------------------
+
+void LanLiveSession::broadcastViewState(
+        const LiveSession::ViewportState &viewport,
+        const QVector<bool> &trackVisibility,
+        const QVector<bool> &channelVisibility) {
+    // Guards: only the presenter in an active Show-mode session may
+    // broadcast view state. Anything else is silently dropped.
+    if (_role == Role::Idle) return;
+    if (_mode != SessionMode::Show) return;
+    if (!isPresenter()) return;
+
+    // Stash the latest state; flushViewStateBroadcast will pick it up
+    // when the throttle timer fires.
+    _pendingViewport          = viewport;
+    _pendingTrackVisibility   = trackVisibility;
+    _pendingChannelVisibility = channelVisibility;
+
+    if (_viewStatePending) {
+        // Timer is already armed — just updated the queued state.
+        return;
+    }
+    _viewStatePending = true;
+    if (!_viewStateThrottle) {
+        _viewStateThrottle = new QTimer(this);
+        _viewStateThrottle->setSingleShot(true);
+        connect(_viewStateThrottle, &QTimer::timeout,
+                this, &LanLiveSession::flushViewStateBroadcast);
+    }
+    _viewStateThrottle->start(LiveSession::kViewStateThrottleMs);
+}
+
+void LanLiveSession::flushViewStateBroadcast() {
+    _viewStatePending = false;
+    if (_role != Role::Hosting) {
+        // Presenter on a joiner: ship through _client. (Edge case for
+        // when a non-host peer holds the hat in a multi-peer session;
+        // the host then re-broadcasts via handleIncomingViewState.)
+        if (_role == Role::Joined && _client && _client->isConnected()) {
+            QByteArray frame = encodeViewState(
+                _pendingViewport, _pendingTrackVisibility, _pendingChannelVisibility);
+            _client->sendMessage(frame);
+            recordSent(frame.size(), 1);
+        }
+        return;
+    }
+    // Host path: re-broadcast straight to every peer (no exclude —
+    // every viewer needs the state). Host's own local view doesn't
+    // need a self-loop; the presenter IS the source of truth.
+    if (!_server) return;
+    QByteArray frame = encodeViewState(
+        _pendingViewport, _pendingTrackVisibility, _pendingChannelVisibility);
+    int peers = _server->peerCount();
+    if (peers > 0 && _server->broadcast(frame))
+        recordSent(frame.size(), peers);
+}
+
+void LanLiveSession::handleIncomingViewState(IPeerLink *fromPeer,
+                                              const QJsonObject &obj,
+                                              const QByteArray &payload) {
+    if (_role != Role::Hosting) return;
+    // Same authorisation gate as hunks — only the presenter is allowed
+    // to broadcast view state in Show mode. Edit mode shouldn't see
+    // these frames at all; defensive drop.
+    if (_mode != SessionMode::Show) {
+        qCWarning(lanLog) << "server: viewState received in Edit mode — dropping";
+        return;
+    }
+    QString senderMid = obj.value(QStringLiteral("sender")).toString();
+    if (senderMid != _presenterMachineId) {
+        qCWarning(lanLog) << "server: viewState from non-presenter"
+                          << senderMid.left(8) << "— dropping";
+        return;
+    }
+
+    // Decode + emit locally too — the host is also a "viewer" of the
+    // presenter's view when the presenter is a remote peer.
+    LiveSession::ViewportState vp;
+    QVector<bool> tracks, channels;
+    QString s;
+    LiveSession::decodeViewStateJson(obj, &s, &vp, &tracks, &channels);
+    if (senderMid != CollabIdentity::machineId()) {
+        emit viewStateReceived(vp, tracks, channels);
+    }
+
+    // Re-broadcast to every other peer.
+    if (_server) {
+        int others = _server->peerCount() - (fromPeer ? 1 : 0);
+        if (others > 0 && _server->broadcastExcept(payload, fromPeer))
+            recordSent(payload.size(), others);
+    }
+}
+
+void LanLiveSession::handleClientViewState(const QJsonObject &obj) {
+    QString senderMid;
+    LiveSession::ViewportState vp;
+    QVector<bool> tracks, channels;
+    LiveSession::decodeViewStateJson(obj, &senderMid, &vp, &tracks, &channels);
+    // Don't apply our own view state echoed back (shouldn't happen on
+    // joiner side since host uses broadcastExcept, but defensive).
+    if (senderMid == CollabIdentity::machineId()) return;
+    emit viewStateReceived(vp, tracks, channels);
+}
+
+// ---------------------------------------------------------------------
+// Playback trigger (Show-mode follow-the-host)
+// ---------------------------------------------------------------------
+
+void LanLiveSession::broadcastPlayback(const QString &action, int tickPosition) {
+    if (_role == Role::Idle) return;
+    if (_mode != SessionMode::Show) return;
+    if (!isPresenter()) return;
+
+    QByteArray frame = encodePlayback(action, tickPosition);
+    if (_role == Role::Hosting) {
+        // Run through the inbound path locally so the same validator
+        // gate applies + the re-broadcast happens from one place.
+        QJsonDocument doc = QJsonDocument::fromJson(frame);
+        if (doc.isObject()) handleIncomingPlayback(nullptr, doc.object(), frame);
+    } else if (_role == Role::Joined && _client && _client->isConnected()) {
+        _client->sendMessage(frame);
+        recordSent(frame.size(), 1);
+    }
+}
+
+void LanLiveSession::handleIncomingPlayback(IPeerLink *fromPeer,
+                                            const QJsonObject &obj,
+                                            const QByteArray &payload) {
+    if (_role != Role::Hosting) return;
+    if (_mode != SessionMode::Show) {
+        qCWarning(lanLog) << "server: playback received in Edit mode — dropping";
+        return;
+    }
+    QString senderMid = obj.value(QStringLiteral("sender")).toString();
+    if (senderMid != _presenterMachineId) {
+        qCWarning(lanLog) << "server: playback from non-presenter"
+                          << senderMid.left(8) << "— dropping";
+        return;
+    }
+
+    // Surface locally too — the host is also a viewer of whatever the
+    // presenter (potentially a remote peer) just triggered. Skip when
+    // the host IS the presenter — they triggered it via the local
+    // play/stop click, no need to reflect.
+    QString action;
+    int tickPosition = -1;
+    LiveSession::decodePlaybackJson(obj, &action, &tickPosition);
+    if (senderMid != CollabIdentity::machineId()) {
+        emit playbackTriggerReceived(action, tickPosition);
+    }
+
+    // Re-broadcast to other peers.
+    if (_server) {
+        int others = _server->peerCount() - (fromPeer ? 1 : 0);
+        if (others > 0 && _server->broadcastExcept(payload, fromPeer))
+            recordSent(payload.size(), others);
+    }
+}
+
+void LanLiveSession::handleClientPlayback(const QJsonObject &obj) {
+    QString senderMid = obj.value(QStringLiteral("sender")).toString();
+    if (senderMid == CollabIdentity::machineId()) return;  // own echo
+    QString action;
+    int tickPosition = -1;
+    LiveSession::decodePlaybackJson(obj, &action, &tickPosition);
+    emit playbackTriggerReceived(action, tickPosition);
+}
+
+// ---------------------------------------------------------------------
+// Mid-session mode switch (host-only)
+// ---------------------------------------------------------------------
+
+void LanLiveSession::switchSessionMode(SessionMode newMode) {
+    if (_role != Role::Hosting) {
+        qCWarning(lanLog) << "session: switchSessionMode called as non-host — ignored";
+        return;
+    }
+    if (newMode == _mode) {
+        qCDebug(lanLog) << "session: switchSessionMode no-op (already in mode)";
+        return;
+    }
+    qCInfo(lanLog) << "session: switching mode"
+                   << LiveSession::modeToWire(_mode) << "->"
+                   << LiveSession::modeToWire(newMode);
+
+    _mode = newMode;
+    // On Edit->Show the host becomes the initial presenter (same as
+    // fresh startHosting with mode=Show). On Show->Edit the presenter
+    // pointer is irrelevant; clear it so isPresenter() stops
+    // matching against stale state.
+    if (newMode == SessionMode::Show) {
+        _presenterMachineId = CollabIdentity::machineId();
+    } else {
+        _presenterMachineId.clear();
+    }
+
+    // Broadcast the switch to every peer.
+    QByteArray frame = encodeSessionModeSwitch(newMode, _presenterMachineId);
+    if (_server) {
+        int peers = _server->peerCount();
+        if (peers > 0 && _server->broadcast(frame))
+            recordSent(frame.size(), peers);
+    }
+
+    // Surface locally — drives MainWindow's lock + status-bar refresh.
+    emit sessionModeChanged();
+    emit statusMessage(newMode == SessionMode::Show
+        ? tr("Session is now in Show mode. You are the presenter.")
+        : tr("Session is now in Edit mode. All peers can edit again."));
+}
+
+void LanLiveSession::handleClientSessionModeSwitch(const QJsonObject &obj) {
+    SessionMode newMode = SessionMode::Edit;
+    QString newPresenter;
+    LiveSession::decodeSessionModeSwitchJson(obj, &newMode, &newPresenter);
+    if (newMode == _mode && newPresenter == _presenterMachineId) return;
+    qCInfo(lanLog) << "client: host switched session mode to"
+                   << LiveSession::modeToWire(newMode)
+                   << "presenter=" << newPresenter.left(8);
+    _mode = newMode;
+    _presenterMachineId = newPresenter;
+    emit sessionModeChanged();
+    emit statusMessage(newMode == SessionMode::Show
+        ? tr("Host switched the session to Show mode.")
+        : tr("Host switched the session back to Edit mode."));
+}
+
 // ---------------------------------------------------------------------
 // Sync tick — same logic for host and client; differences are in WHERE
 // the hunks are sent (broadcast vs to-host).
@@ -770,6 +1474,26 @@ void LanLiveSession::onSyncTick() {
         // baseline so a future tick that does have changes diffs against
         // current state, not a stale baseline.
         _lastSyncedSnapshot = now;
+        return;
+    }
+
+    // Phase 9.9c §15.2: Show-mode viewer guard. A viewer's local edits
+    // (which shouldn't happen once the UI lock lands, but might during
+    // the window between this commit and the lock commit, or via MCP /
+    // MidiPilot bypasses if a peer's build is out of date) must NEVER
+    // hit the wire. We still advance the baseline so a future
+    // hat-take starts from the current local state — without this the
+    // diff would include all the silently-dropped local edits in the
+    // viewer's first authorised broadcast, dumping minutes of stale
+    // changes onto the peers' files all at once.
+    if (_mode == SessionMode::Show && !isPresenter()) {
+        if (!hunks.isEmpty()) {
+            qCDebug(lanLog) << "syncTick: viewer suppressing"
+                            << hunks.size() << "local hunks (Show mode)";
+        }
+        _lastSyncedSnapshot = now;
+        _lastBroadcastEndTick = currentEndTick;
+        _lastActionLabel.clear();
         return;
     }
 
@@ -934,6 +1658,105 @@ void LanLiveSession::onClientMessage(const QByteArray &payload) {
     QJsonObject obj = doc.object();
     QString type = obj.value(QStringLiteral("type")).toString();
     qCInfo(lanLog) << "client: frame type=" << type;
+    if (type == QLatin1String("sessionWelcome")) {
+        // Phase 9.9 §15.2: host's welcome — adopt the session-wide mode
+        // and the current presenter pointer before any snapshot / hunks
+        // arrive, so isPresenter() returns the right answer from the
+        // first sync tick onwards. A legacy host that doesn't ship this
+        // frame leaves us with our defaults (Edit, empty presenter),
+        // which matches the pre-9.9 behaviour.
+        SessionMode newMode = SessionMode::Edit;
+        QString newPresenter;
+        QString hostVer;
+        LiveSession::decodeWelcomeJson(obj, &newMode, &newPresenter, &hostVer);
+        _mode = newMode;
+        _presenterMachineId = newPresenter;
+        _gotSessionWelcome = true;
+        qCInfo(lanLog) << "client: sessionWelcome mode=" << LiveSession::modeToWire(_mode)
+                       << "presenter=" << _presenterMachineId.left(8)
+                       << "hostVersion=" << (hostVer.isEmpty()
+                                              ? QStringLiteral("<unknown>")
+                                              : hostVer);
+        // bugfix 2026-05-21: drive the GUI lock NOW that we know the
+        // real session mode. The `joined` signal fired earlier (when
+        // we shipped our hello) when _mode was still the Edit default.
+        emit sessionModeChanged();
+        // v1.7.2 §15.4: warn local UI if the host's version differs
+        // from ours. Skip when both empty (e.g. dev builds without the
+        // compile def) — a no-version-vs-no-version match is not a
+        // mismatch in any meaningful sense.
+        QString ourVer;
+#ifdef MIDIEDITOR_RELEASE_VERSION_STRING_DEF
+        ourVer = QStringLiteral(MIDIEDITOR_RELEASE_VERSION_STRING_DEF);
+#endif
+        if (!hostVer.isEmpty() && hostVer != ourVer) {
+            emit hostVersionMismatch(hostVer, ourVer);
+        }
+        return;
+    }
+    // v1.7.2 §15.4: legacy-host detection. If any frame OTHER than
+    // sessionWelcome arrives first on a freshly-joined client, the
+    // host is on a pre-1.7.2 build (newer hosts ship sessionWelcome
+    // as their first response to our hello). Emit exactly once.
+    if (_role == Role::Joined
+        && !_gotSessionWelcome
+        && !_legacyHostWarningEmitted
+        && type != QLatin1String("sessionWelcome")) {
+        _legacyHostWarningEmitted = true;
+        qCInfo(lanLog) << "client: legacy host detected (no sessionWelcome — pre-1.7.2)";
+        // Defer the emit so the MainWindow modal opens AFTER
+        // onClientMessage returns — same reentrancy reasoning as the
+        // peerVersionMismatch fix in onServerMessage. Otherwise the
+        // modal's nested event loop could process a host disconnect
+        // mid-dispatch and the rest of this function would operate
+        // on torn-down state.
+        QTimer::singleShot(0, this, [this]() { emit legacyHostDetected(); });
+    }
+    // ---- Hat-passing wire frames (Phase 9.9b §15.2) -----------------
+    if (type == QLatin1String("requestHat")) {
+        // Host forwarded a viewer's request to us because we are the
+        // current presenter. Show the Accept / Decline prompt via the
+        // signal.
+        QString reqMid, reqName;
+        LiveSession::decodeRequestHatJson(obj, &reqMid, &reqName);
+        // Race-resolution echo: if the requester is now the presenter
+        // (a hatTransferred crossed on the wire), drop silently.
+        if (!_presenterMachineId.isEmpty()
+            && reqMid == _presenterMachineId) {
+            qCDebug(lanLog) << "client: requestHat dropped — already presenter";
+            return;
+        }
+        emit hatRequested(reqName, reqMid);
+        return;
+    }
+    if (type == QLatin1String("hatTransferred")) {
+        QString newMid, newName, reason;
+        LiveSession::decodeHatTransferredJson(obj, &newMid, &newName, &reason);
+        handleClientHatTransferred(newMid, newName, reason);
+        return;
+    }
+    if (type == QLatin1String("hatRejected")) {
+        QString reason;
+        LiveSession::decodeHatRejectedJson(obj, &reason);
+        handleIncomingHatRejected(reason);
+        return;
+    }
+    if (type == QLatin1String("chat")) {
+        handleClientChat(obj);
+        return;
+    }
+    if (type == QLatin1String("viewState")) {
+        handleClientViewState(obj);
+        return;
+    }
+    if (type == QLatin1String("playback")) {
+        handleClientPlayback(obj);
+        return;
+    }
+    if (type == QLatin1String("sessionModeSwitch")) {
+        handleClientSessionModeSwitch(obj);
+        return;
+    }
     if (type == QLatin1String("hunks")) {
         handleIncomingHunks(obj.value(QStringLiteral("author")).toString(),
                             obj.value(QStringLiteral("machineId")).toString(),
@@ -1010,9 +1833,20 @@ void LanLiveSession::onServerPeerConnected(IPeerLink *peer) {
 }
 
 void LanLiveSession::onServerPeerDisconnected(IPeerLink *peer) {
-    Q_UNUSED(peer);
     qCInfo(lanLog) << "session: peer disconnected, remaining="
                    << (_server ? _server->peerCount() : 0);
+    // 2026-05-24: drop any pending-merge entries that referenced this
+    // peer. Without this, a subsequent historybundle / mergeresult /
+    // rejectReturningPeer with a matching peerMachineId could call
+    // sendMessage on the now-dangling IPeerLink stored in
+    // PendingMerge::peer. (bughunter MEDIUM finding)
+    for (auto it = _pendingMerges.begin(); it != _pendingMerges.end(); ) {
+        if (it.value().peer == peer) {
+            it = _pendingMerges.erase(it);
+        } else {
+            ++it;
+        }
+    }
     if (!_server) return;
     emit peerCountChanged(_server->peerCount());
     emit statusMessage(tr("Peer disconnected — %1 remaining.").arg(_server->peerCount()));
@@ -1082,6 +1916,50 @@ void LanLiveSession::onServerMessage(IPeerLink *peer, const QByteArray &payload)
         }
         peer->setPeerMachineId(peerMachineId);
         emit peerLabelsChanged();
+
+        // v1.7.2 §15.4: surface version mismatches to the host's own
+        // UI. A missing field = pre-1.7.2 build (the "blind generation"
+        // — they have no UI to surface a reverse warning, so the host
+        // is the only one who can tell the user to update). A present-
+        // but-different version is informational.
+        {
+            QString peerVer = obj.value(QStringLiteral("appVersion")).toString();
+            QString ourVer;
+#ifdef MIDIEDITOR_RELEASE_VERSION_STRING_DEF
+            ourVer = QStringLiteral(MIDIEDITOR_RELEASE_VERSION_STRING_DEF);
+#endif
+            if (peerVer != ourVer) {
+                qCInfo(lanLog) << "server: peer version mismatch — peer="
+                               << (peerVer.isEmpty()
+                                   ? QStringLiteral("<pre-1.7.2>")
+                                   : peerVer)
+                               << "ours=" << ourVer;
+                // CRITICAL FIX 2026-05-24 (host-crash on legacy-client
+                // connect): defer the signal emit. The MainWindow slot
+                // opens a modal QMessageBox::information which spins a
+                // nested event loop processing socket events +
+                // DeferredDelete. If the legacy peer (or any other
+                // peer) disconnects during the modal, IPeerLink *peer
+                // becomes dangling. The remainder of this function
+                // (sendMessage on `peer` at line 1752 + the
+                // reconciliation branches below) would then UAF.
+                // Sven's reported crash. Deferring via QTimer makes
+                // the dialog open AFTER onServerMessage returns and
+                // `peer` is out of scope.
+                QTimer::singleShot(0, this,
+                    [this, name, peerMachineId, peerVer, ourVer]() {
+                        emit peerVersionMismatch(name, peerMachineId, peerVer, ourVer);
+                    });
+            }
+        }
+
+        // Phase 9.9 §15.2: ship sessionWelcome as the FIRST host-to-joiner
+        // frame so the joiner knows the mode + presenter pointer before
+        // any snapshot / sidecar / filetransfer arrives. A legacy joiner
+        // (pre-9.9 build) silently ignores the frame, which is fine — it
+        // already behaves like Edit mode and host-side hunk validation
+        // catches any unauthorised broadcasts.
+        peer->sendMessage(encodeSessionWelcome());
 
         // -- Returning-peer reconciliation (Plan §11.10b, Phase 9.5g) --
         // If the joining peer's sessionId matches ours, we're seeing the
@@ -1194,6 +2072,13 @@ void LanLiveSession::onServerMessage(IPeerLink *peer, const QByteArray &payload)
         QString machineId = obj.value(QStringLiteral("machineId")).toString();
         QJsonArray hunks = obj.value(QStringLiteral("hunks")).toArray();
         QString actionLabel = obj.value(QStringLiteral("actionLabel")).toString();
+        // Phase 9.9b §15.2: Show-mode authorisation gate. Drops hunks
+        // from any peer that isn't the current presenter — defensive
+        // even when the UI lock is in place, per the design note
+        // "never trust client-side UI lock alone".
+        if (!isHunkSenderAuthorised(machineId, author, hunks.size())) {
+            return;
+        }
         handleIncomingHunks(author, machineId, hunks, actionLabel);
         applyFileMaxTickFromFrame(obj);
         // Plan §11.10q: ack this frame back to the originator so they
@@ -1213,6 +2098,40 @@ void LanLiveSession::onServerMessage(IPeerLink *peer, const QByteArray &payload)
             if (otherPeers > 0 && _server->broadcastExcept(payload, peer))
                 recordSent(payload.size(), otherPeers);
         }
+        return;
+    }
+    // ---- Hat-passing wire frames (Phase 9.9b §15.2) -----------------
+    if (type == QLatin1String("requestHat")) {
+        QString reqMid, reqName;
+        LiveSession::decodeRequestHatJson(obj, &reqMid, &reqName);
+        handleIncomingRequestHat(peer, reqMid, reqName);
+        return;
+    }
+    if (type == QLatin1String("hatTransferred")) {
+        QString newMid, newName, reason;
+        LiveSession::decodeHatTransferredJson(obj, &newMid, &newName, &reason);
+        // The sender's machineId is the *peer* link's identity here —
+        // not the JSON payload, because the payload only carries the
+        // target. The presenter's frame is signed by the TCP/WebRTC
+        // link it arrived on.
+        QString senderMid = peer ? peer->peerMachineId() : QString();
+        handleIncomingHatTransferred(peer, senderMid, newMid, newName, reason);
+        return;
+    }
+    if (type == QLatin1String("yieldHat")) {
+        handleIncomingYieldHat(peer);
+        return;
+    }
+    if (type == QLatin1String("chat")) {
+        handleIncomingChat(peer, obj, payload);
+        return;
+    }
+    if (type == QLatin1String("viewState")) {
+        handleIncomingViewState(peer, obj, payload);
+        return;
+    }
+    if (type == QLatin1String("playback")) {
+        handleIncomingPlayback(peer, obj, payload);
         return;
     }
     if (type == QLatin1String("hunksAck")) {
@@ -1395,6 +2314,94 @@ void LanLiveSession::handleIncomingSnapshot(const QJsonArray &events) {
 }
 
 // ---------------------------------------------------------------------
+// Show Mode (Phase 9.9 §15.2) — bridge to the pure helpers in SessionMode.h
+// ---------------------------------------------------------------------
+
+bool LanLiveSession::isPresenter() const {
+    // Idle / Edit mode → always editable.
+    if (_role == Role::Idle) return true;
+    if (_mode == SessionMode::Edit) return true;
+    // Show mode — only the peer whose machineId matches the current
+    // presenter pointer is allowed to edit.
+    return !_presenterMachineId.isEmpty()
+        && _presenterMachineId == CollabIdentity::machineId();
+}
+
+QByteArray LanLiveSession::encodeSessionWelcome() const {
+    // v1.7.2+: include host's build version so the joiner can warn its
+    // own user about a legacy host. The symmetric joiner→host check
+    // lives on the `hello` frame; together they close the loop so any
+    // version mismatch is visible from BOTH sides starting with 1.7.2.
+    QString ver;
+#ifdef MIDIEDITOR_RELEASE_VERSION_STRING_DEF
+    ver = QStringLiteral(MIDIEDITOR_RELEASE_VERSION_STRING_DEF);
+#endif
+    QJsonObject o = LiveSession::encodeWelcomeJson(
+        _mode, _presenterMachineId, ver);
+    return QJsonDocument(o).toJson(QJsonDocument::Compact);
+}
+
+QByteArray LanLiveSession::encodeRequestHat() const {
+    QJsonObject o = LiveSession::encodeRequestHatJson(
+        CollabIdentity::machineId(), CollabIdentity::displayName());
+    return QJsonDocument(o).toJson(QJsonDocument::Compact);
+}
+
+QByteArray LanLiveSession::encodeHatTransferred(
+        const QString &newPresenterMachineId,
+        const QString &newPresenterDisplayName,
+        const QString &reason) const {
+    QJsonObject o = LiveSession::encodeHatTransferredJson(
+        newPresenterMachineId, newPresenterDisplayName, reason);
+    return QJsonDocument(o).toJson(QJsonDocument::Compact);
+}
+
+QByteArray LanLiveSession::encodeHatRejected(const QString &reason) const {
+    QJsonObject o = LiveSession::encodeHatRejectedJson(reason);
+    return QJsonDocument(o).toJson(QJsonDocument::Compact);
+}
+
+QByteArray LanLiveSession::encodeYieldHat() const {
+    QJsonObject o = LiveSession::encodeYieldHatJson();
+    return QJsonDocument(o).toJson(QJsonDocument::Compact);
+}
+
+QByteArray LanLiveSession::encodeChat(const QString &text, qint64 timestampMs) const {
+    QJsonObject o = LiveSession::encodeChatJson(
+        CollabIdentity::machineId(),
+        CollabIdentity::displayName(),
+        text,
+        timestampMs);
+    return QJsonDocument(o).toJson(QJsonDocument::Compact);
+}
+
+QByteArray LanLiveSession::encodeViewState(
+        const LiveSession::ViewportState &viewport,
+        const QVector<bool> &trackVisibility,
+        const QVector<bool> &channelVisibility) const {
+    QJsonObject o = LiveSession::encodeViewStateJson(
+        CollabIdentity::machineId(),
+        viewport, trackVisibility, channelVisibility);
+    return QJsonDocument(o).toJson(QJsonDocument::Compact);
+}
+
+QByteArray LanLiveSession::encodePlayback(const QString &action,
+                                          int tickPosition) const {
+    QJsonObject o = LiveSession::encodePlaybackJson(action, tickPosition);
+    // Add sender so the host-side validator can check sender ==
+    // presenterMachineId (same gate as the hunks validator).
+    o.insert(QStringLiteral("sender"), CollabIdentity::machineId());
+    return QJsonDocument(o).toJson(QJsonDocument::Compact);
+}
+
+QByteArray LanLiveSession::encodeSessionModeSwitch(
+        SessionMode newMode, const QString &presenterMachineId) const {
+    QJsonObject o = LiveSession::encodeSessionModeSwitchJson(
+        newMode, presenterMachineId);
+    return QJsonDocument(o).toJson(QJsonDocument::Compact);
+}
+
+// ---------------------------------------------------------------------
 // Wire encoders
 // ---------------------------------------------------------------------
 QByteArray LanLiveSession::encodeHello() const {
@@ -1403,6 +2410,13 @@ QByteArray LanLiveSession::encodeHello() const {
     o.insert(QStringLiteral("sessionId"), CollabService::instance()->sessionId());
     o.insert(QStringLiteral("displayName"), CollabIdentity::displayName());
     o.insert(QStringLiteral("machineId"), CollabIdentity::machineId());
+    // v1.7.2+: build version so the host can warn its own user about
+    // older joiners. Missing field = pre-1.7.2 build (the "blind
+    // generation" — they have no UI to surface a reverse warning).
+#ifdef MIDIEDITOR_RELEASE_VERSION_STRING_DEF
+    o.insert(QStringLiteral("appVersion"),
+             QStringLiteral(MIDIEDITOR_RELEASE_VERSION_STRING_DEF));
+#endif
     // Returning-peer reconciliation (Plan §11.10b, Phase 9.5g): the host
     // uses these to detect a fork against its own sidecar and decide
     // whether to ship the file wholesale, fast-forward us, or invoke a

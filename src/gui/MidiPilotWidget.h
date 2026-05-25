@@ -70,6 +70,19 @@ public:
     void abortActiveRequest();
 
     /**
+     * \brief Lock the MidiPilot panel for Show-mode viewers (Phase 9.9c
+     *        §15.2). When locked, the input field is read-only with an
+     *        explanatory placeholder, and the send button is disabled.
+     *        The chat history stays visible (so a previously-running
+     *        AI walkthrough is still readable). Unlocks restore the
+     *        normal post-config state via \ref setupSetupPrompt.
+     *
+     *        Called from MainWindow's `applyShowModeLock` whenever the
+     *        local peer's presenter status changes.
+     */
+    void setShowModeLocked(bool locked);
+
+    /**
      * \brief Executes an action silently (no chat bubbles). Used by Agent Mode tool calls.
      */
     QJsonObject executeAction(const QJsonObject &actionObj);
@@ -192,6 +205,16 @@ private:
     QPushButton *_stopButton;
     QComboBox *_modeCombo;
     QLabel *_tokenLabel;
+
+    // Phase 9.9c §15.2: Show-mode viewer lock. When true the input
+    // field is disabled with an explanatory placeholder; setupSetupPrompt
+    // and the other re-enable sites consult this flag so they don't
+    // accidentally un-lock the panel while a Show-mode session is live.
+    bool _showModeLocked = false;
+    // Saved placeholder string from before the lock was applied, so we
+    // can restore it verbatim on unlock instead of re-deriving from
+    // _client->isConfigured().
+    QString _placeholderBeforeShowLock;
 
 #ifdef MIDIEDITOR_COLLAB_ENABLED
     // Phase 9.3: snapshot of the file taken just before the agent starts

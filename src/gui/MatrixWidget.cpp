@@ -1404,6 +1404,14 @@ void MatrixWidget::mouseMoveEvent(QMouseEvent *event) {
         return;
     }
 
+    // Phase 9.9c §15.2 (Show Mode viewer): suppress tool-driven mouse
+    // tracking while the editing pathway is locked. Painting + cursor
+    // overlay still update via the PaintWidget base, so the viewer
+    // sees their pointer move — they just can't drag-edit.
+    if (_editingLocked) {
+        return;
+    }
+
     if (!MidiPlayer::isPlaying() && Tool::currentTool()) {
         Tool::currentTool()->move(qRound(event->position().x()), qRound(event->position().y()));
     }
@@ -1493,7 +1501,10 @@ void MatrixWidget::mousePressEvent(QMouseEvent *event) {
         _ctrlRightClickInProgress = true;
     }
 
-    if (!MidiPlayer::isPlaying() && Tool::currentTool() && mouseInRect(ToolArea)
+    // Phase 9.9c §15.2 (Show Mode viewer): tool press is suppressed
+    // while editing is locked. Piano-key preview (the else-if below)
+    // still works because audio playback stays local per the design.
+    if (!_editingLocked && !MidiPlayer::isPlaying() && Tool::currentTool() && mouseInRect(ToolArea)
         && (!isRightClick || ctrlHeld)) {
         if (Tool::currentTool()->press(event->buttons() == Qt::LeftButton)) {
             if (enabled) {
@@ -1516,14 +1527,19 @@ void MatrixWidget::mouseReleaseEvent(QMouseEvent *event) {
     // Skip tool release for plain right-click (context menu) — only process if Ctrl held
     bool isRightRelease = (event->button() == Qt::RightButton);
     bool ctrlHeld = (event->modifiers() & Qt::ControlModifier);
-    if (!MidiPlayer::isPlaying() && Tool::currentTool() && mouseInRect(ToolArea)
+    // Phase 9.9c §15.2 (Show Mode viewer): suppress tool release too.
+    // The matching press was already suppressed, so the tool has no
+    // pending state to release — but the conditional guards against a
+    // press-while-unlocked → lock-flipped → release-while-locked race
+    // (e.g. host yanks the hat mid-drag).
+    if (!_editingLocked && !MidiPlayer::isPlaying() && Tool::currentTool() && mouseInRect(ToolArea)
         && (!isRightRelease || ctrlHeld)) {
         if (Tool::currentTool()->release()) {
             if (enabled) {
                 update();
             }
         }
-    } else if (Tool::currentTool()) {
+    } else if (Tool::currentTool() && !_editingLocked) {
         if (Tool::currentTool()->releaseOnly()) {
             if (enabled) {
                 update();
@@ -1726,6 +1742,69 @@ void MatrixWidget::zoomStd() {
     scaleX = 1;
     scaleY = 1;
     calcSizes();
+}
+
+void MatrixWidget::applyZoom(double newScaleX, double newScaleY) {
+    // Phase 9.9f §15.2: a viewer applies the presenter's zoom level.
+    // Guards: keep the factors strictly positive — a zero or negative
+    // scale would divide-by-zero in scrollYChanged's linesInWidget.
+    if (newScaleX <= 0.0 || newScaleY <= 0.0) return;
+    if (qFuzzyCompare(newScaleX, scaleX) && qFuzzyCompare(newScaleY, scaleY))
+        return;  // no-op when already at the requested zoom
+    scaleX = newScaleX;
+    scaleY = newScaleY;
+    calcSizes();
+}
+
+void MatrixWidget::fitToFocus(int startMs, int endMs, int startLine, int endLine) {
+    if (!file) return;
+    if (endMs <= startMs || endLine <= startLine) return;  // invalid range
+
+    // Padding around the focus rectangle so notes don't sit flush
+    // against the matrix edges. 1.05 = ~2.5% per side — tight fit,
+    // close to host's actual view. Reduced from 1.20 per Sven's
+    // request 2026-05-21 ("ein bisschen reinzoomen lassen").
+    constexpr double kPaddingMul = 1.05;
+    int focusMs    = endMs - startMs;
+    int focusLines = endLine - startLine;
+    int paddedMs    = qMax(1, int(focusMs    * kPaddingMul));
+    int paddedLines = qMax(1, int(focusLines * kPaddingMul));
+
+    // Available pixels in the matrix area. Guards against being called
+    // before the widget has been laid out (width()/height() near 0).
+    int availPxX = width() - lineNameWidth;
+    int availPxY = height() - timeHeight;
+    if (availPxX <= 0 || availPxY <= 0) return;
+
+    // Required scale factors derived from inverting MatrixWidget's
+    // own geometry math:
+    //   endTimeX - startTimeX = (availPxX * 1000) / (PIXEL_PER_S * scaleX)
+    //   linesInWidget         = availPxY / (scaleY * PIXEL_PER_LINE)
+    double requiredScaleX = double(availPxX) * 1000.0
+                            / (double(PIXEL_PER_S) * double(paddedMs));
+    double requiredScaleY = double(availPxY)
+                            / (double(paddedLines) * double(PIXEL_PER_LINE));
+
+    // Clamp to a sane window. Extreme zoom-out makes notes invisible;
+    // extreme zoom-in makes scrolling unusable. The user can manually
+    // override afterwards if they want; this is the auto-fit pick.
+    requiredScaleX = qBound(0.05, requiredScaleX, 20.0);
+    requiredScaleY = qBound(0.10, requiredScaleY, 10.0);
+
+    applyZoom(requiredScaleX, requiredScaleY);
+
+    // After applyZoom + calcSizes, recompute the widget capacity at
+    // the new scale and centre the focus rectangle.
+    int newWidgetMs    = (availPxX * 1000) / (PIXEL_PER_S * scaleX);
+    int newWidgetLines = int(availPxY / (scaleY * PIXEL_PER_LINE));
+
+    int centerMs   = (startMs   + endMs)   / 2;
+    int centerLine = (startLine + endLine) / 2;
+    int newStartMs    = qMax(0, centerMs   - newWidgetMs    / 2);
+    int newStartLine  = qMax(0, centerLine - newWidgetLines / 2);
+
+    scrollXChanged(newStartMs);
+    scrollYChanged(newStartLine);
 }
 
 void MatrixWidget::resetView() {

@@ -318,6 +318,8 @@
                 <a href="docs-index.html">Manual Overview</a>
                 <a href="midipilot.html">MidiPilot AI</a>
                 <a href="collaboration.html">Collaboration</a>
+                <a href="collab-show-mode.html">&nbsp;&nbsp;&middot; Show Mode</a>
+                <a href="collab-chat.html">&nbsp;&nbsp;&middot; In-session Chat</a>
                 <a href="prompt-examples.html">Prompt Examples</a>
                 <a href="ffxiv-channel-fixer.html">FFXIV Channel Fixer</a>
                 <a href="supported-files.html">Supported Files</a>
@@ -349,6 +351,16 @@ across the internet. WebRTC carries the data with DTLS encryption. A
 tiny Cloudflare Worker handles the introduction (rendezvous), then the
 peers talk directly - the Worker never sees your MIDI traffic. Up
 to 8 joiners per session.
+</p>
+
+<p style="background: rgba(88, 166, 255, 0.08); border-left: 4px solid #58a6ff; padding: 0.8rem 1rem; border-radius: 6px;">
+When you click <em>Start WAN Live Session</em> a mode picker asks
+<em>Edit</em> (everyone can edit, the behaviour described here) or
+<em>Show</em> (one peer at a time holds the hat, everyone else
+watches). See the <a href="collab-show-mode.html">Show Mode page</a>
+for the hat-passing + follow-the-host details. The
+<a href="collab-chat.html">in-session chat panel</a> appears in the
+lower sidebar in both modes.
 </p>
 
 <div class="dual-demo">

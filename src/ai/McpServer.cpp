@@ -2,6 +2,10 @@
 #include "ToolDefinitions.h"
 #include "EditorContext.h"
 
+#ifdef MIDIEDITOR_COLLAB_ENABLED
+#include "../collab/LanLiveSession.h"
+#endif
+
 #include "../midi/MidiFile.h"
 #include "../midi/MidiTrack.h"
 #include "../midi/MidiChannel.h"
@@ -596,6 +600,36 @@ QJsonObject McpServer::handleToolsCall(const QJsonObject &params, Session &sessi
         result["isError"] = true;
         return result;
     }
+
+#ifdef MIDIEDITOR_COLLAB_ENABLED
+    // Phase 9.9c §15.2: Show Mode viewer lock. When the local editor is
+    // in a Show-mode session and we are NOT the current presenter, all
+    // tool calls are refused — there is no "harmless" edit because every
+    // tool either mutates MIDI directly or would prompt the user to do
+    // so. Read-only state is still reachable via the resources/* MCP
+    // methods (midi://state, midi://tracks, midi://config), so external
+    // observers stay informed; only the write path is closed.
+    {
+        LanLiveSession *live = LanLiveSession::instance();
+        if (live->role() != LanLiveSession::Role::Idle
+            && live->mode() == LanLiveSession::SessionMode::Show
+            && !live->isPresenter()) {
+            QJsonObject result;
+            QJsonArray content;
+            QJsonObject textContent;
+            textContent["type"] = QString("text");
+            textContent["text"] = QStringLiteral(
+                "Error: Local editor is in Show Mode (viewer); editing is "
+                "locked until you take the hat or the session ends. Use "
+                "the midi://state, midi://tracks, and midi://config "
+                "resources for read-only access.");
+            content.append(textContent);
+            result["content"] = content;
+            result["isError"] = true;
+            return result;
+        }
+    }
+#endif
 
     // Build source string: "mcp" or "mcp:ClientName Version"
     QString source = session.clientName.isEmpty()

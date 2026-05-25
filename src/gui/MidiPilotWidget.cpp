@@ -826,8 +826,13 @@ void MidiPilotWidget::setupSetupPrompt() {
     bool configured = _client->isConfigured();
     _setupWidget->setVisible(!configured);
     _chatScroll->setVisible(configured);
-    _inputField->setEnabled(configured);
-    _sendButton->setEnabled(configured);
+    // Phase 9.9c §15.2: in a Show-mode session as a viewer, the input
+    // stays disabled regardless of the AI-configuration state — only
+    // the presenter is allowed to drive MidiPilot. The chat scroll
+    // stays visible so the viewer can read the presenter's AI walk-
+    // through in real time.
+    _inputField->setEnabled(configured && !_showModeLocked);
+    _sendButton->setEnabled(configured && !_showModeLocked);
 
     if (configured) {
         setStatus("Ready", "green");
@@ -1049,10 +1054,42 @@ void MidiPilotWidget::abortActiveRequest() {
         _simpleRetryCount = 0;
         _lastSimpleMessage.clear();
         setStatus(tr("Stopped"), "gray");
-        _inputField->setEnabled(true);
-        _sendButton->setEnabled(true);
+        // Phase 9.9c §15.2: respect the show-mode lock when re-enabling
+        // input after an abort — a viewer pressing Stop on an in-flight
+        // request (probably stale from before the hat changed hands)
+        // should land back in a locked state, not a usable one.
+        bool inputEnabled = !_showModeLocked;
+        _inputField->setEnabled(inputEnabled);
+        _sendButton->setEnabled(inputEnabled);
         _sendButton->setVisible(true);
         _stopButton->setVisible(false);
+    }
+}
+
+void MidiPilotWidget::setShowModeLocked(bool locked) {
+    if (_showModeLocked == locked) return;
+    _showModeLocked = locked;
+    if (locked) {
+        // Cancel anything in flight — a viewer being mid-edit when the
+        // hat transferred away from them should stop sending requests
+        // immediately. abortActiveRequest is a no-op if nothing is
+        // running, so we can call it unconditionally.
+        abortActiveRequest();
+        _placeholderBeforeShowLock = _inputField->placeholderText();
+        _inputField->setPlaceholderText(
+            tr("Show Mode: MidiPilot is locked. Ask the presenter to "
+               "pass you the hat to drive the AI."));
+        _inputField->setEnabled(false);
+        _sendButton->setEnabled(false);
+    } else {
+        // Restore the post-config placeholder + enable state. Going
+        // through setupSetupPrompt also rehydrates the configured /
+        // unconfigured visibility, which is what we want — a viewer
+        // who just got the hat sees the panel exactly as it would
+        // appear in a non-Show session.
+        _inputField->setPlaceholderText(_placeholderBeforeShowLock);
+        _placeholderBeforeShowLock.clear();
+        setupSetupPrompt();
     }
 }
 
@@ -1205,8 +1242,9 @@ void MidiPilotWidget::onSendMessage() {
         // and bail out cleanly.
         if (_client->toolsIncapableForCurrentModel()) {
             setStatus("Model does not support tools", "red");
-            _inputField->setEnabled(true);
-            _sendButton->setEnabled(true);
+            // Phase 9.9c: respect the Show-mode viewer lock when re-enabling.
+            _inputField->setEnabled(!_showModeLocked);
+            _sendButton->setEnabled(!_showModeLocked);
             addChatBubble(QStringLiteral("system"),
                 tr("⚠ The selected model does not support tool calling and "
                    "cannot be used in Agent mode.\n\n"
@@ -1397,8 +1435,9 @@ void MidiPilotWidget::onResponseReceived(const QString &content, const QJsonObje
     }
 
     setStatus("Ready", "green");
-    _inputField->setEnabled(true);
-    _sendButton->setEnabled(true);
+    // Phase 9.9c: respect the Show-mode viewer lock when re-enabling.
+    _inputField->setEnabled(!_showModeLocked);
+    _sendButton->setEnabled(!_showModeLocked);
     // Restore the send/stop button swap from the simple-mode send path
     // (BUG-MIDIPILOT-001). No-op for agent mode (already handled there).
     _sendButton->setVisible(true);
@@ -1699,8 +1738,9 @@ void MidiPilotWidget::onErrorOccurred(const QString &errorMessage) {
     }
 
     setStatus("Error", "red");
-    _inputField->setEnabled(true);
-    _sendButton->setEnabled(true);
+    // Phase 9.9c: respect the Show-mode viewer lock when re-enabling.
+    _inputField->setEnabled(!_showModeLocked);
+    _sendButton->setEnabled(!_showModeLocked);
     // Restore send/stop swap (BUG-MIDIPILOT-001).
     _sendButton->setVisible(true);
     _stopButton->setVisible(false);
@@ -1989,8 +2029,9 @@ void MidiPilotWidget::onAgentFinished(const QString &finalMessage) {
     _sendButton->setVisible(true);
 
     setStatus("Ready", "green");
-    _inputField->setEnabled(true);
-    _sendButton->setEnabled(true);
+    // Phase 9.9c: respect the Show-mode viewer lock when re-enabling.
+    _inputField->setEnabled(!_showModeLocked);
+    _sendButton->setEnabled(!_showModeLocked);
 
     addChatBubble("assistant", finalMessage);
 
@@ -2089,8 +2130,9 @@ void MidiPilotWidget::onAgentError(const QString &error) {
     _sendButton->setVisible(true);
 
     setStatus("Error", "red");
-    _inputField->setEnabled(true);
-    _sendButton->setEnabled(true);
+    // Phase 9.9c: respect the Show-mode viewer lock when re-enabling.
+    _inputField->setEnabled(!_showModeLocked);
+    _sendButton->setEnabled(!_showModeLocked);
 
     addChatBubble("system", "Agent error: " + error);
 

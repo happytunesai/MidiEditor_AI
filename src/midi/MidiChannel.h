@@ -158,6 +158,21 @@ public:
     void setVisible(bool b);
 
     /**
+     * \brief Phase 9.9f §15.2 (Show-Mode follow-the-host): flip the
+     * visibility WITHOUT recording a Protocol step. Used on the
+     * viewer side to apply the presenter's view state silently —
+     * viewers shouldn't have a hat-pass land in their undo history.
+     * Caller must trigger a repaint manually when applying a batch.
+     *
+     * Implementation lives in the .cpp because visibility is stored
+     * in the ChannelVisibilityManager singleton (NOT in _visible
+     * directly — visible() reads through the manager). Bugfix
+     * 2026-05-21: an earlier version only updated _visible, which
+     * is dead state for visibility lookups.
+     */
+    void setVisibleSilent(bool b);
+
+    /**
      * \brief Gets the channel's mute state.
      * \return True if the channel is muted (no sound output)
      */

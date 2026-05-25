@@ -80,3 +80,17 @@ void Selection::clearSelection() {
         //_eventWidget->reload();
     }
 }
+
+void Selection::setSelectionSilent(QList<MidiEvent *> selections) {
+    // Phase 9.9f §15.2: silent variant — no protocol(copy(), this)
+    // call, so the change is invisible to the undo stack. Used on a
+    // viewer to mirror the presenter's selection.
+    if (selections.size() >= 100) {
+        _selectedEvents = std::move(selections);
+    } else {
+        _selectedEvents = selections;
+    }
+    if (_eventWidget) {
+        _eventWidget->setEvents(_selectedEvents);
+    }
+}

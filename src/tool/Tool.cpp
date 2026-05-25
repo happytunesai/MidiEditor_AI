@@ -24,6 +24,10 @@
 
 EditorTool *Tool::_currentTool = 0;
 MidiFile *Tool::_currentFile = 0;
+// Phase 9.9f §15.2: tool-change observer (collab follow-the-host).
+// Null by default; MainWindow registers a callback that triggers a
+// viewState broadcast. See Tool::setToolChangedCallback.
+static Tool::ToolChangedFn s_toolChangedCb = nullptr;
 
 Tool::Tool() {
     _image = 0;
@@ -99,6 +103,11 @@ MidiFile *Tool::file() {
 void Tool::setCurrentTool(EditorTool *tool) {
     _currentTool = tool;
     _currentTool->select();
+    if (s_toolChangedCb) s_toolChangedCb(tool);
+}
+
+void Tool::setToolChangedCallback(ToolChangedFn cb) {
+    s_toolChangedCb = cb;
 }
 
 Protocol *Tool::currentProtocol() {

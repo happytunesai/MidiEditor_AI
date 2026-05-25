@@ -6,6 +6,15 @@
 
 find_package(Qt6 REQUIRED COMPONENTS Core Gui Test Widgets)
 
+# Compile-define so the Tier-2 corpus-test pattern documented in
+# tests/data/README.md actually works. No test currently uses this (all 41
+# tests are programmatic per the README's "prefer programmatic fixtures"
+# recommendation), but if a corpus test gets added, this is the default
+# directory it falls back to when the MIDIEDITOR_FIXTURES env var is unset.
+add_compile_definitions(
+    MIDIEDITOR_TESTS_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data"
+)
+
 # -----------------------------------------------------------------------------
 # test_midi_diff
 # -----------------------------------------------------------------------------
@@ -153,6 +162,27 @@ target_link_libraries(test_rtc_signaling_token PRIVATE
     Qt6::Test
 )
 add_test(NAME RtcSignalingToken COMMAND test_rtc_signaling_token)
+
+# -----------------------------------------------------------------------------
+# test_session_mode
+# -----------------------------------------------------------------------------
+# Validates the LiveSession::Mode wire helpers in src/collab/SessionMode.h
+# (Phase 9.9 §15.2 - Show Mode). SessionMode.h is header-only so this test
+# links only Qt6::Core/Test - no SessionMode.cpp, no LanLiveSession
+# dependency tree. Covers enum <-> wire-string round-trip, case-
+# insensitive parsing, unknown-value forward-compatibility fallback, and
+# the sessionWelcome JSON shape used on the wire.
+add_executable(test_session_mode
+    test_session_mode.cpp
+)
+target_include_directories(test_session_mode PRIVATE
+    ../src/collab
+)
+target_link_libraries(test_session_mode PRIVATE
+    Qt6::Core
+    Qt6::Test
+)
+add_test(NAME SessionMode COMMAND test_session_mode)
 
 # -----------------------------------------------------------------------------
 # test_xml_score_to_midi
@@ -1100,6 +1130,7 @@ if(WIN32)
         LoggingConfig
         IceConfig
         RtcSignalingToken
+        SessionMode
         PROPERTIES
             ENVIRONMENT "PATH=${_qt_bin_dir};$ENV{PATH}"
     )

@@ -88,6 +88,16 @@ void MidiChannel::setVisible(bool b) {
     protocol(toCopy, this);
 }
 
+void MidiChannel::setVisibleSilent(bool b) {
+    if (_num < 0 || _num > 18) return;
+    // Update both: the singleton (where visible() actually reads
+    // from) AND the local _visible mirror (kept for consistency
+    // with the regular setVisible path). No protocol() call so the
+    // viewer's undo history stays clean.
+    ChannelVisibilityManager::instance().setChannelVisible(_num, b);
+    _visible = b;
+}
+
 bool MidiChannel::mute() {
     return _mute;
 }

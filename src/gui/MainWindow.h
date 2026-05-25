@@ -25,9 +25,13 @@
 #include <QScrollBar>
 #include <QSettings>
 #include <QKeySequence>
+#include <QVector>
 
 // Project includes
 #include "ToolbarActionInfo.h"
+#ifdef MIDIEDITOR_COLLAB_ENABLED
+#include "../collab/SessionMode.h"
+#endif
 
 // Forward declarations
 class QProgressDialog;
@@ -382,6 +386,22 @@ public slots:
      * \param maxLine Maximum line number
      */
     void scrollPositionsChanged(int startMs, int maxMs, int startLine, int maxLine);
+
+#ifdef MIDIEDITOR_COLLAB_ENABLED
+    /** \brief Phase 9.9f §15.2: gather the local viewport + per-track
+     *  + per-channel visibility, hand it to LanLiveSession's throttled
+     *  broadcaster. Internally guarded by broadcastViewState's
+     *  role/mode/isPresenter check; safe to call from anywhere. */
+    void broadcastLocalViewState();
+
+    /** \brief Phase 9.9f §15.2: apply a viewState received from the
+     *  presenter. Sets track/channel visibility via setHiddenSilent /
+     *  setVisibleSilent (no Protocol step), scrolls the matrix to the
+     *  presenter's viewport, then forces a repaint. */
+    void applyRemoteViewState(const LiveSession::ViewportState &viewport,
+                              const QVector<bool> &trackVisibility,
+                              const QVector<bool> &channelVisibility);
+#endif
 
     /**
      * \brief Starts MIDI recording.
@@ -1190,6 +1210,51 @@ private:
 
     /** \brief MidiPilot AI sidebar widget */
     MidiPilotWidget *_midiPilotWidget = nullptr;
+
+#ifdef MIDIEDITOR_COLLAB_ENABLED
+    /** \brief Phase 9.11 §15.3: in-session chat panel. Owned by
+     *  lowerTabWidget which deletes it on tab destruction; we keep a
+     *  raw pointer for signal/slot wiring + unread-badge mgmt. */
+    class CollabChatWidget *_collabChatWidget = nullptr;
+    /** \brief Phase 9.11 §15.3: unread-message count shown in the tab
+     *  title when the user is on another tab. Reset to 0 on tab
+     *  activation. */
+    int _chatUnreadCount = 0;
+    /** \brief Phase 9.11 §15.3 polish: alternates the Chat tab's text
+     *  color while unread messages are pending and the user is on
+     *  another tab. Stops on activation. Raw pointer is owned via
+     *  Qt parent (this); created on demand. */
+    class QTimer *_chatBlinkTimer = nullptr;
+    /** \brief Blink-phase state: true → highlight color, false → normal. */
+    bool _chatBlinkOn = false;
+
+    /** \brief Phase 9.9c §15.2: top-level menus that contain MIDI-
+     *  mutating actions and must be disabled when the local peer is a
+     *  Show-mode viewer. Pointers captured at menubar build time so
+     *  the applyShowModeLock lambda (defined earlier in the
+     *  constructor) can toggle them without a deep refactor. */
+    QMenu *_editMenuForShowLock = nullptr;
+    QMenu *_toolsMenuForShowLock = nullptr;
+    QMenu *_midiMenuForShowLock = nullptr;
+
+    /** \brief Phase 9.9f §15.2 (follow-the-host): last viewport tuple
+     *  captured from MatrixWidget::scrollChanged. Used by the
+     *  presenter-side broadcast to ship its current scroll position
+     *  alongside visibility state — the matrix doesn't expose
+     *  query-time getters for these, so we shadow them as they fly by. */
+    int _viewStartMs   = 0;
+    int _viewMaxMs     = 0;
+    int _viewStartLine = 0;
+    int _viewMaxLine   = 0;
+    /** \brief Re-entry guard: viewer-side apply of an incoming
+     *  viewState would itself trigger scrollChanged + emit another
+     *  broadcast, ping-ponging forever. Set while applying, checked
+     *  by the host-side broadcaster. */
+    bool _applyingRemoteViewState = false;
+    /** \brief Same idea for the playback trigger: viewer's local
+     *  play() / stop() shouldn't re-broadcast back to the presenter. */
+    bool _applyingRemotePlayback = false;
+#endif
 
     /** \brief MCP Server for external AI client integration */
     McpServer *_mcpServer = nullptr;

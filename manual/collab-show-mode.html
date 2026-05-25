@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Show Mode - Hat-passing Presentation Sessions | MidiEditor AI Manual</title>
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="icon" type="image/x-icon" href="favicon.ico" sizes="any">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <meta name="theme-color" content="#0B1020">
+  <meta name="description" content="Show Mode for MidiEditor AI Live Sessions: one peer at a time holds the editing hat, every viewer follows along. Designed for tutorials, demos, and classroom teaching.">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="site.css">
+  <link rel="stylesheet" href="audio.css">
+  <style>
+    .screenshot-single { text-align: center; margin: 1.5rem 0; }
+    .screenshot-single img { max-width: 100%; border: 1px solid var(--border); border-radius: 8px; }
+    .caption { text-align: center; color: var(--text-muted); font-style: italic; margin-top: 0.5rem; font-size: 0.9rem; }
+
+    /* Placeholder boxes so the page renders cleanly before the real
+       screenshots are dropped in. Caption stays useful either way. */
+    .ph {
+        background: linear-gradient(135deg, #10192A 0%, #162238 100%);
+        border: 1px dashed var(--border);
+        border-radius: 8px;
+        padding: 2.5rem 1rem;
+        color: var(--text-muted);
+        font-family: monospace;
+        font-size: 0.85rem;
+        text-align: center;
+    }
+    .ph::before {
+        content: "[placeholder - screenshot pending]";
+        display: block;
+        font-weight: 700;
+        color: var(--accent);
+        margin-bottom: 0.4rem;
+        font-size: 0.78rem;
+        letter-spacing: 0.05em;
+    }
+
+    .step-list { counter-reset: step; list-style: none; padding-left: 0; }
+    .step-list li { counter-increment: step; padding: 0.8rem 0 0.8rem 3rem; position: relative; border-bottom: 1px solid var(--border); }
+    .step-list li::before { content: counter(step); position: absolute; left: 0; top: 0.7rem; width: 2rem; height: 2rem; background: var(--accent); color: #fff; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.9rem; }
+    .step-list li:last-child { border-bottom: none; }
+
+    .hat-flow {
+        background: linear-gradient(135deg, #10192A 0%, #162238 100%);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 1.2rem 1rem;
+        margin: 1.5rem 0;
+        display: flex;
+        justify-content: space-around;
+        align-items: center;
+        gap: 1rem;
+    }
+    .hat-actor {
+        text-align: center;
+        flex: 1;
+    }
+    .hat-actor .icon {
+        font-size: 2em;
+        margin-bottom: 0.3rem;
+    }
+    .hat-actor .name {
+        font-weight: 600;
+        color: var(--text);
+    }
+    .hat-actor .role {
+        font-size: 0.8em;
+        color: var(--text-muted);
+    }
+    .hat-actor.presenter .icon { color: #f0c419; }
+    .hat-arrow {
+        flex: 0 0 auto;
+        font-size: 1.6em;
+        color: var(--accent);
+    }
+
+    .info-box, .warn-box {
+        border-radius: 8px;
+        padding: 1rem 1.2rem;
+        margin: 1.2rem 0;
+        border-left: 4px solid;
+    }
+    .info-box { background: rgba(88, 166, 255, 0.08); border-color: #58a6ff; }
+    .warn-box { background: rgba(240, 196, 25, 0.08); border-color: #f0c419; }
+    .info-box strong, .warn-box strong { display: block; margin-bottom: 0.3rem; }
+  </style>
+</head>
+<body>
+<nav class="site-nav" role="navigation" aria-label="Main navigation">
+<div class="container">
+    <a href="index.html" class="nav-brand"><img class="brand-logo" src="Midieditor-ai_banner_w.png" alt="MidiEditor AI"></a>
+    <button class="nav-hamburger" aria-label="Toggle menu" aria-expanded="false">&#x2630;</button>
+    <ul class="nav-links">
+        <li><a href="index.html#features">Features</a></li>
+        <li><a href="index.html#showcase">Showcase</a></li>
+        <li class="nav-dropdown">
+            <span class="nav-dropdown-trigger active">Docs &#x25BE;</span>
+            <div class="nav-dropdown-menu">
+                <a href="docs-index.html">Manual Overview</a>
+                <a href="midipilot.html">MidiPilot AI</a>
+                <a href="collaboration.html">Collaboration</a>
+                <a href="collab-show-mode.html">&nbsp;&nbsp;&middot; Show Mode</a>
+                <a href="collab-chat.html">&nbsp;&nbsp;&middot; In-session Chat</a>
+                <a href="prompt-examples.html">Prompt Examples</a>
+                <a href="ffxiv-channel-fixer.html">FFXIV Channel Fixer</a>
+                <a href="supported-files.html">Supported Files</a>
+                <a href="themes.html">Themes &amp; Appearance</a>
+                <a href="lyrics.html">Lyric Editor</a>
+                <a href="soundfont.html">SoundFonts &amp; FluidSynth</a>
+                <a href="shortcuts.html">Keyboard Shortcuts</a>
+                <a href="mcp-server.html">MCP Server</a>
+                <a href="setup.html">Setup &amp; Installation</a>
+            </div>
+        </li>
+        <li><a href="changelog.html">Changelog</a></li>
+        <li><a href="https://github.com/happytunesai/MidiEditor_AI" target="_blank" rel="noopener noreferrer">GitHub &#x2197;</a></li>
+        <li><a href="download.html" class="nav-cta">&#x2B07; Download</a></li>
+    </ul>
+</div>
+</nav>
+
+<a href="#main-content" class="skip-link">Skip to main content</a>
+
+<main id="main-content">
+
+<p style="margin-bottom: 0.4rem;"><a href="collaboration.html">&larr; Collaboration overview</a></p>
+<h1 id="show-mode">&#x1F3A9; Show Mode</h1>
+
+<p>
+Show Mode turns any LAN or WAN Live Session into a
+<strong>presentation session</strong>. One peer at a time holds <em>the hat</em>
+- the right to edit - while every other peer watches in real time.
+The hat can be passed via an explicit request-and-approve handshake, or
+reclaimed by the host if the presenter goes silent.
+</p>
+
+<p>
+The use cases:
+</p>
+
+<ul>
+<li><b>Tutorial streams</b> - show "how to fix FFXIV channels" in a real editor instead of via a screen-share video; every viewer sees every click in <em>their own</em> editor.</li>
+<li><b>MIDI code review</b> - a composer walks a friend through a passage; the friend watches without accidentally re-editing the same bar.</li>
+<li><b>Classroom teaching</b> - the instructor demonstrates a comping pattern, then passes the hat so a student can try while everyone watches.</li>
+<li><b>AI walkthroughs</b> - one user runs MidiPilot, every viewer sees each tool call land in real time.</li>
+</ul>
+
+<hr>
+
+<h2 id="picking-mode">Picking the mode at session start</h2>
+
+<p>
+The host chooses Edit or Show mode <em>before</em> the session starts.
+A small picker dialog appears right after clicking <em>Start LAN Live Session</em>
+or <em>Start WAN Live Session</em>.
+</p>
+
+<div class="screenshot-single">
+    <img src="screenshots/show-mode-picker.png" alt="Mode picker dialog: How should peers be able to edit? - Edit / Show / Cancel buttons.">
+    <p class="caption">The mode is locked for the lifetime of the session -
+    switching means leaving and restarting. Edit mode is the original
+    free-for-all behaviour; Show mode is the topic of this page.</p>
+</div>
+
+<div class="info-box">
+    <strong>Joining a Show-mode session</strong>
+    Joiners don't see a mode picker - they adopt the host's choice
+    automatically via the <code>sessionWelcome</code> handshake. From the
+    joiner's perspective the only visible difference is the
+    &#x1F441; <b>Watching <em>&lt;name&gt;</em></b> indicator that appears in the
+    status bar and the editor going read-only.
+</div>
+
+<h3 id="switch-mid-session">Switching modes mid-session</h3>
+
+<p>
+The host can flip the active session between Edit and Show at any time
+- no need to leave and restart. The Collab menu shows a single toggle
+action whose text adapts to the current mode:
+</p>
+
+<ul>
+<li>In Edit: <em>Switch to Show mode</em>. The host becomes the initial presenter; viewers' locks engage instantly.</li>
+<li>In Show: <em>Switch to Edit mode</em>. The presenter pointer clears; every peer regains editing rights.</li>
+</ul>
+
+<p>
+Typical use: two peers are co-editing in Edit mode, one wants to briefly
+demo an idea. The host flips into Show, shows the idea (passing the hat
+to whoever should present), then flips back to Edit and the session
+resumes normal co-editing. Only the host can trigger the switch; on
+non-host peers the menu entry is hidden.
+</p>
+
+<hr>
+
+<h2 id="status-indicators">Status indicators - who holds the hat</h2>
+
+<p>
+Every peer's status bar carries a Show-mode indicator while a Show
+session is active:
+</p>
+
+<div class="screenshot-single">
+    <img src="screenshots/show-mode-status-presenter.png" alt="Status bar on the host showing the presenter indicator.">
+    <p class="caption">&#x1F3A9; PRESENTING - this peer currently holds
+    the hat and is the only one allowed to edit.</p>
+</div>
+
+<div class="screenshot-single">
+    <img src="screenshots/show-mode-status-viewer.png" alt="Status bar on the viewer showing the watching indicator.">
+    <p class="caption">&#x1F441; Watching <em>&lt;name&gt;</em> -
+    this peer is a viewer, following the named presenter's edits.</p>
+</div>
+
+<hr>
+
+<h2 id="viewer-lock">What changes for a viewer</h2>
+
+<p>
+While a peer is a viewer (i.e. not the current presenter), MidiEditor AI
+disables every edit pathway so accidental input can't diverge their
+local file from the rest of the session. The lock covers:
+</p>
+
+<ul>
+<li><b>The piano roll</b> - tool-driven mouse press / move / release is suppressed. Scrolling, zooming, and piano-key preview (audio playback of clicked keys) still work.</li>
+<li><b>The toolbar</b> - every tool icon is greyed out.</li>
+<li><b>Edit / Tools / Midi menus</b> - greyed out, including their keyboard shortcuts.</li>
+<li><b>MidiPilot</b> - the input field is disabled with an explanatory placeholder. The chat history stays visible so a viewer can still <em>read</em> a presenter's AI walkthrough.</li>
+<li><b>MCP server</b> - any <code>tools/call</code> request is rejected with a structured error message. Read-only resources (<code>midi://state</code>, <code>midi://tracks</code>, <code>midi://config</code>) stay reachable for external observers.</li>
+<li><b>Playback / View / Help menus</b> - stay enabled. Space-bar play/pause works locally. When the presenter starts or stops playback, every viewer's player follows the same trigger and seeks to the presenter's cursor position.</li>
+</ul>
+
+<div class="screenshot-single">
+    <img src="screenshots/show-mode-viewer-locked.png" alt="Viewer window in Show mode: matrix populated with notes, Edit / Tools / Midi menus and toolbar greyed out, MidiPilot input disabled.">
+    <p class="caption">A viewer's interface during Show mode. The host's
+    edits land in real time, but local input is locked until the hat is
+    passed.</p>
+</div>
+
+<hr>
+
+<h2 id="follow-the-host">Follow-the-host - what viewers see</h2>
+
+<p>
+Show Mode is more than just a write lock. Viewers <em>follow</em> the
+presenter's view in real time: the viewport (scroll + zoom),
+visibility of tracks and channels, the active editing tool, the edit
+cursor, and the presenter's selected notes all mirror onto every
+viewer's editor.
+</p>
+
+<div class="screenshot-single">
+    <img src="screenshots/follow-host-side-by-side.png" alt="Side-by-side comparison: presenter's window with selected notes and limited track visibility next to the viewer's window showing the same area with the same selection and visibility.">
+    <p class="caption">Presenter on the left, viewer on the right. The
+    viewer's matrix fits to the presenter's visible region automatically
+    - if the viewer's window is bigger, they see the same content
+    plus a small margin; if smaller, the viewer zooms in to match.</p>
+</div>
+
+<p>
+Specifically synced from the presenter to every viewer:
+</p>
+
+<ul>
+<li><b>Viewport</b> - horizontal scroll position, vertical scroll position, zoom level. Viewers don't just mirror the scroll value 1:1 (which would snap them to the wrong area when window sizes differ) - instead the viewer's matrix recomputes its own scale so the presenter's visible region fits inside the viewer's pixel geometry with ~5&nbsp;% padding.</li>
+<li><b>Track visibility</b> - show / hide a track on the presenter and every viewer follows.</li>
+<li><b>Channel visibility</b> - same for the per-channel visibility toggles.</li>
+<li><b>Active tool</b> - a transient status-bar tip on every viewer: "Presenter is using: <em>&lt;tool name&gt;</em>".</li>
+<li><b>Edit cursor</b> - the cursor tick mirrors across, so when the presenter clicks to a position viewers see their own cursor jump too.</li>
+<li><b>Selection</b> - whichever notes the presenter has selected appear highlighted on every viewer's piano roll. Identity is matched by (tick, channel, line, type) tuple, so divergent local edits never crash the apply - missing matches are silently skipped.</li>
+<li><b>Playback</b> - the presenter pressing Play or Stop triggers every viewer's local player to start or stop at the presenter's cursor position. Each peer plays through its own audio output (Windows MIDI / FluidSynth / whatever's configured under Settings); if a viewer hasn't picked an output yet, the editor's normal "configure your MIDI output" dialog appears on the first trigger. No clock-sync is attempted, so initial latency (50-200&nbsp;ms typical) and longer-playback drift are part of the trade-off - good enough for tutorials and demos, not a substitute for shared audio recording.</li>
+</ul>
+
+<div class="screenshot-single">
+    <img src="screenshots/follow-host-tool-toast.png" alt="Status bar tip on a viewer showing which editing tool the presenter is currently using.">
+    <p class="caption">Tool-name tip on the viewer side. Refreshes every
+    time the host's view-state broadcast lands (max 4&nbsp;Hz).</p>
+</div>
+
+<hr>
+
+<h2 id="hat-passing">Passing the hat</h2>
+
+<p>
+Only the current presenter can transfer the hat. Viewers ask for the
+hat via an explicit request; the presenter receives a modal prompt and
+either accepts or declines.
+</p>
+
+<div class="hat-flow" aria-hidden="true">
+    <div class="hat-actor presenter">
+        <div class="icon">&#x1F3A9;</div>
+        <div class="name">Presenter</div>
+        <div class="role">holds the hat</div>
+    </div>
+    <div class="hat-arrow">&larr;&nbsp;requestHat</div>
+    <div class="hat-actor">
+        <div class="icon">&#x1F441;</div>
+        <div class="name">Viewer</div>
+        <div class="role">wants the hat</div>
+    </div>
+</div>
+
+<ol class="step-list">
+<li><b>Viewer:</b> opens the Collaboration menu, clicks <em>Request the hat</em>. The status bar acknowledges: "Hat request sent to the presenter."</li>
+<li><b>Presenter:</b> receives a modal prompt naming the requester - "Alice is requesting the hat. Accept to hand them editing rights, or decline to keep the hat."</li>
+<li><b>Presenter clicks Accept:</b> the hat-transfer frame is broadcast to every peer. The new presenter's matrix unlocks; the old presenter's matrix locks; every viewer's status bar updates to "&#x1F441; Watching <em>&lt;new name&gt;</em>".</li>
+<li><b>Presenter clicks Decline:</b> the status bar reports "Hat request from <em>&lt;name&gt;</em> declined." The hat stays with the current presenter.</li>
+</ol>
+
+<div class="screenshot-single">
+    <img src="screenshots/show-mode-hat-request.png" alt="Modal prompt on the presenter announcing that a peer is requesting the hat, with Accept and Decline buttons.">
+    <p class="caption">Incoming hat-request prompt. The presenter sees
+    the requester's display name; the request never auto-grants.</p>
+</div>
+
+<h3 id="pass-hat-menu">Passing the hat as the presenter</h3>
+
+<p>
+The presenter can also <em>initiate</em> a transfer without waiting for a
+request - useful when teaching ("now Alice's turn") or demoing
+("Bob, show them what you tried"). The Collaboration menu carries a
+<em>Pass the hat to&hellip;</em> entry that lists every currently-connected
+peer.
+</p>
+
+<div class="screenshot-single">
+    <img src="screenshots/show-mode-pass-hat-menu.png" alt="Collaboration menu opened showing the Pass the hat to..., Request the hat, and Take the hat entries.">
+    <p class="caption">Hat-pass actions in the Collab menu. Each entry
+    is context-sensitive - <em>Pass</em> is visible only to the
+    presenter, <em>Request</em> only to viewers, <em>Take</em> only to
+    the host when the presenter is silent (see below).</p>
+</div>
+
+<div class="screenshot-single">
+    <img src="screenshots/show-mode-pass-hat-picker.png" alt="Peer-list picker dialog with a dropdown of connected peers and OK / Cancel buttons.">
+    <p class="caption">Picker dialog when the presenter chooses
+    <em>Pass the hat to&hellip;</em>. The list updates live -
+    a peer that disconnects between menu-open and click won't appear,
+    and if they disconnect <em>during</em> the click the transfer
+    bounces back with a "peer disconnected" status-bar toast.</p>
+</div>
+
+<h3 id="yield-hat">Yielding the hat</h3>
+
+<p>
+When the presenter is done and has no specific next presenter in mind,
+they can use <em>Yield the hat</em> from the Collab menu. This hands
+the hat back to the host without picking a successor; the host then
+becomes the presenter and any viewer can request the hat from them as
+usual. Only available to a non-host presenter (yielding to yourself
+when you're already the host is a no-op).
+</p>
+
+<h3 id="host-takeover">Host takeover after silence</h3>
+
+<p>
+If the presenter goes silent - network drop, hard crash, laptop
+closed - the session would normally be stuck. To prevent that,
+the host (whoever started the session) gets a special <em>Take the
+hat</em> menu entry that becomes active once the presenter has been
+absent past the heartbeat deadline (~30&nbsp;seconds).
+</p>
+
+<div class="warn-box">
+    <strong>This is a host-only privilege</strong>
+    <em>Take the hat</em> bypasses the normal request-and-approve flow.
+    It is gated server-side: even a tampered client cannot send a
+    <code>hatTransferred</code> frame with the takeover reason from a
+    remote peer - only the host's own local code path is allowed
+    to escalate.
+</div>
+
+<hr>
+
+<h2 id="version-mismatch">Joining with an older version</h2>
+
+<p>
+If a peer on an older build joins the session, the wire protocol
+degrades gracefully but the older peer misses the UI affordances
+- they don't see the locks, the indicators, or the hat-pass
+menus. Their local edits never reach the rest of the session because
+the host's hunk validator drops anything that isn't from the current
+presenter; the net effect is one peer running a divergent local copy
+they can't share, which is confusing.
+</p>
+
+<p>
+Mismatches are detected automatically and surfaced on every peer that
+knows how to look:
+</p>
+
+<ul>
+<li><b>Host detects an older joiner:</b> a modal popup names the peer and explains what they won't see. The host can then ask them to update and reconnect.</li>
+<li><b>Joiner detects an older host:</b> the symmetric modal popup, triggered by the absence of the host's session-welcome handshake.</li>
+<li><b>Both peers on newer builds but different versions</b> (e.g. one on 1.7.2 and one on 1.7.5): a low-key status-bar tip on both sides. No modal - future versions are expected to remain wire-compatible.</li>
+</ul>
+
+<div class="screenshot-single">
+    <img src="screenshots/version-mismatch-modal.png" alt="Modal popup: Older peer connected - describes which features the older peer won't see and suggests asking them to update and reconnect.">
+    <p class="caption">"Blind generation" warning. The older peer can't
+    see any warning on <em>their</em> side, so the local user is the
+    only one who can act - hence the modal acknowledgement.</p>
+</div>
+
+<hr>
+
+<h2 id="differences-from-review">How is Show Mode different from Review Mode?</h2>
+
+<p>
+<a href="collab-lan.html">Review Mode</a> (added in v1.7.0) already
+lets the host approve each incoming edit before it lands. It might
+sound similar to Show Mode - both are about controlling what
+gets applied - but the intent is different:
+</p>
+
+<ul>
+<li><b>Review Mode:</b> anyone <em>can</em> edit, the host approves before applying. Edits pile up in a queue; the host cherry-picks. Useful for trust-asymmetric collaboration ("my AI agent is editing, I want to vet"). Good when there are simultaneous editors.</li>
+<li><b>Show Mode:</b> only the presenter <em>can</em> edit, viewers can't even attempt. No queue, no approval - just a one-way stream. Useful for zero-noise demonstrations.</li>
+</ul>
+
+<p>
+The two could be combined later (Review + Show = "presenter shows,
+host approves their edits before they land for everyone else") but
+that's not in the current scope.
+</p>
+
+<hr>
+
+<h2 id="see-also">See also</h2>
+
+<ul>
+<li><a href="collab-lan.html">LAN Live Session</a> - the underlying same-network transport that hosts Show sessions inside your LAN.</li>
+<li><a href="collab-wan.html">WAN Live Session</a> - the WebRTC transport for Show sessions across the internet.</li>
+<li><a href="collab-chat.html">Chat side-channel</a> - the in-session text chat panel. Works in both Edit and Show modes; viewers in Show mode can chat even though they can't edit MIDI - that's the whole point.</li>
+<li><a href="collab-settings.html">Collaboration settings</a> - ICE / rendezvous / heartbeat thresholds.</li>
+</ul>
+
+</main>
+
+<footer class="site-footer">
+    <div class="footer-links">
+        <a href="https://github.com/happytunesai/MidiEditor_AI" class="repo-link" target="_blank" rel="noopener noreferrer"><img class="repo-logo" src="Midieditor-ai_logo.png" alt="">GitHub Repo</a>
+        <a href="docs-index.html">Documentation</a>
+        <a href="collaboration.html">Collaboration</a>
+        <a href="https://github.com/happytunesai/MidiEditor_AI/issues" target="_blank" rel="noopener noreferrer">Issues</a>
+    </div>
+    <p class="footer-copy">MidiEditor AI &copy; 2026 &middot; <a href="https://github.com/happytunesai/MidiEditor_AI/blob/main/LICENSE">License</a></p>
+</footer>
+
+<button class="scroll-top" aria-label="Scroll to top">&#x2191;</button>
+<script src="lightbox.js"></script>
+<script src="navigation.js"></script>
+<script src="site.js"></script>
+</body>
+</html>

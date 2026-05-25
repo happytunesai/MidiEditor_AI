@@ -33,9 +33,11 @@
 #include <QMessageBox>
 #include <QMimeData>
 #include <QProgressDialog>
+#include <QScopedValueRollback>
 #include <QSet>
 #include <QSettings>
 #include <QSplitter>
+#include <QTabBar>
 #include <QTabWidget>
 #include <QToolBar>
 #include <QToolButton>
@@ -55,14 +57,17 @@
 
 #include <cmath>
 #include <algorithm>
+#include <optional>
 #include <QComboBox>
 
 #include "Appearance.h"
 #include "AboutDialog.h"
 #ifdef MIDIEDITOR_COLLAB_ENABLED
+#include "../collab/CollabIdentity.h"
 #include "../collab/CollabService.h"
 #include "../collab/LanLiveSession.h"
 #include "../collab/PrBundle.h"
+#include "collab/CollabChatWidget.h"
 #include "collab/CollabHistoryWidget.h"
 #include "collab/LanLiveJoinDialog.h"
 #include "collab/LanLiveStartDialog.h"
@@ -142,6 +147,7 @@
 #include "../tool/TempoTool.h"
 #include "PasteSpecialDialog.h"
 #include "../tool/TimeSignatureTool.h"
+#include "../tool/EditorTool.h"
 #include "../tool/Tool.h"
 #include "../tool/ToolButton.h"
 
@@ -771,6 +777,146 @@ MainWindow::MainWindow(QString initFile)
             if (_matrixWidgetContainer) _matrixWidgetContainer->update();
             if (eventWidget()) eventWidget()->reload();
         });
+
+        // Phase 9.11 §15.3: in-session chat sidebar tab. Visible only
+        // while a live session is active — outside a session there's
+        // no transport to chat over. Unread-badge logic flips the tab
+        // title to "Chat (N)" when messages arrive on another tab.
+        _collabChatWidget = new CollabChatWidget(lowerTabWidget);
+        int chatTabIndex = lowerTabWidget->addTab(_collabChatWidget, tr("Chat"));
+        QTabWidget *tabBarCapture = lowerTabWidget;
+        CollabChatWidget *chatCapture = _collabChatWidget;
+
+        // Polish 2026-05-21 / theme-fix 2026-05-24: blink the Chat tab
+        // while unread messages are pending and the user is on another
+        // tab. Two parallel signals so it works in every theme:
+        //   1. setTabTextColor() to accent orange — picked up by the
+        //      Classic theme + any other Fusion-style build.
+        //   2. A leading "● " marker prefixed to the tab text — picked
+        //      up by ALL themes including the QSS-styled Sakura /
+        //      MidiEditor AI themes, which override tabTextColor and
+        //      previously left the blink invisible (Sven 2026-05-24).
+        // Both reset on tab activation or session end.
+        _chatBlinkTimer = new QTimer(this);
+        _chatBlinkTimer->setInterval(600);
+        const QColor kBlinkAccent(QStringLiteral("#ff9933"));
+        QTabBar *chatTabBar = lowerTabWidget->tabBar();
+        // Remember the default color so we can restore it cleanly even
+        // if a theme switch happens mid-session.
+        QColor defaultColor = chatTabBar->tabTextColor(chatTabIndex);
+
+        // Computes the current tab text given blink phase + unread count.
+        // Captured by reference into the lambdas below so a changing
+        // _chatUnreadCount always reflects in the next refresh.
+        //
+        // Bugfix 2026-05-24 (Sven): toggle between a FILLED ● and a
+        // HOLLOW ○ instead of inserting / removing the prefix every
+        // tick. Both glyphs occupy the same width in every font Qt
+        // ships with, so the tab no longer breathes wider/narrower on
+        // every pulse — the visual change is just the glyph swap. The
+        // no-unread state still has no prefix; the one-time width
+        // jump on first-unread (Chat → ● Chat (1)) is unavoidable but
+        // it's a single transition, not a continuous flicker.
+        auto buildChatTabText = [this](bool blinkOn) {
+            QString base = (_chatUnreadCount > 0)
+                ? tr("Chat (%1)").arg(_chatUnreadCount)
+                : tr("Chat");
+            if (_chatUnreadCount == 0) return base;
+            return (blinkOn ? QStringLiteral("● ") : QStringLiteral("○ ")) + base;
+        };
+
+        connect(_chatBlinkTimer, &QTimer::timeout, this,
+                [this, tabBarCapture, chatTabBar, chatTabIndex,
+                 kBlinkAccent, defaultColor, buildChatTabText]() {
+                    _chatBlinkOn = !_chatBlinkOn;
+                    chatTabBar->setTabTextColor(chatTabIndex,
+                        _chatBlinkOn ? kBlinkAccent : defaultColor);
+                    tabBarCapture->setTabText(chatTabIndex,
+                        buildChatTabText(_chatBlinkOn));
+                });
+        auto stopChatBlink = [this, tabBarCapture, chatTabBar, chatTabIndex,
+                              defaultColor, buildChatTabText]() {
+            if (_chatBlinkTimer && _chatBlinkTimer->isActive())
+                _chatBlinkTimer->stop();
+            _chatBlinkOn = false;
+            chatTabBar->setTabTextColor(chatTabIndex, defaultColor);
+            // Restore the un-prefixed text in whichever form is current
+            // (with or without unread count — caller may have just
+            // cleared the count themselves).
+            tabBarCapture->setTabText(chatTabIndex, buildChatTabText(false));
+        };
+
+        // Tab visibility + input-enable state both follow the live
+        // session role: hidden + disabled while idle, visible + enabled
+        // otherwise. Pre-existing scrollback is wiped on every entry
+        // into / exit from a session (no persistence per §15.3).
+        auto refreshChatTab = [this, tabBarCapture, chatTabIndex, chatCapture,
+                               stopChatBlink]() {
+            bool active = (LanLiveSession::instance()->role()
+                           != LanLiveSession::Role::Idle);
+            tabBarCapture->setTabVisible(chatTabIndex, active);
+            chatCapture->setInputEnabled(active);
+            if (!active) {
+                chatCapture->clearChat();
+                // Reset any unread-count suffix + stop blinking.
+                _chatUnreadCount = 0;
+                tabBarCapture->setTabText(chatTabIndex, tr("Chat"));
+                stopChatBlink();
+            }
+        };
+        refreshChatTab();
+        connect(LanLiveSession::instance(), &LanLiveSession::roleChanged,
+                this, [refreshChatTab](LanLiveSession::Role) { refreshChatTab(); });
+
+        // Incoming chat → append to the widget.
+        connect(LanLiveSession::instance(), &LanLiveSession::chatMessageReceived,
+                this, [chatCapture](const QString &mid, const QString &name,
+                                    const QString &text, qint64 ts) {
+                    chatCapture->appendMessage(mid, name, text, ts);
+                });
+
+        // Dropped-message toast for the host's own messages: the host
+        // optimistically appended to the local chat widget before the
+        // wire send, but handleIncomingChat then dropped it on the
+        // 4 KB cap or the 200 ms-per-sender rate limit. Tell the user
+        // so they know their message didn't make it out — peers see
+        // nothing. (bughunter MEDIUM finding 2026-05-24)
+        connect(LanLiveSession::instance(), &LanLiveSession::chatMessageDropped,
+                this, [this](const QString &senderMid, const QString &reason) {
+                    if (senderMid != CollabIdentity::machineId()) return;
+                    statusBar()->showMessage(
+                        tr("Your last chat message wasn't delivered (%1). "
+                           "Other peers didn't see it.").arg(reason),
+                        8000);
+                });
+
+        // Unread-badge: track when messages land while the chat tab
+        // isn't the current one, and reset on tab activation. New
+        // messages also kick off the blink-timer so the change is
+        // visually obvious even if the user is focused elsewhere.
+        // Tab text goes through buildChatTabText so the blink prefix
+        // stays in sync regardless of which timer phase fires next.
+        connect(chatCapture, &CollabChatWidget::newMessageArrived,
+                this, [this, tabBarCapture, chatTabIndex, buildChatTabText]() {
+                    if (tabBarCapture->currentIndex() == chatTabIndex) return;
+                    _chatUnreadCount++;
+                    // Start in the "attention" phase (filled circle) so
+                    // the very first frame after a message arrives
+                    // doesn't show the calm hollow form. The timer
+                    // toggles from there.
+                    _chatBlinkOn = true;
+                    tabBarCapture->setTabText(chatTabIndex,
+                        buildChatTabText(_chatBlinkOn));
+                    if (_chatBlinkTimer && !_chatBlinkTimer->isActive())
+                        _chatBlinkTimer->start();
+                });
+        connect(lowerTabWidget, &QTabWidget::currentChanged, this,
+                [this, tabBarCapture, chatTabIndex, stopChatBlink](int idx) {
+                    if (idx != chatTabIndex) return;
+                    _chatUnreadCount = 0;
+                    tabBarCapture->setTabText(chatTabIndex, tr("Chat"));
+                    stopChatBlink();
+                });
     }
 #endif
 
@@ -894,6 +1040,40 @@ MainWindow::MainWindow(QString initFile)
         QString reviewSuffix = pending > 0
             ? tr("  •  %1 pending review").arg(pending)
             : QString();
+        // Phase 9.9e §15.2: Show-mode indicator suffix. 🎩 = presenter,
+        // 👀 = viewer (with the presenter's display name when known).
+        // Empty in Edit mode. Placed before reviewSuffix so the visual
+        // hierarchy reads "session → role → review state".
+        QString showSuffix;
+        if (svc->mode() == LanLiveSession::SessionMode::Show) {
+            if (svc->isPresenter()) {
+                showSuffix = tr("  •  🎩 PRESENTING");
+            } else {
+                // Resolve the presenter's display name from the peer
+                // list (host-side) or fall back to the host name (joiner
+                // side when the presenter is the host) or the raw
+                // machineId prefix.
+                QString presenterName;
+                if (svc->role() == LanLiveSession::Role::Hosting) {
+                    for (const auto &p : svc->connectedPeerInfo()) {
+                        if (p.first == svc->presenterMachineId()) {
+                            presenterName = p.second;
+                            break;
+                        }
+                    }
+                } else if (svc->role() == LanLiveSession::Role::Joined) {
+                    // On a joiner: if the presenter is the host, use the
+                    // host's display name. Otherwise we don't have a
+                    // peer-list (the joiner only sees the host), so fall
+                    // back to a short machineId.
+                    presenterName = svc->hostDisplayName();
+                }
+                if (presenterName.isEmpty()) {
+                    presenterName = svc->presenterMachineId().left(8);
+                }
+                showSuffix = tr("  •  👀 Watching %1").arg(presenterName);
+            }
+        }
         // Transport tag: musicians don't think in LAN/WAN, so surface it
         // as Local/Online (Plan §11.10k).
         QString transportTag;
@@ -911,13 +1091,14 @@ MainWindow::MainWindow(QString initFile)
                 QString core = (n == 0)
                     ? tr("%1: hosting (%2) — waiting for peers").arg(prefix, svc->pairingCode())
                     : tr("%1: hosting (%2) — %3 peer(s)").arg(prefix, svc->pairingCode()).arg(n);
-                _statusLiveSessionLabel->setText(core + reviewSuffix);
+                _statusLiveSessionLabel->setText(core + showSuffix + reviewSuffix);
                 _statusLiveSessionLabel->show();
                 break;
             }
             case LanLiveSession::Role::Joined:
                 _statusLiveSessionLabel->setText(
-                    tr("%1: joined %2").arg(prefix, svc->hostDisplayName()) + reviewSuffix);
+                    tr("%1: joined %2").arg(prefix, svc->hostDisplayName())
+                        + showSuffix + reviewSuffix);
                 _statusLiveSessionLabel->show();
                 break;
             case LanLiveSession::Role::Idle:
@@ -933,6 +1114,125 @@ MainWindow::MainWindow(QString initFile)
             this, refreshLiveLabel);
     connect(LanLiveSession::instance(), &LanLiveSession::pendingReviewChanged,
             this, [refreshLiveLabel](int) { refreshLiveLabel(); });
+
+    // Phase 9.9c §15.2: Show Mode viewer lock. Single applier — refreshes
+    // the matrix editing lock + (later) tool-button enable state from
+    // the live session's current mode + presenter pointer. Re-invoked on
+    // every signal that could move the lock state: role changes
+    // (joining/leaving), hat transfers, and the host's own takeover.
+    auto applyShowModeLock = [this]() {
+        LanLiveSession *svc = LanLiveSession::instance();
+        bool shouldLock =
+            (svc->role() != LanLiveSession::Role::Idle)
+            && (svc->mode() == LanLiveSession::SessionMode::Show)
+            && !svc->isPresenter();
+        if (mw_matrixWidget) mw_matrixWidget->setEditingLocked(shouldLock);
+        if (_midiPilotWidget) _midiPilotWidget->setShowModeLocked(shouldLock);
+        // Phase 9.9c §15.2 (Show-mode polish 2026-05-21): disable the
+        // top-level edit / tools / midi menus while we're a viewer.
+        // Mouse interaction in the matrix is already blocked by
+        // setEditingLocked, but menu-driven actions (Tempo Conversion,
+        // Channel Fixer, Quantize, etc.) wrote directly via Protocol
+        // — they'd produce local edits that diverge from the rest of
+        // the session. Greyed-out menus also surface visually that
+        // the editor is in view-only mode.
+        const bool menusEnabled = !shouldLock;
+        if (_editMenuForShowLock)
+            _editMenuForShowLock->menuAction()->setEnabled(menusEnabled);
+        if (_toolsMenuForShowLock)
+            _toolsMenuForShowLock->menuAction()->setEnabled(menusEnabled);
+        if (_midiMenuForShowLock)
+            _midiMenuForShowLock->menuAction()->setEnabled(menusEnabled);
+        // Polish 2026-05-21: also disable the toolbar widget. Menu-
+        // disable only greys out the menu-action — the same QActions
+        // are also bound to toolbar buttons (Channel Fixer, Explode
+        // Chords, Split Channels, etc.) AND to global keyboard
+        // shortcuts. The QActions stay individually enabled (we'd have
+        // to enumerate them all to flip each one), so disabling the
+        // toolbar widget container is the simplest catch-all. Playback
+        // controls live in the toolbar too, but the matching menu
+        // actions in `Playback` stay enabled, so the Space-bar
+        // play/pause shortcut still works for local audio preview.
+        if (_toolbarWidget) _toolbarWidget->setEnabled(menusEnabled);
+    };
+    connect(LanLiveSession::instance(), &LanLiveSession::roleChanged,
+            this, [applyShowModeLock](LanLiveSession::Role) { applyShowModeLock(); });
+    connect(LanLiveSession::instance(), &LanLiveSession::hatTransferred,
+            this, [applyShowModeLock, refreshLiveLabel](const QString &, const QString &, const QString &) {
+                applyShowModeLock();
+                refreshLiveLabel();
+            });
+    connect(LanLiveSession::instance(), &LanLiveSession::joined,
+            this, [applyShowModeLock](const QString &) { applyShowModeLock(); });
+    // bugfix 2026-05-21: sessionModeChanged is the authoritative trigger
+    // — it fires AFTER sessionWelcome has been processed on the joiner
+    // (joined fires too early, when _mode is still the Edit default).
+    // Drive both the lock and the status-bar indicator off of it.
+    connect(LanLiveSession::instance(), &LanLiveSession::sessionModeChanged,
+            this, [applyShowModeLock, refreshLiveLabel]() {
+                applyShowModeLock();
+                refreshLiveLabel();
+            });
+    applyShowModeLock();
+
+    // Phase 9.9f §15.2: presenter-side viewState broadcast on scroll.
+    // The connect is unconditional — broadcastLocalViewState bails out
+    // silently when not in Show mode / not the presenter. The throttle
+    // in LanLiveSession coalesces a rapid drag-scroll burst into one
+    // wire frame per 250 ms.
+    connect(mw_matrixWidget, &MatrixWidget::scrollChanged, this,
+            [this](int, int, int, int) { broadcastLocalViewState(); });
+    // Viewer-side: apply the presenter's viewState when it lands.
+    connect(LanLiveSession::instance(), &LanLiveSession::viewStateReceived,
+            this, [this](const LiveSession::ViewportState &vp,
+                         const QVector<bool> &tracks,
+                         const QVector<bool> &channels) {
+                applyRemoteViewState(vp, tracks, channels);
+            });
+    // Show-mode playback trigger from the presenter: seek to the
+    // presenter's cursor tick then start / stop the local player.
+    // _applyingRemotePlayback flag prevents the local play() / stop()
+    // from re-broadcasting back to the presenter.
+    connect(LanLiveSession::instance(), &LanLiveSession::playbackTriggerReceived,
+            this, [this](const QString &action, int tickPosition) {
+                if (!file) return;
+                // QScopedValueRollback so re-entry (e.g. the modal
+                // CompleteMidiSetupDialog play() opens spinning a
+                // nested event loop that processes another inbound
+                // trigger) restores the flag to the OUTER scope's
+                // value, not unconditionally false. Without this an
+                // inner cleanup would clear the flag while the outer
+                // call is still running, and a concurrent local
+                // user click would wrongly broadcast. (bughunter
+                // MEDIUM finding 2026-05-24)
+                QScopedValueRollback<bool> guard(_applyingRemotePlayback, true);
+                if (action == QLatin1String("start")) {
+                    if (tickPosition >= 0) file->setCursorTick(tickPosition);
+                    play();
+                } else if (action == QLatin1String("stop")) {
+                    stop();
+                }
+            });
+    // Also: when the presenter newly takes the hat (mode changes, hat
+    // transfers), send an initial viewState so any current viewer
+    // adopts the now-active view immediately. The throttle absorbs
+    // the duplicate if the presenter scrolls right after.
+    connect(LanLiveSession::instance(), &LanLiveSession::sessionModeChanged,
+            this, [this]() { broadcastLocalViewState(); });
+    // Phase 9.9f §15.2 (extension 2026-05-21): tool-change observer.
+    // Wire a static callback (Tool.h doesn't depend on QObject) that
+    // pushes a broadcast whenever the local user picks a new tool.
+    // The function-pointer pattern keeps the tool module decoupled
+    // from MainWindow / collab; the lambda → static-bridge pattern
+    // captures `this` implicitly via the static MainWindow pointer
+    // — instead we read s_mainWindowForTool below and avoid any
+    // captures. Live for the rest of the process; never unregistered
+    // because there's only ever one MainWindow.
+    static MainWindow *s_mainWindowForTool = this;
+    Tool::setToolChangedCallback(+[](EditorTool *) {
+        if (s_mainWindowForTool) s_mainWindowForTool->broadcastLocalViewState();
+    });
+
     refreshLiveLabel();
 #endif
 
@@ -1068,7 +1368,187 @@ void MainWindow::scrollPositionsChanged(int startMs, int maxMs, int startLine,
     hori->setValue(clampedStartMs);
     vert->setMaximum(maxLine);
     vert->setValue(startLine);
+#ifdef MIDIEDITOR_COLLAB_ENABLED
+    // Phase 9.9f §15.2: shadow the current viewport so the
+    // presenter-side viewState broadcast can read it later. We don't
+    // broadcast directly here — the actionFinished signal already does
+    // (visibility changes), and a dedicated lambda connected to
+    // mw_matrixWidget->scrollChanged handles the scroll case.
+    _viewStartMs   = startMs;
+    _viewMaxMs     = maxMs;
+    _viewStartLine = startLine;
+    _viewMaxLine   = maxLine;
+#endif
 }
+
+#ifdef MIDIEDITOR_COLLAB_ENABLED
+void MainWindow::broadcastLocalViewState() {
+    if (!file) return;
+    // Skip while we're applying a remote view-state — otherwise the
+    // remote scroll would trigger our scrollChanged → broadcast →
+    // host re-broadcast → us, looping forever.
+    if (_applyingRemoteViewState) return;
+
+    LiveSession::ViewportState vp;
+    vp.startMs   = _viewStartMs;
+    vp.maxMs     = _viewMaxMs;
+    vp.startLine = _viewStartLine;
+    vp.maxLine   = _viewMaxLine;
+    // bugfix 2026-05-21 (Sven's report): ship the zoom factors too,
+    // so the viewer can run applyZoom() BEFORE scrollYChanged. Without
+    // this, the viewer's wider visible-line count made scrollYChanged
+    // clamp startLineY to 0 ("top of piano roll"), regardless of
+    // where the presenter actually was.
+    if (mw_matrixWidget) {
+        vp.scaleX = mw_matrixWidget->currentScaleX();
+        vp.scaleY = mw_matrixWidget->currentScaleY();
+        // Fit-to-focus extents (2026-05-21 follow-up): ship the host's
+        // visible-region end coordinates. Viewer uses these to fit
+        // its own viewport to the SAME content area, independent of
+        // window size. Without this the 1:1 scroll mirror snapped to
+        // "top" whenever the viewer's window was wider than the host.
+        vp.focusEndMs   = mw_matrixWidget->visibleEndMs();
+        vp.focusEndLine = mw_matrixWidget->visibleEndLine();
+    }
+    // Phase 9.9f extension 2026-05-21: include the presenter's edit
+    // cursor + active tool name so viewers see where the host is
+    // working and which tool they're using.
+    vp.cursorTick = file->cursorTick();
+    EditorTool *t = Tool::currentTool();
+    if (t) vp.activeToolName = t->toolTip();
+    // Selection mirror (2026-05-21 — Sven's follow-up): ship the
+    // presenter's selected events as identity tuples so the viewer
+    // can highlight the same notes. Empty when nothing's selected.
+    QList<MidiEvent *> sel = Selection::instance()->selectedEvents();
+    vp.selectedEvents.reserve(sel.size());
+    for (MidiEvent *ev : sel) {
+        if (!ev) continue;
+        LiveSession::ViewportState::SelectedEventId id;
+        id.tick    = ev->midiTime();
+        id.channel = ev->channel();
+        id.line    = ev->line();
+        id.type    = ev->typeString();
+        vp.selectedEvents.append(id);
+    }
+
+    QVector<bool> tracks, channels;
+    tracks.reserve(file->numTracks());
+    for (int i = 0; i < file->numTracks(); i++) {
+        MidiTrack *t = file->track(i);
+        tracks.append(t ? !t->hidden() : true);
+    }
+    channels.reserve(16);
+    for (int i = 0; i < 16; i++) {
+        MidiChannel *c = file->channel(i);
+        channels.append(c ? c->visible() : true);
+    }
+    LanLiveSession::instance()->broadcastViewState(vp, tracks, channels);
+}
+
+void MainWindow::applyRemoteViewState(
+        const LiveSession::ViewportState &viewport,
+        const QVector<bool> &trackVisibility,
+        const QVector<bool> &channelVisibility) {
+    if (!file) return;
+    // QScopedValueRollback so a nested re-entry (e.g. updateAll() or a
+    // setCursorTick callback chain that spins a transient event loop)
+    // restores the flag to the OUTER scope's value rather than
+    // unconditionally clearing it on the inner return. See the parallel
+    // fix in the playbackTriggerReceived lambda above. (bughunter
+    // MEDIUM finding 2026-05-24)
+    QScopedValueRollback<bool> guard(_applyingRemoteViewState, true);
+    // Visibility first — fires no signals (silent setters), so we
+    // batch them then issue a single repaint at the end.
+    for (int i = 0; i < trackVisibility.size() && i < file->numTracks(); i++) {
+        MidiTrack *t = file->track(i);
+        if (t) t->setHiddenSilent(!trackVisibility[i]);
+    }
+    for (int i = 0; i < channelVisibility.size() && i < 16; i++) {
+        MidiChannel *c = file->channel(i);
+        if (c) c->setVisibleSilent(channelVisibility[i]);
+    }
+    if (mw_matrixWidget) {
+        // Fit-to-focus mode (preferred — Sven's design choice
+        // 2026-05-21): when the wire frame carries focus extents,
+        // resize the local viewport to fit the presenter's visible
+        // region. Computes the right scale locally based on the
+        // VIEWER's pixel geometry, so window/zoom mismatches no
+        // longer push startLineY to 0.
+        const bool haveFocusExtents = (viewport.focusEndMs   >= 0
+                                       && viewport.focusEndLine >= 0
+                                       && viewport.focusEndMs   > viewport.startMs
+                                       && viewport.focusEndLine > viewport.startLine);
+        if (haveFocusExtents) {
+            mw_matrixWidget->fitToFocus(viewport.startMs,
+                                         viewport.focusEndMs,
+                                         viewport.startLine,
+                                         viewport.focusEndLine);
+        } else {
+            // Legacy fallback (initial-v1.7.2 builds without focus
+            // extents): mirror scale + scroll 1:1. Imperfect when
+            // window sizes differ but better than nothing.
+            mw_matrixWidget->applyZoom(viewport.scaleX, viewport.scaleY);
+            mw_matrixWidget->scrollXChanged(viewport.startMs);
+            mw_matrixWidget->scrollYChanged(viewport.startLine);
+        }
+    }
+    // Edit-cursor (Phase 9.9f extension 2026-05-21): mirror the
+    // presenter's cursorTick so the viewer's playhead / edit-marker
+    // sits on the same beat as the host's. -1 = "unknown" sentinel —
+    // skip then so a legacy frame doesn't snap our cursor to position
+    // -1 (which would error).
+    if (viewport.cursorTick >= 0) {
+        file->setCursorTick(viewport.cursorTick);
+    }
+    // Active tool indicator (Phase 9.9f extension 2026-05-21): a
+    // transient status-bar message telling the viewer which tool the
+    // presenter is using. Re-fires on every viewState update — the
+    // status bar's auto-clear timeout means it stays visible while
+    // the presenter is active, then fades when the throttle stops.
+    if (!viewport.activeToolName.isEmpty()) {
+        statusBar()->showMessage(
+            tr("Presenter is using: %1").arg(viewport.activeToolName), 3000);
+    }
+
+    // Selection mirror (2026-05-21): rebuild the local selection from
+    // the presenter's tuples so the same notes appear highlighted.
+    // Empty tuple list clears the selection. We scan each channel
+    // once and check each event against the tuple set — O(N_events *
+    // N_selected). For typical FFXIV sessions both are small; if it
+    // ever becomes hot we can build a (tick, channel, line)→event
+    // index once per frame.
+    {
+        QList<MidiEvent *> mirrored;
+        if (!viewport.selectedEvents.isEmpty()) {
+            // Build a fast lookup keyed on the tuple so the per-event
+            // check is O(1) instead of O(N_selected).
+            QSet<QString> wanted;
+            wanted.reserve(viewport.selectedEvents.size());
+            for (const auto &id : viewport.selectedEvents) {
+                wanted.insert(QStringLiteral("%1|%2|%3|%4")
+                                  .arg(id.tick).arg(id.channel)
+                                  .arg(id.line).arg(id.type));
+            }
+            for (int ch = 0; ch < 19; ch++) {
+                MidiChannel *c = file->channel(ch);
+                if (!c) continue;
+                for (MidiEvent *ev : c->eventMap()->values()) {
+                    if (!ev) continue;
+                    QString key = QStringLiteral("%1|%2|%3|%4")
+                        .arg(ev->midiTime()).arg(ev->channel())
+                        .arg(ev->line()).arg(ev->typeString());
+                    if (wanted.contains(key)) mirrored.append(ev);
+                }
+            }
+        }
+        Selection::instance()->setSelectionSilent(mirrored);
+    }
+
+    // Force redraw + sidebar refresh so the visibility flips are seen.
+    updateAll();
+    // _applyingRemoteViewState restored automatically by guard at scope exit.
+}
+#endif
 
 void MainWindow::setFile(MidiFile *newFile) {
     // Store reference to old file for cleanup
@@ -1103,6 +1583,20 @@ void MainWindow::setFile(MidiFile *newFile) {
     connect(newFile->protocol(), SIGNAL(actionFinished()), eventWidget(), SLOT(reload()));
     connect(newFile->protocol(), SIGNAL(actionFinished()), this, SLOT(checkEnableActionsForSelection()));
     connect(newFile->protocol(), SIGNAL(actionFinished()), this, SLOT(updateStatusBar()));
+#ifdef MIDIEDITOR_COLLAB_ENABLED
+    // Phase 9.9f §15.2: piggyback on actionFinished to broadcast the
+    // presenter's view-state (track/channel visibility primarily —
+    // those changes go through Protocol via setHidden/setVisible).
+    // broadcastViewState is internally guarded on role+mode+isPresenter,
+    // so this connect is safe even outside Show mode (silent no-op).
+    // The throttle in LanLiveSession coalesces rapid sequences.
+    connect(newFile->protocol(), &Protocol::actionFinished, this,
+            [this]() { broadcastLocalViewState(); });
+    // Same for cursor moves — file emits cursorPositionChanged whenever
+    // setCursorTick lands. Lets viewers see where the host is editing.
+    connect(newFile, &MidiFile::cursorPositionChanged, this,
+            [this]() { broadcastLocalViewState(); });
+#endif
 
     // Refresh LyricManager from MIDI events after undo/redo so blocks stay in sync
     connect(newFile->protocol(), &Protocol::undoRedoPerformed, newFile->lyricManager(), &LyricManager::importFromTextEvents);
@@ -1254,6 +1748,15 @@ void MainWindow::play() {
 
         MidiPlayer::play(file);
         connect(MidiPlayer::playerThread(), SIGNAL(playerStopped()), this, SLOT(stop()));
+#ifdef MIDIEDITOR_COLLAB_ENABLED
+        // Show-mode follow-the-host: presenter's Play click → broadcast
+        // so viewers can play along in their own editor. Guarded
+        // against re-entry from a remote-trigger application path.
+        if (!_applyingRemotePlayback) {
+            LanLiveSession::instance()->broadcastPlayback(
+                QStringLiteral("start"), file->cursorTick());
+        }
+#endif
 
         // Connect playback cursor updates for all platforms (not just Windows)
         // This is essential for the playback cursor to move during playback
@@ -1378,6 +1881,14 @@ void MainWindow::stop(bool autoConfirmRecord, bool addEvents, bool resetPause) {
     }
 
     disconnect(MidiPlayer::playerThread(), SIGNAL(playerStopped()), this, SLOT(stop()));
+#ifdef MIDIEDITOR_COLLAB_ENABLED
+    // Show-mode follow-the-host: presenter's Stop → broadcast. Same
+    // re-entry guard as the play() path.
+    if (!_applyingRemotePlayback && MidiPlayer::isPlaying()) {
+        LanLiveSession::instance()->broadcastPlayback(
+            QStringLiteral("stop"), file->cursorTick());
+    }
+#endif
 
     if (resetPause) {
         file->setPauseTick(-1);
@@ -4208,6 +4719,17 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
     QMenu *midiMB = menuBar()->addMenu(tr("Midi"));
     QMenu *helpMB = menuBar()->addMenu(tr("Help"));
 
+#ifdef MIDIEDITOR_COLLAB_ENABLED
+    // Phase 9.9c §15.2: stash pointers so the applyShowModeLock lambda
+    // (defined earlier in the constructor) can disable them when the
+    // local peer is a Show-mode viewer. Edit / Tools / Midi all contain
+    // MIDI-mutating actions; File stays enabled (Save, Collab submenu),
+    // View / Playback / Help are read-only.
+    _editMenuForShowLock  = editMB;
+    _toolsMenuForShowLock = toolsMB;
+    _midiMenuForShowLock  = midiMB;
+#endif
+
     // File
     QAction *newAction = new QAction(tr("New"), this);
     newAction->setShortcut(QKeySequence::New);
@@ -4446,18 +4968,50 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
         return true;
     };
 
+    // Phase 9.9 §15.2: ask the user which editing-rights model to use
+    // before spinning up the session. Returns std::nullopt if the user
+    // cancelled. The picker is intentionally a small modal QMessageBox
+    // here for the 9.9a MVP — once Phase 9.9d ships the hat-pass UI, the
+    // existing LanLiveStartDialog / WebRtcStartDialog will absorb the
+    // mode picker so the user only sees one dialog.
+    auto pickSessionMode =
+            [this](const QString &flowName) -> std::optional<LanLiveSession::SessionMode> {
+        QMessageBox mb(this);
+        mb.setIcon(QMessageBox::Question);
+        mb.setWindowTitle(flowName);
+        mb.setText(tr("How should peers be able to edit?"));
+        mb.setInformativeText(
+            tr("Edit mode: every peer can edit and broadcast changes "
+               "(the original co-editing behaviour).\n\n"
+               "Show mode: only you can edit; other peers see your "
+               "edits live but cannot contribute. The hat (= editing "
+               "rights) can be passed to a peer later, one at a time. "
+               "Useful for tutorials, demos, and walkthroughs."));
+        QPushButton *editBtn = mb.addButton(tr("Edit"), QMessageBox::AcceptRole);
+        QPushButton *showBtn = mb.addButton(tr("Show"), QMessageBox::AcceptRole);
+        mb.addButton(QMessageBox::Cancel);
+        mb.setDefaultButton(editBtn);
+        mb.exec();
+        QAbstractButton *clicked = mb.clickedButton();
+        if (clicked == editBtn) return LanLiveSession::SessionMode::Edit;
+        if (clicked == showBtn) return LanLiveSession::SessionMode::Show;
+        return std::nullopt;
+    };
+
     QAction *lanStartAction = new QAction(tr("Start LAN Live Session..."), this);
     lanStartAction->setStatusTip(tr("Host a real-time co-editing session for peers on the same local network."));
     collabMenu->addAction(lanStartAction);
-    connect(lanStartAction, &QAction::triggered, this, [this, prepareHostFile]() {
+    connect(lanStartAction, &QAction::triggered, this, [this, prepareHostFile, pickSessionMode]() {
         if (!file) {
             QMessageBox::information(this, tr("LAN Live Session"),
                 tr("Open a MIDI file first — there's nothing to sync yet."));
             return;
         }
+        auto mode = pickSessionMode(tr("LAN Live Session"));
+        if (!mode) return;  // user cancelled
         if (!prepareHostFile(tr("LAN Live Session"))) return;
         LanLiveSession *svc = LanLiveSession::instance();
-        QString code = svc->startHosting(file);
+        QString code = svc->startHosting(file, *mode);
         if (code.isEmpty()) {
             QMessageBox::warning(this, tr("LAN Live Session"),
                 tr("Could not start the LAN session (TCP port or multicast bind failed)."));
@@ -4655,12 +5209,17 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
             this, [refreshLeaveLabel](LanLiveSession::Role) { refreshLeaveLabel(); });
     refreshLeaveLabel();
 
+    // Hoisted to outer scope so the refreshCollabMenu lambda below can
+    // grey them out during an active session. Left as nullptr in
+    // non-WAN builds; lambda checks before dereferencing.
+    QAction *rtcStartAction = nullptr;
+    QAction *rtcJoinAction = nullptr;
 #ifdef MIDIEDITOR_WEBRTC_ENABLED
     // Phase 9.6 — code-based WAN session entries. The 4-character code
     // is exchanged via the Cloudflare rendezvous worker; once the data
     // channel opens, edits flow over WebRTC peer-to-peer.
     collabMenu->addSeparator();
-    QAction *rtcStartAction = new QAction(tr("Start WAN Live Session…"), this);
+    rtcStartAction = new QAction(tr("Start WAN Live Session…"), this);
     rtcStartAction->setStatusTip(tr("Host a live session over the internet — "
                                      "share a 4-character code with one peer to connect."));
     collabMenu->addAction(rtcStartAction);
@@ -4697,16 +5256,18 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
     };
 
     connect(rtcStartAction, &QAction::triggered, this,
-            [this, preflightRendezvous, prepareHostFile]() {
+            [this, preflightRendezvous, prepareHostFile, pickSessionMode]() {
         if (!file) {
             QMessageBox::information(this, tr("WAN Live Session"),
                 tr("Open a MIDI file first — there's nothing to sync yet."));
             return;
         }
+        auto mode = pickSessionMode(tr("WAN Live Session"));
+        if (!mode) return;  // user cancelled
         if (!prepareHostFile(tr("WAN Live Session"))) return;
-        preflightRendezvous(tr("WAN Live Session"), [this]() {
+        preflightRendezvous(tr("WAN Live Session"), [this, mode]() {
             LanLiveSession *svc = LanLiveSession::instance();
-            if (!svc->startHostingWan(file)) {
+            if (!svc->startHostingWan(file, *mode)) {
                 QMessageBox::warning(this, tr("WAN Live Session"),
                     tr("Could not start the WAN session (transport setup failed)."));
                 return;
@@ -4718,7 +5279,7 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
         });
     });
 
-    QAction *rtcJoinAction = new QAction(tr("Join WAN Live Session…"), this);
+    rtcJoinAction = new QAction(tr("Join WAN Live Session…"), this);
     rtcJoinAction->setStatusTip(tr("Connect to a peer over the internet using the "
                                     "4-character code they shared with you."));
     collabMenu->addAction(rtcJoinAction);
@@ -4783,6 +5344,222 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
         // Cancel: keep queue intact for later review.
     });
 
+    // ---- Mid-session mode switch (host-only toggle) ------------------
+
+    collabMenu->addSeparator();
+
+    QAction *switchModeAction = new QAction(tr("Switch session mode"), this);
+    switchModeAction->setStatusTip(
+        tr("Host-only: flip the active session between Edit (everyone "
+           "edits) and Show (you become the presenter, others watch). "
+           "Useful for ad-hoc demos in the middle of a co-edit session."));
+    switchModeAction->setShortcut(QKeySequence(QKeyCombination(Qt::CTRL | Qt::SHIFT, Qt::Key_M)));
+    _defaultShortcuts["switch_session_mode"] = QList<QKeySequence>() << switchModeAction->shortcut();
+    _actionMap["switch_session_mode"] = switchModeAction;
+    collabMenu->addAction(switchModeAction);
+    connect(switchModeAction, &QAction::triggered, this, [this]() {
+        LanLiveSession *svc = LanLiveSession::instance();
+        if (svc->role() != LanLiveSession::Role::Hosting) return;
+        LanLiveSession::SessionMode target =
+            (svc->mode() == LanLiveSession::SessionMode::Show)
+                ? LanLiveSession::SessionMode::Edit
+                : LanLiveSession::SessionMode::Show;
+        svc->switchSessionMode(target);
+    });
+
+    // ---- Hat-pass actions (Phase 9.9d §15.2) ------------------------
+
+    collabMenu->addSeparator();
+
+    // "Pass the hat to..." — visible only while we hold the hat.
+    QAction *passHatAction = new QAction(tr("Pass the hat to..."), this);
+    passHatAction->setStatusTip(
+        tr("Show Mode: hand editing rights to a peer. Only the current "
+           "presenter can transfer the hat."));
+    collabMenu->addAction(passHatAction);
+    connect(passHatAction, &QAction::triggered, this, [this]() {
+        LanLiveSession *svc = LanLiveSession::instance();
+        auto peers = svc->connectedPeerInfo();
+        if (peers.isEmpty()) {
+            QMessageBox::information(this, tr("Pass the hat"),
+                tr("No peers are currently connected to pass the hat to."));
+            return;
+        }
+        QStringList labels;
+        for (const auto &p : peers) labels.append(p.second);
+        bool ok = false;
+        QString chosen = QInputDialog::getItem(this, tr("Pass the hat"),
+            tr("Choose a peer to hand editing rights to:"),
+            labels, 0, false, &ok);
+        if (!ok || chosen.isEmpty()) return;
+        int idx = labels.indexOf(chosen);
+        if (idx < 0) return;
+        svc->transferHatTo(peers[idx].first, peers[idx].second);
+    });
+
+    // "Yield the hat" — presenter (non-host) gives the hat back to
+    // the host without a specific successor. The host then becomes
+    // presenter and can re-distribute or hold.
+    QAction *yieldHatAction = new QAction(tr("Yield the hat"), this);
+    yieldHatAction->setStatusTip(
+        tr("Show Mode: hand the hat back to the host without picking a "
+           "specific successor. Useful when you're done presenting and "
+           "have no particular next presenter in mind."));
+    collabMenu->addAction(yieldHatAction);
+    connect(yieldHatAction, &QAction::triggered, this, [this]() {
+        LanLiveSession::instance()->yieldHat();
+    });
+
+    // "Request the hat" — visible only while we are a viewer.
+    QAction *requestHatAction = new QAction(tr("Request the hat"), this);
+    requestHatAction->setStatusTip(
+        tr("Show Mode: ask the current presenter for editing rights. "
+           "They will see a prompt and can accept or decline."));
+    collabMenu->addAction(requestHatAction);
+    connect(requestHatAction, &QAction::triggered, this, [this]() {
+        LanLiveSession::instance()->requestHat();
+        statusBar()->showMessage(tr("Hat request sent to the presenter."), 4000);
+    });
+
+    // "Take the hat" — host-only privilege when the presenter has been
+    // silent past the heartbeat deadline.
+    QAction *takeHatAction = new QAction(tr("Take the hat"), this);
+    takeHatAction->setStatusTip(
+        tr("Show Mode: host privilege — reclaim the hat when the current "
+           "presenter has stopped responding."));
+    collabMenu->addAction(takeHatAction);
+    connect(takeHatAction, &QAction::triggered, this, [this]() {
+        LanLiveSession::instance()->hostTakeHat();
+    });
+
+    // Presenter notification on incoming requestHat.
+    connect(LanLiveSession::instance(), &LanLiveSession::hatRequested,
+            this, [this](const QString &reqName, const QString &reqMid) {
+                LanLiveSession *svc = LanLiveSession::instance();
+                if (!svc->isPresenter()) return;  // not for us
+                QMessageBox mb(this);
+                mb.setIcon(QMessageBox::Question);
+                mb.setWindowTitle(tr("Hat request"));
+                mb.setText(tr("%1 is requesting the hat.").arg(reqName));
+                mb.setInformativeText(
+                    tr("Accept to hand them editing rights, or decline "
+                       "to keep the hat."));
+                QPushButton *acceptBtn = mb.addButton(tr("Accept"), QMessageBox::AcceptRole);
+                mb.addButton(tr("Decline"), QMessageBox::RejectRole);
+                mb.setDefaultButton(acceptBtn);
+                mb.exec();
+                if (mb.clickedButton() == acceptBtn) {
+                    svc->transferHatTo(reqMid, reqName);
+                } else {
+                    statusBar()->showMessage(
+                        tr("Hat request from %1 declined.").arg(reqName), 4000);
+                }
+            });
+
+    // Transfer failed (e.g. target peer disconnected) — toast it.
+    connect(LanLiveSession::instance(), &LanLiveSession::hatTransferRejected,
+            this, [this](const QString &reason) {
+                statusBar()->showMessage(reason, 6000);
+            });
+
+    // Successful transfer — toast on every peer (status bar already
+    // refreshes via the connection wired earlier).
+    connect(LanLiveSession::instance(), &LanLiveSession::hatTransferred,
+            this, [this](const QString &mid, const QString &name, const QString &reason) {
+                Q_UNUSED(mid);
+                if (reason == QLatin1String("host-takeover")) {
+                    statusBar()->showMessage(
+                        tr("Host took the hat (presenter was silent)."), 4000);
+                } else if (reason == QLatin1String("yield")) {
+                    statusBar()->showMessage(
+                        tr("Presenter yielded the hat back to %1.").arg(name), 4000);
+                } else {
+                    statusBar()->showMessage(
+                        tr("Hat is now held by %1.").arg(name), 4000);
+                }
+            });
+
+    // ---- v1.7.2 §15.4: version-mismatch warnings -------------------
+    //
+    // Three distinct cases, each with a tailored message:
+    //   1. Host (us) sees a joiner with empty appVersion → pre-1.7.2.
+    //      That peer's UI has NO reverse warning, so the local user
+    //      is the only one who can act. Long timeout (12 s) so they
+    //      have time to read + act.
+    //   2. Host sees a joiner on a different but-not-empty version
+    //      → both sides will see warnings, lower urgency, 8 s.
+    //   3. Joiner detects a legacy host (no sessionWelcome at all)
+    //      OR a mismatched-version host. The legacy case carries
+    //      the same "older than 1.7.2" emphasis as case 1.
+
+    // bugfix 2026-05-21: in-flight statusMessage emits from the
+    // reconciliation / snapshot / sidecar paths land in the status bar
+    // RIGHT AFTER our version warning and overwrite it. Two-pronged fix:
+    //   - Blind-generation case (peerVer empty / legacy host) ⇒ modal
+    //     QMessageBox::information. Important enough to acknowledge,
+    //     and modal can't be overwritten.
+    //   - Matched-but-different versions ⇒ status bar with a small
+    //     delay so the other immediate emits land first.
+
+    connect(LanLiveSession::instance(), &LanLiveSession::peerVersionMismatch,
+            this, [this](const QString &peerName, const QString &,
+                         const QString &peerVer, const QString &ourVer) {
+                if (peerVer.isEmpty()) {
+                    // Pre-1.7.2 "blind generation" — modal so the host
+                    // user has to acknowledge. They're the only one
+                    // who can act because the joiner's build has no
+                    // reverse-warning code.
+                    QMessageBox::information(this,
+                        tr("Older peer connected"),
+                        tr("Peer %1 is on an older build (pre-%2).\n\n"
+                           "They will not see chat messages, Show Mode "
+                           "locks, or version warnings on their side. "
+                           "Their local edits won't reach the rest of the "
+                           "session if you're in Show Mode.\n\n"
+                           "Consider asking them to update and reconnect.")
+                            .arg(peerName, ourVer));
+                } else {
+                    QString msg = tr("Peer %1 is on v%2 — you are on v%3. "
+                                     "Some features may behave differently "
+                                     "between the two builds.")
+                                      .arg(peerName, peerVer, ourVer);
+                    QTimer::singleShot(600, this, [this, msg]() {
+                        statusBar()->showMessage(msg, 12000);
+                    });
+                }
+            });
+
+    connect(LanLiveSession::instance(), &LanLiveSession::hostVersionMismatch,
+            this, [this](const QString &hostVer, const QString &ourVer) {
+                QString msg = tr("Host is on v%1 — you are on v%2. Some "
+                                 "features may behave differently between "
+                                 "the two builds.")
+                                  .arg(hostVer, ourVer);
+                QTimer::singleShot(600, this, [this, msg]() {
+                    statusBar()->showMessage(msg, 12000);
+                });
+            });
+
+    connect(LanLiveSession::instance(), &LanLiveSession::legacyHostDetected,
+            this, [this]() {
+                QString ourVer;
+#ifdef MIDIEDITOR_RELEASE_VERSION_STRING_DEF
+                ourVer = QStringLiteral(MIDIEDITOR_RELEASE_VERSION_STRING_DEF);
+#endif
+                // Pre-1.7.2 host — modal, same rationale as the
+                // peer-side blind-generation case above. Legacy host
+                // won't see ANY of our warnings either, so the local
+                // user is the only one who can act.
+                QMessageBox::information(this,
+                    tr("Host is on an older build"),
+                    tr("Host is on an older build (pre-%1).\n\n"
+                       "Chat and Show Mode features won't work — they "
+                       "also can't see any warnings on their side.\n\n"
+                       "Ask them to update and rejoin to get the full "
+                       "experience.")
+                        .arg(ourVer.isEmpty() ? QStringLiteral("1.7.2") : ourVer));
+            });
+
     // Leave Live Session at the very bottom of the collab menu so the
     // destructive action sits furthest from accidental clicks.
     collabMenu->addSeparator();
@@ -4790,7 +5567,10 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
 
     auto refreshCollabMenu = [collabMenu, collabCreatePrAction, collabCompactAction, collabImportPrAction,
                               lanStartAction, lanJoinAction, lanLeaveAction,
-                              lanReviewModeAction, lanReviewPendingAction]() {
+                              rtcStartAction, rtcJoinAction,
+                              lanReviewModeAction, lanReviewPendingAction,
+                              passHatAction, requestHatAction, takeHatAction,
+                              switchModeAction, yieldHatAction]() {
         CollabService *svc = CollabService::instance();
         bool enabled = svc->isEnabled();
         collabMenu->menuAction()->setVisible(enabled);
@@ -4810,10 +5590,47 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
         // joining is always available — the host will provide the .mid.
         lanStartAction->setEnabled(enabled && lanIdle && svc->hasCurrentFile());
         lanJoinAction->setEnabled(enabled && lanIdle);
+        // 2026-05-24: WAN equivalents were missing from the enable
+        // gate, so they stayed clickable during an active session.
+        // Nullptr-guarded so non-WAN builds still compile.
+        if (rtcStartAction) rtcStartAction->setEnabled(enabled && lanIdle && svc->hasCurrentFile());
+        if (rtcJoinAction)  rtcJoinAction->setEnabled(enabled && lanIdle);
         lanLeaveAction->setEnabled(enabled && !lanIdle);
         lanReviewModeAction->setEnabled(enabled);
         lanReviewPendingAction->setEnabled(
             enabled && LanLiveSession::instance()->pendingReviewHunkCount() > 0);
+
+        // Phase 9.9d §15.2: hat-pass action visibility. Each action
+        // hides entirely when not applicable so the menu doesn't grow
+        // a wall of perpetually-greyed-out entries in Edit mode.
+        LanLiveSession *live = LanLiveSession::instance();
+        bool inShow = (!lanIdle
+                       && live->mode() == LanLiveSession::SessionMode::Show);
+        bool localIsPresenter = inShow && live->isPresenter();
+        bool localIsViewer = inShow && !localIsPresenter;
+        bool isHost = (lanRole == LanLiveSession::Role::Hosting);
+
+        passHatAction->setVisible(localIsPresenter);
+        passHatAction->setEnabled(localIsPresenter && live->peerCount() > 0);
+
+        // Yield-the-hat: visible when we're presenter AND not host
+        // (yield-to-self is meaningless — host can just keep the hat).
+        yieldHatAction->setVisible(localIsPresenter && !isHost);
+        yieldHatAction->setEnabled(localIsPresenter && !isHost);
+
+        requestHatAction->setVisible(localIsViewer);
+        requestHatAction->setEnabled(localIsViewer);
+
+        takeHatAction->setVisible(inShow && isHost && !localIsPresenter);
+        takeHatAction->setEnabled(live->hostCanTakeHat());
+
+        // Mid-session mode-switch toggle (host-only). Text reflects
+        // the target mode so the user reads what's about to happen.
+        switchModeAction->setVisible(!lanIdle && isHost);
+        switchModeAction->setEnabled(!lanIdle && isHost);
+        switchModeAction->setText(inShow
+            ? tr("Switch to Edit mode")
+            : tr("Switch to Show mode"));
     };
     // Pending count changes during a session — refresh the menu so
     // "Review pending…" toggles enabled/disabled as hunks arrive.
@@ -4821,6 +5638,21 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
             this, [refreshCollabMenu](int) { refreshCollabMenu(); });
     QObject::connect(LanLiveSession::instance(), &LanLiveSession::roleChanged,
                      this, [refreshCollabMenu]() { refreshCollabMenu(); });
+    // Phase 9.9d §15.2: refresh the menu when the hat moves or the
+    // peer list changes — passHatAction needs ≥1 peer to be enabled,
+    // takeHatAction's enable state derives from hostCanTakeHat which
+    // itself watches the peer list.
+    connect(LanLiveSession::instance(), &LanLiveSession::hatTransferred,
+            this, [refreshCollabMenu](const QString &, const QString &, const QString &) {
+                refreshCollabMenu();
+            });
+    connect(LanLiveSession::instance(), &LanLiveSession::peerCountChanged,
+            this, [refreshCollabMenu](int) { refreshCollabMenu(); });
+    // 2026-05-24 bugfix: also refresh on session-mode flips so the
+    // Switch-to-Show/Edit text + Pass/Yield/Request/Take hat visibility
+    // all flip live when the host toggles via Ctrl+Shift+M.
+    connect(LanLiveSession::instance(), &LanLiveSession::sessionModeChanged,
+            this, [refreshCollabMenu]() { refreshCollabMenu(); });
     refreshCollabMenu();
     connect(CollabService::instance(), &CollabService::enabledChanged, this,
             [refreshCollabMenu](bool) { refreshCollabMenu(); });

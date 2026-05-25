@@ -271,6 +271,56 @@ public:
      */
     void playNote(int note);
 
+    // === Zoom accessors (Phase 9.9f §15.2 — follow-the-host) ===
+
+    /** \brief Current horizontal (time-axis) zoom factor. 1.0 is the
+     *  default; higher values zoom in (show less time per pixel). */
+    double currentScaleX() const { return scaleX; }
+    /** \brief Current vertical (pitch-axis) zoom factor. */
+    double currentScaleY() const { return scaleY; }
+
+    /** \brief Apply a presenter's zoom level on a viewer. Re-runs
+     *  calcSizes() so the matrix's internal line / time book-keeping
+     *  matches the presenter's view, which in turn lets the follow-up
+     *  scrollYChanged land at the right line (otherwise the clamp in
+     *  scrollYChanged would snap to 0 because the viewer's wider
+     *  visible-line count would push endLineY past NUM_LINES). */
+    void applyZoom(double newScaleX, double newScaleY);
+
+    /** \brief Phase 9.9f §15.2 (follow-the-host, fit-to-focus mode):
+     *  resize + scroll the local matrix so the given focus rectangle
+     *  (startMs..endMs × startLine..endLine) fits within the visible
+     *  area with a ~10% padding on each side. Computes the required
+     *  scaleX / scaleY locally based on this widget's pixel
+     *  dimensions, then scrolls to centre the focus.
+     *
+     *  Replaces the 1:1 scroll-mirroring approach when the wire frame
+     *  carries focus extents — that approach broke whenever host and
+     *  viewer had different window sizes (Sven's report 2026-05-21):
+     *  the viewer's larger visible-line count would clamp startLine
+     *  to 0 ("snap to top of piano roll"). Fitting based on the local
+     *  pixel geometry sidesteps the clamp entirely. */
+    void fitToFocus(int startMs, int endMs, int startLine, int endLine);
+
+    /** \brief Currently visible region — accessors for the host-side
+     *  broadcaster to populate the focus extent in the viewState
+     *  wire frame. Updated by scrollXChanged / scrollYChanged /
+     *  calcSizes; reads what was last computed. */
+    int visibleEndMs() const { return endTimeX; }
+    int visibleEndLine() const { return endLineY; }
+
+    // === Editing lock (Phase 9.9c §15.2 — Show Mode viewer) ===
+
+    /**
+     * \brief Block tool-driven edits while still allowing scrolling,
+     *        zooming, piano-key preview, and selection navigation.
+     *        Used by Show Mode to gate non-presenters out of the
+     *        editing pathway without freezing the whole viewport.
+     *        Status-bar / title-bar indicators are wired in MainWindow.
+     */
+    void setEditingLocked(bool locked) { _editingLocked = locked; }
+    bool isEditingLocked() const { return _editingLocked; }
+
     // === Grid and Division ===
 
     /**
@@ -733,6 +783,16 @@ private:
      * Set bits indicate sharp/black keys: C#, D#, F#, G#, A#
      */
     static const unsigned sharp_strip_mask = (1 << 4) | (1 << 6) | (1 << 9) | (1 << 11) | (1 << 1);
+
+    /**
+     * \brief Editing lock (Phase 9.9c §15.2 — Show Mode viewer). When
+     * true, tool-driven mouse interaction (press/move/release) is
+     * suppressed, but scrolling, zooming, piano-key preview, and
+     * selection navigation stay live. Toggled by MainWindow via
+     * \ref setEditingLocked when the local peer's presenter status
+     * changes in a Show-mode session.
+     */
+    bool _editingLocked = false;
 };
 
 #endif // MATRIXWIDGET_H_

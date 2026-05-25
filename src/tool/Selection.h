@@ -111,6 +111,17 @@ public:
     void setSelection(QList<MidiEvent *> selections);
 
     /**
+     * \brief Phase 9.9f §15.2 (Show-Mode follow-the-host): set the
+     * selection WITHOUT recording a Protocol step. Used on viewers
+     * to mirror the presenter's selection — the viewer's own undo
+     * history shouldn't get polluted by presenter-side selection
+     * changes (and the viewer can't undo away the host's selection
+     * even if it tried). Still updates the EventWidget so the
+     * "selected" list in the sidebar follows the host.
+     */
+    void setSelectionSilent(QList<MidiEvent *> selections);
+
+    /**
      * \brief Clears all selected events.
      */
     void clearSelection();

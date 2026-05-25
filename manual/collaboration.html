@@ -184,6 +184,8 @@
                 <a href="docs-index.html">Manual Overview</a>
                 <a href="midipilot.html">MidiPilot AI</a>
                 <a href="collaboration.html">Collaboration</a>
+                <a href="collab-show-mode.html">&nbsp;&nbsp;&middot; Show Mode</a>
+                <a href="collab-chat.html">&nbsp;&nbsp;&middot; In-session Chat</a>
                 <a href="prompt-examples.html">Prompt Examples</a>
                 <a href="ffxiv-channel-fixer.html">FFXIV Channel Fixer</a>
                 <a href="supported-files.html">Supported Files</a>
@@ -279,6 +281,51 @@ and types the 4-character code. That's the entire setup.</p>
     <div class="when"><strong>Best for:</strong> remote bandmate, friends in another city, or
     just two PCs that aren't on the same LAN.</div>
     <a class="mode-link" href="collab-wan.html">Read more &rarr;</a>
+</div>
+
+</div>
+
+<hr>
+
+<h2 id="session-features">Session features</h2>
+
+<p>
+The four modes above describe <em>how</em> peers connect. The two
+features below modify <em>what happens inside</em> a live (LAN or WAN)
+session - they are orthogonal to the transport choice.
+</p>
+
+<div class="mode-grid">
+
+<div class="mode-card">
+    <div class="mode-icon">&#x1F3A9;</div>
+    <h3>Show Mode</h3>
+    <div class="mode-tag">Presentation / hat-passing</div>
+    <p class="mode-desc">One peer at a time holds <em>the hat</em> -
+    editing rights. Every other peer follows along: viewport, zoom,
+    track / channel visibility, active tool, edit cursor, and the
+    presenter's selected notes all mirror onto every viewer's screen.
+    Pass the hat with a request-and-approve handshake; host can reclaim
+    it from a silent presenter.</p>
+    <div class="when"><strong>Best for:</strong> tutorial streams,
+    classroom teaching, AI walkthroughs, MIDI code review -
+    anywhere zero-noise demonstration matters.</div>
+    <a class="mode-link" href="collab-show-mode.html">Read more &rarr;</a>
+</div>
+
+<div class="mode-card">
+    <div class="mode-icon">&#x1F4AC;</div>
+    <h3>Chat</h3>
+    <div class="mode-tag">In-session text side-channel</div>
+    <p class="mode-desc">A small text chat panel that appears in the
+    lower sidebar whenever a Live Session is active. Talk to your
+    peers without needing a separate Discord / voice channel open.
+    Plain UTF-8 text, in-memory only (no persistence), 4&nbsp;KB cap
+    per message, unread badge + tab blink for incoming messages.</p>
+    <div class="when"><strong>Best for:</strong> "play from bar 12",
+    "I'm stuck on the F# in bar 5", "can you slow down?" -
+    short conversational nudges while editing or watching.</div>
+    <a class="mode-link" href="collab-chat.html">Read more &rarr;</a>
 </div>
 
 </div>
@@ -494,6 +541,18 @@ hint inline. Full details on
     <h3>WAN Live</h3>
     <p class="mode-desc">WebRTC, the rendezvous worker, Connection Test, auto-reconnect.</p>
     <a class="mode-link" href="collab-wan.html">Read &rarr;</a>
+</div>
+
+<div class="mode-card">
+    <h3>Show Mode &#x1F3A9;</h3>
+    <p class="mode-desc">Hat-passing presentation sessions, follow-the-host viewport / selection, viewer locks.</p>
+    <a class="mode-link" href="collab-show-mode.html">Read &rarr;</a>
+</div>
+
+<div class="mode-card">
+    <h3>In-session Chat &#x1F4AC;</h3>
+    <p class="mode-desc">Lightweight text chat panel for the lower sidebar. Works in LAN, WAN, Edit, and Show.</p>
+    <a class="mode-link" href="collab-chat.html">Read &rarr;</a>
 </div>
 
 <div class="mode-card">

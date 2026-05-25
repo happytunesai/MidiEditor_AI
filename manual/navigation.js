@@ -46,6 +46,8 @@
                 { href: 'collab-discord.html',    icon: '📢', name: 'Discord' },
                 { href: 'collab-lan.html',        icon: '🏠', name: 'LAN Live' },
                 { href: 'collab-wan.html',        icon: '🌐', name: 'WAN Live' },
+                { href: 'collab-show-mode.html',  icon: '🎩', name: 'Show Mode' },
+                { href: 'collab-chat.html',       icon: '💬', name: 'In-session Chat' },
                 { href: 'collab-cloudflare.html', icon: '☁️', name: 'Self-host Cloudflare' },
                 { href: 'collab-settings.html',   icon: '⚙️', name: 'Settings Reference' }
             ]

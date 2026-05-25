@@ -148,6 +148,16 @@ public:
     void setHidden(bool hidden);
 
     /**
+     * \brief Phase 9.9f §15.2 (Show-Mode follow-the-host): flip the
+     * hidden flag WITHOUT recording a Protocol step or emitting
+     * trackChanged. Used on the viewer side to apply the presenter's
+     * view state silently — viewers shouldn't have a hat-pass land
+     * in their undo history. Caller must trigger a repaint manually
+     * (e.g. MainWindow::updateAll) when applying a batch.
+     */
+    void setHiddenSilent(bool hidden) { _hidden = hidden; }
+
+    /**
      * \brief Gets the hidden state of the track.
      * \return True if the track is hidden, false if visible
      */

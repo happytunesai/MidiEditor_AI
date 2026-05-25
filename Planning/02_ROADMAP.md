@@ -11048,7 +11048,7 @@ missed events, no merge conflicts within the same identity tuple.
 Verified 2026-05-08 by deleting notes during a forced WAN drop -
 they propagated cleanly to the host the moment LIVE returned.
 
-### Sub-phase status (v1.7.0 release gate)
+### Sub-phase status (v1.7.x release gate)
 
 Numbering is inherited from [09_COLLABORATION.md](09_COLLABORATION.md)
 (the `9.x` prefix refers to that planning doc, not Phase 9 of this
@@ -11064,9 +11064,10 @@ roadmap which is about editable system prompts).
 | **9.7b** Encrypted LAN wire | 📋 parked | QSslSocket + ephemeral cert; queued behind explicit user need |
 | **9.7c** Host auto-promotion | 📋 parked | Gated on multi-peer becoming official; queued |
 | **9.8** Multi-peer WAN | ✅ shipped (1.7.0) | Joiner-initiated protocol (worker v3), `WebRtcLiveServer` multi-transport (`QHash<QString, WebRtcTransport*>`), role flip, ghost-peer protection (10s heartbeat / 30s deadline). 4-PC production-tested at 1.8 KB/s host-out |
-| **9.9** Show Mode | 📋 planned (1.7.1) | Hat-passing presentation mode - one peer edits, others watch. ~3 dev days |
+| **9.9** Show Mode | 📋 planned (1.7.2) | Hat-passing presentation mode - one peer edits, others watch. Design refreshed 2026-05-20 with 8 gap-fixes (hello carries `{mode, presenterMachineId}`, server-side hunk validation, MidiPilot+MCP write-lock on non-presenters, host special privilege to take the hat after 30s heartbeat deadline). ~3.3 dev days. See [09_COLLABORATION §15.2](09_COLLABORATION.md) |
+| **9.11** Chat side-channel | 📋 planned (1.7.2) | Lightweight in-session chat box (text only, no files / no history persistence) using the existing transport. ~1.5-2 dev days. See [09_COLLABORATION §15.3](09_COLLABORATION.md) |
 | **9.10** Live-Painting UX | 📋 planned (1.8+) | Streaming presenter cursor / selection / shortcut toasts on top of Show Mode |
-| **9.3** AI as PR creator | ⏸ paused | Design locked, building deferred per current direction |
+| **9.3** AI as PR creator | ⏸ paused | Design locked, building deferred per current direction. Agent (PR) mode currently hidden behind compile-time `MIDIPILOT_EXPERIMENTAL_AGENT_PR=0` (BUG-COLLAB-041, v1.7.1) |
 
 Each sub-phase shipped independently and remains independently
 disable-able via *Settings → Collaboration*. Building with
@@ -11123,11 +11124,25 @@ work-on-copy auto-rewrite to `.mid` for non-MIDI source files
 
 ### What's next
 
-- **Phase 9.9 Show Mode** (v1.7.1) - watch-only variant of Live Mode
+v1.7.1 shipped as a bug-fix release (MidiPilot crash + collab polish).
+The next feature drop is **v1.7.2**, bundling Show Mode and the chat
+side-channel so they ship together as a single "collab UX upgrade"
+release. Combined effort ~4.5-5 dev days.
+
+- **Phase 9.9 Show Mode** (v1.7.2) - watch-only variant of Live Mode
   where one peer at a time holds "the hat" (= editing rights). Strict
-  request-and-approve hat passing. Use cases: AI demos, MIDI
-  tutorials, classroom teaching. ~3 dev days. Full design in
+  request-and-approve hat passing, with the host able to reclaim it
+  after a 30s heartbeat deadline. MidiPilot panel and MCP server are
+  write-locked on non-presenters (server-side `presenterMachineId`
+  check on every inbound hunk). Use cases: AI demos, MIDI tutorials,
+  classroom teaching. ~3.3 dev days. Full design in
   [09_COLLABORATION §15.2](09_COLLABORATION.md).
+- **Phase 9.11 Chat side-channel** (v1.7.2) - lightweight in-session
+  chat (text only, no files, no replay) over the existing transport.
+  Solves "I'm on stage, but I can't tell the host I need a key
+  change". Sits in the same dock as the collab status / history.
+  ~1.5-2 dev days. Full design in
+  [09_COLLABORATION §15.3](09_COLLABORATION.md).
 - **Phase 9.10 Live-Painting UX** (v1.8+) - streaming presenter
   cursor / selection / shortcut toasts on top of Show Mode for richer
   watch-along.
