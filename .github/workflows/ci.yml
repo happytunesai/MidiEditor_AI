@@ -87,6 +87,10 @@ jobs:
           arch: win64_msvc2019_64
           host: windows
           target: desktop
+          # QtMultimedia is an add-on module (not in base Qt) - required since
+          # 1.8.0 for QAudioSink (authentic SID playback). Without it CMake's
+          # find_package(... Multimedia) fails at configure on CI.
+          modules: qtmultimedia
           cache: true
 
       - name: "\U0001F527 Setup MSVC x64"
