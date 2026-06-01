@@ -108,6 +108,18 @@ jobs:
           Remove-Item fs.zip
           "- [x] **Dependencies** - Qt 6.5, MSVC 2019 x64, FluidSynth $v" >> $env:GITHUB_STEP_SUMMARY
 
+      - name: "\U0001F4C2 Unpack libsidplayfp"
+        shell: pwsh
+        run: |
+          # Vendored libsidplayfp ships as a single committed archive
+          # (third_party/libsidplayfp-vendored.zip) instead of ~140 loose files;
+          # unpack it so the 'sidplayfp' subdirectory exists before configure.
+          # CMakeLists.txt also auto-extracts it as a fallback, so this explicit
+          # step is mainly for visibility in the Actions log.
+          & cmake -E chdir third_party cmake -E tar xf libsidplayfp-vendored.zip
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          "- [x] **Unpack** - vendored libsidplayfp extracted from zip" >> $env:GITHUB_STEP_SUMMARY
+
       # ── Configure ──────────────────────────────────────
 
       - name: "\u2699\uFE0F CMake Configure"
