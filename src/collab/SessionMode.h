@@ -235,7 +235,7 @@ struct ViewportState {
     /// Presenter's edit-cursor tick. -1 means "no cursor" (file
     /// hasn't loaded yet, or the cursor was never moved on the host).
     int    cursorTick  = -1;
-    /// Fit-to-focus extents (2026-05-21 — Sven's report). When both
+    /// Fit-to-focus extents (user report, 2026-05-21). When both
     /// of these are non-negative, the viewer ignores startMs/startLine
     /// as scroll positions and instead fits its OWN viewport so that
     /// the rectangle [startMs..focusEndMs × startLine..focusEndLine]
@@ -248,8 +248,8 @@ struct ViewportState {
     int    focusEndMs   = -1;
     int    focusEndLine = -1;
 
-    /// Presenter's selected-event identity tuples (2026-05-21 — Sven's
-    /// follow-up request). Each entry encodes (tick, channel, line,
+    /// Presenter's selected-event identity tuples (user follow-up,
+    /// 2026-05-21). Each entry encodes (tick, channel, line,
     /// type) — enough to disambiguate within a single channel-tick.
     /// Empty when nothing is selected on the presenter side; viewer
     /// then clears its own selection mirror. Receiver matches tuples

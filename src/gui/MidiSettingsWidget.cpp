@@ -38,13 +38,18 @@
 #ifdef FLUIDSYNTH_SUPPORT
 #include <QComboBox>
 #include <QFileDialog>
+#include <QButtonGroup>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QMessageBox>
+#include <QRadioButton>
 #include <QSlider>
 #include <QVBoxLayout>
 #include "../midi/FluidSynthEngine.h"
 #include "../midi/MidiOutput.h"
+#include "../midi/SidAudioPlayer.h"
+#include "C64Mode.h"
+#include "C64SoundFontHelper.h"
 #include "DownloadSoundFontDialog.h"
 #include "FfxivSoundFontHelper.h"
 #include "FfxivEqualizerDialog.h"
@@ -312,7 +317,9 @@ MidiSettingsWidget::MidiSettingsWidget(QWidget *parent)
     _gainValueLabel->setFixedWidth(40);
     gainRow->addWidget(_gainValueLabel);
     _gainResetBtn = new QPushButton(tr("Reset"), _fluidSynthSettingsGroup);
-    _gainResetBtn->setFixedWidth(50);
+    // Size to the label (a fixed 50 px clipped "Reset" to an unreadable "…ese");
+    // keep a sensible minimum so it doesn't collapse.
+    _gainResetBtn->setMinimumWidth(_gainResetBtn->sizeHint().width());
     _gainResetBtn->setToolTip(tr("Reset gain to default (0.50)"));
     gainRow->addWidget(_gainResetBtn);
     connect(_gainSlider, SIGNAL(valueChanged(int)), this, SLOT(onGainChanged(int)));
@@ -373,6 +380,79 @@ MidiSettingsWidget::MidiSettingsWidget(QWidget *parent)
     fsLayout->addLayout(gainRow);
 
     layout->addWidget(_fluidSynthSettingsGroup, 3, 0, 1, 6);
+
+    // --- Commodore 64 / SID block (Phase 42, 1.8.0) ------------------------
+    // One place for the C64/SID options: which engine the C64 toolbar button
+    // activates, and the fallback import length when loop detection fails.
+    QGroupBox *c64Group = new QGroupBox(tr("Commodore 64 / SID"), this);
+    QVBoxLayout *c64Layout = new QVBoxLayout(c64Group);
+
+    c64Layout->addWidget(new QLabel(
+        tr("C64 sound (what the C64 toolbar button activates):"), c64Group));
+    _c64SoundFontRadio = new QRadioButton(
+        tr("SoundFont — play the converted MIDI with C64 timbres"), c64Group);
+    _c64EmulationRadio = new QRadioButton(
+        tr("Emulation — play the original SID via libsidplayfp (authentic)"), c64Group);
+    QButtonGroup *c64ModeGroup = new QButtonGroup(c64Group);
+    c64ModeGroup->addButton(_c64SoundFontRadio);
+    c64ModeGroup->addButton(_c64EmulationRadio);
+    _c64EmulationRadio->setToolTip(
+        tr("Authentic playback: the C64 toolbar button plays the original .sid\n"
+           "through the libsidplayfp engine (instead of the converted MIDI)."));
+    // Emulation only works with an open .sid (it plays the original tune). With
+    // a plain MIDI it's pointless, so disable it; the check below then leaves
+    // SoundFont selected even if "emulation" is the persisted preference.
+    if (!C64Mode::emulationAvailable()) {
+        _c64EmulationRadio->setEnabled(false);
+        _c64EmulationRadio->setToolTip(
+            tr("Emulation needs an imported .sid file. Open a .sid first to play\n"
+               "the original tune; a plain MIDI can only use the SoundFont."));
+    }
+    {
+        QSettings s("MidiEditor", "NONE");
+        const QString mode = s.value("C64/playbackMode", "soundfont").toString();
+        if (mode == "emulation" && _c64EmulationRadio->isEnabled())
+            _c64EmulationRadio->setChecked(true);
+        else
+            _c64SoundFontRadio->setChecked(true);
+    }
+    c64Layout->addWidget(_c64SoundFontRadio);
+    c64Layout->addWidget(_c64EmulationRadio);
+    // Switching the engine must take effect immediately: if C64 was already
+    // active, hand the active state over to the newly-chosen engine (otherwise
+    // it only kicked in after toggling the toolbar button off/on). When C64 is
+    // inactive the switch is a pure preference change with no side effects.
+    // Route both radios through C64Mode::setMode so the engine handover lives in
+    // exactly one place (shared with the toolbar switch + first-use picker).
+    connect(_c64SoundFontRadio, &QRadioButton::toggled, this, [this](bool on) {
+        if (on) C64Mode::setMode("soundfont", window());
+    });
+    connect(_c64EmulationRadio, &QRadioButton::toggled, this, [this](bool on) {
+        if (on) C64Mode::setMode("emulation", window());
+    });
+
+    QHBoxLayout *c64ImportRow = new QHBoxLayout();
+    c64ImportRow->addWidget(new QLabel(
+        tr("Default SID import length when no loop is detected:"), c64Group));
+    _c64ImportSecondsBox = new QSpinBox(c64Group);
+    _c64ImportSecondsBox->setRange(5, 600);
+    _c64ImportSecondsBox->setSingleStep(5);
+    _c64ImportSecondsBox->setSuffix(tr(" s"));
+    _c64ImportSecondsBox->setToolTip(
+        tr("SID tunes loop forever; when automatic loop detection fails the\n"
+           "importer captures this many seconds (still overridable per import)."));
+    {
+        QSettings s("MidiEditor", "NONE");
+        _c64ImportSecondsBox->setValue(s.value("C64/defaultImportSeconds", 240).toInt());
+    }
+    c64ImportRow->addWidget(_c64ImportSecondsBox);
+    c64ImportRow->addStretch();
+    c64Layout->addLayout(c64ImportRow);
+    connect(_c64ImportSecondsBox, &QSpinBox::valueChanged, this, [](int v) {
+        QSettings s("MidiEditor", "NONE"); s.setValue("C64/defaultImportSeconds", v);
+    });
+
+    layout->addWidget(c64Group, 4, 0, 1, 6);
 
     // Populate SoundFont list from engine
     refreshSoundFontList();

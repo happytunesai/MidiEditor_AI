@@ -33,6 +33,7 @@
 #include <QMessageBox>
 #include <QMimeData>
 #include <QProgressDialog>
+#include <QScopedPointer>
 #include <QScopedValueRollback>
 #include <QSet>
 #include <QSettings>
@@ -119,9 +120,14 @@
 #include "AutoUpdater.h"
 #include "MidiPilotWidget.h"
 #include "MidiVisualizerWidget.h"
+#include "TimeDisplayWidget.h"
 #include "LyricVisualizerWidget.h"
 #include "McpToggleWidget.h"
 #include "FfxivToggleWidget.h"
+#include "C64ToggleWidget.h"
+#include "C64ModeSwitchWidget.h"
+#include "C64Mode.h"
+#include "ImportOnlyFormats.h"
 #include "FfxivVoiceGaugeWidget.h"
 #include "AiSettingsWidget.h"
 
@@ -159,6 +165,10 @@
 #include "../converter/GuitarPro/GpImporter.h"
 #include "../converter/MML/MmlImporter.h"
 #include "../converter/MusicXml/MusicXmlImporter.h"
+#include "../converter/MusicXml/MusicXmlWriter.h"
+#include "../converter/Score/MidiToScore.h"
+#include "../converter/Sid/SidImporter.h"
+#include "../midi/SidAudioPlayer.h"
 #include "../converter/MusicXml/MsczImporter.h"
 
 #include "../MidiEvent/MidiEvent.h"
@@ -191,6 +201,10 @@
 #include <QProgressDialog>
 #include <QThreadPool>
 #endif
+
+// Mirror the editor's channel/track mute state onto the 3 authentic-SID voices
+// (defined below, used from the constructor + setFile + play()).
+static void syncSidVoiceMutes(MidiFile *file);
 
 MainWindow::MainWindow(QString initFile)
     : QMainWindow()
@@ -286,6 +300,16 @@ MainWindow::MainWindow(QString initFile)
     connect(MidiPlayer::playerThread(), SIGNAL(playerStopped()), Metronome::instance(), SLOT(playbackStopped()));
     connect(MidiPlayer::playerThread(), SIGNAL(playerStarted()), Metronome::instance(), SLOT(playbackStarted()));
 
+    // C64 engine handover safety: before switching the SF2<->EMU engine the
+    // helper must stop the transport (it tears down the FluidSynth synth / MIDI
+    // port, which use-after-frees if the player thread is still running). Route
+    // that through the real Stop path so the player thread is joined and the UI
+    // (cursor, panel locks, panic) resets exactly like the Stop button.
+    C64Mode::setStopPlaybackHook([this] {
+        if (MidiPlayer::isPlaying() || SidAudioPlayer::instance()->isPlaying())
+            stop();
+    });
+
     // MIDI visualizer â€” register a plain QAction for the toolbar customize list.
     // The actual widget is created fresh in each toolbar build (see createCustomToolbar/
     // updateToolbarContents) because QWidgetAction::setDefaultWidget() reparents the
@@ -295,6 +319,16 @@ MainWindow::MainWindow(QString initFile)
     visualizerAction->setText(tr("MIDI Visualizer"));
     visualizerAction->setToolTip(tr("MIDI activity visualizer â€” shows per-channel velocity during playback"));
     _actionMap["midi_visualizer"] = visualizerAction;
+
+    // Phase 41: retro cursor-time display. Registers a plain QAction for the
+    // toolbar customize list; the widget itself is built on demand in each
+    // toolbar build (same lifecycle reason as the visualizer above).
+    _timeDisplay = nullptr;  // Created on-demand in toolbar build
+    QAction *timeDisplayAction = new QAction(this);
+    timeDisplayAction->setText(tr("Cursor Time"));
+    timeDisplayAction->setToolTip(tr("Retro time display — cursor / playback time, "
+                                     "length, remaining, BPM, bar; click to cycle"));
+    _actionMap["time_display"] = timeDisplayAction;
 
     _lyricVisualizer = nullptr;  // Created on-demand in toolbar build
     QAction *lyricVisAction = new QAction(this);
@@ -313,6 +347,20 @@ MainWindow::MainWindow(QString initFile)
     ffxivToggleAction->setText(tr("FFXIV SoundFont Mode"));
     ffxivToggleAction->setToolTip(tr("Toggle FFXIV SoundFont Mode on/off"));
     _actionMap["ffxiv_toggle"] = ffxivToggleAction;
+
+    // Phase 42.2: C64 SoundFont Mode toggle (created on-demand in toolbar build).
+    _c64ToggleWidget = nullptr;
+    QAction *c64ToggleAction = new QAction(this);
+    c64ToggleAction->setText(tr("C64 SoundFont Mode"));
+    c64ToggleAction->setToolTip(tr("Toggle C64 SoundFont Mode (SID waveform presets) on/off"));
+    _actionMap["c64_toggle"] = c64ToggleAction;
+
+    // Phase 42.3: retro SF2<>EMU engine switch (created on-demand in toolbar build).
+    _c64ModeSwitch = nullptr;
+    QAction *c64ModeSwitchAction = new QAction(this);
+    c64ModeSwitchAction->setText(tr("C64 Engine Switch (SF2/EMU)"));
+    c64ModeSwitchAction->setToolTip(tr("Retro toolbar switch to pick the C64 engine: SoundFont or Emulation"));
+    _actionMap["c64_mode_switch"] = c64ModeSwitchAction;
 
     _ffxivVoiceGauge = nullptr;  // Created on-demand in toolbar build (Phase 32.1)
     QAction *ffxivVoiceGaugeAction = new QAction(this);
@@ -736,6 +784,10 @@ MainWindow::MainWindow(QString initFile)
 
     channelWidget = new ChannelListWidget(channelsWidget);
     connect(channelWidget, SIGNAL(channelStateChanged()), this, SLOT(updateChannelMenu()), Qt::QueuedConnection);
+    // Mirror channel + track mutes onto the 3 authentic-SID voices, live during
+    // emulation playback (channels 0-2 = SID voices 0-2).
+    connect(channelWidget, &ChannelListWidget::channelStateChanged, this,
+            [this] { syncSidVoiceMutes(file); });
     connect(channelWidget, SIGNAL(selectInstrumentClicked(int)), this, SLOT(setInstrumentForChannel(int)), Qt::QueuedConnection);
     channelsLayout->addWidget(channelWidget, 1, 0, 1, 1);
     upperTabWidget->addTab(channelsWidget, tr("Channels"));
@@ -795,7 +847,7 @@ MainWindow::MainWindow(QString initFile)
         //   2. A leading "● " marker prefixed to the tab text — picked
         //      up by ALL themes including the QSS-styled Sakura /
         //      MidiEditor AI themes, which override tabTextColor and
-        //      previously left the blink invisible (Sven 2026-05-24).
+        //      previously left the blink invisible (reported 2026-05-24).
         // Both reset on tab activation or session end.
         _chatBlinkTimer = new QTimer(this);
         _chatBlinkTimer->setInterval(600);
@@ -809,7 +861,7 @@ MainWindow::MainWindow(QString initFile)
         // Captured by reference into the lambdas below so a changing
         // _chatUnreadCount always reflects in the next refresh.
         //
-        // Bugfix 2026-05-24 (Sven): toggle between a FILLED ● and a
+        // Bugfix 2026-05-24: toggle between a FILLED ● and a
         // HOLLOW ○ instead of inserting / removing the prefix every
         // tick. Both glyphs occupy the same width in every font Qt
         // ships with, so the tab no longer breathes wider/narrower on
@@ -1259,6 +1311,10 @@ MainWindow::~MainWindow() {
     // Ensure proper cleanup order to prevent QRhi resource leaks and QPixmap errors
     qDebug() << "MainWindow: Starting destructor cleanup sequence";
 
+    // Drop the engine-switch stop hook so a late handover can't call stop() on
+    // a half-destroyed window (the hook captured `this`).
+    C64Mode::setStopPlaybackHook(nullptr);
+
     // Perform early cleanup if it hasn't been done already
     performEarlyCleanup();
 
@@ -1394,7 +1450,7 @@ void MainWindow::broadcastLocalViewState() {
     vp.maxMs     = _viewMaxMs;
     vp.startLine = _viewStartLine;
     vp.maxLine   = _viewMaxLine;
-    // bugfix 2026-05-21 (Sven's report): ship the zoom factors too,
+    // bugfix 2026-05-21 (user report): ship the zoom factors too,
     // so the viewer can run applyZoom() BEFORE scrollYChanged. Without
     // this, the viewer's wider visible-line count made scrollYChanged
     // clamp startLineY to 0 ("top of piano roll"), regardless of
@@ -1416,7 +1472,7 @@ void MainWindow::broadcastLocalViewState() {
     vp.cursorTick = file->cursorTick();
     EditorTool *t = Tool::currentTool();
     if (t) vp.activeToolName = t->toolTip();
-    // Selection mirror (2026-05-21 — Sven's follow-up): ship the
+    // Selection mirror (user follow-up, 2026-05-21): ship the
     // presenter's selected events as identity tuples so the viewer
     // can highlight the same notes. Empty when nothing's selected.
     QList<MidiEvent *> sel = Selection::instance()->selectedEvents();
@@ -1468,7 +1524,7 @@ void MainWindow::applyRemoteViewState(
         if (c) c->setVisibleSilent(channelVisibility[i]);
     }
     if (mw_matrixWidget) {
-        // Fit-to-focus mode (preferred — Sven's design choice
+        // Fit-to-focus mode (preferred design choice,
         // 2026-05-21): when the wire frame carries focus extents,
         // resize the local viewport to fit the presenter's visible
         // region. Computes the right scale locally based on the
@@ -1569,6 +1625,15 @@ void MainWindow::setFile(MidiFile *newFile) {
     Tool::setFile(newFile);
     _midiPilotWidget->onFileChanged(newFile);
     if (_mcpServer) _mcpServer->setFile(newFile);
+
+    // Live track-mute -> authentic-SID voice mute (channels already covered by
+    // channelWidget::channelStateChanged). Connections to old tracks fall away
+    // when the previous file is destroyed.
+    if (newFile) {
+        for (MidiTrack *t : *(newFile->tracks()))
+            connect(t, &MidiTrack::trackChanged, this,
+                    [this] { syncSidVoiceMutes(file); });
+    }
 #ifdef MIDIEDITOR_COLLAB_ENABLED
     CollabService::instance()->onFileLoaded(newFile, newFile ? newFile->path() : QString());
 #endif
@@ -1625,6 +1690,12 @@ void MainWindow::setFile(MidiFile *newFile) {
         _lyricVisualizer->setFile(newFile);
     }
 
+    // Phase 41: rebind the cursor-time display to the new file (re-wires
+    // its cursorPositionChanged + protocol-actionFinished connections).
+    if (_timeDisplay) {
+        _timeDisplay->setFile(newFile);
+    }
+
     // Update FFXIV voice gauge (Phase 32.1)
     if (_ffxivVoiceGauge) {
         _ffxivVoiceGauge->setFile(newFile);
@@ -1661,6 +1732,9 @@ void MainWindow::setFile(MidiFile *newFile) {
         _exportAudioAction->setEnabled(newFile != nullptr);
     }
 #endif
+    if (_exportMusicXmlAction) {
+        _exportMusicXmlAction->setEnabled(newFile != nullptr);
+    }
 
     // Reset MIDI output channel programs and apply initial program changes
     if (MidiOutput::isConnected()) {
@@ -1714,7 +1788,91 @@ void MainWindow::playStop() {
     }
 }
 
+// Mirror the editor's mute state onto the 3 authentic-SID voices: voice ch
+// (= MIDI channel ch) is silenced if the channel is muted OR every track that
+// carries notes on that channel is muted/hidden.
+static void syncSidVoiceMutes(MidiFile *file) {
+    if (!file) return;
+    SidAudioPlayer *sid = SidAudioPlayer::instance();
+    for (int ch = 0; ch < 3; ++ch) {
+        bool silenced = file->channelMuted(ch);
+        if (!silenced) {
+            bool sawEvent = false, anyAudible = false;
+            const QMultiMap<int, MidiEvent *> *map = file->channel(ch)->eventMap();
+            if (map) {
+                for (MidiEvent *e : map->values()) {
+                    MidiTrack *t = e ? e->track() : nullptr;
+                    if (!t) continue;
+                    sawEvent = true;
+                    // Only the track's mute (speaker) silences the SID voice;
+                    // hiding a track is purely visual, like channel hide.
+                    if (!t->muted()) { anyAudible = true; break; }
+                }
+            }
+            if (sawEvent && !anyAudible) silenced = true;
+        }
+        sid->setVoiceMuted(ch, silenced);
+    }
+}
+
+void MainWindow::feedSidVisualizer(int ms) {
+    if (!file) return;
+    const int tick = file->tick(ms);
+    for (int ch = 0; ch < 16; ++ch) {
+        int level = 0;
+        if (!file->channelMuted(ch)) {
+            const QMultiMap<int, MidiEvent *> *map = file->channel(ch)->eventMap();
+            if (map) {
+                for (auto it = map->begin(); it != map->end(); ++it) {
+                    if (it.key() > tick) break; // tick-ordered: nothing later is active yet
+                    NoteOnEvent *on = dynamic_cast<NoteOnEvent *>(it.value());
+                    if (!on) continue;
+                    OffEvent *off = on->offEvent();
+                    if (on->midiTime() <= tick && off && off->midiTime() > tick)
+                        level = std::max(level, on->velocity());
+                }
+            }
+        }
+        MidiOutput::channelActivity[ch].store(level, std::memory_order_relaxed);
+    }
+}
+
 void MainWindow::play() {
+    // Authentic SID playback: when Emulation mode is armed (C64 button) and a
+    // .sid is loaded, the normal Play button plays the ORIGINAL tune through
+    // libsidplayfp from the cursor position; the matrix cursor follows along.
+    {
+        SidAudioPlayer *sid = SidAudioPlayer::instance();
+        if (file && sid->isArmed() && sid->hasSource() && !MidiInput::recording()
+            && !MidiPlayer::isPlaying() && !sid->isPlaying()) {
+            const int fromMs = file->msOfTick(file->cursorTick());
+            connect(sid, SIGNAL(positionChanged(int)),
+                    _matrixWidgetContainer, SLOT(timeMsChanged(int)),
+                    Qt::UniqueConnection);
+            // Drive the MIDI Visualizer from the SID position (no MIDI is sent
+            // to the output in Emulation mode, so its bars would stay empty).
+            connect(sid, &SidAudioPlayer::positionChanged,
+                    this, &MainWindow::feedSidVisualizer, Qt::UniqueConnection);
+            // Same for the retro time display - it's normally fed by the MIDI
+            // player thread, which doesn't run in Emulation mode.
+            if (_timeDisplay)
+                connect(sid, &SidAudioPlayer::positionChanged,
+                        _timeDisplay, &TimeDisplayWidget::onPlaybackPositionChanged,
+                        Qt::UniqueConnection);
+            // Stop at the end of the note roll (real playback, not an endless loop).
+            connect(sid, SIGNAL(finished()), this, SLOT(stop()), Qt::UniqueConnection);
+            // Mirror the editor's channel + track mutes onto the 3 SID voices.
+            syncSidVoiceMutes(file);
+            // maxTime() (ms) is the right unit here — lengthMs is the auto-stop
+            // position in milliseconds. Surface a failure instead of a silent
+            // dead transport (BUG-C64-002).
+            if (!sid->play(fromMs, file->maxTime())) {
+                statusBar()->showMessage(
+                    tr("Could not start SID playback — check the audio output device."), 5000);
+            }
+            return;
+        }
+    }
     if (!MidiOutput::isConnected()) {
         CompleteMidiSetupDialog *d = new CompleteMidiSetupDialog(this, false, true);
         d->setModal(true);
@@ -1787,6 +1945,15 @@ void MainWindow::play() {
             connect(MidiPlayer::playerThread(), SIGNAL(playerStopped()), _lyricVisualizer, SLOT(playbackStopped()));
             disconnect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _lyricVisualizer, SLOT(onPlaybackPositionChanged(int)));
             connect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _lyricVisualizer, SLOT(onPlaybackPositionChanged(int)));
+        }
+
+        // Phase 41: cursor-time display follows playback. Re-establish on
+        // every play() because PlayerThread is recreated on Windows.
+        if (_timeDisplay) {
+            disconnect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _timeDisplay, SLOT(onPlaybackPositionChanged(int)));
+            connect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _timeDisplay, SLOT(onPlaybackPositionChanged(int)));
+            disconnect(MidiPlayer::playerThread(), SIGNAL(playerStopped()), _timeDisplay, SLOT(onPlaybackStopped()));
+            connect(MidiPlayer::playerThread(), SIGNAL(playerStopped()), _timeDisplay, SLOT(onPlaybackStopped()));
         }
     }
 }
@@ -1862,12 +2029,27 @@ void MainWindow::record() {
                 disconnect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _lyricVisualizer, SLOT(onPlaybackPositionChanged(int)));
                 connect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _lyricVisualizer, SLOT(onPlaybackPositionChanged(int)));
             }
+
+            // Phase 41: cursor-time display follows playback (record mode).
+            if (_timeDisplay) {
+                disconnect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _timeDisplay, SLOT(onPlaybackPositionChanged(int)));
+                connect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _timeDisplay, SLOT(onPlaybackPositionChanged(int)));
+                disconnect(MidiPlayer::playerThread(), SIGNAL(playerStopped()), _timeDisplay, SLOT(onPlaybackStopped()));
+                connect(MidiPlayer::playerThread(), SIGNAL(playerStopped()), _timeDisplay, SLOT(onPlaybackStopped()));
+            }
         }
     }
 }
 
 void MainWindow::pause() {
     if (file) {
+        // Authentic SID: remember the position so the next Play resumes there.
+        SidAudioPlayer *sid = SidAudioPlayer::instance();
+        if (sid->isPlaying()) {
+            file->setCursorTick(file->tick(sid->positionMs()));
+            sid->stop();
+            return;
+        }
         if (MidiPlayer::isPlaying()) {
             file->setPauseTick(file->tick(MidiPlayer::timeMs()));
             stop(false, false, false);
@@ -1879,6 +2061,17 @@ void MainWindow::stop(bool autoConfirmRecord, bool addEvents, bool resetPause) {
     if (!file) {
         return;
     }
+
+    // Authentic SID playback (Emulation mode): stop it too. The rest of this
+    // function is a no-op when the MIDI player isn't running.
+    SidAudioPlayer::instance()->stop();
+    // Clear the visualizer's channel activity (the SID feed has stopped; bars
+    // decay from here). Harmless for the MIDI path (already cleared on stop).
+    MidiOutput::resetChannelActivity();
+    // Snap the retro time display back to the cursor (the SID position feed
+    // emits no "stopped" of its own; idempotent for the MIDI path).
+    if (_timeDisplay)
+        _timeDisplay->onPlaybackStopped();
 
     disconnect(MidiPlayer::playerThread(), SIGNAL(playerStopped()), this, SLOT(stop()));
 #ifdef MIDIEDITOR_COLLAB_ENABLED
@@ -2108,6 +2301,23 @@ void MainWindow::save() {
     if (!file)
         return;
 
+    // Import-only formats can't be written back: MidiFile::save() emits Standard
+    // MIDI bytes, which would overwrite the original (a .sid / .gp5 / .musicxml /
+    // …) with garbage under its native extension - and the .sid would no longer
+    // re-import. Redirect to Save As (forces .mid); the original stays intact.
+    // (Classifier shared with the collab copy path + unit tests - see
+    // ImportOnlyFormats.h.)
+    if (ImportFormats::isImportOnly(file->path())) {
+        QMessageBox::information(
+            this, tr("Save as MIDI"),
+            tr("This file was imported from a format that can't be saved back in "
+               "place (SID / Guitar Pro / MusicXML / MuseScore).\n\n"
+               "It will be saved as a Standard MIDI file (.mid). Your original "
+               "file stays untouched."));
+        saveas();
+        return;
+    }
+
     if (QFile(file->path()).exists()) {
         bool printMuteWarning = false;
 
@@ -2146,12 +2356,21 @@ void MainWindow::saveas() {
         return;
 
     QString oldPath = file->path();
-    QFile f(oldPath);
+    QFileInfo oldInfo(oldPath);
     QString dir = startDirectory;
-    if (f.exists()) {
-        dir = QFileInfo(f).dir().path();
+    if (oldInfo.exists()) {
+        dir = oldInfo.dir().path();
     }
-    QString newPath = QFileDialog::getSaveFileName(this, tr("Save file as..."), dir);
+    // Pre-fill the dialog with the original song name + .mid so the user doesn't
+    // have to retype it. Matters most when save() routed an import-only file
+    // (SID / Guitar Pro / MusicXML / MuseScore) here: we already know its name,
+    // so suggest "<original>.mid" instead of an empty field. Untitled files (no
+    // path) keep the plain directory as the start location.
+    QString startLocation = dir;
+    if (!oldInfo.completeBaseName().isEmpty()) {
+        startLocation = QDir(dir).filePath(oldInfo.completeBaseName() + QStringLiteral(".mid"));
+    }
+    QString newPath = QFileDialog::getSaveFileName(this, tr("Save file as..."), startLocation);
 
     if (newPath == "") {
         return;
@@ -2219,15 +2438,17 @@ void MainWindow::load() {
     QString mml  = "*.mml *.3mle";
     QString xml  = "*.musicxml *.xml *.mxl";
     QString msc  = "*.mscz *.mscx";
+    QString sid  = "*.sid";
     QString filter = QString(
-        "Music Files (%1 %2 %3 %4 %5);;"
+        "Music Files (%1 %2 %3 %4 %5 %6);;"
         "MIDI Files (%1);;"
         "Guitar Pro Files (%2);;"
         "MML Files (%3);;"
         "MusicXML Files (%4);;"
         "MuseScore Files (%5);;"
+        "C64 SID Files (%6);;"
         "All Files (*)")
-        .arg(midi, gp, mml, xml, msc);
+        .arg(midi, gp, mml, xml, msc).arg(sid);
 
     QString newPath = QFileDialog::getOpenFileName(this, tr("Open file"), dir, filter);
 
@@ -2304,6 +2525,33 @@ void MainWindow::openFile(QString filePath) {
         mf = MusicXmlImporter::loadFile(filePath, &ok);
     } else if (lowerPath.endsWith(".mscz") || lowerPath.endsWith(".mscx")) {
         mf = MsczImporter::loadFile(filePath, &ok);
+    } else if (lowerPath.endsWith(".sid")) {
+        // RSID tunes are transcribed via the cycle-accurate libsidplayfp engine
+        // (~1-2 s); show a busy indicator so the pause reads as "rendering",
+        // not a freeze. PSID is fast (and may pop its own length dialog), so
+        // skip the indicator there.
+        const bool slowRender = SidImporter::isInterruptPlayer(filePath);
+        QScopedPointer<QProgressDialog> sidProgress;
+        std::function<void(int, int)> onProgress;
+        if (slowRender) {
+            sidProgress.reset(new QProgressDialog(
+                tr("Rendering SID via the libsidplayfp engine…"),
+                QString() /* no cancel button */, 0, 100, this));
+            sidProgress->setWindowTitle(tr("Importing SID"));
+            sidProgress->setWindowModality(Qt::ApplicationModal);
+            sidProgress->setMinimumDuration(0);
+            sidProgress->setValue(0);
+            QProgressDialog *dlg = sidProgress.data();
+            onProgress = [dlg](int done, int total) {
+                if (total > 0) dlg->setValue(qBound(0, done * 100 / total, 100));
+                QApplication::processEvents(); // keep the bar animating
+            };
+            QApplication::setOverrideCursor(Qt::WaitCursor);
+            QApplication::processEvents(); // paint the dialog before rendering
+        }
+        mf = SidImporter::loadFile(filePath, &ok, this, onProgress);
+        if (slowRender)
+            QApplication::restoreOverrideCursor();
     } else {
         mf = new MidiFile(useAutoSave ? autoPath : filePath, &ok);
     }
@@ -2320,6 +2568,10 @@ void MainWindow::openFile(QString filePath) {
             statusBar()->showMessage(tr("Recovered from auto-save backup"), 5000);
         }
         updateRecentPathsList();
+        // Remember the original .sid for authentic libsidplayfp playback (C64
+        // button in Emulation mode); clear it when any other file is loaded.
+        SidAudioPlayer::instance()->setSource(
+            lowerPath.endsWith(".sid") ? filePath : QString());
     } else {
         QString detail;
         if (lowerPath.endsWith(".musicxml") || lowerPath.endsWith(".xml") ||
@@ -2340,6 +2592,10 @@ void MainWindow::openFile(QString filePath) {
         } else if (lowerPath.endsWith(".mml") || lowerPath.endsWith(".3mle")) {
             detail = tr("The MML file could not be imported. "
                         "It may contain syntax errors.");
+        } else if (lowerPath.endsWith(".sid")) {
+            detail = tr("The SID tune could not be imported. It may use a "
+                        "player the converter can't run yet (e.g. an RSID "
+                        "that installs its own IRQ with no play address).");
         } else {
             detail = tr("The file is damaged and cannot be opened.");
         }
@@ -4782,7 +5038,18 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
     fileMB->addAction(_exportAudioAction);
     _actionMap["export_audio"] = _exportAudioAction;
     _exportAudioAction->setEnabled(false);
+#else
+    fileMB->addSeparator();
 #endif
+
+    // Notation export (no FluidSynth dependency): write the current file as
+    // MusicXML, openable in MuseScore / Finale / Sibelius / Dorico.
+    _exportMusicXmlAction = new QAction(tr("Export MusicXML..."), this);
+    Appearance::setActionIcon(_exportMusicXmlAction, ":/run_environment/graphics/tool/noicon.png");
+    connect(_exportMusicXmlAction, &QAction::triggered, this, &MainWindow::exportMusicXml);
+    fileMB->addAction(_exportMusicXmlAction);
+    _actionMap["export_musicxml"] = _exportMusicXmlAction;
+    _exportMusicXmlAction->setEnabled(false);
 
 #ifdef MIDIEDITOR_COLLAB_ENABLED
     fileMB->addSeparator();
@@ -4907,21 +5174,13 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
         QString stem = origInfo.completeBaseName();
         QString suffix = origInfo.suffix();
         // Import-only formats route through dedicated importers in openFile
-        // (GuitarPro / MML / MusicXML / MuseScore). MidiFile::save() always
+        // (GuitarPro / MML / MusicXML / MuseScore / SID). MidiFile::save() always
         // writes MIDI bytes, so a copy with the original suffix would be
         // rejected by the importer on re-open ("Guitar Pro file could not
         // be imported"). Force `.mid` for the shared copy in those cases —
-        // the original on disk stays untouched in its native format.
-        const QString lowerSuffix = suffix.toLower();
-        static const QSet<QString> kImportOnlySuffixes = {
-            QStringLiteral("gtp"),  QStringLiteral("gp3"),  QStringLiteral("gp4"),
-            QStringLiteral("gp5"),  QStringLiteral("gp6"),  QStringLiteral("gp7"),
-            QStringLiteral("gp8"),  QStringLiteral("gpx"),  QStringLiteral("gp"),
-            QStringLiteral("mml"),  QStringLiteral("3mle"),
-            QStringLiteral("musicxml"), QStringLiteral("xml"), QStringLiteral("mxl"),
-            QStringLiteral("mscz"), QStringLiteral("mscx"),
-        };
-        const QString effectiveSuffix = kImportOnlySuffixes.contains(lowerSuffix)
+        // the original on disk stays untouched in its native format. (Shared
+        // helper, so this list can't drift from save()'s.)
+        const QString effectiveSuffix = ImportFormats::isImportOnly(file->path())
             ? QStringLiteral("mid") : suffix;
         QString sharedName;
         if (stem.endsWith(QStringLiteral("_shared"), Qt::CaseInsensitive)) {
@@ -7379,6 +7638,20 @@ void MainWindow::enableThru(bool enable) {
     MidiInput::setThruEnabled(enable);
 }
 
+void MainWindow::nullOnDemandToolbarWidgets() {
+    // Deleting a toolbar destroys the on-demand widgets parented to it; clear
+    // the member pointers so the guarded derefs in setFile()/stop() don't touch
+    // freed memory (BUG-CORE-001). Enabled widgets are recreated right after.
+    _visualizer = nullptr;
+    _timeDisplay = nullptr;
+    _lyricVisualizer = nullptr;
+    _ffxivVoiceGauge = nullptr;
+    _c64ToggleWidget = nullptr;
+    _c64ModeSwitch = nullptr;
+    _mcpToggleWidget = nullptr;
+    _ffxivToggleWidget = nullptr;
+}
+
 void MainWindow::rebuildToolbar() {
     if (_toolbarWidget) {
         try {
@@ -7391,6 +7664,7 @@ void MainWindow::rebuildToolbar() {
             _toolbarWidget->setParent(nullptr);
             delete _toolbarWidget;
             _toolbarWidget = nullptr;
+            nullOnDemandToolbarWidgets(); // their toolbars were just destroyed
 
             // Create new toolbar
             _toolbarWidget = createCustomToolbar(parent);
@@ -7571,6 +7845,25 @@ QWidget *MainWindow::createCustomToolbar(QWidget *parent) {
             if (!enabledActions.contains("ffxiv_toggle"))
                 enabledActions << "ffxiv_toggle";
         }
+        // Phase 42.2: migrate existing layouts to include the C64 toggle.
+        if (!actionOrder.contains("c64_toggle")) {
+            int xivToggleIdx = actionOrder.indexOf("ffxiv_toggle");
+            if (xivToggleIdx >= 0)
+                actionOrder.insert(xivToggleIdx + 1, "c64_toggle");
+            else
+                actionOrder << "c64_toggle";
+            if (!enabledActions.contains("c64_toggle"))
+                enabledActions << "c64_toggle";
+        }
+        if (!actionOrder.contains("c64_mode_switch")) {
+            int c64Idx = actionOrder.indexOf("c64_toggle");
+            if (c64Idx >= 0)
+                actionOrder.insert(c64Idx + 1, "c64_mode_switch");
+            else
+                actionOrder << "c64_mode_switch";
+            if (!enabledActions.contains("c64_mode_switch"))
+                enabledActions << "c64_mode_switch";
+        }
         if (!actionOrder.contains("ffxiv_voice_gauge")) {
             int xivIdx = actionOrder.indexOf("ffxiv_toggle");
             if (xivIdx >= 0)
@@ -7579,6 +7872,17 @@ QWidget *MainWindow::createCustomToolbar(QWidget *parent) {
                 actionOrder << "ffxiv_voice_gauge";
             if (!enabledActions.contains("ffxiv_voice_gauge"))
                 enabledActions << "ffxiv_voice_gauge";
+        }
+        // Phase 41: migrate existing saved layouts so the cursor-time
+        // display appears (and is enabled) without a Reset to Default.
+        if (!actionOrder.contains("time_display")) {
+            int gaugeIdx = actionOrder.indexOf("ffxiv_voice_gauge");
+            if (gaugeIdx >= 0)
+                actionOrder.insert(gaugeIdx + 1, "time_display");
+            else
+                actionOrder << "time_display";
+            if (!enabledActions.contains("time_display"))
+                enabledActions << "time_display";
         }
     }
 
@@ -7774,6 +8078,15 @@ QWidget *MainWindow::createCustomToolbar(QWidget *parent) {
                 currentToolBar->addWidget(_visualizer);
                 continue;
             }
+            // Phase 41: retro cursor-time display.
+            if (actionId == "time_display") {
+                _timeDisplay = new TimeDisplayWidget(currentToolBar);
+                _timeDisplay->setFile(file);
+                connect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _timeDisplay, SLOT(onPlaybackPositionChanged(int)));
+                connect(MidiPlayer::playerThread(), SIGNAL(playerStopped()), _timeDisplay, SLOT(onPlaybackStopped()));
+                currentToolBar->addWidget(_timeDisplay);
+                continue;
+            }
             // Special handling for lyric_visualizer: create karaoke widget
             if (actionId == "lyric_visualizer") {
                 _lyricVisualizer = new LyricVisualizerWidget(currentToolBar);
@@ -7794,6 +8107,16 @@ QWidget *MainWindow::createCustomToolbar(QWidget *parent) {
             if (actionId == "ffxiv_toggle") {
                 _ffxivToggleWidget = new FfxivToggleWidget(currentToolBar);
                 currentToolBar->addWidget(_ffxivToggleWidget);
+                continue;
+            }
+            if (actionId == "c64_toggle") {
+                _c64ToggleWidget = new C64ToggleWidget(currentToolBar);
+                currentToolBar->addWidget(_c64ToggleWidget);
+                continue;
+            }
+            if (actionId == "c64_mode_switch") {
+                _c64ModeSwitch = new C64ModeSwitchWidget(currentToolBar);
+                _c64ModeSwitch->setToolbarAction(currentToolBar->addWidget(_c64ModeSwitch));
                 continue;
             }
             // Special handling for ffxiv_voice_gauge: FFXIV voice-load gauge (Phase 32.1)
@@ -7916,6 +8239,15 @@ QWidget *MainWindow::createCustomToolbar(QWidget *parent) {
                 toolBar->addWidget(_visualizer);
                 continue;
             }
+            // Phase 41: retro cursor-time display.
+            if (actionId == "time_display") {
+                _timeDisplay = new TimeDisplayWidget(toolBar);
+                _timeDisplay->setFile(file);
+                connect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _timeDisplay, SLOT(onPlaybackPositionChanged(int)));
+                connect(MidiPlayer::playerThread(), SIGNAL(playerStopped()), _timeDisplay, SLOT(onPlaybackStopped()));
+                toolBar->addWidget(_timeDisplay);
+                continue;
+            }
             // Special handling for lyric_visualizer: create karaoke widget
             if (actionId == "lyric_visualizer") {
                 _lyricVisualizer = new LyricVisualizerWidget(toolBar);
@@ -7938,6 +8270,16 @@ QWidget *MainWindow::createCustomToolbar(QWidget *parent) {
                 toolBar->addWidget(_ffxivToggleWidget);
                 continue;
             }
+            if (actionId == "c64_toggle") {
+                _c64ToggleWidget = new C64ToggleWidget(toolBar);
+                toolBar->addWidget(_c64ToggleWidget);
+                continue;
+            }
+            if (actionId == "c64_mode_switch") {
+                _c64ModeSwitch = new C64ModeSwitchWidget(toolBar);
+                _c64ModeSwitch->setToolbarAction(toolBar->addWidget(_c64ModeSwitch));
+                continue;
+            }
             // Special handling for ffxiv_voice_gauge: FFXIV voice-load gauge (Phase 32.1)
             if (actionId == "ffxiv_voice_gauge") {
                 _ffxivVoiceGauge = new FfxivVoiceGaugeWidget(toolBar);
@@ -7949,6 +8291,16 @@ QWidget *MainWindow::createCustomToolbar(QWidget *parent) {
             if (actionId == "ffxiv_toggle") {
                 _ffxivToggleWidget = new FfxivToggleWidget(toolBar);
                 toolBar->addWidget(_ffxivToggleWidget);
+                continue;
+            }
+            if (actionId == "c64_toggle") {
+                _c64ToggleWidget = new C64ToggleWidget(toolBar);
+                toolBar->addWidget(_c64ToggleWidget);
+                continue;
+            }
+            if (actionId == "c64_mode_switch") {
+                _c64ModeSwitch = new C64ModeSwitchWidget(toolBar);
+                _c64ModeSwitch->setToolbarAction(toolBar->addWidget(_c64ModeSwitch));
                 continue;
             }
             // Special handling for ffxiv_voice_gauge: FFXIV voice-load gauge (Phase 32.1)
@@ -8116,6 +8468,25 @@ void MainWindow::updateToolbarContents(QWidget *toolbarWidget, QGridLayout *btnL
             if (!enabledActions.contains("ffxiv_toggle"))
                 enabledActions << "ffxiv_toggle";
         }
+        // Phase 42.2: migrate existing layouts to include the C64 toggle.
+        if (!actionOrder.contains("c64_toggle")) {
+            int xivToggleIdx = actionOrder.indexOf("ffxiv_toggle");
+            if (xivToggleIdx >= 0)
+                actionOrder.insert(xivToggleIdx + 1, "c64_toggle");
+            else
+                actionOrder << "c64_toggle";
+            if (!enabledActions.contains("c64_toggle"))
+                enabledActions << "c64_toggle";
+        }
+        if (!actionOrder.contains("c64_mode_switch")) {
+            int c64Idx = actionOrder.indexOf("c64_toggle");
+            if (c64Idx >= 0)
+                actionOrder.insert(c64Idx + 1, "c64_mode_switch");
+            else
+                actionOrder << "c64_mode_switch";
+            if (!enabledActions.contains("c64_mode_switch"))
+                enabledActions << "c64_mode_switch";
+        }
         if (!actionOrder.contains("ffxiv_voice_gauge")) {
             int xivIdx = actionOrder.indexOf("ffxiv_toggle");
             if (xivIdx >= 0)
@@ -8124,6 +8495,17 @@ void MainWindow::updateToolbarContents(QWidget *toolbarWidget, QGridLayout *btnL
                 actionOrder << "ffxiv_voice_gauge";
             if (!enabledActions.contains("ffxiv_voice_gauge"))
                 enabledActions << "ffxiv_voice_gauge";
+        }
+        // Phase 41: migrate existing saved layouts so the cursor-time
+        // display appears (and is enabled) without a Reset to Default.
+        if (!actionOrder.contains("time_display")) {
+            int gaugeIdx = actionOrder.indexOf("ffxiv_voice_gauge");
+            if (gaugeIdx >= 0)
+                actionOrder.insert(gaugeIdx + 1, "time_display");
+            else
+                actionOrder << "time_display";
+            if (!enabledActions.contains("time_display"))
+                enabledActions << "time_display";
         }
     }
 
@@ -8297,6 +8679,15 @@ void MainWindow::updateToolbarContents(QWidget *toolbarWidget, QGridLayout *btnL
                 currentToolBar->addWidget(_visualizer);
                 continue;
             }
+            // Phase 41: retro cursor-time display.
+            if (actionId == "time_display") {
+                _timeDisplay = new TimeDisplayWidget(currentToolBar);
+                _timeDisplay->setFile(file);
+                connect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _timeDisplay, SLOT(onPlaybackPositionChanged(int)));
+                connect(MidiPlayer::playerThread(), SIGNAL(playerStopped()), _timeDisplay, SLOT(onPlaybackStopped()));
+                currentToolBar->addWidget(_timeDisplay);
+                continue;
+            }
             // Special handling for lyric_visualizer: create karaoke widget
             if (actionId == "lyric_visualizer") {
                 _lyricVisualizer = new LyricVisualizerWidget(currentToolBar);
@@ -8317,6 +8708,16 @@ void MainWindow::updateToolbarContents(QWidget *toolbarWidget, QGridLayout *btnL
             if (actionId == "ffxiv_toggle") {
                 _ffxivToggleWidget = new FfxivToggleWidget(currentToolBar);
                 currentToolBar->addWidget(_ffxivToggleWidget);
+                continue;
+            }
+            if (actionId == "c64_toggle") {
+                _c64ToggleWidget = new C64ToggleWidget(currentToolBar);
+                currentToolBar->addWidget(_c64ToggleWidget);
+                continue;
+            }
+            if (actionId == "c64_mode_switch") {
+                _c64ModeSwitch = new C64ModeSwitchWidget(currentToolBar);
+                _c64ModeSwitch->setToolbarAction(currentToolBar->addWidget(_c64ModeSwitch));
                 continue;
             }
             // Special handling for ffxiv_voice_gauge: FFXIV voice-load gauge (Phase 32.1)
@@ -8417,6 +8818,15 @@ void MainWindow::updateToolbarContents(QWidget *toolbarWidget, QGridLayout *btnL
                 toolBar->addWidget(_visualizer);
                 continue;
             }
+            // Phase 41: retro cursor-time display.
+            if (actionId == "time_display") {
+                _timeDisplay = new TimeDisplayWidget(toolBar);
+                _timeDisplay->setFile(file);
+                connect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _timeDisplay, SLOT(onPlaybackPositionChanged(int)));
+                connect(MidiPlayer::playerThread(), SIGNAL(playerStopped()), _timeDisplay, SLOT(onPlaybackStopped()));
+                toolBar->addWidget(_timeDisplay);
+                continue;
+            }
             // Special handling for lyric_visualizer: create karaoke widget
             if (actionId == "lyric_visualizer") {
                 _lyricVisualizer = new LyricVisualizerWidget(toolBar);
@@ -8437,6 +8847,16 @@ void MainWindow::updateToolbarContents(QWidget *toolbarWidget, QGridLayout *btnL
             if (actionId == "ffxiv_toggle") {
                 _ffxivToggleWidget = new FfxivToggleWidget(toolBar);
                 toolBar->addWidget(_ffxivToggleWidget);
+                continue;
+            }
+            if (actionId == "c64_toggle") {
+                _c64ToggleWidget = new C64ToggleWidget(toolBar);
+                toolBar->addWidget(_c64ToggleWidget);
+                continue;
+            }
+            if (actionId == "c64_mode_switch") {
+                _c64ModeSwitch = new C64ModeSwitchWidget(toolBar);
+                _c64ModeSwitch->setToolbarAction(toolBar->addWidget(_c64ModeSwitch));
                 continue;
             }
             // Special handling for ffxiv_voice_gauge: FFXIV voice-load gauge (Phase 32.1)
@@ -8892,9 +9312,10 @@ void MainWindow::rebuildToolbarFromSettings() {
                 // Find and immediately delete all child toolbars
                 QList<QToolBar *> childToolbars = _toolbarWidget->findChildren<QToolBar *>();
 
-                // The visualizer widget is a child of one of these toolbars.
-                // It will be destroyed when the toolbar is deleted > null the pointer.
-                _visualizer = nullptr;
+                // These widgets are children of the toolbars about to be
+                // deleted; null every on-demand pointer (not just _visualizer)
+                // so later guarded derefs don't hit freed memory (BUG-CORE-001).
+                nullOnDemandToolbarWidgets();
 
                 for (QToolBar *toolbar: childToolbars) {
                     toolbar->setParent(nullptr); // Remove from parent immediately
@@ -9410,6 +9831,53 @@ void MainWindow::exportLyricsLrc() {
         QMessageBox::warning(this, tr("Export Lyrics"),
             tr("Failed to export lyrics to LRC file."));
     }
+}
+
+void MainWindow::exportMusicXml() {
+    if (!file) {
+        QMessageBox::warning(this, tr("Export MusicXML"), tr("No file loaded."));
+        return;
+    }
+
+    // Build the score first so we can refuse an empty export before prompting
+    // for a path — a note-less file would otherwise yield invalid MusicXML
+    // (empty <part-list>, no <part>) (BUG-XML-001).
+    score::Score s = score::build(file);
+    if (s.parts.isEmpty()) {
+        QMessageBox::information(this, tr("Export MusicXML"),
+            tr("Nothing to export — this file has no notes."));
+        return;
+    }
+    if (!file->path().isEmpty())
+        s.title = QFileInfo(file->path()).completeBaseName();
+
+    QString suggested = startDirectory;
+    if (!file->path().isEmpty()) {
+        QFileInfo fi(file->path());
+        suggested = fi.absolutePath() + "/" + fi.completeBaseName() + ".musicxml";
+    }
+    QString path = QFileDialog::getSaveFileName(this, tr("Export MusicXML"),
+        suggested, tr("MusicXML (*.musicxml)"));
+    if (path.isEmpty())
+        return;
+    if (!path.endsWith(".musicxml", Qt::CaseInsensitive) &&
+        !path.endsWith(".xml", Qt::CaseInsensitive))
+        path += ".musicxml";
+
+    const QByteArray xml = MusicXmlWriter::write(s);
+
+    QFile out(path);
+    if (!out.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        QMessageBox::warning(this, tr("Export MusicXML"),
+            tr("Could not write to:\n%1").arg(path));
+        return;
+    }
+    out.write(xml);
+    out.close();
+
+    statusBar()->showMessage(
+        tr("Exported %1 part(s) to MusicXML: %2").arg(s.parts.size()).arg(QFileInfo(path).fileName()),
+        5000);
 }
 
 void MainWindow::embedLyricsInMidi() {

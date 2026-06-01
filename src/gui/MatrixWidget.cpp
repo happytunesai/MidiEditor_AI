@@ -31,6 +31,7 @@
 #include "../midi/MidiFile.h"
 #include "../midi/MidiInput.h"
 #include "../midi/MidiPlayer.h"
+#include "../midi/SidAudioPlayer.h"
 #include "../midi/MidiTrack.h"
 #include "../midi/PlayerThread.h"
 #include "../protocol/Protocol.h"
@@ -114,13 +115,26 @@ bool MatrixWidget::screenLocked() {
     return screen_locked;
 }
 
+namespace {
+// Playback can be driven by the MIDI player OR the authentic SID player
+// (Emulation mode); the playback cursor follows whichever is running.
+inline bool sidOrMidiPlaying() {
+    return MidiPlayer::isPlaying() || SidAudioPlayer::instance()->isPlaying();
+}
+inline int playbackTimeMs() {
+    return SidAudioPlayer::instance()->isPlaying()
+               ? SidAudioPlayer::instance()->positionMs()
+               : MidiPlayer::timeMs();
+}
+} // namespace
+
 void MatrixWidget::timeMsChanged(int ms, bool ignoreLocked) {
     if (!file)
         return;
 
     int x = xPosOfMs(ms);
     bool smoothScroll = Appearance::smoothPlaybackScrolling();
-    bool isPlaying = MidiPlayer::isPlaying();
+    bool isPlaying = sidOrMidiPlaying();
 
     // Capture dynamic offset when playback starts
     if (isPlaying && !_wasPlaying) {
@@ -660,9 +674,9 @@ void MatrixWidget::paintEvent(QPaintEvent *event) {
         painter->setPen(_cachedForegroundColor);
     }
 
-    if (MidiPlayer::isPlaying()) {
+    if (sidOrMidiPlaying()) {
         painter->setPen(_cachedPlaybackCursorColor);
-        int x = xPosOfMs(MidiPlayer::timeMs());
+        int x = xPosOfMs(playbackTimeMs());
         if (x >= lineNameWidth) {
             painter->drawLine(x, 0, x, height());
         }
@@ -1762,7 +1776,7 @@ void MatrixWidget::fitToFocus(int startMs, int endMs, int startLine, int endLine
 
     // Padding around the focus rectangle so notes don't sit flush
     // against the matrix edges. 1.05 = ~2.5% per side — tight fit,
-    // close to host's actual view. Reduced from 1.20 per Sven's
+    // close to host's actual view. Reduced from 1.20 per a user
     // request 2026-05-21 ("ein bisschen reinzoomen lassen").
     constexpr double kPaddingMul = 1.05;
     int focusMs    = endMs - startMs;

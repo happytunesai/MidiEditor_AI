@@ -646,6 +646,13 @@ public slots:
     void exportLyricsLrc();
 
     /**
+     * \brief Exports the current file as MusicXML (notation), openable in
+     *  MuseScore / Finale / Sibelius / Dorico. Reconstructs notation (measures,
+     *  note values, rests, ties, chords, key spelling) from the MIDI.
+     */
+    void exportMusicXml();
+
+    /**
      * \brief Clears all lyric blocks and their MIDI events.
      */
     void clearAllLyrics();
@@ -998,6 +1005,24 @@ private:
      */
     void removeTrailingSeparators(QToolBar *toolbar);
 
+    /**
+     * \brief Feeds the MIDI Visualizer during authentic SID (Emulation)
+     *  playback. The SID renders audio directly (no MIDI is sent to the
+     *  output), so the visualizer's per-channel activity would stay empty;
+     *  this mirrors the notes active at \a ms into MidiOutput::channelActivity
+     *  so the bars animate just like they do for normal MIDI playback.
+     */
+    void feedSidVisualizer(int ms);
+
+    /**
+     * \brief Null every on-demand toolbar widget pointer (BUG-CORE-001).
+     *  These widgets are children of the toolbars; a toolbar rebuild deletes
+     *  them, so their member pointers must be cleared or later guarded derefs
+     *  (setFile / stop) would touch freed memory. Called from both rebuild
+     *  paths; widgets still enabled are recreated immediately afterwards.
+     */
+    void nullOnDemandToolbarWidgets();
+
     // === Core Widgets ===
 
     /** \brief Main matrix widget for MIDI editing (internal widget for data access) */
@@ -1262,12 +1287,17 @@ private:
     /** \brief MIDI visualizer in toolbar */
     MidiVisualizerWidget *_visualizer = nullptr;
 
+    /** \brief Retro cursor-time display in toolbar (Phase 41) */
+    class TimeDisplayWidget *_timeDisplay = nullptr;
+
     /** \brief Lyric visualizer (karaoke display) in toolbar */
     LyricVisualizerWidget *_lyricVisualizer = nullptr;
 
     /** \brief MCP server toggle button in toolbar */
     McpToggleWidget *_mcpToggleWidget = nullptr;
     class FfxivToggleWidget *_ffxivToggleWidget = nullptr;
+    class C64ToggleWidget *_c64ToggleWidget = nullptr;
+    class C64ModeSwitchWidget *_c64ModeSwitch = nullptr;
 
     /** \brief FFXIV voice-load gauge in toolbar (Phase 32.1) */
     class FfxivVoiceGaugeWidget *_ffxivVoiceGauge = nullptr;
@@ -1291,6 +1321,7 @@ private:
 #ifdef FLUIDSYNTH_SUPPORT
     /** \brief Action to export audio */
     QAction *_exportAudioAction = nullptr;
+    QAction *_exportMusicXmlAction = nullptr;
 
     /** \brief Progress dialog for audio export */
     QProgressDialog *_exportProgressDialog = nullptr;

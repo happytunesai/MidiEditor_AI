@@ -11064,8 +11064,12 @@ roadmap which is about editable system prompts).
 | **9.7b** Encrypted LAN wire | 📋 parked | QSslSocket + ephemeral cert; queued behind explicit user need |
 | **9.7c** Host auto-promotion | 📋 parked | Gated on multi-peer becoming official; queued |
 | **9.8** Multi-peer WAN | ✅ shipped (1.7.0) | Joiner-initiated protocol (worker v3), `WebRtcLiveServer` multi-transport (`QHash<QString, WebRtcTransport*>`), role flip, ghost-peer protection (10s heartbeat / 30s deadline). 4-PC production-tested at 1.8 KB/s host-out |
-| **9.9** Show Mode | 📋 planned (1.7.2) | Hat-passing presentation mode - one peer edits, others watch. Design refreshed 2026-05-20 with 8 gap-fixes (hello carries `{mode, presenterMachineId}`, server-side hunk validation, MidiPilot+MCP write-lock on non-presenters, host special privilege to take the hat after 30s heartbeat deadline). ~3.3 dev days. See [09_COLLABORATION §15.2](09_COLLABORATION.md) |
-| **9.11** Chat side-channel | 📋 planned (1.7.2) | Lightweight in-session chat box (text only, no files / no history persistence) using the existing transport. ~1.5-2 dev days. See [09_COLLABORATION §15.3](09_COLLABORATION.md) |
+| **9.9** Show Mode | ✅ shipped (1.7.2) | Hat-passing presentation mode - one peer at a time holds "the hat" (= editing rights), others watch. Mode picker at session start (`startHosting{,Wan}` take a `SessionMode`); `sessionWelcome` frame carries `{mode, presenterMachineId}`; strict request-and-approve hat passing (`requestHat` / `hatTransferred` / `hatRejected` / `yieldHat`); server-side hunk validation (`sender == presenterMachineId`, privilege-escalation-guarded host-takeover after the 30s heartbeat deadline); viewer lock across matrix / MidiPilot / MCP / Edit+Tools+MIDI menus + toolbar. See [09_COLLABORATION §15.2](09_COLLABORATION.md) |
+| **9.9f** Follow-the-host | ✅ shipped (1.7.2) | Presenter→viewer `viewState` broadcast (throttled 250 ms): viewport + per-track/channel visibility + edit cursor + active tool name + selected-event mirror. Viewer fit-to-focus (`MatrixWidget::fitToFocus`) so a different window/zoom no longer snaps to the top of the piano roll. Applied via silent setters - no undo pollution |
+| **9.9g** Playback-trigger sync | ✅ shipped (1.7.2) | Presenter Play/Stop broadcasts a `playback {action, tickPosition}` frame; viewers seek + play through their own audio output. One-shot trigger, no clock-sync (initial latency / long-playback drift accepted for tutorial/demo) |
+| **9.9h** Mid-session mode toggle | ✅ shipped (1.7.2) | Host-only `sessionModeSwitch` frame + **Ctrl+Shift+M** to flip Edit↔Show live without leaving the session; the viewer lock engages/disengages on every peer in sync |
+| **§15.4** Version handshake | ✅ shipped (1.7.2) | `appVersion` added to both `hello` and `sessionWelcome`; host + joiner surface a mismatch (modal for the pre-1.7.2 "blind generation", delayed status-bar tip for a version-diff). Closes the v1.7.0 protocol-version omission |
+| **9.11** Chat side-channel | ✅ shipped (1.7.2) | In-session text chat (`CollabChatWidget`): plain UTF-8 over the existing transport, host-side 4 KB cap + 200 ms-per-sender rate limit, 500-msg in-memory scrollback (no persistence), unread badge + tab blink. See [09_COLLABORATION §15.3](09_COLLABORATION.md) |
 | **9.10** Live-Painting UX | 📋 planned (1.8+) | Streaming presenter cursor / selection / shortcut toasts on top of Show Mode |
 | **9.3** AI as PR creator | ⏸ paused | Design locked, building deferred per current direction. Agent (PR) mode currently hidden behind compile-time `MIDIPILOT_EXPERIMENTAL_AGENT_PR=0` (BUG-COLLAB-041, v1.7.1) |
 
@@ -11125,28 +11129,398 @@ work-on-copy auto-rewrite to `.mid` for non-MIDI source files
 ### What's next
 
 v1.7.1 shipped as a bug-fix release (MidiPilot crash + collab polish).
-The next feature drop is **v1.7.2**, bundling Show Mode and the chat
-side-channel so they ship together as a single "collab UX upgrade"
-release. Combined effort ~4.5-5 dev days.
+**v1.7.2 shipped 2026-05-25** - Show Mode (§15.2), the in-session chat
+side-channel (§15.3), follow-the-host viewport / playback sync, the
+mid-session mode toggle, and the `appVersion` handshake (§15.4) all
+landed together as one "collab UX upgrade" release. See the ✅ rows in
+the sub-phase status table above. What remains queued:
 
-- **Phase 9.9 Show Mode** (v1.7.2) - watch-only variant of Live Mode
-  where one peer at a time holds "the hat" (= editing rights). Strict
-  request-and-approve hat passing, with the host able to reclaim it
-  after a 30s heartbeat deadline. MidiPilot panel and MCP server are
-  write-locked on non-presenters (server-side `presenterMachineId`
-  check on every inbound hunk). Use cases: AI demos, MIDI tutorials,
-  classroom teaching. ~3.3 dev days. Full design in
-  [09_COLLABORATION §15.2](09_COLLABORATION.md).
-- **Phase 9.11 Chat side-channel** (v1.7.2) - lightweight in-session
-  chat (text only, no files, no replay) over the existing transport.
-  Solves "I'm on stage, but I can't tell the host I need a key
-  change". Sits in the same dock as the collab status / history.
-  ~1.5-2 dev days. Full design in
-  [09_COLLABORATION §15.3](09_COLLABORATION.md).
 - **Phase 9.10 Live-Painting UX** (v1.8+) - streaming presenter
   cursor / selection / shortcut toasts on top of Show Mode for richer
-  watch-along.
+  watch-along. (v1.7.2's follow-the-host already mirrors the
+  presenter's cursor / selection / tool, but throttled to 250 ms;
+  9.10 is the real-time, un-throttled "painting" layer on top.)
 - **Server-mode via Cloudflare Durable Objects** ($5/mo) - parked as
   v1.8+ fallback if star-topology ever hits saturation in real-world
   use. Not currently needed.
+
+## Phase 41: Cursor Time Display (Retro Digital Clock) - ✅ Shipped in 1.8.0
+
+*(Scoped as a 1.8.0 point release: a new but self-contained toolbar widget,
+no new editing capability or wire protocol - decision 2026-05-29.)*
+
+### Why
+
+The matrix has a timeline ruler along the top (`MatrixWidget::TimeLineArea`)
+showing measures, beats, and time signatures, but it is built for *spatial*
+orientation, not exact readout: at typical zoom the user can only eyeball the
+cursor position to the nearest second or two, and the labels are
+measure/beat based, not wall-clock `HH:MM:SS`. When you want the precise
+timecode of the edit cursor - "where exactly is 00:01:30?" - there is no
+direct numeric display.
+
+> *Request (2026-05-29): an opt-in, retro digital-clock widget - like
+> the other toggleable panels (Lyric Timeline, FFXIV Voice Lane, Visualizer)
+> - that shows the cursor time as `HH:MM:SS`, runs like a media player during
+> playback, and can cycle (on click) between cursor/elapsed, total song
+> length, and remaining time.*
+
+### Scope
+
+* **Read-only display.** The clock never edits the file; it only reflects
+  the cursor tick and the player position. No protocol steps, no undo.
+* **Opt-in + remembered.** Hidden by default, toggled from the View menu
+  with a checkable action, state persisted in `QSettings` - identical
+  pattern to `_toggleLyricTimeline` / `_toggleVoiceLaneAction`.
+* **Two time sources, switched automatically:**
+  * **Idle / editing:** the edit cursor - `file->msOfTick(file->cursorTick())`,
+    refreshed on `MidiFile::cursorPositionChanged`.
+  * **Playing:** the live player clock - `PlayerThread::timeMsChanged(int ms)`
+    (the same signal that already drives the Lyric Timeline and Voice Lane
+    playback cursors), snapped back to the cursor on `playerStopped()`.
+* **Does not** attempt frame-accurate sync with external DAWs, SMPTE, or
+  MIDI timecode output - purely an on-screen readout.
+
+### 41.1 - The widget (`TimeDisplayWidget`)
+
+A small, self-sizing widget rendering the readout in a retro seven-segment
+style via a **custom `paintEvent`** *(DECIDED 2026-05-29)*: a hand-drawn
+7-segment renderer on a dark bezel with an amber/green glow (classic
+clock-radio aesthetic), faint "off-segment" ghosts behind each active
+segment, and a colon that blinks while playing (media-player feel). Fully
+theme-able. ~1.5 days.
+
+The custom path was chosen over Qt's built-in `QLCDNumber` because v1 needs
+letters and a slash *inside* the display (`BPM`, `4/4`, the mode tag) - which
+`QLCDNumber`'s digit-only segment font can't render. The renderer is
+therefore built to draw a small `A-Z` glyph set and `/` too, so every
+readout sits in the same retro frame.
+
+### 41.2 - Display modes (single click cycles - DECIDED)
+
+A single click advances to the next readout and wraps around, exactly like a
+digital wristwatch's mode button. A tiny mode tag (`POS` / `LEN` / `REM` /
+`BPM` / `BAR`) sits beside the digits so the current mode is never
+ambiguous. The selected mode is persisted in the toolbar layout.
+
+**Time readouts (v1 core):**
+
+1. **`POS` - Position** *(default)* - the cursor time while idle, the live
+   player time while playing. The everyday "where am I" readout.
+2. **`LEN` - Length** - total song duration,
+   `file->msOfTick(file->endTick())`. Static per file; recomputed on a
+   length change (Insert measures, load).
+3. **`REM` - Remaining** - `length - position`, shown with a leading `-`
+   (`-02:14`), counting down during playback (clamped to `00:00`).
+
+**Musical readouts (2026-05-29 follow-up - "integrate the BPM, and
+maybe other useful info"):**
+
+4. **`BPM` - Tempo** - the tempo in effect at the current position, from the
+   last `TempoChangeEvent` at/before the tick (`beatsPerQuarter()`). Updates
+   live across tempo changes during playback. Shown as e.g. `120.0`.
+5. **`BAR` - Bars:beats:ticks** - musical position `bar.beat.tick`
+   (e.g. `12.3.0`) from `measure()` + `meterAt()`. Folds the top ruler's job
+   into the readout.
+6. **`SIG` - Time signature** - the meter at the cursor (e.g. `4/4`) from
+   `meterAt()`. Could share the `BAR` frame (`12.3 - 4/4`) rather than be a
+   separate stop.
+
+> Decided 2026-05-29: all three (`BPM`, `BAR`, `SIG`) ship in v1. `BAR` and
+> `SIG` share one frame (`12.3 - 4/4`) so the click cycle is five stops:
+> POS -> LEN -> REM -> BPM -> BAR. Candidates left out (they drift from
+> "clock" toward "inspector"): key signature, selected-note count, note
+> name under the cursor.
+
+### 41.3 - Data sources & update wiring
+
+* **Formatting helper (adaptive width - DECIDED, most songs are short):**
+  `MM:SS` below an hour, widening to `HH:MM:SS` only once a file crosses
+  60 min - so a 3-minute bard piece reads `02:14`, not `00:02:14`. Built on
+  `QTime(0, 0).addMSecs(ms)`. Factor into a free function for unit testing
+  (41.6).
+* **Cursor / time source:** `file->msOfTick(file->cursorTick())` while idle;
+  `MidiFile::cursorPositionChanged` (already emitted by `setCursorTick`)
+  drives a `refresh()` slot, re-wired on `setFile()` like the Lyric Timeline.
+* **Playback source:** connect `MidiPlayer::playerThread()`'s
+  `timeMsChanged(int)` to the widget and `playerStopped()` to snap back to
+  the cursor - mirroring the existing connect/disconnect blocks in
+  `MainWindow::play()` / `setFile()` for the lyric + voice-lane widgets.
+* **Tempo (`BPM`):** walk `file->tempoEvents()` for the last entry at/before
+  the tick, cast to `TempoChangeEvent`, read `beatsPerQuarter()`.
+* **Musical position (`BAR` / `SIG`):** `file->measure(tick, &start, &end)`
+  for the bar number, `file->meterAt(tick, &num, &den)` for the time
+  signature; beat = `(tick - start) / ticksPerBeat`.
+* **Perf:** `msOfTick()` walks the event list, so cache the per-file `LEN`
+  once on `setFile` / length-change rather than recomputing it every
+  `timeMsChanged` tick. `BPM` / `BAR` lookups are only done for the frame
+  currently on screen.
+
+### 41.4 - Placement: a toolbar widget (DECIDED)
+
+Placement is handled by the existing **Customize Toolbar** system, exactly
+like the MIDI Visualizer - no new splitter pane, no separate View-menu
+toggle. The user adds / removes / re-orders the clock from the
+toolbar-customize list, so position is fully user-configurable.
+
+* **Register an action** `_actionMap["time_display"]` with text
+  *"Cursor Time"* + tooltip - the entry the customize list shows (same as
+  the `midi_visualizer` / `lyric_visualizer` registrations near the
+  `MainWindow` ctor, ~line 293).
+* **Build on demand** in the toolbar-build loop: an
+  `if (actionId == "time_display")` special-handling block that does
+  `_timeDisplay = new TimeDisplayWidget(currentToolBar); _timeDisplay->setFile(file);`,
+  wires `timeMsChanged` / `playerStopped` / `cursorPositionChanged`, then
+  `currentToolBar->addWidget(_timeDisplay)` - the same shape as the
+  `midi_visualizer` block (`MainWindow.cpp` ~line 7770).
+* **Self-sizing:** the widget defines its own `sizeHint()` /
+  `minimumSizeHint()` like `MidiVisualizerWidget`. Target a height matching
+  the visualizer (`WIDGET_HEIGHT`) - *the Channel Visualizer's
+  footprint is the right size reference.*
+* **No `View/show*` key** - enabled-state + position live in the toolbar
+  layout that the customize system already persists.
+
+### 41.5 - Files & touchpoints
+
+* `src/gui/TimeDisplayWidget.{h,cpp}` *(new)* - the widget.
+* `src/gui/MainWindow.{h,cpp}` - member pointer, View-menu toggle, settings
+  load/save, `setFile()` re-wire of `cursorPositionChanged` + playback
+  signals, placement container.
+* `src/midi/MidiFile.h` - no change needed; `msOfTick`, `cursorTick`,
+  `endTick`, and the `cursorPositionChanged` signal already exist.
+* `CMakeLists.txt` - add the new source files.
+
+### 41.6 - Tests (`tests/test_time_display_format.cpp`)
+
+Pure formatting / mode logic extracted into a free function (no QWidget):
+ms -> string for `POS` / `LEN` / `REM` across boundaries (0, 59 s, exactly
+1 h, negative remaining clamps to `00:00`), and the adaptive `MM:SS`
+vs `HH:MM:SS` switch. Same build-time-guard discipline the project uses for
+wire/format constants.
+
+### 41.7 - Decisions (all resolved 2026-05-29)
+
+* **Placement:** toolbar widget via the Customize Toolbar system (41.4).
+* **Width:** adaptive `MM:SS`, widening to `HH:MM:SS` past 1 h (41.3).
+* **Mode cycling:** single click, wrap-around (41.2).
+* **Renderer:** custom 7-segment `paintEvent` from the start (41.1) - chosen
+  so `BPM` / `4/4` / the mode tag render inside the display.
+* **Readouts (v1):** POS -> LEN -> REM -> BPM -> BAR, where the BAR frame
+  also carries the time signature (`12.3 - 4/4`). Five-stop click cycle.
+
+Nothing left open - ready to build once approved.
+
+Estimated effort: ~3 days (custom 7-segment renderer + the five-stop readout
+cycle + the free-function format/mode unit tests).
+
+## Phase 42: C64 / SID Support ("C64 Mode") - ✅ Shipped in 1.8.0
+
+*(Feature request 2026-05-29, C64 enthusiast: load + edit Commodore 64
+`.sid` tunes like any other format, save as MIDI, and hear them through a
+SID-style SoundFont - or play the original authentically. Scoped as a 1.8.0
+bonus and shipped as one feature, not split across releases. Effort below is
+framed for the AI implementer, not in human dev-days.)*
+
+### Why
+
+We already import MusicXML / MuseScore / Guitar Pro through the converter
+framework, and FFXIV SoundFont Mode already demonstrates the "load a themed
+SoundFont + flip a mode toggle" pattern. A "C64 Mode" rides on both: the
+*sound* half is largely in reach, and SID files become just another
+importable format that lands in the normal editing/saving pipeline.
+
+### The hard truth about `.sid`
+
+A `.sid` file is **not** notes or events. PSID/RSID = a small header plus a
+blob of **6502 machine code** (the player routine + packed music data) meant
+to run on an emulated C64. "Playing" it means emulating the 6510 CPU + the
+MOS 6581/8580 SID chip and letting the player code poke the SID registers
+(`$D400-$D41C`) ~50x/second (PAL raster / CIA interrupt). There is no note
+list to read - the music exists only as register writes over time. So
+SID -> MIDI is fundamentally a **transcription** problem: emulate, capture
+the registers per frame, then heuristically reconstruct notes/instruments.
+It is inherently lossy and player-routine-dependent; quality varies per tune.
+
+### Scope - three separable layers
+
+1. **C64 SoundFont Mode (easy, high value, ship first).** A bundled/linked
+   SID-style `.sf2` + a "C64 Mode" toggle that loads it into the existing
+   FluidSynth path - a near-clone of FFXIV SoundFont Mode. Lets any GM MIDI
+   (including a converted SID) play with C64 timbres. No emulation needed.
+2. **SID -> MIDI import (the meat).** Open a `.sid` like a `.gp`/`.musicxml`:
+   emulate + capture + reconstruct -> internal MIDI model -> edit / save as
+   `.mid`. Best-effort transcription.
+3. **Authentic SID playback (optional, advanced).** Embed libsidplayfp /
+   reSID to play the original `.sid` for real (a second audio path, separate
+   from FluidSynth). True C64 sound, but a whole extra playback engine.
+
+### 42.1 - SID -> MIDI pipeline
+
+* Parse the PSID/RSID header (load / init / play addresses, song count,
+  PAL vs NTSC clock, speed / CIA-timer flags).
+* A 6502/6510 CPU emulator - mechanical, the opcode set is fully documented
+  (or integrate an existing one).
+* Capture: run `init(song)`, then call `play()` at the song rate for N
+  frames (loop detection or a fixed duration), recording every write to
+  `$D400-$D418` each frame.
+* Reconstruct per voice (3 SID voices -> 3 tracks / channels): gate bit ->
+  note on/off; 16-bit frequency -> pitch via the clock-dependent SID
+  freq->note table; waveform (triangle / saw / pulse / noise) -> MIDI
+  program grouping; ADSR -> velocity / envelope approximation; detect
+  arpeggios (per-frame note cycling) -> chords or fast notes; vibrato /
+  portamento -> pitch bend or stepped notes; filter / PWM -> dropped or
+  annotated.
+* Emit through the existing converter -> SMF writer path; open in the editor
+  exactly like the other imports.
+
+### 42.2 - C64 SoundFont Mode
+
+* Mirror FFXIV SoundFont Mode: a toggle + auto-load of the SID `.sf2`, a GM
+  program mapping for the SID voices (pulse / saw / triangle / noise), and a
+  status indicator. Reuses the FluidSynth + SoundFont management wholesale -
+  almost no new logic.
+
+### 42.3 - Authentic playback (optional)
+
+* libsidplayfp (GPL, compatible with our GPLv3) as a "Play original SID"
+  path, with a song selector for multi-tune files.
+
+### Reference projects (evaluated)
+
+* **olefriis/sidtool** (Ruby, MIT) - exactly our pipeline: emulates 6510 +
+  SID, runs ~1500 frames, exports MIDI + note tables. The best algorithmic
+  reference for the reconstruction heuristics; MIT lets us study / port the
+  approach (Ruby -> C++ is a rewrite, but the algorithm is the value).
+* **Cadaver's SIDDump** (tiny single-file C, permissive) - a compact 6502
+  emulator + per-frame register/note dump. Ideal from-scratch starting point
+  for 42.1.
+* **Chordian/sidfactory2** (C++) - a SID *tracker / editor*, not a converter.
+  Useful reference for SID-chip / driver behaviour and frequency tables, not
+  for the conversion itself.
+* **midibox/mios8** - MIDIbox MIOS for PIC microcontrollers; the relevant
+  part (MIDIbox SID) is MIDI -> SID on hardware, i.e. the *reverse* direction.
+  Not a SID -> MIDI source, but relevant if we ever drive real/emulated SID
+  voices from MIDI.
+* **libsidplayfp / reSID** (GPL) - the de-facto accurate emulation library;
+  the right choice for 42.3, and could also supply the SID-chip model for the
+  42.1 capture step.
+* **SoundFont** (musical-artifacts #8014) - a SID-style `.sf2` for 42.2.
+  License could not be verified automatically (the host blocks fetching);
+  confirm its CC / redistribution terms before bundling, otherwise ship a
+  "download it and point the SoundFont manager at it" flow.
+
+### From-scratch vs integrate
+
+* 42.1: a from-scratch 6502 + register-capture core (in the spirit of
+  SIDDump) is self-contained C++, needs no new dependency, and gives full
+  control - preferred. Integrating libsidplayfp buys accuracy but is a
+  heavier GPL dependency built for *audio output*, not register capture.
+* The CPU emulator + register capture is the mechanical ~80%; the
+  note-reconstruction heuristics are the uncertain ~20% that decides output
+  quality.
+
+### Feasibility & effort (for the AI implementer, not human-days)
+
+* **42.2 C64 SoundFont Mode - LOW effort, HIGH confidence.** ~1 focused
+  session. A structural clone of FFXIV SoundFont Mode; almost no new logic.
+  Ship this first for an immediate "C64 sound" win, even before any
+  conversion exists.
+* **42.1 SID -> MIDI - HIGH effort, MEDIUM confidence on output quality.**
+  Several sessions. I can build the 6502 emulator + PSID parsing + 50 Hz
+  capture loop reliably and verify them with *deterministic* tests (diff the
+  per-frame register dump against SIDDump for known tunes). The
+  note-reconstruction heuristics are where code alone can't guarantee
+  fidelity - they need iterative tuning against real tunes and a human ear to
+  judge "does this actually sound like the SID". Plan it as (a) emulate +
+  capture (deterministic, testable) then (b) reconstruct (iterative,
+  subjective).
+* **42.3 Authentic playback - MEDIUM effort, HIGH confidence** (if we accept
+  the GPL dependency). Mostly integration / build wiring for a second audio
+  path. Optional.
+
+### Risks / honest caveats
+
+* Conversion is lossy and player-routine-dependent - some tunes transcribe
+  cleanly, others come out as register soup. Set expectations as "editable
+  transcription", not "perfect round-trip".
+* Multi-speed tunes, digi / sample playback (4-bit volume-register PCM), and
+  heavy filter use don't map to MIDI - document as out of scope.
+* Test fixtures: HVSC (High Voltage SID Collection) tunes are largely NOT
+  freely redistributable. Use only permissively-licensed / self-authored
+  SIDs, or synthetic register dumps, for unit tests.
+* A new file type (`*.sid`) plus an embedded CPU emulator is a meaningful new
+  surface - gate the whole thing behind a build flag initially.
+
+### Build order (all shipped together in 1.8.0)
+
+Every layer lands together in 1.8.0, but the *internal* build order is
+foundation-first so the deterministic pieces are locked down before the
+subjective ones:
+
+1. **42.1a** PSID/RSID parser + 6502 emulator + 50 Hz register capture -
+   deterministic, unit-tested against SIDDump-style frame dumps.
+2. **42.1b** note-reconstruction heuristics - iterated against real tunes
+   (the part that needs a human ear to sign off on the result).
+3. **42.2** C64 SoundFont Mode - the FFXIV-SoundFont-Mode clone.
+4. **42.3** authentic libsidplayfp playback - included only if we take the
+   GPL dependency (see the open decision below).
+
+### Decisions (2026-05-29)
+
+* **Authentic playback (42.3): SHIPPED in 1.8.0.** 1.8.0 ships the SID -> MIDI
+  converter (42.1) + C64 SoundFont Mode (42.2) AND authentic playback via the
+  vendored libsidplayfp engine - the original `.sid` rendered to a QAudioSink,
+  transport-controlled, cursor-synced. The C64 engine switch picks SoundFont
+  vs. Emulation; both are live.
+* **SoundFont: NOT bundled - FFXIV-style on-demand download (decided 2026-05-29).**
+  The candidate C64 `.sf2`s are **CC BY-NC 4.0**, which is incompatible with
+  bundling into the GPLv3 release (NonCommercial = an extra restriction on
+  the combined work). So C64 SoundFont Mode mirrors FFXIV SoundFont
+  auto-setup: a download link/hook lives in the editor (alongside the
+  FluidSynth download), the `.sf2` is fetched on demand into the user's
+  SoundFont area, never embedded in the GPL binary, with CC BY-NC attribution
+  shown. Two candidates evaluated (both ~11-12 MB, SF2 v2.1): the 8-preset
+  **"Commodore 64.sf2"** (clean `C64 Noise/Pulse/Saw/Triangle` (+release/LP)
+  presets that map 1:1 to the SID waveforms - the primary pick) and a
+  9-preset variant that adds a `percussion` kit. The files carry no embedded
+  author/copyright field, so attribution must cite the musical-artifacts
+  source page.
+* **Emulator: from-scratch** 6502 + register capture (no new dependency),
+  unit-tested against SIDDump-style frame dumps.
+
+---
+
+## Phase 43: MusicXML Export - ✅ Shipped in 1.8.0
+
+> **Goal:** Export the in-memory MIDI back out as notation (MusicXML), so a song
+> edited in MidiEditor AI can be opened in MuseScore / Finale / Sibelius / Dorico.
+> The inverse of the Phase 24 MusicXML *import*.
+
+**Why:** We can already *import* GP / MusicXML / MuseScore / SID, but the only
+*outputs* were MIDI + audio + lyrics. MusicXML is the lingua franca of notation
+(every score app imports it), so one writer covers the whole ecosystem - a
+dedicated `.mscz` / Guitar Pro writer is redundant for the notation case.
+
+**Key insight:** import flattens everything down to MIDI, so export can't
+round-trip the original notation - it must *reconstruct* it from the MIDI (the
+"engraving" problem: quantise, note values, rests, ties, spelling). That
+reconstruction is the real work; the file syntax is the easy part.
+
+**Shipped (1.8.0):**
+- `src/converter/Score/` - a reusable `MidiToScore` engraving core (Qt-light,
+  unit-tested): quantise to a 1/16 + dotted grid, fill rests, split notes across
+  barlines into tied notes, group same-onset notes into chords, clef per part
+  from median pitch, enharmonic spelling from the key signature. Output is a
+  `score::Score` IR - a pure `buildScore(ScoreInput)` plus a `MidiFile`-coupled
+  `extractInput()` so the core unit-tests without the MidiFile tree.
+- `src/converter/MusicXml/MusicXmlWriter` - serialises the `Score` IR to
+  MusicXML 4.0 score-partwise via `QXmlStreamWriter`.
+- **File -> Export MusicXML...** (`MainWindow::exportMusicXml`), plain `.musicxml`.
+- `tests/test_musicxml_export` (11 cases).
+
+**v1 limits / follow-ups:** single voice per part (overlap beyond chords is
+clipped), 1/16 grid (triplets approximated), plain `.musicxml` only (no
+compressed `.mxl` yet). Deferred: true tuplet detection, `.mxl`, multi-voice,
+and a **Guitar Pro (GP6/7/8 GPIF) writer** reusing the same `MidiToScore` core
+(the originally discussed fast-follow).
 

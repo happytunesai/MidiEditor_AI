@@ -35,6 +35,7 @@ class QSlider;
 class QGroupBox;
 class QLabel;
 class QPushButton;
+class QRadioButton;
 
 /**
  * \class AdditionalMidiSettingsWidget
@@ -204,6 +205,12 @@ private:
     QCheckBox *_ffxivModeCheckBox;
     QPushButton *_ffxivEqualizerBtn = nullptr;
     QComboBox *_ffxivVoiceLimiterCombo = nullptr;
+
+    // Commodore 64 / SID block: which engine the C64 toolbar button activates,
+    // plus the fallback import length used when no loop is detected.
+    QRadioButton *_c64SoundFontRadio = nullptr;
+    QRadioButton *_c64EmulationRadio = nullptr;
+    QSpinBox *_c64ImportSecondsBox = nullptr;
 
 private slots:
     void updateFluidSynthSettingsEnabled();

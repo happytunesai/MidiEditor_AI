@@ -155,6 +155,7 @@ MidiEditor AI can natively open <b>four file-format families</b>: standard MIDI,
 <a href="#guitar-pro"><strong>&#x1F3B8; Guitar Pro</strong><span>.gp .gp3 .gp4 .gp5 .gpx .gtp</span></a>
 <a href="#musicxml"><strong>&#x1F3BC; MusicXML</strong><span>.musicxml &middot; .xml &middot; .mxl</span></a>
 <a href="#musescore"><strong>&#x1F3BB; MuseScore</strong><span>.mscz &middot; .mscx</span></a>
+<a href="commodore-64.html"><strong>&#x1F579;&#xFE0F; Commodore 64 / SID</strong><span>.sid</span></a>
 </div>
 
 <table class="info-table">
@@ -184,7 +185,7 @@ MidiEditor AI can natively open <b>four file-format families</b>: standard MIDI,
 <td><code>.musicxml</code>, <code>.xml</code>, <code>.mxl</code></td>
 <td>Finale, Sibelius, MuseScore, Dorico, etc.</td>
 <td>Score &rarr; MIDI on open</td>
-<td><code>.mid</code></td>
+<td><code>.mid</code>, <code>.musicxml</code></td>
 </tr>
 <tr>
 <td><b>MuseScore</b></td>
@@ -193,10 +194,18 @@ MidiEditor AI can natively open <b>four file-format families</b>: standard MIDI,
 <td>Score &rarr; MIDI on open</td>
 <td><code>.mid</code></td>
 </tr>
+<tr>
+<td><b><a href="commodore-64.html">Commodore 64 / SID</a></b></td>
+<td><code>.sid</code></td>
+<td>C64 SID tunes (PSID / RSID)</td>
+<td>SID &rarr; MIDI on open</td>
+<td><code>.mid</code></td>
+</tr>
 </table>
 
 <div class="highlight-box">
-<p>&#x26A0;&#xFE0F; <b>One-way conversion:</b> Imported files are converted to MIDI in memory. Saving keeps the result as a MIDI file - the original Guitar Pro / MusicXML / MuseScore document is not modified, and round-trip back to those formats is not supported.</p>
+<p>&#x26A0;&#xFE0F; <b>Import converts to MIDI:</b> opened files are converted to MIDI in memory and the original Guitar Pro / MusicXML / MuseScore / SID document is never modified. For notation, MidiEditor AI can <b>export to MusicXML</b> (<b>File &rarr; Export MusicXML&hellip;</b>) - openable in MuseScore, Finale, Sibelius and Dorico. Because MIDI doesn't store notation, the score is reconstructed (note values, rests, ties, chords, key spelling) rather than round-tripped byte-for-byte.</p>
+<p>&#x1F4BE; <b>Saving an imported file:</b> these formats can only be read, not written back - a MIDI editor saves Standard MIDI bytes, which a <code>.sid</code>, <code>.gp5</code> or <code>.musicxml</code> can't hold. So pressing <b>Save</b> (Ctrl+S) on a freshly imported file shows a short notice and opens <b>Save As</b> instead, pre-filled with the original song name and a <code>.mid</code> extension - your original file on disk is never overwritten. Once it has been saved as <code>.mid</code>, Save works normally from then on.</p>
 </div>
 
 <hr>
@@ -455,8 +464,39 @@ MusicXML is the de-facto interchange format for music notation. MidiEditor AI im
 <li><b>Lyrics:</b> <code>&lt;lyric&gt;</code> elements are not yet imported as MIDI text events. Use the Lyric Editor to add lyrics after import.</li>
 <li><b>Articulations &amp; dynamics:</b> Slurs, staccato, and dynamic markings are notation-only concepts; they do not currently translate to MIDI velocity changes.</li>
 <li><b>Repeat sections:</b> Repeat barlines and voltas are not yet expanded - the imported MIDI contains a single linear pass through the score.</li>
-<li><b>One-way:</b> MidiEditor AI saves edits back as MIDI, not MusicXML. To round-trip, re-export from your notation software.</li>
+<li><b>Export back to MusicXML:</b> MidiEditor AI can also write a score out - see <a href="#musicxml-export">Exporting to MusicXML</a> below.</li>
 </ul>
+
+<h3 id="musicxml-export">Exporting to MusicXML</h3>
+
+<p>
+MusicXML is a two-way street: <b>File &rarr; Export MusicXML&hellip;</b> writes
+the current song as a MusicXML score. One export covers the whole notation
+ecosystem - the file opens in <b>MuseScore, Finale, Sibelius and Dorico</b>
+(so there's no separate MuseScore export needed).
+</p>
+
+<div class="screenshot-single">
+    <img src="screenshots/MusicXML_export.png" alt="The File menu with Export MusicXML... highlighted.">
+    <p class="caption">File &rarr; Export MusicXML&hellip;</p>
+</div>
+
+<p>
+Because MIDI stores no notation, the score is <b>reconstructed</b> from the
+notes rather than round-tripped byte-for-byte. MidiEditor AI derives:
+</p>
+
+<ul>
+<li>per-track <b>parts</b>, <b>measures</b> from the time signature, and a <b>clef</b> per part;</li>
+<li><b>note values</b> (incl. dotted) and <b>rests</b> so every measure is complete;</li>
+<li><b>ties</b> for notes crossing a barline, and <b>chords</b> for same-onset notes;</li>
+<li><b>enharmonic spelling</b> from the key signature (sharps in sharp keys, flats in flat keys);</li>
+<li><b>tempo</b>, <b>time</b> and <b>key</b> signatures.</li>
+</ul>
+
+<div class="highlight-box">
+<p>&#x2139;&#xFE0F; <b>v1 scope:</b> one voice per part (overlap beyond chords is clipped to mono), a 1/16-note grid (triplets are approximated as tied notes), and plain <code>.musicxml</code> output (the compressed <code>.mxl</code> container is a planned follow-up). The goal is a correct, openable score everywhere - not publication-perfect engraving, which MIDI doesn't carry enough information for.</p>
+</div>
 
 <hr>
 

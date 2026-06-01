@@ -13,7 +13,7 @@
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-0078D6?logo=windows)](https://github.com/happytunesai/MidiEditor_AI/releases)
 
-**Version:** 1.7.2
+**Version:** 1.8.0
 **Status:** Release
 
 📥 **[Download Latest Release](https://github.com/happytunesai/MidiEditor_AI/releases/latest)**
@@ -73,6 +73,9 @@ MidiPilot is the AI brain embedded directly in MidiEditor AI. Open the sidebar, 
 | 🔀 **Split Channels to Tracks** | Convert single-track multi-channel GM MIDI files into one track per instrument with auto-naming |
 | 💥 **Explode Chords to Tracks** | Split polyphonic chords into separate monophonic tracks - one note per track, ideal for FFXIV ensemble prep |
 | 🎼 **Score & Tab Import** | Open Guitar Pro (GP1-GP8: `.gp`, `.gp3`-`.gp5`, `.gpx`, `.gtp`), MusicXML (`.musicxml`, `.xml`, `.mxl`) and MuseScore (`.mscz`, `.mscx`) files directly - auto-converted to MIDI on open |
+| 🕹️ **Commodore 64 / SID** | Open `.sid` tunes as editable MIDI and play them **authentically** - the converted MIDI through a C64 SoundFont, or the *original* SID through the cycle-accurate **libsidplayfp** engine (transport-controlled, cursor-synced, per-voice mute). A retro `SF2 ⟷ EMU` toolbar switch flips engines |
+| 🎼 **MusicXML Export** | Write the current song out as a MusicXML score (*File → Export MusicXML*) - opens in MuseScore, Finale, Sibelius, Dorico. Reconstructs measures, note values, rests, ties, chords and key spelling from the MIDI |
+| 🕒 **Cursor Time Display** | Retro seven-segment toolbar clock - cursor / playback time with POS / LEN / REM / BPM / BAR readouts (left-click) and 6 LED colour themes (right-click) |
 | 🔊 **Built-in FluidSynth** | Play MIDI without external softsynth - load SF2/SF3 SoundFonts, SoundFont stacking, FFXIV SoundFont Mode with bard-accurate playback (dry, 16-voice cap, cubic CC7·CC11 curve, per-instrument min note length) |
 | 🎚️ **FFXIV SoundFont Equalizer** | Per-instrument volume mixer for the FFXIV bard SoundFont with 0-200 % gain sliders, mute, master gain, per-row ▶ Preview, plus user presets. Affects live playback **and** offline export via `GEN_ATTENUATION` |
 | 🎶 **Audio Export** | Export MIDI to WAV, FLAC, OGG Vorbis, or MP3 using loaded SoundFonts - built-in LAME 3.100 encoder. Honours channel mute/solo, per-track mute, and auto-routes named FFXIV percussion tracks to the correct bard preset |
@@ -262,14 +265,38 @@ MidiEditor AI opens Guitar Pro, MusicXML and MuseScore scores directly - they're
 | **Guitar Pro 6-8** | `.gpx`, `.gp` | Gp678Parser (ZIP+XML) |
 | **MusicXML** | `.musicxml`, `.xml`, `.mxl` | Finale, Sibelius, MuseScore, Dorico, etc. |
 | **MuseScore** | `.mscz`, `.mscx` | MuseScore 3 / 4 native format |
+| **Commodore 64 SID** | `.sid` | PSID / RSID - 6502 emulation + libsidplayfp (see the Commodore 64 / SID section below) |
 
 **Features:**
 - **Header-based detection** - format identified by magic bytes, not file extension
 - **Full metadata** - tempo, time signature, key signature, tuning, and track names are extracted
 - **Instrument mapping** - source instruments mapped to General MIDI program numbers
 - **Effects** - bends, slides, hammer-on/pull-off, vibrato, and harmonics converted where possible (Guitar Pro)
+- **MusicXML export** - go the other way too: *File → Export MusicXML* reconstructs a notation score from the MIDI (measures, note values, rests, ties, chords, key spelling) that opens in MuseScore, Finale, Sibelius and Dorico
 
 📖 **[Supported Files Documentation →](https://happytunesai.github.io/MidiEditor_AI/supported-files.html)**
+
+---
+
+## 🕹️ Commodore 64 / SID Support
+
+Load a Commodore 64 `.sid` tune, **edit it as MIDI**, and hear it the way it was meant to sound. As far as we know, **no other MIDI editor handles SID natively with authentic C64 emulation playback** - this is what makes MidiEditor AI special for chiptune work.
+
+`.sid` opens like any other file: MidiEditor AI plays the tune internally, watches the SID chip frame by frame, and reconstructs it as a multi-track MIDI (one track per SID voice + a dedicated percussion track), with note durations, velocities and arpeggios recovered from the chip's gate/envelope behaviour.
+
+**Two ways to hear it** - one C64 toolbar button activates the chosen engine, and a retro `SF2 ⟷ EMU` switch flips between them:
+
+- **SoundFont** - plays the converted MIDI through a Commodore 64 SoundFont so it uses real C64 waveform timbres (pulse, sawtooth, triangle, noise). The SoundFont (~11 MB) downloads itself on first use.
+- **Emulation** - plays the *original* `.sid` through the cycle-accurate **libsidplayfp** engine for true-to-hardware chip audio, driven by the normal transport: Play from the cursor, Stop / Pause, seek, the piano-roll cursor follows in real-time sync, channel/track mute silences the matching SID voice live, and playback stops at the end of the note roll.
+
+| Variant | Tunes | How it's imported |
+|---------|-------|-------------------|
+| **PSID** | most SID tunes | fast built-in 6502 emulator (register capture @ 50/60 Hz) |
+| **RSID** | interrupt-installers (Arkanoid, RoboCop, Giana Sisters, …) | vendored libsidplayfp 3.0.1, ROM-free |
+
+SID tunes loop forever, so a musical loop detector trims the import to intro + one loop (with a configurable fallback length). The C64 SoundFont is by **jubbyo** ([musical-artifacts.com/artifacts/8014](https://musical-artifacts.com/artifacts/8014), CC BY-NC) and is fetched on demand, never bundled in the GPL release.
+
+📖 **[Commodore 64 / SID Documentation →](https://happytunesai.github.io/MidiEditor_AI/commodore-64.html)**
 
 ---
 

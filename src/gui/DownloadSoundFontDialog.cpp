@@ -68,6 +68,14 @@ DownloadSoundFontDialog::DownloadSoundFontDialog(QWidget *parent)
             false
         },
         {
+            tr("Commodore 64 / SID (C64 Mode)"),
+            tr("11.4 MB"),
+            tr("SF2"),
+            QStringLiteral("https://github.com/happytunesai/MidiEditor_AI/releases/download/soundfonts/Commodore_64.sf2"),
+            QStringLiteral("Commodore_64.sf2"),
+            false
+        },
+        {
             tr("GeneralUser GS"),
             tr("30.8 MB"),
             tr("SF2"),

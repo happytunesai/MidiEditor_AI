@@ -23,6 +23,7 @@
                 { href: 'editor-and-components.html', icon: '🖥️', name: 'Editor & Components' },
                 { href: 'editing-midi-files.html', icon: '✏️', name: 'Editing MIDI Files' },
                 { href: 'playback.html', icon: '▶️', name: 'Playback' },
+                { href: 'cursor-time-display.html', icon: '🕒', name: 'Cursor Time Display' },
                 { href: 'export-audio.html', icon: '💾', name: 'Export Audio' },
                 { href: 'tempo-conversion.html', icon: '⏱️', name: 'Tempo Conversion' },
                 { href: 'menu-tools.html', icon: '🔧', name: 'Tools Menu' },
@@ -64,6 +65,7 @@
             title: 'Files & Formats',
             pages: [
                 { href: 'supported-files.html', icon: '📂', name: 'Supported Files' },
+                { href: 'commodore-64.html', icon: '🕹️', name: 'Commodore 64 / SID' },
                 { href: 'split-channels.html', icon: '✂️', name: 'Split Channels' },
                 { href: 'midi-overview.html', icon: '🎹', name: 'MIDI Overview' },
                 { href: 'lyrics.html', icon: '🎤', name: 'Lyric Editor' }

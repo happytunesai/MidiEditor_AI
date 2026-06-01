@@ -185,6 +185,137 @@ target_link_libraries(test_session_mode PRIVATE
 add_test(NAME SessionMode COMMAND test_session_mode)
 
 # -----------------------------------------------------------------------------
+# test_time_display_format
+# -----------------------------------------------------------------------------
+# Validates the pure format/mode helpers in src/gui/TimeDisplayFormat.h
+# (Phase 41 - Cursor Time Display): adaptive MM:SS / H:MM:SS clock, remaining
+# countdown, bar.beat shape, and the click-cycle mode helpers. Header-only,
+# so this links only Qt6::Core/Test - no TimeDisplayWidget, no MidiFile.
+add_executable(test_time_display_format
+    test_time_display_format.cpp
+)
+target_link_libraries(test_time_display_format PRIVATE
+    Qt6::Core
+    Qt6::Test
+)
+add_test(NAME TimeDisplayFormat COMMAND test_time_display_format)
+
+# -----------------------------------------------------------------------------
+# test_import_only_formats
+# -----------------------------------------------------------------------------
+# Validates the import-only format classifier in src/gui/ImportOnlyFormats.h:
+# Guitar Pro / MML / 3MLE / MusicXML / MuseScore / SID are recognised (so
+# MainWindow::save() redirects them to Save As .mid instead of overwriting the
+# original on disk), while real MIDI containers are not. Regression guard for
+# the 1.8.0 data-loss fix (a saved .sid used to clobber the original). Header-
+# only -> links only Qt Core/Test.
+add_executable(test_import_only_formats
+    test_import_only_formats.cpp
+)
+target_link_libraries(test_import_only_formats PRIVATE
+    Qt6::Core
+    Qt6::Test
+)
+add_test(NAME ImportOnlyFormats COMMAND test_import_only_formats)
+
+# -----------------------------------------------------------------------------
+# test_sid_file
+# -----------------------------------------------------------------------------
+# Validates the PSID/RSID parser (Phase 42, C64 mode) - header fields +
+# program-image resolution (load address in header vs embedded in data) +
+# rejection of malformed input. The SID core is plain C++, so this compiles
+# SidFile.cpp directly and links only Qt6::Core/Test.
+add_executable(test_sid_file
+    test_sid_file.cpp
+    ../src/converter/Sid/SidFile.cpp
+)
+target_include_directories(test_sid_file PRIVATE
+    ../src/converter/Sid
+)
+target_link_libraries(test_sid_file PRIVATE
+    Qt6::Core
+    Qt6::Test
+)
+add_test(NAME SidFile COMMAND test_sid_file)
+
+# -----------------------------------------------------------------------------
+# test_sid_cpu
+# -----------------------------------------------------------------------------
+# Validates the MOS 6502 emulator (Phase 42) with hand-assembled programs:
+# indexed store loop, ADC carry/zero flags, JSR/RTS nesting, runaway guard.
+add_executable(test_sid_cpu
+    test_sid_cpu.cpp
+    ../src/converter/Sid/Mos6502.cpp
+)
+target_include_directories(test_sid_cpu PRIVATE
+    ../src/converter/Sid
+)
+target_link_libraries(test_sid_cpu PRIVATE
+    Qt6::Core
+    Qt6::Test
+)
+add_test(NAME SidCpu COMMAND test_sid_cpu)
+
+# -----------------------------------------------------------------------------
+# test_sid_capture
+# -----------------------------------------------------------------------------
+# End-to-end (Phase 42): parser -> 6502 emulator -> register capture. A
+# synthetic PSID with an embedded player drives the SID registers; the test
+# checks the captured per-frame register progression + PAL/NTSC timing.
+add_executable(test_sid_capture
+    test_sid_capture.cpp
+    ../src/converter/Sid/SidCapture.cpp
+    ../src/converter/Sid/SidFile.cpp
+    ../src/converter/Sid/Mos6502.cpp
+)
+target_include_directories(test_sid_capture PRIVATE
+    ../src/converter/Sid
+)
+target_link_libraries(test_sid_capture PRIVATE
+    Qt6::Core
+    Qt6::Test
+)
+add_test(NAME SidCapture COMMAND test_sid_capture)
+
+# -----------------------------------------------------------------------------
+# test_sid_reconstruct
+# -----------------------------------------------------------------------------
+# Validates note reconstruction (Phase 42.1b): SID frequency -> MIDI pitch,
+# gate-run -> note duration, mid-gate pitch change -> arpeggio split, and
+# vibrato staying a single note. Structs are header-only, so this only needs
+# SidReconstruct.cpp.
+add_executable(test_sid_reconstruct
+    test_sid_reconstruct.cpp
+    ../src/converter/Sid/SidReconstruct.cpp
+)
+target_include_directories(test_sid_reconstruct PRIVATE
+    ../src/converter/Sid
+)
+target_link_libraries(test_sid_reconstruct PRIVATE
+    Qt6::Core
+    Qt6::Test
+)
+add_test(NAME SidReconstruct COMMAND test_sid_reconstruct)
+
+# -----------------------------------------------------------------------------
+# test_sid_midiwriter
+# -----------------------------------------------------------------------------
+# Validates the SID -> SMF writer (Phase 42.1) emits a well-formed format-1
+# MIDI file (MThd header + 4 chunk-consistent MTrk tracks).
+add_executable(test_sid_midiwriter
+    test_sid_midiwriter.cpp
+    ../src/converter/Sid/SidMidiWriter.cpp
+)
+target_include_directories(test_sid_midiwriter PRIVATE
+    ../src/converter/Sid
+)
+target_link_libraries(test_sid_midiwriter PRIVATE
+    Qt6::Core
+    Qt6::Test
+)
+add_test(NAME SidMidiWriter COMMAND test_sid_midiwriter)
+
+# -----------------------------------------------------------------------------
 # test_xml_score_to_midi
 # -----------------------------------------------------------------------------
 # Validates the shared SMF (Standard MIDI File) byte writer used by both the
@@ -202,6 +333,30 @@ target_link_libraries(test_xml_score_to_midi PRIVATE
     Qt6::Test
 )
 add_test(NAME XmlScoreToMidi COMMAND test_xml_score_to_midi)
+
+# -----------------------------------------------------------------------------
+# test_musicxml_export
+# -----------------------------------------------------------------------------
+# Validates the MusicXML export pipeline (Phase 43, 1.8.0): the MIDI->notation
+# engraver (score::buildScore in MidiToScore.cpp) - note-value mapping, rest
+# filling, ties across barlines, chords, enharmonic spelling - and the
+# MusicXmlWriter serialiser. buildScore takes a plain ScoreInput, so this links
+# only the two pure .cpp files (not MidiToScoreExtract.cpp, which pulls in the
+# MidiFile tree) + Qt6::Core/Test.
+add_executable(test_musicxml_export
+    test_musicxml_export.cpp
+    ../src/converter/Score/MidiToScore.cpp
+    ../src/converter/MusicXml/MusicXmlWriter.cpp
+)
+target_include_directories(test_musicxml_export PRIVATE
+    ../src/converter/Score
+    ../src/converter/MusicXml
+)
+target_link_libraries(test_musicxml_export PRIVATE
+    Qt6::Core
+    Qt6::Test
+)
+add_test(NAME MusicXmlExport COMMAND test_musicxml_export)
 
 # -----------------------------------------------------------------------------
 # test_chord_detector
@@ -1091,6 +1246,7 @@ if(WIN32)
     get_filename_component(_qt_bin_dir "${_qmake_exe}" DIRECTORY)
     set_tests_properties(
         XmlScoreToMidi
+        MusicXmlExport
         ChordDetector
         SrtParser
         LrcExporter
@@ -1131,6 +1287,13 @@ if(WIN32)
         IceConfig
         RtcSignalingToken
         SessionMode
+        TimeDisplayFormat
+        ImportOnlyFormats
+        SidFile
+        SidCpu
+        SidCapture
+        SidReconstruct
+        SidMidiWriter
         PROPERTIES
             ENVIRONMENT "PATH=${_qt_bin_dir};$ENV{PATH}"
     )

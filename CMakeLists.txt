@@ -9,7 +9,7 @@ cmake_minimum_required(VERSION 3.20 FATAL_ERROR)
 # IPO request and silences the warnings.
 set(CMAKE_POLICY_DEFAULT_CMP0069 NEW)
 
-set(MIDIEDITOR_RELEASE_VERSION_STRING "1.7.2")
+set(MIDIEDITOR_RELEASE_VERSION_STRING "1.8.0")
 project(MidiEditorAI VERSION ${MIDIEDITOR_RELEASE_VERSION_STRING} LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -133,13 +133,13 @@ if(WIN32)
 endif()
 
 # Try to find Qt6 with different approaches
-find_package(Qt6 REQUIRED COMPONENTS Core Widgets Gui Network OpenGL OpenGLWidgets)
+find_package(Qt6 REQUIRED COMPONENTS Core Widgets Gui Network OpenGL OpenGLWidgets Multimedia)
 
 if(NOT Qt6_FOUND)
     # Try with Qt6_DIR environment variable
     if(DEFINED ENV{Qt6_DIR})
         set(Qt6_DIR $ENV{Qt6_DIR})
-        find_package(Qt6 QUIET COMPONENTS Core Widgets Gui Network OpenGL OpenGLWidgets)
+        find_package(Qt6 QUIET COMPONENTS Core Widgets Gui Network OpenGL OpenGLWidgets Multimedia)
     endif()
 endif()
 
@@ -147,7 +147,7 @@ if(NOT Qt6_FOUND)
     # Try with QT_ROOT_DIR environment variable
     if(DEFINED ENV{QT_ROOT_DIR})
         set(CMAKE_PREFIX_PATH ${CMAKE_PREFIX_PATH} $ENV{QT_ROOT_DIR})
-        find_package(Qt6 QUIET COMPONENTS Core Widgets Gui Network OpenGL OpenGLWidgets)
+        find_package(Qt6 QUIET COMPONENTS Core Widgets Gui Network OpenGL OpenGLWidgets Multimedia)
     endif()
 endif()
 
@@ -179,6 +179,28 @@ if(Qt6_FOUND)
     qt6_standard_project_setup()
 endif()
 
+# Vendored libsidplayfp (SID emulation engine for accurate RSID import +
+# authentic playback). Builds the 'sidplayfp' static lib target.
+#
+# The source is committed ONCE as third_party/libsidplayfp-vendored.zip (a single
+# blob instead of ~140 loose third-party files); the extracted tree is gitignored.
+# On a fresh checkout / CI the tree is absent, so unpack it here before use -
+# file(ARCHIVE_EXTRACT) runs at configure time (libarchive, same as the zip was
+# made with), so the directory exists by the time add_subdirectory() runs below.
+# Locally the tree already exists, so this is a no-op. Re-zip if the lib is patched.
+if(NOT EXISTS "${CMAKE_SOURCE_DIR}/third_party/libsidplayfp/CMakeLists.txt")
+    if(NOT EXISTS "${CMAKE_SOURCE_DIR}/third_party/libsidplayfp-vendored.zip")
+        message(FATAL_ERROR
+            "libsidplayfp is missing: neither third_party/libsidplayfp/ nor "
+            "third_party/libsidplayfp-vendored.zip is present.")
+    endif()
+    message(STATUS "Unpacking vendored libsidplayfp from libsidplayfp-vendored.zip")
+    file(ARCHIVE_EXTRACT
+        INPUT "${CMAKE_SOURCE_DIR}/third_party/libsidplayfp-vendored.zip"
+        DESTINATION "${CMAKE_SOURCE_DIR}/third_party")
+endif()
+add_subdirectory(third_party/libsidplayfp)
+
 # Main target
 add_executable(MidiEditorAI)
 
@@ -196,6 +218,8 @@ target_link_libraries(MidiEditorAI PRIVATE
         Qt6::Network
         Qt6::OpenGL
         Qt6::OpenGLWidgets
+        Qt6::Multimedia   # QAudioSink for authentic SID (libsidplayfp) playback
+        sidplayfp   # vendored libsidplayfp (SID->MIDI capture; RSID accuracy)
 )
 
 # Link system OpenGL library for cross-platform compatibility
@@ -323,6 +347,8 @@ target_include_directories(MidiEditorAI PRIVATE
     src/converter/GuitarPro
     src/converter/MML
     src/converter/MusicXml
+    src/converter/Sid
+    src/converter/Score
 )
 message(STATUS "Added project include directories")
 
@@ -519,6 +545,8 @@ file(GLOB SOURCES_CONVERTER_BASE "src/converter/*.cpp")
 file(GLOB SOURCES_CONVERTER "src/converter/GuitarPro/*.cpp")
 file(GLOB SOURCES_CONVERTER_MML "src/converter/MML/*.cpp")
 file(GLOB SOURCES_CONVERTER_MUSICXML "src/converter/MusicXml/*.cpp")
+file(GLOB SOURCES_CONVERTER_SID "src/converter/Sid/*.cpp")
+file(GLOB SOURCES_CONVERTER_SCORE "src/converter/Score/*.cpp")
 
 # If GP678_SUPPORT is not available, exclude GP6/7/8 parser files that need zlib
 if(NOT GP678_ENABLED)
@@ -544,6 +572,8 @@ set(SOURCES
     ${SOURCES_CONVERTER}
     ${SOURCES_CONVERTER_MML}
     ${SOURCES_CONVERTER_MUSICXML}
+    ${SOURCES_CONVERTER_SID}
+    ${SOURCES_CONVERTER_SCORE}
 )
 
 # Add only main rtmidi files if they exist (not tests/docs/examples)

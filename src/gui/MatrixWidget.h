@@ -296,7 +296,7 @@ public:
      *
      *  Replaces the 1:1 scroll-mirroring approach when the wire frame
      *  carries focus extents — that approach broke whenever host and
-     *  viewer had different window sizes (Sven's report 2026-05-21):
+     *  viewer had different window sizes (user report 2026-05-21):
      *  the viewer's larger visible-line count would clamp startLine
      *  to 0 ("snap to top of piano roll"). Fitting based on the local
      *  pixel geometry sidesteps the clamp entirely. */

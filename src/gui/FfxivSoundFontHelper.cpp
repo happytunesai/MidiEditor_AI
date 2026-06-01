@@ -16,6 +16,7 @@
 #include "../midi/FluidSynthEngine.h"
 #endif
 #include "../midi/MidiOutput.h"
+#include "C64Mode.h" // shared "stop the transport before an engine handover" helper
 
 #include <QCoreApplication>
 #include <QDir>
@@ -88,6 +89,13 @@ bool requestEnable(QWidget *parent) {
     FluidSynthEngine *engine = FluidSynthEngine::instance();
     if (!engine) return false;
 
+    // Stop the transport before switching the MIDI output / loading SoundFonts:
+    // doing it under a live player thread frees the synth / closes the port mid
+    // send (use-after-free, 0xc0000005 - same crash class as the C64 switch,
+    // see BUG-C64-CRASH). FFXIV mode is arm-then-play so it's far less likely to
+    // be toggled mid-playback, but the exposure is identical, so guard it too.
+    C64Mode::stopPlaybackForEngineChange();
+
     // 1. Make FluidSynth the active MIDI output FIRST so the engine is
     //    initialized. Without this, every loadSoundFont() call below would
     //    silently return -1 because _initialized is false on a clean install
@@ -110,6 +118,18 @@ bool requestEnable(QWidget *parent) {
     if (!engine->isInitialized()) {
         engine->initialize();
     }
+
+    // If we bail out before actually enabling the mode (user declines the
+    // download, or no font is found), undo the output switch so we don't
+    // silently leave the user on a different MIDI output (BUG-CORE-003;
+    // mirrors the C64 helper's abortRestoringOutput / BUG-C64-001).
+    auto abortRestoringOutput = [&]() -> bool {
+        if (outputSwitched) {
+            MidiOutput::setOutputPort(previousPort);
+            QSettings().setValue("out_port", previousPort);
+        }
+        return false;
+    };
 
     // 2. Snapshot the currently enabled non-FFXIV SoundFonts so we can
     //    restore them on disable.
@@ -146,7 +166,7 @@ bool requestEnable(QWidget *parent) {
             QMessageBox::Yes | QMessageBox::No,
             QMessageBox::Yes);
         if (choice != QMessageBox::Yes) {
-            return false;
+            return abortRestoringOutput();
         }
 
         DownloadSoundFontDialog dialog(parent);
@@ -180,7 +200,7 @@ bool requestEnable(QWidget *parent) {
         }
 
         if (ffxivPath.isEmpty()) {
-            return false;
+            return abortRestoringOutput();
         }
     }
 
@@ -230,6 +250,11 @@ void requestDisable(QWidget *parent) {
 #ifdef FLUIDSYNTH_SUPPORT
     FluidSynthEngine *engine = FluidSynthEngine::instance();
     if (!engine) return;
+
+    // Same race as requestEnable(): the GS-fallback path can switch output away
+    // from FluidSynth (-> shutdown -> synth freed) while the player thread runs.
+    // Join the player thread first (see BUG-C64-CRASH).
+    C64Mode::stopPlaybackForEngineChange();
 
     // 1. Disable any FFXIV SoundFonts in the stack.
     const QStringList allPaths = engine->allSoundFontPaths();

@@ -61,6 +61,7 @@ FluidSynthEngine::FluidSynthEngine()
       _bardAccurateMode(true) {
     for (int ch = 0; ch < 16; ++ch) {
         _bardCurrentProgram[ch] = 0;
+        _logicalProgram[ch] = 0;
         _bardCC7[ch] = 127;
         _bardCC11[ch] = 127;
         for (int k = 0; k < 128; ++k) {
@@ -631,27 +632,17 @@ void FluidSynthEngine::sendMidiData(const QByteArray &data) {
         if (data.size() >= 2) {
             int program = static_cast<unsigned char>(data[1]);
             int origProgram = program;
-            // In melodic mode, force bank 0 on ALL channels so FFXIV
-            // SoundFont presets are always found (they only exist in bank 0)
-            if (_ffxivSoundFontMode) {
+            // Remember the program the stream actually requested (pre-remap)
+            // so a live FFXIV/C64 mode toggle can re-apply the correct preset
+            // to this channel without waiting for the song to be restarted.
+            _logicalProgram[channel] = origProgram;
+            // In FFXIV / C64 mode, force bank 0 on ALL channels so the
+            // (bank-0-only) SoundFont presets are always found, then remap the
+            // requested program to the mode's preset layout.
+            if (_ffxivSoundFontMode || _c64SoundFontMode) {
                 fluid_synth_bank_select(_synth, channel, 0);
-                // GM-program → FFXIV-SF2 fallback. The FFXIV SoundFont is
-                // sparse: any GM program with no preset silently falls back
-                // to bank 0 / prog 0 (= Piano), so e.g. an Acoustic Guitar
-                // (nylon) track plays as piano. Remap the most common
-                // missing slots to the closest FFXIV instrument so old or
-                // imported MIDIs (Guitar Pro, MusicXML, …) still sound
-                // sensible. Verified against FF14-c3c6-fixed.sf2 phdr
-                // chunk on 2026-04-28.
-                static const QHash<int, int> ffxivProgramFallback = {
-                    {24, 25},  // Acoustic Guitar (nylon) → Lute
-                    {26, 27},  // Acoustic Guitar (jazz)  → Clean Guitar
-                };
-                auto it = ffxivProgramFallback.constFind(program);
-                if (it != ffxivProgramFallback.constEnd()) {
-                    program = it.value();
-                }
             }
+            program = remapProgramForCurrentMode(program);
             fluid_synth_program_change(_synth, channel, program);
             _bardCurrentProgram[channel] = program;
             // In bard mode, normalise per-preset loudness via additive
@@ -678,7 +669,7 @@ void FluidSynthEngine::sendMidiData(const QByteArray &data) {
             int value = static_cast<unsigned char>(data[2]);
             // In melodic mode, intercept bank select CC#0 (MSB) and CC#32 (LSB)
             // to force bank 0 — FFXIV SoundFont only has bank 0 presets
-            if (_ffxivSoundFontMode && (ctrl == 0 || ctrl == 32)) {
+            if ((_ffxivSoundFontMode || _c64SoundFontMode) && (ctrl == 0 || ctrl == 32)) {
                 value = 0;
             }
             // In bard accuracy mode, reshape volume (CC7) and expression (CC11)
@@ -1198,6 +1189,10 @@ bool FluidSynthEngine::chorusEnabled() const {
 }
 
 void FluidSynthEngine::setFfxivSoundFontMode(bool enabled) {
+    // FFXIV and C64 modes both seize bank 0 + remap programs; only one at a time.
+    if (enabled && _c64SoundFontMode) {
+        setC64SoundFontMode(false);
+    }
     bool changed = (_ffxivSoundFontMode != enabled);
     _ffxivSoundFontMode = enabled;
     applyChannelMode();
@@ -1205,6 +1200,49 @@ void FluidSynthEngine::setFfxivSoundFontMode(bool enabled) {
     if (changed) {
         emit ffxivSoundFontModeChanged(enabled);
     }
+}
+
+void FluidSynthEngine::setC64SoundFontMode(bool enabled) {
+    // Mutually exclusive with FFXIV mode (see setFfxivSoundFontMode).
+    if (enabled && _ffxivSoundFontMode) {
+        setFfxivSoundFontMode(false);
+    }
+    bool changed = (_c64SoundFontMode != enabled);
+    _c64SoundFontMode = enabled;
+    applyChannelMode();
+    if (changed) {
+        emit c64SoundFontModeChanged(enabled);
+    }
+}
+
+int FluidSynthEngine::c64ProgramRemap(int gmProgram) {
+    // SID-import lead programs -> C64 SoundFont waveform presets (bank 0).
+    switch (gmProgram) {
+    case 80:  return 2; // Lead 1 (square)   -> C64 Pulse
+    case 81:  return 4; // Lead 2 (sawtooth) -> C64 Saw
+    case 82:  return 6; // Lead 3 (calliope) -> C64 Triangle
+    case 122: return 0; // Seashore (noise)  -> C64 Noise
+    default:  return 2; // fall back to Pulse so non-SID MIDIs still sound
+    }
+}
+
+int FluidSynthEngine::remapProgramForCurrentMode(int program) const {
+    if (_ffxivSoundFontMode) {
+        // GM-program → FFXIV-SF2 fallback. The FFXIV SoundFont is sparse: any
+        // GM program with no preset silently falls back to bank 0 / prog 0
+        // (= Piano), so remap the most common missing slots to the closest
+        // FFXIV instrument. Verified against FF14-c3c6-fixed.sf2 phdr chunk.
+        static const QHash<int, int> ffxivProgramFallback = {
+            {24, 25},  // Acoustic Guitar (nylon) → Lute
+            {26, 27},  // Acoustic Guitar (jazz)  → Clean Guitar
+        };
+        auto it = ffxivProgramFallback.constFind(program);
+        return (it != ffxivProgramFallback.constEnd()) ? it.value() : program;
+    }
+    if (_c64SoundFontMode) {
+        return c64ProgramRemap(program);
+    }
+    return program;
 }
 
 void FluidSynthEngine::setBardAccurateMode(bool enabled) {
@@ -1224,25 +1262,41 @@ void FluidSynthEngine::applyChannelMode() {
     if (!_initialized || !_synth) {
         return;
     }
-    if (_ffxivSoundFontMode) {
-        // FFXIV SoundFont Mode: all channels melodic + bank 0 + drum program injection
+    if (_ffxivSoundFontMode || _c64SoundFontMode) {
+        // FFXIV / C64 SoundFont Mode: all channels melodic + bank 0.
+        // Re-apply each channel's *logical* program through the mode's remap so
+        // toggling mid-playback switches to the right preset immediately.
+        // (Forcing program 0 here landed every channel on the C64 "Noise"
+        // preset = the crackle heard when re-enabling C64 mode during playback;
+        // the correct presets only returned after a song restart re-fired the
+        // Program Change events.)
         for (int ch = 0; ch < 16; ++ch) {
             fluid_synth_set_channel_type(_synth, ch, CHANNEL_TYPE_MELODIC);
             fluid_synth_bank_select(_synth, ch, 0);
-            fluid_synth_program_change(_synth, ch, 0);
+            int prog = remapProgramForCurrentMode(_logicalProgram[ch]);
+            fluid_synth_program_change(_synth, ch, prog);
+            _bardCurrentProgram[ch] = prog;
+            if (_ffxivSoundFontMode) {
+                applyFfxivEqualizerAttenuation(ch);
+            }
         }
-        qDebug() << "FluidSynth: FFXIV SoundFont Mode — all channels melodic, bank 0";
+        qDebug() << "FluidSynth:" << (_c64SoundFontMode ? "C64" : "FFXIV")
+                 << "SoundFont Mode — all channels melodic, bank 0";
     } else {
-        // Restore GM default: ch9 = drum, all others = melodic
+        // Restore GM default: ch9 = drum, all others = melodic. Re-apply the
+        // last requested program per channel so turning a mode off mid-playback
+        // returns to the song's real instruments (not a blanket program 0).
         for (int ch = 0; ch < 16; ++ch) {
             if (ch == 9) {
                 fluid_synth_set_channel_type(_synth, ch, CHANNEL_TYPE_DRUM);
                 fluid_synth_bank_select(_synth, ch, 128);
                 fluid_synth_program_change(_synth, ch, 0);
+                _bardCurrentProgram[ch] = 0;
             } else {
                 fluid_synth_set_channel_type(_synth, ch, CHANNEL_TYPE_MELODIC);
                 fluid_synth_bank_select(_synth, ch, 0);
-                fluid_synth_program_change(_synth, ch, 0);
+                fluid_synth_program_change(_synth, ch, _logicalProgram[ch]);
+                _bardCurrentProgram[ch] = _logicalProgram[ch];
             }
         }
         qDebug() << "FluidSynth: GM channel mode restored (ch9=drum, bank 128)";
@@ -1396,6 +1450,7 @@ qint64 FluidSynthEngine::bardMinNoteLengthMs(int instrumentIndex, int midiKey, q
 void FluidSynthEngine::resetBardNoteState() {
     for (int ch = 0; ch < 16; ++ch) {
         _bardCurrentProgram[ch] = 0;
+        _logicalProgram[ch] = 0;
         _bardCC7[ch] = 127;
         _bardCC11[ch] = 127;
         for (int k = 0; k < 128; ++k) {
@@ -1485,6 +1540,10 @@ bool FluidSynthEngine::ffxivSoundFontMode() const {
     return _ffxivSoundFontMode;
 }
 
+bool FluidSynthEngine::c64SoundFontMode() const {
+    return _c64SoundFontMode;
+}
+
 QStringList FluidSynthEngine::availableAudioDrivers() const {
     QStringList drivers;
     fluid_settings_t *tmpSettings = new_fluid_settings();
@@ -1546,6 +1605,7 @@ void FluidSynthEngine::saveSettings(QSettings *settings) {
     settings->setValue("reverbEnabled", _reverbEnabled);
     settings->setValue("chorusEnabled", _chorusEnabled);
     settings->setValue("ffxivSoundFontMode", _ffxivSoundFontMode);
+    settings->setValue("c64SoundFontMode", _c64SoundFontMode);
     settings->setValue("bardAccurateMode", _bardAccurateMode);
 
     // Save SoundFont paths in priority order (first = highest priority)
@@ -1573,6 +1633,11 @@ void FluidSynthEngine::loadSettings(QSettings *settings) {
     // Read new key, fall back to old key for backward compatibility
     _ffxivSoundFontMode = settings->value("ffxivSoundFontMode",
         settings->value("allChannelsMelodic", false)).toBool();
+    _c64SoundFontMode = settings->value("c64SoundFontMode", false).toBool();
+    // FFXIV and C64 modes are mutually exclusive; if a stale config has both,
+    // FFXIV wins (it's the older, more established mode).
+    if (_ffxivSoundFontMode && _c64SoundFontMode)
+        _c64SoundFontMode = false;
     _bardAccurateMode = settings->value("bardAccurateMode", true).toBool();
 
     QStringList fontPaths = settings->value("soundFontPaths").toStringList();

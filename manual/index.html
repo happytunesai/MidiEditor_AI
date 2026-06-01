@@ -179,7 +179,7 @@
     "description": "AI-powered MIDI editor with intelligent copilot, Guitar Pro import, FFXIV bard mode, and FluidSynth playback.",
     "url": "https://midieditor-ai.de",
     "downloadUrl": "https://github.com/happytunesai/MidiEditor_AI/releases/latest",
-    "softwareVersion": "1.7.2",
+    "softwareVersion": "1.8.0",
     "license": "https://github.com/happytunesai/MidiEditor_AI/blob/main/LICENSE",
     "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
 }
@@ -242,7 +242,7 @@
              onerror="this.parentElement.style.display='none';">
     </div>
 
-    <span class="hero-badge">v1.7.2 &middot; Open Source &middot; Windows</span>
+    <span class="hero-badge">v1.8.0 &middot; Open Source &middot; Windows</span>
 
     <h1 class="hero-title">
         The <span class="text-gradient">AI-Powered</span> MIDI Editor
@@ -254,7 +254,7 @@
 
     <div class="hero-actions">
         <a href="download.html" class="btn btn-primary">
-            &#x2B07; Download v1.7.2
+            &#x2B07; Download v1.8.0
         </a>
         <a href="docs-index.html" class="btn btn-secondary" target="_blank" rel="noopener noreferrer">
             &#x1F4D6; Documentation
@@ -304,63 +304,83 @@
         <p>Everything you need for MIDI editing - plus an AI that actually helps.</p>
     </div>
     <div class="features-grid">
-        <div class="feature-card">
+        <a class="feature-card" href="midipilot.html">
             <span class="card-icon">&#x1F916;</span>
             <h3>MidiPilot AI Copilot</h3>
                 <p>15 AI tools, live Agent streaming, provider model refresh, favourites,
                     and natural language MIDI editing. Compose, harmonize, fix, and refine - just ask.</p>
-        </div>
-        <div class="feature-card">
+        </a>
+        <a class="feature-card" href="collaboration.html">
             <span class="card-icon">&#x1F91D;</span>
             <h3>Real-time Collaboration</h3>
             <p>Co-edit MIDI files live with up to 8 peers over LAN or WAN, peer-to-peer over
                WebRTC + DTLS. Async PR workflow with smart-paste tokens, optional Discord
                webhook for sharing, and a 6-second Connection Test diagnostic.</p>
-        </div>
-        <div class="feature-card">
+        </a>
+        <a class="feature-card" href="supported-files.html">
             <span class="card-icon">&#x1F4C2;</span>
             <h3>Score &amp; Tab Import</h3>
             <p>Open Guitar Pro (GP1-GP8), MusicXML (.musicxml / .xml / .mxl),
                and MuseScore (.mscz / .mscx) files directly - auto-converted to MIDI on open.</p>
-        </div>
-        <div class="feature-card">
+        </a>
+        <a class="feature-card" href="ffxiv-channel-fixer.html">
             <span class="card-icon">&#x1F3AE;</span>
             <h3>FFXIV Bard Mode</h3>
             <p>One-click FFXIV channel fixer for MidiBard2 - deterministic algorithm,
                no AI needed. Guitar variant switching, range clamping, validation.</p>
-        </div>
-        <div class="feature-card">
+        </a>
+        <a class="feature-card" href="soundfont.html">
             <span class="card-icon">&#x1F50A;</span>
             <h3>FluidSynth &amp; Audio Export</h3>
             <p>Built-in FluidSynth synthesizer with SoundFont management.
                Export to WAV, FLAC, OGG, or MP3 with the bundled LAME encoder.</p>
-        </div>
-        <div class="feature-card">
+        </a>
+        <a class="feature-card" href="themes.html">
             <span class="card-icon">&#x1F3A8;</span>
             <h3>7 Themes &amp; MIDI Visualizer</h3>
             <p>MidiEditor AI brand, Dark, Light, Classic, Sakura, AMOLED, Material Dark, plus
                Follow-OS auto-switch. 10 color presets for note bars. Real-time MIDI visualizer
                for playback.</p>
-        </div>
-        <div class="feature-card">
+        </a>
+        <a class="feature-card" href="lyrics.html">
             <span class="card-icon">&#x1F3A4;</span>
             <h3>Lyric Editor &amp; Visualizer</h3>
             <p>Full lyric timeline with drag, resize, split &amp; merge. Tap-to-sync dialog,
                SRT/LRC/text import, and a karaoke toolbar widget with real-time color sweep.</p>
-        </div>
-        <div class="feature-card">
+        </a>
+        <a class="feature-card" href="editing-midi-files.html">
             <span class="card-icon">&#x1F3B9;</span>
             <h3>Professional Piano Roll</h3>
             <p>Full-featured piano-roll editor with velocity/CC editing, quantization,
                copy/paste, recording, multi-track support, and smooth playback scrolling.</p>
-        </div>
-        <div class="feature-card">
+        </a>
+        <a class="feature-card" href="split-channels.html">
             <span class="card-icon">&#x1F6E0;</span>
             <h3>Editing Tools &amp; Channel Splitter</h3>
             <p>Split multi-channel MIDI files into one track per channel with GM names,
                explode chords, delete overlapping notes, convert pitch bends to discrete notes,
                plus markers for Program Changes / CC / text events and C3-C6 octave guides.</p>
-        </div>
+        </a>
+        <a class="feature-card" href="commodore-64.html">
+            <span class="card-icon">&#x1F579;&#xFE0F;</span>
+            <h3>Commodore 64 / SID</h3>
+            <p>Open <code>.sid</code> tunes as editable MIDI, then hear them authentically:
+               play the converted MIDI through a C64 SoundFont, or the original SID through the
+               cycle-accurate libsidplayfp engine. A retro SF2/EMU toolbar switch flips between them.</p>
+        </a>
+        <a class="feature-card" href="tempo-conversion.html">
+            <span class="card-icon">&#x23F1;&#xFE0F;</span>
+            <h3>Convert Tempo, Preserve Duration</h3>
+            <p>Re-target a MIDI from one BPM to another while keeping the real-time playback
+               length identical - one atomic, undoable action with Replace / Scale / Events-only
+               modes.</p>
+        </a>
+        <a class="feature-card" href="mcp-server.html">
+            <span class="card-icon">&#x1F517;</span>
+            <h3>MCP Server</h3>
+            <p>Built-in Model Context Protocol server - connect Claude Desktop, VS Code Copilot,
+               Cursor, or any MCP client and edit the open MIDI file directly through AI tools.</p>
+        </a>
     </div>
 </div>
 </section>
@@ -377,6 +397,12 @@
             <div class="showcase-slide">
                 <img src="midipilot_ai_OG.png" alt="MidiEditor AI - The AI-Powered MIDI Editor" width="1200" height="630" loading="lazy">
                 <div class="slide-caption">MidiEditor AI - The AI-Powered MIDI Editor</div>
+            </div>
+            <div class="showcase-slide">
+                <video autoplay loop muted playsinline loading="lazy" aria-label="Commodore 64 / SID playback">
+                    <source src="screenshots/c64-tune.webm" type="video/webm">
+                </video>
+                <div class="slide-caption">Commodore 64 / SID - Commando.sid imported and played back authentically</div>
             </div>
             <div class="showcase-slide">
                 <video autoplay loop muted playsinline loading="lazy" aria-label="MidiPilot Agent Run">
@@ -541,7 +567,7 @@
             <span class="stat-label">AI Tools</span>
         </div>
         <div class="stat-item">
-            <span class="stat-number text-gradient" data-target="8">0</span>
+            <span class="stat-number text-gradient" data-target="9">0</span>
             <span class="stat-label">File Formats</span>
         </div>
         <div class="stat-item">
@@ -549,7 +575,7 @@
             <span class="stat-label">Themes</span>
         </div>
         <div class="stat-item">
-            <span id="stat-bugfixes" class="stat-number text-gradient" data-target="160" data-suffix="+">0</span>
+            <span id="stat-bugfixes" class="stat-number text-gradient" data-target="170" data-suffix="+">0</span>
             <span class="stat-label">Bugfixes</span>
         </div>
         <div class="stat-item">
@@ -568,14 +594,14 @@
     </div>
     <div class="whats-new reveal">
         <span class="latest-badge">Latest</span>
-        <h3>v1.7.2 - May 2026</h3>
+        <h3>v1.8.0 - May 2026</h3>
         <p class="whats-new-subtitle">Show Mode, In-Session Chat &amp; Follow-the-Host</p>
         <ul>
             <li><strong>Show Mode - hat-passing presentation sessions</strong> - pick Edit or Show when you start a Live Session; in Show mode one peer at a time holds <em>the hat</em> (= editing rights) while everyone else watches. Request-and-approve hat passing, host can reclaim from a silent presenter, viewers' matrices / tools / MidiPilot / MCP all lock cleanly. Designed for tutorial streams, classroom teaching, AI walkthroughs (<a href="collab-show-mode.html">read more</a>)</li>
             <li><strong>Follow-the-host viewport sync</strong> - viewers see exactly what the presenter is looking at, regardless of window size or zoom. Auto-fit-to-focus keeps you on the same notes; track + channel visibility, edit cursor, active tool name, and the presenter's selected notes all mirror onto every viewer's screen (<a href="collab-show-mode.html#follow-the-host">read more</a>)</li>
             <li><strong>In-session chat side-channel</strong> - a new Chat tab in the lower sidebar lets peers talk during a Live Session without alt-tabbing to Discord. Plain UTF-8, 4&nbsp;KB cap per message, no persistence, unread badge + tab blink for incoming. Works in both Edit and Show modes (<a href="collab-chat.html">read more</a>)</li>
-            <li><strong>Version-mismatch warnings</strong> - from v1.7.2 onward every <code>hello</code> handshake carries the build version. Hosts and joiners both warn about peers on older or different builds: modal popup for pre-1.7.2 "blind generation" peers (they can't see warnings on their side), low-key status-bar tip for matched-but-different versions (<a href="collab-show-mode.html#version-mismatch">read more</a>)</li>
-            <li><strong>v1.7.2 / v1.7.2 features still apply</strong> - the underlying Live Session machinery (LAN multicast + WAN WebRTC, async PRs, Discord, logging, Cloudflare self-hosting) is unchanged. Show Mode and Chat are orthogonal feature modifiers, not replacements (<a href="collaboration.html">collaboration overview</a>)</li>
+            <li><strong>Version-mismatch warnings</strong> - from v1.8.0 onward every <code>hello</code> handshake carries the build version. Hosts and joiners both warn about peers on older or different builds: modal popup for pre-1.7.2 "blind generation" peers (they can't see warnings on their side), low-key status-bar tip for matched-but-different versions (<a href="collab-show-mode.html#version-mismatch">read more</a>)</li>
+            <li><strong>v1.8.0 / v1.8.0 features still apply</strong> - the underlying Live Session machinery (LAN multicast + WAN WebRTC, async PRs, Discord, logging, Cloudflare self-hosting) is unchanged. Show Mode and Chat are orthogonal feature modifiers, not replacements (<a href="collaboration.html">collaboration overview</a>)</li>
         </ul>
         <a href="changelog.html" class="changelog-link">View Full Changelog &rarr;</a>
     </div>
@@ -615,6 +641,9 @@
             <tr><td>Lyric Editor &amp; Visualizer</td><td><span class="cross">&#x2716;</span></td><td><span class="check">&#x2714;</span></td></tr>
             <tr><td>MCP Server (AI Tool Protocol)</td><td><span class="cross">&#x2716;</span></td><td><span class="check">&#x2714;</span></td></tr>
             <tr><td>Real-time Collaboration (LAN / WAN / PR / Discord)</td><td><span class="cross">&#x2716;</span></td><td><span class="check">&#x2714;</span></td></tr>
+            <tr><td>Commodore 64 / SID Import &amp; Playback</td><td><span class="cross">&#x2716;</span></td><td><span class="check">&#x2714;</span></td></tr>
+            <tr><td>MusicXML Export</td><td><span class="cross">&#x2716;</span></td><td><span class="check">&#x2714;</span></td></tr>
+            <tr><td>Cursor Time Display</td><td><span class="cross">&#x2716;</span></td><td><span class="check">&#x2714;</span></td></tr>
         </tbody>
     </table>
     </div>
@@ -630,7 +659,7 @@
     </div>
     <div class="hero-actions reveal" style="margin-bottom: 1.5rem;">
         <a href="download.html" class="btn btn-primary" style="font-size: 1.15rem; padding: 1rem 2.5rem;">
-            &#x2B07; Download MidiEditor AI v1.7.2
+            &#x2B07; Download MidiEditor AI v1.8.0
         </a>
     </div>
     <p class="reveal" style="color: var(--text-muted); font-size: .9rem;">

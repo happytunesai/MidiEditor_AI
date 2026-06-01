@@ -1943,7 +1943,7 @@ void LanLiveSession::onServerMessage(IPeerLink *peer, const QByteArray &payload)
                 // becomes dangling. The remainder of this function
                 // (sendMessage on `peer` at line 1752 + the
                 // reconciliation branches below) would then UAF.
-                // Sven's reported crash. Deferring via QTimer makes
+                // the user-reported crash. Deferring via QTimer makes
                 // the dialog open AFTER onServerMessage returns and
                 // `peer` is out of scope.
                 QTimer::singleShot(0, this,

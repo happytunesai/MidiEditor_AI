@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cursor Time Display - Retro Seven-Segment Clock | MidiEditor AI Manual</title>
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="icon" type="image/x-icon" href="favicon.ico" sizes="any">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <meta name="theme-color" content="#0B1020">
+  <meta name="description" content="A retro seven-segment toolbar clock for MidiEditor AI: shows the edit-cursor time, total length, remaining time, BPM, or bar.beat. Left-click cycles the readout, right-click cycles the colour theme.">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="site.css">
+  <link rel="stylesheet" href="audio.css">
+  <style>
+    .screenshot-single { text-align: center; margin: 1.5rem 0; }
+    .screenshot-single img { max-width: 100%; border: 1px solid var(--border); border-radius: 8px; }
+    .caption { text-align: center; color: var(--text-muted); font-style: italic; margin-top: 0.5rem; font-size: 0.9rem; }
+
+    /* Screenshot placeholder. Replace each `.ph` block with a
+       `.screenshot-single` + <img> once the real capture exists - a
+       ready-to-paste snippet sits in an HTML comment next to every one. */
+    .ph {
+        background: linear-gradient(135deg, #10192A 0%, #162238 100%);
+        border: 1px dashed var(--border);
+        border-radius: 8px;
+        padding: 2.5rem 1rem;
+        color: var(--text-muted);
+        font-family: monospace;
+        font-size: 0.85rem;
+        text-align: center;
+    }
+    .ph::before {
+        content: "[placeholder - screenshot pending]";
+        display: block;
+        font-weight: 700;
+        color: var(--accent);
+        margin-bottom: 0.4rem;
+        font-size: 0.78rem;
+        letter-spacing: 0.05em;
+    }
+
+    .info-box {
+        border-radius: 8px;
+        padding: 1rem 1.2rem;
+        margin: 1.2rem 0;
+        border-left: 4px solid;
+        background: rgba(88, 166, 255, 0.08);
+        border-color: #58a6ff;
+    }
+    .info-box strong { display: block; margin-bottom: 0.3rem; }
+
+    .ref-table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+    .ref-table th, .ref-table td {
+        text-align: left;
+        padding: 0.55rem 0.8rem;
+        border-bottom: 1px solid var(--border);
+    }
+    .ref-table th { background: rgba(88, 166, 255, 0.08); color: var(--text); }
+    .ref-table td:first-child { font-weight: 600; white-space: nowrap; }
+    .ref-table code { white-space: nowrap; }
+  </style>
+</head>
+<body>
+<nav class="site-nav" role="navigation" aria-label="Main navigation">
+<div class="container">
+    <a href="index.html" class="nav-brand"><img class="brand-logo" src="Midieditor-ai_banner_w.png" alt="MidiEditor AI"></a>
+    <button class="nav-hamburger" aria-label="Toggle menu" aria-expanded="false">&#x2630;</button>
+    <ul class="nav-links">
+        <li><a href="index.html#features">Features</a></li>
+        <li><a href="index.html#showcase">Showcase</a></li>
+        <li class="nav-dropdown">
+            <span class="nav-dropdown-trigger active">Docs &#x25BE;</span>
+            <div class="nav-dropdown-menu">
+                <a href="docs-index.html">Manual Overview</a>
+                <a href="editor-and-components.html">Editor &amp; Components</a>
+                <a href="playback.html">Playback</a>
+                <a href="cursor-time-display.html">&nbsp;&nbsp;&middot; Cursor Time Display</a>
+                <a href="midipilot.html">MidiPilot AI</a>
+                <a href="collaboration.html">Collaboration</a>
+                <a href="ffxiv-channel-fixer.html">FFXIV Channel Fixer</a>
+                <a href="supported-files.html">Supported Files</a>
+                <a href="themes.html">Themes &amp; Appearance</a>
+                <a href="shortcuts.html">Keyboard Shortcuts</a>
+                <a href="setup.html">Setup &amp; Installation</a>
+            </div>
+        </li>
+        <li><a href="changelog.html">Changelog</a></li>
+        <li><a href="https://github.com/happytunesai/MidiEditor_AI" target="_blank" rel="noopener noreferrer">GitHub &#x2197;</a></li>
+        <li><a href="download.html" class="nav-cta">&#x2B07; Download</a></li>
+    </ul>
+</div>
+</nav>
+
+<a href="#main-content" class="skip-link">Skip to main content</a>
+
+<main id="main-content">
+
+<p style="margin-bottom: 0.4rem;"><a href="playback.html">&larr; Playback</a></p>
+<h1 id="cursor-time">&#x1F552; Cursor Time Display</h1>
+
+<p>
+The Cursor Time Display is a small retro seven-segment clock you can
+place on the toolbar. While you edit it shows <em>where the cursor sits
+in the song</em> as a wall-clock time; during playback it runs like a
+media player's time readout. A <strong>left-click</strong> cycles what
+it shows, a <strong>right-click</strong> recolours it.
+</p>
+
+<div class="screenshot-single">
+    <img src="screenshots/time-display-toolbar.png" alt="The retro seven-segment cursor-time clock sitting on the MidiEditor AI toolbar.">
+    <p class="caption">The clock on the toolbar.</p>
+</div>
+
+<hr>
+
+<h2 id="where">Where to find it</h2>
+
+<p>
+The clock is a toolbar widget, managed exactly like the
+<a href="editor-and-components.html">MIDI Visualizer</a>: it ships
+<strong>enabled by default</strong>, and you add, remove, or reposition
+it from <b>Settings &rarr; Customize Toolbar</b>. Look for
+<b>Cursor Time</b> in the action list (View category) and drag it
+wherever you like, on either toolbar row.
+</p>
+
+<div class="screenshot-single">
+    <img src="screenshots/time-display-customize.png" alt="Settings, Customize Toolbar tab, with the Cursor Time entry in the toolbar action list.">
+    <p class="caption">Adding or moving the clock via Settings &rarr; Customize Toolbar.</p>
+</div>
+
+<hr>
+
+<h2 id="readouts">Readouts - left-click to cycle</h2>
+
+<p>
+A single left-click steps through five readouts and wraps around, like a
+digital wristwatch's mode button. A small tag (<code>POS</code>,
+<code>LEN</code>, &hellip;) sits beside the digits so the current mode is
+always clear.
+</p>
+
+<table class="ref-table">
+<thead>
+<tr><th>Tag</th><th>Shows</th><th>Example</th></tr>
+</thead>
+<tbody>
+<tr><td><code>POS</code></td><td>Cursor position while idle; the live player time during playback</td><td><code>01:32</code></td></tr>
+<tr><td><code>LEN</code></td><td>Total length of the song</td><td><code>03:48</code></td></tr>
+<tr><td><code>REM</code></td><td>Remaining time - counts down during playback</td><td><code>-02:16</code></td></tr>
+<tr><td><code>BPM</code></td><td>Tempo in effect at the current position (live across tempo changes)</td><td><code>120</code></td></tr>
+<tr><td><code>BAR</code></td><td>Musical position: bar.beat plus the time signature</td><td><code>12.3 4/4</code></td></tr>
+</tbody>
+</table>
+
+<p>
+Times are shown adaptively: <code>MM:SS</code> for anything under an
+hour, widening to <code>H:MM:SS</code> only when a song crosses the
+60-minute mark. During playback the colon blinks once a second for that
+media-player feel.
+</p>
+
+<div class="screenshot-single">
+    <img src="screenshots/time-display-toolbar.gif" alt="Animation of the cursor-time clock cycling through its readouts (POS, LEN, REM, BPM, BAR) and its colour themes.">
+    <p class="caption">Left-click cycles the readout, right-click cycles the colour theme.</p>
+</div>
+
+<hr>
+
+<h2 id="themes">Colour themes - right-click to cycle</h2>
+
+<p>
+A <strong>right-click</strong> on the clock steps through six LED colour
+palettes, named to echo the app's built-in themes:
+</p>
+
+<ul>
+<li><b>Blue</b> - default</li>
+<li><b>Amber</b> - classic clock-radio LED</li>
+<li><b>Green</b> - classic calculator LCD</li>
+<li><b>Sakura</b> - pink, to match the Cherry Blossom theme</li>
+<li><b>Mono</b> - high-contrast white on black</li>
+<li><b>Red</b></li>
+</ul>
+
+<p>
+The <a href="#readouts">animation above</a> cycles through every colour
+theme as well as the readouts.
+</p>
+
+<div class="info-box">
+    <strong>Your choices are remembered</strong>
+    Both the readout mode and the colour theme persist across restarts.
+    Pick a mode and a colour once and they come back exactly the same the
+    next time you launch the app.
+</div>
+
+<hr>
+
+<h2 id="see-also">See also</h2>
+
+<ul>
+<li><a href="playback.html">Playback</a> - the transport controls the clock follows during playback.</li>
+<li><a href="tempo-conversion.html">Tempo Conversion</a> - changing the tempo changes what the <code>BPM</code> and time readouts show.</li>
+<li><a href="themes.html">Themes &amp; Appearance</a> - the app-wide themes the clock's colour palettes echo.</li>
+<li><a href="editor-and-components.html">Editor &amp; Components</a> - the toolbar and the other toolbar widgets (MIDI Visualizer, Voice Gauge).</li>
+</ul>
+
+</main>
+
+<footer class="site-footer">
+    <div class="footer-links">
+        <a href="https://github.com/happytunesai/MidiEditor_AI" class="repo-link" target="_blank" rel="noopener noreferrer"><img class="repo-logo" src="Midieditor-ai_logo.png" alt="">GitHub Repo</a>
+        <a href="docs-index.html">Documentation</a>
+        <a href="playback.html">Playback</a>
+        <a href="https://github.com/happytunesai/MidiEditor_AI/issues" target="_blank" rel="noopener noreferrer">Issues</a>
+    </div>
+    <p class="footer-copy">MidiEditor AI &copy; 2026 &middot; <a href="https://github.com/happytunesai/MidiEditor_AI/blob/main/LICENSE">License</a></p>
+</footer>
+
+<button class="scroll-top" aria-label="Scroll to top">&#x2191;</button>
+<script src="lightbox.js"></script>
+<script src="navigation.js"></script>
+<script src="site.js"></script>
+</body>
+</html>

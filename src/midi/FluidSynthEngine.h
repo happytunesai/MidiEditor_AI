@@ -235,6 +235,15 @@ public:
     void setFfxivSoundFontMode(bool enabled);
 
     /**
+     * \brief Toggle C64 SoundFont Mode (Phase 42.2). Like FFXIV mode it
+     * forces bank 0 on all channels, but it remaps the SID-import lead
+     * programs to the C64 SoundFont's waveform presets (pulse->2, saw->4,
+     * triangle->6, noise->0) so a transcribed .sid plays with real SID
+     * timbres. Mutually exclusive with FFXIV SoundFont Mode.
+     */
+    void setC64SoundFontMode(bool enabled);
+
+    /**
      * \brief Toggles "bard accuracy" playback shaping for FFXIV SoundFont mode.
      *
      * When enabled (default) AND FFXIV SoundFont mode is active, FluidSynthEngine:
@@ -251,6 +260,7 @@ public:
     bool bardAccurateMode() const;
 
     bool ffxivSoundFontMode() const;
+    bool c64SoundFontMode() const;
     QString audioDriver() const;
     double gain() const;
     double sampleRate() const;
@@ -311,6 +321,7 @@ signals:
     void exportFinished(bool success, const QString &outputPath);
     void exportCancelled();
     void ffxivSoundFontModeChanged(bool enabled);
+    void c64SoundFontModeChanged(bool enabled);
 
 private:
     FluidSynthEngine();
@@ -321,6 +332,13 @@ private:
     FluidSynthEngine &operator=(const FluidSynthEngine &) = delete;
 
     void applyChannelMode();
+
+    /// Apply the active SoundFont mode's program remap to a *logical* (as
+    /// requested by the MIDI stream) program number. FFXIV mode applies the
+    /// sparse-preset fallback, C64 mode applies c64ProgramRemap, otherwise the
+    /// program is returned unchanged. Used by both the live Program Change
+    /// handler and applyChannelMode() so they can never drift apart.
+    int remapProgramForCurrentMode(int program) const;
 
     // === Bard-accuracy helpers (FFXIV SoundFont + bardAccurateMode) ===
     /// Apply runtime synth state for current ffxiv/bard combination.
@@ -405,11 +423,19 @@ private:
     bool _reverbEnabled;
     bool _chorusEnabled;
     bool _ffxivSoundFontMode;
+    bool _c64SoundFontMode = false;
+    /// Map a SID-import lead program (80/81/82/122) to the C64 SoundFont
+    /// waveform preset (pulse->2, saw->4, triangle->6, noise->0). Other
+    /// programs fall back to pulse so non-SID MIDIs still sound in C64 mode.
+    static int c64ProgramRemap(int gmProgram);
     bool _bardAccurateMode;
 
     // === Bard-accuracy runtime state ===
     QElapsedTimer _bardClock;             // time base for note-on timestamps
     int _bardCurrentProgram[16];          // last program number seen per channel
+    int _logicalProgram[16];              // last program the MIDI stream requested
+                                          // (pre-remap), so a live mode toggle can
+                                          // re-apply the right preset per channel
     int _bardCC7[16];                     // last CC7 value per channel (default 127)
     int _bardCC11[16];                    // last CC11 value per channel (default 127)
     qint64 _bardNoteOnMs[16][128];        // ms timestamp of last NoteOn per (ch,key)

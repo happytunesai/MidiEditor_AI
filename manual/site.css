@@ -604,6 +604,9 @@ img { max-width: 100%; height: auto; }
     gap: 1.5rem;
 }
 .feature-card {
+    display: block;               /* cards are now <a> links */
+    text-decoration: none;
+    color: inherit;
     background: var(--bg-card);
     border: 1px solid var(--border);
     border-radius: 14px;

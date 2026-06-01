@@ -1,6 +1,14 @@
 midieditor.pro.user
 build/
 build-*/
+
+# Vendored libsidplayfp SID engine. The source is committed ONCE as the archive
+# third_party/libsidplayfp-vendored.zip; CMake unpacks it into this directory on
+# a fresh checkout / CI (see the file(ARCHIVE_EXTRACT) step in CMakeLists.txt).
+# The extracted tree is ignored so ~140 third-party files don't clutter the repo.
+# If you ever patch the lib, re-zip it (run from the repo root):
+#   cmake -E chdir third_party cmake -E tar cf libsidplayfp-vendored.zip --format=zip libsidplayfp
+third_party/libsidplayfp/
 build_*log*.txt
 Planning/
 test/

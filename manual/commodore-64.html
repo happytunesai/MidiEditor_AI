@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Commodore 64 / SID Support - Import &amp; Play SID Tunes | MidiEditor AI Manual</title>
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="icon" type="image/x-icon" href="favicon.ico" sizes="any">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <meta name="theme-color" content="#0B1020">
+  <meta name="description" content="Open Commodore 64 .sid tunes in MidiEditor AI and edit them as MIDI. Play them back two ways: the converted MIDI with authentic C64 SoundFont timbres, or the original SID file through the cycle-accurate libsidplayfp engine - transport-controlled, cursor-synced, with per-voice muting.">
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="site.css">
+  <link rel="stylesheet" href="audio.css">
+  <style>
+    .screenshot-single { text-align: center; margin: 1.5rem 0; }
+    .screenshot-single img,
+    .screenshot-single video { max-width: 100%; border: 1px solid var(--border); border-radius: 8px; }
+    .caption { text-align: center; color: var(--text-muted); font-style: italic; margin-top: 0.5rem; font-size: 0.9rem; }
+
+    /* Screenshot placeholder. Replace each `.ph` block with a
+       `.screenshot-single` + <img> once the real capture exists - a
+       ready-to-paste snippet sits in an HTML comment next to every one. */
+    .ph {
+        background: linear-gradient(135deg, #10192A 0%, #162238 100%);
+        border: 1px dashed var(--border);
+        border-radius: 8px;
+        padding: 2.5rem 1rem;
+        color: var(--text-muted);
+        font-family: monospace;
+        font-size: 0.85rem;
+        text-align: center;
+    }
+    .ph::before {
+        content: "[placeholder - screenshot pending]";
+        display: block;
+        font-weight: 700;
+        color: var(--accent);
+        margin-bottom: 0.4rem;
+        font-size: 0.78rem;
+        letter-spacing: 0.05em;
+    }
+
+    .info-box {
+        border-radius: 8px;
+        padding: 1rem 1.2rem;
+        margin: 1.2rem 0;
+        border-left: 4px solid;
+        background: rgba(88, 166, 255, 0.08);
+        border-color: #58a6ff;
+    }
+    .info-box strong { display: block; margin-bottom: 0.3rem; }
+
+    .ref-table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+    .ref-table th, .ref-table td {
+        text-align: left;
+        padding: 0.55rem 0.8rem;
+        border-bottom: 1px solid var(--border);
+    }
+    .ref-table th { background: rgba(88, 166, 255, 0.08); color: var(--text); }
+    .ref-table td:first-child { font-weight: 600; white-space: nowrap; }
+    .ref-table code { white-space: nowrap; }
+  </style>
+</head>
+<body>
+<nav class="site-nav" role="navigation" aria-label="Main navigation">
+<div class="container">
+    <a href="index.html" class="nav-brand"><img class="brand-logo" src="Midieditor-ai_banner_w.png" alt="MidiEditor AI"></a>
+    <button class="nav-hamburger" aria-label="Toggle menu" aria-expanded="false">&#x2630;</button>
+    <ul class="nav-links">
+        <li><a href="index.html#features">Features</a></li>
+        <li><a href="index.html#showcase">Showcase</a></li>
+        <li class="nav-dropdown">
+            <span class="nav-dropdown-trigger active">Docs &#x25BE;</span>
+            <div class="nav-dropdown-menu">
+                <a href="docs-index.html">Manual Overview</a>
+                <a href="editor-and-components.html">Editor &amp; Components</a>
+                <a href="playback.html">Playback</a>
+                <a href="midipilot.html">MidiPilot AI</a>
+                <a href="collaboration.html">Collaboration</a>
+                <a href="ffxiv-channel-fixer.html">FFXIV Channel Fixer</a>
+                <a href="supported-files.html">Supported Files</a>
+                <a href="commodore-64.html">&nbsp;&nbsp;&middot; Commodore 64 / SID</a>
+                <a href="themes.html">Themes &amp; Appearance</a>
+                <a href="shortcuts.html">Keyboard Shortcuts</a>
+                <a href="setup.html">Setup &amp; Installation</a>
+            </div>
+        </li>
+        <li><a href="changelog.html">Changelog</a></li>
+        <li><a href="https://github.com/happytunesai/MidiEditor_AI" target="_blank" rel="noopener noreferrer">GitHub &#x2197;</a></li>
+        <li><a href="download.html" class="nav-cta">&#x2B07; Download</a></li>
+    </ul>
+</div>
+</nav>
+
+<a href="#main-content" class="skip-link">Skip to main content</a>
+
+<main id="main-content">
+
+<p style="margin-bottom: 0.4rem;"><a href="supported-files.html">&larr; Supported Files</a></p>
+<h1 id="c64-sid">&#x1F579;&#xFE0F; Commodore 64 / SID Support</h1>
+
+<p>
+MidiEditor AI opens Commodore 64 <code>.sid</code> tunes like any other
+file: the three SID voices become editable MIDI tracks, and you can hear
+the result two ways - as the <em>converted MIDI</em> dressed in real
+C64 timbres, or as the <em>original SID</em> played through a
+cycle-accurate emulator. A single <strong>C64 toolbar button</strong>
+drives whichever of those you choose in Settings.
+</p>
+
+<div class="screenshot-single">
+    <video controls loop playsinline preload="metadata">
+        <source src="screenshots/c64-tune.webm" type="video/webm">
+        Your browser does not support the video tag.
+    </video>
+    <p class="caption">C64 mode in action - <code>Commando.sid</code> played back in
+    Emulation mode (click to play with sound).</p>
+</div>
+
+<hr>
+
+<h2 id="importing">Opening a SID tune</h2>
+
+<p>
+Use <b>File &rarr; Open</b> (or drag a file onto the window) and pick a
+<code>.sid</code> file. MidiEditor AI plays the tune internally, watches
+what the SID chip does frame by frame, and reconstructs it as a
+standard MIDI file you can edit:
+</p>
+
+<ul>
+<li>One <b>track per SID voice</b> (the C64 has three), so each melodic
+    line, bass, and lead lands on its own track and MIDI channel.</li>
+<li>A dedicated <b>SID Percussion</b> track for the noise-based drum hits
+    a voice plays between notes.</li>
+<li>Note pitches, lengths, velocities, and fast <b>arpeggios</b> are
+    recovered from the chip's gate and envelope behaviour.</li>
+</ul>
+
+<div class="screenshot-single">
+    <img src="screenshots/c64-imported-tune.png" alt="A SID tune imported into MidiEditor AI, showing three voice tracks plus a SID Percussion track in the piano roll.">
+    <p class="caption">An imported SID tune: three voices plus a percussion track, ready to edit and play.</p>
+</div>
+
+<div class="info-box">
+    <strong>SID tunes loop forever - so how long is the import?</strong>
+    A SID has no built-in end; it just keeps playing. MidiEditor AI looks
+    for the point where the music starts repeating and trims the import to
+    the intro plus one loop. When it can't find a clean loop it falls back
+    to a fixed length (240&nbsp;seconds by default) - you can change
+    that fallback under <a href="#settings">Settings</a>, and long
+    one-shot tunes will ask you to confirm a length on import.
+</div>
+
+<hr>
+
+<h2 id="c64-button">Hearing it - the C64 button</h2>
+
+<p>
+Imported SID tracks use General-MIDI instruments by default, which won't
+sound like a C64. The <strong>C64 toolbar button</strong> switches on the
+authentic C64 sound. It has <em>two</em> jobs depending on the engine you
+pick (see <a href="#engine-switch">Choosing the engine</a>) - but it's
+always the same one button, and it lights up (the Commodore logo glows) when
+it's active.
+</p>
+
+<div class="screenshot-single">
+    <img src="screenshots/c64-toolbar-button.gif" alt="The C64 toolbar button toggling between inactive and active: a Commodore logo that lights up on a glowing chip when on.">
+    <p class="caption">The C64 button toggling off &harr; active (the logo lights up when on).</p>
+</div>
+
+<h3 id="soundfont-mode">SoundFont mode - the converted MIDI, C64 timbres</h3>
+
+<p>
+In <b>SoundFont</b> mode the C64 button plays the <em>converted MIDI</em>
+through a <a href="soundfont.html">Commodore 64 SoundFont</a>, remapping
+the imported instruments onto the SID's classic waveform voices -
+pulse, sawtooth, triangle, and noise. The result is the familiar C64
+character, while you keep a normal, editable MIDI file.
+</p>
+
+<div class="info-box">
+    <strong>The C64 SoundFont downloads itself on first use</strong>
+    The first time you turn on SoundFont mode without a Commodore&nbsp;64
+    <code>.sf2</code> installed, MidiEditor AI offers to <strong>download it
+    automatically</strong> (exactly like FFXIV SoundFont Mode) - just confirm
+    the prompt. It also switches the MIDI output to the built-in FluidSynth
+    so the C64 timbres play. You can still install one manually via the
+    <a href="soundfont.html">SoundFont manager</a> or by dropping a
+    <code>.sf2</code> into the app's <code>soundfonts</code> folder. Turning
+    the mode off restores your previous (General MIDI) selection automatically.
+</div>
+
+<p class="caption" style="text-align:left;">
+    SoundFont credit: <b>Commodore 64</b> SoundFont by <b>jubbyo</b>, from
+    <a href="https://musical-artifacts.com/artifacts/8014" target="_blank" rel="noopener noreferrer">musical-artifacts.com/artifacts/8014</a>
+    (CC BY-NC). Used for non-commercial playback; not bundled with the app - it is
+    downloaded on demand.
+</p>
+
+<h3 id="emulation-mode">Emulation mode - the original SID, authentic</h3>
+
+<p>
+In <b>Emulation</b> mode the C64 button plays the <em>original
+<code>.sid</code> file</em> through the cycle-accurate
+<b>libsidplayfp</b> engine - the same engine dedicated SID players
+use - for true-to-hardware chip audio. Here the button
+<strong>arms</strong> the mode (it glows when armed); the actual playback
+is driven by the normal transport, so it behaves like real playback:
+</p>
+
+<ul>
+<li><b>Play</b> starts the original tune from the cursor position.</li>
+<li><b>Stop</b> and <b>Pause</b> work as usual (Pause parks the cursor
+    where you stopped).</li>
+<li><b>Seek</b> by clicking to move the cursor, then Play from there.</li>
+<li>The <b>piano-roll cursor follows the audio</b> in real-time sync.</li>
+<li>Playback <b>stops at the end of the note roll</b> instead of looping
+    forever.</li>
+</ul>
+
+<p>
+Because Emulation mode plays the real SID while you still see (and can
+edit) the converted MIDI, it's perfect for A/B-ing your edits against the
+original.
+</p>
+
+<hr>
+
+<h2 id="engine-switch">Choosing the engine</h2>
+
+<p>
+The very first time you turn C64 mode on, MidiEditor AI asks once how you
+want C64 tunes to play - <strong>C64 SoundFont</strong> or
+<strong>Emulation</strong> - and remembers your choice. The C64
+SoundFont (~11&nbsp;MB) is fetched in the background so either engine works
+instantly later, even if you change your mind.
+</p>
+
+<p>
+To switch engines afterwards you don't need to open Settings: a retro
+<strong><code>SF2 &harr; EMU</code> toggle</strong> appears in the toolbar
+next to the C64 button <em>whenever C64 mode is active</em>. The lit side is
+the current engine; click to flip. (The C64 button still does the
+activating - the toggle only chooses which engine it uses.)
+</p>
+
+<div class="screenshot-single">
+    <img src="screenshots/c64-soundmode_toggle.png" alt="The retro SF2 to EMU toolbar toggle, with the active engine side glowing.">
+    <p class="caption">The <code>SF2 &harr; EMU</code> engine toggle (shown only while C64 mode is active).</p>
+</div>
+
+<p>
+You can also set the engine in <b>Settings &rarr; MIDI I/O &rarr; Commodore 64
+/ SID</b> - the toggle, the first-use prompt and the Settings radio all
+stay in sync.
+</p>
+
+<div class="info-box">
+    <strong>&#x1F4A1; No <code>.sid</code> loaded? Emulation is locked.</strong>
+    Emulation plays the <em>original</em> <code>.sid</code> bytes, so it only
+    works while a <code>.sid</code> is the open file. With any other file -
+    a plain MIDI, or a SID you imported and then saved as <code>.mid</code> -
+    the <code>SF2 &harr; EMU</code> toggle's <b>EMU</b> side is greyed out and
+    locked to <b>SF2</b>, and the Settings radio disables <b>Emulation</b>.
+    <b>SoundFont mode still works on any MIDI</b>, so you can give an ordinary
+    song C64 timbres (a fun chiptune effect) even though there's nothing to
+    emulate. Open a <code>.sid</code> and Emulation unlocks again; your engine
+    preference is remembered the whole time.
+</div>
+
+<hr>
+
+<h2 id="muting">Muting voices while it plays</h2>
+
+<p>
+In Emulation mode, <strong>muting follows your edits live</strong>. Mute a
+<b>channel</b> or a <b>track</b> (the speaker toggle) and the matching SID
+voice goes silent immediately - handy for soloing the bass line or
+dropping the lead while the tune plays. Hiding a track is purely visual
+and does <em>not</em> mute it, exactly like everywhere else in the editor.
+</p>
+
+<hr>
+
+<h2 id="settings">Choosing the engine - Settings</h2>
+
+<p>
+Open <b>Settings &rarr; MIDI I/O</b> and find the <b>Commodore 64 / SID</b>
+section:
+</p>
+
+<table class="ref-table">
+<thead>
+<tr><th>Option</th><th>What it does</th></tr>
+</thead>
+<tbody>
+<tr><td>C64 sound</td><td>Pick what the C64 toolbar button activates: <b>SoundFont</b> (converted MIDI with C64 timbres) or <b>Emulation</b> (the original <code>.sid</code> via libsidplayfp).</td></tr>
+<tr><td>Default SID import length</td><td>The fallback capture length (5-600&nbsp;s) used when a tune's loop point can't be detected automatically.</td></tr>
+</tbody>
+</table>
+
+<div class="screenshot-single">
+    <img src="screenshots/c64-settings.png" alt="The Commodore 64 / SID settings block in Settings, MIDI I/O: a SoundFont vs Emulation radio and a default import length spinbox.">
+    <p class="caption">The Commodore 64 / SID settings block.</p>
+</div>
+
+<div class="info-box">
+    <strong>Switching engines takes effect right away</strong>
+    If C64 sound is already on and you switch the engine, the active state
+    moves to the newly chosen engine immediately - you don't have to
+    toggle the C64 button off and on again.
+</div>
+
+<hr>
+
+<h2 id="psid-rsid">A note on PSID vs. RSID tunes</h2>
+
+<p>
+The SID format comes in two flavours. <b>PSID</b> tunes are played by a
+fast built-in emulator. <b>RSID</b> tunes install their own player and
+need full C64 hardware emulation, so they're imported through the
+libsidplayfp engine for accuracy - you don't have to do anything
+differently, it's automatic (RSID imports just take a moment longer and
+show a progress bar). The whole feature runs without any C64 ROM files. A
+handful of unusual tunes may not import cleanly; when that happens the app
+tells you rather than producing noise.
+</p>
+
+<hr>
+
+<h2 id="see-also">See also</h2>
+
+<ul>
+<li><a href="supported-files.html">Supported Files</a> - every input format MidiEditor AI can open.</li>
+<li><a href="soundfont.html">SoundFonts &amp; FluidSynth</a> - loading the C64 SoundFont that SoundFont mode plays through.</li>
+<li><a href="playback.html">Playback</a> - the transport controls that drive Emulation-mode playback.</li>
+<li><a href="editing-midi-files.html">Editing MIDI Files</a> - muting, soloing, and editing the imported voice tracks.</li>
+</ul>
+
+</main>
+
+<footer class="site-footer">
+    <div class="footer-links">
+        <a href="https://github.com/happytunesai/MidiEditor_AI" class="repo-link" target="_blank" rel="noopener noreferrer"><img class="repo-logo" src="Midieditor-ai_logo.png" alt="">GitHub Repo</a>
+        <a href="docs-index.html">Documentation</a>
+        <a href="supported-files.html">Supported Files</a>
+        <a href="https://github.com/happytunesai/MidiEditor_AI/issues" target="_blank" rel="noopener noreferrer">Issues</a>
+    </div>
+    <p class="footer-copy">MidiEditor AI &copy; 2026 &middot; <a href="https://github.com/happytunesai/MidiEditor_AI/blob/main/LICENSE">License</a></p>
+</footer>
+
+<button class="scroll-top" aria-label="Scroll to top">&#x2191;</button>
+<script src="lightbox.js"></script>
+<script src="navigation.js"></script>
+<script src="site.js"></script>
+</body>
+</html>
