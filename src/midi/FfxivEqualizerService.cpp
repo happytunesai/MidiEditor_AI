@@ -5,6 +5,7 @@
 
 #include "FfxivEqualizerService.h"
 
+#include <QReadWriteLock>
 #include <QSettings>
 #include <QStringList>
 #include <QtGlobal>
@@ -131,6 +132,8 @@ FfxivEqualizerService::FfxivEqualizerService() {
 // Live mixer query
 // ---------------------------------------------------------------------------
 float FfxivEqualizerService::gainFor(int program, bool isDrum) const {
+    // Read lock: this runs on the real-time NoteOn (player) thread (BUG-CORE-005).
+    QReadLocker lock(&_lock);
     int key = isDrum ? kDrumKitProgram : program;
     auto it = _slots.constFind(key);
     if (it == _slots.constEnd()) {
@@ -142,6 +145,7 @@ float FfxivEqualizerService::gainFor(int program, bool isDrum) const {
 }
 
 bool FfxivEqualizerService::isMuted(int program, bool isDrum) const {
+    QReadLocker lock(&_lock); // player-thread reader (BUG-CORE-005)
     int key = isDrum ? kDrumKitProgram : program;
     auto it = _slots.constFind(key);
     return (it != _slots.constEnd()) && it->muted;
@@ -152,24 +156,36 @@ bool FfxivEqualizerService::isMuted(int program, bool isDrum) const {
 // ---------------------------------------------------------------------------
 void FfxivEqualizerService::setProgramGain(int program, float gain) {
     gain = qBound(0.0f, gain, 2.0f);
-    Slot &s = _slots[program];
-    if (qFuzzyCompare(s.gain, gain)) return;
-    s.gain = gain;
-    emit mixChanged();
+    bool changed = false;
+    {
+        // Write lock the _slots mutation (BUG-CORE-005); release BEFORE the
+        // emit so a mixChanged handler that calls gainFor() (read lock) on the
+        // same thread can't self-deadlock the non-recursive lock.
+        QWriteLocker lock(&_lock);
+        Slot &s = _slots[program];
+        if (!qFuzzyCompare(s.gain, gain)) { s.gain = gain; changed = true; }
+    }
+    if (changed) emit mixChanged();
 }
 
 void FfxivEqualizerService::setProgramMuted(int program, bool muted) {
-    Slot &s = _slots[program];
-    if (s.muted == muted) return;
-    s.muted = muted;
-    emit mixChanged();
+    bool changed = false;
+    {
+        QWriteLocker lock(&_lock);
+        Slot &s = _slots[program];
+        if (s.muted != muted) { s.muted = muted; changed = true; }
+    }
+    if (changed) emit mixChanged();
 }
 
 void FfxivEqualizerService::setMasterGain(float gain) {
     gain = qBound(0.0f, gain, 2.0f);
-    if (qFuzzyCompare(_masterGain, gain)) return;
-    _masterGain = gain;
-    emit mixChanged();
+    bool changed = false;
+    {
+        QWriteLocker lock(&_lock);
+        if (!qFuzzyCompare(_masterGain, gain)) { _masterGain = gain; changed = true; }
+    }
+    if (changed) emit mixChanged();
 }
 
 void FfxivEqualizerService::revertToActivePreset() {
@@ -183,6 +199,12 @@ void FfxivEqualizerService::resetToBuiltinDefault() {
 }
 
 void FfxivEqualizerService::applyPresetData(const QHash<int, Slot> &data, float master) {
+    // Single leaf that replaces _slots wholesale — every preset path
+    // (setActivePreset / revert / reset / ctor) routes through here, so locking
+    // only here (no emit, no calls to other locked methods) covers them all
+    // against the player-thread readers without a nested-lock deadlock
+    // (BUG-CORE-005).
+    QWriteLocker lock(&_lock);
     _slots = data;
     _masterGain = qBound(0.0f, master, 2.0f);
 }

@@ -447,6 +447,10 @@ QCheckBox, QRadioButton {
     spacing: 6px;
 }
 
+QCheckBox:disabled, QRadioButton:disabled {
+    color: #808086;
+}
+
 QCheckBox::indicator {
     width: 16px;
     height: 16px;

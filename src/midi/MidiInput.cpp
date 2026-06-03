@@ -222,10 +222,24 @@ QMultiMap<int, MidiEvent *> MidiInput::endInput(MidiTrack *track) {
         OnEvent *on = dynamic_cast<OnEvent *>(it2.value());
         if (on && !on->offEvent()) {
             it2 = eventList.erase(it2);
+            // Free the orphan NoteOn (held note when recording stopped, no
+            // matching NoteOff). It lives only in this staging map (not yet
+            // committed to the file), so deleting is safe - and its dtor clears
+            // the static OffEvent::onEvents registration that would otherwise
+            // leak and mis-pair against a later recording/load (BUG-CORE-007).
+            delete on;
         } else {
             it2++;
         }
     }
+    // OffEvents that never found a matching OnEvent stayed in emptyOffEvents and
+    // were never committed to eventList; free them so they don't leak when the
+    // local map goes out of scope (BUG-CORE-007). Matched ones were already
+    // removed from emptyOffEvents and moved into eventList above.
+    for (OffEvent *off : emptyOffEvents.values()) {
+        delete off;
+    }
+    emptyOffEvents.clear();
 
     // perform consistency check
     QMultiMap<int, MidiEvent *> toRemove;

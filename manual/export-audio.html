@@ -189,13 +189,40 @@
   no extra steps needed.
 </p>
 
+<!-- â”€â”€â”€â”€â”€â”€â”€â”€â”€ Authentic SID (C64) â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
+<h3 id="sid">Exporting the Original SID (Commodore 64)</h3>
+
+<p>
+  When a <code>.sid</code> tune is open and the <a href="commodore-64.html">Commodore 64</a> engine is
+  set to <b>Emulation (EMU)</b>, audio export renders the <b>original SID</b> through the
+  cycle-accurate <a href="https://github.com/libsidplayfp/libsidplayfp" target="_blank" rel="noopener noreferrer">libsidplayfp</a>
+  engine - the real chip sound - instead of the converted MIDI. It mirrors exactly what you hear on
+  playback in EMU mode.
+</p>
+
+<p>
+  There is nothing extra to pick: if Emulation is the active C64 engine, the export <i>is</i> the
+  authentic SID, just like every other format. In <b>SoundFont</b> mode (or for any non-SID file)
+  export works as usual and renders the converted MIDI through your SoundFonts.
+</p>
+
+<ul>
+  <li><b>No SoundFont needed</b> - the SID render is self-contained, so the Export button is available
+      even with no SoundFont loaded.</li>
+  <li><b>All formats</b> - WAV, FLAC, OGG Vorbis and MP3 are supported (MP3 via the same LAME stage).</li>
+  <li><b>Whole tune only</b> - a SID program has no random access, so <b>Selection</b> and
+      <b>Custom range</b> are disabled for this export; it always renders the full tune.</li>
+</ul>
+
 <!-- â”€â”€â”€â”€â”€â”€â”€â”€â”€ SoundFont requirement â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
 <h3 id="soundfonts">SoundFont Requirement</h3>
 
 <p>
   Audio export uses the currently loaded <a href="soundfont.html">SoundFonts</a> to determine
   instrument sounds. Make sure at least one SoundFont is loaded before exporting. If no SoundFonts
-  are available, the export will fail with an error message.
+  are available, the export will fail with an error message. <i>(The one exception is the
+  <a href="#sid">authentic SID export</a> above, which renders through libsidplayfp and needs no
+  SoundFont.)</i>
 </p>
 
 <p>

@@ -127,6 +127,7 @@
 #include "C64ToggleWidget.h"
 #include "C64ModeSwitchWidget.h"
 #include "C64Mode.h"
+#include "C64SoundFontHelper.h"
 #include "ImportOnlyFormats.h"
 #include "FfxivVoiceGaugeWidget.h"
 #include "AiSettingsWidget.h"
@@ -2572,6 +2573,10 @@ void MainWindow::openFile(QString filePath) {
         // button in Emulation mode); clear it when any other file is loaded.
         SidAudioPlayer::instance()->setSource(
             lowerPath.endsWith(".sid") ? filePath : QString());
+        // If no special mode is active, make sure a C64/FFXIV SoundFont left over
+        // from a previous file doesn't keep playing the newly-loaded song (e.g.
+        // a Guitar Pro file opened after a SID) - fall back to GM, else GS.
+        C64SoundFontHelper::normalizeDefaultSoundFont(this);
     } else {
         QString detail;
         if (lowerPath.endsWith(".musicxml") || lowerPath.endsWith(".xml") ||
@@ -9939,6 +9944,18 @@ void MainWindow::exportAudio() {
 
     ExportOptions opts = dlg.exportOptions();
 
+    // Authentic-SID export: render the ORIGINAL .sid through libsidplayfp (no
+    // MIDI / FluidSynth / SoundFont involved), bypassing the whole MIDI render
+    // path below. Only offered when a .sid is loaded.
+    if (dlg.exportOriginalSid()) {
+        const int fromMs = (opts.startTick >= 0) ? file->msOfTick(opts.startTick) : 0;
+        const int toMs   = (opts.endTick > 0)   ? file->msOfTick(opts.endTick)
+                                                 : static_cast<int>(file->maxTime());
+        startSidExport(opts.outputFilePath, opts.fileType, fromMs, toMs,
+                       static_cast<int>(opts.encodingQuality * 100.0 + 0.5), opts.mp3Bitrate);
+        return;
+    }
+
     // Mirror live-playback mute behaviour (MidiFile::channelMuted handles
     // both per-channel mute and solo): build a bitmask of channels the
     // export should drop. Without this, exporting with some channels
@@ -10021,6 +10038,16 @@ void MainWindow::exportAudioSelection() {
     if (dlg.exec() != QDialog::Accepted) return;
 
     ExportOptions opts = dlg.exportOptions();
+
+    // Authentic-SID export (see exportAudio): render the original .sid directly.
+    if (dlg.exportOriginalSid()) {
+        const int fromMs = (opts.startTick >= 0) ? file->msOfTick(opts.startTick) : 0;
+        const int toMs   = (opts.endTick > 0)   ? file->msOfTick(opts.endTick)
+                                                 : static_cast<int>(file->maxTime());
+        startSidExport(opts.outputFilePath, opts.fileType, fromMs, toMs,
+                       static_cast<int>(opts.encodingQuality * 100.0 + 0.5), opts.mp3Bitrate);
+        return;
+    }
 
     // Mirror live-playback mute behaviour: drop muted (or solo'd-out)
     // channels from the rendered audio.
@@ -10172,6 +10199,88 @@ void MainWindow::startExport(const ExportOptions &opts) {
         QThreadPool::globalInstance()->start([engine, optsCopy]() {
             engine->exportAudio(optsCopy);
         });
+    }
+}
+
+void MainWindow::startSidExport(const QString &outputPath, const QString &fileType,
+                                int fromMs, int toMs, int oggQuality, int mp3Bitrate) {
+    SidAudioPlayer *sid = SidAudioPlayer::instance();
+    if (!sid->hasSource()) {
+        onExportFinished(false, outputPath);
+        return;
+    }
+
+    // This path renders no temp MIDI; clear so the shared finish handlers'
+    // temp-MIDI cleanup is a no-op. _sidExportCancel is the dialog's Cancel flag.
+    _exportTempMidiPath.clear();
+    _sidExportCancel.store(false);
+
+    _exportProgressDialog = new QProgressDialog(tr("Exporting SID audio..."), tr("Cancel"), 0, 100, this);
+    _exportProgressDialog->setWindowModality(Qt::WindowModal);
+    _exportProgressDialog->setMinimumDuration(0);
+    _exportProgressDialog->setValue(0);
+    connect(_exportProgressDialog, &QProgressDialog::canceled, this, [this]() {
+        _sidExportCancel.store(true);
+    });
+
+    // Push progress from the worker thread to the dialog on the GUI thread.
+    auto pushProgress = [this](int pct) {
+        QMetaObject::invokeMethod(this, [this, pct]() {
+            if (_exportProgressDialog) _exportProgressDialog->setValue(pct);
+        }, Qt::QueuedConnection);
+    };
+
+#ifdef LAME_SUPPORT
+    const bool isMp3 = (fileType.compare(QStringLiteral("mp3"), Qt::CaseInsensitive) == 0);
+#else
+    const bool isMp3 = false;
+#endif
+
+    if (isMp3) {
+#ifdef LAME_SUPPORT
+        // MP3: SID -> temp WAV (0-70%) -> LAME encode (70-100%).
+        const QString tempWav = QDir::tempPath() + QStringLiteral("/midieditor_sid_export_temp.wav");
+        const QString finalMp3 = outputPath;
+        QThreadPool::globalInstance()->start(
+            [this, sid, tempWav, finalMp3, fromMs, toMs, mp3Bitrate, pushProgress]() {
+                bool wavOk = sid->exportToFile(tempWav, QStringLiteral("wav"), fromMs, toMs, 60,
+                    [pushProgress](int pct) { pushProgress(pct * 70 / 100); },
+                    &_sidExportCancel);
+                if (!wavOk) {
+                    QFile::remove(tempWav);
+                    QMetaObject::invokeMethod(this, [this, finalMp3]() {
+                        if (_sidExportCancel.load()) onExportCancelled();
+                        else onExportFinished(false, finalMp3);
+                    }, Qt::QueuedConnection);
+                    return;
+                }
+                QMetaObject::invokeMethod(this, [this]() {
+                    if (_exportProgressDialog) {
+                        _exportProgressDialog->setLabelText(tr("Encoding MP3..."));
+                        _exportProgressDialog->setValue(70);
+                    }
+                }, Qt::QueuedConnection);
+                bool ok = LameEncoder::encode(tempWav, finalMp3, mp3Bitrate,
+                    [pushProgress](int pct) { pushProgress(70 + pct * 30 / 100); },
+                    &_sidExportCancel);
+                QFile::remove(tempWav);
+                QMetaObject::invokeMethod(this, [this, ok, finalMp3]() {
+                    if (!ok && _sidExportCancel.load()) onExportCancelled();
+                    else onExportFinished(ok, finalMp3);
+                }, Qt::QueuedConnection);
+            });
+#endif // LAME_SUPPORT
+    } else {
+        // WAV / OGG / FLAC: rendered directly by libsndfile.
+        QThreadPool::globalInstance()->start(
+            [this, sid, outputPath, fileType, fromMs, toMs, oggQuality, pushProgress]() {
+                bool ok = sid->exportToFile(outputPath, fileType, fromMs, toMs, oggQuality,
+                                            pushProgress, &_sidExportCancel);
+                QMetaObject::invokeMethod(this, [this, ok, outputPath]() {
+                    if (!ok && _sidExportCancel.load()) onExportCancelled();
+                    else onExportFinished(ok, outputPath);
+                }, Qt::QueuedConnection);
+            });
     }
 }
 

@@ -5,6 +5,46 @@ Releases: https://github.com/happytunesai/web/releases
 
 ---
 
+## [1.8.1] - 2026-06-03 - Bugfixes & Hardening
+
+### Summary
+
+* **Commodore 64 / SID fixes.** The `SF2 ⟷ EMU` engine switch no longer crashes when flipped during playback; exporting a C64 tune in SoundFont mode now renders the real C64 timbres instead of a crackle; Emulation is only offered when a `.sid` is actually open (SoundFont mode still works on any MIDI); and loading a different file (e.g. a Guitar Pro song) after a SID no longer keeps the C64 SoundFont playing - it falls back to your General MIDI SoundFont (auto-loaded from the soundfonts folder if needed), or the system GS Wavetable.
+* **Authentic SID audio export.** With the C64 **Emulation** engine active, exporting audio now renders the *original `.sid`* through the cycle-accurate **libsidplayfp** engine - the real chip sound, in WAV / OGG / FLAC / MP3 - instead of the converted MIDI, mirroring what you hear on playback. No SoundFont needed and nothing extra to pick (SoundFont mode and other files export as before).
+* **Code-review hardening (deferred 1.8.0 findings, re-verified and fixed).** A batch of confirmed robustness bugs: an out-of-bounds read on a truncated `.gpx`, a recorded-but-unfinished-note leak, a MusicXML duration overflow on huge values, an auto-update that could brick the install if extraction failed, two FFXIV/Guitar-Pro UI/parse edge cases, and three playback-thread data races (the FFXIV bard-note timing, the FFXIV equalizer table, and the SID renderer) now guarded.
+* **Smaller download.** The Windows build no longer ships Qt's FFmpeg media backend (~15 MB): playback uses the native audio backend and audio export runs through FluidSynth/libsndfile + LAME, so nothing needs it. The portable ZIP is correspondingly lighter.
+
+<details>
+<summary>Full Changelog - Bugfixes & Hardening</summary>
+
+### Added
+
+* **Authentic SID audio export** - when the C64 **Emulation** engine is active with a `.sid` loaded, audio export renders the real tune through the libsidplayfp engine (`sidfp::Renderer`) instead of the converted MIDI, so the exported audio matches Emulation playback rather than the SoundFont conversion. Chosen automatically (no source picker - if EMU is the live engine, the export is the SID, like every other format); SoundFont mode and non-SID files export the converted MIDI as before. Supports WAV / OGG / FLAC (via the bundled libsndfile, loaded dynamically) and MP3 (temp WAV → LAME), requires no SoundFont, and renders the whole tune (per-measure/selection ranges are disabled for this path - a SID has no random access). The mono LAME path was also fixed so mono sources no longer encode as stuttering/scratchy MP3.
+
+### Fixed
+
+* **C64 engine switch crashed during playback** - flipping `SF2 ⟷ EMU` (or the C64 button) while a tune played tore down the FluidSynth synth / MIDI output under the player thread (use-after-free, 0xc0000005). The transport is now stopped before any engine handover; the same guard was applied to FFXIV SoundFont mode.
+* **C64 SoundFont export played the wrong sound** - exporting audio in C64 SoundFont mode rendered raw GM / crackle instead of the C64 waveform timbres, because the offline export callback didn't apply the C64 program remap (and wasn't installed in C64 mode at all). Export now matches live playback.
+* **Emulation offered without a SID** - the `SF2 ⟷ EMU` switch and the Settings radio now lock Emulation unless a `.sid` is the open file (Emulation plays the original `.sid`; SoundFont mode is unaffected and still works on any MIDI).
+* **Stale C64/FFXIV SoundFont after switching files** - loading a non-SID file (e.g. Guitar Pro) while a C64/FFXIV SoundFont was active left that SoundFont playing the new song; with no special mode active the engine now falls back to a General MIDI SoundFont (auto-loaded from the soundfonts folder if one is present), or the system GS Wavetable.
+* **[CORE-002] GPX out-of-bounds read** - a truncated/crafted `.gpx` could read past the BCFZ decompression buffer (crash). The bit-stream reader is now bounds-checked.
+* **[CORE-004/005/006] Playback-thread data races** - three latent races where the player/audio thread and the GUI thread touched shared state without a lock: the FFXIV bard-accurate min-note-length bookkeeping (its deferred note-off fires on the GUI thread while the player thread processes notes), the FFXIV equalizer's per-program table, and the SID renderer's voice-mute state. All three are now serialised with a mutex. (Could surface as a rare stuck/cut note in bard playback, a crash while dragging an equalizer slider during playback, or a glitch when muting a voice mid-SID-tune.)
+* **[CORE-007] Recording leak + stale pairing** - stopping a recording with a held note leaked the orphan note-on and left a stale entry in the note-pairing map (could mis-pair a later recording); the orphans are now freed.
+* **[CORE-008] MusicXML duration overflow** - an unusually large `<duration>` could overflow 32-bit math and corrupt the timeline; it is computed in 64-bit now.
+* **[CORE-009] Auto-update could brick the install** - a failed or timed-out ZIP extraction was treated as success, potentially leaving no runnable executable. The updater now restores the previous EXE and aborts on any extraction failure.
+* **[CORE-010] FFXIV equalizer button** - stayed enabled after a declined FFXIV-mode enable; it is now disabled with the mode.
+* **[CORE-011] Guitar Pro repeat parse** - a corrupt repeat-alternative byte caused an undefined-behaviour bit shift; the value is now clamped.
+* **[CORE-012] Tempo-map null guard** - a defensive null check in `MidiFile::tick` ran one step after the dereference it was meant to protect; reordered.
+* **Disabled checkboxes / radio buttons looked active** - every theme dimmed only the little indicator, not the label text, so a disabled option (e.g. an export range that doesn't apply) stayed full-brightness. Disabled checkbox / radio-button text is now muted in all themes.
+
+### Changed
+
+* **Trimmed the Windows download (~15 MB).** Dropped Qt's unused FFmpeg media backend (`ffmpegmediaplugin.dll`) from the package - MidiEditor uses `QAudioSink` (native Windows audio backend) plus FluidSynth/libsndfile + LAME for export, and never QMediaPlayer/QMediaRecorder, so the ffmpeg backend was dead weight. SID playback (SF2 + Emulation) and WAV/OGG/FLAC/MP3 export are unaffected.
+
+</details>
+
+---
+
 ## [1.8.0] - 2026-06-01 - Commodore 64 / SID Support
 
 ### Summary

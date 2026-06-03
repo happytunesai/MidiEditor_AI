@@ -26,6 +26,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QHash>
+#include <QMutex>
 #include <QPointer>
 #include <QRegularExpression>
 #include <QSettings>
@@ -523,7 +524,10 @@ void FluidSynthEngine::sendMidiData(const QByteArray &data) {
             int key = static_cast<unsigned char>(data[1]);
             int vel = static_cast<unsigned char>(data[2]);
             if (vel == 0) {
-                // velocity-0 note-on is a note-off — route through the same path
+                // velocity-0 note-on is a note-off — route through the same path.
+                // Lock the bard bookkeeping/off-decision vs the GUI-thread
+                // deferred note-off (BUG-CORE-004).
+                QMutexLocker bardLock(&_bardMutex);
                 bool bardActive = _ffxivSoundFontMode && _bardAccurateMode;
                 if (!bardActive || !_bardNoteHeld[channel][key]) {
                     fluid_synth_noteoff(_synth, channel, key);
@@ -545,6 +549,9 @@ void FluidSynthEngine::sendMidiData(const QByteArray &data) {
                             [guard, channel, key, gen]() {
                                 if (!guard) return;
                                 if (!guard->_initialized || !guard->_synth) return;
+                                // Runs on the GUI thread; serialise with the
+                                // player thread's bard bookkeeping (BUG-CORE-004).
+                                QMutexLocker bardLock(&guard->_bardMutex);
                                 if (guard->_bardNoteGen[channel][key] != gen) return;
                                 if (!guard->_bardNoteHeld[channel][key]) return;
                                 fluid_synth_noteoff(guard->_synth, channel, key);
@@ -556,10 +563,14 @@ void FluidSynthEngine::sendMidiData(const QByteArray &data) {
                 bool bardActive = _ffxivSoundFontMode && _bardAccurateMode;
                 if (bardActive) {
                     // If a previous note for (ch,key) is still held by min-length,
-                    // flush it now so the synth retriggers cleanly.
-                    if (_bardNoteHeld[channel][key]) {
-                        fluid_synth_noteoff(_synth, channel, key);
-                        _bardNoteHeld[channel][key] = false;
+                    // flush it now so the synth retriggers cleanly. Lock vs the
+                    // GUI-thread deferred note-off (BUG-CORE-004).
+                    {
+                        QMutexLocker bardLock(&_bardMutex);
+                        if (_bardNoteHeld[channel][key]) {
+                            fluid_synth_noteoff(_synth, channel, key);
+                            _bardNoteHeld[channel][key] = false;
+                        }
                     }
                     // Force max velocity; dynamics flow through CC7/CC11 (cubic curve)
                     vel = 127;
@@ -586,6 +597,7 @@ void FluidSynthEngine::sendMidiData(const QByteArray &data) {
                 }
                 fluid_synth_noteon(_synth, channel, key, vel);
                 if (bardActive) {
+                    QMutexLocker bardLock(&_bardMutex); // BUG-CORE-004
                     _bardNoteOnMs[channel][key] = _bardClock.isValid() ? _bardClock.elapsed() : 0;
                     _bardNoteHeld[channel][key] = true;
                     _bardNoteGen[channel][key]++;
@@ -597,6 +609,9 @@ void FluidSynthEngine::sendMidiData(const QByteArray &data) {
     case 0x80: // Note Off
         if (data.size() >= 3) {
             int key = static_cast<unsigned char>(data[1]);
+            // Serialise the whole off-decision (and any deferred-off scheduling)
+            // vs the GUI-thread deferred note-off (BUG-CORE-004).
+            QMutexLocker bardLock(&_bardMutex);
             bool bardActive = _ffxivSoundFontMode && _bardAccurateMode;
             if (!bardActive || !_bardNoteHeld[channel][key]) {
                 fluid_synth_noteoff(_synth, channel, key);
@@ -619,6 +634,9 @@ void FluidSynthEngine::sendMidiData(const QByteArray &data) {
                     [guard, channel, key, gen]() {
                         if (!guard) return;
                         if (!guard->_initialized || !guard->_synth) return;
+                        // Runs on the GUI thread; serialise with the player
+                        // thread's bard bookkeeping (BUG-CORE-004).
+                        QMutexLocker bardLock(&guard->_bardMutex);
                         if (guard->_bardNoteGen[channel][key] != gen) return;
                         if (!guard->_bardNoteHeld[channel][key]) return;
                         fluid_synth_noteoff(guard->_synth, channel, key);
@@ -774,8 +792,10 @@ void FluidSynthEngine::exportAudio(const ExportOptions &options) {
         fluid_synth_sfload(expSynth, f.toUtf8().constData(), 1);
     }
 
-    // Apply FFXIV channel mode if active
-    if (_ffxivSoundFontMode) {
+    // Apply the FFXIV / C64 channel mode if active: all channels melodic on
+    // bank 0 (matches the live applyChannelMode), so e.g. CH9 isn't treated as
+    // a drum channel and program changes resolve into the active SoundFont.
+    if (_ffxivSoundFontMode || _c64SoundFontMode) {
         for (int ch = 0; ch < 16; ++ch) {
             fluid_synth_set_channel_type(expSynth, ch, CHANNEL_TYPE_MELODIC);
             fluid_synth_bank_select(expSynth, ch, 0);
@@ -813,21 +833,23 @@ void FluidSynthEngine::exportAudio(const ExportOptions &options) {
         return;
     }
 
-    // Install a playback callback when FFXIV mode is active so program
-    // changes get the same fallback remap and bank-select forcing that
-    // live playback applies via sendMidiData(). Without this the
-    // sparse FFXIV SoundFont silently falls back to bank 0 / preset 0
-    // (= Piano) for any GM program it doesn't ship — e.g. Acoustic
-    // Guitar (nylon, prog 24) plays as piano in the exported MP3 even
-    // though it sounded right during live playback.
+    // Install a playback callback when FFXIV or C64 SoundFont mode is active so
+    // program changes get the same remap and bank-select forcing that live
+    // playback applies via sendMidiData(). Without this: the sparse FFXIV
+    // SoundFont silently falls back to bank 0 / preset 0 (= Piano) for any GM
+    // program it doesn't ship (e.g. Acoustic Guitar nylon, prog 24, exports as
+    // piano), and in C64 mode the SID-import programs (80/81/82/122) hit the C64
+    // SoundFont raw and export as crackle instead of the C64 waveform presets,
+    // even though both sound right during live playback.
     // The callback also drops events for muted channels (mirroring
     // MidiFile::channelMuted()) and applies the per-program loudness
     // trim (bardProgramAttenuationCb) when bard mode is active.
     _exportMutedChannelsMask = options.mutedChannelsMask;
     _exportBardActive = (_ffxivSoundFontMode && _bardAccurateMode);
+    _exportC64Active = _c64SoundFontMode;
     for (int ch = 0; ch < 16; ++ch) _exportExplicitPC[ch] = false;
     for (int ch = 0; ch < 16; ++ch) _exportCurrentProgram[ch] = 0;
-    if (_ffxivSoundFontMode || _exportMutedChannelsMask != 0) {
+    if (_ffxivSoundFontMode || _c64SoundFontMode || _exportMutedChannelsMask != 0) {
         fluid_player_set_playback_callback(player, &FluidSynthEngine::exportPlaybackCallback, expSynth);
     }
 
@@ -1038,19 +1060,27 @@ int FluidSynthEngine::exportPlaybackCallback(void *data, fluid_midi_event_t *eve
         return fluid_synth_handle_midi_event(synth, event);
     }
 
-    // Program change → apply same fallback table as live playback.
+    // Program change → mirror live playback's remap for the active SoundFont
+    // mode (sendMidiData / remapProgramForCurrentMode).
     if (type == 0xC0) {
         int program = fluid_midi_event_get_program(event);
-        // Keep this list in lockstep with sendMidiData()'s
-        // ffxivProgramFallback hash. Verified against
-        // FF14-c3c6-fixed.sf2 phdr chunk.
-        switch (program) {
-        case 24: program = 25; break; // Acoustic Guitar (nylon) → Lute
-        case 26: program = 27; break; // Acoustic Guitar (jazz)  → Clean Guitar
-        default: break;
+        if (_exportC64Active) {
+            // C64 SoundFont mode: remap the SID-import lead/noise programs onto
+            // the C64 SoundFont's waveform presets, exactly like live playback.
+            // Without this they hit bank 0 raw and resolve to the wrong preset
+            // (the "export crackles instead of C64 timbres" bug).
+            program = c64ProgramRemap(program);
+        } else {
+            // FFXIV sparse-preset fallback. Keep in lockstep with sendMidiData()'s
+            // ffxivProgramFallback hash. Verified against FF14-c3c6-fixed.sf2 phdr.
+            switch (program) {
+            case 24: program = 25; break; // Acoustic Guitar (nylon) → Lute
+            case 26: program = 27; break; // Acoustic Guitar (jazz)  → Clean Guitar
+            default: break;
+            }
         }
         // Force bank 0 first so the (possibly remapped) program
-        // resolves into the FFXIV SoundFont rather than whatever
+        // resolves into the active SoundFont rather than whatever
         // bank the MIDI file requested earlier.
         fluid_synth_bank_select(synth, channel, 0);
         fluid_synth_program_change(synth, channel, program);
@@ -1100,6 +1130,7 @@ int FluidSynthEngine::exportPlaybackCallback(void *data, fluid_midi_event_t *eve
 // Per-export state — only one offline render runs at a time.
 quint32 FluidSynthEngine::_exportMutedChannelsMask = 0;
 bool    FluidSynthEngine::_exportBardActive = false;
+bool    FluidSynthEngine::_exportC64Active = false;
 bool    FluidSynthEngine::_exportExplicitPC[16] = {false};
 int     FluidSynthEngine::_exportCurrentProgram[16] = {0};
 
@@ -1448,6 +1479,10 @@ qint64 FluidSynthEngine::bardMinNoteLengthMs(int instrumentIndex, int midiKey, q
 }
 
 void FluidSynthEngine::resetBardNoteState() {
+    // The _bardNote* arrays + generation counter are also touched by the player
+    // thread (sendMidiData) and the GUI-thread deferred-off lambdas, so lock the
+    // reset too (BUG-CORE-004). Uncontended at the initialize()-time call.
+    QMutexLocker bardLock(&_bardMutex);
     for (int ch = 0; ch < 16; ++ch) {
         _bardCurrentProgram[ch] = 0;
         _logicalProgram[ch] = 0;

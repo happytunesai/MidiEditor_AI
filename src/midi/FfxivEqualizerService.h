@@ -20,6 +20,7 @@
 
 #include <QObject>
 #include <QHash>
+#include <QReadWriteLock>
 #include <QString>
 #include <QStringList>
 
@@ -130,6 +131,11 @@ private:
     QHash<int, Slot> _slots;     ///< program → gain/mute
     float            _masterGain = 1.0f;
     QString          _activePresetName;
+    /// Guards _slots/_masterGain. gainFor()/isMuted() read on the real-time
+    /// NoteOn (player) thread while the equalizer dialog mutates on the GUI
+    /// thread; a concurrent QHash read during a rehash is UB (BUG-CORE-005).
+    /// mutable so the const readers can take a read lock.
+    mutable QReadWriteLock _lock;
 };
 
 #endif // FFXIVEQUALIZERSERVICE_H_

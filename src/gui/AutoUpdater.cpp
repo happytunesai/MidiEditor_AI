@@ -284,15 +284,30 @@ bool AutoUpdater::applyUpdate(const QString &zipPath, const QString &midiPath)
         QString("Expand-Archive -Path '%1' -DestinationPath '%2' -Force").arg(nativeZip.replace("'", "''"), nativeStaging.replace("'", "''"))
     });
     extractProc.start();
-    extractProc.waitForFinished(120000); // 2 minute timeout
-
-    if (extractProc.exitCode() != 0) {
-        qDebug() << "  Extraction failed:" << extractProc.readAllStandardError();
-        // Restore the original EXE
-        QFile::rename(bakPath, appPath);
+    // A failed launch (PowerShell missing / locked-down host) or a timeout both
+    // leave exitCode()==0, so checking only the exit code would proceed past a
+    // failed extraction with an empty staging dir and brick the install
+    // (BUG-CORE-009). Check the full process lifecycle and restore the .bak EXE
+    // on any failure.
+    auto restoreAndFail = [&](const QString &detail) -> bool {
+        if (extractProc.state() != QProcess::NotRunning) {
+            extractProc.kill();
+            extractProc.waitForFinished(2000);
+        }
+        QFile::rename(bakPath, appPath); // put the running EXE back
         QMessageBox::warning(_parentWidget, tr("Update Error"),
-            tr("Failed to extract the update ZIP.\n\n%1").arg(QString(extractProc.readAllStandardError())));
+            tr("Failed to extract the update ZIP.\n\n%1").arg(detail));
         return false;
+    };
+    if (!extractProc.waitForStarted(10000)) {
+        return restoreAndFail(tr("Could not start the extractor (PowerShell)."));
+    }
+    if (!extractProc.waitForFinished(120000)) { // 2 minute timeout
+        return restoreAndFail(tr("The extractor timed out."));
+    }
+    if (extractProc.exitStatus() != QProcess::NormalExit || extractProc.exitCode() != 0) {
+        qDebug() << "  Extraction failed:" << extractProc.readAllStandardError();
+        return restoreAndFail(QString(extractProc.readAllStandardError()));
     }
     qDebug() << "  Step 2: Extraction complete";
 

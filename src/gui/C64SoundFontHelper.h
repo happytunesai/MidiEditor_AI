@@ -34,6 +34,15 @@ bool requestEnable(QWidget *parent);
 /// Disable C64 SoundFont Mode and restore the previous SoundFont selection.
 void requestDisable(QWidget *parent);
 
+/// Normalise the FluidSynth SoundFont to a sane default when NO special mode
+/// (C64 SoundFont / FFXIV) is active - called on file load. If a C64 or FFXIV
+/// SoundFont is left enabled but its mode is off (e.g. you dragged in a Guitar
+/// Pro file while a SID was loaded), disable it and fall back to a General MIDI
+/// SoundFont, or to the Microsoft GS Wavetable Synth if no GM SoundFont is
+/// loaded. Leaves a plain GM / custom-SoundFont setup untouched, and switches
+/// the MIDI output only after stopping playback (BUG-C64-DEFAULTSF).
+void normalizeDefaultSoundFont(QWidget *parent);
+
 } // namespace C64SoundFontHelper
 
 #endif // C64SOUNDFONTHELPER_H

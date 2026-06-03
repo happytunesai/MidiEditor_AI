@@ -39,6 +39,7 @@
 
 #include "../midi/MidiFile.h"
 #include "../midi/FluidSynthEngine.h"
+#include "../midi/SidAudioPlayer.h"
 
 // ============================================================================
 // Constructor
@@ -48,6 +49,14 @@ ExportDialog::ExportDialog(MidiFile *file, QWidget *parent)
     : QDialog(parent), _file(file) {
     setWindowTitle(tr("Export Audio"));
     setMinimumWidth(460);
+
+    // When the C64 Emulation engine is armed and a .sid is loaded, the transport
+    // plays the original tune via libsidplayfp - so the export mirrors that and
+    // renders the authentic SID (no SoundFont, no source choice, full song only).
+    // SoundFont mode and non-SID files use the normal converted-MIDI render.
+    _sidExport = SidAudioPlayer::instance()->isArmed() &&
+                 SidAudioPlayer::instance()->hasSource();
+
     setupUi();
 
     // Restore last-used settings
@@ -93,6 +102,16 @@ void ExportDialog::setupUi() {
         tr("Duration: %1:%2").arg(mins).arg(secs, 2, 10, QChar('0')), this);
     mainLayout->addWidget(_durationLabel);
 
+    // --- Authentic-SID note ---
+    // In C64 Emulation mode the export is always the original libsidplayfp render
+    // (no source choice, like every other format - if EMU is active it's a SID
+    // export). A short note makes that explicit.
+    if (_sidExport) {
+        QLabel *sidNote = new QLabel(
+            tr("Exporting: <b>Original SID</b> (authentic Commodore 64 emulation)"), this);
+        mainLayout->addWidget(sidNote);
+    }
+
     // --- Range group ---
     QGroupBox *rangeGroup = new QGroupBox(tr("Range"), this);
     QVBoxLayout *rangeLayout = new QVBoxLayout(rangeGroup);
@@ -136,6 +155,16 @@ void ExportDialog::setupUi() {
     customRow->addWidget(_toMeasure);
     customRow->addStretch();
     rangeLayout->addLayout(customRow);
+
+    // The authentic-SID render is whole-tune only (a SID has no random access;
+    // partial ranges aren't supported), so lock Selection / Custom range out.
+    if (_sidExport) {
+        _selectionRadio->setEnabled(false);
+        _customRangeRadio->setEnabled(false);
+        _fromMeasure->setEnabled(false);
+        _toMeasure->setEnabled(false);
+        _fullSongRadio->setChecked(true);
+    }
 
     mainLayout->addWidget(rangeGroup);
 
@@ -215,6 +244,13 @@ void ExportDialog::setupUi() {
     _soundFontLabel = new QLabel(sfInfo, optionsGroup);
     optLayout->addWidget(_soundFontLabel);
 
+    // SID export goes through libsidplayfp, not FluidSynth: the reverb tail and
+    // the SoundFont stack don't apply.
+    if (_sidExport) {
+        _reverbTailCheck->setVisible(false);
+        _soundFontLabel->setText(tr("<i>Authentic SID render - no SoundFont needed</i>"));
+    }
+
     mainLayout->addWidget(optionsGroup);
 
     // --- Estimated size ---
@@ -231,11 +267,9 @@ void ExportDialog::setupUi() {
     btnRow->addWidget(_exportBtn);
     mainLayout->addLayout(btnRow);
 
-    // Disable export if no SoundFonts loaded
-    if (fonts.isEmpty()) {
-        _exportBtn->setEnabled(false);
-        _exportBtn->setToolTip(tr("Load a SoundFont in Settings first"));
-    }
+    // Enable Export based on the chosen source: the converted-MIDI render needs
+    // a SoundFont (FluidSynth), the original-SID render does not (libsidplayfp).
+    updateExportEnabled();
 
     // --- Connections ---
     connect(_formatCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
@@ -356,11 +390,28 @@ void ExportDialog::onExportClicked() {
     accept();
 }
 
+bool ExportDialog::exportOriginalSid() const {
+    return _sidExport;
+}
+
+void ExportDialog::updateExportEnabled() {
+    if (!_exportBtn) return;
+    // Original-SID export renders via libsidplayfp - no SoundFont required.
+    // Converted-MIDI export renders via FluidSynth - needs a loaded SoundFont.
+    const bool sidSource = exportOriginalSid();
+    const bool haveFont = !FluidSynthEngine::instance()->loadedSoundFonts().isEmpty();
+    const bool enable = sidSource || haveFont;
+    _exportBtn->setEnabled(enable);
+    _exportBtn->setToolTip(enable ? QString()
+                                  : tr("Load a SoundFont in Settings first"));
+}
+
 // ============================================================================
 // Public API
 // ============================================================================
 
 void ExportDialog::setSelectionRange(int startTick, int endTick) {
+    if (_sidExport) return; // SID export is whole-tune only; ignore selection.
     _selectionStartTick = startTick;
     _selectionEndTick = endTick;
     _selectionRadio->setEnabled(true);

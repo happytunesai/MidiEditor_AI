@@ -179,6 +179,10 @@ MeasureHeader* Gp3Parser::readMeasureHeader(int number, MeasureHeader* previous)
 
 int Gp3Parser::readRepeatAlternative() {
     uint8_t value = reader.readByte()[0];
+    // Repeat-alternative numbers are small (<= 8 endings); a corrupt file could
+    // give a large byte, and `1 << value` is undefined for value >= 31. Clamp so
+    // the shift below stays well-defined (BUG-CORE-011).
+    if (value > 30) value = 30;
     int existing = 0;
     for (int x = static_cast<int>(measureHeaders.size()) - 1; x >= 0; x--) {
         if (measureHeaders[x]->isRepeatOpen) break;

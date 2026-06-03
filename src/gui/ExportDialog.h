@@ -54,6 +54,12 @@ public:
     /** Returns the output file path chosen by the user. */
     QString outputFilePath() const;
 
+    /** True when this export renders the ORIGINAL .sid (authentic libsidplayfp
+     *  render) rather than the converted MIDI. Decided automatically: the C64
+     *  Emulation engine is active and a .sid is loaded (mirrors live playback).
+     *  No user choice - SoundFont mode / non-SID files always export MIDI. */
+    bool exportOriginalSid() const;
+
 private slots:
     void onFormatChanged(int index);
     void onQualityPresetChanged(int index);
@@ -63,6 +69,9 @@ private slots:
 
 private:
     void setupUi();
+    /// Enable Export when a SoundFont is loaded (MIDI render) OR the original-SID
+    /// source is selected (libsidplayfp render needs no SoundFont).
+    void updateExportEnabled();
     void populateFormats();
     void populateQualityPresets();
     QString formatFilter() const;
@@ -74,6 +83,10 @@ private:
     int _selectionStartTick = -1;
     int _selectionEndTick = -1;
     QString _outputFilePath;
+
+    /// True when the active C64 engine is Emulation with a .sid loaded: this
+    /// export is the authentic libsidplayfp render (full song only, no SoundFont).
+    bool _sidExport = false;
 
     // Range
     QButtonGroup *_rangeGroup;

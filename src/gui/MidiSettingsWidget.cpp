@@ -684,6 +684,10 @@ void MidiSettingsWidget::onFfxivModeToggled(bool enabled) {
             _ffxivModeCheckBox->blockSignals(true);
             _ffxivModeCheckBox->setChecked(false);
             _ffxivModeCheckBox->blockSignals(false);
+            // blockSignals suppressed the toggled(false) that would normally
+            // disable the equalizer button, so disable it explicitly here
+            // (BUG-CORE-010 — it otherwise stayed enabled for an inactive mode).
+            _ffxivEqualizerBtn->setEnabled(false);
         }
     } else {
         FfxivSoundFontHelper::requestDisable(window());

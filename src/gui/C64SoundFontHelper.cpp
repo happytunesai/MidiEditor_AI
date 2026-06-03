@@ -10,6 +10,7 @@
 #endif
 #include "../midi/MidiOutput.h"
 #include "C64Mode.h"
+#include "FfxivSoundFontHelper.h" // isFfxivSoundFont() for the default-SF normalisation
 
 #include <QCoreApplication>
 #include <QDir>
@@ -265,10 +266,101 @@ void requestDisable(QWidget *parent) {
     QSettings().setValue("c64SoundFontMode", false);
 }
 
+// First GM-ish SoundFont in soundfonts/ that isn't a C64/FFXIV one (prefers a
+// GeneralUser GS by name). Used to auto-load a GM from disk before dropping to
+// the system GS Wavetable. Load only - never downloads.
+static QString findLocalGmSoundFont() {
+    QDir dir(soundFontsDir());
+    const QStringList filters{"*.sf2", "*.sf3"};
+    const QFileInfoList files = dir.entryInfoList(filters, QDir::Files, QDir::Name);
+    for (const QFileInfo &fi : files)
+        if (fi.fileName().contains(QLatin1String("generaluser"), Qt::CaseInsensitive))
+            return fi.absoluteFilePath();
+    for (const QFileInfo &fi : files) {
+        const QString p = fi.filePath();
+        if (!isC64SoundFont(p) && !FfxivSoundFontHelper::isFfxivSoundFont(p))
+            return fi.absoluteFilePath();
+    }
+    return QString();
+}
+
+void normalizeDefaultSoundFont(QWidget *parent) {
+    Q_UNUSED(parent)
+    FluidSynthEngine *engine = FluidSynthEngine::instance();
+    if (!engine || !engine->isInitialized())
+        return;
+    // A special mode owns the SoundFont state - leave it entirely alone.
+    if (engine->c64SoundFontMode() || engine->ffxivSoundFontMode())
+        return;
+    // Only meaningful when FluidSynth is the active output (otherwise GS already
+    // plays and there's no SoundFont to normalise).
+    if (!MidiOutput::isFluidSynthOutput())
+        return;
+
+    auto isSpecial = [](const QString &p) {
+        return isC64SoundFont(p) || FfxivSoundFontHelper::isFfxivSoundFont(p);
+    };
+
+    // Classify the currently-enabled fonts.
+    bool specialEnabled = false, gmEnabled = false;
+    for (const QString &p : engine->allSoundFontPaths()) {
+        if (!engine->isSoundFontEnabled(p)) continue;
+        if (isSpecial(p)) specialEnabled = true;
+        else              gmEnabled = true;
+    }
+    // No orphaned C64/FFXIV font enabled -> this is a plain GM / custom setup;
+    // don't touch the user's choice.
+    if (!specialEnabled)
+        return;
+
+    // Disable the orphaned mode-specific fonts.
+    for (const QString &p : engine->allSoundFontPaths())
+        if (engine->isSoundFontEnabled(p) && isSpecial(p))
+            engine->setSoundFontEnabled(p, false);
+
+    if (!gmEnabled) {
+        // Nothing general-purpose was enabled alongside. Prefer a loaded,
+        // non-special (GM) SoundFont...
+        QString gm;
+        for (const QString &p : engine->allSoundFontPaths())
+            if (!isSpecial(p)) { gm = p; break; }
+        // ...else auto-load a GM SoundFont from soundfonts/ if one is on disk
+        // (e.g. GeneralUser GS) - mirrors how FFXIV reloads its GM from disk, so
+        // a usable GM that's merely unloaded is used instead of dropping to GS.
+        // Load only, never a download.
+        if (gm.isEmpty()) {
+            const QString onDisk = findLocalGmSoundFont();
+            if (!onDisk.isEmpty()) {
+                engine->addPendingSoundFontPaths(QStringList{onDisk});
+                engine->loadSoundFont(onDisk);
+                gm = onDisk;
+            }
+        }
+        if (!gm.isEmpty()) {
+            engine->setSoundFontEnabled(gm, true);
+        } else {
+            // ...else fall back to the system Microsoft GS Wavetable Synth.
+            // Switching the MIDI output mid-playback would free the FluidSynth
+            // synth under the player thread (the 1.8.0 use-after-free class), so
+            // stop the transport first.
+            const QString msPort = preferredMicrosoftSynthPort();
+            if (!msPort.isEmpty() && MidiOutput::outputPort() != msPort) {
+                C64Mode::stopPlaybackForEngineChange();
+                MidiOutput::setOutputPort(msPort);
+                QSettings().setValue("out_port", msPort);
+            }
+        }
+    }
+
+    QSettings persist;
+    engine->saveSettings(&persist);
+}
+
 #else // !FLUIDSYNTH_SUPPORT
 
 bool requestEnable(QWidget *) { return false; }
 void requestDisable(QWidget *) {}
+void normalizeDefaultSoundFont(QWidget *) {}
 
 #endif
 

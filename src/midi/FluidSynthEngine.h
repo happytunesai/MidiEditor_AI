@@ -24,6 +24,7 @@
 #include <QObject>
 #include <QList>
 #include <QElapsedTimer>
+#include <QMutex>
 #include <QPair>
 #include <QSet>
 #include <QString>
@@ -386,6 +387,9 @@ private:
     /// concurrent export (which is the only mode the engine supports).
     static quint32 _exportMutedChannelsMask;
     static bool    _exportBardActive;
+    static bool    _exportC64Active;   // C64 SoundFont mode snapshot, so the offline
+                                       // export callback applies the same C64 program
+                                       // remap as live playback (mirrors _exportBardActive).
     // Per-channel "the file already gave us an explicit Program Change".
     // Used by the export callback so the GM-drum-key fallback on CH9
     // doesn't overwrite the program a Snare Drum / Bass Drum track
@@ -441,6 +445,11 @@ private:
     qint64 _bardNoteOnMs[16][128];        // ms timestamp of last NoteOn per (ch,key)
     bool _bardNoteHeld[16][128];          // true while a NoteOn for (ch,key) is sounding
     quint32 _bardNoteGen[16][128];        // generation counter to invalidate pending offs
+    // Guards the _bardNote* arrays: sendMidiData() runs on the player thread but
+    // the min-note-length deferred note-off (QTimer::singleShot) fires on the GUI
+    // thread, so both touch these slots concurrently (BUG-CORE-004). Locked only
+    // around the bookkeeping/off-decision, not the whole MIDI dispatch.
+    QMutex _bardMutex;
 
     // Export cancel flag (thread-safe)
     std::atomic<bool> _cancelExport{false};

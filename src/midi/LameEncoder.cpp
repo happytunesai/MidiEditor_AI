@@ -145,12 +145,27 @@ bool LameEncoder::encode(const QString &wavPath, const QString &mp3Path,
         totalRead += bytesRead;
 
         int samplesRead = static_cast<int>(bytesRead / (channels * 2));
-        int mp3Bytes = lame_encode_buffer_interleaved(
-            gfp,
-            reinterpret_cast<short int *>(pcmBuf.data()),
-            samplesRead,
-            reinterpret_cast<unsigned char *>(mp3Buf.data()),
-            mp3BufSize);
+        // lame_encode_buffer_interleaved ALWAYS treats input as stereo-interleaved
+        // regardless of lame_set_num_channels; for a mono WAV (e.g. the authentic
+        // SID render) that misreads consecutive samples as L/R pairs (stutter +
+        // scratch). Use the dual-buffer call with the same buffer for both channels.
+        int mp3Bytes;
+        if (channels == 1) {
+            mp3Bytes = lame_encode_buffer(
+                gfp,
+                reinterpret_cast<short int *>(pcmBuf.data()),
+                reinterpret_cast<short int *>(pcmBuf.data()),
+                samplesRead,
+                reinterpret_cast<unsigned char *>(mp3Buf.data()),
+                mp3BufSize);
+        } else {
+            mp3Bytes = lame_encode_buffer_interleaved(
+                gfp,
+                reinterpret_cast<short int *>(pcmBuf.data()),
+                samplesRead,
+                reinterpret_cast<unsigned char *>(mp3Buf.data()),
+                mp3BufSize);
+        }
 
         if (mp3Bytes > 0) {
             mp3.write(mp3Buf.data(), mp3Bytes);

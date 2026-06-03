@@ -182,8 +182,12 @@ private:
 
         const int globalPPQ = _score->ticksPerQuarter;
         auto toGlobal = [&](int xmlDur) {
-            // Scale local divisions to global PPQ.
-            return divisions > 0 ? (xmlDur * globalPPQ) / divisions : xmlDur;
+            // Scale local divisions to global PPQ. 64-bit intermediate so a large
+            // <duration>/<backup>/<forward> can't overflow 32-bit int
+            // (xmlDur * globalPPQ wrapped before, BUG-CORE-008).
+            return divisions > 0
+                ? static_cast<int>((static_cast<qint64>(xmlDur) * globalPPQ) / divisions)
+                : xmlDur;
         };
 
         while (!xr.atEnd()) {

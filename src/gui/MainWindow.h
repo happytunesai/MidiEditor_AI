@@ -27,6 +27,8 @@
 #include <QKeySequence>
 #include <QVector>
 
+#include <atomic>
+
 // Project includes
 #include "ToolbarActionInfo.h"
 #ifdef MIDIEDITOR_COLLAB_ENABLED
@@ -1329,7 +1331,15 @@ private:
     /** \brief Temp MIDI file path to clean up after export (for Guitar Pro etc.) */
     QString _exportTempMidiPath;
 
+    /** \brief Cancel flag for the authentic-SID export worker (set by the
+     *  progress dialog's Cancel; read by SidAudioPlayer::exportToFile / LAME). */
+    std::atomic<bool> _sidExportCancel{false};
+
     void startExport(const ExportOptions &opts);
+    /** \brief Render the ORIGINAL loaded .sid (libsidplayfp) to \a outputPath
+     *  for [fromMs, toMs); wav/ogg/flac via libsndfile, mp3 via temp WAV + LAME. */
+    void startSidExport(const QString &outputPath, const QString &fileType,
+                        int fromMs, int toMs, int oggQuality, int mp3Bitrate);
     void onExportFinished(bool success, const QString &message);
     void onExportCancelled();
 #endif

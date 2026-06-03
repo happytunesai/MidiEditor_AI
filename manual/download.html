@@ -13,6 +13,7 @@
 <link rel="icon" type="image/x-icon" href="favicon.ico" sizes="any">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="preconnect" href="https://github.com" crossorigin>
+<link rel="preconnect" href="https://api.github.com" crossorigin>
 <meta name="theme-color" content="#0B1020">
 <link rel="stylesheet" href="site.css">
   <link rel="stylesheet" href="audio.css">
@@ -134,14 +135,14 @@
 <section class="dl-hero">
     <div class="container">
         <h1>&#x2B07; Download MidiEditor AI</h1>
-        <p class="version">Current Release: <strong>v1.8.0</strong> - June 1, 2026</p>
+        <p class="version">Current Release: <strong id="dl-June 3, 2026</p>
 
         <div class="dl-cards">
             <div class="dl-card">
                 <div class="icon">&#x1F4C1;</div>
                 <h3>Portable ZIP</h3>
-                <p class="size">.zip &middot; ~50 MB &middot; Windows 10/11 &middot; No install needed</p>
-                <a href="https://github.com/happytunesai/MidiEditor_AI/releases/download/v1.8.0/MidiEditorAI-v1.8.0-win64.zip" class="btn btn-primary">&#x2B07; Download v1.8.0</a>
+                <p class="size">.zip &middot; <span id="dl-size">~60 MB</span> &middot; Windows 10/11 &middot; No install needed</p>
+                <a id="dl-link" href="https://github.com/happytunesai/MidiEditor_AI/releases/download/v1.8.1/MidiEditorAI-v1.8.1-win64.zip" class="btn btn-primary">&#x2B07; Download <span id="dl-btn-version">v1.8.1</span></a>
                 <p style="color: var(--text-muted); font-size: .8rem; margin-top: .75rem;">Extract anywhere &amp; run <code style="background: var(--code-bg); padding: 1px 5px; border-radius: 4px;">MidiEditor.exe</code></p>
             </div>
             <div class="dl-card">
@@ -207,8 +208,8 @@
             On Windows: <code style="background: var(--code-bg); padding: 2px 6px; border-radius: 4px;">certutil -hashfile FILENAME SHA256</code>
         </p>
         <div class="hash-block">
-            <strong>MidiEditorAI-v1.8.0-win64.zip</strong>
-            Available on the <a href="https://github.com/happytunesai/MidiEditor_AI/releases/tag/v1.8.0" style="color: var(--accent);">GitHub release page</a>
+            <strong id="dl-asset-name">MidiEditorAI-v1.8.1-win64.zip</strong>
+            Available on the <a id="dl-release-link" href="https://github.com/happytunesai/MidiEditor_AI/releases/tag/v1.8.1" style="color: var(--accent);">GitHub release page</a>
         </div>
     </div>
 </div>
@@ -252,5 +253,50 @@
 
 <button class="scroll-top" aria-label="Scroll to top">&#x2191;</button>
 <script src="site.js"></script>
+<script>
+// Progressive enhancement: pull the real latest-release version, date, asset
+// size and download URL from the GitHub API so the page never goes stale.
+// api.github.com sends CORS '*', so this works from any origin; unauthenticated
+// requests are rate-limited (60/h per IP) but that's plenty for a download page.
+// If the request fails (offline / rate-limited / API down) the hardcoded
+// fallback values below stay in place.
+(function () {
+    var REPO = "happytunesai/MidiEditor_AI";
+    var setText = function (id, txt) {
+        var el = document.getElementById(id);
+        if (el && txt) el.textContent = txt;
+    };
+    fetch("https://api.github.com/repos/" + REPO + "/releases/latest",
+          { headers: { "Accept": "application/vnd.github+json" } })
+        .then(function (r) { return r.ok ? r.json() : Promise.reject(r.status); })
+        .then(function (rel) {
+            var tag = rel.tag_name || "";
+            setText("dl-version", tag);
+            setText("dl-btn-version", tag);
+
+            if (rel.published_at) {
+                var d = new Date(rel.published_at);
+                setText("dl-date", d.toLocaleDateString("en-US",
+                        { year: "numeric", month: "long", day: "numeric" }));
+            }
+            if (rel.html_url) {
+                var rl = document.getElementById("dl-release-link");
+                if (rl) rl.href = rel.html_url;
+            }
+
+            // Pick the Windows portable .zip asset (skip checksum/text files).
+            var asset = (rel.assets || []).filter(function (a) {
+                return /\.zip$/i.test(a.name);
+            })[0];
+            if (asset) {
+                setText("dl-size", "~" + (asset.size / (1024 * 1024)).toFixed(0) + " MB");
+                setText("dl-asset-name", asset.name);
+                var link = document.getElementById("dl-link");
+                if (link) link.href = asset.browser_download_url;
+            }
+        })
+        .catch(function () { /* keep the static fallback values */ });
+})();
+</script>
 </body>
 </html>

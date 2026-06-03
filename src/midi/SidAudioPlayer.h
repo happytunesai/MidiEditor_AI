@@ -14,6 +14,9 @@
 #include <QObject>
 #include <QString>
 
+#include <atomic>
+#include <functional>
+
 class QAudioSink;
 class QTimer;
 class SidPullDevice;
@@ -41,6 +44,18 @@ public:
     /// Mute/unmute SID voice 0-2 (mirrors the editor's per-channel mute).
     /// Takes effect immediately while playing and on the next play().
     void setVoiceMuted(int voice, bool muted);
+
+    /// Render the loaded .sid to an audio file through the authentic libsidplayfp
+    /// engine (the ORIGINAL tune, not the converted MIDI), for the window
+    /// [fromMs, toMs). \a fileType is "wav" | "ogg" | "flac" (MP3 is produced by
+    /// the caller via a temp WAV + LAME). \a oggQuality is 10-100 (ignored for
+    /// WAV/FLAC). Uses the bundled libsndfile (loaded dynamically). Blocking -
+    /// call from a worker thread. Returns false on error/cancel. hasSource()
+    /// must be true.
+    bool exportToFile(const QString &path, const QString &fileType,
+                      int fromMs, int toMs, int oggQuality = 60,
+                      std::function<void(int)> progress = nullptr,
+                      std::atomic<bool> *cancel = nullptr);
 
 public slots:
     /// Start playback from \a fromMs (the editor's cursor position). If

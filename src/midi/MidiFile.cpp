@@ -653,6 +653,13 @@ int MidiFile::tick(int startms, int endms, QList<MidiEvent *> **eventList,
             break;
         }
     }
+    // Guard before the deref: if the tempo track (channel 17) carried no usable
+    // TempoChangeEvent, `event` is still null here. Normal files always have a
+    // tick-0 tempo so this isn't hit in practice, but the existing guard before
+    // *endTick (below) is too late to stop this deref (BUG-CORE-012).
+    if (!event) {
+        return 0;
+    }
     int startTick = (startms - time) / event->msPerTick() + event->midiTime();
     *msOfFirstEvent = time;
     (*eventList)->append(event);

@@ -13,7 +13,7 @@
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-0078D6?logo=windows)](https://github.com/happytunesai/MidiEditor_AI/releases)
 
-**Version:** 1.8.0
+**Version:** 1.8.1
 **Status:** Release
 
 📥 **[Download Latest Release](https://github.com/happytunesai/MidiEditor_AI/releases/latest)**
@@ -287,7 +287,7 @@ Load a Commodore 64 `.sid` tune, **edit it as MIDI**, and hear it the way it was
 **Two ways to hear it** - one C64 toolbar button activates the chosen engine, and a retro `SF2 ⟷ EMU` switch flips between them:
 
 - **SoundFont** - plays the converted MIDI through a Commodore 64 SoundFont so it uses real C64 waveform timbres (pulse, sawtooth, triangle, noise). The SoundFont (~11 MB) downloads itself on first use.
-- **Emulation** - plays the *original* `.sid` through the cycle-accurate **libsidplayfp** engine for true-to-hardware chip audio, driven by the normal transport: Play from the cursor, Stop / Pause, seek, the piano-roll cursor follows in real-time sync, channel/track mute silences the matching SID voice live, and playback stops at the end of the note roll.
+- **Emulation** - plays the *original* `.sid` through the cycle-accurate **libsidplayfp** engine for true-to-hardware chip audio, driven by the normal transport: Play from the cursor, Stop / Pause, seek, the piano-roll cursor follows in real-time sync, channel/track mute silences the matching SID voice live, and playback stops at the end of the note roll. In Emulation mode you can also **export the authentic SID** straight to WAV / FLAC / OGG / MP3.
 
 | Variant | Tunes | How it's imported |
 |---------|-------|-------------------|
@@ -367,6 +367,7 @@ MidiEditor AI can render your MIDI files to audio using the built-in FluidSynth 
 - **Background rendering** - progress dialog with cancel support for both FluidSynth and LAME phases
 - **Completion dialog** - Open File, Open Folder, or Close after export finishes
 - **Guitar Pro support** - GP3-GP8 files export seamlessly (temporary MIDI conversion is handled automatically)
+- **Authentic SID export** - with a `.sid` open and the C64 engine set to Emulation, export renders the *original* tune via libsidplayfp (the real chip sound, no SoundFont needed) instead of the converted MIDI
 
 Export via **File → Export Audio** (Ctrl+Shift+E), the right-click context menu on selections, or the **Export Audio** button in the FluidSynth settings panel.
 

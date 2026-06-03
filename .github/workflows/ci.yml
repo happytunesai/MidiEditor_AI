@@ -147,6 +147,15 @@ jobs:
           & windeployqt build\bin\MidiEditorAI.exe --release --compiler-runtime --no-translations --no-system-d3d-compiler --no-opengl-sw
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
 
+          # Strip the Qt FFmpeg media backend (~15 MB). MidiEditor only uses
+          # QAudioSink for audio out (served by the native windowsmediaplugin)
+          # plus FluidSynth/libsndfile + LAME for export - it never uses
+          # QMediaPlayer/QMediaRecorder, so the ffmpeg media plugin is dead
+          # weight. Verified: SID playback (SF2 + Emulation) and WAV/OGG/FLAC/MP3
+          # export all work without it. The small windowsmediaplugin stays.
+          Remove-Item build\bin\multimedia\ffmpegmediaplugin.dll -ErrorAction SilentlyContinue
+          "- [x] **Trim** - removed unused Qt FFmpeg media backend (~15 MB)" >> $env:GITHUB_STEP_SUMMARY
+
           # Runtime assets
           Copy-Item -Recurse run_environment\graphics build\bin\graphics
           if (Test-Path run_environment\metronome) {

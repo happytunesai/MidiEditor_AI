@@ -44,7 +44,13 @@ XmlNode* XmlNode::getSubnodeByProperty(const std::string& propName, const std::s
 GpBitStream::GpBitStream(const std::vector<uint8_t>& data) : data_(data) {}
 
 bool GpBitStream::getBit() {
-    if (finished_) return false;
+    // Bounds-guard the index: a malformed/truncated BCFZ stream (or skipBytes
+    // landing the pointer at the end) can leave pointer_ == data_.size() with
+    // finished_ still false, which would over-read the buffer (BUG-CORE-002).
+    if (finished_ || pointer_ < 0 || pointer_ >= static_cast<int>(data_.size())) {
+        finished_ = true;
+        return false;
+    }
     bool result = (data_[pointer_] >> (7 - subpointer_)) % 2 == 1;
     increaseSubpointer();
     return result;
@@ -87,6 +93,10 @@ void GpBitStream::skipBits(int bits) {
 
 void GpBitStream::skipBytes(int bytes) {
     pointer_ += bytes;
+    // Keep finished_ in sync (increaseSubpointer does this on the bit path, but
+    // skipBytes bypassed it) so the read loop stops instead of over-reading
+    // when a skip lands the pointer at/after the end (BUG-CORE-002).
+    if (pointer_ >= static_cast<int>(data_.size())) finished_ = true;
 }
 
 void GpBitStream::increaseSubpointer() {
