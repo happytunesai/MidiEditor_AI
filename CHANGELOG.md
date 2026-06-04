@@ -5,6 +5,23 @@ Releases: https://github.com/happytunesai/web/releases
 
 ---
 
+## [1.8.1.1] - 2026-06-04 - Hotfix: hardware-acceleration crash
+
+### Summary
+
+* **Crash on right-click with hardware acceleration enabled.** With **Settings -> Performance -> Hardware acceleration** turned on, right-clicking the piano roll with no events selected (e.g. while using the Measure tool to mark bars) crashed the editor instantly. Disabling hardware acceleration was the only workaround. Fixed - the context menu now behaves identically in both rendering modes.
+
+<details>
+<summary>Full Changelog - Hotfix</summary>
+
+### Fixed
+
+* **Stack overflow when opening the piano-roll context menu under OpenGL** - in hardware-accelerated mode the matrix is drawn by an `OpenGLMatrixWidget` wrapper that forwards events to a hidden internal `MatrixWidget`. When the right-click produced no menu (nothing selected, as with the Measure tool), the internal widget left the `QContextMenuEvent` un-accepted, so Qt propagated it back up to the wrapper, which forwarded it down again - an unbounded loop that overflowed the stack (`0xc00000fd`). The wrapper now accepts the event after forwarding, and the no-menu paths in `MatrixWidget::contextMenuEvent` accept it too, so the event can no longer bounce between parent and child. Software-rendering mode was never affected.
+
+</details>
+
+---
+
 ## [1.8.1] - 2026-06-03 - Bugfixes & Hardening
 
 ### Summary

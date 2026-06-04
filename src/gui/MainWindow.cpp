@@ -1732,10 +1732,13 @@ void MainWindow::setFile(MidiFile *newFile) {
     if (_exportAudioAction) {
         _exportAudioAction->setEnabled(newFile != nullptr);
     }
-#endif
+    // _exportMusicXmlAction is only declared/created under FLUIDSYNTH_SUPPORT
+    // (see createMenuBar), so its use must stay inside the same guard - otherwise
+    // a no-FluidSynth build fails with C2065 on the undeclared member.
     if (_exportMusicXmlAction) {
         _exportMusicXmlAction->setEnabled(newFile != nullptr);
     }
+#endif
 
     // Reset MIDI output channel programs and apply initial program changes
     if (MidiOutput::isConnected()) {

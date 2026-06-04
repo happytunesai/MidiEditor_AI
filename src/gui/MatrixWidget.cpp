@@ -2025,14 +2025,20 @@ void MatrixWidget::contextMenuEvent(QContextMenuEvent *event) {
         return;
     }
 
+    // No menu to show (nothing selected, or no host window). Accept the event
+    // rather than ignoring it: when this widget is rendered through
+    // OpenGLMatrixWidget it is a hidden child of the GL wrapper, and an ignored
+    // QContextMenuEvent would propagate back up to the wrapper, which forwards
+    // it here again — an unbounded loop that overflows the stack. Accepting it
+    // ends the propagation cleanly. (See OpenGLMatrixWidget::contextMenuEvent.)
     if (!file || Selection::instance()->selectedEvents().isEmpty()) {
-        QWidget::contextMenuEvent(event);
+        event->accept();
         return;
     }
 
     MainWindow *mw = qobject_cast<MainWindow *>(window());
     if (!mw) {
-        QWidget::contextMenuEvent(event);
+        event->accept();
         return;
     }
 

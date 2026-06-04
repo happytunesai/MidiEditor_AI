@@ -529,6 +529,13 @@ private:
     bool _nextForceSequentialTools = false;
     QString _nextReasoningEffortOverride;
 
+    /// True when the current provider needs an API key. Local providers
+    /// (Ollama) accept requests without one, so the key is optional there.
+    bool providerRequiresKey() const;
+    /// Set the Bearer Authorization header, but only when a key is present -
+    /// avoids sending an empty "Bearer " to keyless local servers (Ollama).
+    void applyAuthHeader(QNetworkRequest &request) const;
+
     // Internal helpers for the streaming-fallback path.
     QString streamingBlocklistKey(const QString &provider, const QString &model) const;
     void markStreamingUnsupported(const QString &provider,

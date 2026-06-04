@@ -46,6 +46,7 @@ AiSettingsWidget::AiSettingsWidget(QSettings *settings, QWidget *parent)
     _providerCombo->addItem("OpenAI", "openai");
     _providerCombo->addItem("OpenRouter", "openrouter");
     _providerCombo->addItem("Google Gemini", "gemini");
+    _providerCombo->addItem("Ollama (local)", "ollama");
     _providerCombo->addItem("Custom", "custom");
     QString currentProvider = _settings->value("AI/provider", "openai").toString();
     int provIdx = _providerCombo->findData(currentProvider);
@@ -475,7 +476,9 @@ void AiSettingsWidget::onTestConnection() {
     QString provider = _providerCombo->currentData().toString();
     QString key = _apiKeyEdit->text().trimmed();
 
-    if (key.isEmpty()) {
+    // Local providers (Ollama) need no API key; everyone else does.
+    const bool keyRequired = (provider != "ollama");
+    if (keyRequired && key.isEmpty()) {
         _statusLabel->setStyleSheet("color: red;");
         _statusLabel->setText("Please enter an API key first.");
         return;
@@ -537,14 +540,30 @@ void AiSettingsWidget::onProviderChanged(int /*index*/) {
         {"openai",     "https://api.openai.com/v1"},
         {"openrouter", "https://openrouter.ai/api/v1"},
         {"gemini",     "https://generativelanguage.googleapis.com/v1beta/openai"},
+        {"ollama",     "http://localhost:11434/v1"},
     };
 
-    if (provider != "custom") {
+    if (provider == "custom") {
+        // Fully user-defined.
+        _baseUrlEdit->setReadOnly(false);
+    } else if (provider == "ollama") {
+        // Local server: default to the standard endpoint but keep it editable
+        // (the host/port can differ). Only auto-fill when the field is empty or
+        // still holds a cloud default, so a user-set local URL is preserved.
+        const QString cur = _baseUrlEdit->text().trimmed();
+        if (cur.isEmpty() || defaultUrls.value("openai") == cur ||
+            defaultUrls.value("openrouter") == cur || defaultUrls.value("gemini") == cur)
+            _baseUrlEdit->setText(defaultUrls.value("ollama"));
+        _baseUrlEdit->setReadOnly(false);
+    } else {
         _baseUrlEdit->setText(defaultUrls.value(provider, "https://api.openai.com/v1"));
         _baseUrlEdit->setReadOnly(true);
-    } else {
-        _baseUrlEdit->setReadOnly(false);
     }
+
+    // Ollama needs no API key; make that obvious in the field.
+    _apiKeyEdit->setPlaceholderText(provider == "ollama"
+                                    ? tr("(not required for Ollama)")
+                                    : QStringLiteral("sk-..."));
 
     // Update model list (guard: _modelCombo may not exist during initial call)
     if (_modelCombo) {

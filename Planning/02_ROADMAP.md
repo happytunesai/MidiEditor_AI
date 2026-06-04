@@ -11524,3 +11524,175 @@ compressed `.mxl` yet). Deferred: true tuplet detection, `.mxl`, multi-voice,
 and a **Guitar Pro (GP6/7/8 GPIF) writer** reusing the same `MidiToScore` core
 (the originally discussed fast-follow).
 
+## Phase 26: Local AI - Built-in Ollama Provider + Guided Setup (Planned, NEXT)
+
+> **Goal:** Let anyone run MidiPilot **100% locally and free** - no API key, no
+> cloud account - by making Ollama a first-class, self-installing option. Same
+> "download + auto-configure" spirit as the SoundFont catalog, scaled up for a
+> third-party app + multi-GB models. Target version: **TBD** (next update).
+
+### Done already (groundwork, in the Ollama working branch)
+* **Ollama is a built-in provider.** `AiSettingsWidget` provider combo gains
+  **"Ollama (local)"**; selecting it auto-fills an editable base URL
+  `http://localhost:11434/v1` and marks the API key optional.
+* **Keyless auth.** `AiClient::isConfigured()` + `providerRequiresKey()` allow
+  Ollama with no key; `applyAuthHeader()` only sends `Authorization` when a key
+  exists (no empty `Bearer `). Test-Connection no longer demands a key for Ollama.
+* Verified live against `gemma4:latest` (8B): `/v1/models`, plain chat, and
+  **tool calls** all return the OpenAI shape MidiPilot already parses; the model
+  advertises `tools` + `thinking` capabilities, so Agent Mode is viable locally.
+
+### Scope (the actual Phase 26 work)
+**26.1 - Detect & guide.** A "Set up local AI (Ollama)" helper (mirrors the
+SoundFont download dialog):
+* Detect state: is the Ollama server reachable (`GET /api/tags` on the
+  configured host)? Is the `ollama` binary installed (PATH / default dir)?
+* If not installed -> offer to download the official installer from
+  `ollama.com/download` (consented, progress-tracked; one UAC click). Ollama is
+  MIT-licensed; we link/download the official build, never re-bundle.
+* If installed but not running -> offer to start the server (`ollama serve` /
+  launch the app) and poll `/api/tags` until it answers.
+
+**26.2 - Model pull with progress.** Offer a small, **tool-capable** default
+model and pull it via the Ollama API (`POST /api/pull`, which streams progress)
+with a real progress bar + disk-space pre-check. Default model **TBD pending
+testing**; candidates must support `tools` and **should NOT be a heavy "thinking"
+model** (see the test finding below). Smaller = friendlier download. User can
+pick from a short curated list.
+
+> **Test finding (2026-06-04, real run, `midipilot_api.log`):** the Ollama
+> integration *works* end-to-end - `qwen3.6:latest` produced a valid
+> `insert_events` tool call (35 events, `success=true`, a real "Alle meine
+> Entchen" melody) and `gemma4:latest` also completed a task. BUT `qwen3.6` is a
+> **thinking** model: it emitted a **14,610-char reasoning block (8007 completion
+> tokens) in a single step**, took minutes, "talked to itself", then *second-
+> guessed its own successful result* and spun into a "repair" pass (the user:
+> "qwen braucht Stunden und redet hauptsächlich mit sich selber"). So a heavy
+> thinking model is a **bad default** - prefer a fast, non-over-thinking
+> tool-capable model (e.g. `llama3.1:8b`, a non-thinking `qwen2.5`/instruct
+> variant, or a thinking model with thinking disabled). Output quality from small
+> local models is modest regardless ("gemma4 hat naja etwas gemacht") - set
+> expectations: local = free/private, not cloud-grade.
+
+**26.2b - Thinking control for local models (follow-up).** Today `isReasoningModel()`
+only matches OpenAI `o1/o3/o4/gpt-5`, so for an Ollama model we send **no** reasoning
+control and a thinking model (qwen3.x) burns minutes thinking by default. Add a
+lever to **suppress/limit thinking for local models** - Ollama supports `think:false`
+(native `/api/chat`) and recent builds accept `reasoning_effort` on `/v1`; needs
+testing which the `/v1` path honors. Expose as a per-provider/per-model toggle
+(default thinking OFF for local) so the Agent loop stays responsive.
+
+**26.2c - Model picker with capabilities (VERIFIED 2026-06-04).** Show the user
+their installed models with enough info to choose well, and curate a short
+download list for first-timers:
+* **Installed models** -> fetch **`GET /api/tags`** (NOT `/v1/models`). Verified
+  it returns per model: `name`, `size` (bytes -> human, e.g. gemma4 ~9.6 GB,
+  qwen3.6 ~22 GB), `details.parameter_size` ("8.0B" / "36.0B"), `details.family`,
+  `details.context_length`, and a **`capabilities`** array - e.g.
+  `gemma4:latest = ["completion","tools","thinking"]`,
+  `qwen3.6:latest = ["vision","completion","tools","thinking"]`. So the picker can
+  show **size + capability badges** and clearly flag **`tools` = Agent-capable**
+  vs. chat-only, plus a "thinking (may be slow)" hint (ties to 26.2b). Our current
+  `ModelListFetcher` uses `/v1/models`, which returns only `{id}` (no size/caps) -
+  add an Ollama-specific `/api/tags` path for the rich picker.
+* **Available-to-pull (registry):** there is **no official JSON API** for the
+  ollama.com library/registry - it's a website. So the "pull a recommended model"
+  list must be a **small curated, hardcoded list** (name + approx size + why),
+  not fetched. (Installed list = fetchable; downloadable catalog = curated.)
+* **`/api/ps`** lists currently-loaded models + VRAM - optional "loaded now" badge.
+
+**26.3 - One-click auto-config.** After install + pull, set provider=`ollama`,
+the base URL, and the pulled model automatically, then run Test-Connection so
+the user lands in a working state with zero manual config.
+
+**26.4 - Streaming (ties into Phase 25).** Use the OpenAI-compat `/v1` SSE path;
+mind the known `tool_calls[].index == 0` bug ([ollama#15457] - identify calls by
+`id`). Native `/api/chat` NDJSON is a possible later alternative.
+
+### Risks / open questions
+* **Download size:** the Ollama installer is hundreds of MB and models are
+  multiple GB - far bigger than the 11 MB SoundFont. Needs clear consent, a
+  disk-space check, resumable/cancelable downloads, and a "this is large" warning.
+* **Third-party installer + background service:** unlike a SoundFont file, this
+  installs an app + a service and may prompt UAC. Keep it optional and obvious;
+  never silent.
+* **Default-model choice** drives the out-of-box experience - small enough to
+  download comfortably, but capable enough for the MidiPilot Agent tools. User
+  lean (2026-06-04): for low/simple tasks `gemma4` (8B, ~10 GB) is a saner default
+  than `qwen3.6` (36B MoE, ~22 GB) - smaller download, and qwen3.6 over-thinks
+  (see 26.2 finding). **Both installed models are "thinking" models** though, so
+  pair the default with 26.2b (thinking off for local). Alternatively (also user-
+  suggested): **don't force a default - let the user pick** from the 26.2c picker
+  that shows size + capability badges, only requiring `tools` for Agent mode.
+  Decide after testing more candidates (esp. whether a small non-thinking model
+  can drive the tool loop).
+* **Packaging:** we ship nothing extra in the zip; everything is fetched on
+  demand, like the SoundFonts (same on-demand catalog/download pattern).
+
+## Phase 27: Friendly System-Prompt Editor - Block Builder (Planned)
+
+> **Goal:** make the prompt editor usable by musicians, not just developers.
+> Today it's a wall of raw prompt text; we want a **block builder** where you
+> add / edit / toggle / remove labelled blocks and the JSON is generated
+> automatically (no hand-editing JSON). Plus general polish. User-requested
+> 2026-06-04. Target version: TBD (likely alongside / after Phase 26).
+
+### Current reality (evaluated against the code, 2026-06-04)
+* `EditorContext` holds one **monolithic hardcoded default string per mode**:
+  `systemPrompt()` (simple), `agentSystemPrompt()` (agent), `ffxivContext()`,
+  `ffxivContextCompact()`. Custom overrides are stored in static QStrings
+  (`s_customSimplePrompt` etc.), set by `loadCustomPrompts(path)`.
+* Persistence schema **v1**: `system_prompts.json` =
+  `{ "version": 1, "prompts": { "simple": "<string>", "agent": "<string>",
+  "ffxiv": "<string>", "ffxiv_compact": "<string>" } }`. One flat string per mode.
+* `SystemPromptDialog` = 4 monospace `QPlainTextEdit` tabs (Simple / Agent /
+  FFXIV / FFXIV Compact) editing those raw strings, + Load Default / Reset All /
+  Export-JSON / Import-JSON. The getters return a **single composed string** that
+  the whole AI pipeline (`AiClient`, `AgentRunner`) consumes - so any redesign
+  must still produce one string per mode.
+* **Critical constraint found in the code:** the system prompt *contains the
+  agent's machine contract* - e.g. simple mode's `"RESPONSE FORMAT - you MUST
+  respond with a raw JSON object ... \"actions\": [...]"`. If a user deletes that
+  text the agent silently breaks. So a block model needs **protected/core blocks**
+  (locked, can't be removed/disabled) vs **free user blocks**.
+
+### Scope
+**27.1 - Block data model + back-compat migration.**
+* A prompt = an ordered list of **blocks**: `{ title, text, enabled, locked }`.
+  Final prompt string = enabled blocks joined by `\n\n` (what the getters return -
+  pipeline unchanged).
+* JSON schema **v2**: `prompts[mode]` becomes an array of block objects. Loader
+  stays backward-compatible: if `prompts[mode]` is a **string** (v1) -> load as a
+  single block titled "Main prompt"; if it's an **array** (v2) -> blocks. Old
+  exports still import.
+* Hardcoded defaults load as either one "Main prompt" block or a small set of
+  pre-split blocks we define (e.g. Role / Response format (locked) / Rules /
+  Examples), so "Load Default" yields sensible, individually-toggleable pieces.
+  The **Response-format / contract** block is marked `locked`.
+
+**27.2 - Block-builder UI (replaces the raw tabs as the default view).**
+* Per mode: a scrollable column of block **cards** - title field, multiline text,
+  an enable checkbox, a remove "x" (hidden/disabled for `locked` blocks), drag
+  handle to reorder. A **"+ Add block"** button. The JSON is regenerated on save
+  automatically; the user never sees raw JSON.
+* Polish: plain-language tab labels ("Quick Chat", "Agent - auto-edits your
+  song", "FFXIV mode"), an intro line + "most users never need to change this",
+  readable (non-monospace) font for block text.
+
+**27.3 - Advanced escape hatch.** Keep the power-user path behind an
+**"Advanced"** disclosure: the full raw-text view of the composed prompt +
+Export/Import JSON + Reset All. Nothing is lost for advanced users.
+
+### Risks / notes
+* **Migration must be loss-less** and reversible (v1 string <-> v2 blocks); keep
+  the `.bak` backup-on-save that `SystemPromptDialog::onSave` already does.
+* **Locked blocks**: get the lock list right so musicians can't break the agent
+  contract, while still letting them add their own behavior blocks ("answer in
+  German", "prefer jazz voicings", etc.).
+* **FFXIV composition:** verify how `ffxivContext()` / `ffxivContextCompact()`
+  are appended to the base prompt at request-build time before splitting those
+  into blocks (the `.h` documents them as "context to append to system prompts").
+* Validation on save must still guarantee a **non-empty composed prompt** per
+  mode (current `onSave` rejects empty) - with blocks, that means "at least the
+  locked/core blocks enabled".
+

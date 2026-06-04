@@ -142,7 +142,20 @@ void AiClient::clearLog()
 
 bool AiClient::isConfigured() const
 {
-    return !apiKey().isEmpty();
+    // Local providers (Ollama) need no API key; everyone else does.
+    return !apiKey().isEmpty() || !providerRequiresKey();
+}
+
+bool AiClient::providerRequiresKey() const
+{
+    return _provider != QStringLiteral("ollama");
+}
+
+void AiClient::applyAuthHeader(QNetworkRequest &request) const
+{
+    const QString key = apiKey();
+    if (!key.isEmpty())
+        request.setRawHeader("Authorization", QStringLiteral("Bearer %1").arg(key).toUtf8());
 }
 
 QString AiClient::model() const
@@ -530,7 +543,7 @@ void AiClient::sendMessagesInternal(const QJsonArray &messages,
                   : (_apiBaseUrl + QStringLiteral("/chat/completions"));
     QNetworkRequest request{QUrl(url)};
     request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
-    request.setRawHeader("Authorization", QStringLiteral("Bearer %1").arg(apiKey()).toUtf8());
+    applyAuthHeader(request);
     // Generous timeouts: reasoning/thinking models can take minutes,
     // non-reasoning models still need time for large structured outputs.
     request.setTransferTimeout((reasoning || geminiThinking) ? 600000 : 180000);
@@ -608,7 +621,7 @@ void AiClient::testConnection()
 
     QNetworkRequest request{QUrl(_apiBaseUrl + QStringLiteral("/chat/completions"))};
     request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
-    request.setRawHeader("Authorization", QStringLiteral("Bearer %1").arg(apiKey()).toUtf8());
+    applyAuthHeader(request);
     request.setTransferTimeout(15000);
 
     logApi(QStringLiteral("[TEST-REQ] model=%1 body=%2").arg(_model, QString::fromUtf8(data.left(4000))));
@@ -1407,7 +1420,7 @@ void AiClient::sendStreamingMessages(const QJsonArray &messages, const QJsonArra
     QString url = _apiBaseUrl + QStringLiteral("/chat/completions");
     QNetworkRequest request{QUrl(url)};
     request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
-    request.setRawHeader("Authorization", QStringLiteral("Bearer %1").arg(apiKey()).toUtf8());
+    applyAuthHeader(request);
     request.setTransferTimeout((reasoning || geminiThinking) ? 600000 : 180000);
 
     logInstructionProfileState(QStringLiteral("STREAM-AGENT"), _model, messages);
@@ -1611,7 +1624,7 @@ void AiClient::sendStreamingRequest(const QString &systemPrompt,
     QString url = _apiBaseUrl + QStringLiteral("/chat/completions");
     QNetworkRequest request{QUrl(url)};
     request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
-    request.setRawHeader("Authorization", QStringLiteral("Bearer %1").arg(apiKey()).toUtf8());
+    applyAuthHeader(request);
     request.setTransferTimeout((reasoning || geminiThinking) ? 600000 : 180000);
 
     logApi(QStringLiteral("[STREAM-REQ] model=%1 body=%2").arg(_model, QString::fromUtf8(data.left(2000))));
@@ -2217,7 +2230,7 @@ void AiClient::sendStreamingMessagesResponses(const QJsonArray &messages,
     QString url = _apiBaseUrl + QStringLiteral("/responses");
     QNetworkRequest request{QUrl(url)};
     request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
-    request.setRawHeader("Authorization", QStringLiteral("Bearer %1").arg(apiKey()).toUtf8());
+    applyAuthHeader(request);
     request.setTransferTimeout(600000); // reasoning models can take minutes
 
     logInstructionProfileState(QStringLiteral("STREAM-RESPONSES"), _model, messages);

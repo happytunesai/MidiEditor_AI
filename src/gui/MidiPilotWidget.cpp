@@ -753,6 +753,7 @@ void MidiPilotWidget::setupUi() {
     _providerCombo->addItem("OpenAI", "openai");
     _providerCombo->addItem("OpenRouter", "openrouter");
     _providerCombo->addItem("Gemini", "gemini");
+    _providerCombo->addItem("Ollama (local)", "ollama");
     _providerCombo->addItem("Custom", "custom");
     _providerCombo->setFixedHeight(20);
     _providerCombo->setStyleSheet("font-size: 11px;");
@@ -924,6 +925,10 @@ void MidiPilotWidget::populateFooterModels() {
         addModel("gemini-3-flash", "gemini-3-flash-preview");
         addModel("gemini-3.1-flash-lite", "gemini-3.1-flash-lite-preview");
         addModel("gemini-3.1-pro", "gemini-3.1-pro-preview");
+    } else if (provider == "ollama") {
+        // Local models live on the Ollama server — no useful hardcoded list.
+        // The combo is editable and the refresh button fetches /v1/models.
+        addModel(tr("(refresh ↻ or type, e.g. gemma4:latest)"), "");
     } else {
         // OpenAI or custom — show OpenAI models
         addModel("gpt-4o-mini", "gpt-4o-mini");
@@ -1859,8 +1864,20 @@ void MidiPilotWidget::onProviderComboChanged(int index) {
         {"openai",     "https://api.openai.com/v1"},
         {"openrouter", "https://openrouter.ai/api/v1"},
         {"gemini",     "https://generativelanguage.googleapis.com/v1beta/openai"},
+        {"ollama",     "http://localhost:11434/v1"},
     };
-    _client->setApiBaseUrl(defaultUrls.value(provider, "https://api.openai.com/v1"));
+    if (provider == "ollama") {
+        // Local server: default to the standard endpoint but keep a user-set
+        // local URL (e.g. a different host/port configured in Settings).
+        const QString cur = _client->apiBaseUrl().trimmed();
+        const bool isCloudDefault = (cur.isEmpty()
+            || cur == defaultUrls.value("openai")
+            || cur == defaultUrls.value("openrouter")
+            || cur == defaultUrls.value("gemini"));
+        _client->setApiBaseUrl(isCloudDefault ? defaultUrls.value("ollama") : cur);
+    } else {
+        _client->setApiBaseUrl(defaultUrls.value(provider, "https://api.openai.com/v1"));
+    }
 
     // Load API key for the new provider
     QSettings settings("MidiEditor", "NONE");

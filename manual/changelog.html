@@ -218,12 +218,25 @@
 <div class="cl-no-results" id="cl-no-results">No matching releases found.</div>
 
 <div class="cl-timeline">
-<article class="cl-version latest" data-version="1.8.1">
+<article class="cl-version latest" data-version="1.8.1.1">
+<div class="cl-dot"></div>
+<div class="cl-version-head">
+<h2><a href="https://github.com/happytunesai/MidiEditor_AI/releases/tag/v1.8.1.1" target="_blank" rel="noopener noreferrer">v1.8.1.1</a></h2>
+<span class="cl-date">2026-06-04</span>
+<span class="cl-badge-latest">Latest</span>
+</div>
+<div class="cl-title">Hotfix: hardware-acceleration crash</div>
+<ul class="cl-summary">
+<li><strong>Crash on right-click with hardware acceleration enabled.</strong> With <strong>Settings -&gt; Performance -&gt; Hardware acceleration</strong> turned on, right-clicking the piano roll with no events selected (e.g. while using the Measure tool to mark bars) crashed the editor instantly. Disabling hardware acceleration was the only workaround. Fixed - the context menu now behaves identically in both rendering modes.</li>
+</ul>
+<button class="cl-toggle" type="button"><span class="arrow">▶</span> Show full changelog</button>
+<div class="cl-details"><div class="cl-cat cat-fix"><h4><span class="cat-badge">🔧 Fixed</span> Fixed</h4><ul><li><strong>Stack overflow when opening the piano-roll context menu under OpenGL</strong> - in hardware-accelerated mode the matrix is drawn by an <code class="hl">OpenGLMatrixWidget</code> wrapper that forwards events to a hidden internal <code class="hl">MatrixWidget</code>. When the right-click produced no menu (nothing selected, as with the Measure tool), the internal widget left the <code class="hl">QContextMenuEvent</code> un-accepted, so Qt propagated it back up to the wrapper, which forwarded it down again - an unbounded loop that overflowed the stack (<code class="hl">0xc00000fd</code>). The wrapper now accepts the event after forwarding, and the no-menu paths in <code class="hl">MatrixWidget::contextMenuEvent</code> accept it too, so the event can no longer bounce between parent and child. Software-rendering mode was never affected.</li></ul></div></div>
+</article>
+<article class="cl-version" data-version="1.8.1">
 <div class="cl-dot"></div>
 <div class="cl-version-head">
 <h2><a href="https://github.com/happytunesai/MidiEditor_AI/releases/tag/v1.8.1" target="_blank" rel="noopener noreferrer">v1.8.1</a></h2>
 <span class="cl-date">2026-06-03</span>
-<span class="cl-badge-latest">Latest</span>
 </div>
 <div class="cl-title">Bugfixes &amp; Hardening</div>
 <ul class="cl-summary">

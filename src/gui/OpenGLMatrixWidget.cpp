@@ -148,10 +148,21 @@ void OpenGLMatrixWidget::wheelEvent(QWheelEvent *event) {
 }
 
 void OpenGLMatrixWidget::contextMenuEvent(QContextMenuEvent *event) {
-    // Forward context menu events to internal MatrixWidget
+    // Forward context menu events to internal MatrixWidget.
+    //
+    // The internal MatrixWidget is a *hidden child* of this widget. If its
+    // contextMenuEvent leaves the event un-accepted (e.g. the right-click
+    // happened with no events selected, as with the Measure tool), Qt
+    // propagates the ignored QContextMenuEvent up the parent chain — straight
+    // back to this wrapper. That re-enters contextMenuEvent → sendEvent →
+    // ignored → propagate → ... an unbounded loop that blows the stack
+    // (0xc00000fd EXCEPTION_STACK_OVERFLOW). Accepting the event here breaks
+    // the cycle: we have handled it by delegating to the internal widget, so it
+    // must not bubble back up to us.
     if (_matrixWidget) {
         QApplication::sendEvent(_matrixWidget, event);
     }
+    event->accept();
 }
 
 void OpenGLMatrixWidget::keyPressEvent(QKeyEvent *event) {
