@@ -561,8 +561,13 @@ def main():
     manual_dir = ROOT / "manual"
     update_count = 0
 
-    # Generic version pattern: matches x.y.z version strings
-    # We replace any old version with the latest one in known contexts
+    # Generic version pattern: matches x.y.z[.w...] version strings.
+    # Use \d+(?:\.\d+)+ (two-or-more dotted components) rather than a fixed
+    # \d+\.\d+\.\d+ so a 4-part hotfix version (e.g. 1.8.1.1) fully replaces a
+    # 3-part one. With the fixed 3-part pattern, bumping into a 4-part string
+    # only consumed the first three numbers and left the old trailing ".N"
+    # behind, producing "v1.8.1.1.1" (the download.html release-tag href bug).
+    VER = r"\d+(?:\.\d+)+"
     for page in ("index.html", "download.html", "docs-index.html"):
         filepath = manual_dir / page
         if not filepath.exists():
@@ -573,32 +578,32 @@ def main():
         # Replace version numbers in known patterns:
         # "softwareVersion": "x.y.z"   (JSON-LD)
         content = re.sub(
-            r'("softwareVersion":\s*")\d+\.\d+\.\d+(")',
+            rf'("softwareVersion":\s*"){VER}(")',
             rf"\g<1>{latest_version}\2",
             content,
         )
         # vX.Y.Z in display text (badges, buttons, headings)
         content = re.sub(
-            r"(v)\d+\.\d+\.\d+",
+            rf"(v){VER}",
             rf"\g<1>{latest_version}",
             content,
         )
         # GitHub releases/download/vX.Y.Z/MidiEditorAI-vX.Y.Z-win64.zip
         content = re.sub(
-            r"(releases/download/v)\d+\.\d+\.\d+(/"
-            r"MidiEditorAI-v)\d+\.\d+\.\d+(-win64\.zip)",
+            rf"(releases/download/v){VER}(/"
+            rf"MidiEditorAI-v){VER}(-win64\.zip)",
             rf"\g<1>{latest_version}\g<2>{latest_version}\3",
             content,
         )
         # GitHub releases/tag/vX.Y.Z
         content = re.sub(
-            r"(releases/tag/v)\d+\.\d+\.\d+",
+            rf"(releases/tag/v){VER}",
             rf"\g<1>{latest_version}",
             content,
         )
         # MidiEditorAI-vX.Y.Z-win64.zip (checksum labels etc.)
         content = re.sub(
-            r"(MidiEditorAI-v)\d+\.\d+\.\d+(-win64\.zip)",
+            rf"(MidiEditorAI-v){VER}(-win64\.zip)",
             rf"\g<1>{latest_version}\2",
             content,
         )
