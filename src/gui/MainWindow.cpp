@@ -42,6 +42,7 @@
 #include <QTabWidget>
 #include <QToolBar>
 #include <QToolButton>
+#include <QHBoxLayout>
 #include <QDesktopServices>
 #include <QKeyEvent>
 #include <QTimer>
@@ -481,12 +482,35 @@ MainWindow::MainWindow(QString initFile)
     connect(_documentTabBar, &QTabBar::currentChanged, this, &MainWindow::onDocumentTabChanged);
     connect(_documentTabBar, &QTabBar::tabCloseRequested, this, &MainWindow::onDocumentTabCloseRequested);
 
+    // Phase 28: a "+" New-Tab button so a new document can be opened in a tab
+    // from any toolbar layout (the freed toolbar space only exists in two-row
+    // mode). It triggers the same path as File > New, which now opens a new
+    // tab. Placed to the LEFT of the tabs so it always hugs the first tab - a
+    // QTabBar reserves extra width with few tabs, so a trailing "+" would float
+    // away from a single tab until more tabs fill that reserved space.
+    QToolButton *newTabButton = new QToolButton(matrixArea);
+    newTabButton->setIcon(Appearance::adjustIconForDarkMode(":/run_environment/graphics/tool/add.png"));
+    newTabButton->setToolTip(tr("New tab (new empty document)"));
+    newTabButton->setAutoRaise(true);
+    connect(newTabButton, &QToolButton::clicked, this, &MainWindow::newFile);
+
+    QWidget *tabStripRow = new QWidget(matrixArea);
+    // Only as tall as the tab bar itself - without this the wrapper expands
+    // vertically and the strip floats in the middle of the editor area.
+    tabStripRow->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+    QHBoxLayout *tabStripLayout = new QHBoxLayout(tabStripRow);
+    tabStripLayout->setContentsMargins(0, 0, 0, 0);
+    tabStripLayout->setSpacing(2);
+    tabStripLayout->addWidget(newTabButton, 0);
+    tabStripLayout->addWidget(_documentTabBar, 0);
+    tabStripLayout->addStretch(1);
+
     QGridLayout *matrixAreaLayout = new QGridLayout(matrixArea);
     matrixAreaLayout->setHorizontalSpacing(6);
     QWidget *placeholder0 = new QWidget(matrixArea);
     placeholder0->setFixedHeight(50);
     matrixAreaLayout->setContentsMargins(0, 0, 0, 0);
-    matrixAreaLayout->addWidget(_documentTabBar, 0, 0, 1, 2);
+    matrixAreaLayout->addWidget(tabStripRow, 0, 0, 1, 2);
     matrixAreaLayout->addWidget(matrixContainer, 1, 0, 2, 1);
     matrixAreaLayout->addWidget(placeholder0, 1, 1, 1, 1);
     matrixAreaLayout->addWidget(vert, 2, 1, 1, 1);
