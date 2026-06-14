@@ -11703,19 +11703,34 @@ Export/Import JSON + Reset All. Nothing is lost for advanced users.
   mode (current `onSave` rejects empty) - with blocks, that means "at least the
   locked/core blocks enabled".
 
-## Phase 28: Multi-Document Tabs + Side-by-Side MIDI-Diff (Planned)
+## Phase 28: Multi-Document Tabs + Editor Groups (v1.9.0, IN PROGRESS)
 
-> **Goal:** turn MidiEditor AI from a single-document editor into a tabbed,
-> multi-document one - each note-roll is a tab; you can open many at once, drag
-> two side by side to compare, and copy notes between them - while tools, the
-> sidebars (Tracks / Events / MidiPilot) and the transport always act on the
-> *active* tab only. This is the "IDE / code-review for MIDIs" direction (see
-> [[project_midi_diff_vision]]). Target version: **TBD** (large, multi-step).
+> **Goal:** turn MidiEditor AI into a tabbed, multi-document editor with
+> **VS Code-style editor groups**: each note-roll is a tab; you can open many at
+> once; you can **split the editor into two groups, each with its OWN tab bar**,
+> **drag tabs between the groups**, and edit both fully. Tools, the sidebars
+> (Tracks / Events / MidiPilot) and the transport always follow the **focused
+> group's active tab**. Comparing two MIDIs is then simply "open one file in each
+> group side by side" - no separate compare/diff construct is needed for the
+> core. Target version: **1.9.0** (large, multi-step). See [[project_tabs_19_progress]].
 >
-> **Status: PLANNING ONLY.** This phase is fully scoped and verified against the
-> current code below, but **no code is to be written yet**. The point is a
-> surprise-free implementation: the hard part is not the tab bar, it's that the
-> editor is single-document at its core (globals + singletons + one MatrixWidget).
+> **DRIFT CORRECTION (2026-06-14):** an earlier draft of 28.4/28.7 framed the
+> second pane as a read-only "side-by-side compare / MIDI-diff" view. That drifted
+> from the actual vision. The real target is **editor groups** - two full editable
+> groups, each with its own tabs, drag tabs between them. That covers every case
+> the feature needs, so the dedicated read-only compare pane AND the visual
+> MIDI-diff are NOT core (the diff is demoted to an optional later nice-to-have).
+> 28.4 is rewritten as "editor groups" and 28.7 demoted accordingly.
+>
+> **Status / done so far (branch `feature/tabs-1.9.0`, all committed):** 28.1
+> (singletons de-coupled: per-document Selection + channel visibility +
+> focus-based tool routing) DONE; 28.2 (`DocumentManager` + non-destructive
+> `activateDocument`/`setActiveDocument` split) DONE; 28.3 (tab strip + New-Tab
+> "+" button + essential-toolbar compaction) DONE; **editable side-by-side panes**
+> DONE (both panes editable, focused pane drives sidebars/tools, tab click loads
+> into the focused pane). REMAINING = the **editor-groups** model (28.4 below:
+> per-group tab bars + cross-group tab drag-and-drop + collapse/close), then 28.5
+> (MidiPilot per document) + 28.6 (collab with groups).
 
 ### User requirements (verbatim intent, 2026-06-11)
 
@@ -11872,12 +11887,31 @@ Move `delete oldFile` to tab-close only.
   `resources.qrc`. The dark-mode recolor (`Appearance::adjustIconForDarkMode`,
   SourceAtop fill to gray) expects exactly black-on-transparent monochrome.
 
-**28.4 - One editor view per tab + side-by-side (requirements 2, 3, 4).** Turn the
-single matrix container into a stack/`QSplitter` of document views; the active
-(focused) view drives tools and sidebars. Side-by-side = show two views in the
-splitter. Cross-tab copy: the clipboard path (`EventTool` copy/paste) is already
-serialisation-based; verify paste targets the **active** document so copy-from-A,
-focus-B, paste lands in B.
+**28.4 - Editor groups (THE core; requirements 2, 3, 4 + the 2026-06-14
+clarification).** NOT a read-only compare view - two FULL editable editor groups,
+VS Code-style:
+
+* Generalise to an **`EditorGroup`** = `{ its own QTabBar + its own set of open
+  Documents + its editor view (MatrixWidget/OpenGL) + active document }`. Group 0
+  is the primary (always present); group 1 appears when the editor is split.
+  Today's single global `_documentTabBar` + `DocumentManager` become **per-group**.
+* **Per-group tab bar:** group 1 gets its own tab strip above its view (inside the
+  splitter pane). Clicking a tab shows that document in *that group's* view.
+* **Cross-group tab drag-and-drop (the hard part):** drag a tab from one group's
+  bar to the other to move the document between groups. `QTabBar` has no native
+  inter-bar move - needs custom `QDrag`/`dropEvent` handling or a `QTabBar`
+  subclass. Reorder within a bar stays `setMovable(true)`.
+* **Focused group = active** (already wired: `MatrixWidget::focusReceived` ->
+  `setActiveDocument`): the focused group's active document drives the sidebars,
+  tools, selection and transport. Cross-group note copy works via the existing
+  serialisation-based `EventTool` clipboard once the active document follows focus.
+* **Collapse / close the second group:** a button to *collapse* (hide) the second
+  group without closing its tabs; a separate full *close* that closes its tabs
+  one-by-one with save prompts where needed.
+* **Stepping stones already built (now superseded by the per-group model):** a
+  single global tab bar that loads the focused pane + a read-only compare pane.
+  They work on the branch but the editor-groups model replaces the single-bar
+  approach - the read-only/compare framing is the drift being corrected here.
 
 **28.5 - MidiPilot per document (requirement 8).** Bind a running agent's *writes*
 to its **origin** Document, not the active one. The fix is NOT "remove a cancel"
@@ -11902,11 +11936,12 @@ document, vs. per-document sessions. Re-verify the Show-Mode view-broadcast and
 the snapshot/diff sync after the Selection/visibility de-singletoning (28.1),
 since those read global state today.
 
-**28.7 - Side-by-side MIDI-diff view (the payoff).** With two views already
-possible (28.4), add synced scroll/transport between two chosen tabs and a visual
-diff (added / removed / moved notes). **Reuse seed:** a `MidiDiff` engine already
-exists under `src/collab/MidiDiff` (JSON in/out, used by collab) - candidate for
-the diff computation. This sub-phase can ship after the core tabs work.
+**28.7 - (OPTIONAL, later) visual MIDI-diff - NOT core.** Editor groups (28.4)
+already cover "compare two files side by side" by opening one in each group, so
+this is no longer the payoff - it is a deferred nice-to-have. IF a *highlighted*
+diff (added / removed / moved notes) + synced scroll/transport between two groups
+is ever wanted, the `MidiDiff` engine under `src/collab/MidiDiff` (JSON in/out,
+used by collab) is the reuse seed. Not part of the 1.9.0 core.
 
 ### Reuse seeds (don't reinvent)
 
