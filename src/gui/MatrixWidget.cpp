@@ -1503,8 +1503,21 @@ void MatrixWidget::leaveEvent(QEvent *event) {
     }
 }
 
+void MatrixWidget::focusInEvent(QFocusEvent *event) {
+    PaintWidget::focusInEvent(event);
+    // Phase 28: when this view gains focus, it becomes the active tool target
+    // (keyboard tools act on it) and asks the host to make its document active
+    // so the sidebars / selection / transport follow. Single-view: a no-op.
+    EditorTool::setMatrixWidget(this);
+    emit focusReceived(this);
+}
+
 void MatrixWidget::mousePressEvent(QMouseEvent *event) {
     PaintWidget::mousePressEvent(event);
+    // Phase 28: the view being interacted with is the active tool target, so
+    // tools operate on it (not whichever view was constructed last). A no-op
+    // with a single view; essential once views are shown side by side.
+    EditorTool::setMatrixWidget(this);
     // Right-click without Ctrl opens context menu (handled by contextMenuEvent).
     // Only forward to tool on left-click or Ctrl+right-click.
     bool isRightClick = (event->buttons() & Qt::RightButton);

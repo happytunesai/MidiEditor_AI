@@ -441,6 +441,13 @@ signals:
     // === Widget State Signals ===
 
     /**
+     * \brief Phase 28: emitted when this view receives focus (e.g. the user
+     * clicks it). The host (MainWindow) uses this to make this view's document
+     * the active one when several views are shown side by side.
+     */
+    void focusReceived(MatrixWidget *view);
+
+    /**
      * \brief Emitted when the widget size or scroll limits change.
      * \param maxScrollTime Maximum scroll time in milliseconds
      * \param maxScrollLine Maximum scroll line number
@@ -531,6 +538,12 @@ protected:
      * \param event The mouse press event
      */
     void mousePressEvent(QMouseEvent *event);
+
+    /**
+     * \brief Phase 28: claim the active tool target and announce focus, so the
+     * view the user clicks drives the tools and becomes the active document.
+     */
+    void focusInEvent(QFocusEvent *event);
 
     /**
      * \brief Handles mouse double-click events.
