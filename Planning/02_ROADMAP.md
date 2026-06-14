@@ -11524,41 +11524,63 @@ compressed `.mxl` yet). Deferred: true tuplet detection, `.mxl`, multi-voice,
 and a **Guitar Pro (GP6/7/8 GPIF) writer** reusing the same `MidiToScore` core
 (the originally discussed fast-follow).
 
-## Phase 26: Local AI - Built-in Ollama Provider + Guided Setup (Planned, NEXT)
+## Phase 26: Local AI - Built-in Ollama Provider (Planned, NEXT)
 
 > **Goal:** Let anyone run MidiPilot **100% locally and free** - no API key, no
-> cloud account - by making Ollama a first-class, self-installing option. Same
-> "download + auto-configure" spirit as the SoundFont catalog, scaled up for a
-> third-party app + multi-GB models. Target version: **TBD** (next update).
+> cloud account - by making Ollama a first-class provider. The user installs
+> Ollama and pulls a model **themselves** (no harder than getting a cloud API
+> key); we make it work cleanly once they have it, and **document the setup in
+> the manual** exactly like the other providers. Target version: **TBD**.
+>
+> **Scope decision (2026-06-11):** the originally-planned **guided auto-install**
+> (download the Ollama installer, auto-pull a default model, one-click
+> auto-config) is **dropped**. Rationale (user): installing Ollama + pulling a
+> model is a one-time step the user can do themselves - it's no more complicated
+> than obtaining a cloud API key, which we already expect users to do. Bundling a
+> third-party installer download + multi-GB model pulls + UAC + disk-space
+> handling added a lot of fragile surface for little gain. We explain it in the
+> docs instead. (The dropped sub-items are kept below under *Dropped* for history.)
 
-### Done already (groundwork, in the Ollama working branch)
+### Done already (shipped undocumented in v1.8.1.1)
 * **Ollama is a built-in provider.** `AiSettingsWidget` provider combo gains
-  **"Ollama (local)"**; selecting it auto-fills an editable base URL
-  `http://localhost:11434/v1` and marks the API key optional.
+  **"Ollama (local)"** (and the separate MidiPilot chat-footer combo too);
+  selecting it auto-fills an editable base URL `http://localhost:11434/v1` and
+  marks the API key optional.
 * **Keyless auth.** `AiClient::isConfigured()` + `providerRequiresKey()` allow
   Ollama with no key; `applyAuthHeader()` only sends `Authorization` when a key
   exists (no empty `Bearer `). Test-Connection no longer demands a key for Ollama.
-* Verified live against `gemma4:latest` (8B): `/v1/models`, plain chat, and
-  **tool calls** all return the OpenAI shape MidiPilot already parses; the model
-  advertises `tools` + `thinking` capabilities, so Agent Mode is viable locally.
+* Verified live: `/v1/models`, plain chat, and **tool calls** all return the
+  OpenAI shape MidiPilot already parses; tool-capable models drive Agent Mode
+  locally. **Live since 1.8.1.1 but not yet in the CHANGELOG** - see *26.0* below.
 
 ### Scope (the actual Phase 26 work)
-**26.1 - Detect & guide.** A "Set up local AI (Ollama)" helper (mirrors the
-SoundFont download dialog):
-* Detect state: is the Ollama server reachable (`GET /api/tags` on the
-  configured host)? Is the `ollama` binary installed (PATH / default dir)?
-* If not installed -> offer to download the official installer from
-  `ollama.com/download` (consented, progress-tracked; one UAC click). Ollama is
-  MIT-licensed; we link/download the official build, never re-bundle.
-* If installed but not running -> offer to start the server (`ollama serve` /
-  launch the app) and poll `/api/tags` until it answers.
+**26.0 - Document it (the headline deliverable now).** Write the user-facing
+Ollama setup in the **manual** (and the matching README provider section),
+mirroring how the cloud providers are documented:
+* Install Ollama from `ollama.com` (one line, link out - we don't host it).
+* Pull a model: `ollama pull <model>`; recommend a **small, tool-capable,
+  non-over-thinking** model (see the test finding below) and note that **`tools`
+  capability is required for Agent Mode**.
+* In MidiPilot: pick **Ollama (local)** as provider, leave the base URL default
+  (`http://localhost:11434/v1`), leave the key blank, pick the model, Test-Connection.
+* Also belatedly document the provider itself in the CHANGELOG (it shipped in
+  1.8.1.1 undocumented).
 
-**26.2 - Model pull with progress.** Offer a small, **tool-capable** default
-model and pull it via the Ollama API (`POST /api/pull`, which streams progress)
-with a real progress bar + disk-space pre-check. Default model **TBD pending
-testing**; candidates must support `tools` and **should NOT be a heavy "thinking"
-model** (see the test finding below). Smaller = friendlier download. User can
-pick from a short curated list.
+**26.1 - Reachability feedback (lightweight, NOT an installer).** When Ollama is
+selected but `GET /api/tags` on the configured host doesn't answer, show a clear,
+actionable message ("Ollama server not reachable at <url> - is it running? See
+the manual for setup") instead of a generic connection error. No download, no
+process spawning - just good diagnostics that point at the docs. *(Optional /
+nice-to-have; can ship after 26.0.)*
+
+**26.2b - Thinking control for local models.** Today `isReasoningModel()`
+only matches OpenAI `o1/o3/o4/gpt-5`, so for an Ollama model we send **no** reasoning
+control and a thinking model (qwen3.x) burns minutes thinking by default. Add a
+lever to **suppress/limit thinking for local models** - Ollama supports `think:false`
+(native `/api/chat`) and recent builds accept `reasoning_effort` on `/v1`; needs
+testing which the `/v1` path honors. Expose as a per-provider/per-model toggle
+(default thinking OFF for local) so the Agent loop stays responsive. **Highest-value
+item after docs** - directly addresses the qwen over-thinking finding.
 
 > **Test finding (2026-06-04, real run, `midipilot_api.log`):** the Ollama
 > integration *works* end-to-end - `qwen3.6:latest` produced a valid
@@ -11567,27 +11589,19 @@ pick from a short curated list.
 > **thinking** model: it emitted a **14,610-char reasoning block (8007 completion
 > tokens) in a single step**, took minutes, "talked to itself", then *second-
 > guessed its own successful result* and spun into a "repair" pass (the user:
-> "qwen braucht Stunden und redet hauptsächlich mit sich selber"). So a heavy
-> thinking model is a **bad default** - prefer a fast, non-over-thinking
-> tool-capable model (e.g. `llama3.1:8b`, a non-thinking `qwen2.5`/instruct
-> variant, or a thinking model with thinking disabled). Output quality from small
-> local models is modest regardless ("gemma4 hat naja etwas gemacht") - set
-> expectations: local = free/private, not cloud-grade.
+> "qwen braucht Stunden und redet hauptsächlich mit sich selber"). So in the docs
+> recommend a fast, non-over-thinking tool-capable model (e.g. `llama3.1:8b`, a
+> non-thinking `qwen2.5`/instruct variant, or a thinking model with thinking
+> disabled via 26.2b). Output quality from small local models is modest regardless
+> ("gemma4 hat naja etwas gemacht") - set expectations in the docs: local =
+> free/private, not cloud-grade.
 
-**26.2b - Thinking control for local models (follow-up).** Today `isReasoningModel()`
-only matches OpenAI `o1/o3/o4/gpt-5`, so for an Ollama model we send **no** reasoning
-control and a thinking model (qwen3.x) burns minutes thinking by default. Add a
-lever to **suppress/limit thinking for local models** - Ollama supports `think:false`
-(native `/api/chat`) and recent builds accept `reasoning_effort` on `/v1`; needs
-testing which the `/v1` path honors. Expose as a per-provider/per-model toggle
-(default thinking OFF for local) so the Agent loop stays responsive.
-
-**26.2c - Model picker with capabilities (VERIFIED 2026-06-04).** Show the user
-their installed models with enough info to choose well, and curate a short
-download list for first-timers:
-* **Installed models** -> fetch **`GET /api/tags`** (NOT `/v1/models`). Verified
-  it returns per model: `name`, `size` (bytes -> human, e.g. gemma4 ~9.6 GB,
-  qwen3.6 ~22 GB), `details.parameter_size` ("8.0B" / "36.0B"), `details.family`,
+**26.2c - Model picker for installed models.** Show the user **their already-
+installed** models with enough info to choose well (no download catalog - they
+pull models themselves):
+* Fetch **`GET /api/tags`** (NOT `/v1/models`). Verified it returns per model:
+  `name`, `size` (bytes -> human, e.g. gemma4 ~9.6 GB, qwen3.6 ~22 GB),
+  `details.parameter_size` ("8.0B" / "36.0B"), `details.family`,
   `details.context_length`, and a **`capabilities`** array - e.g.
   `gemma4:latest = ["completion","tools","thinking"]`,
   `qwen3.6:latest = ["vision","completion","tools","thinking"]`. So the picker can
@@ -11595,39 +11609,32 @@ download list for first-timers:
   vs. chat-only, plus a "thinking (may be slow)" hint (ties to 26.2b). Our current
   `ModelListFetcher` uses `/v1/models`, which returns only `{id}` (no size/caps) -
   add an Ollama-specific `/api/tags` path for the rich picker.
-* **Available-to-pull (registry):** there is **no official JSON API** for the
-  ollama.com library/registry - it's a website. So the "pull a recommended model"
-  list must be a **small curated, hardcoded list** (name + approx size + why),
-  not fetched. (Installed list = fetchable; downloadable catalog = curated.)
 * **`/api/ps`** lists currently-loaded models + VRAM - optional "loaded now" badge.
-
-**26.3 - One-click auto-config.** After install + pull, set provider=`ollama`,
-the base URL, and the pulled model automatically, then run Test-Connection so
-the user lands in a working state with zero manual config.
 
 **26.4 - Streaming (ties into Phase 25).** Use the OpenAI-compat `/v1` SSE path;
 mind the known `tool_calls[].index == 0` bug ([ollama#15457] - identify calls by
 `id`). Native `/api/chat` NDJSON is a possible later alternative.
 
-### Risks / open questions
-* **Download size:** the Ollama installer is hundreds of MB and models are
-  multiple GB - far bigger than the 11 MB SoundFont. Needs clear consent, a
-  disk-space check, resumable/cancelable downloads, and a "this is large" warning.
-* **Third-party installer + background service:** unlike a SoundFont file, this
-  installs an app + a service and may prompt UAC. Keep it optional and obvious;
-  never silent.
-* **Default-model choice** drives the out-of-box experience - small enough to
-  download comfortably, but capable enough for the MidiPilot Agent tools. User
-  lean (2026-06-04): for low/simple tasks `gemma4` (8B, ~10 GB) is a saner default
-  than `qwen3.6` (36B MoE, ~22 GB) - smaller download, and qwen3.6 over-thinks
-  (see 26.2 finding). **Both installed models are "thinking" models** though, so
-  pair the default with 26.2b (thinking off for local). Alternatively (also user-
-  suggested): **don't force a default - let the user pick** from the 26.2c picker
-  that shows size + capability badges, only requiring `tools` for Agent mode.
-  Decide after testing more candidates (esp. whether a small non-thinking model
-  can drive the tool loop).
-* **Packaging:** we ship nothing extra in the zip; everything is fetched on
-  demand, like the SoundFonts (same on-demand catalog/download pattern).
+### Dropped (was 26.1 / 26.2 / 26.3 - guided auto-install)
+Removed per the 2026-06-11 scope decision; recorded here so we don't re-plan it
+by accident:
+* ~~Detect the `ollama` binary + download the official installer from
+  `ollama.com/download` (consented, UAC, progress).~~ User installs Ollama.
+* ~~Auto-pull a curated default model via `POST /api/pull` with a progress bar +
+  disk-space pre-check.~~ User runs `ollama pull` themselves.
+* ~~Spawn/start the server (`ollama serve`).~~ Out of scope - we only detect
+  reachability (26.1) and point at the docs.
+* ~~One-click post-install auto-config.~~ Manual config is trivial (provider +
+  default URL + model), and documented in 26.0.
+
+### Open questions
+* **Recommended model for the docs** drives the first-run experience. User lean
+  (2026-06-04): `gemma4` (8B, ~10 GB) over `qwen3.6` (36B MoE, ~22 GB) - smaller,
+  and qwen3.6 over-thinks (see finding). Both installed candidates are "thinking"
+  models, so the recommendation pairs with 26.2b (thinking off for local). Settle
+  after testing whether a small **non-thinking** model can drive the tool loop.
+* **Packaging:** unchanged - we ship nothing extra; the user's Ollama install and
+  models live entirely on their machine.
 
 ## Phase 27: Friendly System-Prompt Editor - Block Builder (Planned)
 
@@ -11695,4 +11702,206 @@ Export/Import JSON + Reset All. Nothing is lost for advanced users.
 * Validation on save must still guarantee a **non-empty composed prompt** per
   mode (current `onSave` rejects empty) - with blocks, that means "at least the
   locked/core blocks enabled".
+
+## Phase 28: Multi-Document Tabs + Side-by-Side MIDI-Diff (Planned)
+
+> **Goal:** turn MidiEditor AI from a single-document editor into a tabbed,
+> multi-document one - each note-roll is a tab; you can open many at once, drag
+> two side by side to compare, and copy notes between them - while tools, the
+> sidebars (Tracks / Events / MidiPilot) and the transport always act on the
+> *active* tab only. This is the "IDE / code-review for MIDIs" direction (see
+> [[project_midi_diff_vision]]). Target version: **TBD** (large, multi-step).
+>
+> **Status: PLANNING ONLY.** This phase is fully scoped and verified against the
+> current code below, but **no code is to be written yet**. The point is a
+> surprise-free implementation: the hard part is not the tab bar, it's that the
+> editor is single-document at its core (globals + singletons + one MatrixWidget).
+
+### User requirements (verbatim intent, 2026-06-11)
+
+1. A note-roll window **is a tab**. New tabs are created by drag-and-drop of a
+   music file, by **File -> Open**, or by **File -> New**.
+2. Tabs can be **reordered**, and **two tabs can be placed side by side** to
+   compare (e.g. two similar MIDI files).
+3. You can **copy notes from one tab to another** seamlessly.
+4. **Tools only ever act on the active tab** - never on all tabs at once.
+5. **Toolbar layout:** we already ship the customizable **two-row** toolbar by
+   default. Make New / Open / Save / Undo / Redo a touch smaller so there is room
+   *under* them for the new tab strip, ending flush with the two-row toolbar.
+6. The **tab strip sits above the timeline** (enters the editor area there).
+7. **Tracks, Events, MidiPilot always follow the active tab.**
+8. **In-flight MidiPilot edits stay on the tab they were started on.** If you
+   start an edit on Tab 1 and then work on Tab 2 while it runs, the edit keeps
+   applying to **Tab 1**.
+9. **Collaboration must work with tabs** - and must still work cleanly after
+   this change.
+
+### Current architecture reality (code-grounded - why this is a deep change)
+
+The editor is single-document to the core. Verified:
+
+* **One active file, one of everything.** `MainWindow` holds a single
+  `MidiFile *file` ([MainWindow.h:1052](src/gui/MainWindow.h#L1052)), one
+  `mw_matrixWidget` + `_matrixWidgetContainer`
+  ([MainWindow.cpp:445-457](src/gui/MainWindow.cpp#L445-L457)), one
+  `_midiPilotWidget` ([MainWindow.cpp:1011](src/gui/MainWindow.cpp#L1011)), and
+  single `channelWidget` / `protocolWidget` / `_trackWidget` / `eventWidget()`.
+* **`MainWindow::setFile()` is a destructive document swap.**
+  ([MainWindow.cpp:1610](src/gui/MainWindow.cpp#L1610)) It rebinds ~20 components
+  and globals to the new file **and `delete`s the old file** (`delete oldFile;`,
+  [MainWindow.cpp:1758](src/gui/MainWindow.cpp#L1758)). For tabs, the delete must
+  move to *tab close*, not *tab switch*.
+* **`Selection` is a global singleton, deleted on every file switch.**
+  ([Selection.cpp:44-52](src/tool/Selection.cpp#L44-L52)) `Selection::setFile()`
+  `delete`s the instance and makes a new one; `Selection::instance()` is global.
+  It *is* a `ProtocolEntry` bound to a `MidiFile` (per-file undo), so "one
+  Selection per document" is a natural fit - but every caller uses the global
+  `Selection::instance()`.
+* **Tools share one static MatrixWidget + MainWindow.**
+  `EditorTool` keeps `static MatrixWidget *matrixWidget`, `static QWidget
+  *_openglContainer`, `static MainWindow *_mainWindow`
+  ([EditorTool.h:213-219](src/tool/EditorTool.h#L213-L219)); `Tool` keeps
+  `static MidiFile *_currentFile` and `static EditorTool *_currentTool`
+  ([Tool.h:216-224](src/tool/Tool.h#L216-L224)). A tool literally cannot know
+  *which* of two side-by-side views it is acting on today.
+* **MidiPilot cancels the agent on file change.**
+  `MidiPilotWidget::onFileChanged()` sets `_file = f` and calls
+  `_agentRunner->cancel()` if an agent is running
+  ([MidiPilotWidget.cpp:1027-1055](src/gui/MidiPilotWidget.cpp#L1027)) - the exact
+  opposite of requirement 8. Good news: `AgentRunner` already owns its own
+  `MidiFile *_file` bound at `run()` ([AgentRunner.h:143](src/ai/AgentRunner.h#L143)),
+  and `EditorContext::captureState(file, matrixWidget)` is already parameterised
+  on (file, widget) - so per-document agents are feasible.
+* **Globals keyed to the one active file:** `Metronome::instance()->setFile()`,
+  `ChannelVisibilityManager::instance().resetAllVisible()`,
+  `FfxivVoiceAnalyzer::instance()->watchFile()/forgetFile()`, `Tool::setFile()`,
+  `MidiPlayer::play(MidiFile*)` (static), `CollabService::instance()` (single-doc,
+  but already emits `activeFileChanged(MidiFile*)`). All wired in `setFile()`.
+* **Layout:** `mainSplitter` -> `leftSplitter` (matrixArea + velocity + lyric) +
+  `rightSplitter` (`upperTabWidget` Tracks/Channels, `lowerTabWidget`
+  Protocol/Events). `matrixArea` is a `QGridLayout` holding the matrix container,
+  a 50px-tall `placeholder0` (the timeline strip zone) and the vertical scrollbar
+  ([MainWindow.cpp:464-474](src/gui/MainWindow.cpp#L464-L474)). The sidebar already
+  uses `QTabWidget`, so tabbing patterns exist in-tree.
+
+### Target architecture: a `Document` object + active-document routing
+
+The clean, surprise-free shape is to introduce a **`Document`** that bundles
+everything currently smeared across `MainWindow` + statics, and an **active
+document** the UI follows:
+
+* **`Document`** = `{ MidiFile* (owns it), the editor view (MatrixWidget +
+  OpenGL wrapper + MiscWidget), per-document Selection, per-document channel
+  visibility, viewport state (scale/scroll - reuse the existing
+  `LiveSession::ViewportState` + `fitToFocus`/`applyZoom` at
+  [MainWindow.cpp:1449-1549](src/gui/MainWindow.cpp#L1449), already built for
+  collab view-sync), optional MidiPilot
+  context, optional collab session, dirty/title state }`.
+* **`DocumentManager`** owns the open `Document`s and tracks the **active** one;
+  closing a tab is the *only* place a `MidiFile` is `delete`d.
+* The shared singletons become **thin facades that resolve to the active (or a
+  specified) document** instead of holding the state themselves.
+
+### Scope (sub-phases - sequence matters)
+
+**28.1 - Decouple the singletons (do this first, behind the scenes).** Before any
+tab UI, make the global state multi-document-capable while keeping single-document
+behaviour intact (no visible change, fully testable):
+* `Selection`: keep the API, but store one Selection per `MidiFile`/Document and
+  have `instance()` resolve to the active document's selection. Audit every
+  `Selection::instance()` caller (Grep: MatrixWidget, EventTool, EventWidget,
+  TrackList/ChannelList, ProtocolWidget, EditorContext, MidiPilot).
+* `EditorTool::matrixWidget` / `Tool::_currentFile`: route to the **focused
+  view** - have each `MatrixWidget` claim "active" on mouse-press/focus and update
+  the statics, so tools always target the view the user is interacting with.
+* Per-document **channel visibility** (replace the global
+  `ChannelVisibilityManager` reset-on-switch with per-Document state).
+
+**28.2 - `Document` + `DocumentManager` + non-destructive switch.** Extract a
+`Document`; split `MainWindow::setFile()` into (a) **create/bind** a document
+(done once when a tab opens) and (b) **switchActiveDocument()** (rebind panels +
+globals + transport to an already-open document, **without** deleting anything).
+Move `delete oldFile` to tab-close only.
+
+**28.3 - Tab strip UI + layout (requirements 1, 5, 6).** A `QTabBar` (movable,
+closable) above the timeline, laid out flush under the two-row toolbar; shrink the
+New/Open/Save/Undo/Redo buttons to make room. New tab via New / Open / drag-drop
+(`MainWindow` already handles file drops -> route to "open in new tab"). Reorder =
+`QTabBar::setMovable(true)`.
+
+**28.4 - One editor view per tab + side-by-side (requirements 2, 3, 4).** Turn the
+single matrix container into a stack/`QSplitter` of document views; the active
+(focused) view drives tools and sidebars. Side-by-side = show two views in the
+splitter. Cross-tab copy: the clipboard path (`EventTool` copy/paste) is already
+serialisation-based; verify paste targets the **active** document so copy-from-A,
+focus-B, paste lands in B.
+
+**28.5 - MidiPilot per document (requirement 8).** Bind a running agent to its
+**origin** Document, not the active one. Options to evaluate: (a) one
+`MidiPilotWidget`/`AgentRunner` per Document (matches the existing per-file chat
+/ preset model - `loadPresetForFile`), with the panel showing the active tab's
+instance; or (b) one widget, but route in-flight runs to the origin Document via
+the agent's existing `_file`. Either way: **remove the cancel-on-switch** in
+`onFileChanged` and make `EditorContext::captureState` read the origin
+document's view, not `_mainWindow->matrixWidget()`.
+
+**28.6 - Collaboration with tabs (requirement 9).** A collab session binds to a
+specific Document (like the agent binds to its origin tab); switching tabs must
+not retarget or tear down an active session. `CollabService` already has
+`activeFileChanged` - decide: at most one collab session at a time bound to its
+document, vs. per-document sessions. Re-verify the Show-Mode view-broadcast and
+the snapshot/diff sync after the Selection/visibility de-singletoning (28.1),
+since those read global state today.
+
+**28.7 - Side-by-side MIDI-diff view (the payoff).** With two views already
+possible (28.4), add synced scroll/transport between two chosen tabs and a visual
+diff (added / removed / moved notes). **Reuse seed:** a `MidiDiff` engine already
+exists under `src/collab/MidiDiff` (JSON in/out, used by collab) - candidate for
+the diff computation. This sub-phase can ship after the core tabs work.
+
+### Reuse seeds (don't reinvent)
+
+* `Selection` is already a per-`MidiFile` `ProtocolEntry` - extend, don't rebuild.
+* `AgentRunner._file` is already per-run; `EditorContext::captureState(file,
+  widget)` is already parameterised.
+* `ViewportState` + `fitToFocus`/`applyZoom` already capture/restore per-view
+  zoom+scroll - reuse for per-tab viewport memory.
+* `MidiDiff` (`src/collab/MidiDiff`) for 28.7.
+* `QTabWidget` sidebar pattern + existing file-drop handling in `MainWindow`.
+* `CollabService::activeFileChanged(MidiFile*)` already models "active file moved".
+
+### Risks / open questions
+
+* **Singleton audit is the real work**, not the UI. Every `Selection::instance()`,
+  `Tool::currentFile()`, `EditorTool::matrixWidget` use must be reviewed. Missing
+  one = edits/selection leaking across tabs. 28.1 must land and be verified before
+  any tab UI.
+* **OpenGL views are heavy.** Each tab view is an `OpenGLMatrixWidget` (its own GL
+  context). Many tabs / two live side-by-side = real GPU cost; consider lazily
+  constructing the view and only keeping the active (+ a pinned compare) view
+  "hot". Mind the hardware-acceleration auto-disable path on high-DPI.
+* **Playback is single-stream.** Only one document plays at a time; decide whether
+  Play follows the active tab or stays pinned to the playing tab (suggest: follows
+  active, stop on switch-away, like today's single stream).
+* **Undo/redo is per `MidiFile`** (`Protocol` per file) - good, it's naturally
+  per-tab; just make sure the Protocol panel + Ctrl+Z route to the active tab.
+* **Unsaved-close semantics** move from app-level to per-tab (`saveBeforeClose`
+  per tab; closing the last tab vs. closing the window).
+* **Settings/state** that are currently global-but-really-per-file (div, screen
+  lock, colour-by-channel/track) should move onto `Document`.
+
+### Explicit non-goals for v1
+
+* No more than two simultaneous side-by-side views (N-up can come later).
+* No cross-tab multi-select or multi-tab batch tools (requirement 4 is the rule).
+* Diff view (28.7) and a full N-up grid are follow-ups, not blockers for tabs.
+
+### Before implementation (per the user's instruction)
+
+Plan verified against the code above. **Next prep steps, still no code:** (1) a
+complete grep-census of `Selection::instance()`, `Tool::currentFile()/setFile()`,
+`EditorTool::matrixWidget`, and `MidiPlayer::play` call sites with a per-site
+migration note; (2) a small written contract for the `Document` interface; (3) a
+decision on 28.5 option (a) vs (b) and 28.6 single-vs-per-doc collab. Only then
+start with 28.1.
 

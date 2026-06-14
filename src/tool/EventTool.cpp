@@ -39,6 +39,7 @@
 #include "NewNoteTool.h"
 #include "Selection.h"
 #include "SharedClipboard.h"
+#include "SnapMath.h"
 
 #include <set>
 #include <vector>
@@ -52,6 +53,9 @@ int EventTool::_pasteChannel = -1;
 int EventTool::_pasteTrack = -2;
 
 bool EventTool::_magnet = false;
+// Default to Modern (hard grid) snap; MainWindow overrides from the saved
+// "snap_mode" setting at startup.
+bool EventTool::_modernSnap = true;
 
 EventTool::EventTool()
     : EditorTool() {
@@ -436,16 +440,15 @@ int EventTool::rasteredX(int x, int *tick) {
         }
         return x;
     }
-    typedef QPair<int, int> TMPPair;
-    foreach(TMPPair p, matrixWidget->divs()) {
-        int xt = p.first;
-        if (std::abs(xt - x) <= 5) {
-            if (tick) {
-                *tick = p.second;
-            }
-            return xt;
+    int snappedX = x;
+    int snappedTick = 0;
+    if (SnapMath::snapToDiv(x, matrixWidget->divs(), _modernSnap, &snappedX, &snappedTick)) {
+        if (tick) {
+            *tick = snappedTick;
         }
+        return snappedX;
     }
+    // No snap (Legacy with nothing nearby, or no divisions): keep exact position.
     if (tick) {
         *tick = _currentFile->tick(matrixWidget->msOfXPos(x));
     }
@@ -458,6 +461,14 @@ void EventTool::enableMagnet(bool enable) {
 
 bool EventTool::magnetEnabled() {
     return _magnet;
+}
+
+void EventTool::setModernSnap(bool modern) {
+    _modernSnap = modern;
+}
+
+bool EventTool::modernSnap() {
+    return _modernSnap;
 }
 
 bool EventTool::copyToSharedClipboard() {

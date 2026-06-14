@@ -5,6 +5,39 @@ Releases: https://github.com/happytunesai/web/releases
 
 ---
 
+## [1.8.2] - 2026-06-14 - Local AI, MCP Tools & Editor Polish
+
+### Summary
+
+* **Run MidiPilot locally and free with Ollama.** MidiPilot now has a first-class **Ollama (local)** provider - point it at your own [Ollama](https://ollama.com) install for a 100% local, private, no-API-key, no-cost copilot. (The provider first shipped quietly in 1.8.1.1; this release documents it and adds the polish below.) You install Ollama and pull a model yourself - no harder than getting a cloud API key - and the manual walks through it.
+* **More capable MCP / Agent tools.** Two new tools - `get_selection` (read the current selection with per-event indices) and `remove_track` - plus clearer error messages for malformed tool calls. Both the in-app Agent and external MCP clients can now act on the selection directly (e.g. "delete every second selected note") and remove tracks.
+* **Modern grid snap.** The Magnet tool can now hard-snap notes to the nearest grid line - including when drawing - like a DAW, with the previous behaviour kept as a "Legacy" option.
+
+<details>
+<summary>Full Changelog - Local AI</summary>
+
+### Added
+
+* **Modern grid snap (snap-to-grid when drawing notes).** The Magnet tool now offers two behaviours, switchable under *Settings -> Additional MIDI Settings*: **Modern** (default) hard-snaps to the nearest grid line - including when **drawing** new notes, like a DAW - while **Legacy** keeps the old magnetic pull that only engaged within a few pixels of a grid line. Applies consistently to drawing, moving and resizing (all share one snap path). Works together with the Note Duration setting: the note's start snaps to the grid, its length follows the chosen duration.
+* **MCP server hardening + two new tools (shared with Agent Mode).** The MCP tool set and the in-app Agent share the same definitions, so both gained:
+  * **`get_selection`** - returns the user's currently selected events with full details and a 0-based index per event (the index `delete_events_by_index` expects). MCP clients previously only saw a selection *count*, never the events, so they couldn't act on specific selected notes; now they can.
+  * **`remove_track`** - deletes a track and its events (guards the file's last track), the missing counterpart to `create_track`.
+  * **Argument validation:** tool calls with a missing required parameter now return a clear "missing required parameter(s): X" error instead of a confusing tool-specific failure (e.g. a misnamed `move_events_to_track` argument used to report "Invalid target track index").
+* **Ollama (local) provider.** Selectable in MidiPilot AI settings and in the chat-footer provider combo; auto-fills the base URL `http://localhost:11434/v1` and needs no API key. Tool-capable models drive Agent Mode locally. Documented in the manual (MidiPilot -> Supported Providers -> Local AI with Ollama) and the README provider table.
+* **Installed-model picker for Ollama.** The model refresh now queries Ollama's native `/api/tags` (instead of the OpenAI-compat `/v1/models`, which returns only model ids), so the dropdown lists your installed models with **size badges** (e.g. `qwen3.6:latest (36.0B, 22.0 GB)`), flags tool-capable models for Agent Mode, and skips embedding-only models.
+* **Ollama in Manage Favourites and Prompt Profiles.** The favourites picker now has an Ollama tab, and Prompt Profiles can target Ollama models, so per-provider favourites and per-model system prompts work for local models too.
+
+### Fixed / Changed
+
+* **Model picker is no longer accidentally editable.** The MidiPilot footer model selector was an editable combo, so clicking into it and typing replaced the label - and with the new size badges that label is "name (8.0B, 9.6 GB)", not the model id - which could be sent as a bogus model name. It is now read-only: pick from the list (long names elide with the size badge dropping first; the full name is in the dropdown and tooltip). Custom model names are still entered in Settings.
+* **Agent Mode can delete selected events by index.** Added a `delete_events_by_index` tool (also exposed over the MCP server) that deletes specific events from the current selection by their 0-based index - e.g. "delete every second selected note" via indices `[1,3,5,...]`. This closes a parity gap: Simple Mode already had this, but the Agent only had range-based deletion, so it had to approximate selection-relative deletes by rewriting tick ranges - which capable models handled but smaller/local models often could not complete.
+* **Reasoning-effort control for local models.** MidiPilot now sends a reasoning-effort value to Ollama on `/v1`, honouring the Thinking toggle (and defaulting to "low" when Thinking is off). Test Connection sends the same so it stays quick for any selected model.
+* **Clear "Ollama not reachable" message.** A failed local connection used to say "check your internet connection" (which does not apply to `localhost`). It now states that the Ollama server isn't reachable and how to start it.
+
+</details>
+
+---
+
 ## [1.8.1.1] - 2026-06-04 - Hotfix: hardware-acceleration crash
 
 ### Summary

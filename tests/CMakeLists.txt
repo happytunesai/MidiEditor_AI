@@ -708,6 +708,58 @@ target_link_libraries(test_model_favorites PRIVATE
 add_test(NAME ModelFavorites COMMAND test_model_favorites)
 
 # -----------------------------------------------------------------------------
+# test_model_list_fetcher
+# -----------------------------------------------------------------------------
+# Pure unit test for ModelListFetcher::normaliseOllama() — the /api/tags ->
+# cache-schema transform (capabilities, embedding filter, size badge, id
+# fallback, large-size overflow). No network: the method is static. Needs
+# Qt6::Network because ModelListFetcher.cpp uses QNetworkAccessManager.
+add_executable(test_model_list_fetcher
+    test_model_list_fetcher.cpp
+    ../src/ai/ModelListFetcher.cpp
+)
+target_include_directories(test_model_list_fetcher PRIVATE ../src/ai)
+target_link_libraries(test_model_list_fetcher PRIVATE
+    Qt6::Core
+    Qt6::Network
+    Qt6::Test
+)
+add_test(NAME ModelListFetcher COMMAND test_model_list_fetcher)
+# Needs Qt6Network.dll on PATH at run time (links ModelListFetcher.cpp, which
+# uses QNetworkAccessManager). Ship the Qt bin dir like PromptProfiles does, so
+# ctest finds it even under a minimal-env runner.
+if(WIN32)
+    get_target_property(_qt_core_loc Qt6::Core LOCATION)
+    get_filename_component(_qt_bin_dir "${_qt_core_loc}" DIRECTORY)
+    set_tests_properties(ModelListFetcher PROPERTIES
+        ENVIRONMENT "PATH=${_qt_bin_dir};$ENV{PATH}")
+endif()
+
+# -----------------------------------------------------------------------------
+# test_snap_math
+# -----------------------------------------------------------------------------
+# Pure unit test for SnapMath::snapToDiv() — the Modern (hard grid) vs Legacy
+# (magnetic ±px) snap math used by the Magnet tool. Header-only, no sources to
+# link beyond Qt6::Core.
+add_executable(test_snap_math
+    test_snap_math.cpp
+)
+target_include_directories(test_snap_math PRIVATE ../src/tool)
+target_link_libraries(test_snap_math PRIVATE
+    Qt6::Core
+    Qt6::Test
+)
+add_test(NAME SnapMath COMMAND test_snap_math)
+# Ship the Qt bin dir on PATH so ctest finds Qt6Core/Qt6Test DLLs even under a
+# minimal-env runner (same guard as PromptProfiles / ModelListFetcher).
+if(WIN32)
+    get_target_property(_qt_core_loc Qt6::Core LOCATION)
+    get_filename_component(_qt_bin_dir "${_qt_core_loc}" DIRECTORY)
+    set_tests_properties(SnapMath PROPERTIES
+        ENVIRONMENT "PATH=${_qt_bin_dir};$ENV{PATH}")
+endif()
+
+# -----------------------------------------------------------------------------
 # test_prompt_profiles
 # -----------------------------------------------------------------------------
 # Pure unit test for PromptProfileStore: glob match, resolution layering,

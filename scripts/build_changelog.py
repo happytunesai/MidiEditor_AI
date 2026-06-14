@@ -607,12 +607,18 @@ def main():
             rf"\g<1>{latest_version}\2",
             content,
         )
-        # Date in download hero: "April 9, 2026" style - update from changelog
-        # Parse date: 2026-04-09 -> April 9, 2026
+        # Date in the download hero. download.html shows it via a JS hook,
+        # <strong id="dl-date">...</strong>, which the page fills at runtime from
+        # the GitHub API; we just keep the static fallback current. Target the
+        # tag's contents precisely. The previous regex
+        #   (Current Release:.*?(?:&mdash;|-)\s*).+?(</p>)
+        # matched the FIRST hyphen, which after the id="dl-date" rename is the
+        # dash *inside the id* -- shredding the tag into
+        #   <strong id="dl-June 4, 2026</p>   (a live bug since v1.8.1).
         date_nice = _format_date(latest_date)
         if date_nice:
             content = re.sub(
-                r"(Current Release:.*?(?:&mdash;|-)\s*).+?(</p>)",
+                r'(<strong id="dl-date">).*?(</strong>)',
                 rf"\g<1>{date_nice}\2",
                 content,
             )

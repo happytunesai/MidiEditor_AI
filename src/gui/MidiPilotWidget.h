@@ -145,6 +145,10 @@ private:
     void setupUi();
     void setupSetupPrompt();
     void populateFooterModels();
+    // Select a model id in the (read-only) footer combo, adding it as an item
+    // first if it isn't in the list (e.g. a custom or per-file model). Also
+    // refreshes the tooltip so the full name is reachable when the label elides.
+    void selectFooterModel(const QString &modelId);
     void addChatBubble(const QString &role, const QString &text);
     void setStatus(const QString &text, const QString &color);
     QJsonObject dispatchAction(const QJsonObject &actionObj, bool showBubbles = true);

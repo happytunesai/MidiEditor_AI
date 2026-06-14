@@ -13,7 +13,7 @@
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-0078D6?logo=windows)](https://github.com/happytunesai/MidiEditor_AI/releases)
 
-**Version:** 1.8.1.1
+**Version:** 1.8.2
 **Status:** Release
 
 📥 **[Download Latest Release](https://github.com/happytunesai/MidiEditor_AI/releases/latest)**
@@ -138,8 +138,8 @@ MidiEditor AI
 ### 2. Configure AI
 
 1. Open **Settings** (gear icon) and go to the **AI** tab
-2. Select your provider (OpenAI, OpenRouter, Google Gemini, or Custom)
-3. Enter your API key
+2. Select your provider (OpenAI, OpenRouter, Google Gemini, Ollama for local/free, or Custom)
+3. Enter your API key (not needed for Ollama - install it from [ollama.com](https://ollama.com) and `ollama pull` a model instead)
 4. Choose a model
 
 ### 3. Start Creating
@@ -409,20 +409,23 @@ MidiEditor AI checks for new versions on GitHub at every startup. When an update
 
 ## 🛠️ MidiPilot Tools
 
-The AI has access to 15 tools for inspecting and modifying MIDI files:
+The AI has access to 15 core tools (plus extra FFXIV tools when FFXIV mode is on) for inspecting and modifying MIDI files:
 
 | Tool | Description |
 |------|-------------|
 | `get_editor_state` | Read file info, tracks, tempo, time signature, cursor |
 | `get_track_info` | Get details about a specific track |
-| `create_track` / `rename_track` / `set_channel` | Manage tracks |
-| `insert_events` / `replace_events` / `delete_events` | Add, modify, remove MIDI events |
 | `query_events` | Read events in a tick range on a track |
+| `get_selection` | Read the current selection as full events, each with a 0-based index |
+| `create_track` / `rename_track` / `set_channel` / `remove_track` | Manage tracks |
+| `insert_events` / `replace_events` / `delete_events` | Add, modify, remove MIDI events |
+| `delete_events_by_index` | Delete selected events by index (e.g. every second note) |
 | `move_events_to_track` | Move events between tracks |
 | `set_tempo` / `set_time_signature` | Change tempo and meter |
 | `setup_channel_pattern` | Auto-configure MidiBard2 channel mapping *(FFXIV)* |
 | `validate_ffxiv` | Check FFXIV rule compliance *(FFXIV)* |
 | `convert_drums_ffxiv` | Convert GM drums to FFXIV tonal percussion *(FFXIV)* |
+| `analyze_voice_load` | Audit simultaneous-voice count vs the FFXIV 16-voice ceiling *(FFXIV)* |
 
 > **Tip:** The **Fix X\|V Channels** toolbar button runs the same channel setup deterministically - no AI call needed. Find it in **Tools → Fix X\|V Channels** or on the toolbar.
 

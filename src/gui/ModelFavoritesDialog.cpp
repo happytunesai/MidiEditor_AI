@@ -37,6 +37,7 @@ ModelFavoritesDialog::ModelFavoritesDialog(QWidget *parent)
     buildTabForProvider(QStringLiteral("openai"),     tr("OpenAI"));
     buildTabForProvider(QStringLiteral("openrouter"), tr("OpenRouter"));
     buildTabForProvider(QStringLiteral("gemini"),     tr("Gemini"));
+    buildTabForProvider(QStringLiteral("ollama"),     tr("Ollama"));
     buildTabForProvider(QStringLiteral("custom"),     tr("Custom"));
 
     auto *btnRow = new QHBoxLayout();

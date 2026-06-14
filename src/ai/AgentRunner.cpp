@@ -865,6 +865,10 @@ QString AgentRunner::buildStepLabel(const QString &toolName, const QJsonObject &
         int track = args["trackIndex"].toInt(-1);
         return QStringLiteral("Delete events \u2014 Track %1").arg(track);
     }
+    if (toolName == "delete_events_by_index") {
+        int n = args["indices"].toArray().size();
+        return QStringLiteral("Delete selected events \u2014 %1 by index").arg(n);
+    }
     if (toolName == "rename_track") {
         int track = args["trackIndex"].toInt(-1);
         QString name = args["newName"].toString();
@@ -874,6 +878,13 @@ QString AgentRunner::buildStepLabel(const QString &toolName, const QJsonObject &
         int track = args["trackIndex"].toInt(-1);
         int ch = args["channel"].toInt(-1);
         return QStringLiteral("Set channel \u2014 Track %1 \u2192 Ch %2").arg(track).arg(ch);
+    }
+    if (toolName == "remove_track") {
+        int track = args["trackIndex"].toInt(-1);
+        return QStringLiteral("Remove track \u2014 Track %1").arg(track);
+    }
+    if (toolName == "get_selection") {
+        return QStringLiteral("Read selection");
     }
     if (toolName == "set_tempo") {
         int bpm = args["bpm"].toInt(0);

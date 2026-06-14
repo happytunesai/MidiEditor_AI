@@ -3,8 +3,10 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonValue>
+#include <QLocale>
 #include <QNetworkRequest>
 #include <QRegularExpression>
+#include <QStringList>
 #include <QUrl>
 #include <QUrlQuery>
 
@@ -34,6 +36,24 @@ void ModelListFetcher::fetch(const QString &provider,
         QUrlQuery q;
         q.addQueryItem(QStringLiteral("key"), apiKey);
         url.setQuery(q);
+    } else if (provider == QStringLiteral("ollama")) {
+        // Phase 26.2c: use Ollama's native /api/tags (NOT the OpenAI-compat
+        // /v1/models, which returns only {id}). /api/tags lists the user's
+        // installed models with size + details, so the picker can show real
+        // download sizes and flag tool-capable models. The configured base URL
+        // is the /v1 compat endpoint (e.g. http://localhost:11434/v1); strip the
+        // /v1 suffix to reach the native API root.
+        QString host = baseUrl.trimmed();
+        if (host.isEmpty())
+            host = QStringLiteral("http://localhost:11434");
+        if (host.endsWith('/'))
+            host.chop(1);
+        if (host.endsWith(QStringLiteral("/v1")))
+            host.chop(3);
+        url = QUrl(host + QStringLiteral("/api/tags"));
+        // Local server, normally keyless; forward a key only if the user set one.
+        if (!apiKey.isEmpty())
+            req.setRawHeader("Authorization", QByteArray("Bearer ") + apiKey.toUtf8());
     } else { // custom
         QString b = baseUrl.trimmed();
         if (b.isEmpty()) {
@@ -103,6 +123,8 @@ void ModelListFetcher::onReplyFinished()
         normalised = normaliseOpenRouter(rawArr);
     else if (_provider == QStringLiteral("gemini"))
         normalised = normaliseGemini(rawArr);
+    else if (_provider == QStringLiteral("ollama"))
+        normalised = normaliseOllama(rawArr);
     else
         normalised = normaliseCustom(rawArr);
 
@@ -219,6 +241,68 @@ QJsonArray ModelListFetcher::normaliseGemini(const QJsonArray &raw) const
                  id.contains(QStringLiteral("thinking"), Qt::CaseInsensitive)
                      || id.startsWith(QStringLiteral("gemini-2.5"))
                      || id.startsWith(QStringLiteral("gemini-3")));
+        out.append(n);
+    }
+    return out;
+}
+
+QJsonArray ModelListFetcher::normaliseOllama(const QJsonArray &raw)
+{
+    QJsonArray out;
+    for (const QJsonValue &v : raw) {
+        QJsonObject m = v.toObject();
+        // /api/tags uses "name" (e.g. "qwen3.6:latest"); fall back to "model".
+        QString id = m.value(QStringLiteral("name")).toString();
+        if (id.isEmpty())
+            id = m.value(QStringLiteral("model")).toString();
+        if (id.isEmpty())
+            continue;
+
+        QJsonObject details = m.value(QStringLiteral("details")).toObject();
+
+        // Capabilities may live at the top level or under details depending on
+        // the Ollama version; older /api/tags omits them entirely. When absent,
+        // default supportsTools=true so Agent Mode isn't falsely blocked (the
+        // user can still pick the model; a non-tool model just won't tool-call).
+        QJsonArray caps = m.value(QStringLiteral("capabilities")).toArray();
+        if (caps.isEmpty())
+            caps = details.value(QStringLiteral("capabilities")).toArray();
+        bool hasCaps = !caps.isEmpty();
+
+        // When capabilities are known, drop models that can't do chat completion
+        // (e.g. embedding models like nomic-embed-text) so they don't clutter the
+        // chat-model picker. Without capabilities we can't tell, so keep them.
+        if (hasCaps && !caps.contains(QJsonValue(QStringLiteral("completion"))))
+            continue;
+
+        bool supportsTools = hasCaps
+            ? caps.contains(QJsonValue(QStringLiteral("tools")))
+            : true;
+        bool supportsReasoning = hasCaps
+            && caps.contains(QJsonValue(QStringLiteral("thinking")));
+
+        // Build a readable label: "qwen3.6:latest (36.0B, 22.0 GB)". Use Qt's
+        // data-size formatter (SI units, matching how Ollama itself reports size).
+        QString paramSize = details.value(QStringLiteral("parameter_size")).toString();
+        qint64 bytes = static_cast<qint64>(m.value(QStringLiteral("size")).toDouble());
+        QStringList badges;
+        if (!paramSize.isEmpty())
+            badges << paramSize;
+        if (bytes > 0)
+            badges << QLocale().formattedDataSize(bytes, 1, QLocale::DataSizeSIFormat);
+        QString display = badges.isEmpty()
+            ? id
+            : QStringLiteral("%1 (%2)").arg(id, badges.join(QStringLiteral(", ")));
+
+        // context_length is only present on some versions; 0 -> fall back to default.
+        int cw = details.value(QStringLiteral("context_length")).toInt(0);
+
+        QJsonObject n;
+        n.insert(QStringLiteral("id"), id);
+        n.insert(QStringLiteral("displayName"), display);
+        n.insert(QStringLiteral("contextWindow"), cw);
+        n.insert(QStringLiteral("supportsTools"), supportsTools);
+        n.insert(QStringLiteral("supportsReasoning"), supportsReasoning);
         out.append(n);
     }
     return out;

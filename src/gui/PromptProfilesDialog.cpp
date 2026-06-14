@@ -32,9 +32,9 @@ constexpr int kProviderRole  = Qt::UserRole + 1;
 constexpr int kModelIdRole   = Qt::UserRole + 2;
 constexpr int kIsWildcardRole = Qt::UserRole + 3;
 
-const char *kProviders[] = {"openai", "openrouter", "gemini", "custom"};
-const char *kProviderLabels[] = {"OpenAI", "OpenRouter", "Gemini", "Custom"};
-constexpr int kProviderCount = 4;
+const char *kProviders[] = {"openai", "openrouter", "gemini", "ollama", "custom"};
+const char *kProviderLabels[] = {"OpenAI", "OpenRouter", "Gemini", "Ollama", "Custom"};
+constexpr int kProviderCount = 5;
 } // namespace
 
 PromptProfilesDialog::PromptProfilesDialog(PromptProfileStore *store,

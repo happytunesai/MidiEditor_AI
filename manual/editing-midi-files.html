@@ -252,9 +252,28 @@
 <h3 id="magnet">Magnet and Raster</h3>
 <img src="tools/magnet.png" width="20px" height="20px" align="left" hspace="10" vspace="10"/>
 <p>
-  When the magnet (shown on the left) is enabled, all dragging or shifting operations inside the event view will
-  result in a timing which is aligned to the specified raster. That means that events will start at the correct time when the start time is close
-  to the time which is represented by a vertical line in the event view. The raster size can be controlled from within the <a href="editor-and-components.html#view">view menu in the menubar</a>. It can be set to any known note length (eights, quarters etc.).
+  When the magnet (shown on the left) is enabled, timing operations inside the event view - <b>drawing</b> new
+  notes, <b>moving</b> events, and <b>resizing</b> them - are aligned to the raster. The raster size can be
+  controlled from within the <a href="editor-and-components.html#view">view menu in the menubar</a> and can be set to
+  any known note length (eighths, quarters, etc.).
+</p>
+<p>
+  There are two snap behaviours, switchable under <i>Settings &rarr; Additional MIDI Settings &rarr; Modern grid snap</i>:
+</p>
+<ul>
+  <li><b>Modern snap</b> (default) - snaps hard to the <i>nearest</i> raster line, like a typical DAW. This also
+  applies when <b>drawing</b> new notes: click anywhere and the note starts on the grid. If a fixed
+  <a href="shortcuts.html#duration">Note Duration preset</a> is selected, the note's start is placed on the grid and
+  its length follows the chosen duration; in drag mode, both the start and the end snap to the grid.</li>
+  <li><b>Legacy snap</b> - the historical behaviour: events only snap when the pointer is already within a few
+  pixels of a raster line (a &quot;magnetic pull&quot;); otherwise the exact position is kept. Turn <i>Modern grid snap</i>
+  off to use it.</li>
+</ul>
+<img class="figure" src="screenshots/magnet_snapping_settings.png" hspace="10" vspace="10"/>
+<p>
+  When the magnet is disabled, no snapping happens in either mode - events keep their exact position. Snapping is
+  purely an editing aid in the event view; it does not affect notes created by MidiPilot or via the MCP server, which
+  place events at exact ticks.
 </p>
 
 <h3 id="quantization">Quantization</h3>

@@ -14,7 +14,7 @@ class QLabel;
  *
  * \brief Lets the user pick favourite models per provider via checkbox list.
  *
- * One tab per provider (openai / openrouter / gemini / custom). Each tab
+ * One tab per provider (openai / openrouter / gemini / ollama / custom). Each tab
  * shows the cached, chat-only model list (\ref ModelFavorites::isLikelyChatModel
  * applied) with a checkbox per row. Checked rows are persisted as the
  * provider's favourite set (\ref ModelFavorites::setFavorites).

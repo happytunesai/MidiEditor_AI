@@ -100,7 +100,8 @@ can plug into MidiEditor AI and control it.
 </p>
 
 <p>
-MidiEditor AI&rsquo;s MCP server exposes the same <b>15 tools</b> that the built-in MidiPilot AI uses.
+MidiEditor AI&rsquo;s MCP server exposes the same <b>15 core tools</b> that the built-in MidiPilot AI uses
+(plus extra FFXIV tools when FFXIV mode is enabled).
 The difference is that with MCP, <i>you choose</i> which AI client and model to use.
 </p>
 
@@ -302,17 +303,18 @@ the appropriate config file for your AI client.
 <h2 id="tools">Available Tools</h2>
 
 <p>
-All 15 tools from MidiEditor AI&rsquo;s built-in MidiPilot are exposed via MCP.
-The AI client discovers them automatically via <code>tools/list</code>.
+All 15 core tools from MidiEditor AI&rsquo;s built-in MidiPilot are exposed via MCP (plus the FFXIV
+tools below when FFXIV mode is on). The AI client discovers them automatically via <code>tools/list</code>.
 </p>
 
 <h3>Read-Only Tools <span class="tool-badge badge-read">READ</span></h3>
 
 <table>
     <tr><th>Tool</th><th>Description</th></tr>
-    <tr><td><code>get_editor_state</code></td><td>Get file info, tracks, cursor position, tempo, time signature, and selected events</td></tr>
+    <tr><td><code>get_editor_state</code></td><td>Get file info, tracks, cursor position, tempo, time signature, and the selected-event count</td></tr>
     <tr><td><code>get_track_info</code></td><td>Get details about a specific track (name, channel, note count, pitch range)</td></tr>
     <tr><td><code>query_events</code></td><td>Query MIDI events in a tick range on a track</td></tr>
+    <tr><td><code>get_selection</code></td><td>Get the user's current selection as full events, each with a 0-based index (the index <code>delete_events_by_index</code> expects)</td></tr>
 </table>
 
 <h3>Write Tools <span class="tool-badge badge-write">WRITE</span></h3>
@@ -322,9 +324,11 @@ The AI client discovers them automatically via <code>tools/list</code>.
     <tr><td><code>create_track</code></td><td><code>trackName</code>, <code>channel</code></td><td>Create a new MIDI track</td></tr>
     <tr><td><code>rename_track</code></td><td><code>trackIndex</code>, <code>newName</code></td><td>Rename an existing track</td></tr>
     <tr><td><code>set_channel</code></td><td><code>trackIndex</code>, <code>channel</code></td><td>Set the MIDI channel for a track</td></tr>
+    <tr><td><code>remove_track</code></td><td><code>trackIndex</code></td><td>Delete a track and all its events (cannot remove the file's last track)</td></tr>
     <tr><td><code>insert_events</code></td><td><code>trackIndex</code>, <code>events</code></td><td>Insert MIDI events (notes, program changes, CCs)</td></tr>
     <tr><td><code>replace_events</code></td><td><code>trackIndex</code>, <code>startTick</code>, <code>endTick</code>, <code>events</code></td><td>Replace events in a tick range</td></tr>
     <tr><td><code>delete_events</code></td><td><code>trackIndex</code>, <code>startTick</code>, <code>endTick</code></td><td>Delete events in a tick range</td></tr>
+    <tr><td><code>delete_events_by_index</code></td><td><code>indices</code></td><td>Delete specific events from the current selection by 0-based index (e.g. every second selected note)</td></tr>
     <tr><td><code>set_tempo</code></td><td><code>bpm</code>, <code>tick</code></td><td>Set tempo at a tick position</td></tr>
     <tr><td><code>set_time_signature</code></td><td><code>numerator</code>, <code>denominator</code>, <code>tick</code></td><td>Set time signature at a tick position</td></tr>
     <tr><td><code>move_events_to_track</code></td><td><code>sourceTrackIndex</code>, <code>targetTrackIndex</code>, <code>startTick</code>, <code>endTick</code></td><td>Move events between tracks</td></tr>
@@ -343,6 +347,7 @@ so connected clients refresh their tool list automatically.
     <tr><td><code>validate_ffxiv</code></td><td>Check if the file meets FFXIV Bard Performance constraints</td></tr>
     <tr><td><code>convert_drums_ffxiv</code></td><td>Convert a GM drum track into FFXIV drum instrument tracks</td></tr>
     <tr><td><code>setup_channel_pattern</code></td><td>Fix FFXIV channel assignments and program_change events</td></tr>
+    <tr><td><code>analyze_voice_load</code></td><td>Analyse simultaneous-voice count against the FFXIV 16-voice ceiling</td></tr>
 </table>
 
 <hr>

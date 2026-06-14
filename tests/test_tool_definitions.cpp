@@ -136,6 +136,15 @@ public:
 };
 QJsonArray MidiEventSerializer::serialize(QList<MidiEvent *> const &, MidiFile *) { return QJsonArray(); }
 
+// execGetSelection() (added with the get_selection tool) references these.
+class Selection {
+public:
+    static Selection *instance();
+    QList<MidiEvent *> selectedEvents();
+};
+Selection *Selection::instance() { return nullptr; }
+QList<MidiEvent *> Selection::selectedEvents() { return QList<MidiEvent *>(); }
+
 #include "../src/ai/ToolDefinitions.h"
 
 namespace {
@@ -145,12 +154,15 @@ const QStringList kCoreToolNames = {
     QStringLiteral("get_editor_state"),
     QStringLiteral("get_track_info"),
     QStringLiteral("query_events"),
+    QStringLiteral("get_selection"),
     QStringLiteral("create_track"),
     QStringLiteral("rename_track"),
     QStringLiteral("set_channel"),
+    QStringLiteral("remove_track"),
     QStringLiteral("insert_events"),
     QStringLiteral("replace_events"),
     QStringLiteral("delete_events"),
+    QStringLiteral("delete_events_by_index"),
     QStringLiteral("set_tempo"),
     QStringLiteral("set_time_signature"),
     QStringLiteral("move_events_to_track"),
@@ -535,6 +547,34 @@ private slots:
         note[QStringLiteral("duration")] = 240;
         evs.append(note);
         QVERIFY(!ToolDefinitions::isPitchBendOnlyPayload(evs));
+    }
+
+    // -----------------------------------------------------------------
+    // Argument-validation hardening: a tool call missing a required parameter
+    // must fail fast with a clear, schema-derived message — BEFORE any dispatch,
+    // so we can pass null file/widget (the validation path never touches them).
+    void executeTool_missingRequired_returnsClearError() {
+        QJsonObject r = ToolDefinitions::executeTool(
+            QStringLiteral("remove_track"), QJsonObject{}, nullptr, nullptr);
+        QCOMPARE(r.value(QStringLiteral("success")).toBool(), false);
+        QVERIFY2(r.value(QStringLiteral("error")).toString().contains(QStringLiteral("trackIndex")),
+                 qPrintable(r.value(QStringLiteral("error")).toString()));
+    }
+
+    // Misnamed args (a common MCP-client mistake) surface as "missing required",
+    // naming the real parameters — not a confusing tool-specific error.
+    void executeTool_misnamedArgs_namesTheRealRequiredParams() {
+        QJsonObject args;
+        args[QStringLiteral("fromTrack")] = 0;   // wrong name (real: sourceTrackIndex)
+        args[QStringLiteral("toTrack")] = 1;     // wrong name (real: targetTrackIndex)
+        args[QStringLiteral("startTick")] = 0;
+        args[QStringLiteral("endTick")] = 100;
+        QJsonObject r = ToolDefinitions::executeTool(
+            QStringLiteral("move_events_to_track"), args, nullptr, nullptr);
+        QCOMPARE(r.value(QStringLiteral("success")).toBool(), false);
+        const QString err = r.value(QStringLiteral("error")).toString();
+        QVERIFY2(err.contains(QStringLiteral("sourceTrackIndex")), qPrintable(err));
+        QVERIFY2(err.contains(QStringLiteral("targetTrackIndex")), qPrintable(err));
     }
 };
 

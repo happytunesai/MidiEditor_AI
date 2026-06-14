@@ -25,6 +25,7 @@
 #include "../midi/MidiInput.h"
 #include "../midi/MidiOutput.h"
 #include "../midi/Metronome.h"
+#include "../tool/EventTool.h"
 #include <QCheckBox>
 #include <QGridLayout>
 #include <QLabel>
@@ -96,24 +97,39 @@ AdditionalMidiSettingsWidget::AdditionalMidiSettingsWidget(QSettings *settings, 
 
     layout->addWidget(separator(), 7, 0, 1, 6);
 
-    layout->addWidget(new QLabel(tr("Metronome loudness:"), this), 8, 0, 1, 2);
+    // Snap behaviour for the Magnet tool (applies to drawing, moving and
+    // resizing notes — all go through EventTool::rasteredX).
+    QCheckBox *modernSnapBox = new QCheckBox(tr("Modern grid snap (snap to the nearest grid line)"), this);
+    modernSnapBox->setChecked(EventTool::modernSnap());
+    connect(modernSnapBox, &QCheckBox::toggled, this, [this](bool checked) {
+        EventTool::setModernSnap(checked);
+        _settings->setValue("snap_modern", checked);
+    });
+    layout->addWidget(modernSnapBox, 8, 0, 1, 6);
+
+    QWidget *snapInfoBox = createInfoBox(tr("With Magnet on: Modern snaps notes hard to the nearest grid line (like a DAW) — including when drawing new notes. Turn off for Legacy behaviour (magnetic pull only near a grid line)."));
+    layout->addWidget(snapInfoBox, 9, 0, 1, 6);
+
+    layout->addWidget(separator(), 10, 0, 1, 6);
+
+    layout->addWidget(new QLabel(tr("Metronome loudness:"), this), 11, 0, 1, 2);
     _metronomeLoudnessBox = new QSpinBox(this);
     _metronomeLoudnessBox->setMinimum(10);
     _metronomeLoudnessBox->setMaximum(100);
     _metronomeLoudnessBox->setValue(Metronome::loudness());
     connect(_metronomeLoudnessBox, SIGNAL(valueChanged(int)), this, SLOT(setMetronomeLoudness(int)));
-    layout->addWidget(_metronomeLoudnessBox, 8, 2, 1, 4);
+    layout->addWidget(_metronomeLoudnessBox, 11, 2, 1, 4);
 
-    layout->addWidget(separator(), 9, 0, 1, 6);
+    layout->addWidget(separator(), 12, 0, 1, 6);
 
-    layout->addWidget(new QLabel(tr("Start command:"), this), 10, 0, 1, 2);
+    layout->addWidget(new QLabel(tr("Start command:"), this), 13, 0, 1, 2);
     startCmd = new QLineEdit(this);
-    layout->addWidget(startCmd, 10, 2, 1, 4);
+    layout->addWidget(startCmd, 13, 2, 1, 4);
 
     _startCmdInfoBox = createInfoBox(tr("The start command can be used to start additional software components (e.g. Midi synthesizers) each time, MidiEditor is started. You can see the output of the started software / script in the field below."));
-    layout->addWidget(_startCmdInfoBox, 11, 0, 1, 6);
+    layout->addWidget(_startCmdInfoBox, 14, 0, 1, 6);
 
-    layout->addWidget(Terminal::terminal()->console(), 12, 0, 1, 6);
+    layout->addWidget(Terminal::terminal()->console(), 15, 0, 1, 6);
 
     startCmd->setText(_settings->value("start_cmd", "").toString());
     layout->setRowStretch(3, 1);

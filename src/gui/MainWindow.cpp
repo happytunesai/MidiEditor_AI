@@ -230,6 +230,9 @@ MainWindow::MainWindow(QString initFile)
     MidiFile::defaultTimePerQuarter = ticksPerQuarter;
     bool magnet = _settings->value("magnet", false).toBool();
     EventTool::enableMagnet(magnet);
+    // Snap behaviour when magnet is on: Modern (hard-snap to nearest grid,
+    // like a DAW; default) vs Legacy (magnetic pull within a few pixels).
+    EventTool::setModernSnap(_settings->value("snap_modern", true).toBool());
 
     MidiInput::setThruEnabled(_settings->value("thru", false).toBool());
 

@@ -77,6 +77,7 @@ private:
     static QJsonObject execGetEditorState(MidiFile *file);
     static QJsonObject execGetTrackInfo(const QJsonObject &args, MidiFile *file);
     static QJsonObject execQueryEvents(const QJsonObject &args, MidiFile *file);
+    static QJsonObject execGetSelection(MidiFile *file);
 
     // Write tools (delegate to widget handlers)
     static QJsonObject execWriteAction(const QString &action,

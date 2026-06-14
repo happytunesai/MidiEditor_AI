@@ -765,12 +765,18 @@ void MidiPilotWidget::setupUi() {
 
     _modelCombo = new QComboBox(this);
     populateFooterModels();
-    _modelCombo->setEditable(true);
+    // Read-only: the model is chosen from the list, not typed. An editable combo
+    // let users overwrite the displayed label (which since the size badges is
+    // "name (8.0B, 9.6 GB)", not the model id) and that text could then be sent
+    // as a bogus model name. Custom model names are entered in Settings instead.
+    // Long labels elide with "..." (the size badge drops first, the name stays);
+    // the full text is in the dropdown and the tooltip.
+    _modelCombo->setEditable(false);
+    _modelCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    _modelCombo->setMinimumContentsLength(8);
     _modelCombo->setFixedHeight(20);
     _modelCombo->setStyleSheet("font-size: 11px;");
-    int modelIdx = _modelCombo->findData(_client->model());
-    if (modelIdx >= 0) _modelCombo->setCurrentIndex(modelIdx);
-    else _modelCombo->setEditText(_client->model());
+    selectFooterModel(_client->model());
     connect(_modelCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &MidiPilotWidget::onModelComboChanged);
     footerLayout->addWidget(_modelCombo);
@@ -848,11 +854,7 @@ void MidiPilotWidget::setupSetupPrompt() {
         _modelCombo->blockSignals(true);
         populateFooterModels();
         // Sync model combo with the model from settings
-        int modelIdx = _modelCombo->findData(_client->model());
-        if (modelIdx >= 0)
-            _modelCombo->setCurrentIndex(modelIdx);
-        else
-            _modelCombo->setEditText(_client->model());
+        selectFooterModel(_client->model());
         _modelCombo->blockSignals(false);
         // Show effort combo only for reasoning models
         _effortCombo->setVisible(_client->isReasoningModel());
@@ -928,7 +930,7 @@ void MidiPilotWidget::populateFooterModels() {
     } else if (provider == "ollama") {
         // Local models live on the Ollama server — no useful hardcoded list.
         // The combo is editable and the refresh button fetches /v1/models.
-        addModel(tr("(refresh ↻ or type, e.g. gemma4:latest)"), "");
+        addModel(tr("(click ↻ to load installed models)"), "");
     } else {
         // OpenAI or custom — show OpenAI models
         addModel("gpt-4o-mini", "gpt-4o-mini");
@@ -970,13 +972,12 @@ void MidiPilotWidget::onModelsFetched(const QString &provider, const QJsonArray 
         _refreshModelsButton->setEnabled(true);
 
     if (_client->provider() == provider) {
-        QString currentText = _modelCombo->currentText();
+        // Preserve the selected model id (currentData), not the label text —
+        // the label now carries a size badge, so matching on text would fail.
+        QString currentId = _modelCombo->currentData().toString();
+        if (currentId.isEmpty()) currentId = _client->model();
         populateFooterModels();
-        int idx = _modelCombo->findData(currentText);
-        if (idx >= 0)
-            _modelCombo->setCurrentIndex(idx);
-        else
-            _modelCombo->setEditText(currentText);
+        selectFooterModel(currentId);
     }
     setStatus(tr("Models updated (%1 entries)").arg(models.size()), "green");
 }
@@ -1836,12 +1837,33 @@ void MidiPilotWidget::onModeChanged(int index) {
 
 void MidiPilotWidget::onModelComboChanged(int index) {
     Q_UNUSED(index);
+    // Read-only combo: every real entry carries the model id as item data; only
+    // the Ollama "(refresh...)" placeholder has an empty id. Use the id only —
+    // never the visible label (which may be a size badge or the placeholder),
+    // so a bogus model name can't reach the API.
     QString model = _modelCombo->currentData().toString();
-    if (model.isEmpty()) model = _modelCombo->currentText().trimmed();
     if (!model.isEmpty()) {
         _client->setModel(model);
         _effortCombo->setVisible(_client->isReasoningModel());
     }
+    // Keep the tooltip in sync so the full label is reachable when it elides.
+    _modelCombo->setToolTip(_modelCombo->currentText());
+}
+
+void MidiPilotWidget::selectFooterModel(const QString &modelId) {
+    if (!_modelCombo)
+        return;
+    int idx = _modelCombo->findData(modelId);
+    if (idx < 0 && !modelId.isEmpty()) {
+        // Not in the cached list (a custom or per-file model). Add it so the
+        // read-only combo can still display and select it — the data is the raw
+        // id (no badge), so it is sent to the API unchanged.
+        _modelCombo->addItem(modelId, modelId);
+        idx = _modelCombo->count() - 1;
+    }
+    if (idx >= 0)
+        _modelCombo->setCurrentIndex(idx);
+    _modelCombo->setToolTip(_modelCombo->currentText());
 }
 
 void MidiPilotWidget::onProviderComboChanged(int index) {
@@ -2342,7 +2364,7 @@ QJsonObject MidiPilotWidget::dispatchAction(const QJsonObject &response, bool sh
         return applyAiDeletes(response, showBubbles);
     } else if (action == "move_to_track") {
         return applyMoveToTrack(response, showBubbles);
-    } else if (action == "create_track" || action == "rename_track" || action == "set_channel") {
+    } else if (action == "create_track" || action == "rename_track" || action == "set_channel" || action == "remove_track") {
         return applyTrackAction(response, showBubbles);
     } else if (action == "set_tempo") {
         return applyTempoAction(response, showBubbles);
@@ -2610,6 +2632,40 @@ QJsonObject MidiPilotWidget::applyTrackAction(const QJsonObject &response, bool 
         _file->protocol()->endAction();
 
         result["success"] = true;
+
+    } else if (action == "remove_track") {
+        int trackIndex = response["trackIndex"].toInt(-1);
+
+        if (trackIndex < 0 || trackIndex >= _file->numTracks()) {
+            if (showBubbles) addChatBubble("system", "Invalid track index for remove.");
+            result["success"] = false;
+            result["error"] = QString("Invalid track index: %1").arg(trackIndex);
+            return result;
+        }
+        if (_file->numTracks() <= 1) {
+            result["success"] = false;
+            result["error"] = QString("Cannot remove the last track of the file.");
+            return result;
+        }
+
+        MidiTrack *track = _file->track(trackIndex);
+        QString removedName = track->name();
+        _file->protocol()->startNewAction(
+            QStringLiteral("%1: Agent remove track %2").arg(protoPrefix(response)).arg(trackIndex));
+        // Clear the selection first: any selected events on this track would be
+        // dangling pointers once the track (and its events) are gone.
+        Selection::instance()->clearSelection();
+        bool ok = _file->removeTrack(track);
+        _file->protocol()->endAction();
+
+        if (!ok) {
+            result["success"] = false;
+            result["error"] = QString("Track %1 could not be removed.").arg(trackIndex);
+            return result;
+        }
+        result["success"] = true;
+        result["removedTrack"] = removedName;
+        result["hint"] = QString("Track indices shifted: tracks after %1 moved down by one.").arg(trackIndex);
 
     } else {
         result["success"] = false;
@@ -3551,11 +3607,7 @@ void MidiPilotWidget::loadPresetForFile(const QString &midiPath) {
     // Apply model
     if (obj.contains(QStringLiteral("model"))) {
         QString model = obj[QStringLiteral("model")].toString();
-        int idx = _modelCombo->findData(model);
-        if (idx >= 0)
-            _modelCombo->setCurrentIndex(idx);
-        else
-            _modelCombo->setEditText(model);
+        selectFooterModel(model);
     }
 
     // Apply mode
@@ -3610,9 +3662,11 @@ void MidiPilotWidget::savePresetForFile() {
 
     QJsonObject obj;
     obj[QStringLiteral("provider")] = _providerCombo->currentData().toString();
-    obj[QStringLiteral("model")] = _modelCombo->currentData().toString().isEmpty()
-        ? _modelCombo->currentText()
-        : _modelCombo->currentData().toString();
+    // Use the model id (item data); fall back to the client's active model, never
+    // the combo label (which may carry a size badge or the placeholder text).
+    QString modelId = _modelCombo->currentData().toString();
+    if (modelId.isEmpty()) modelId = _client->model();
+    obj[QStringLiteral("model")] = modelId;
     obj[QStringLiteral("mode")] = _modeCombo->currentData().toString();
     obj[QStringLiteral("ffxiv")] = _ffxivCheck->isChecked();
     obj[QStringLiteral("effort")] = _effortCombo->currentData().toString();

@@ -17,6 +17,7 @@
  *  - openai     GET https://api.openai.com/v1/models
  *  - openrouter GET https://openrouter.ai/api/v1/models  (no auth needed)
  *  - gemini     GET https://generativelanguage.googleapis.com/v1beta/models?key=...
+ *  - ollama     GET <host>/api/tags   (installed models + size/capabilities)
  *  - custom     GET <baseUrl>/models   (OpenAI-compatible)
  *
  * Emits \c finished on success (with the normalised array) or \c failed on
@@ -30,13 +31,21 @@ public:
 
     /**
      * \brief Starts the fetch.
-     * \param provider one of "openai" / "openrouter" / "gemini" / "custom"
+     * \param provider one of "openai" / "openrouter" / "gemini" / "ollama" / "custom"
      * \param apiKey Bearer key (Gemini uses ?key=, others use Authorization header)
      * \param baseUrl Used for the "custom" provider; ignored otherwise.
      */
     void fetch(const QString &provider,
                const QString &apiKey,
                const QString &baseUrl);
+
+    /**
+     * \brief Normalise Ollama's /api/tags `models` array into the cache schema
+     *        (id, displayName with size badge, contextWindow, supportsTools,
+     *        supportsReasoning). Static + public so it is unit-testable without
+     *        a network round-trip. Uses no instance state.
+     */
+    static QJsonArray normaliseOllama(const QJsonArray &raw);
 
 signals:
     /**

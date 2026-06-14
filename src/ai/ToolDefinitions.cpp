@@ -14,10 +14,12 @@
 #include "../MidiEvent/NoteOnEvent.h"
 #include "../MidiEvent/OffEvent.h"
 #include "../protocol/Protocol.h"
+#include "../tool/Selection.h"
 
 #include <QJsonDocument>
 #include <QSettings>
 #include <QSet>
+#include <QStringList>
 #include <QRegularExpression>
 #include <algorithm>
 #include <climits>
@@ -212,6 +214,19 @@ QJsonArray ToolDefinitions::toolSchemas(const ToolSchemaOptions &options) {
             makeParams(props, {"trackIndex", "startTick", "endTick"})));
     }
 
+    // get_selection (no parameters)
+    {
+        tools.append(makeTool(
+            "get_selection",
+            "Get the events the user has currently selected in the editor, with full "
+            "details (note, tick, duration, channel, track) and a 0-based index per event. "
+            "Those indices are exactly what delete_events_by_index expects, so call this "
+            "first when the user refers to 'the selected notes' and you need to act on "
+            "specific ones (e.g. only the high notes, or every second). Returns an empty "
+            "list when nothing is selected.",
+            makeParams(QJsonObject(), QJsonArray())));
+    }
+
     // --- Write tools ---
 
     // create_track
@@ -261,6 +276,20 @@ QJsonArray ToolDefinitions::toolSchemas(const ToolSchemaOptions &options) {
             "set_channel",
             "Set the MIDI channel for a track.",
             makeParams(props, {"trackIndex", "channel"})));
+    }
+
+    // remove_track
+    {
+        QJsonObject props;
+        props["trackIndex"] = QJsonObject{
+            {"type", "integer"},
+            {"description", "Zero-based index of the track to remove."}};
+        tools.append(makeTool(
+            "remove_track",
+            "Remove a track and all its events. Cannot remove the file's last track. "
+            "NOTE: track indices after the removed one shift down by one, so re-read "
+            "get_editor_state before referring to tracks by index again.",
+            makeParams(props, {"trackIndex"})));
     }
 
     // insert_events
@@ -328,6 +357,28 @@ QJsonArray ToolDefinitions::toolSchemas(const ToolSchemaOptions &options) {
             "delete_events",
             "Delete all MIDI events in a tick range on a specific track.",
             makeParams(props, {"trackIndex", "startTick", "endTick"})));
+    }
+
+    // delete_events_by_index
+    {
+        QJsonObject props;
+        QJsonObject indicesItems;
+        indicesItems["type"] = "integer";
+        props["indices"] = QJsonObject{
+            {"type", "array"},
+            {"items", indicesItems},
+            {"description",
+             "0-based indices into the user's current selection (the selectedEvents "
+             "array in the editor state). Only the events at these positions are "
+             "deleted; the rest of the selection is kept."}};
+        tools.append(makeTool(
+            "delete_events_by_index",
+            "Delete specific events from the user's CURRENT SELECTION by their 0-based "
+            "index in the selectedEvents array. Use this for selection-relative deletes "
+            "such as 'delete every second selected note' (e.g. indices [1,3,5,...]) "
+            "instead of computing tick ranges or deleting notes one tick at a time. "
+            "Requires events to be selected; indices out of range are ignored.",
+            makeParams(props, {"indices"})));
     }
 
     // set_tempo
@@ -452,6 +503,36 @@ QJsonObject ToolDefinitions::executeTool(const QString &toolName,
                                          MidiFile *file,
                                          MidiPilotWidget *widget,
                                          const QString &source) {
+    // Hardening: validate required parameters against the tool's own schema
+    // before dispatching. Without this, a missing or misnamed argument (common
+    // from MCP clients, which — unlike the OpenAI/Gemini strict-mode path —
+    // don't enforce the schema) produces a confusing tool-specific failure
+    // (e.g. "Invalid target track index" when targetTrackIndex was simply
+    // absent). Here it yields a clear, actionable message instead.
+    {
+        const QJsonArray schemas = toolSchemas();
+        for (const QJsonValue &sv : schemas) {
+            const QJsonObject fn = sv.toObject().value(QStringLiteral("function")).toObject();
+            if (fn.value(QStringLiteral("name")).toString() != toolName)
+                continue;
+            const QJsonObject params = fn.value(QStringLiteral("parameters")).toObject();
+            QStringList missing;
+            for (const QJsonValue &rv : params.value(QStringLiteral("required")).toArray()) {
+                const QString key = rv.toString();
+                if (!args.contains(key))
+                    missing << key;
+            }
+            if (!missing.isEmpty()) {
+                QJsonObject result;
+                result["success"] = false;
+                result["error"] = QString("Tool '%1' is missing required parameter(s): %2.")
+                                      .arg(toolName, missing.join(QStringLiteral(", ")));
+                return result;
+            }
+            break; // schema found and satisfied
+        }
+    }
+
     // Read-only tools
     if (toolName == "get_editor_state") {
         return execGetEditorState(file);
@@ -462,9 +543,13 @@ QJsonObject ToolDefinitions::executeTool(const QString &toolName,
     if (toolName == "query_events") {
         return execQueryEvents(args, file);
     }
+    if (toolName == "get_selection") {
+        return execGetSelection(file);
+    }
 
     // Write tools — delegate to widget handlers via executeAction
-    if (toolName == "create_track" || toolName == "rename_track" || toolName == "set_channel") {
+    if (toolName == "create_track" || toolName == "rename_track"
+        || toolName == "set_channel" || toolName == "remove_track") {
         QJsonObject a = args;
         if (!source.isEmpty()) a["_source"] = source;
         return execWriteAction(toolName, a, widget);
@@ -532,6 +617,18 @@ QJsonObject ToolDefinitions::executeTool(const QString &toolName,
         if (!source.isEmpty()) actionObj["_source"] = source;
         return widget->executeAction(actionObj);
     }
+    if (toolName == "delete_events_by_index") {
+        // Map to the selection-relative "delete" action — the same engine Simple
+        // mode uses (applyAiDeletes), which indexes into Selection::selectedEvents()
+        // with bounds-checking. Gives the agent parity with Simple mode for tasks
+        // like "delete every second selected note" without range math.
+        QJsonObject actionObj;
+        actionObj["action"] = QString("delete");
+        actionObj["deleteIndices"] = args["indices"];
+        actionObj["explanation"] = QString("Agent: delete selected events by index");
+        if (!source.isEmpty()) actionObj["_source"] = source;
+        return widget->executeAction(actionObj);
+    }
     if (toolName == "set_tempo") {
         QJsonObject a = args;
         if (!source.isEmpty()) a["_source"] = source;
@@ -588,6 +685,23 @@ QJsonObject ToolDefinitions::execGetEditorState(MidiFile *file) {
     }
     result["success"] = true;
     result["state"] = EditorContext::captureState(file);
+    return result;
+}
+
+QJsonObject ToolDefinitions::execGetSelection(MidiFile *file) {
+    QJsonObject result;
+    if (!file) {
+        result["success"] = false;
+        result["error"] = QString("No file loaded.");
+        return result;
+    }
+    // Same list (and order) delete_events_by_index indexes into, so the "id"
+    // field on each serialized event IS the index to pass to that tool.
+    QList<MidiEvent *> selected = Selection::instance()->selectedEvents();
+    QJsonArray events = MidiEventSerializer::serialize(selected, file);
+    result["success"] = true;
+    result["count"] = selected.size();
+    result["selectedEvents"] = events;
     return result;
 }
 

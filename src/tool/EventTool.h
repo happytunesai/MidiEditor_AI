@@ -21,6 +21,8 @@
 
 #include "EditorTool.h"
 
+#include <QList>
+#include <QPair>
 #include <QPointer>
 
 // Forward declarations
@@ -247,6 +249,18 @@ public:
      */
     static bool magnetEnabled();
 
+    /**
+     * \brief Selects the snap behaviour used when magnet is enabled.
+     * \param modern True for "Modern" snap (hard-snap to the nearest grid
+     *        division, like a DAW); false for "Legacy" snap (magnetic pull
+     *        only within a few pixels of a division).
+     */
+    static void setModernSnap(bool modern);
+
+    /** \brief True when Modern (hard grid) snap is selected. The pure snap math
+     *  lives in SnapMath::snapToDiv() (header-only, unit-tested). */
+    static bool modernSnap();
+
     /** \brief Static list of copied events */
     static QList<MidiEvent *> *copiedEvents;
 
@@ -273,6 +287,9 @@ protected:
 
     /** \brief Flag indicating if grid snapping is enabled */
     static bool _magnet;
+
+    /** \brief True = Modern (hard grid) snap; false = Legacy (magnetic ±px). */
+    static bool _modernSnap;
 };
 
 #endif // EVENTTOOL_H_

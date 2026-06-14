@@ -523,6 +523,19 @@ void AiClient::sendMessagesInternal(const QJsonArray &messages,
             } else {
                 body[QStringLiteral("reasoning_effort")] = QStringLiteral("low");
             }
+        } else if (_provider == QStringLiteral("ollama")) {
+            // Phase 26.2b: local "thinking" models (qwen3.x etc.) otherwise burn
+            // minutes reasoning by default, which makes the Agent loop unusable.
+            // isReasoningModel() only matches OpenAI families, so without this an
+            // Ollama model gets no thinking control at all. Drive it through the
+            // OpenAI-compat /v1 reasoning_effort lever, honouring the user's
+            // thinking toggle and defaulting to "low" when thinking is off so the
+            // loop stays responsive. Non-thinking models simply ignore the field.
+            // (`think:false` is native to Ollama's /api/chat, not /v1 — adding
+            // that transport is roadmap 26.4.)
+            body[QStringLiteral("temperature")] = 0.3;
+            body[QStringLiteral("reasoning_effort")] =
+                _thinkingEnabled ? _reasoningEffort : QStringLiteral("low");
         } else {
             body[QStringLiteral("temperature")] = 0.3;
         }
@@ -610,6 +623,13 @@ void AiClient::testConnection()
 
     if (reasoning) {
         // Reasoning models: use top-level reasoning_effort string
+        body[QStringLiteral("reasoning_effort")] = QStringLiteral("low");
+        body[QStringLiteral("max_completion_tokens")] = 64;
+    } else if (_provider == QStringLiteral("ollama")) {
+        // Keep the test fast even if the user's default Ollama model is a heavy
+        // "thinking" one (qwen3.x) — otherwise a "Reply with: OK" probe can spin
+        // for minutes. Mirrors the reasoning_effort lever used for real requests
+        // (Phase 26.2b).
         body[QStringLiteral("reasoning_effort")] = QStringLiteral("low");
         body[QStringLiteral("max_completion_tokens")] = 64;
     } else {
@@ -898,7 +918,16 @@ void AiClient::onReplyFinished(QNetworkReply *reply)
             retryDelayMs = 1000;
         } else if (reply->error() == QNetworkReply::HostNotFoundError ||
                    reply->error() == QNetworkReply::ConnectionRefusedError) {
-            errorMsg = tr("Unable to connect to the API. Please check your internet connection.");
+            if (_provider == QStringLiteral("ollama")) {
+                // Phase 26.1: local server, not the internet. Point at the real
+                // cause instead of the generic "check your connection".
+                errorMsg = tr("Can't reach the Ollama server at %1. Is Ollama installed and "
+                              "running? Start it (run \"ollama serve\" or launch the Ollama app), "
+                              "then try again. See the manual for local-AI setup.")
+                               .arg(_apiBaseUrl);
+            } else {
+                errorMsg = tr("Unable to connect to the API. Please check your internet connection.");
+            }
         } else {
             errorMsg = tr("API error (HTTP %1): %2").arg(statusCode).arg(reply->errorString());
         }
@@ -1408,6 +1437,14 @@ void AiClient::sendStreamingMessages(const QJsonArray &messages, const QJsonArra
     } else if (geminiThinking) {
         body[QStringLiteral("reasoning_effort")] = _thinkingEnabled
             ? _reasoningEffort : QStringLiteral("low");
+    } else if (_provider == QStringLiteral("ollama")) {
+        // Phase 26.2b reasoning lever, mirrored from the non-streaming path
+        // (sendMessagesInternal). Streaming is the DEFAULT transport, so without
+        // this branch a local thinking model (qwen3.x) reasons unboundedly on
+        // every real request and the toggle only worked in Test Connection.
+        body[QStringLiteral("temperature")] = 0.3;
+        body[QStringLiteral("reasoning_effort")] =
+            _thinkingEnabled ? _reasoningEffort : QStringLiteral("low");
     } else {
         body[QStringLiteral("temperature")] = 0.3;
     }
@@ -1611,6 +1648,11 @@ void AiClient::sendStreamingRequest(const QString &systemPrompt,
     if (reasoning) {
         body[QStringLiteral("reasoning_effort")] = _thinkingEnabled ? _reasoningEffort : QStringLiteral("low");
     } else if (geminiThinking) {
+        body[QStringLiteral("reasoning_effort")] = _thinkingEnabled ? _reasoningEffort : QStringLiteral("low");
+    } else if (_provider == QStringLiteral("ollama")) {
+        // Phase 26.2b reasoning lever, mirrored from the non-streaming path;
+        // streaming is the default transport (see the agent streaming builder).
+        body[QStringLiteral("temperature")] = 0.3;
         body[QStringLiteral("reasoning_effort")] = _thinkingEnabled ? _reasoningEffort : QStringLiteral("low");
     } else {
         body[QStringLiteral("temperature")] = 0.3;

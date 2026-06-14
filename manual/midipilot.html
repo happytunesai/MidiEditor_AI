@@ -489,9 +489,9 @@ Configure your AI connection from <b>Settings &rarr; MidiPilot AI</b>. Select a 
 
 <table>
 <tr><th>Setting</th><th>Description</th></tr>
-<tr><td><b>Provider</b></td><td>OpenAI, OpenRouter, Google Gemini, or Custom</td></tr>
+<tr><td><b>Provider</b></td><td>OpenAI, OpenRouter, Google Gemini, Ollama (local), or Custom</td></tr>
 <tr><td><b>Base URL</b></td><td>Auto-filled per provider, or enter your own endpoint</td></tr>
-<tr><td><b>API Key</b></td><td>Your provider API key - get one from <a href="https://platform.openai.com/settings/organization/api-keys" target="_blank" rel="noopener noreferrer">OpenAI</a>, <a href="https://openrouter.ai/settings/keys" target="_blank" rel="noopener noreferrer">OpenRouter</a>, or <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Google Gemini</a></td></tr>
+<tr><td><b>API Key</b></td><td>Your provider API key - get one from <a href="https://platform.openai.com/settings/organization/api-keys" target="_blank" rel="noopener noreferrer">OpenAI</a>, <a href="https://openrouter.ai/settings/keys" target="_blank" rel="noopener noreferrer">OpenRouter</a>, or <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Google Gemini</a>. Not needed for <a href="#ollama">Ollama (local)</a>.</td></tr>
 <tr><td><b>Model</b></td><td>Editable dropdown populated from the active provider's cached model list. If no cache exists, MidiPilot falls back to a small built-in starter list.</td></tr>
 <tr><td><b>Refresh Models</b></td><td>Fetches the live provider model list from <code>/models</code>, normalizes provider-specific fields, filters obvious non-chat models, and stores the result in <code>&lt;userdata&gt;/midipilot_models.json</code>.</td></tr>
 <tr><td><b>Manage favourites&hellip;</b></td><td>Pick the models that should stay visible per provider. If no favourites are selected, all cached chat-capable models are shown.</td></tr>
@@ -669,8 +669,25 @@ In Agent mode, the AI has access to <b>16 tools</b> (12 base + 4 FFXIV-specific)
 <tr><td><b>OpenAI</b></td><td>api.openai.com/v1</td><td><a href="https://platform.openai.com/settings/organization/api-keys" target="_blank" rel="noopener noreferrer">Get API Key &rarr;</a></td><td>Limited</td></tr>
 <tr><td><b>OpenRouter</b></td><td>openrouter.ai/api/v1</td><td><a href="https://openrouter.ai/settings/keys" target="_blank" rel="noopener noreferrer">Get API Key &rarr;</a></td><td>Free models available</td></tr>
 <tr><td><b>Google Gemini</b></td><td>generativelanguage.googleapis.com</td><td><a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Get API Key &rarr;</a></td><td>15 RPM, 1M TPM</td></tr>
+<tr><td><b>Ollama (local)</b></td><td>localhost:11434/v1</td><td>None - runs on your PC</td><td>Free &amp; unlimited</td></tr>
 <tr><td><b>Custom</b></td><td>User-specified</td><td>User-specified</td><td>Varies</td></tr>
 </table>
+
+<h3 id="ollama">Local AI with Ollama (free, private, no API key)</h3>
+
+<p>
+<a href="https://ollama.com" target="_blank" rel="noopener noreferrer">Ollama</a> runs an open-weight language model entirely on your own machine - no API key, no cloud account, no per-token cost, and nothing leaves your PC. Setup is a one-time step, comparable to getting a cloud API key:
+</p>
+
+<ol>
+<li><b>Install Ollama.</b> Download it from <a href="https://ollama.com" target="_blank" rel="noopener noreferrer">ollama.com</a> and run the installer. After installation the Ollama server runs in the background and listens on <code>http://localhost:11434</code>.</li>
+<li><b>Pull a model.</b> From a terminal, run e.g. <code>ollama pull llama3.1:8b</code>. Pick a model that advertises the <b>tools</b> capability if you want to use <b>Agent Mode</b> (the agent drives MidiPilot's tools to compose/edit; a chat-only model can still answer in Simple Mode). Smaller models download faster and respond quicker; large models need a capable GPU and lots of disk.</li>
+<li><b>Configure MidiPilot.</b> In <b>Settings &rarr; MidiPilot AI</b>, set <b>Provider</b> to <b>Ollama (local)</b>. The Base URL auto-fills to <code>http://localhost:11434/v1</code> and the API key field can stay empty. Click the <b>&#x1F504; Refresh</b> button to list your installed models (with size badges), pick one, and click <b>Test Connection</b>.</li>
+</ol>
+
+<p>
+If Test Connection reports the server can't be reached, make sure Ollama is actually running (launch the Ollama app, or run <code>ollama serve</code> in a terminal), then try again.
+</p>
 
 <hr>
 
