@@ -33,7 +33,13 @@ jobs:
   # ─────────────────────────────────────────────────────
   build:
     name: "\U0001F528 Build"
-    runs-on: windows-latest
+    # Pinned to windows-2022: 'windows-latest' was redirected to
+    # windows-2025-vs2026 (MSVC 14.51) on 2026-06-15, whose STL dropped the
+    # 'stdext' namespace that Qt 6.5.3's qvarlengtharray.h still relies on
+    # (error C2065/C3861 'stdext'). windows-2022 (VS 2022, MSVC 14.4x) is ABI-
+    # compatible with the win64_msvc2019_64 Qt build and is the image that
+    # successfully built every release through 1.8.1.1.
+    runs-on: windows-2022
     outputs:
       is_release: ${{ steps.detect.outputs.is_release }}
       version: ${{ steps.detect.outputs.version }}
