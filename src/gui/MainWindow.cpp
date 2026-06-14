@@ -8101,7 +8101,7 @@ QWidget *MainWindow::createCustomToolbar(QWidget *parent) {
         QToolBar *bottomToolBar = new QToolBar("Bottom", buttonBar);
 
         // Essential toolbar setup (larger icons)
-        int essentialIconSize = iconSize + 8;
+        int essentialIconSize = iconSize;
         essentialToolBar->setFloatable(false);
         essentialToolBar->setContentsMargins(0, 0, 0, 0);
         essentialToolBar->layout()->setSpacing(3);
@@ -8158,7 +8158,7 @@ QWidget *MainWindow::createCustomToolbar(QWidget *parent) {
                 // Set text under icon for essential actions
                 QWidget *toolButton = essentialToolBar->widgetForAction(action);
                 if (QToolButton *button = qobject_cast<QToolButton *>(toolButton)) {
-                    button->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
+                    button->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
                 }
             }
         }
@@ -8323,7 +8323,7 @@ QWidget *MainWindow::createCustomToolbar(QWidget *parent) {
         // Layout: Essential toolbar on left, content toolbars stacked on right
         btnLayout->setColumnStretch(1, 1);
         btnLayout->setColumnMinimumWidth(1, 800); // Ensure content toolbars have adequate width for double row
-        btnLayout->addWidget(essentialToolBar, 0, 0, 2, 1); // Spans both rows
+        btnLayout->addWidget(essentialToolBar, 0, 0, 2, 1, Qt::AlignTop); // Spans both rows; top-aligned so the freed space below holds the tab-tools row (Phase 28)
         btnLayout->addWidget(topToolBar, 0, 1, 1, 1);
         btnLayout->addWidget(bottomToolBar, 1, 1, 1, 1);
     } else {
@@ -8501,9 +8501,10 @@ QWidget *MainWindow::createCustomToolbar(QWidget *parent) {
                         // Set the toolbar style for this specific action
                         QWidget *toolButton = toolBar->widgetForAction(action);
                         if (QToolButton *button = qobject_cast<QToolButton *>(toolButton)) {
-                            button->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
-                            // Make essential action icons slightly larger
-                            button->setIconSize(QSize(iconSize + 4, iconSize + 4));
+                            button->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+                            // Phase 28: keep essential icons at row size so the
+                            // block stays flush with the two-row toolbar.
+                            button->setIconSize(QSize(iconSize, iconSize));
                         }
                     }
                 } catch (...) {
@@ -8724,7 +8725,7 @@ void MainWindow::updateToolbarContents(QWidget *toolbarWidget, QGridLayout *btnL
         QToolBar *bottomToolBar = new QToolBar("Bottom", toolbarWidget);
 
         // Essential toolbar setup (larger icons)
-        int essentialIconSize = iconSize + 8;
+        int essentialIconSize = iconSize;
         essentialToolBar->setFloatable(false);
         essentialToolBar->setContentsMargins(0, 0, 0, 0);
         essentialToolBar->layout()->setSpacing(3);
@@ -8781,7 +8782,7 @@ void MainWindow::updateToolbarContents(QWidget *toolbarWidget, QGridLayout *btnL
                 // Set text under icon for essential actions
                 QWidget *toolButton = essentialToolBar->widgetForAction(action);
                 if (QToolButton *button = qobject_cast<QToolButton *>(toolButton)) {
-                    button->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
+                    button->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
                 }
             }
         }
@@ -8924,7 +8925,7 @@ void MainWindow::updateToolbarContents(QWidget *toolbarWidget, QGridLayout *btnL
         // Layout: Essential toolbar on left, content toolbars stacked on right
         btnLayout->setColumnStretch(1, 1);
         btnLayout->setColumnMinimumWidth(1, 800); // Ensure content toolbars have adequate width for double row
-        btnLayout->addWidget(essentialToolBar, 0, 0, 2, 1); // Spans both rows
+        btnLayout->addWidget(essentialToolBar, 0, 0, 2, 1, Qt::AlignTop); // Spans both rows; top-aligned so the freed space below holds the tab-tools row (Phase 28)
         btnLayout->addWidget(topToolBar, 0, 1, 1, 1);
         btnLayout->addWidget(bottomToolBar, 1, 1, 1, 1);
     } else {
