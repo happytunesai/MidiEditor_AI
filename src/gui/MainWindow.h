@@ -39,6 +39,7 @@
 // Forward declarations
 class QProgressDialog;
 class QTabBar;
+class QToolButton;
 class MatrixWidget;
 class OpenGLMatrixWidget;
 class OpenGLMiscWidget;
@@ -1054,6 +1055,20 @@ private:
     MidiFile *_compareFile = nullptr;
 
     /**
+     * \brief Phase 28 (editor groups): the secondary editor group ("group 1").
+     * Created on split, torn down on un-split. Like group 0 (the primary) it has
+     * its OWN tab bar + document list + view, so each tab belongs to a group and
+     * can be moved between groups (VS Code-style editor groups). The pieces:
+     * _compareMatrixWidget is the group's view; _group1Docs its open documents;
+     * _group1TabBar its tab strip; _group1Container the vertical [tab bar | view]
+     * wrapper that lives in _viewSplitter beside the primary group.
+     */
+    QWidget *_group1Container = nullptr;
+    DocumentManager *_group1Docs = nullptr;
+    QTabBar *_group1TabBar = nullptr;
+    bool _suppressGroup1TabSignals = false;
+
+    /**
      * \brief Phase 28 (B): the currently focused editor pane. A tab click loads
      * its document into THIS pane, so the user can set each pane's document
      * independently. Defaults to / falls back to the primary view.
@@ -1127,6 +1142,32 @@ private:
     /** \brief Phase 28: tab-bar slots (regular members, connected via PMF). */
     void onDocumentTabChanged(int index);
     void onDocumentTabCloseRequested(int index);
+
+    /** \brief Phase 28 (editor groups): group-1 (secondary) tab-bar slots. */
+    void onGroup1TabChanged(int index);
+    void onGroup1TabCloseRequested(int index);
+
+    /**
+     * \brief Phase 28 (editor groups): configure a document tab bar (movable,
+     * closable, eliding) - shared by both groups so they look/behave alike.
+     */
+    void configureDocumentTabBar(QTabBar *bar);
+
+    /**
+     * \brief Phase 28 (editor groups): build a group's tab strip widget
+     * ( [ + | tab bar | stretch ] ), used identically for both groups so their
+     * strips have the same height and sit aligned beside each other.
+     */
+    QWidget *buildGroupTabStrip(QToolButton *plusButton, QTabBar *bar);
+
+    /**
+     * \brief Phase 28 (editor groups): tear down the secondary group (group 1).
+     * If \a mergeRemainingBack, its still-open documents are first moved back
+     * into group 0's tab bar (un-split); otherwise the caller has already
+     * disposed of them. Deletes the group-1 view/tab-bar/manager and restores
+     * the primary view as the focused one.
+     */
+    void tearDownGroup1(bool mergeRemainingBack);
 
     /** \brief Phase 28: files whose one-time signal wiring has been done. */
     QSet<MidiFile *> _connectedFiles;

@@ -43,6 +43,7 @@
 #include <QToolBar>
 #include <QToolButton>
 #include <QHBoxLayout>
+#include <QVBoxLayout>
 #include <QDesktopServices>
 #include <QKeyEvent>
 #include <QTimer>
@@ -474,17 +475,14 @@ MainWindow::MainWindow(QString initFile)
 
     vert = new QScrollBar(Qt::Vertical, matrixArea);
 
-    // Phase 28: the document tab strip sits in a new top row of the matrix
-    // area's grid, spanning both columns (above the editor + its timeline).
-    // The editor/scrollbar rows are shifted down by one accordingly.
+    // Phase 28 (editor groups): the editor area is a horizontal splitter of
+    // editor GROUPS. Each group is a vertical [ tab strip | body ] stack with
+    // its OWN tab bar, so a second group sits beside the first with its tab
+    // strip at the same height (VS Code-style). Group 0 (the primary) is built
+    // here; group 1 is created on demand in toggleCompareView().
     _documentManager = new DocumentManager();
     _documentTabBar = new QTabBar(matrixArea);
-    _documentTabBar->setMovable(true);
-    _documentTabBar->setTabsClosable(true);
-    _documentTabBar->setExpanding(false);
-    _documentTabBar->setDrawBase(false);
-    _documentTabBar->setElideMode(Qt::ElideRight);
-    _documentTabBar->setUsesScrollButtons(true);
+    configureDocumentTabBar(_documentTabBar);
     connect(_documentTabBar, &QTabBar::currentChanged, this, &MainWindow::onDocumentTabChanged);
     connect(_documentTabBar, &QTabBar::tabCloseRequested, this, &MainWindow::onDocumentTabCloseRequested);
 
@@ -498,36 +496,49 @@ MainWindow::MainWindow(QString initFile)
     newTabButton->setIcon(Appearance::adjustIconForDarkMode(":/run_environment/graphics/tool/add.png"));
     newTabButton->setToolTip(tr("New tab (new empty document)"));
     newTabButton->setAutoRaise(true);
-    connect(newTabButton, &QToolButton::clicked, this, &MainWindow::newFile);
+    // This "+" belongs to the primary group (group 0): focus it first so the new
+    // tab opens here even if the secondary group currently has focus.
+    connect(newTabButton, &QToolButton::clicked, this, [this] {
+        _activeView = mw_matrixWidget;
+        newFile();
+    });
 
-    QWidget *tabStripRow = new QWidget(matrixArea);
-    // Only as tall as the tab bar itself - without this the wrapper expands
-    // vertically and the strip floats in the middle of the editor area.
-    tabStripRow->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
-    QHBoxLayout *tabStripLayout = new QHBoxLayout(tabStripRow);
-    tabStripLayout->setContentsMargins(0, 0, 0, 0);
-    tabStripLayout->setSpacing(2);
-    tabStripLayout->addWidget(newTabButton, 0);
-    tabStripLayout->addWidget(_documentTabBar, 0);
-    tabStripLayout->addStretch(1);
+    // Group 0's tab strip ( [ + | tabs ] ), built the same way as group 1's so
+    // the two strips have matching heights.
+    QWidget *tabStripRow = buildGroupTabStrip(newTabButton, _documentTabBar);
 
-    // Phase 28: the editor view lives inside a horizontal splitter so a second
-    // (compare) view can be added beside it later. With one document the
-    // splitter holds only the primary container and looks identical to before.
+    // Group 0's body keeps the original editor grid: the matrix view in column 0
+    // and the vertical scrollbar in column 1, offset 50px down by a spacer so it
+    // aligns just below the timeline ruler drawn at the top of the matrix view.
+    QWidget *group0Body = new QWidget();
+    QGridLayout *group0BodyLayout = new QGridLayout(group0Body);
+    group0BodyLayout->setContentsMargins(0, 0, 0, 0);
+    group0BodyLayout->setHorizontalSpacing(6);
+    QWidget *placeholder0 = new QWidget(group0Body);
+    placeholder0->setFixedHeight(50);
+    group0BodyLayout->addWidget(matrixContainer, 0, 0, 2, 1);
+    group0BodyLayout->addWidget(placeholder0, 0, 1, 1, 1);
+    group0BodyLayout->addWidget(vert, 1, 1, 1, 1);
+    group0BodyLayout->setColumnStretch(0, 1);
+
+    // Group 0 container = [ tab strip | body ].
+    QWidget *group0Container = new QWidget();
+    QVBoxLayout *group0Layout = new QVBoxLayout(group0Container);
+    group0Layout->setContentsMargins(0, 0, 0, 0);
+    group0Layout->setSpacing(0);
+    group0Layout->addWidget(tabStripRow, 0);
+    group0Layout->addWidget(group0Body, 1);
+
+    // The editor groups live inside a horizontal splitter. With a single group
+    // it holds only group 0's container and looks identical to before.
     _viewSplitter = new QSplitter(Qt::Horizontal, matrixArea);
     _viewSplitter->setChildrenCollapsible(false);
     _viewSplitter->setHandleWidth(2);
-    _viewSplitter->addWidget(matrixContainer);
+    _viewSplitter->addWidget(group0Container);
 
     QGridLayout *matrixAreaLayout = new QGridLayout(matrixArea);
-    matrixAreaLayout->setHorizontalSpacing(6);
-    QWidget *placeholder0 = new QWidget(matrixArea);
-    placeholder0->setFixedHeight(50);
     matrixAreaLayout->setContentsMargins(0, 0, 0, 0);
-    matrixAreaLayout->addWidget(tabStripRow, 0, 0, 1, 2);
-    matrixAreaLayout->addWidget(_viewSplitter, 1, 0, 2, 1);
-    matrixAreaLayout->addWidget(placeholder0, 1, 1, 1, 1);
-    matrixAreaLayout->addWidget(vert, 2, 1, 1, 1);
+    matrixAreaLayout->addWidget(_viewSplitter, 0, 0, 1, 1);
     matrixAreaLayout->setColumnStretch(0, 1);
     matrixArea->setLayout(matrixAreaLayout);
 
@@ -1885,14 +1896,13 @@ void MainWindow::closeDocumentFile(MidiFile *oldFile) {
     // Phase 28: drop the closing document's per-file state so nothing leaks or
     // dangles past the delete. Deleting the MidiFile (a QObject) automatically
     // disconnects every signal connection made to it in activateDocument.
-    // Phase 28: if the side-by-side compare view is pinned to this file, tear
-    // it down before the file is deleted so it does not dangle.
-    if (_compareFile == oldFile && _compareMatrixWidget) {
-        delete _compareMatrixWidget;
-        _compareMatrixWidget = nullptr;
+    // Phase 28 (editor groups): defensive - documents are partitioned between
+    // the groups, so a file closed through a group-0 path is never the one shown
+    // in the secondary group. If that invariant is ever broken, drop the
+    // secondary group entirely so its view does not dangle on the deleted file.
+    if (_compareFile == oldFile && _group1Docs) {
         _compareFile = nullptr;
-        _activeView = mw_matrixWidget;
-        if (mw_matrixWidget) EditorTool::setMatrixWidget(mw_matrixWidget);
+        tearDownGroup1(/*mergeRemainingBack=*/false);
     }
 
     FfxivVoiceAnalyzer::instance()->forgetFile(oldFile);
@@ -1902,94 +1912,218 @@ void MainWindow::closeDocumentFile(MidiFile *oldFile) {
     delete oldFile;
 }
 
+void MainWindow::configureDocumentTabBar(QTabBar *bar) {
+    if (!bar) {
+        return;
+    }
+    bar->setMovable(true);
+    bar->setTabsClosable(true);
+    bar->setExpanding(false);
+    bar->setDrawBase(false);
+    bar->setElideMode(Qt::ElideRight);
+    bar->setUsesScrollButtons(true);
+}
+
+QWidget *MainWindow::buildGroupTabStrip(QToolButton *plusButton, QTabBar *bar) {
+    QWidget *strip = new QWidget();
+    // Only as tall as the tab bar itself - without a fixed vertical policy the
+    // wrapper expands and the strip floats in the middle of the editor area.
+    strip->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+    QHBoxLayout *layout = new QHBoxLayout(strip);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(2);
+    // "+" to the LEFT of the tabs so it hugs the first tab (a QTabBar reserves
+    // extra width with few tabs, so a trailing "+" would float away from them).
+    layout->addWidget(plusButton, 0);
+    layout->addWidget(bar, 0);
+    layout->addStretch(1);
+    return strip;
+}
+
 void MainWindow::toggleCompareView() {
     if (!_viewSplitter || !_documentManager) {
         return;
     }
 
-    // Already showing? -> turn it off. Deleting the widget disconnects its
-    // signals and removes it from the splitter; do NOT call setFile(nullptr)
-    // here (it would deref a null file->protocol()).
-    if (_compareMatrixWidget) {
-        delete _compareMatrixWidget;
-        _compareMatrixWidget = nullptr;
-        _compareFile = nullptr;
-        _activeView = mw_matrixWidget;
-        if (mw_matrixWidget) EditorTool::setMatrixWidget(mw_matrixWidget);
-        statusBar()->showMessage(tr("Compare view closed"), 3000);
+    // Already split? -> un-split: merge group 1's documents back into group 0
+    // and tear the secondary group down.
+    if (_group1Docs) {
+        tearDownGroup1(/*mergeRemainingBack=*/true);
+        statusBar()->showMessage(tr("Second editor group closed"), 3000);
         return;
     }
 
-    // Pick a document to compare with: the first open document that is not the
-    // active one. (A future refinement lets the user choose.)
-    MidiFile *compareFile = nullptr;
-    QString compareTitle;
+    // Need a second document to move into the new group. (Splitting the same
+    // file into two groups can come later; for now keep group 0 non-empty.)
+    MidiFile *moveFile = nullptr;
+    QString moveTitle;
+    int moveIdx = -1;
     const int activeIdx = _documentManager->activeIndex();
     for (int i = 0; i < _documentManager->count(); ++i) {
         if (i != activeIdx) {
             Document *d = _documentManager->at(i);
-            compareFile = d->file();
-            compareTitle = d->title();
+            moveFile = d->file();
+            moveTitle = d->title();
+            moveIdx = i;
             break;
         }
     }
-    if (!compareFile) {
-        QMessageBox::information(this, tr("Compare View"),
-            tr("Open a second file in another tab to compare it side by side."));
+    if (!moveFile) {
+        QMessageBox::information(this, tr("Editor Groups"),
+            tr("Open a second file in another tab, then split to move it into a second editor group."));
         return;
     }
 
-    // A lightweight software MatrixWidget (no second GL context). Phase 28 (B):
-    // it is a FULLY EDITABLE second pane (defaults: claimsToolTarget=true,
-    // editingLocked=false). Clicking/focusing it makes its document the active
-    // one (via focusReceived -> onViewFocused) and routes the tools to it.
-    _compareMatrixWidget = new MatrixWidget(_settings, _viewSplitter);
+    // ----- build the secondary group (group 1) ---------------------------
+    _group1Docs = new DocumentManager();
+
+    _group1TabBar = new QTabBar();
+    configureDocumentTabBar(_group1TabBar);
+    connect(_group1TabBar, &QTabBar::currentChanged, this, &MainWindow::onGroup1TabChanged);
+    connect(_group1TabBar, &QTabBar::tabCloseRequested, this, &MainWindow::onGroup1TabCloseRequested);
+
+    // A "+" that opens a new tab IN this (secondary) group.
+    QToolButton *group1NewTab = new QToolButton();
+    group1NewTab->setIcon(Appearance::adjustIconForDarkMode(":/run_environment/graphics/tool/add.png"));
+    group1NewTab->setToolTip(tr("New tab in this editor group"));
+    group1NewTab->setAutoRaise(true);
+    connect(group1NewTab, &QToolButton::clicked, this, [this] {
+        _activeView = _compareMatrixWidget;
+        newFile();
+    });
+
+    // A lightweight software MatrixWidget (no second GL context). It is a FULLY
+    // EDITABLE pane (defaults: claimsToolTarget=true, editingLocked=false);
+    // clicking it makes its document active (focusReceived -> onViewFocused).
+    _compareMatrixWidget = new MatrixWidget(_settings);
     connect(_compareMatrixWidget, &MatrixWidget::focusReceived,
             this, &MainWindow::onViewFocused);
-    // Add to the splitter first so it is given a real width before setFile()
-    // runs calcSizes(); mirror the primary's rendering settings.
-    _viewSplitter->addWidget(_compareMatrixWidget);
-    _compareMatrixWidget->updateRenderingSettings();
-    _compareMatrixWidget->setFile(compareFile);
-    _compareFile = compareFile;
 
-    // Split the editor area evenly so the compare view opens at a usable width
-    // instead of a thin strip the user has to drag out.
+    // Container = vertical [ tab strip | view ], built exactly like group 0 so
+    // the two strips align in height. This group carries its own tabs (VS Code-
+    // style editor group) and travels as one unit in the splitter.
+    QWidget *g1Strip = buildGroupTabStrip(group1NewTab, _group1TabBar);
+    _group1Container = new QWidget();
+    QVBoxLayout *g1Layout = new QVBoxLayout(_group1Container);
+    g1Layout->setContentsMargins(0, 0, 0, 0);
+    g1Layout->setSpacing(0);
+    g1Layout->addWidget(g1Strip, 0);
+    g1Layout->addWidget(_compareMatrixWidget, 1);
+
+    // Add to the splitter first so the view has a real width before setFile()
+    // runs calcSizes(); mirror the primary's rendering settings.
+    _viewSplitter->addWidget(_group1Container);
+    _compareMatrixWidget->updateRenderingSettings();
+
+    // ----- move the chosen document from group 0 into group 1 ------------
+    _documentManager->removeAt(moveIdx);   // detaches (does NOT delete the file)
+    _suppressTabSignals = true;
+    _documentTabBar->removeTab(moveIdx);
+    _documentTabBar->setCurrentIndex(_documentManager->activeIndex());
+    _suppressTabSignals = false;
+
+    Document *gd = _group1Docs->openAndActivate(moveFile, moveTitle);
+    _suppressGroup1TabSignals = true;
+    int gi = _group1TabBar->addTab(gd->title());
+    _group1TabBar->setCurrentIndex(gi);
+    _suppressGroup1TabSignals = false;
+    _compareMatrixWidget->setFile(moveFile);
+    _compareFile = moveFile;
+
+    // Split the editor area evenly so the new group opens at a usable width.
     const int splitW = _viewSplitter->width();
     if (splitW > 0) {
         _viewSplitter->setSizes(QList<int>() << splitW / 2 << splitW / 2);
     }
 
-    // Creating the MatrixWidget above stole the static tool target in its
-    // constructor; hand it back to the primary editor view until the user
-    // clicks a pane (then onViewFocused routes everything to the focused one).
+    // The MatrixWidget ctor stole the static tool target; hand it back to the
+    // primary view until the user clicks a pane (onViewFocused then routes it).
+    if (mw_matrixWidget) EditorTool::setMatrixWidget(mw_matrixWidget);
+    _activeView = mw_matrixWidget;
+
+    statusBar()->showMessage(tr("Moved %1 into a second editor group (click a pane to focus it)").arg(moveTitle), 4000);
+}
+
+void MainWindow::tearDownGroup1(bool mergeRemainingBack) {
+    if (!_group1Docs) {
+        return; // not split
+    }
+
+    if (mergeRemainingBack && _documentManager && _documentTabBar) {
+        // Move group 1's still-open documents back into group 0's tab bar.
+        const QList<Document *> docs = _group1Docs->documents();
+        for (Document *d : docs) {
+            Document *nd = _documentManager->open(d->file(), d->title());
+            _suppressTabSignals = true;
+            _documentTabBar->addTab(nd->title());
+            _suppressTabSignals = false;
+        }
+    }
+
+    // _group1Docs owns only the Document handles (not the MidiFiles); deleting
+    // it leaves the files intact (now re-registered in group 0 when merging).
+    delete _group1Docs;
+    _group1Docs = nullptr;
+    // Deleting the container deletes its children (the tab bar + the view). This
+    // can run from inside the tab bar's own tabCloseRequested slot (collapse on
+    // last-tab-close), so detach it from the splitter now and deleteLater() the
+    // widget tree - deleting a signal sender mid-emission would crash.
+    if (_group1Container) {
+        _group1Container->setParent(nullptr); // removes it from the splitter + hides it
+        _group1Container->deleteLater();
+    }
+    _group1Container = nullptr;
+    _group1TabBar = nullptr;
+    _compareMatrixWidget = nullptr;
+    _compareFile = nullptr;
+
+    _activeView = mw_matrixWidget;
     if (mw_matrixWidget) EditorTool::setMatrixWidget(mw_matrixWidget);
 
-    statusBar()->showMessage(tr("Split view: editing %1 (click a pane to focus it)").arg(compareTitle), 4000);
+    // The primary view is the only one left; make its active document current.
+    Document *a = _documentManager ? _documentManager->active() : nullptr;
+    if (a) {
+        _suppressTabSignals = true;
+        _documentTabBar->setCurrentIndex(_documentManager->activeIndex());
+        _suppressTabSignals = false;
+        activateDocument(a->file());
+    }
 }
 
 void MainWindow::onViewFocused(MatrixWidget *view) {
     if (!view) {
         return;
     }
-    // Remember which pane is focused: a tab click loads its document here.
+    // Remember which pane is focused: a "+"/tab/open loads its document here.
     _activeView = view;
     MidiFile *f = view->midiFile();
-    if (!f || f == this->file) {
-        return; // already the active document - nothing to switch
+    if (!f) {
+        return;
     }
     // Make the focused pane's document active. setActiveDocument rebinds the
     // sidebars/selection/tools/transport WITHOUT touching either view's file,
     // so each pane keeps showing its own document.
-    setActiveDocument(f);
-    // Keep the tab strip highlight in sync with the focused pane, without
-    // re-triggering a tab switch (which would rebind the primary view).
-    const int idx = _documentManager ? _documentManager->indexOfFile(f) : -1;
-    if (idx >= 0 && _documentTabBar) {
-        _documentManager->setActiveIndex(idx);
-        _suppressTabSignals = true;
-        _documentTabBar->setCurrentIndex(idx);
-        _suppressTabSignals = false;
+    if (f != this->file) {
+        setActiveDocument(f);
+    }
+    // Keep the focused group's tab highlight in sync, without re-triggering a
+    // tab switch (which would rebind a view).
+    if (view == _compareMatrixWidget && _group1Docs && _group1TabBar) {
+        const int gi = _group1Docs->indexOfFile(f);
+        if (gi >= 0) {
+            _group1Docs->setActiveIndex(gi);
+            _suppressGroup1TabSignals = true;
+            _group1TabBar->setCurrentIndex(gi);
+            _suppressGroup1TabSignals = false;
+        }
+    } else if (_documentManager && _documentTabBar) {
+        const int idx = _documentManager->indexOfFile(f);
+        if (idx >= 0) {
+            _documentManager->setActiveIndex(idx);
+            _suppressTabSignals = true;
+            _documentTabBar->setCurrentIndex(idx);
+            _suppressTabSignals = false;
+        }
     }
 }
 
@@ -2017,8 +2151,24 @@ void MainWindow::openInNewTab(MidiFile *f) {
 
     // A freshly opened document starts with all channels visible: that is the
     // per-document default created lazily by ChannelVisibilityManager when the
-    // new file becomes active in activateDocument() below (28.1c). No global
-    // reset here - it would clobber the previously-active tab's visibility.
+    // new file becomes active in activateDocument()/setActiveDocument() below
+    // (28.1c). No global reset here - it would clobber another tab's visibility.
+
+    // Phase 28 (editor groups): open into the FOCUSED group. If the secondary
+    // group has focus, the new document/tab is created there; otherwise it goes
+    // into the primary group (group 0).
+    if (_group1Docs && _group1TabBar && _compareMatrixWidget &&
+        _activeView == _compareMatrixWidget) {
+        Document *d = _group1Docs->openAndActivate(f, documentTabTitle(f));
+        _suppressGroup1TabSignals = true;
+        const int idx = _group1TabBar->addTab(d->title());
+        _group1TabBar->setCurrentIndex(idx);
+        _suppressGroup1TabSignals = false;
+        _compareMatrixWidget->setFile(f);
+        _compareFile = f;
+        setActiveDocument(f);
+        return;
+    }
 
     Document *d = _documentManager->openAndActivate(f, documentTabTitle(f));
     _suppressTabSignals = true;
@@ -2026,6 +2176,7 @@ void MainWindow::openInNewTab(MidiFile *f) {
     _documentTabBar->setCurrentIndex(idx);
     _suppressTabSignals = false;
 
+    _activeView = mw_matrixWidget;
     activateDocument(f);
 }
 
@@ -2044,18 +2195,94 @@ void MainWindow::onDocumentTabChanged(int index) {
     stop();
     _documentManager->setActiveIndex(index);
 
-    // Phase 28 (B): a tab click loads the document into the FOCUSED pane, so
-    // the user controls each pane independently. If the compare pane is
-    // focused, retarget it; otherwise drive the primary view as before.
-    if (_compareMatrixWidget && _activeView == _compareMatrixWidget) {
+    // Phase 28 (editor groups): group 0's tab bar always drives the primary
+    // view (group 0 is the focused group now). The secondary group has its own
+    // tab bar (onGroup1TabChanged) and never reacts to this one.
+    _activeView = mw_matrixWidget;
+    activateDocument(f);
+}
+
+void MainWindow::onGroup1TabChanged(int index) {
+    if (_suppressGroup1TabSignals || !_group1Docs || !_compareMatrixWidget) {
+        return;
+    }
+    Document *d = _group1Docs->at(index);
+    if (!d) {
+        return;
+    }
+    MidiFile *f = d->file();
+    stop();
+    _group1Docs->setActiveIndex(index);
+
+    // The secondary group is now the focused one; load its tab into the
+    // secondary view and make that document active (sidebars/tools follow).
+    _activeView = _compareMatrixWidget;
+    if (_compareFile != f) {
+        _compareMatrixWidget->setFile(f);
+        _compareFile = f;
+    }
+    setActiveDocument(f);
+}
+
+void MainWindow::onGroup1TabCloseRequested(int index) {
+    if (!_group1Docs || !_group1TabBar) {
+        return;
+    }
+    Document *d = _group1Docs->at(index);
+    if (!d) {
+        return;
+    }
+    MidiFile *f = d->file();
+
+    // Prompt to save if the closing tab has unsaved changes. saveBeforeClose
+    // acts on the active file, so make the closing tab active (in the secondary
+    // group) first.
+    if (f && !f->saved()) {
+        _activeView = _compareMatrixWidget;
         if (_compareFile != f) {
             _compareMatrixWidget->setFile(f);
             _compareFile = f;
         }
+        _group1Docs->setActiveIndex(index);
+        _suppressGroup1TabSignals = true;
+        _group1TabBar->setCurrentIndex(index);
+        _suppressGroup1TabSignals = false;
         setActiveDocument(f);
-    } else if (f != file) {
-        activateDocument(f);
+        if (!saveBeforeClose()) {
+            return; // user cancelled
+        }
     }
+
+    const bool closingActive = (index == _group1Docs->activeIndex());
+
+    _group1Docs->removeAt(index);   // detaches (does NOT delete the file)
+    _suppressGroup1TabSignals = true;
+    _group1TabBar->removeTab(index);
+    _suppressGroup1TabSignals = false;
+
+    // Last tab in the secondary group closed -> collapse the group.
+    if (_group1Docs->isEmpty()) {
+        _compareFile = nullptr;         // stop the teardown guard double-acting
+        tearDownGroup1(/*mergeRemainingBack=*/false);
+        closeDocumentFile(f);
+        return;
+    }
+
+    if (closingActive) {
+        Document *na = _group1Docs->active();
+        if (na) {
+            _suppressGroup1TabSignals = true;
+            _group1TabBar->setCurrentIndex(_group1Docs->activeIndex());
+            _suppressGroup1TabSignals = false;
+            stop();
+            _compareMatrixWidget->setFile(na->file());
+            _compareFile = na->file();
+            setActiveDocument(na->file());
+        }
+    }
+
+    // The closed file is no longer bound to any group/view, so tear it down.
+    closeDocumentFile(f);
 }
 
 void MainWindow::onDocumentTabCloseRequested(int index) {
