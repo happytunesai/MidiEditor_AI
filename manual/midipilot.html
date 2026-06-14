@@ -637,19 +637,22 @@ Auto-save options are in <b>Settings &rarr; System &amp; Performance</b>:
 <h2 id="tools">AI Tools Reference</h2>
 
 <p>
-In Agent mode, the AI has access to <b>16 tools</b> (12 base + 4 FFXIV-specific) for inspecting and modifying MIDI files:
+In Agent mode, the AI has access to <b>19 tools</b> (15 core + 4 FFXIV-specific) for inspecting and modifying MIDI files. These are the same core tools exposed over the <a href="mcp-server.html">MCP server</a>:
 </p>
 
 <table>
 <tr><th>Tool</th><th>Description</th></tr>
-<tr><td><code>get_editor_state</code></td><td>Read file info, tracks, tempo, time signature, cursor position</td></tr>
+<tr><td><code>get_editor_state</code></td><td>Read file info, tracks, tempo, time signature, cursor position, and the selected-event count</td></tr>
 <tr><td><code>get_track_info</code></td><td>Get detailed info for a specific track (channel, event count, note range)</td></tr>
+<tr><td><code>get_selection</code></td><td>Read the user's current selection as full events, each with a 0-based index (the index <code>delete_events_by_index</code> expects)</td></tr>
 <tr><td><code>create_track</code></td><td>Create a new MIDI track</td></tr>
 <tr><td><code>rename_track</code></td><td>Rename an existing track</td></tr>
 <tr><td><code>set_channel</code></td><td>Set the MIDI channel for a track</td></tr>
+<tr><td><code>remove_track</code></td><td>Delete a track and all its events (cannot remove the file's last track)</td></tr>
 <tr><td><code>insert_events</code></td><td>Add new MIDI events (notes, control changes, etc.)</td></tr>
 <tr><td><code>replace_events</code></td><td>Modify existing events in a range</td></tr>
-<tr><td><code>delete_events</code></td><td>Remove events by index</td></tr>
+<tr><td><code>delete_events</code></td><td>Delete events in a tick range on a track</td></tr>
+<tr><td><code>delete_events_by_index</code></td><td>Delete specific events from the current selection by 0-based index (e.g. every second selected note)</td></tr>
 <tr><td><code>query_events</code></td><td>Read events in a tick range on a track</td></tr>
 <tr><td><code>move_events_to_track</code></td><td>Move events between tracks</td></tr>
 <tr><td><code>set_tempo</code></td><td>Change the tempo (BPM)</td></tr>
