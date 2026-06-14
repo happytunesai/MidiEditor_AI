@@ -1053,6 +1053,13 @@ private:
     MatrixWidget *_compareMatrixWidget = nullptr;
     MidiFile *_compareFile = nullptr;
 
+    /**
+     * \brief Phase 28 (B): the currently focused editor pane. A tab click loads
+     * its document into THIS pane, so the user can set each pane's document
+     * independently. Defaults to / falls back to the primary view.
+     */
+    MatrixWidget *_activeView = nullptr;
+
     /** \brief Phase 28: show/hide the side-by-side compare/edit view. */
     void toggleCompareView();
 

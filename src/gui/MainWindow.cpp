@@ -470,6 +470,7 @@ MainWindow::MainWindow(QString initFile)
     // active one again (mirrors the compare pane's wiring). No-op in single
     // view since the primary already shows the active document.
     connect(mw_matrixWidget, &MatrixWidget::focusReceived, this, &MainWindow::onViewFocused);
+    _activeView = mw_matrixWidget; // the primary view is focused by default
 
     vert = new QScrollBar(Qt::Vertical, matrixArea);
 
@@ -1887,10 +1888,10 @@ void MainWindow::closeDocumentFile(MidiFile *oldFile) {
     // Phase 28: if the side-by-side compare view is pinned to this file, tear
     // it down before the file is deleted so it does not dangle.
     if (_compareFile == oldFile && _compareMatrixWidget) {
-        _compareMatrixWidget->setFile(nullptr);
         delete _compareMatrixWidget;
         _compareMatrixWidget = nullptr;
         _compareFile = nullptr;
+        _activeView = mw_matrixWidget;
         if (mw_matrixWidget) EditorTool::setMatrixWidget(mw_matrixWidget);
     }
 
@@ -1913,6 +1914,7 @@ void MainWindow::toggleCompareView() {
         delete _compareMatrixWidget;
         _compareMatrixWidget = nullptr;
         _compareFile = nullptr;
+        _activeView = mw_matrixWidget;
         if (mw_matrixWidget) EditorTool::setMatrixWidget(mw_matrixWidget);
         statusBar()->showMessage(tr("Compare view closed"), 3000);
         return;
@@ -1970,6 +1972,8 @@ void MainWindow::onViewFocused(MatrixWidget *view) {
     if (!view) {
         return;
     }
+    // Remember which pane is focused: a tab click loads its document here.
+    _activeView = view;
     MidiFile *f = view->midiFile();
     if (!f || f == this->file) {
         return; // already the active document - nothing to switch
@@ -2030,15 +2034,28 @@ void MainWindow::onDocumentTabChanged(int index) {
         return;
     }
     Document *d = _documentManager->at(index);
-    if (!d || d->file() == file) {
+    if (!d) {
         return;
     }
+    MidiFile *f = d->file();
     // Single playback stream: stop when leaving a tab. Selection/visibility are
     // per-document (Selection is already keyed per file), so we do NOT clear
     // the selection on switch.
     stop();
     _documentManager->setActiveIndex(index);
-    activateDocument(d->file());
+
+    // Phase 28 (B): a tab click loads the document into the FOCUSED pane, so
+    // the user controls each pane independently. If the compare pane is
+    // focused, retarget it; otherwise drive the primary view as before.
+    if (_compareMatrixWidget && _activeView == _compareMatrixWidget) {
+        if (_compareFile != f) {
+            _compareMatrixWidget->setFile(f);
+            _compareFile = f;
+        }
+        setActiveDocument(f);
+    } else if (f != file) {
+        activateDocument(f);
+    }
 }
 
 void MainWindow::onDocumentTabCloseRequested(int index) {
