@@ -11764,14 +11764,31 @@ The editor is single-document to the core. Verified:
   `static MidiFile *_currentFile` and `static EditorTool *_currentTool`
   ([Tool.h:216-224](src/tool/Tool.h#L216-L224)). A tool literally cannot know
   *which* of two side-by-side views it is acting on today.
-* **MidiPilot cancels the agent on file change.**
-  `MidiPilotWidget::onFileChanged()` sets `_file = f` and calls
-  `_agentRunner->cancel()` if an agent is running
-  ([MidiPilotWidget.cpp:1027-1055](src/gui/MidiPilotWidget.cpp#L1027)) - the exact
-  opposite of requirement 8. Good news: `AgentRunner` already owns its own
-  `MidiFile *_file` bound at `run()` ([AgentRunner.h:143](src/ai/AgentRunner.h#L143)),
-  and `EditorContext::captureState(file, matrixWidget)` is already parameterised
-  on (file, widget) - so per-document agents are feasible.
+* **The real requirement-8 blocker: the write path drops the agent's origin
+  file.** (Corrected 2026-06-14 - an earlier draft wrongly said
+  `onFileChanged()` cancels the agent; it does NOT.) `MidiPilotWidget::onFileChanged()`
+  only sets `_file`, refreshes context and loads the per-file preset
+  ([MidiPilotWidget.cpp:1028](src/gui/MidiPilotWidget.cpp#L1028)); the only
+  `cancel()` is in `abortActiveRequest()` (the Stop button, ~L1051), so there is
+  nothing to "un-cancel". The actual problem: `AgentRunner` *does* bind its origin
+  file at `run(..., _file, this)` (`_file`/`_widget`, [AgentRunner.cpp:338](src/ai/AgentRunner.cpp#L338)),
+  but the write tools throw it away - `execWriteAction` calls `widget->executeAction()`
+  ([ToolDefinitions.cpp:809](src/ai/ToolDefinitions.cpp#L809)) ->
+  `dispatchAction` -> `applyAiEdits/Deletes`, which mutate
+  `MidiPilotWidget::_file` (which FOLLOWS the active tab) plus
+  `NewNoteTool::editTrack()/editChannel()` statics; and `get_selection` reads the
+  global `Selection::instance()` ([ToolDefinitions.cpp:700](src/ai/ToolDefinitions.cpp#L700)).
+  So a run started on Tab 1 would write into Tab 2 after a switch. Good news:
+  `EditorContext::captureState(file, matrix)` is already parameterised - per-document
+  agents are feasible, but the apply path must thread the run's origin file all the
+  way through (see 28.5).
+* **`setFile()`'s `connect()` calls are bind-once-per-file.** Reusing the
+  `setFile()` body for tab *switching* would duplicate signal/slot wiring
+  (markEdited, eventWidget reload, view-state broadcast) on every switch - 28.2
+  must split bind-once-at-open from rebind-panels-on-activate. Also `setFile`
+  dereferences `newFile` un-guarded ([MainWindow.cpp:1645](src/gui/MainWindow.cpp#L1645)),
+  so a "zero open documents" state is not representable today (relevant to
+  closing the last tab).
 * **Globals keyed to the one active file:** `Metronome::instance()->setFile()`,
   `ChannelVisibilityManager::instance().resetAllVisible()`,
   `FfxivVoiceAnalyzer::instance()->watchFile()/forgetFile()`, `Tool::setFile()`,
@@ -11823,11 +11840,37 @@ behaviour intact (no visible change, fully testable):
 globals + transport to an already-open document, **without** deleting anything).
 Move `delete oldFile` to tab-close only.
 
-**28.3 - Tab strip UI + layout (requirements 1, 5, 6).** A `QTabBar` (movable,
-closable) above the timeline, laid out flush under the two-row toolbar; shrink the
-New/Open/Save/Undo/Redo buttons to make room. New tab via New / Open / drag-drop
-(`MainWindow` already handles file drops -> route to "open in new tab"). Reorder =
-`QTabBar::setMovable(true)`.
+**28.3 - Tab strip UI + layout (requirements 1, 5, 6).** Two distinct pieces:
+
+* **Shrink the "essential" block (the real culprit).** The big New / Open / Save /
+  Undo / Redo block on the left is the `essentialToolBar` built in `twoRowMode`
+  ([MainWindow.cpp:8553](src/gui/MainWindow.cpp#L8553)). It is taller than the two
+  customizable rows for two reasons: `essentialIconSize = iconSize + 8`
+  ([MainWindow.cpp:8558](src/gui/MainWindow.cpp#L8558)) and
+  `Qt::ToolButtonTextUnderIcon` ([MainWindow.cpp:8615](src/gui/MainWindow.cpp#L8615))
+  - the under-icon text label adds a whole row, so the block does not align with the
+  Top/Bottom rows. Fix: drop to `iconSize` (match the rows) and `ToolButtonIconOnly`
+  (or TextBesideIcon), so the essential block ends flush with the two-row toolbar.
+  The action set comes from `LayoutSettingsWidget::getEssentialActionIds()`. There is
+  a second, near-identical builder around [MainWindow.cpp:7930](src/gui/MainWindow.cpp#L7930)
+  (the other layout path) - both must be changed.
+* **Tab Tools go in the freed space *under* the shrunk essential block:** **New Tab,
+  Split Tab, Clone Tab** (a short row beneath New/Open/Save/Undo/Redo, ending flush
+  with the toolbar's bottom edge). These are tab *operations*, distinct from the tab
+  *strip*. "Split Tab" = open the active document side-by-side (28.4); "Clone Tab" =
+  duplicate the active document into a new tab.
+* **The tab *strip* sits above the timeline** - a `QTabBar` (`setMovable(true)` for
+  reorder, `setTabsClosable(true)` for the built-in close x, so no custom close
+  icon is needed) placed in the `matrixArea` grid's 50px `placeholder0` zone
+  ([MainWindow.cpp:470-474](src/gui/MainWindow.cpp#L470-L474)) or a new strip just
+  above it. New tab via New / Open / drag-drop (`MainWindow` already handles file
+  drops -> route to "open in new tab").
+* **Icons:** New Tab can reuse `new.png`/`add.png`; close is Qt-native; only **Split**
+  and **Diff/Compare** glyphs are missing - pull from an MIT set (Tabler: `columns`
+  + `git-compare`), render as black monochrome PNGs (20px; 28px like
+  `channel_split_28.png`) into `run_environment/graphics/tool/`, register in
+  `resources.qrc`. The dark-mode recolor (`Appearance::adjustIconForDarkMode`,
+  SourceAtop fill to gray) expects exactly black-on-transparent monochrome.
 
 **28.4 - One editor view per tab + side-by-side (requirements 2, 3, 4).** Turn the
 single matrix container into a stack/`QSplitter` of document views; the active
@@ -11836,14 +11879,20 @@ splitter. Cross-tab copy: the clipboard path (`EventTool` copy/paste) is already
 serialisation-based; verify paste targets the **active** document so copy-from-A,
 focus-B, paste lands in B.
 
-**28.5 - MidiPilot per document (requirement 8).** Bind a running agent to its
-**origin** Document, not the active one. Options to evaluate: (a) one
-`MidiPilotWidget`/`AgentRunner` per Document (matches the existing per-file chat
-/ preset model - `loadPresetForFile`), with the panel showing the active tab's
-instance; or (b) one widget, but route in-flight runs to the origin Document via
-the agent's existing `_file`. Either way: **remove the cancel-on-switch** in
-`onFileChanged` and make `EditorContext::captureState` read the origin
-document's view, not `_mainWindow->matrixWidget()`.
+**28.5 - MidiPilot per document (requirement 8).** Bind a running agent's *writes*
+to its **origin** Document, not the active one. The fix is NOT "remove a cancel"
+(there is none - see above); it is to **thread the run's origin file through the
+apply path**: `execWriteAction` currently discards the `file` already plumbed into
+`executeTool` and calls `widget->executeAction()` -> `applyAiEdits/Deletes`, which
+write `MidiPilotWidget::_file` (active tab) + `NewNoteTool` statics. Options to
+evaluate: (a) one `MidiPilotWidget`/`AgentRunner` per Document (matches the
+existing per-file chat / preset model - `loadPresetForFile`), with the panel
+showing the active tab's instance; or (b) one widget, but make the apply path
+(`executeAction`/`applyAi*`) operate on the run's origin `MidiFile *` rather than
+`_file`. Either way: make read tools (`get_selection`) read the origin document's
+selection, not the global `Selection::instance()`, and make
+`EditorContext::captureState` read the origin document's view, not
+`_mainWindow->matrixWidget()`.
 
 **28.6 - Collaboration with tabs (requirement 9).** A collab session binds to a
 specific Document (like the agent binds to its origin tab); switching tabs must
@@ -11880,6 +11929,46 @@ the diff computation. This sub-phase can ship after the core tabs work.
   context). Many tabs / two live side-by-side = real GPU cost; consider lazily
   constructing the view and only keeping the active (+ a pinned compare) view
   "hot". Mind the hardware-acceleration auto-disable path on high-DPI.
+
+### Performance & memory budget (multi-document) - code-grounded estimate
+
+Verified against the data structures (2026-06-14). **The note data is cheap; the
+cost is GL views and the per-tab undo stack.**
+
+* **Per-event footprint.** `MidiEvent : ProtocolEntry, GraphicObject`
+  ([MidiEvent.h:54](src/MidiEvent/MidiEvent.h#L54)). `ProtocolEntry` is vtable-only;
+  `GraphicObject` holds 4 ints + a bool ([GraphicObject.h:120](src/gui/GraphicObject.h#L120));
+  `MidiEvent` adds 2 ints + 2 ptrs + 1 int. With two vptrs (multiple polymorphic
+  bases) a base event is ~64-72 B; a NoteOn/Off pair ~160 B of object data. Events
+  live in per-channel `QMultiMap<int, MidiEvent*>` (red-black tree, ~40 B/node).
+  **All-in ~= 250-300 B per note.**
+* **Per-document MIDI data** therefore: 20k notes ~= 6 MB, 50k ~= 15 MB, 100k (a
+  very dense file) ~= 30 MB. Even heavy files are tens of MB - **not** the binding
+  constraint. 20-30 such documents = a few hundred MB of note data.
+* **The two real variables:**
+  1. **Undo/Protocol stack is per-`MidiFile` and grows unbounded with editing**
+     (each action stores `copy()`s of touched events). This is per-tab and the main
+     RAM wildcard in long sessions. Consider a configurable undo-depth cap and/or a
+     memory readout.
+  2. **GL contexts dominate** (tens of MB each, driver-dependent). Keep only the
+     active (+ a pinned compare) `OpenGLMatrixWidget` live; lazily build/destroy the
+     view for inactive tabs while keeping their `MidiFile` resident.
+* **Tab limit?** No hard *data* limit is needed. Recommended guardrails: (a) lazy
+  GL-view lifecycle (the single most important decision); (b) a generous,
+  configurable **soft** cap on open tabs (~20-30) with a warning rather than a hard
+  block; (c) keep the existing "max 2 side-by-side" non-goal (<=2 live GL contexts);
+  (d) one playback stream (already true).
+* **MEASURED (2026-06-14, `tests/test_event_perf.cpp` / ctest `EventPerf`).** A
+  smoke-harness now builds dense NoteOn/Off populations in per-channel QMultiMaps and
+  reports working-set delta via PSAPI. Result on Win64/MSVC2019/Qt6.5.3:
+  **~336-341 B per note all-in** (50k notes -> ~16.2 MB; 100k -> ~32.0 MB; perfectly
+  linear), build 43 ms for 100k, select-all of 200k events 16 ms. This confirms the
+  ~250-300 B estimate (real number is a touch higher: allocator + page overhead).
+  **Bottom line: a 100k-note document costs ~32 MB; 20-30 such tabs ~= 0.6-1 GB of
+  event data - comfortably not the constraint.** Run the numbers with
+  `test_event_perf.exe -v2 -o out.txt,txt` (qInfo is hidden at default verbosity).
+  Still TODO before 28.4: measure a live `OpenGLMatrixWidget`'s GL-context cost (the
+  actual dominant term) and the undo-stack growth under heavy editing.
 * **Playback is single-stream.** Only one document plays at a time; decide whether
   Play follows the active tab or stays pinned to the playing tab (suggest: follows
   active, stop on switch-away, like today's single stream).
