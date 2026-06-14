@@ -1,11 +1,21 @@
 #ifndef CHANNELVISIBILITYMANAGER_H
 #define CHANNELVISIBILITYMANAGER_H
 
+#include <QHash>
+
+class MidiFile;
+
 /**
- * \brief Global channel visibility manager
- * 
+ * \brief Channel visibility manager (per-document since Phase 28)
+ *
  * This class provides corruption-proof channel visibility management
  * that doesn't depend on potentially corrupted MidiChannel objects.
+ *
+ * Phase 28 (multi-document tabs): visibility is tracked per MidiFile so each
+ * tab keeps its own channel show/hide state. is/setChannelVisible and
+ * resetAllVisible operate on the *active* document's state (set via
+ * setActiveFile). When no document is active (nullptr) a shared default state
+ * is used, which is also what the headless unit tests exercise.
  */
 class ChannelVisibilityManager {
 public:
@@ -14,6 +24,19 @@ public:
      * \return Reference to the global visibility manager
      */
     static ChannelVisibilityManager &instance();
+
+    /**
+     * \brief Phase 28: select which document's visibility state is active.
+     *        A new document defaults to "all channels visible"; switching back
+     *        to a document restores its state. nullptr selects the default
+     *        state. The state is created lazily on first access.
+     */
+    void setActiveFile(MidiFile *file);
+
+    /**
+     * \brief Phase 28: drop a closed document's visibility state.
+     */
+    void forgetFile(MidiFile *file);
 
     /**
      * \brief Checks if a channel is visible
@@ -37,8 +60,24 @@ public:
 private:
     ChannelVisibilityManager();
 
-    /** \brief Channel visibility storage (corruption-proof) */
+    /** \brief 19-channel visibility state for one document (or the default). */
+    struct State {
+        bool v[19];
+    };
+
+    /** \brief Returns the active document's state array, creating it lazily.
+     *  Looked up fresh on every call so no pointer is held across a possible
+     *  rehash. */
+    bool *activeArray();
+
+    /** \brief Default state used when no document is active (nullptr). */
     bool channelVisibility[19];
+
+    /** \brief Per-document visibility states (Phase 28). */
+    QHash<MidiFile *, State> _perFile;
+
+    /** \brief The document whose state is currently active (nullptr = default). */
+    MidiFile *_activeFile = nullptr;
 };
 
 #endif // CHANNELVISIBILITYMANAGER_H

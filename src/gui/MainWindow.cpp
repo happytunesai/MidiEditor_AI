@@ -1636,11 +1636,11 @@ void MainWindow::setFile(MidiFile *newFile) {
     // activated exactly once and then the previous file is closed.
     MidiFile *oldFile = this->file;
 
-    // Clear the outgoing selection and reset channel visibility. These live in
-    // the replace path (not activateDocument) so tab switching does not wipe a
-    // tab's selection/visibility - it only happens when replacing the document.
+    // Clear the outgoing selection. (Channel visibility is per-document since
+    // 28.1c: a fresh document defaults to all-visible via setActiveFile, so no
+    // global reset is needed here - and a reset would wrongly target whichever
+    // document is currently active.)
     EventTool::clearSelection();
-    ChannelVisibilityManager::instance().resetAllVisible();
 
     activateDocument(newFile);
 
@@ -1681,6 +1681,10 @@ void MainWindow::activateDocument(MidiFile *newFile) {
     const bool firstActivation = newFile && !_connectedFiles.contains(newFile);
 
     Selection::setFile(newFile);
+    // Phase 28.1c: channel visibility is per-document; make this document's
+    // state active before the panels (channelWidget etc.) read it below. A new
+    // document defaults to all-visible; returning to one restores its state.
+    ChannelVisibilityManager::instance().setActiveFile(newFile);
 
     Metronome::instance()->setFile(newFile);
     protocolWidget->setFile(newFile);
@@ -1829,6 +1833,7 @@ void MainWindow::closeDocumentFile(MidiFile *oldFile) {
     // disconnects every signal connection made to it in activateDocument.
     FfxivVoiceAnalyzer::instance()->forgetFile(oldFile);
     Selection::forgetFile(oldFile);
+    ChannelVisibilityManager::instance().forgetFile(oldFile);
     _connectedFiles.remove(oldFile);
     delete oldFile;
 }
@@ -1855,9 +1860,10 @@ void MainWindow::openInNewTab(MidiFile *f) {
         return;
     }
 
-    // A freshly opened document starts with all channels visible (channel
-    // visibility is still global until 28.1c; documented limitation).
-    ChannelVisibilityManager::instance().resetAllVisible();
+    // A freshly opened document starts with all channels visible: that is the
+    // per-document default created lazily by ChannelVisibilityManager when the
+    // new file becomes active in activateDocument() below (28.1c). No global
+    // reset here - it would clobber the previously-active tab's visibility.
 
     Document *d = _documentManager->openAndActivate(f, documentTabTitle(f));
     _suppressTabSignals = true;
