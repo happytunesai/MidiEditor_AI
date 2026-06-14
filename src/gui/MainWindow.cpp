@@ -466,6 +466,11 @@ MainWindow::MainWindow(QString initFile)
         qDebug() << "Created MatrixWidget with software rendering";
     }
 
+    // Phase 28 (B): clicking/focusing the primary view makes its document the
+    // active one again (mirrors the compare pane's wiring). No-op in single
+    // view since the primary already shows the active document.
+    connect(mw_matrixWidget, &MatrixWidget::focusReceived, this, &MainWindow::onViewFocused);
+
     vert = new QScrollBar(Qt::Vertical, matrixArea);
 
     // Phase 28: the document tab strip sits in a new top row of the matrix
@@ -1705,7 +1710,13 @@ void MainWindow::setFile(MidiFile *newFile) {
     }
 }
 
-void MainWindow::activateDocument(MidiFile *newFile) {
+void MainWindow::setActiveDocument(MidiFile *newFile) {
+    // Phase 28 (B): rebind sidebars / globals / selection / tools / transport /
+    // MidiPilot / MCP to the active (focused) document - WITHOUT touching any
+    // editor view's file binding (the views are bound separately so two panes
+    // can show different documents). activateDocument() adds the primary-view
+    // rebind on top of this for the single-view / tab-switch path.
+    //
     // The one-time, per-file signal wiring must run exactly once per MidiFile.
     // In the single-document replace path each file is activated once, so this
     // matches the historical behaviour; for tab switching it prevents the
@@ -1774,15 +1785,10 @@ void MainWindow::activateDocument(MidiFile *newFile) {
         connect(newFile, SIGNAL(cursorPositionChanged()), this, SLOT(updateStatusBar()));
     }
 
-    // ----- view + panel rebinds (every activation) -----------------------
-    // Set file on the appropriate widget based on rendering mode
-    if (OpenGLMatrixWidget *openglMatrix = qobject_cast<OpenGLMatrixWidget*>(_matrixWidgetContainer)) {
-        // Using OpenGL acceleration - set file on OpenGL widget (which delegates to internal widget)
-        openglMatrix->setFile(newFile);
-    } else {
-        // Using software rendering - set file directly on MatrixWidget
-        mw_matrixWidget->setFile(newFile);
-    }
+    // ----- sidebar / aux-panel rebinds (every activation) ----------------
+    // NB: the primary editor view is rebound in activateDocument(), not here -
+    // setActiveDocument() must not touch any view so a side-by-side pane keeps
+    // showing its own document when another pane is focused.
 
     // Update lyric timeline
     _lyricTimeline->setFile(newFile);
@@ -1856,6 +1862,21 @@ void MainWindow::activateDocument(MidiFile *newFile) {
     }
 }
 
+void MainWindow::activateDocument(MidiFile *newFile) {
+    // Single-view / tab-switch path: make newFile the active document AND show
+    // it in the primary editor view. (Side-by-side panes bind their views
+    // separately and only call setActiveDocument() on focus.)
+    setActiveDocument(newFile);
+
+    // Rebind the primary editor view to the active document (OpenGL wrapper or
+    // the software MatrixWidget, depending on the rendering mode).
+    if (OpenGLMatrixWidget *openglMatrix = qobject_cast<OpenGLMatrixWidget*>(_matrixWidgetContainer)) {
+        openglMatrix->setFile(newFile);
+    } else {
+        mw_matrixWidget->setFile(newFile);
+    }
+}
+
 void MainWindow::closeDocumentFile(MidiFile *oldFile) {
     if (!oldFile) {
         return;
@@ -1916,12 +1937,13 @@ void MainWindow::toggleCompareView() {
         return;
     }
 
-    // A lightweight software MatrixWidget (no second GL context). It is
-    // read-only and never claims the tools/selection, so the active editor view
-    // on the left keeps full control.
+    // A lightweight software MatrixWidget (no second GL context). Phase 28 (B):
+    // it is a FULLY EDITABLE second pane (defaults: claimsToolTarget=true,
+    // editingLocked=false). Clicking/focusing it makes its document the active
+    // one (via focusReceived -> onViewFocused) and routes the tools to it.
     _compareMatrixWidget = new MatrixWidget(_settings, _viewSplitter);
-    _compareMatrixWidget->setClaimsToolTarget(false);
-    _compareMatrixWidget->setEditingLocked(true);
+    connect(_compareMatrixWidget, &MatrixWidget::focusReceived,
+            this, &MainWindow::onViewFocused);
     // Add to the splitter first so it is given a real width before setFile()
     // runs calcSizes(); mirror the primary's rendering settings.
     _viewSplitter->addWidget(_compareMatrixWidget);
@@ -1937,10 +1959,34 @@ void MainWindow::toggleCompareView() {
     }
 
     // Creating the MatrixWidget above stole the static tool target in its
-    // constructor; hand it back to the primary editor view.
+    // constructor; hand it back to the primary editor view until the user
+    // clicks a pane (then onViewFocused routes everything to the focused one).
     if (mw_matrixWidget) EditorTool::setMatrixWidget(mw_matrixWidget);
 
-    statusBar()->showMessage(tr("Comparing with: %1 (read-only)").arg(compareTitle), 4000);
+    statusBar()->showMessage(tr("Split view: editing %1 (click a pane to focus it)").arg(compareTitle), 4000);
+}
+
+void MainWindow::onViewFocused(MatrixWidget *view) {
+    if (!view) {
+        return;
+    }
+    MidiFile *f = view->midiFile();
+    if (!f || f == this->file) {
+        return; // already the active document - nothing to switch
+    }
+    // Make the focused pane's document active. setActiveDocument rebinds the
+    // sidebars/selection/tools/transport WITHOUT touching either view's file,
+    // so each pane keeps showing its own document.
+    setActiveDocument(f);
+    // Keep the tab strip highlight in sync with the focused pane, without
+    // re-triggering a tab switch (which would rebind the primary view).
+    const int idx = _documentManager ? _documentManager->indexOfFile(f) : -1;
+    if (idx >= 0 && _documentTabBar) {
+        _documentManager->setActiveIndex(idx);
+        _suppressTabSignals = true;
+        _documentTabBar->setCurrentIndex(idx);
+        _suppressTabSignals = false;
+    }
 }
 
 QString MainWindow::documentTabTitle(MidiFile *f) const {

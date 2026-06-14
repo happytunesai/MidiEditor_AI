@@ -1053,8 +1053,16 @@ private:
     MatrixWidget *_compareMatrixWidget = nullptr;
     MidiFile *_compareFile = nullptr;
 
-    /** \brief Phase 28: show/hide the side-by-side compare view. */
+    /** \brief Phase 28: show/hide the side-by-side compare/edit view. */
     void toggleCompareView();
+
+    /**
+     * \brief Phase 28 (B): a side-by-side view received focus (click/keyboard).
+     * Makes that view's document the active one (sidebars/selection/tools/
+     * transport follow) without rebinding the other view. No-op when the
+     * focused view already shows the active document.
+     */
+    void onViewFocused(MatrixWidget *view);
 
     /** \brief Container for the displayed misc widget (OpenGL or software) */
     QWidget *_miscWidgetContainer;
@@ -1082,6 +1090,16 @@ private:
      * Does NOT delete any previously-active file.
      */
     void activateDocument(MidiFile *newFile);
+
+    /**
+     * \brief Phase 28 (B): rebind the sidebars / globals / selection / tools /
+     * transport / MidiPilot / MCP to \a newFile WITHOUT touching any editor
+     * view's file binding. The "active document" is the focused view's
+     * document; this is what makes the panels follow the focused pane in a
+     * side-by-side layout. activateDocument() = setActiveDocument() + rebinding
+     * the primary view (the single-view / tab-switch path).
+     */
+    void setActiveDocument(MidiFile *newFile);
 
     /**
      * \brief Phase 28: tear down a document's file when it is closed - drop its

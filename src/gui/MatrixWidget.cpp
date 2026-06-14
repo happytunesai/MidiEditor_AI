@@ -1541,8 +1541,12 @@ void MatrixWidget::mousePressEvent(QMouseEvent *event) {
     // tools operate on it (not whichever view was constructed last). A no-op
     // with a single view; essential once views are shown side by side. A
     // read-only compare view (_claimsToolTarget == false) never claims it.
+    // Also announce focus here (not only in focusInEvent): in OpenGL mode the
+    // wrapper may keep keyboard focus, but the mouse press always reaches the
+    // internal MatrixWidget, so this reliably switches the active document.
     if (_claimsToolTarget) {
         EditorTool::setMatrixWidget(this);
+        emit focusReceived(this);
     }
     // Right-click without Ctrl opens context menu (handled by contextMenuEvent).
     // Only forward to tool on left-click or Ctrl+right-click.
