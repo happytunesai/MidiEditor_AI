@@ -276,6 +276,16 @@ void MatrixWidget::paintEvent(QPaintEvent *event) {
         startTick = file->tick(startTimeX, endTimeX, &currentTempoEvents,
                                &endTick, &msOfFirstEventInList);
 
+        // A degenerate time range (e.g. a freshly-created side-by-side view
+        // before the splitter has given it a real width) can yield no tempo
+        // events; at(0) on the empty list would be an out-of-bounds crash.
+        // Bail gracefully - a valid resize triggers a correct repaint.
+        if (currentTempoEvents->isEmpty()) {
+            delete pixpainter;
+            delete painter;
+            return;
+        }
+
         TempoChangeEvent *ev = dynamic_cast<TempoChangeEvent *>(
             currentTempoEvents->at(0));
         if (!ev) {
@@ -654,7 +664,11 @@ void MatrixWidget::paintEvent(QPaintEvent *event) {
         }
     }
 
-    if (Tool::currentTool()) {
+    // Phase 28: the active tool belongs to the editable view. A read-only
+    // side-by-side compare view (_editingLocked) must NOT draw the tool overlay
+    // - the tool resolves to EditorTool::matrixWidget (the other view), so
+    // drawing it here is both wrong and a crash risk.
+    if (Tool::currentTool() && !_editingLocked) {
         painter->setClipping(true);
         painter->setClipRect(ToolArea);
         Tool::currentTool()->draw(painter);
@@ -1323,6 +1337,12 @@ void MatrixWidget::paintPianoKey(QPainter *painter, int number, int x, int y,
 void MatrixWidget::setFile(MidiFile *f) {
     file = f;
 
+    // Defensive: unbinding (file == nullptr, e.g. tearing down a compare view)
+    // must not dereference file->protocol() below. Just drop the binding.
+    if (!file) {
+        return;
+    }
+
     scaleX = 1;
     scaleY = 1;
 
@@ -1508,16 +1528,22 @@ void MatrixWidget::focusInEvent(QFocusEvent *event) {
     // Phase 28: when this view gains focus, it becomes the active tool target
     // (keyboard tools act on it) and asks the host to make its document active
     // so the sidebars / selection / transport follow. Single-view: a no-op.
-    EditorTool::setMatrixWidget(this);
-    emit focusReceived(this);
+    // A read-only compare view (_claimsToolTarget == false) is skipped.
+    if (_claimsToolTarget) {
+        EditorTool::setMatrixWidget(this);
+        emit focusReceived(this);
+    }
 }
 
 void MatrixWidget::mousePressEvent(QMouseEvent *event) {
     PaintWidget::mousePressEvent(event);
     // Phase 28: the view being interacted with is the active tool target, so
     // tools operate on it (not whichever view was constructed last). A no-op
-    // with a single view; essential once views are shown side by side.
-    EditorTool::setMatrixWidget(this);
+    // with a single view; essential once views are shown side by side. A
+    // read-only compare view (_claimsToolTarget == false) never claims it.
+    if (_claimsToolTarget) {
+        EditorTool::setMatrixWidget(this);
+    }
     // Right-click without Ctrl opens context menu (handled by contextMenuEvent).
     // Only forward to tool on left-click or Ctrl+right-click.
     bool isRightClick = (event->buttons() & Qt::RightButton);

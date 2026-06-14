@@ -1037,6 +1037,25 @@ private:
     /** \brief Container for the displayed matrix widget (OpenGL or software) */
     QWidget *_matrixWidgetContainer;
 
+    /**
+     * \brief Phase 28: horizontal splitter that holds the editor view(s). With
+     * a single document it contains just the primary matrix container (visually
+     * identical to before); the side-by-side compare view is added here.
+     */
+    QSplitter *_viewSplitter = nullptr;
+
+    /**
+     * \brief Phase 28: read-only side-by-side compare view (nullptr when off).
+     * Shows another open document next to the primary editor for comparison;
+     * it never claims the tools/selection. _compareFile is the document it is
+     * pinned to, tracked so closing that document can tear the view down.
+     */
+    MatrixWidget *_compareMatrixWidget = nullptr;
+    MidiFile *_compareFile = nullptr;
+
+    /** \brief Phase 28: show/hide the side-by-side compare view. */
+    void toggleCompareView();
+
     /** \brief Container for the displayed misc widget (OpenGL or software) */
     QWidget *_miscWidgetContainer;
 

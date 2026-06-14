@@ -321,6 +321,14 @@ public:
     void setEditingLocked(bool locked) { _editingLocked = locked; }
     bool isEditingLocked() const { return _editingLocked; }
 
+    /**
+     * \brief Phase 28: whether this view may become the active tool target on
+     * click/focus. The primary editor view is true; a read-only side-by-side
+     * compare view sets this false so it never steals the tools/selection.
+     */
+    void setClaimsToolTarget(bool b) { _claimsToolTarget = b; }
+    bool claimsToolTarget() const { return _claimsToolTarget; }
+
     // === Grid and Division ===
 
     /**
@@ -806,6 +814,9 @@ private:
      * changes in a Show-mode session.
      */
     bool _editingLocked = false;
+
+    /** \brief Phase 28: may this view claim the active tool target? (see setter) */
+    bool _claimsToolTarget = true;
 };
 
 #endif // MATRIXWIDGET_H_

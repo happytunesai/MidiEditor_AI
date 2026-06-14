@@ -505,13 +505,21 @@ MainWindow::MainWindow(QString initFile)
     tabStripLayout->addWidget(_documentTabBar, 0);
     tabStripLayout->addStretch(1);
 
+    // Phase 28: the editor view lives inside a horizontal splitter so a second
+    // (compare) view can be added beside it later. With one document the
+    // splitter holds only the primary container and looks identical to before.
+    _viewSplitter = new QSplitter(Qt::Horizontal, matrixArea);
+    _viewSplitter->setChildrenCollapsible(false);
+    _viewSplitter->setHandleWidth(2);
+    _viewSplitter->addWidget(matrixContainer);
+
     QGridLayout *matrixAreaLayout = new QGridLayout(matrixArea);
     matrixAreaLayout->setHorizontalSpacing(6);
     QWidget *placeholder0 = new QWidget(matrixArea);
     placeholder0->setFixedHeight(50);
     matrixAreaLayout->setContentsMargins(0, 0, 0, 0);
     matrixAreaLayout->addWidget(tabStripRow, 0, 0, 1, 2);
-    matrixAreaLayout->addWidget(matrixContainer, 1, 0, 2, 1);
+    matrixAreaLayout->addWidget(_viewSplitter, 1, 0, 2, 1);
     matrixAreaLayout->addWidget(placeholder0, 1, 1, 1, 1);
     matrixAreaLayout->addWidget(vert, 2, 1, 1, 1);
     matrixAreaLayout->setColumnStretch(0, 1);
@@ -1855,11 +1863,84 @@ void MainWindow::closeDocumentFile(MidiFile *oldFile) {
     // Phase 28: drop the closing document's per-file state so nothing leaks or
     // dangles past the delete. Deleting the MidiFile (a QObject) automatically
     // disconnects every signal connection made to it in activateDocument.
+    // Phase 28: if the side-by-side compare view is pinned to this file, tear
+    // it down before the file is deleted so it does not dangle.
+    if (_compareFile == oldFile && _compareMatrixWidget) {
+        _compareMatrixWidget->setFile(nullptr);
+        delete _compareMatrixWidget;
+        _compareMatrixWidget = nullptr;
+        _compareFile = nullptr;
+        if (mw_matrixWidget) EditorTool::setMatrixWidget(mw_matrixWidget);
+    }
+
     FfxivVoiceAnalyzer::instance()->forgetFile(oldFile);
     Selection::forgetFile(oldFile);
     ChannelVisibilityManager::instance().forgetFile(oldFile);
     _connectedFiles.remove(oldFile);
     delete oldFile;
+}
+
+void MainWindow::toggleCompareView() {
+    if (!_viewSplitter || !_documentManager) {
+        return;
+    }
+
+    // Already showing? -> turn it off. Deleting the widget disconnects its
+    // signals and removes it from the splitter; do NOT call setFile(nullptr)
+    // here (it would deref a null file->protocol()).
+    if (_compareMatrixWidget) {
+        delete _compareMatrixWidget;
+        _compareMatrixWidget = nullptr;
+        _compareFile = nullptr;
+        if (mw_matrixWidget) EditorTool::setMatrixWidget(mw_matrixWidget);
+        statusBar()->showMessage(tr("Compare view closed"), 3000);
+        return;
+    }
+
+    // Pick a document to compare with: the first open document that is not the
+    // active one. (A future refinement lets the user choose.)
+    MidiFile *compareFile = nullptr;
+    QString compareTitle;
+    const int activeIdx = _documentManager->activeIndex();
+    for (int i = 0; i < _documentManager->count(); ++i) {
+        if (i != activeIdx) {
+            Document *d = _documentManager->at(i);
+            compareFile = d->file();
+            compareTitle = d->title();
+            break;
+        }
+    }
+    if (!compareFile) {
+        QMessageBox::information(this, tr("Compare View"),
+            tr("Open a second file in another tab to compare it side by side."));
+        return;
+    }
+
+    // A lightweight software MatrixWidget (no second GL context). It is
+    // read-only and never claims the tools/selection, so the active editor view
+    // on the left keeps full control.
+    _compareMatrixWidget = new MatrixWidget(_settings, _viewSplitter);
+    _compareMatrixWidget->setClaimsToolTarget(false);
+    _compareMatrixWidget->setEditingLocked(true);
+    // Add to the splitter first so it is given a real width before setFile()
+    // runs calcSizes(); mirror the primary's rendering settings.
+    _viewSplitter->addWidget(_compareMatrixWidget);
+    _compareMatrixWidget->updateRenderingSettings();
+    _compareMatrixWidget->setFile(compareFile);
+    _compareFile = compareFile;
+
+    // Split the editor area evenly so the compare view opens at a usable width
+    // instead of a thin strip the user has to drag out.
+    const int splitW = _viewSplitter->width();
+    if (splitW > 0) {
+        _viewSplitter->setSizes(QList<int>() << splitW / 2 << splitW / 2);
+    }
+
+    // Creating the MatrixWidget above stole the static tool target in its
+    // constructor; hand it back to the primary editor view.
+    if (mw_matrixWidget) EditorTool::setMatrixWidget(mw_matrixWidget);
+
+    statusBar()->showMessage(tr("Comparing with: %1 (read-only)").arg(compareTitle), 4000);
 }
 
 QString MainWindow::documentTabTitle(MidiFile *f) const {
@@ -7051,6 +7132,15 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
     connect(resetViewAction, SIGNAL(triggered()), this, SLOT(resetView()));
     viewMB->addAction(resetViewAction);
     _actionMap["reset_view"] = resetViewAction;
+
+    viewMB->addSeparator();
+
+    // Phase 28: side-by-side compare view (read-only second document).
+    QAction *compareViewAction = new QAction(tr("Compare View (side by side)"), this);
+    compareViewAction->setToolTip(tr("Show another open document next to the editor for comparison"));
+    connect(compareViewAction, &QAction::triggered, this, &MainWindow::toggleCompareView);
+    viewMB->addAction(compareViewAction);
+    _actionMap["compare_view"] = compareViewAction;
 
     viewMB->addSeparator();
 
