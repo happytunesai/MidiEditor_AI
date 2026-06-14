@@ -119,6 +119,7 @@
 #include "UpdateDialogs.h"
 #include "AutoUpdater.h"
 #include "MidiPilotWidget.h"
+#include "DocumentManager.h"
 #include "MidiVisualizerWidget.h"
 #include "TimeDisplayWidget.h"
 #include "LyricVisualizerWidget.h"
@@ -465,14 +466,30 @@ MainWindow::MainWindow(QString initFile)
     }
 
     vert = new QScrollBar(Qt::Vertical, matrixArea);
+
+    // Phase 28: the document tab strip sits in a new top row of the matrix
+    // area's grid, spanning both columns (above the editor + its timeline).
+    // The editor/scrollbar rows are shifted down by one accordingly.
+    _documentManager = new DocumentManager();
+    _documentTabBar = new QTabBar(matrixArea);
+    _documentTabBar->setMovable(true);
+    _documentTabBar->setTabsClosable(true);
+    _documentTabBar->setExpanding(false);
+    _documentTabBar->setDrawBase(false);
+    _documentTabBar->setElideMode(Qt::ElideRight);
+    _documentTabBar->setUsesScrollButtons(true);
+    connect(_documentTabBar, &QTabBar::currentChanged, this, &MainWindow::onDocumentTabChanged);
+    connect(_documentTabBar, &QTabBar::tabCloseRequested, this, &MainWindow::onDocumentTabCloseRequested);
+
     QGridLayout *matrixAreaLayout = new QGridLayout(matrixArea);
     matrixAreaLayout->setHorizontalSpacing(6);
     QWidget *placeholder0 = new QWidget(matrixArea);
     placeholder0->setFixedHeight(50);
     matrixAreaLayout->setContentsMargins(0, 0, 0, 0);
-    matrixAreaLayout->addWidget(matrixContainer, 0, 0, 2, 1);
-    matrixAreaLayout->addWidget(placeholder0, 0, 1, 1, 1);
-    matrixAreaLayout->addWidget(vert, 1, 1, 1, 1);
+    matrixAreaLayout->addWidget(_documentTabBar, 0, 0, 1, 2);
+    matrixAreaLayout->addWidget(matrixContainer, 1, 0, 2, 1);
+    matrixAreaLayout->addWidget(placeholder0, 1, 1, 1, 1);
+    matrixAreaLayout->addWidget(vert, 2, 1, 1, 1);
     matrixAreaLayout->setColumnStretch(0, 1);
     matrixArea->setLayout(matrixAreaLayout);
 
@@ -1611,14 +1628,59 @@ void MainWindow::applyRemoteViewState(
 #endif
 
 void MainWindow::setFile(MidiFile *newFile) {
-    // Store reference to old file for cleanup
+    // Single-document "replace" path: swap the one open document for newFile
+    // and destroy the old one. (Phase 28: opening files in tabs goes through
+    // activateDocument + closeDocumentFile instead, so the active document is
+    // not destroyed on switch.) Behaviour here is unchanged from before the
+    // split: every caller passes a freshly-constructed MidiFile, so it is
+    // activated exactly once and then the previous file is closed.
     MidiFile *oldFile = this->file;
 
+    // Clear the outgoing selection and reset channel visibility. These live in
+    // the replace path (not activateDocument) so tab switching does not wipe a
+    // tab's selection/visibility - it only happens when replacing the document.
     EventTool::clearSelection();
-    Selection::setFile(newFile);
-
-    // Reset channel visibility to show all channels when loading a new file
     ChannelVisibilityManager::instance().resetAllVisible();
+
+    activateDocument(newFile);
+
+    // Keep the DocumentManager + tab strip in sync. setFile is the "replace
+    // the active document" path: update the active document's file (and its
+    // tab label), or create the very first document/tab if none exist yet
+    // (startup). Other open tabs are untouched.
+    if (_documentManager) {
+        Document *active = _documentManager->active();
+        if (active) {
+            active->setFile(newFile);
+            if (_documentTabBar && _documentManager->activeIndex() >= 0) {
+                _suppressTabSignals = true;
+                _documentTabBar->setTabText(_documentManager->activeIndex(), documentTabTitle(newFile));
+                _suppressTabSignals = false;
+            }
+        } else {
+            Document *d = _documentManager->openAndActivate(newFile, documentTabTitle(newFile));
+            if (_documentTabBar) {
+                _suppressTabSignals = true;
+                int idx = _documentTabBar->addTab(d->title());
+                _documentTabBar->setCurrentIndex(idx);
+                _suppressTabSignals = false;
+            }
+        }
+    }
+
+    if (oldFile && oldFile != newFile) {
+        closeDocumentFile(oldFile);
+    }
+}
+
+void MainWindow::activateDocument(MidiFile *newFile) {
+    // The one-time, per-file signal wiring must run exactly once per MidiFile.
+    // In the single-document replace path each file is activated once, so this
+    // matches the historical behaviour; for tab switching it prevents the
+    // connections from stacking up every time the user returns to a tab.
+    const bool firstActivation = newFile && !_connectedFiles.contains(newFile);
+
+    Selection::setFile(newFile);
 
     Metronome::instance()->setFile(newFile);
     protocolWidget->setFile(newFile);
@@ -1630,48 +1692,53 @@ void MainWindow::setFile(MidiFile *newFile) {
     _midiPilotWidget->onFileChanged(newFile);
     if (_mcpServer) _mcpServer->setFile(newFile);
 
-    // Live track-mute -> authentic-SID voice mute (channels already covered by
-    // channelWidget::channelStateChanged). Connections to old tracks fall away
-    // when the previous file is destroyed.
-    if (newFile) {
-        for (MidiTrack *t : *(newFile->tracks()))
-            connect(t, &MidiTrack::trackChanged, this,
-                    [this] { syncSidVoiceMutes(file); });
-    }
 #ifdef MIDIEDITOR_COLLAB_ENABLED
     CollabService::instance()->onFileLoaded(newFile, newFile ? newFile->path() : QString());
 #endif
+
     this->file = newFile;
-    connect(newFile, SIGNAL(trackChanged()), this, SLOT(updateTrackMenu()));
     setWindowTitle(QApplication::applicationName() + " v" + QApplication::applicationVersion() + " - " + newFile->path() + "[*]");
-    connect(newFile, SIGNAL(cursorPositionChanged()), channelWidget, SLOT(update()));
 
-    // Connect recalcWidgetSize to the matrix widget container
-    connect(newFile, SIGNAL(recalcWidgetSize()), _matrixWidgetContainer, SLOT(calcSizes()));
-    connect(newFile->protocol(), SIGNAL(actionFinished()), this, SLOT(markEdited()));
-    connect(newFile->protocol(), SIGNAL(actionFinished()), eventWidget(), SLOT(reload()));
-    connect(newFile->protocol(), SIGNAL(actionFinished()), this, SLOT(checkEnableActionsForSelection()));
-    connect(newFile->protocol(), SIGNAL(actionFinished()), this, SLOT(updateStatusBar()));
+    // ----- one-time per-file signal wiring -------------------------------
+    if (firstActivation) {
+        _connectedFiles.insert(newFile);
+
+        // Live track-mute -> authentic-SID voice mute (channels already covered
+        // by channelWidget::channelStateChanged). Connections to a file's tracks
+        // fall away when that file is destroyed.
+        for (MidiTrack *t : *(newFile->tracks()))
+            connect(t, &MidiTrack::trackChanged, this,
+                    [this] { syncSidVoiceMutes(file); });
+
+        connect(newFile, SIGNAL(trackChanged()), this, SLOT(updateTrackMenu()));
+        connect(newFile, SIGNAL(cursorPositionChanged()), channelWidget, SLOT(update()));
+        connect(newFile, SIGNAL(recalcWidgetSize()), _matrixWidgetContainer, SLOT(calcSizes()));
+        connect(newFile->protocol(), SIGNAL(actionFinished()), this, SLOT(markEdited()));
+        connect(newFile->protocol(), SIGNAL(actionFinished()), eventWidget(), SLOT(reload()));
+        connect(newFile->protocol(), SIGNAL(actionFinished()), this, SLOT(checkEnableActionsForSelection()));
+        connect(newFile->protocol(), SIGNAL(actionFinished()), this, SLOT(updateStatusBar()));
 #ifdef MIDIEDITOR_COLLAB_ENABLED
-    // Phase 9.9f §15.2: piggyback on actionFinished to broadcast the
-    // presenter's view-state (track/channel visibility primarily —
-    // those changes go through Protocol via setHidden/setVisible).
-    // broadcastViewState is internally guarded on role+mode+isPresenter,
-    // so this connect is safe even outside Show mode (silent no-op).
-    // The throttle in LanLiveSession coalesces rapid sequences.
-    connect(newFile->protocol(), &Protocol::actionFinished, this,
-            [this]() { broadcastLocalViewState(); });
-    // Same for cursor moves — file emits cursorPositionChanged whenever
-    // setCursorTick lands. Lets viewers see where the host is editing.
-    connect(newFile, &MidiFile::cursorPositionChanged, this,
-            [this]() { broadcastLocalViewState(); });
+        // Phase 9.9f §15.2: piggyback on actionFinished to broadcast the
+        // presenter's view-state (track/channel visibility primarily —
+        // those changes go through Protocol via setHidden/setVisible).
+        // broadcastViewState is internally guarded on role+mode+isPresenter,
+        // so this connect is safe even outside Show mode (silent no-op).
+        // The throttle in LanLiveSession coalesces rapid sequences.
+        connect(newFile->protocol(), &Protocol::actionFinished, this,
+                [this]() { broadcastLocalViewState(); });
+        // Same for cursor moves — file emits cursorPositionChanged whenever
+        // setCursorTick lands. Lets viewers see where the host is editing.
+        connect(newFile, &MidiFile::cursorPositionChanged, this,
+                [this]() { broadcastLocalViewState(); });
 #endif
+        // Refresh LyricManager from MIDI events after undo/redo so blocks stay in sync
+        connect(newFile->protocol(), &Protocol::undoRedoPerformed, newFile->lyricManager(), &LyricManager::importFromTextEvents);
+        // Update lyric timeline after undo/redo
+        connect(newFile->protocol(), &Protocol::undoRedoPerformed, _lyricTimeline, QOverload<>::of(&QWidget::update));
+        connect(newFile, SIGNAL(cursorPositionChanged()), this, SLOT(updateStatusBar()));
+    }
 
-    // Refresh LyricManager from MIDI events after undo/redo so blocks stay in sync
-    connect(newFile->protocol(), &Protocol::undoRedoPerformed, newFile->lyricManager(), &LyricManager::importFromTextEvents);
-    // Update lyric timeline after undo/redo
-    connect(newFile->protocol(), &Protocol::undoRedoPerformed, _lyricTimeline, QOverload<>::of(&QWidget::update));
-    connect(newFile, SIGNAL(cursorPositionChanged()), this, SLOT(updateStatusBar()));
+    // ----- view + panel rebinds (every activation) -----------------------
     // Set file on the appropriate widget based on rendering mode
     if (OpenGLMatrixWidget *openglMatrix = qobject_cast<OpenGLMatrixWidget*>(_matrixWidgetContainer)) {
         // Using OpenGL acceleration - set file on OpenGL widget (which delegates to internal widget)
@@ -1709,9 +1776,6 @@ void MainWindow::setFile(MidiFile *newFile) {
     // in the toolbar.
     if (newFile) {
         FfxivVoiceAnalyzer::instance()->watchFile(newFile);
-    }
-    if (oldFile && oldFile != newFile) {
-        FfxivVoiceAnalyzer::instance()->forgetFile(oldFile);
     }
 
     // Auto-show/hide lyric timeline based on lyrics presence
@@ -1754,11 +1818,123 @@ void MainWindow::setFile(MidiFile *newFile) {
             }
         }
     }
+}
 
-    // Clean up the old file after everything has been switched to the new file
-    // This ensures all widgets have switched to the new file before cleanup
-    if (oldFile) {
-        delete oldFile;
+void MainWindow::closeDocumentFile(MidiFile *oldFile) {
+    if (!oldFile) {
+        return;
+    }
+    // Phase 28: drop the closing document's per-file state so nothing leaks or
+    // dangles past the delete. Deleting the MidiFile (a QObject) automatically
+    // disconnects every signal connection made to it in activateDocument.
+    FfxivVoiceAnalyzer::instance()->forgetFile(oldFile);
+    Selection::forgetFile(oldFile);
+    _connectedFiles.remove(oldFile);
+    delete oldFile;
+}
+
+QString MainWindow::documentTabTitle(MidiFile *f) const {
+    if (!f) {
+        return tr("Untitled");
+    }
+    const QString p = f->path();
+    if (p.isEmpty()) {
+        return tr("Untitled");
+    }
+    return QFileInfo(p).fileName();
+}
+
+void MainWindow::openInNewTab(MidiFile *f) {
+    if (!f) {
+        return;
+    }
+    // Safety net: if the manager/tab bar somehow are not constructed yet, fall
+    // back to the single-document replace path.
+    if (!_documentManager || !_documentTabBar) {
+        setFile(f);
+        return;
+    }
+
+    // A freshly opened document starts with all channels visible (channel
+    // visibility is still global until 28.1c; documented limitation).
+    ChannelVisibilityManager::instance().resetAllVisible();
+
+    Document *d = _documentManager->openAndActivate(f, documentTabTitle(f));
+    _suppressTabSignals = true;
+    const int idx = _documentTabBar->addTab(d->title());
+    _documentTabBar->setCurrentIndex(idx);
+    _suppressTabSignals = false;
+
+    activateDocument(f);
+}
+
+void MainWindow::onDocumentTabChanged(int index) {
+    if (_suppressTabSignals || !_documentManager) {
+        return;
+    }
+    Document *d = _documentManager->at(index);
+    if (!d || d->file() == file) {
+        return;
+    }
+    // Single playback stream: stop when leaving a tab. Selection/visibility are
+    // per-document (Selection is already keyed per file), so we do NOT clear
+    // the selection on switch.
+    stop();
+    _documentManager->setActiveIndex(index);
+    activateDocument(d->file());
+}
+
+void MainWindow::onDocumentTabCloseRequested(int index) {
+    if (!_documentManager || !_documentTabBar) {
+        return;
+    }
+    // Keep at least one document open.
+    if (_documentManager->count() <= 1) {
+        return;
+    }
+    Document *d = _documentManager->at(index);
+    if (!d) {
+        return;
+    }
+    MidiFile *f = d->file();
+
+    // Prompt to save if the tab being closed has unsaved changes. saveBeforeClose
+    // acts on the active file, so make the closing tab active first.
+    if (f && !f->saved()) {
+        if (file != f) {
+            _suppressTabSignals = true;
+            _documentTabBar->setCurrentIndex(index);
+            _suppressTabSignals = false;
+            _documentManager->setActiveIndex(index);
+            activateDocument(f);
+        }
+        if (!saveBeforeClose()) {
+            return; // user cancelled
+        }
+    }
+
+    const bool closingActive = (index == _documentManager->activeIndex());
+
+    _documentManager->removeAt(index);
+    _suppressTabSignals = true;
+    _documentTabBar->removeTab(index);
+    _suppressTabSignals = false;
+
+    if (closingActive) {
+        Document *na = _documentManager->active();
+        if (na) {
+            _suppressTabSignals = true;
+            _documentTabBar->setCurrentIndex(_documentManager->activeIndex());
+            _suppressTabSignals = false;
+            stop();
+            activateDocument(na->file());
+        }
+    }
+
+    // The closed file is no longer bound to any panel/active document, so tear
+    // it down (delete + forget). Guard against deleting the still-active file.
+    if (f && f != file) {
+        closeDocumentFile(f);
     }
 }
 
@@ -2421,14 +2597,12 @@ void MainWindow::saveas() {
 }
 
 void MainWindow::load() {
+    // Phase 28: Open loads the chosen file into a new tab; the current document
+    // stays open, so no save-prompt here (it lives on tab close). oldPath is
+    // still used to seed the dialog's starting directory.
     QString oldPath = startDirectory;
     if (file) {
         oldPath = file->path();
-        if (!file->saved()) {
-            if (!saveBeforeClose()) {
-                return;
-            }
-        }
     }
 
     QFile f(oldPath);
@@ -2465,15 +2639,8 @@ void MainWindow::load() {
 }
 
 void MainWindow::loadFile(QString nfile) {
-    QString oldPath = startDirectory;
-    if (file) {
-        oldPath = file->path();
-        if (!file->saved()) {
-            if (!saveBeforeClose()) {
-                return;
-            }
-        }
-    }
+    // Phase 28: loads into a new tab (see load()); no save-prompt for the
+    // current document here.
     if (!nfile.isEmpty()) {
         openFile(nfile);
     }
@@ -2569,7 +2736,7 @@ void MainWindow::openFile(QString filePath) {
             mf->setPath(filePath);   // Point to original file path
             mf->setSaved(false);     // Mark as dirty â€” user should save explicitly
         }
-        setFile(mf);
+        openInNewTab(mf);            // Phase 28: open the loaded file in a new tab
         if (useAutoSave) {
             setWindowModified(true);
             statusBar()->showMessage(tr("Recovered from auto-save backup"), 5000);
@@ -2842,22 +3009,18 @@ bool MainWindow::saveBeforeClose() {
 }
 
 void MainWindow::newFile() {
-    if (file) {
-        if (!file->saved()) {
-            if (!saveBeforeClose()) {
-                return;
-            }
-        }
-    }
+    // Phase 28: New opens a fresh document in its own tab; the current document
+    // stays open in its tab, so there is nothing to save-prompt about here
+    // (that prompt now lives on tab close).
 
-    // Stop playback before replacing the file to prevent use-after-free
+    // Stop playback before switching the active file to prevent use-after-free
     // (PlayerThread runs on a separate thread and accesses the MidiFile)
     stop();
 
     // create new File
     MidiFile *f = new MidiFile();
 
-    setFile(f);
+    openInNewTab(f);
 
     editTrack(1);
     setWindowTitle(QApplication::applicationName() + " v" + QApplication::applicationVersion() + tr(" - Untitled Document[*]"));

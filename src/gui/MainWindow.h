@@ -26,6 +26,7 @@
 #include <QSettings>
 #include <QKeySequence>
 #include <QVector>
+#include <QSet>
 
 #include <atomic>
 
@@ -37,11 +38,14 @@
 
 // Forward declarations
 class QProgressDialog;
+class QTabBar;
 class MatrixWidget;
 class OpenGLMatrixWidget;
 class OpenGLMiscWidget;
 class MidiEvent;
 class MidiFile;
+class DocumentManager;
+class Document;
 
 #ifdef FLUIDSYNTH_SUPPORT
 struct ExportOptions;
@@ -1048,8 +1052,49 @@ private:
     /** \brief Widget for managing MIDI tracks */
     TrackListWidget *_trackWidget;
 
-    /** \brief Current MIDI file */
+    /** \brief Current MIDI file (the active document's file) */
     MidiFile *file;
+
+    /**
+     * \brief Phase 28: bind the active document's file to all panels, globals
+     * and the editor view. The per-file signal wiring runs only the first time
+     * a given file is activated (tracked in _connectedFiles), so this is safe
+     * to call repeatedly for tab switching without duplicating connections.
+     * Does NOT delete any previously-active file.
+     */
+    void activateDocument(MidiFile *newFile);
+
+    /**
+     * \brief Phase 28: tear down a document's file when it is closed - drop its
+     * retained selection + analyzer state, forget its connection bookkeeping,
+     * and delete it (QObject destruction auto-disconnects its signals).
+     */
+    void closeDocumentFile(MidiFile *oldFile);
+
+    /**
+     * \brief Phase 28: open `f` as a NEW document/tab (non-destructive - the
+     * current document stays open in its own tab) and make it active.
+     */
+    void openInNewTab(MidiFile *f);
+
+    /** \brief Phase 28: tab label for a file (basename, or "Untitled"). */
+    QString documentTabTitle(MidiFile *f) const;
+
+    /** \brief Phase 28: tab-bar slots (regular members, connected via PMF). */
+    void onDocumentTabChanged(int index);
+    void onDocumentTabCloseRequested(int index);
+
+    /** \brief Phase 28: files whose one-time signal wiring has been done. */
+    QSet<MidiFile *> _connectedFiles;
+
+    /** \brief Phase 28: open documents + active-tab tracking. */
+    DocumentManager *_documentManager = nullptr;
+
+    /** \brief Phase 28: the tab strip above the editor (one tab per document). */
+    QTabBar *_documentTabBar = nullptr;
+
+    /** \brief Phase 28: guards programmatic tab-bar edits from re-entrant slots. */
+    bool _suppressTabSignals = false;
 
     /** \brief Start directory and initialization file */
     QString startDirectory, _initFile;
