@@ -517,6 +517,31 @@ MainWindow::MainWindow(QString initFile)
     // the two strips have matching heights.
     QWidget *tabStripRow = buildGroupTabStrip(newTabButton, _documentTabBar);
 
+    // A colour-highlighted "restore" chip at the FAR RIGHT of the primary strip,
+    // shown only while the secondary group is collapsed - it signals that a
+    // hidden second editor group exists and restores it on click.
+    _group1RestoreButton = new QToolButton();
+    _group1RestoreButton->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    _group1RestoreButton->setToolTip(tr("A second editor group is collapsed here - click to restore it"));
+    _group1RestoreButton->setStyleSheet(
+        "QToolButton { background:#3daee9; color:white; border:none; border-radius:3px; padding:1px 6px; }"
+        "QToolButton:hover { background:#5bb8ee; }");
+    _group1RestoreButton->setVisible(false);
+    connect(_group1RestoreButton, &QToolButton::clicked, this, &MainWindow::restoreGroup1);
+
+    // ...and an X right next to it to close the collapsed group outright.
+    _group1RestoreCloseButton = new QToolButton();
+    _group1RestoreCloseButton->setText(QChar(0x2715)); // multiplication X = "close"
+    _group1RestoreCloseButton->setAutoRaise(true);
+    _group1RestoreCloseButton->setToolTip(tr("Close the collapsed second editor group and its tabs"));
+    _group1RestoreCloseButton->setVisible(false);
+    connect(_group1RestoreCloseButton, &QToolButton::clicked, this, &MainWindow::closeGroup1);
+
+    if (QHBoxLayout *stripLayout = qobject_cast<QHBoxLayout *>(tabStripRow->layout())) {
+        stripLayout->addWidget(_group1RestoreButton, 0);
+        stripLayout->addWidget(_group1RestoreCloseButton, 0);
+    }
+
     // Group 0's body keeps the original editor grid: the matrix view in column 0
     // and the vertical scrollbar in column 1, offset 50px down by a spacer so it
     // aligns just below the timeline ruler drawn at the top of the matrix view.
@@ -2233,6 +2258,12 @@ void MainWindow::tearDownGroup1() {
     _compareFile = nullptr;
     _group1Collapsed = false;
     _viewSplitterSizes.clear();
+    if (_group1RestoreButton) {
+        _group1RestoreButton->setVisible(false); // the group is gone, not just hidden
+    }
+    if (_group1RestoreCloseButton) {
+        _group1RestoreCloseButton->setVisible(false);
+    }
 
     _activeView = mw_matrixWidget;
     if (mw_matrixWidget) EditorTool::setMatrixWidget(mw_matrixWidget);
@@ -2257,6 +2288,18 @@ void MainWindow::collapseGroup1() {
     _group1Container->hide();
     _group1Collapsed = true;
 
+    // Surface the restore chip (with the group's tab count + the editor-group
+    // glyph) so the hidden group is discoverable.
+    if (_group1RestoreButton) {
+        const int n = _group1Docs ? _group1Docs->count() : 0;
+        _group1RestoreButton->setIcon(makeSplitViewIcon(14));
+        _group1RestoreButton->setText(tr("Group 2 (%1)").arg(n));
+        _group1RestoreButton->setVisible(true);
+    }
+    if (_group1RestoreCloseButton) {
+        _group1RestoreCloseButton->setVisible(true);
+    }
+
     // Focus returns to the (now only visible) primary group.
     _activeView = mw_matrixWidget;
     if (mw_matrixWidget) EditorTool::setMatrixWidget(mw_matrixWidget);
@@ -2273,6 +2316,12 @@ void MainWindow::restoreGroup1() {
     }
     _group1Container->show();
     _group1Collapsed = false;
+    if (_group1RestoreButton) {
+        _group1RestoreButton->setVisible(false);
+    }
+    if (_group1RestoreCloseButton) {
+        _group1RestoreCloseButton->setVisible(false);
+    }
     if (_viewSplitterSizes.size() == _viewSplitter->count()) {
         _viewSplitter->setSizes(_viewSplitterSizes);
     } else {
@@ -2288,21 +2337,27 @@ void MainWindow::closeGroup1() {
     if (!_group1Docs) {
         return;
     }
-    // Prompt to save each dirty document first (saveBeforeClose acts on the
-    // active file, so make each one active in the secondary group before
-    // asking). Abort the whole close if the user cancels any prompt.
-    if (_group1Collapsed) {
-        restoreGroup1(); // make the group visible so the prompts have context
-    }
     // Snapshot the MidiFile* list UP FRONT, before any modal save prompt. The
     // files are only ever deleted by closeDocumentFile (never during a modal
     // prompt), so this list stays valid even if the Document handles were to
     // change - we delete exactly these files at the end.
     const QList<Document *> docs = _group1Docs->documents();
     QList<MidiFile *> files;
+    bool anyDirty = false;
     for (Document *d : docs) {
         files.append(d->file());
+        if (d->file() && !d->file()->saved()) {
+            anyDirty = true;
+        }
     }
+    // Only un-collapse if we actually have to show a save prompt (so the user
+    // sees what they are saving). With nothing dirty, close silently - no flash.
+    if (_group1Collapsed && anyDirty) {
+        restoreGroup1();
+    }
+    // Prompt to save each dirty document (saveBeforeClose acts on the active
+    // file, so make each one active in the secondary group first). Abort the
+    // whole close if the user cancels any prompt.
     for (Document *d : docs) {
         MidiFile *f = d->file();
         if (f && !f->saved()) {

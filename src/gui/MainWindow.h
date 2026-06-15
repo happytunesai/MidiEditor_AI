@@ -1088,6 +1088,20 @@ private:
     bool _group1Collapsed = false;
     QList<int> _viewSplitterSizes;
 
+    /**
+     * \brief Phase 28 (editor groups): a colour-highlighted chip at the right of
+     * the primary tab strip, shown ONLY while the secondary group is collapsed.
+     * It signals "a second editor group is hidden here" and restores it on click.
+     */
+    QToolButton *_group1RestoreButton = nullptr;
+
+    /**
+     * \brief Phase 28 (editor groups): an X next to the restore chip (shown only
+     * while the secondary group is collapsed) that closes the collapsed group
+     * outright (with save prompts), without restoring it first.
+     */
+    QToolButton *_group1RestoreCloseButton = nullptr;
+
     /** \brief Phase 28 (editor groups): collapse / restore / close the secondary
      *  group. Collapse hides it (tabs kept); close prompts to save each dirty
      *  tab then tears the group down. */
