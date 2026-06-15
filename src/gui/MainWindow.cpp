@@ -1515,7 +1515,10 @@ void MainWindow::dropEvent(QDropEvent *ev) {
                 (targetView == _compareMatrixWidget)
                     ? qobject_cast<DocumentTabBar *>(_group1TabBar)
                     : qobject_cast<DocumentTabBar *>(_documentTabBar);
-            if (targetBar) {
+            // A pane drop appends to THAT group. Ignore a drop on the source's
+            // own pane - it would otherwise yank the tab to the end for no reason
+            // (the user was aiming at the other group and missed).
+            if (targetBar && targetBar != src) {
                 ev->acceptProposedAction();
                 onTabMoveRequested(src, srcIndex, targetBar, targetBar->count());
             }
@@ -1884,7 +1887,9 @@ void MainWindow::setActiveDocument(MidiFile *newFile) {
 #endif
 
     this->file = newFile;
-    setWindowTitle(QApplication::applicationName() + " v" + QApplication::applicationVersion() + " - " + newFile->path() + "[*]");
+    if (newFile) {
+        setWindowTitle(QApplication::applicationName() + " v" + QApplication::applicationVersion() + " - " + newFile->path() + "[*]");
+    }
 
     // ----- one-time per-file signal wiring -------------------------------
     if (firstActivation) {
@@ -1990,7 +1995,7 @@ void MainWindow::setActiveDocument(MidiFile *newFile) {
 #endif
 
     // Reset MIDI output channel programs and apply initial program changes
-    if (MidiOutput::isConnected()) {
+    if (file && MidiOutput::isConnected()) {
         MidiOutput::resetChannelPrograms();
         // Send program change events from the beginning of the file
         for (int ch = 0; ch < 16; ch++) {
@@ -2033,7 +2038,7 @@ void MainWindow::closeDocumentFile(MidiFile *oldFile) {
     // secondary group entirely so its view does not dangle on the deleted file.
     if (_compareFile == oldFile && _group1Docs) {
         _compareFile = nullptr;
-        tearDownGroup1(/*mergeRemainingBack=*/false);
+        tearDownGroup1();
     }
 
     FfxivVoiceAnalyzer::instance()->forgetFile(oldFile);
@@ -2205,24 +2210,13 @@ void MainWindow::toggleCompareView() {
     statusBar()->showMessage(tr("Moved %1 into a second editor group (click a pane to focus it)").arg(moveTitle), 4000);
 }
 
-void MainWindow::tearDownGroup1(bool mergeRemainingBack) {
+void MainWindow::tearDownGroup1() {
     if (!_group1Docs) {
         return; // not split
     }
 
-    if (mergeRemainingBack && _documentManager && _documentTabBar) {
-        // Move group 1's still-open documents back into group 0's tab bar.
-        const QList<Document *> docs = _group1Docs->documents();
-        for (Document *d : docs) {
-            Document *nd = _documentManager->open(d->file(), d->title());
-            _suppressTabSignals = true;
-            _documentTabBar->addTab(nd->title());
-            _suppressTabSignals = false;
-        }
-    }
-
     // _group1Docs owns only the Document handles (not the MidiFiles); deleting
-    // it leaves the files intact (now re-registered in group 0 when merging).
+    // it leaves the files intact (the caller deletes/keeps them as needed).
     delete _group1Docs;
     _group1Docs = nullptr;
     // Deleting the container deletes its children (the tab bar + the view). This
@@ -2300,7 +2294,15 @@ void MainWindow::closeGroup1() {
     if (_group1Collapsed) {
         restoreGroup1(); // make the group visible so the prompts have context
     }
+    // Snapshot the MidiFile* list UP FRONT, before any modal save prompt. The
+    // files are only ever deleted by closeDocumentFile (never during a modal
+    // prompt), so this list stays valid even if the Document handles were to
+    // change - we delete exactly these files at the end.
     const QList<Document *> docs = _group1Docs->documents();
+    QList<MidiFile *> files;
+    for (Document *d : docs) {
+        files.append(d->file());
+    }
     for (Document *d : docs) {
         MidiFile *f = d->file();
         if (f && !f->saved()) {
@@ -2323,14 +2325,10 @@ void MainWindow::closeGroup1() {
         }
     }
 
-    // Collect the files, tear the group's view/bar/manager down, then delete the
-    // files. (tearDownGroup1 deletes the Document handles, not the MidiFiles.)
-    QList<MidiFile *> files;
-    for (Document *d : docs) {
-        files.append(d->file());
-    }
+    // Tear the group's view/bar/manager down, then delete the snapshot files.
+    // (tearDownGroup1 deletes the Document handles, not the MidiFiles.)
     _compareFile = nullptr;
-    tearDownGroup1(/*mergeRemainingBack=*/false);
+    tearDownGroup1();
     for (MidiFile *f : files) {
         closeDocumentFile(f);
     }
@@ -2405,7 +2403,7 @@ void MainWindow::openInNewTab(MidiFile *f) {
     // group has focus, the new document/tab is created there; otherwise it goes
     // into the primary group (group 0).
     if (_group1Docs && _group1TabBar && _compareMatrixWidget &&
-        _activeView == _compareMatrixWidget) {
+        !_group1Collapsed && _activeView == _compareMatrixWidget) {
         Document *d = _group1Docs->openAndActivate(f, documentTabTitle(f));
         _suppressGroup1TabSignals = true;
         const int idx = _group1TabBar->addTab(d->title());
@@ -2510,7 +2508,7 @@ void MainWindow::onGroup1TabCloseRequested(int index) {
     // Last tab in the secondary group closed -> collapse the group.
     if (_group1Docs->isEmpty()) {
         _compareFile = nullptr;         // stop the teardown guard double-acting
-        tearDownGroup1(/*mergeRemainingBack=*/false);
+        tearDownGroup1();
         closeDocumentFile(f);
         return;
     }
@@ -2688,20 +2686,10 @@ void MainWindow::onTabMoveRequested(DocumentTabBar *source, int sourceIndex,
 
     // ----- in-bar reorder ------------------------------------------------
     if (source == target) {
-        // targetIndex is an insertion GAP (0..count). Removing the dragged tab
-        // shifts everything after it left by one, so a gap to the right of the
-        // source maps to gap-1 as the final index.
-        int gap = targetIndex;
-        if (gap < 0 || gap > srcMgr->count()) {
-            gap = srcMgr->count();
-        }
-        int to = (gap > sourceIndex) ? gap - 1 : gap;
-        if (to < 0) {
-            to = 0;
-        }
-        if (to >= srcMgr->count()) {
-            to = srcMgr->count() - 1;
-        }
+        // targetIndex is an insertion GAP (0..count); map it to the move() index
+        // (removing the dragged tab shifts items after it left by one). Pure,
+        // unit-tested logic - see DocumentManager::gapToMoveIndex.
+        const int to = DocumentManager::gapToMoveIndex(sourceIndex, targetIndex, srcMgr->count());
         if (to == sourceIndex) {
             return;
         }
@@ -2745,7 +2733,7 @@ void MainWindow::onTabMoveRequested(DocumentTabBar *source, int sourceIndex,
     if (srcMgr == _group1Docs) {
         if (_group1Docs->isEmpty()) {
             _compareFile = nullptr;
-            tearDownGroup1(/*mergeRemainingBack=*/false);
+            tearDownGroup1();
         } else if (_compareMatrixWidget) {
             Document *sa = _group1Docs->active();
             if (sa) {
@@ -2812,6 +2800,14 @@ void MainWindow::onDocumentTabCloseRequested(int index) {
     // it down (delete + forget). Guard against deleting the still-active file.
     if (f && f != file) {
         closeDocumentFile(f);
+    }
+
+    // If the secondary group is the focused/visible one, closing a primary-group
+    // tab must NOT have stolen the active document: restore group 1's document as
+    // active (its view already shows it) while the primary view keeps group 0's.
+    if (_group1Docs && !_group1Collapsed && _activeView == _compareMatrixWidget &&
+        _compareFile) {
+        setActiveDocument(_compareFile);
     }
 }
 
@@ -3411,9 +3407,9 @@ void MainWindow::save() {
     }
 }
 
-void MainWindow::saveas() {
+bool MainWindow::saveas() {
     if (!file)
-        return;
+        return false;
 
     QString oldPath = file->path();
     QFileInfo oldInfo(oldPath);
@@ -3433,7 +3429,7 @@ void MainWindow::saveas() {
     QString newPath = QFileDialog::getSaveFileName(this, tr("Save file as..."), startLocation);
 
     if (newPath == "") {
-        return;
+        return false; // user cancelled the dialog
     }
 
     // automatically add '.mid' extension
@@ -3468,8 +3464,10 @@ void MainWindow::saveas() {
 #ifdef MIDIEDITOR_COLLAB_ENABLED
         CollabService::instance()->onFileSaved(file, newPath);
 #endif
+        return true;
     } else {
         QMessageBox::warning(this, tr("Error"), QString(tr("The file could not be saved. Please make sure that the destination directory exists and that you have the correct access rights to write into this directory.")));
+        return false;
     }
 }
 
@@ -3870,11 +3868,12 @@ bool MainWindow::saveBeforeClose() {
 
     switch (role) {
         case QMessageBox::AcceptRole:
-            // save
+            // Save; only proceed with the close when the save actually succeeds.
+            // A failed write or a cancelled "Save As" must NOT discard the
+            // document (this is what makes a Cancel in the file dialog safe).
             if (QFile(file->path()).exists())
-                file->save(file->path());
-            else saveas();
-            return true;
+                return file->save(file->path());
+            return saveas();
 
         case QMessageBox::RejectRole:
             // cancel - break

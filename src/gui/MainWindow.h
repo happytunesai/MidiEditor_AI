@@ -325,8 +325,10 @@ public slots:
 
     /**
      * \brief Opens a save-as dialog to save the file with a new name.
+     * \return true if the file was actually written; false if the dialog was
+     * cancelled or the write failed (so close paths can abort safely).
      */
-    void saveas();
+    bool saveas();
 
     /**
      * \brief Undoes the last action.
@@ -1258,13 +1260,11 @@ private:
     QWidget *buildGroupTabStrip(QToolButton *plusButton, QTabBar *bar);
 
     /**
-     * \brief Phase 28 (editor groups): tear down the secondary group (group 1).
-     * If \a mergeRemainingBack, its still-open documents are first moved back
-     * into group 0's tab bar (un-split); otherwise the caller has already
-     * disposed of them. Deletes the group-1 view/tab-bar/manager and restores
-     * the primary view as the focused one.
+     * \brief Phase 28 (editor groups): tear down the secondary group (group 1) -
+     * delete its view/tab-bar/manager (the Document handles, NOT the MidiFiles;
+     * the caller disposes of those) and restore the primary view as focused.
      */
-    void tearDownGroup1(bool mergeRemainingBack);
+    void tearDownGroup1();
 
     /** \brief Phase 28: files whose one-time signal wiring has been done. */
     QSet<MidiFile *> _connectedFiles;

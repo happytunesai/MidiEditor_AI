@@ -227,6 +227,58 @@ private slots:
         QCOMPARE(m.at(0), a);
         QCOMPARE(m.at(1), b);
     }
+
+    // ----- gapToMoveIndex() (drag-drop reorder: insertion gap -> move index) --
+
+    void gapToMoveIndex_dropInOwnGapIsNoOp() {
+        // Count 3, dragging tab `from`: a gap immediately around `from` must not
+        // move it (to == from).
+        QCOMPARE(DocumentManager::gapToMoveIndex(0, 0, 3), 0);
+        QCOMPARE(DocumentManager::gapToMoveIndex(0, 1, 3), 0); // gap right after itself
+        QCOMPARE(DocumentManager::gapToMoveIndex(1, 1, 3), 1);
+        QCOMPARE(DocumentManager::gapToMoveIndex(1, 2, 3), 1); // gap right after itself
+        QCOMPARE(DocumentManager::gapToMoveIndex(2, 2, 3), 2);
+        QCOMPARE(DocumentManager::gapToMoveIndex(2, 3, 3), 2); // gap at the very end
+    }
+
+    void gapToMoveIndex_dragRightShiftsLeftByOne() {
+        // Dragging tab 0 to a gap on its right: gap>from -> to = gap-1.
+        QCOMPARE(DocumentManager::gapToMoveIndex(0, 2, 3), 1);
+        QCOMPARE(DocumentManager::gapToMoveIndex(0, 3, 3), 2); // to the end
+        QCOMPARE(DocumentManager::gapToMoveIndex(1, 3, 3), 2);
+    }
+
+    void gapToMoveIndex_dragLeftKeepsGap() {
+        // Dragging a later tab to a gap on its left: gap<=from -> to = gap.
+        QCOMPARE(DocumentManager::gapToMoveIndex(2, 0, 3), 0);
+        QCOMPARE(DocumentManager::gapToMoveIndex(2, 1, 3), 1);
+        QCOMPARE(DocumentManager::gapToMoveIndex(1, 0, 3), 0);
+    }
+
+    void gapToMoveIndex_clampsAndHandlesEdgeCounts() {
+        QCOMPARE(DocumentManager::gapToMoveIndex(0, -1, 3), 2); // negative gap -> append
+        QCOMPARE(DocumentManager::gapToMoveIndex(0, 99, 3), 2); // huge gap -> append
+        QCOMPARE(DocumentManager::gapToMoveIndex(0, 0, 0), 0);  // empty
+        QCOMPARE(DocumentManager::gapToMoveIndex(0, 5, 1), 0);  // single tab
+    }
+
+    void gapToMoveIndex_thenMoveProducesExpectedOrder() {
+        // Integration: feed the gap result into move() and check the order.
+        DocumentManager m;
+        Document *a = m.open(fakeFile(0xA));
+        Document *b = m.open(fakeFile(0xB));
+        Document *c = m.open(fakeFile(0xC)); // [a,b,c]
+        // Drag a (index 0) to the very end (gap 3).
+        m.move(0, DocumentManager::gapToMoveIndex(0, 3, m.count()));
+        QCOMPARE(m.at(0), b);
+        QCOMPARE(m.at(1), c);
+        QCOMPARE(m.at(2), a);
+        // Drag it back to the front (gap 0).
+        m.move(2, DocumentManager::gapToMoveIndex(2, 0, m.count()));
+        QCOMPARE(m.at(0), a);
+        QCOMPARE(m.at(1), b);
+        QCOMPARE(m.at(2), c);
+    }
 };
 
 QTEST_APPLESS_MAIN(TestDocumentManager)

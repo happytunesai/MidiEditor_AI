@@ -140,3 +140,23 @@ void DocumentManager::move(int from, int to) {
         _activeIndex = _documents.indexOf(activeDoc);
     }
 }
+
+int DocumentManager::gapToMoveIndex(int from, int gap, int count) {
+    if (count <= 0) {
+        return 0;
+    }
+    // A drop past the last tab (or an out-of-range gap) appends to the end.
+    if (gap < 0 || gap > count) {
+        gap = count;
+    }
+    // Removing the tab at `from` shifts everything after it left by one, so a
+    // gap to the RIGHT of `from` lands one slot earlier than the raw gap.
+    int to = (gap > from) ? gap - 1 : gap;
+    if (to < 0) {
+        to = 0;
+    }
+    if (to > count - 1) {
+        to = count - 1;
+    }
+    return to;
+}

@@ -123,6 +123,15 @@ public:
      */
     void move(int from, int to);
 
+    /**
+     * Map a tab-drop insertion GAP (0..count) for the tab at `from` to the
+     * destination index for move(from, to). Removing `from` shifts items after
+     * it left by one, so a gap to the right of `from` maps to gap-1. The result
+     * is clamped to [0, count-1]. Pure + static so the (drag-and-drop) reorder
+     * arithmetic can be unit-tested without a GUI. Returns `from` for a no-op.
+     */
+    static int gapToMoveIndex(int from, int gap, int count);
+
 private:
     QList<Document *> _documents;
     int _activeIndex = -1;
