@@ -1584,8 +1584,9 @@ void MainWindow::dragLeaveEvent(QDragLeaveEvent *ev) {
 }
 
 MatrixWidget *MainWindow::viewAtWindowPos(const QPoint &windowPos) const {
-    if (!_group1Container || !_compareMatrixWidget) {
-        return nullptr; // not split -> single (primary) group
+    if (!_group1Container || !_compareMatrixWidget || _group1Collapsed ||
+        !_group1Container->isVisible()) {
+        return nullptr; // not split (or collapsed) -> single (primary) group
     }
     const QPoint inG1 = _group1Container->mapFrom(const_cast<MainWindow *>(this), windowPos);
     if (_group1Container->rect().contains(inG1)) {
@@ -2077,13 +2078,19 @@ void MainWindow::toggleCompareView() {
         return;
     }
 
-    // Already split? -> un-split: merge group 1's documents back into group 0
-    // and tear the secondary group down.
+    // Already split? -> the Split button now toggles the secondary group's
+    // visibility: collapse it (keeping its tabs) when shown, restore it when
+    // collapsed. Fully closing the group (with save prompts) is the group's own
+    // close button.
     if (_group1Docs) {
-        tearDownGroup1(/*mergeRemainingBack=*/true);
-        statusBar()->showMessage(tr("Second editor group closed"), 3000);
+        if (_group1Collapsed) {
+            restoreGroup1();
+        } else {
+            collapseGroup1();
+        }
         return;
     }
+    _group1Collapsed = false;
 
     // Need a second document to move into the new group. (Splitting the same
     // file into two groups can come later; for now keep group 0 non-empty.)
@@ -2137,6 +2144,24 @@ void MainWindow::toggleCompareView() {
     // the two strips align in height. This group carries its own tabs (VS Code-
     // style editor group) and travels as one unit in the splitter.
     QWidget *g1Strip = buildGroupTabStrip(group1NewTab, _group1TabBar);
+    // Far-right controls for the secondary group: collapse (hide, keep tabs) and
+    // close (close the group + its tabs, with save prompts). buildGroupTabStrip
+    // ends the strip with a stretch, so these land at the right edge.
+    if (QHBoxLayout *sl = qobject_cast<QHBoxLayout *>(g1Strip->layout())) {
+        QToolButton *collapseBtn = new QToolButton();
+        collapseBtn->setText(QChar(0x2013)); // en dash = "minimize / retract"
+        collapseBtn->setAutoRaise(true);
+        collapseBtn->setToolTip(tr("Collapse this group (keep its tabs; Split restores it)"));
+        connect(collapseBtn, &QToolButton::clicked, this, &MainWindow::collapseGroup1);
+        sl->addWidget(collapseBtn, 0);
+
+        QToolButton *closeBtn = new QToolButton();
+        closeBtn->setText(QChar(0x2715)); // multiplication X = "close"
+        closeBtn->setAutoRaise(true);
+        closeBtn->setToolTip(tr("Close this group and all its tabs"));
+        connect(closeBtn, &QToolButton::clicked, this, &MainWindow::closeGroup1);
+        sl->addWidget(closeBtn, 0);
+    }
     _group1Container = new QWidget();
     _group1Container->setObjectName("editorGroup1");
     _group1Container->setStyleSheet("#editorGroup1 { border: 2px solid transparent; }");
@@ -2212,6 +2237,8 @@ void MainWindow::tearDownGroup1(bool mergeRemainingBack) {
     _group1TabBar = nullptr;
     _compareMatrixWidget = nullptr;
     _compareFile = nullptr;
+    _group1Collapsed = false;
+    _viewSplitterSizes.clear();
 
     _activeView = mw_matrixWidget;
     if (mw_matrixWidget) EditorTool::setMatrixWidget(mw_matrixWidget);
@@ -2224,6 +2251,90 @@ void MainWindow::tearDownGroup1(bool mergeRemainingBack) {
         _suppressTabSignals = false;
         activateDocument(a->file());
     }
+}
+
+void MainWindow::collapseGroup1() {
+    if (!_group1Container || _group1Collapsed) {
+        return;
+    }
+    // Remember the split so restore returns to the same widths, then hide the
+    // pane. The documents/tabs stay alive in _group1Docs.
+    _viewSplitterSizes = _viewSplitter->sizes();
+    _group1Container->hide();
+    _group1Collapsed = true;
+
+    // Focus returns to the (now only visible) primary group.
+    _activeView = mw_matrixWidget;
+    if (mw_matrixWidget) EditorTool::setMatrixWidget(mw_matrixWidget);
+    if (Document *a = _documentManager->active()) {
+        activateDocument(a->file());
+    }
+    statusBar()->showMessage(
+        tr("Second editor group collapsed - its tabs are kept (Split restores it)"), 4000);
+}
+
+void MainWindow::restoreGroup1() {
+    if (!_group1Container || !_group1Collapsed) {
+        return;
+    }
+    _group1Container->show();
+    _group1Collapsed = false;
+    if (_viewSplitterSizes.size() == _viewSplitter->count()) {
+        _viewSplitter->setSizes(_viewSplitterSizes);
+    } else {
+        const int w = _viewSplitter->width();
+        if (w > 0) {
+            _viewSplitter->setSizes(QList<int>() << w / 2 << w / 2);
+        }
+    }
+    statusBar()->showMessage(tr("Second editor group restored"), 3000);
+}
+
+void MainWindow::closeGroup1() {
+    if (!_group1Docs) {
+        return;
+    }
+    // Prompt to save each dirty document first (saveBeforeClose acts on the
+    // active file, so make each one active in the secondary group before
+    // asking). Abort the whole close if the user cancels any prompt.
+    if (_group1Collapsed) {
+        restoreGroup1(); // make the group visible so the prompts have context
+    }
+    const QList<Document *> docs = _group1Docs->documents();
+    for (Document *d : docs) {
+        MidiFile *f = d->file();
+        if (f && !f->saved()) {
+            _activeView = _compareMatrixWidget;
+            if (_compareFile != f) {
+                _compareMatrixWidget->setFile(f);
+                _compareFile = f;
+            }
+            const int idx = _group1Docs->indexOf(d);
+            _group1Docs->setActiveIndex(idx);
+            if (idx >= 0 && _group1TabBar) {
+                _suppressGroup1TabSignals = true;
+                _group1TabBar->setCurrentIndex(idx);
+                _suppressGroup1TabSignals = false;
+            }
+            setActiveDocument(f);
+            if (!saveBeforeClose()) {
+                return; // user cancelled -> keep the group open
+            }
+        }
+    }
+
+    // Collect the files, tear the group's view/bar/manager down, then delete the
+    // files. (tearDownGroup1 deletes the Document handles, not the MidiFiles.)
+    QList<MidiFile *> files;
+    for (Document *d : docs) {
+        files.append(d->file());
+    }
+    _compareFile = nullptr;
+    tearDownGroup1(/*mergeRemainingBack=*/false);
+    for (MidiFile *f : files) {
+        closeDocumentFile(f);
+    }
+    statusBar()->showMessage(tr("Second editor group closed"), 3000);
 }
 
 void MainWindow::onViewFocused(MatrixWidget *view) {

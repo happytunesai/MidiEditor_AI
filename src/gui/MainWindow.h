@@ -1078,6 +1078,22 @@ private:
     bool _suppressGroup1TabSignals = false;
 
     /**
+     * \brief Phase 28 (editor groups): the secondary group can be COLLAPSED -
+     * its pane is hidden but its tabs/documents are kept alive - to reclaim
+     * space without closing anything. _viewSplitterSizes remembers the split so
+     * restore returns to the same widths.
+     */
+    bool _group1Collapsed = false;
+    QList<int> _viewSplitterSizes;
+
+    /** \brief Phase 28 (editor groups): collapse / restore / close the secondary
+     *  group. Collapse hides it (tabs kept); close prompts to save each dirty
+     *  tab then tears the group down. */
+    void collapseGroup1();
+    void restoreGroup1();
+    void closeGroup1();
+
+    /**
      * \brief Phase 28 (editor groups): the primary group's container (the
      * [ tab strip | body ] widget in the splitter). Kept so a file dragged over
      * it can be highlighted / targeted, symmetrically with _group1Container.
