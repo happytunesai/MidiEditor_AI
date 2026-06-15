@@ -144,6 +144,89 @@ private slots:
         QVERIFY(m.removeAt(5) == nullptr);
         QCOMPARE(m.count(), 1);
     }
+
+    // ----- insert() (Phase 28 editor groups: drop a tab at a position) -------
+
+    void insert_intoEmpty_thenBecomesActive() {
+        DocumentManager m;
+        Document *d = m.insert(0, fakeFile(0x1), "A");
+        QCOMPARE(m.count(), 1);
+        QCOMPARE(m.active(), d);
+        QCOMPARE(m.activeIndex(), 0);
+    }
+
+    void insert_atFront_beforeActive_thenActiveShiftsRight() {
+        DocumentManager m;
+        Document *a = m.open(fakeFile(0x1));
+        Document *b = m.open(fakeFile(0x2));
+        m.setActive(b); // active index 1
+        Document *n = m.insert(0, fakeFile(0x9), "N");
+        QCOMPARE(m.count(), 3);
+        QCOMPARE(m.at(0), n);
+        QCOMPARE(m.at(1), a);
+        QCOMPARE(m.at(2), b);
+        // The inserted doc does NOT steal active; b stays active at its new index.
+        QCOMPARE(m.active(), b);
+        QCOMPARE(m.activeIndex(), 2);
+    }
+
+    void insert_afterActive_thenActiveIndexUnchanged() {
+        DocumentManager m;
+        Document *a = m.open(fakeFile(0x1));
+        m.open(fakeFile(0x2));
+        m.setActive(a); // active index 0
+        m.insert(2, fakeFile(0x9));
+        QCOMPARE(m.active(), a);
+        QCOMPARE(m.activeIndex(), 0);
+    }
+
+    void insert_indexClampedToCount() {
+        DocumentManager m;
+        m.open(fakeFile(0x1));
+        Document *n = m.insert(99, fakeFile(0x2)); // clamps to append
+        QCOMPARE(m.indexOf(n), 1);
+    }
+
+    // ----- move() (Phase 28 editor groups: reorder tabs within a group) ------
+
+    void move_keepsSameDocumentActive() {
+        DocumentManager m;
+        Document *a = m.open(fakeFile(0x1));
+        Document *b = m.open(fakeFile(0x2));
+        Document *c = m.open(fakeFile(0x3));
+        m.setActive(a); // active index 0
+        m.move(0, 2);   // a goes to the end
+        QCOMPARE(m.at(0), b);
+        QCOMPARE(m.at(1), c);
+        QCOMPARE(m.at(2), a);
+        QCOMPARE(m.active(), a); // still a, now at index 2
+        QCOMPARE(m.activeIndex(), 2);
+    }
+
+    void move_nonActive_thenActiveIndexFollows() {
+        DocumentManager m;
+        Document *a = m.open(fakeFile(0x1));
+        Document *b = m.open(fakeFile(0x2));
+        Document *c = m.open(fakeFile(0x3));
+        m.setActive(c); // active index 2
+        m.move(0, 1);   // a and b swap; c untouched but shifts? no - c stays last
+        QCOMPARE(m.at(0), b);
+        QCOMPARE(m.at(1), a);
+        QCOMPARE(m.at(2), c);
+        QCOMPARE(m.active(), c);
+        QCOMPARE(m.activeIndex(), 2);
+    }
+
+    void move_outOfRangeOrNoop_thenUnchanged() {
+        DocumentManager m;
+        Document *a = m.open(fakeFile(0x1));
+        Document *b = m.open(fakeFile(0x2));
+        m.move(0, 0);   // no-op
+        m.move(5, 0);   // out of range
+        m.move(0, 9);   // out of range
+        QCOMPARE(m.at(0), a);
+        QCOMPARE(m.at(1), b);
+    }
 };
 
 QTEST_APPLESS_MAIN(TestDocumentManager)

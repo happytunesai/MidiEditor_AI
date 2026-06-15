@@ -40,6 +40,7 @@
 class QProgressDialog;
 class QTabBar;
 class QToolButton;
+class DocumentTabBar;
 class MatrixWidget;
 class OpenGLMatrixWidget;
 class OpenGLMiscWidget;
@@ -202,6 +203,14 @@ protected:
      * \param ev The drag enter event
      */
     void dragEnterEvent(QDragEnterEvent *ev);
+
+    /**
+     * \brief Phase 28 (editor groups): while a file is dragged over a split
+     * editor, highlight the group under the cursor so the user sees where the
+     * file will open. dragLeave clears the highlight.
+     */
+    void dragMoveEvent(QDragMoveEvent *ev);
+    void dragLeaveEvent(QDragLeaveEvent *ev);
 
 public slots:
     // === General Update Methods ===
@@ -1069,6 +1078,29 @@ private:
     bool _suppressGroup1TabSignals = false;
 
     /**
+     * \brief Phase 28 (editor groups): the primary group's container (the
+     * [ tab strip | body ] widget in the splitter). Kept so a file dragged over
+     * it can be highlighted / targeted, symmetrically with _group1Container.
+     */
+    QWidget *_group0Container = nullptr;
+
+    /**
+     * \brief Phase 28 (editor groups): when split, return the editor VIEW of the
+     * group whose container contains \a windowPos (the primary view or the
+     * secondary view); nullptr when not split. Used to route a dropped file to
+     * the pane under the cursor.
+     */
+    MatrixWidget *viewAtWindowPos(const QPoint &windowPos) const;
+
+    /** \brief Phase 28 (editor groups): highlight \a target group's container as
+     *  the drop target (transparent border otherwise), or clear when nullptr.
+     *  No-op when the target is unchanged (dragMove fires continuously). */
+    void highlightDropGroup(QWidget *target);
+
+    /** \brief Phase 28 (editor groups): the container currently drop-highlighted. */
+    QWidget *_dropHighlightTarget = nullptr;
+
+    /**
      * \brief Phase 28 (B): the currently focused editor pane. A tab click loads
      * its document into THIS pane, so the user can set each pane's document
      * independently. Defaults to / falls back to the primary view.
@@ -1146,6 +1178,34 @@ private:
     /** \brief Phase 28 (editor groups): group-1 (secondary) tab-bar slots. */
     void onGroup1TabChanged(int index);
     void onGroup1TabCloseRequested(int index);
+
+    /**
+     * \brief Phase 28 (editor groups): a tab was dragged+dropped. source ==
+     * target reorders within a group; otherwise the document moves between
+     * groups (the dropped tab becomes active + focused in its new group; the
+     * secondary group collapses if it loses its last tab). The DocumentManagers
+     * are updated and both tab bars rebuilt from them.
+     */
+    void onTabMoveRequested(DocumentTabBar *source, int sourceIndex,
+                            DocumentTabBar *target, int targetIndex);
+
+    /** \brief Phase 28 (editor groups): the DocumentManager owning \a bar's tabs. */
+    DocumentManager *managerForTabBar(QTabBar *bar) const;
+
+    /**
+     * \brief Phase 28 (editor groups): rebuild \a bar's tabs from \a mgr (order
+     * + active tab), guarded against re-entrant tab signals. Called after a
+     * move/reorder so the bar exactly matches the manager.
+     */
+    void rebuildTabBar(QTabBar *bar, DocumentManager *mgr);
+
+    /**
+     * \brief Phase 28 (editor groups): bind ONLY the primary editor view to \a f
+     * (OpenGL-wrapper-aware) without touching the active document/sidebars. Used
+     * to keep the primary pane showing group 0's document while another group is
+     * the focused/active one. activateDocument() = setActiveDocument + this.
+     */
+    void bindPrimaryView(MidiFile *f);
 
     /**
      * \brief Phase 28 (editor groups): configure a document tab bar (movable,

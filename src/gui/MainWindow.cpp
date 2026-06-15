@@ -32,6 +32,10 @@
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QMimeData>
+#include <QDragEnterEvent>
+#include <QDragMoveEvent>
+#include <QDragLeaveEvent>
+#include <QDropEvent>
 #include <QProgressDialog>
 #include <QScopedPointer>
 #include <QScopedValueRollback>
@@ -122,6 +126,7 @@
 #include "AutoUpdater.h"
 #include "MidiPilotWidget.h"
 #include "DocumentManager.h"
+#include "DocumentTabBar.h"
 #include "MidiVisualizerWidget.h"
 #include "TimeDisplayWidget.h"
 #include "LyricVisualizerWidget.h"
@@ -481,10 +486,12 @@ MainWindow::MainWindow(QString initFile)
     // strip at the same height (VS Code-style). Group 0 (the primary) is built
     // here; group 1 is created on demand in toggleCompareView().
     _documentManager = new DocumentManager();
-    _documentTabBar = new QTabBar(matrixArea);
+    DocumentTabBar *group0Bar = new DocumentTabBar(matrixArea);
+    _documentTabBar = group0Bar;
     configureDocumentTabBar(_documentTabBar);
     connect(_documentTabBar, &QTabBar::currentChanged, this, &MainWindow::onDocumentTabChanged);
     connect(_documentTabBar, &QTabBar::tabCloseRequested, this, &MainWindow::onDocumentTabCloseRequested);
+    connect(group0Bar, &DocumentTabBar::tabMoveRequested, this, &MainWindow::onTabMoveRequested);
 
     // Phase 28: a "+" New-Tab button so a new document can be opened in a tab
     // from any toolbar layout (the freed toolbar space only exists in two-row
@@ -521,8 +528,14 @@ MainWindow::MainWindow(QString initFile)
     group0BodyLayout->addWidget(vert, 1, 1, 1, 1);
     group0BodyLayout->setColumnStretch(0, 1);
 
-    // Group 0 container = [ tab strip | body ].
+    // Group 0 container = [ tab strip | body ]. A 2px transparent border is
+    // reserved so the drop-target highlight (a coloured border) can appear
+    // without shifting the layout; the #objectName selector keeps the border
+    // off the child widgets.
     QWidget *group0Container = new QWidget();
+    _group0Container = group0Container;
+    group0Container->setObjectName("editorGroup0");
+    group0Container->setStyleSheet("#editorGroup0 { border: 2px solid transparent; }");
     QVBoxLayout *group0Layout = new QVBoxLayout(group0Container);
     group0Layout->setContentsMargins(0, 0, 0, 0);
     group0Layout->setSpacing(0);
@@ -1471,6 +1484,38 @@ void MainWindow::loadInitFile() {
 }
 
 void MainWindow::dropEvent(QDropEvent *ev) {
+    highlightDropGroup(nullptr); // clear any drag-over highlight
+
+    // Phase 28 (editor groups): a tab dragged out of a DocumentTabBar and
+    // dropped on a pane's EDITOR AREA (i.e. not precisely on a tab bar, which
+    // handles its own positional drop) moves into the group under the cursor,
+    // appended. This makes the whole pane a drop target, so moving a tab to the
+    // other group is forgiving (no need to hit the thin tab strip exactly).
+    if (ev->mimeData()->hasFormat(DocumentTabBar::tabMimeType())) {
+        DocumentTabBar *src = qobject_cast<DocumentTabBar *>(ev->source());
+        if (src) {
+            const int srcIndex =
+                ev->mimeData()->data(DocumentTabBar::tabMimeType()).toInt();
+            MatrixWidget *targetView = viewAtWindowPos(ev->position().toPoint());
+            DocumentTabBar *targetBar =
+                (targetView == _compareMatrixWidget)
+                    ? qobject_cast<DocumentTabBar *>(_group1TabBar)
+                    : qobject_cast<DocumentTabBar *>(_documentTabBar);
+            if (targetBar) {
+                ev->acceptProposedAction();
+                onTabMoveRequested(src, srcIndex, targetBar, targetBar->count());
+            }
+        }
+        return;
+    }
+
+    // Otherwise: a file/URL drop -> open in the group under the cursor (when
+    // split, not just whichever group happens to be focused). We focus that
+    // group's view first; loadFile -> openInNewTab then opens into it.
+    if (MatrixWidget *target = viewAtWindowPos(ev->position().toPoint())) {
+        _activeView = target;
+    }
+
     QList<QUrl> urls = ev->mimeData()->urls();
     foreach(QUrl url, urls) {
         QString newFile = url.toLocalFile();
@@ -1483,6 +1528,74 @@ void MainWindow::dropEvent(QDropEvent *ev) {
 
 void MainWindow::dragEnterEvent(QDragEnterEvent *ev) {
     ev->accept();
+}
+
+void MainWindow::dragMoveEvent(QDragMoveEvent *ev) {
+    // Highlight the editor group the drop would go into (only meaningful when
+    // split). Falls back to no highlight when there is a single group.
+    if (_group1Container) {
+        MatrixWidget *target = viewAtWindowPos(ev->position().toPoint());
+        highlightDropGroup(target == _compareMatrixWidget ? _group1Container
+                           : target == mw_matrixWidget    ? _group0Container
+                                                          : nullptr);
+
+        // For a TAB drag, also show the insertion caret at the append position
+        // of the target group's bar - so the landing spot is visible while the
+        // cursor is still over the editor area, not only once it reaches the bar.
+        // (Over the bar itself, the bar's own dragMove shows the precise caret.)
+        if (ev->mimeData()->hasFormat(DocumentTabBar::tabMimeType())) {
+            DocumentTabBar *g0 = qobject_cast<DocumentTabBar *>(_documentTabBar);
+            DocumentTabBar *g1 = qobject_cast<DocumentTabBar *>(_group1TabBar);
+            DocumentTabBar *targetBar = (target == _compareMatrixWidget) ? g1 : g0;
+            if (g0) {
+                (g0 == targetBar) ? g0->showAppendDropIndicator() : g0->clearDropIndicator();
+            }
+            if (g1) {
+                (g1 == targetBar) ? g1->showAppendDropIndicator() : g1->clearDropIndicator();
+            }
+        }
+    }
+    ev->accept();
+}
+
+void MainWindow::dragLeaveEvent(QDragLeaveEvent *ev) {
+    highlightDropGroup(nullptr);
+    if (DocumentTabBar *g0 = qobject_cast<DocumentTabBar *>(_documentTabBar)) {
+        g0->clearDropIndicator();
+    }
+    if (DocumentTabBar *g1 = qobject_cast<DocumentTabBar *>(_group1TabBar)) {
+        g1->clearDropIndicator();
+    }
+    ev->accept();
+}
+
+MatrixWidget *MainWindow::viewAtWindowPos(const QPoint &windowPos) const {
+    if (!_group1Container || !_compareMatrixWidget) {
+        return nullptr; // not split -> single (primary) group
+    }
+    const QPoint inG1 = _group1Container->mapFrom(const_cast<MainWindow *>(this), windowPos);
+    if (_group1Container->rect().contains(inG1)) {
+        return _compareMatrixWidget;
+    }
+    return mw_matrixWidget;
+}
+
+void MainWindow::highlightDropGroup(QWidget *target) {
+    if (target == _dropHighlightTarget) {
+        return; // unchanged - dragMoveEvent fires continuously
+    }
+    _dropHighlightTarget = target;
+    const QString accent = QStringLiteral("#3daee9");
+    if (_group0Container) {
+        _group0Container->setStyleSheet(
+            QStringLiteral("#editorGroup0 { border: 2px solid %1; }")
+                .arg(target == _group0Container ? accent : QStringLiteral("transparent")));
+    }
+    if (_group1Container) {
+        _group1Container->setStyleSheet(
+            QStringLiteral("#editorGroup1 { border: 2px solid %1; }")
+                .arg(target == _group1Container ? accent : QStringLiteral("transparent")));
+    }
 }
 
 void MainWindow::scrollPositionsChanged(int startMs, int maxMs, int startLine,
@@ -1874,19 +1987,22 @@ void MainWindow::setActiveDocument(MidiFile *newFile) {
     }
 }
 
+void MainWindow::bindPrimaryView(MidiFile *f) {
+    // Rebind ONLY the primary editor view to f (OpenGL wrapper or the software
+    // MatrixWidget, depending on the rendering mode) - no sidebar/active changes.
+    if (OpenGLMatrixWidget *openglMatrix = qobject_cast<OpenGLMatrixWidget*>(_matrixWidgetContainer)) {
+        openglMatrix->setFile(f);
+    } else {
+        mw_matrixWidget->setFile(f);
+    }
+}
+
 void MainWindow::activateDocument(MidiFile *newFile) {
     // Single-view / tab-switch path: make newFile the active document AND show
     // it in the primary editor view. (Side-by-side panes bind their views
     // separately and only call setActiveDocument() on focus.)
     setActiveDocument(newFile);
-
-    // Rebind the primary editor view to the active document (OpenGL wrapper or
-    // the software MatrixWidget, depending on the rendering mode).
-    if (OpenGLMatrixWidget *openglMatrix = qobject_cast<OpenGLMatrixWidget*>(_matrixWidgetContainer)) {
-        openglMatrix->setFile(newFile);
-    } else {
-        mw_matrixWidget->setFile(newFile);
-    }
+    bindPrimaryView(newFile);
 }
 
 void MainWindow::closeDocumentFile(MidiFile *oldFile) {
@@ -1916,7 +2032,9 @@ void MainWindow::configureDocumentTabBar(QTabBar *bar) {
     if (!bar) {
         return;
     }
-    bar->setMovable(true);
+    // The built-in mover stays OFF - DocumentTabBar implements its own drag for
+    // both in-bar reordering and moving tabs between editor groups.
+    bar->setMovable(false);
     bar->setTabsClosable(true);
     bar->setExpanding(false);
     bar->setDrawBase(false);
@@ -1977,10 +2095,12 @@ void MainWindow::toggleCompareView() {
     // ----- build the secondary group (group 1) ---------------------------
     _group1Docs = new DocumentManager();
 
-    _group1TabBar = new QTabBar();
+    DocumentTabBar *group1Bar = new DocumentTabBar();
+    _group1TabBar = group1Bar;
     configureDocumentTabBar(_group1TabBar);
     connect(_group1TabBar, &QTabBar::currentChanged, this, &MainWindow::onGroup1TabChanged);
     connect(_group1TabBar, &QTabBar::tabCloseRequested, this, &MainWindow::onGroup1TabCloseRequested);
+    connect(group1Bar, &DocumentTabBar::tabMoveRequested, this, &MainWindow::onTabMoveRequested);
 
     // A "+" that opens a new tab IN this (secondary) group.
     QToolButton *group1NewTab = new QToolButton();
@@ -2004,6 +2124,8 @@ void MainWindow::toggleCompareView() {
     // style editor group) and travels as one unit in the splitter.
     QWidget *g1Strip = buildGroupTabStrip(group1NewTab, _group1TabBar);
     _group1Container = new QWidget();
+    _group1Container->setObjectName("editorGroup1");
+    _group1Container->setStyleSheet("#editorGroup1 { border: 2px solid transparent; }");
     QVBoxLayout *g1Layout = new QVBoxLayout(_group1Container);
     g1Layout->setContentsMargins(0, 0, 0, 0);
     g1Layout->setSpacing(0);
@@ -2283,6 +2405,130 @@ void MainWindow::onGroup1TabCloseRequested(int index) {
 
     // The closed file is no longer bound to any group/view, so tear it down.
     closeDocumentFile(f);
+}
+
+DocumentManager *MainWindow::managerForTabBar(QTabBar *bar) const {
+    if (bar == _documentTabBar) {
+        return _documentManager;
+    }
+    if (bar == _group1TabBar) {
+        return _group1Docs;
+    }
+    return nullptr;
+}
+
+void MainWindow::rebuildTabBar(QTabBar *bar, DocumentManager *mgr) {
+    if (!bar || !mgr) {
+        return;
+    }
+    const bool group1 = (bar == _group1TabBar);
+    bool &suppress = group1 ? _suppressGroup1TabSignals : _suppressTabSignals;
+    suppress = true;
+    while (bar->count() > 0) {
+        bar->removeTab(0);
+    }
+    for (int i = 0; i < mgr->count(); ++i) {
+        bar->addTab(mgr->at(i)->title());
+    }
+    if (mgr->activeIndex() >= 0) {
+        bar->setCurrentIndex(mgr->activeIndex());
+    }
+    suppress = false;
+}
+
+void MainWindow::onTabMoveRequested(DocumentTabBar *source, int sourceIndex,
+                                    DocumentTabBar *target, int targetIndex) {
+    // A drop ends any drag feedback (group highlight + both bars' carets).
+    highlightDropGroup(nullptr);
+    if (DocumentTabBar *g0 = qobject_cast<DocumentTabBar *>(_documentTabBar)) {
+        g0->clearDropIndicator();
+    }
+    if (DocumentTabBar *g1 = qobject_cast<DocumentTabBar *>(_group1TabBar)) {
+        g1->clearDropIndicator();
+    }
+    DocumentManager *srcMgr = managerForTabBar(source);
+    DocumentManager *tgtMgr = managerForTabBar(target);
+    if (!srcMgr || !tgtMgr) {
+        return;
+    }
+    Document *srcDoc = srcMgr->at(sourceIndex);
+    if (!srcDoc) {
+        return;
+    }
+
+    // ----- in-bar reorder ------------------------------------------------
+    if (source == target) {
+        // targetIndex is an insertion GAP (0..count). Removing the dragged tab
+        // shifts everything after it left by one, so a gap to the right of the
+        // source maps to gap-1 as the final index.
+        int gap = targetIndex;
+        if (gap < 0 || gap > srcMgr->count()) {
+            gap = srcMgr->count();
+        }
+        int to = (gap > sourceIndex) ? gap - 1 : gap;
+        if (to < 0) {
+            to = 0;
+        }
+        if (to >= srcMgr->count()) {
+            to = srcMgr->count() - 1;
+        }
+        if (to == sourceIndex) {
+            return;
+        }
+        srcMgr->move(sourceIndex, to);
+        rebuildTabBar(source, srcMgr);
+        return;
+    }
+
+    // ----- move between groups -------------------------------------------
+    MidiFile *f = srcDoc->file();
+    const QString title = srcDoc->title();
+
+    // The primary group (group 0) must always keep at least one document - the
+    // primary editor view needs something to show.
+    if (srcMgr == _documentManager && srcMgr->count() <= 1) {
+        statusBar()->showMessage(tr("The primary group must keep at least one tab"), 3000);
+        return;
+    }
+
+    stop();
+    srcMgr->removeAt(sourceIndex);            // detaches the file (Document deleted)
+    Document *nd = tgtMgr->insert(targetIndex, f, title);
+    tgtMgr->setActive(nd);                    // the dropped tab is active in its new group
+
+    rebuildTabBar(source, srcMgr);
+    rebuildTabBar(target, tgtMgr);
+
+    // The drop focuses the target group and shows the moved document there.
+    if (target == _group1TabBar && _compareMatrixWidget) {
+        _activeView = _compareMatrixWidget;
+        _compareMatrixWidget->setFile(f);
+        _compareFile = f;
+        setActiveDocument(f);
+    } else { // target is the primary group
+        _activeView = mw_matrixWidget;
+        activateDocument(f);                  // binds primary view + makes f active
+    }
+
+    // Refresh the SOURCE group's view to its new active document - or collapse
+    // the secondary group if it just lost its last tab.
+    if (srcMgr == _group1Docs) {
+        if (_group1Docs->isEmpty()) {
+            _compareFile = nullptr;
+            tearDownGroup1(/*mergeRemainingBack=*/false);
+        } else if (_compareMatrixWidget) {
+            Document *sa = _group1Docs->active();
+            if (sa) {
+                _compareMatrixWidget->setFile(sa->file());
+                _compareFile = sa->file();
+            }
+        }
+    } else { // source is the primary group: keep its pane on group 0's active
+        Document *sa = _documentManager->active();
+        if (sa) {
+            bindPrimaryView(sa->file());      // view only - the active doc is in the target group
+        }
+    }
 }
 
 void MainWindow::onDocumentTabCloseRequested(int index) {

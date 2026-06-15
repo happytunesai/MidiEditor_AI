@@ -107,6 +107,22 @@ public:
     /** Convenience: removeAt(activeIndex()). */
     MidiFile *closeActive();
 
+    /**
+     * Insert a new document for `file` at `index` (clamped to [0, count]) and
+     * return it. Does NOT change which document is active: the previously-active
+     * document stays active (its stored index follows the shift). If the manager
+     * was empty, the inserted document becomes active. Used when a tab is dragged
+     * into this group at a drop position (Phase 28 editor groups).
+     */
+    Document *insert(int index, MidiFile *file, const QString &title = QString());
+
+    /**
+     * Move the document at `from` to `to` (both validated). The active document
+     * stays the same - its stored index follows the move - so reordering tabs
+     * never changes which one is active. No-op if out of range or from == to.
+     */
+    void move(int from, int to);
+
 private:
     QList<Document *> _documents;
     int _activeIndex = -1;

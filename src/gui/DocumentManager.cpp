@@ -103,3 +103,40 @@ MidiFile *DocumentManager::removeAt(int index) {
 MidiFile *DocumentManager::closeActive() {
     return removeAt(_activeIndex);
 }
+
+Document *DocumentManager::insert(int index, MidiFile *file, const QString &title) {
+    if (index < 0) {
+        index = 0;
+    }
+    if (index > _documents.size()) {
+        index = _documents.size();
+    }
+    Document *activeDoc = active(); // may be null when the manager is empty
+    Document *doc = new Document(file, title);
+    _documents.insert(index, doc);
+    if (!activeDoc) {
+        // Was empty: the inserted document is now the only (active) one.
+        _activeIndex = index;
+    } else {
+        // Keep the same document active; its index may have shifted right.
+        _activeIndex = _documents.indexOf(activeDoc);
+    }
+    return doc;
+}
+
+void DocumentManager::move(int from, int to) {
+    if (from < 0 || from >= _documents.size()) {
+        return;
+    }
+    if (to < 0 || to >= _documents.size()) {
+        return;
+    }
+    if (from == to) {
+        return;
+    }
+    Document *activeDoc = active();
+    _documents.move(from, to);
+    if (activeDoc) {
+        _activeIndex = _documents.indexOf(activeDoc);
+    }
+}
