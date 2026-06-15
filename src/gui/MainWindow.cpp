@@ -24,6 +24,8 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QIcon>
+#include <QPainter>
+#include <QPainterPath>
 #include <QInputDialog>
 #include <QJsonArray>
 #include <QJsonObject>
@@ -53,6 +55,7 @@
 #include <QTimer>
 #include <QStandardPaths>
 #include <QDir>
+#include <QDateTime>
 #include <QStatusBar>
 #include <QLabel>
 #include <QLocale>
@@ -1374,6 +1377,17 @@ MainWindow::MainWindow(QString initFile)
     // Load initial file immediately - no need for artificial delay
     loadInitFile();
 
+    // Phase 28: the initial document's tab is added to the bar during the
+    // constructor, before the nested splitter/tab-strip is first laid out, so
+    // the QTabBar can cache a zero geometry and not paint that first tab until a
+    // later relayout. Re-sync the active group's bar from its manager once the
+    // event loop is running so the startup tab is reliably visible.
+    QTimer::singleShot(0, this, [this] {
+        if (_documentTabBar && _documentManager && _documentManager->count() > 0) {
+            rebuildTabBar(_documentTabBar, _documentManager);
+        }
+    });
+
     // Start MCP Server if enabled in settings (server object created earlier, before setupActions)
     if (_settings->value("MCP/enabled", false).toBool()) {
         quint16 mcpPort = _settings->value("MCP/port", 9420).toInt();
@@ -2415,6 +2429,111 @@ DocumentManager *MainWindow::managerForTabBar(QTabBar *bar) const {
         return _group1Docs;
     }
     return nullptr;
+}
+
+QToolBar *MainWindow::buildTabToolsBar(QWidget *parent, int iconSize) {
+    // The tab-tools row that sits under the essential (New/Open/Save/Undo/Redo)
+    // toolbar in two-row mode: New Tab / Split / Clone. Styled like the essential
+    // bar (text beside icon) so it reads as a labelled second row.
+    QToolBar *bar = new QToolBar("TabTools", parent);
+    bar->setObjectName("tabToolsBar");
+    bar->setFloatable(false);
+    bar->setMovable(false);
+    bar->setContentsMargins(0, 0, 0, 0);
+    bar->layout()->setSpacing(3);
+    bar->setIconSize(QSize(iconSize, iconSize));
+    bar->setStyleSheet("QToolBar { border: 0px }");
+    bar->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+
+    QAction *newTabAct = new QAction(tr("New Tab"), bar);
+    Appearance::setActionIcon(newTabAct, ":/run_environment/graphics/tool/add.png");
+    newTabAct->setToolTip(tr("Open a new empty document in a tab (in the focused group)"));
+    connect(newTabAct, &QAction::triggered, this, [this] { newFile(); });
+    bar->addAction(newTabAct);
+
+    QAction *splitAct = new QAction(tr("Split"), bar);
+    splitAct->setIcon(makeSplitViewIcon(iconSize));
+    splitAct->setToolTip(tr("Split into a second editor group / close it again"));
+    connect(splitAct, &QAction::triggered, this, &MainWindow::toggleCompareView);
+    bar->addAction(splitAct);
+
+    QAction *cloneAct = new QAction(tr("Clone"), bar);
+    Appearance::setActionIcon(cloneAct, ":/run_environment/graphics/tool/copy.png");
+    cloneAct->setToolTip(tr("Duplicate the current document into a new tab"));
+    connect(cloneAct, &QAction::triggered, this, &MainWindow::cloneCurrentDocument);
+    bar->addAction(cloneAct);
+
+    return bar;
+}
+
+QIcon MainWindow::makeSplitViewIcon(int size) const {
+    if (size <= 0) {
+        size = 16;
+    }
+    QPixmap pm(size, size);
+    pm.fill(Qt::transparent);
+
+    QPainter p(&pm);
+    p.setRenderHint(QPainter::Antialiasing, true);
+
+    const QColor fg = Appearance::foregroundColor();
+    const qreal penW = qMax(1.0, size / 16.0);
+    const qreal pad = qMax(2.0, size * 0.16);
+    const QRectF frame(pad, pad, size - 2 * pad, size - 2 * pad);
+    const qreal radius = qMax(2.0, size * 0.14);
+    const qreal midX = frame.center().x();
+
+    // Subtle fill in the right pane so the glyph clearly reads as two panes.
+    QPainterPath clip;
+    clip.addRoundedRect(frame, radius, radius);
+    p.setClipPath(clip);
+    QColor paneFill = fg;
+    paneFill.setAlpha(55);
+    p.fillRect(QRectF(midX, frame.top(), frame.right() - midX, frame.height()), paneFill);
+    p.setClipping(false);
+
+    // Rounded frame + the vertical divider between the two panes.
+    p.setPen(QPen(fg, penW));
+    p.setBrush(Qt::NoBrush);
+    p.drawRoundedRect(frame, radius, radius);
+    p.drawLine(QPointF(midX, frame.top()), QPointF(midX, frame.bottom()));
+    p.end();
+
+    return QIcon(pm);
+}
+
+void MainWindow::cloneCurrentDocument() {
+    if (!file) {
+        return;
+    }
+    // Round-trip the active document through a temp .mid to get an independent
+    // copy. save() sets the original's saved-flag, so preserve+restore it -
+    // cloning must not make unsaved work look saved.
+    const QString tmp = QDir::temp().filePath(
+        QStringLiteral("midieditor_clone_%1.mid").arg(QDateTime::currentMSecsSinceEpoch()));
+    const bool wasSaved = file->saved();
+    const bool savedOk = file->save(tmp);
+    file->setSaved(wasSaved);
+    if (!savedOk) {
+        QMessageBox::warning(this, tr("Clone Tab"),
+                             tr("Could not duplicate the current document."));
+        return;
+    }
+
+    bool loadOk = false;
+    QStringList log;
+    MidiFile *clone = new MidiFile(tmp, &loadOk, &log);
+    QFile::remove(tmp);
+    if (!loadOk) {
+        delete clone;
+        QMessageBox::warning(this, tr("Clone Tab"),
+                             tr("Could not duplicate the current document."));
+        return;
+    }
+    // A fresh, untitled copy the user saves explicitly under a new name.
+    clone->setPath(QString());
+    clone->setSaved(false);
+    openInNewTab(clone);
 }
 
 void MainWindow::rebuildTabBar(QTabBar *bar, DocumentManager *mgr) {
@@ -8973,7 +9092,8 @@ QWidget *MainWindow::createCustomToolbar(QWidget *parent) {
         // Layout: Essential toolbar on left, content toolbars stacked on right
         btnLayout->setColumnStretch(1, 1);
         btnLayout->setColumnMinimumWidth(1, 800); // Ensure content toolbars have adequate width for double row
-        btnLayout->addWidget(essentialToolBar, 0, 0, 2, 1, Qt::AlignTop); // Spans both rows; top-aligned so the freed space below holds the tab-tools row (Phase 28)
+        btnLayout->addWidget(essentialToolBar, 0, 0, 1, 1, Qt::AlignTop | Qt::AlignLeft); // Essential bar in the top row of column 0...
+        btnLayout->addWidget(buildTabToolsBar(btnLayout->parentWidget(), essentialIconSize), 1, 0, 1, 1, Qt::AlignTop | Qt::AlignLeft); // ...with the Phase 28 tab-tools row (New Tab / Split / Clone) below it
         btnLayout->addWidget(topToolBar, 0, 1, 1, 1);
         btnLayout->addWidget(bottomToolBar, 1, 1, 1, 1);
     } else {
@@ -9575,7 +9695,8 @@ void MainWindow::updateToolbarContents(QWidget *toolbarWidget, QGridLayout *btnL
         // Layout: Essential toolbar on left, content toolbars stacked on right
         btnLayout->setColumnStretch(1, 1);
         btnLayout->setColumnMinimumWidth(1, 800); // Ensure content toolbars have adequate width for double row
-        btnLayout->addWidget(essentialToolBar, 0, 0, 2, 1, Qt::AlignTop); // Spans both rows; top-aligned so the freed space below holds the tab-tools row (Phase 28)
+        btnLayout->addWidget(essentialToolBar, 0, 0, 1, 1, Qt::AlignTop | Qt::AlignLeft); // Essential bar in the top row of column 0...
+        btnLayout->addWidget(buildTabToolsBar(btnLayout->parentWidget(), essentialIconSize), 1, 0, 1, 1, Qt::AlignTop | Qt::AlignLeft); // ...with the Phase 28 tab-tools row (New Tab / Split / Clone) below it
         btnLayout->addWidget(topToolBar, 0, 1, 1, 1);
         btnLayout->addWidget(bottomToolBar, 1, 1, 1, 1);
     } else {

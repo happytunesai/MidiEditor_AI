@@ -1193,6 +1193,27 @@ private:
     DocumentManager *managerForTabBar(QTabBar *bar) const;
 
     /**
+     * \brief Phase 28 (editor groups): the tab-tools toolbar (New Tab / Split /
+     * Clone) placed under the essential toolbar in two-row mode. \a iconSize
+     * matches the essential toolbar so the row lines up.
+     */
+    QToolBar *buildTabToolsBar(QWidget *parent, int iconSize);
+
+    /**
+     * \brief Phase 28 (editor groups): a hand-drawn "split editor" glyph (a
+     * rounded frame split into two panes) for the Split tab-tool, painted in the
+     * theme foreground colour so it matches both light and dark toolbars.
+     */
+    QIcon makeSplitViewIcon(int size) const;
+
+    /**
+     * \brief Phase 28 (editor groups): duplicate the active document into a new
+     * tab (an untitled, unsaved copy). Round-trips through a temp .mid; the
+     * original's saved-state is preserved (save() would otherwise clear it).
+     */
+    void cloneCurrentDocument();
+
+    /**
      * \brief Phase 28 (editor groups): rebuild \a bar's tabs from \a mgr (order
      * + active tab), guarded against re-entrant tab signals. Called after a
      * move/reorder so the bar exactly matches the manager.
