@@ -1235,6 +1235,23 @@ private:
     DocumentManager *managerForTabBar(QTabBar *bar) const;
 
     /**
+     * \brief Phase 28 (editor groups): the container widget of the FOCUSED editor
+     * view - the secondary view when group 1 has focus, otherwise the primary
+     * container (OpenGL wrapper or software MatrixWidget). View-level operations
+     * (zoom, playback cursor, measure navigation) must target this so they act on
+     * the pane the user is actually working in, not always the primary one.
+     */
+    QWidget *activeViewContainer() const;
+
+    /** \brief Phase 28 (editor groups): scroll the FOCUSED view to \a ms (the
+     *  two-arg timeMsChanged that force-centres), routed to activeViewContainer(). */
+    void scrollActiveViewToTickMs(int ms);
+
+    /** \brief Phase 28 (editor groups): invoke a zoom slot (e.g. "zoomHorIn") on
+     *  the FOCUSED view's container. */
+    void zoomActiveView(const char *method);
+
+    /**
      * \brief Phase 28 (editor groups): the tab-tools toolbar (New Tab / Split /
      * Clone) placed under the essential toolbar in two-row mode. \a iconSize
      * matches the essential toolbar so the row lines up.

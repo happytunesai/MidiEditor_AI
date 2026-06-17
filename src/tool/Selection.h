@@ -115,6 +115,14 @@ public:
      */
     static void forgetFile(MidiFile *file);
 
+    /**
+     * \brief Returns the retained selection for \a file WITHOUT changing the
+     * active one, or nullptr if that file has no selection yet. Lets a view draw
+     * ITS OWN document's selection even when another document is active, so a
+     * side-by-side pane no longer renders the active doc's selection as a ghost.
+     */
+    static Selection *forFile(MidiFile *file);
+
     // === Selection Management ===
 
     /**

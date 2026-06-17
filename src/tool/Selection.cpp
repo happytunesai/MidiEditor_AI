@@ -89,6 +89,13 @@ void Selection::forgetFile(MidiFile *file) {
     delete s;
 }
 
+Selection *Selection::forFile(MidiFile *file) {
+    if (!file) {
+        return nullptr;
+    }
+    return _perFileSelections.value(file, nullptr);
+}
+
 QList<MidiEvent *> Selection::selectedEvents() {
     return _selectedEvents;
 }

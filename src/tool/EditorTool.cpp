@@ -123,6 +123,10 @@ void EditorTool::setMatrixWidget(MatrixWidget *w) {
     matrixWidget = w;
 }
 
+MatrixWidget *EditorTool::currentMatrixWidget() {
+    return matrixWidget;
+}
+
 void EditorTool::setOpenGLContainer(QWidget *container) {
     _openglContainer = container;
 }

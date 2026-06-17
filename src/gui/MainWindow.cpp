@@ -2165,6 +2165,17 @@ void MainWindow::ensureGroup1() {
     _compareMatrixWidget = new MatrixWidget(_settings);
     connect(_compareMatrixWidget, &MatrixWidget::focusReceived,
             this, &MainWindow::onViewFocused);
+    // The secondary view has no external scrollbars, so its scroll requests (from
+    // playback-follow + smooth-scrolling, which the primary routes through the
+    // shared scrollbars) must drive its OWN scroll slots - otherwise smooth
+    // playback scrolling and edge-follow don't work in the secondary group.
+    connect(_compareMatrixWidget, &MatrixWidget::scrollChanged, this,
+            [this](int startMs, int, int startLine, int) {
+                if (_compareMatrixWidget) {
+                    _compareMatrixWidget->scrollXChanged(startMs);
+                    _compareMatrixWidget->scrollYChanged(startLine);
+                }
+            });
 
     // Container = vertical [ tab strip | view ], built exactly like group 0 so
     // the two strips align in height. This group carries its own tabs (VS Code-
@@ -2726,6 +2737,28 @@ DocumentManager *MainWindow::managerForTabBar(QTabBar *bar) const {
     return nullptr;
 }
 
+QWidget *MainWindow::activeViewContainer() const {
+    if (_activeView == _compareMatrixWidget && _compareMatrixWidget) {
+        return _compareMatrixWidget;
+    }
+    return _matrixWidgetContainer;
+}
+
+void MainWindow::scrollActiveViewToTickMs(int ms) {
+    QWidget *vc = activeViewContainer();
+    if (OpenGLMatrixWidget *gl = qobject_cast<OpenGLMatrixWidget *>(vc)) {
+        gl->timeMsChanged(ms, true);
+    } else if (MatrixWidget *m = qobject_cast<MatrixWidget *>(vc)) {
+        m->timeMsChanged(ms, true);
+    }
+}
+
+void MainWindow::zoomActiveView(const char *method) {
+    if (QWidget *vc = activeViewContainer()) {
+        QMetaObject::invokeMethod(vc, method);
+    }
+}
+
 QToolBar *MainWindow::buildTabToolsBar(QWidget *parent, int iconSize) {
     // The tab-tools row that sits under the essential (New/Open/Save/Undo/Redo)
     // toolbar in two-row mode: New Tab / Split / Clone. Styled like the essential
@@ -3092,7 +3125,7 @@ void MainWindow::play() {
             && !MidiPlayer::isPlaying() && !sid->isPlaying()) {
             const int fromMs = file->msOfTick(file->cursorTick());
             connect(sid, SIGNAL(positionChanged(int)),
-                    _matrixWidgetContainer, SLOT(timeMsChanged(int)),
+                    activeViewContainer(), SLOT(timeMsChanged(int)),
                     Qt::UniqueConnection);
             // Drive the MIDI Visualizer from the SID position (no MIDI is sent
             // to the output in Emulation mode, so its bars would stay empty).
@@ -3126,12 +3159,8 @@ void MainWindow::play() {
         return;
     }
     if (file && !MidiInput::recording() && !MidiPlayer::isPlaying()) {
-        // Update playback cursor position using the appropriate widget type
-        if (OpenGLMatrixWidget *openglMatrix = qobject_cast<OpenGLMatrixWidget*>(_matrixWidgetContainer)) {
-            openglMatrix->timeMsChanged(file->msOfTick(file->cursorTick()), true);
-        } else if (MatrixWidget *matrixWidget = qobject_cast<MatrixWidget*>(_matrixWidgetContainer)) {
-            matrixWidget->timeMsChanged(file->msOfTick(file->cursorTick()), true);
-        }
+        // Position the FOCUSED view's cursor at the play start.
+        scrollActiveViewToTickMs(file->msOfTick(file->cursorTick()));
 
         // UX-PLAY-001: keep tracks/channels/event/protocol panels live during playback
         // by default so the user can toggle visibility while listening. Opt-out via
@@ -3164,8 +3193,13 @@ void MainWindow::play() {
         // Connect playback cursor updates for all platforms (not just Windows)
         // This is essential for the playback cursor to move during playback
         // Disconnect first to prevent accumulating connections across play/stop cycles
+        // Route the playback cursor to the FOCUSED view (the pane showing the
+        // file being played), clearing any stale connection on either view first.
         disconnect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _matrixWidgetContainer, SLOT(timeMsChanged(int)));
-        connect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _matrixWidgetContainer, SLOT(timeMsChanged(int)));
+        if (_compareMatrixWidget) {
+            disconnect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _compareMatrixWidget, SLOT(timeMsChanged(int)));
+        }
+        connect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), activeViewContainer(), SLOT(timeMsChanged(int)));
 
         // Connect lyric timeline playback cursor
         disconnect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _lyricTimeline, SLOT(onPlaybackPositionChanged(int)));
@@ -3406,14 +3440,9 @@ void MainWindow::forward() {
     file->setPauseTick(-1);
     if (newTick <= file->endTick()) {
         file->setCursorTick(newTick);
-        // Update playback cursor position using the appropriate widget type
-        if (OpenGLMatrixWidget *openglMatrix = qobject_cast<OpenGLMatrixWidget*>(_matrixWidgetContainer)) {
-            openglMatrix->timeMsChanged(file->msOfTick(newTick), true);
-        } else if (MatrixWidget *matrixWidget = qobject_cast<MatrixWidget*>(_matrixWidgetContainer)) {
-            matrixWidget->timeMsChanged(file->msOfTick(newTick), true);
-        }
+        scrollActiveViewToTickMs(file->msOfTick(newTick)); // follow the FOCUSED view
     }
-    _matrixWidgetContainer->update();
+    activeViewContainer()->update();
 }
 
 void MainWindow::back() {
@@ -3445,14 +3474,9 @@ void MainWindow::back() {
     file->setPauseTick(-1);
     if (newTick >= 0) {
         file->setCursorTick(newTick);
-        // Update playback cursor position using the appropriate widget type
-        if (OpenGLMatrixWidget *openglMatrix = qobject_cast<OpenGLMatrixWidget*>(_matrixWidgetContainer)) {
-            openglMatrix->timeMsChanged(file->msOfTick(newTick), true);
-        } else if (MatrixWidget *matrixWidget = qobject_cast<MatrixWidget*>(_matrixWidgetContainer)) {
-            matrixWidget->timeMsChanged(file->msOfTick(newTick), true);
-        }
+        scrollActiveViewToTickMs(file->msOfTick(newTick)); // follow the FOCUSED view
     }
-    _matrixWidgetContainer->update();
+    activeViewContainer()->update();
 }
 
 void MainWindow::backToBegin() {
@@ -3462,7 +3486,7 @@ void MainWindow::backToBegin() {
     file->setPauseTick(0);
     file->setCursorTick(0);
 
-    _matrixWidgetContainer->update();
+    activeViewContainer()->update();
 }
 
 void MainWindow::forwardMarker() {
@@ -3494,13 +3518,8 @@ void MainWindow::forwardMarker() {
     if (newTick < 0) return;
     file->setPauseTick(newTick);
     file->setCursorTick(newTick);
-    // Update playback cursor position using the appropriate widget type
-    if (OpenGLMatrixWidget *openglMatrix = qobject_cast<OpenGLMatrixWidget*>(_matrixWidgetContainer)) {
-        openglMatrix->timeMsChanged(file->msOfTick(newTick), true);
-    } else if (MatrixWidget *matrixWidget = qobject_cast<MatrixWidget*>(_matrixWidgetContainer)) {
-        matrixWidget->timeMsChanged(file->msOfTick(newTick), true);
-    }
-    _matrixWidgetContainer->update();
+    scrollActiveViewToTickMs(file->msOfTick(newTick)); // follow the FOCUSED view
+    activeViewContainer()->update();
 }
 
 void MainWindow::backMarker() {
@@ -3533,13 +3552,8 @@ void MainWindow::backMarker() {
 
     file->setPauseTick(newTick);
     file->setCursorTick(newTick);
-    // Update playback cursor position using the appropriate widget type
-    if (OpenGLMatrixWidget *openglMatrix = qobject_cast<OpenGLMatrixWidget*>(_matrixWidgetContainer)) {
-        openglMatrix->timeMsChanged(file->msOfTick(newTick), true);
-    } else if (MatrixWidget *matrixWidget = qobject_cast<MatrixWidget*>(_matrixWidgetContainer)) {
-        matrixWidget->timeMsChanged(file->msOfTick(newTick), true);
-    }
-    _matrixWidgetContainer->update();
+    scrollActiveViewToTickMs(file->msOfTick(newTick)); // follow the FOCUSED view
+    activeViewContainer()->update();
 }
 
 void MainWindow::save() {
@@ -8069,7 +8083,7 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
     zoomHorOutAction->setShortcut(QKeySequence(QKeyCombination(Qt::CTRL, Qt::Key_Minus)));
     _defaultShortcuts["zoom_hor_out"] = QList<QKeySequence>() << zoomHorOutAction->shortcut();
     Appearance::setActionIcon(zoomHorOutAction, ":/run_environment/graphics/tool/zoom_hor_out.png");
-    connect(zoomHorOutAction, SIGNAL(triggered()), _matrixWidgetContainer, SLOT(zoomHorOut()));
+    connect(zoomHorOutAction, &QAction::triggered, this, [this] { zoomActiveView("zoomHorOut"); });
     zoomMenu->addAction(zoomHorOutAction);
     _actionMap["zoom_hor_out"] = zoomHorOutAction;
 
@@ -8077,7 +8091,7 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
     Appearance::setActionIcon(zoomHorInAction, ":/run_environment/graphics/tool/zoom_hor_in.png");
     zoomHorInAction->setShortcut(QKeySequence(QKeyCombination(Qt::CTRL, Qt::Key_Equal)));
     _defaultShortcuts["zoom_hor_in"] = QList<QKeySequence>() << zoomHorInAction->shortcut();
-    connect(zoomHorInAction, SIGNAL(triggered()), _matrixWidgetContainer, SLOT(zoomHorIn()));
+    connect(zoomHorInAction, &QAction::triggered, this, [this] { zoomActiveView("zoomHorIn"); });
     zoomMenu->addAction(zoomHorInAction);
     _actionMap["zoom_hor_in"] = zoomHorInAction;
 
@@ -8085,7 +8099,7 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
     Appearance::setActionIcon(zoomVerOutAction, ":/run_environment/graphics/tool/zoom_ver_out.png");
     zoomVerOutAction->setShortcut(QKeySequence(QKeyCombination(Qt::SHIFT, Qt::Key_Minus)));
     _defaultShortcuts["zoom_ver_out"] = QList<QKeySequence>() << zoomVerOutAction->shortcut();
-    connect(zoomVerOutAction, SIGNAL(triggered()), _matrixWidgetContainer, SLOT(zoomVerOut()));
+    connect(zoomVerOutAction, &QAction::triggered, this, [this] { zoomActiveView("zoomVerOut"); });
     zoomMenu->addAction(zoomVerOutAction);
     _actionMap["zoom_ver_out"] = zoomVerOutAction;
 
@@ -8093,7 +8107,7 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
     Appearance::setActionIcon(zoomVerInAction, ":/run_environment/graphics/tool/zoom_ver_in.png");
     zoomVerInAction->setShortcut(QKeySequence(QKeyCombination(Qt::SHIFT, Qt::Key_Equal)));
     _defaultShortcuts["zoom_ver_in"] = QList<QKeySequence>() << zoomVerInAction->shortcut();
-    connect(zoomVerInAction, SIGNAL(triggered()), _matrixWidgetContainer, SLOT(zoomVerIn()));
+    connect(zoomVerInAction, &QAction::triggered, this, [this] { zoomActiveView("zoomVerIn"); });
     zoomMenu->addAction(zoomVerInAction);
     _actionMap["zoom_ver_in"] = zoomVerInAction;
 
@@ -8102,7 +8116,7 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
     QAction *zoomStdAction = new QAction(tr("Restore default zoom"), this);
     zoomStdAction->setShortcut(QKeySequence(QKeyCombination(Qt::CTRL, Qt::Key_Backspace)));
     _defaultShortcuts["zoom_std"] = QList<QKeySequence>() << zoomStdAction->shortcut();
-    connect(zoomStdAction, SIGNAL(triggered()), _matrixWidgetContainer, SLOT(zoomStd()));
+    connect(zoomStdAction, &QAction::triggered, this, [this] { zoomActiveView("zoomStd"); });
     zoomMenu->addAction(zoomStdAction);
     _actionMap["zoom_std"] = zoomStdAction;
 

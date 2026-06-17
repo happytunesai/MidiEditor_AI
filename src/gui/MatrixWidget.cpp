@@ -664,11 +664,13 @@ void MatrixWidget::paintEvent(QPaintEvent *event) {
         }
     }
 
-    // Phase 28: the active tool belongs to the editable view. A read-only
-    // side-by-side compare view (_editingLocked) must NOT draw the tool overlay
-    // - the tool resolves to EditorTool::matrixWidget (the other view), so
-    // drawing it here is both wrong and a crash risk.
-    if (Tool::currentTool() && !_editingLocked) {
+    // Phase 28: the active tool belongs to the FOCUSED view only. The tool
+    // resolves event positions through EditorTool::matrixWidget (the focused
+    // pane), so a non-focused pane drawing the overlay would paint the focused
+    // doc's selection rects at the focused view's coords -> a ghost selection.
+    // Only the pane that is the current tool target draws the overlay (this also
+    // covers the old read-only _editingLocked compare view).
+    if (Tool::currentTool() && !_editingLocked && EditorTool::currentMatrixWidget() == this) {
         painter->setClipping(true);
         painter->setClipRect(ToolArea);
         Tool::currentTool()->draw(painter);
@@ -753,11 +755,15 @@ void MatrixWidget::paintChannel(QPainter *painter, int channel) {
     }
     QColor cC = *file->channel(channel)->color();
 
-    // PERFORMANCE: Cache selected events to avoid expensive lookups during this channel's painting
+    // PERFORMANCE: Cache selected events to avoid expensive lookups during this channel's painting.
+    // Use THIS widget's own file's selection (not the global active one) so a
+    // side-by-side pane doesn't draw the focused document's selection as a ghost.
     QSet<MidiEvent*> cachedSelection;
-    const QList<MidiEvent*>& selectedEvents = Selection::instance()->selectedEvents();
-    for (MidiEvent* event : selectedEvents) {
-        cachedSelection.insert(event);
+    Selection *fileSelection = Selection::forFile(file);
+    if (fileSelection) {
+        for (MidiEvent* event : fileSelection->selectedEvents()) {
+            cachedSelection.insert(event);
+        }
     }
 
     // filter events
@@ -1235,10 +1241,12 @@ void MatrixWidget::paintPianoKey(QPainter *painter, int number, int x, int y,
         }
 
         bool selected = mouseY >= y && mouseY <= y + height && mouseX > lineNameWidth && mouseOver;
-        foreach(MidiEvent* event, Selection::instance()->selectedEvents()) {
-            if (event->line() == 127 - number) {
-                selected = true;
-                break;
+        if (Selection *fileSel = Selection::forFile(file)) {
+            foreach(MidiEvent* event, fileSel->selectedEvents()) {
+                if (event->line() == 127 - number) {
+                    selected = true;
+                    break;
+                }
             }
         }
 
@@ -2074,7 +2082,8 @@ void MatrixWidget::contextMenuEvent(QContextMenuEvent *event) {
     // QContextMenuEvent would propagate back up to the wrapper, which forwards
     // it here again — an unbounded loop that overflows the stack. Accepting it
     // ends the propagation cleanly. (See OpenGLMatrixWidget::contextMenuEvent.)
-    if (!file || Selection::instance()->selectedEvents().isEmpty()) {
+    Selection *fileSel = Selection::forFile(file);
+    if (!file || !fileSel || fileSel->selectedEvents().isEmpty()) {
         event->accept();
         return;
     }
