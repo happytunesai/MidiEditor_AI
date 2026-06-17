@@ -523,9 +523,20 @@ MainWindow::MainWindow(QString initFile)
     _group1RestoreButton = new QToolButton();
     _group1RestoreButton->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
     _group1RestoreButton->setToolTip(tr("A second editor group is collapsed here - click to restore it"));
-    _group1RestoreButton->setStyleSheet(
-        "QToolButton { background:#3daee9; color:white; border:none; border-radius:3px; padding:1px 6px; }"
-        "QToolButton:hover { background:#5bb8ee; }");
+    // Theme-aware chip: the highlight/foreground/border colours all change with
+    // the active theme (the chip is rebuilt on the restart that a theme change
+    // triggers), so it no longer clashes (e.g. a blue chip on the pink theme).
+    {
+        const QColor chipBg = Appearance::stripHighlightColor();
+        const QColor chipFg = Appearance::foregroundColor();
+        const QColor chipBorder = Appearance::borderColor();
+        _group1RestoreButton->setStyleSheet(QStringLiteral(
+            "QToolButton { background:%1; color:%2; border:1px solid %3;"
+            " border-radius:3px; padding:1px 6px; }"
+            "QToolButton:hover { background:%4; }")
+            .arg(chipBg.name(), chipFg.name(), chipBorder.name(),
+                 chipBg.lighter(115).name()));
+    }
     _group1RestoreButton->setVisible(false);
     connect(_group1RestoreButton, &QToolButton::clicked, this, &MainWindow::restoreGroup1);
 
