@@ -1612,8 +1612,10 @@ private:
     /** \brief Removes auto-save sidecar files and stops the timer */
     void cleanupAutoSave();
 
-    /** \brief Checks for leftover auto-save files on startup and offers recovery */
-    void checkAutoSaveRecovery();
+    /** \brief Checks for leftover auto-save files on startup and offers recovery.
+     *  \return true if a document was actually recovered (and is now open), so
+     *  the caller must NOT also open a blank/initial document. */
+    bool checkAutoSaveRecovery();
 };
 
 #endif // MAINWINDOW_H_

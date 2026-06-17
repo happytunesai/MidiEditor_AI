@@ -1513,8 +1513,12 @@ void MainWindow::updatePasteActionState() {
 }
 
 void MainWindow::loadInitFile() {
-    // Check for untitled auto-save recovery before loading
-    checkAutoSaveRecovery();
+    // Check for untitled auto-save recovery before loading. If a document was
+    // recovered it is already open as the first tab - do NOT also open the init
+    // file / a blank document (that produced a spurious extra tab).
+    if (checkAutoSaveRecovery()) {
+        return;
+    }
 
     if (_initFile != "")
         loadFile(_initFile);
@@ -5864,12 +5868,12 @@ void MainWindow::cleanupAutoSave() {
     QFile::remove(untitledPath);
 }
 
-void MainWindow::checkAutoSaveRecovery() {
+bool MainWindow::checkAutoSaveRecovery() {
     // Check for untitled auto-save backup in AppData
     QString untitledPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
                          + "/autosave/untitled.autosave.mid";
 
-    if (!QFile::exists(untitledPath)) return;
+    if (!QFile::exists(untitledPath)) return false;
 
     QFileInfo info(untitledPath);
     auto result = QMessageBox::question(this, tr("Auto-Save Recovery"),
@@ -5885,20 +5889,21 @@ void MainWindow::checkAutoSaveRecovery() {
         if (ok) {
             stop();
             setFile(mf);
-            mf->setPath(QString());   // Clear path â€” this is an untitled recovered doc
+            mf->setPath(QString());   // Clear path - this is an untitled recovered doc
             mf->setSaved(false);
             setWindowTitle(QApplication::applicationName() + " v" +
                 QApplication::applicationVersion() + tr(" - Recovered Document[*]"));
             setWindowModified(true);
             statusBar()->showMessage(tr("Recovered from auto-save backup"), 5000);
             QFile::remove(untitledPath);
-            _initFile = "";  // Prevent loadInitFile from loading another file
-            return;
+            return true; // a document is now open; loadInitFile must not add another
         }
+        delete mf; // load failed - don't leak the half-constructed file
     }
 
-    // Declined or failed â€” delete the stale backup
+    // Declined or failed - delete the stale backup
     QFile::remove(untitledPath);
+    return false;
 }
 
 void MainWindow::colorsByChannel() {
