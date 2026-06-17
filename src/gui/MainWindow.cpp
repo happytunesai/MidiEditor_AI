@@ -1411,6 +1411,13 @@ MainWindow::MainWindow(QString initFile)
         if (_documentTabBar && _documentManager && _documentManager->count() > 0) {
             rebuildTabBar(_documentTabBar, _documentManager);
         }
+        // Same fix for the secondary group when a session was restored into it:
+        // its tab bar was also populated before the first layout, so re-sync it
+        // too (otherwise the restored group-1 tabs stay unpainted until a later
+        // relayout - the "tabs missing after a theme-change restart" symptom).
+        if (_group1TabBar && _group1Docs && _group1Docs->count() > 0) {
+            rebuildTabBar(_group1TabBar, _group1Docs);
+        }
     });
 
     // Start MCP Server if enabled in settings (server object created earlier, before setupActions)
