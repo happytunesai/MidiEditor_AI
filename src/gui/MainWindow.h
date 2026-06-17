@@ -1290,6 +1290,30 @@ private:
      */
     void tearDownGroup1();
 
+    /**
+     * \brief Phase 28 (editor groups): build an EMPTY secondary group (container
+     * + tab bar + manager + view, added to the splitter), without moving any
+     * document into it. No-op if group 1 already exists. Used by both Split
+     * (which then moves a doc over) and session restore (which opens docs into it).
+     */
+    void ensureGroup1();
+
+    /**
+     * \brief Phase 28 (editor groups): persist the open documents of both groups
+     * (paths + active tab + split/collapse state) to QSettings, so the session
+     * can be restored after a restart (e.g. a theme change). Only documents with
+     * a real file path are saved (untitled docs cannot be reopened by path).
+     */
+    void saveSession();
+
+    /**
+     * \brief Phase 28 (editor groups): reopen the documents/groups persisted by
+     * saveSession(). \return true if at least one document was reopened (so the
+     * caller skips the default new/initial document); false if there was no
+     * usable session.
+     */
+    bool restoreSession();
+
     /** \brief Phase 28: files whose one-time signal wiring has been done. */
     QSet<MidiFile *> _connectedFiles;
 

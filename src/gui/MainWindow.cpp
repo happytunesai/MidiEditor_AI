@@ -1520,10 +1520,18 @@ void MainWindow::loadInitFile() {
         return;
     }
 
-    if (_initFile != "")
+    // Launched with a specific file (double-click / --open): just open it.
+    if (_initFile != "") {
         loadFile(_initFile);
-    else
-        newFile();
+        return;
+    }
+
+    // Otherwise reopen the previous session (tabs + split) if there is one.
+    if (restoreSession()) {
+        return;
+    }
+
+    newFile();
 }
 
 void MainWindow::dropEvent(QDropEvent *ev) {
@@ -2107,47 +2115,13 @@ QWidget *MainWindow::buildGroupTabStrip(QToolButton *plusButton, QTabBar *bar) {
     return strip;
 }
 
-void MainWindow::toggleCompareView() {
-    if (!_viewSplitter || !_documentManager) {
-        return;
-    }
-
-    // Already split? -> the Split button now toggles the secondary group's
-    // visibility: collapse it (keeping its tabs) when shown, restore it when
-    // collapsed. Fully closing the group (with save prompts) is the group's own
-    // close button.
+void MainWindow::ensureGroup1() {
     if (_group1Docs) {
-        if (_group1Collapsed) {
-            restoreGroup1();
-        } else {
-            collapseGroup1();
-        }
-        return;
+        return; // already built
     }
     _group1Collapsed = false;
 
-    // Need a second document to move into the new group. (Splitting the same
-    // file into two groups can come later; for now keep group 0 non-empty.)
-    MidiFile *moveFile = nullptr;
-    QString moveTitle;
-    int moveIdx = -1;
-    const int activeIdx = _documentManager->activeIndex();
-    for (int i = 0; i < _documentManager->count(); ++i) {
-        if (i != activeIdx) {
-            Document *d = _documentManager->at(i);
-            moveFile = d->file();
-            moveTitle = d->title();
-            moveIdx = i;
-            break;
-        }
-    }
-    if (!moveFile) {
-        QMessageBox::information(this, tr("Editor Groups"),
-            tr("Open a second file in another tab, then split to move it into a second editor group."));
-        return;
-    }
-
-    // ----- build the secondary group (group 1) ---------------------------
+    // ----- build an EMPTY secondary group (group 1) ----------------------
     _group1Docs = new DocumentManager();
 
     DocumentTabBar *group1Bar = new DocumentTabBar();
@@ -2210,6 +2184,59 @@ void MainWindow::toggleCompareView() {
     _viewSplitter->addWidget(_group1Container);
     _compareMatrixWidget->updateRenderingSettings();
 
+    // Split the editor area evenly so the new group opens at a usable width.
+    const int splitW = _viewSplitter->width();
+    if (splitW > 0) {
+        _viewSplitter->setSizes(QList<int>() << splitW / 2 << splitW / 2);
+    }
+
+    // The MatrixWidget ctor stole the static tool target; hand it back to the
+    // primary view until the user clicks a pane (onViewFocused then routes it).
+    if (mw_matrixWidget) EditorTool::setMatrixWidget(mw_matrixWidget);
+    _activeView = mw_matrixWidget;
+}
+
+void MainWindow::toggleCompareView() {
+    if (!_viewSplitter || !_documentManager) {
+        return;
+    }
+
+    // Already split? -> the Split button now toggles the secondary group's
+    // visibility: collapse it (keeping its tabs) when shown, restore it when
+    // collapsed. Fully closing the group (with save prompts) is the group's own
+    // close button.
+    if (_group1Docs) {
+        if (_group1Collapsed) {
+            restoreGroup1();
+        } else {
+            collapseGroup1();
+        }
+        return;
+    }
+
+    // Need a second document to move into the new group. (Splitting the same
+    // file into two groups can come later; for now keep group 0 non-empty.)
+    MidiFile *moveFile = nullptr;
+    QString moveTitle;
+    int moveIdx = -1;
+    const int activeIdx = _documentManager->activeIndex();
+    for (int i = 0; i < _documentManager->count(); ++i) {
+        if (i != activeIdx) {
+            Document *d = _documentManager->at(i);
+            moveFile = d->file();
+            moveTitle = d->title();
+            moveIdx = i;
+            break;
+        }
+    }
+    if (!moveFile) {
+        QMessageBox::information(this, tr("Editor Groups"),
+            tr("Open a second file in another tab, then split to move it into a second editor group."));
+        return;
+    }
+
+    ensureGroup1();
+
     // ----- move the chosen document from group 0 into group 1 ------------
     _documentManager->removeAt(moveIdx);   // detaches (does NOT delete the file)
     _suppressTabSignals = true;
@@ -2225,18 +2252,99 @@ void MainWindow::toggleCompareView() {
     _compareMatrixWidget->setFile(moveFile);
     _compareFile = moveFile;
 
-    // Split the editor area evenly so the new group opens at a usable width.
-    const int splitW = _viewSplitter->width();
-    if (splitW > 0) {
-        _viewSplitter->setSizes(QList<int>() << splitW / 2 << splitW / 2);
+    statusBar()->showMessage(tr("Moved %1 into a second editor group (click a pane to focus it)").arg(moveTitle), 4000);
+}
+
+void MainWindow::saveSession() {
+    // Persist each group's open documents (by path) + active tab, so the session
+    // can be reopened after a restart. Untitled docs (no path) are skipped - on a
+    // proper close/restart they were already save-prompted (saved -> get a path,
+    // or discarded), so only reopenable files remain.
+    auto collect = [](DocumentManager *m, QStringList &paths, int &active) {
+        paths.clear();
+        active = 0;
+        if (!m) return;
+        int saved = 0;
+        for (int i = 0; i < m->count(); ++i) {
+            MidiFile *f = m->at(i)->file();
+            if (f && !f->path().isEmpty()) {
+                paths << f->path();
+                if (i == m->activeIndex()) active = saved;
+                saved++;
+            }
+        }
+    };
+    QStringList g0, g1;
+    int a0 = 0, a1 = 0;
+    collect(_documentManager, g0, a0);
+    collect(_group1Docs, g1, a1);
+
+    _settings->beginGroup("session");
+    _settings->setValue("g0paths", g0);
+    _settings->setValue("g0active", a0);
+    _settings->setValue("g1paths", g1);
+    _settings->setValue("g1active", a1);
+    _settings->setValue("g1collapsed", _group1Collapsed);
+    _settings->setValue("focusGroup", (_activeView == _compareMatrixWidget) ? 1 : 0);
+    _settings->endGroup();
+}
+
+bool MainWindow::restoreSession() {
+    _settings->beginGroup("session");
+    const QStringList g0 = _settings->value("g0paths").toStringList();
+    const QStringList g1 = _settings->value("g1paths").toStringList();
+    const int a0 = _settings->value("g0active", 0).toInt();
+    const int a1 = _settings->value("g1active", 0).toInt();
+    const bool g1collapsed = _settings->value("g1collapsed", false).toBool();
+    const int focusGroup = _settings->value("focusGroup", 0).toInt();
+    _settings->endGroup();
+
+    if (g0.isEmpty() && g1.isEmpty()) {
+        return false; // no saved session
     }
 
-    // The MatrixWidget ctor stole the static tool target; hand it back to the
-    // primary view until the user clicks a pane (onViewFocused then routes it).
-    if (mw_matrixWidget) EditorTool::setMatrixWidget(mw_matrixWidget);
+    // ----- primary group ------------------------------------------------
     _activeView = mw_matrixWidget;
+    for (const QString &p : g0) {
+        if (QFile::exists(p)) {
+            loadFile(p); // -> openInNewTab into group 0
+        }
+    }
+    if (_documentManager->count() == 0) {
+        return false; // none of the saved files still exist -> caller opens a new doc
+    }
+    if (a0 >= 0 && a0 < _documentManager->count()) {
+        _documentTabBar->setCurrentIndex(a0); // drives onDocumentTabChanged -> activate
+    }
 
-    statusBar()->showMessage(tr("Moved %1 into a second editor group (click a pane to focus it)").arg(moveTitle), 4000);
+    // ----- secondary group ----------------------------------------------
+    QStringList g1existing;
+    for (const QString &p : g1) {
+        if (QFile::exists(p)) g1existing << p;
+    }
+    if (!g1existing.isEmpty()) {
+        ensureGroup1();
+        _activeView = _compareMatrixWidget; // route the loads into group 1
+        for (const QString &p : g1existing) {
+            loadFile(p);
+        }
+        if (_group1Docs && a1 >= 0 && a1 < _group1Docs->count()) {
+            _group1TabBar->setCurrentIndex(a1);
+        }
+        if (g1collapsed) {
+            collapseGroup1();
+        }
+    }
+
+    // ----- final focus --------------------------------------------------
+    if (focusGroup == 1 && _group1Docs && !_group1Collapsed && _compareMatrixWidget) {
+        _activeView = _compareMatrixWidget;
+        if (Document *a = _group1Docs->active()) setActiveDocument(a->file());
+    } else {
+        _activeView = mw_matrixWidget;
+        if (Document *a = _documentManager->active()) activateDocument(a->file());
+    }
+    return true;
 }
 
 void MainWindow::tearDownGroup1() {
@@ -3817,6 +3925,7 @@ void MainWindow::closeEvent(QCloseEvent *event) {
 
     // Only perform early cleanup if we're actually closing
     if (shouldClose) {
+        saveSession(); // persist open tabs/groups for next launch (before teardown)
         cleanupAutoSave();
         performEarlyCleanup();
     }
@@ -8731,22 +8840,22 @@ void MainWindow::openConfig() {
 }
 
 void MainWindow::restartForThemeChange() {
-    // Save current file if modified
-    if (file && !file->saved()) {
-        if (!saveBeforeClose()) {
-            return; // User cancelled â€” abort restart
-        }
+    // Prompt to save every dirty tab across both groups (not just the active
+    // one) - the restart bypasses closeEvent, so do it here too.
+    if (!promptSaveAllDirtyTabs()) {
+        return; // user cancelled - abort restart
     }
 
-    // Persist all settings to disk
+    // Persist the open tabs/groups so the restarted instance restores them, plus
+    // all settings.
+    saveSession();
     Appearance::writeSettings(_settings);
     _settings->sync();
 
-    // Build command-line arguments for the restarted instance
+    // Build command-line arguments for the restarted instance. We do NOT pass
+    // --open here: the full session (all tabs + the split) is reopened from the
+    // persisted session on startup instead of just the active file.
     QStringList args;
-    if (file && QFile::exists(file->path())) {
-        args << "--open" << file->path();
-    }
     args << "--open-settings";
 
     QString exePath = QCoreApplication::applicationFilePath();
