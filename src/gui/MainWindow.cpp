@@ -2438,7 +2438,7 @@ QString MainWindow::documentTabTitle(MidiFile *f) const {
     return QFileInfo(p).fileName();
 }
 
-void MainWindow::openInNewTab(MidiFile *f) {
+void MainWindow::openInNewTab(MidiFile *f, const QString &title) {
     if (!f) {
         return;
     }
@@ -2448,6 +2448,7 @@ void MainWindow::openInNewTab(MidiFile *f) {
         setFile(f);
         return;
     }
+    const QString tabTitle = title.isEmpty() ? documentTabTitle(f) : title;
 
     // A freshly opened document starts with all channels visible: that is the
     // per-document default created lazily by ChannelVisibilityManager when the
@@ -2459,7 +2460,7 @@ void MainWindow::openInNewTab(MidiFile *f) {
     // into the primary group (group 0).
     if (_group1Docs && _group1TabBar && _compareMatrixWidget &&
         !_group1Collapsed && _activeView == _compareMatrixWidget) {
-        Document *d = _group1Docs->openAndActivate(f, documentTabTitle(f));
+        Document *d = _group1Docs->openAndActivate(f, tabTitle);
         _suppressGroup1TabSignals = true;
         const int idx = _group1TabBar->addTab(d->title());
         _group1TabBar->setCurrentIndex(idx);
@@ -2470,7 +2471,7 @@ void MainWindow::openInNewTab(MidiFile *f) {
         return;
     }
 
-    Document *d = _documentManager->openAndActivate(f, documentTabTitle(f));
+    Document *d = _documentManager->openAndActivate(f, tabTitle);
     _suppressTabSignals = true;
     const int idx = _documentTabBar->addTab(d->title());
     _documentTabBar->setCurrentIndex(idx);
@@ -2673,6 +2674,8 @@ void MainWindow::cloneCurrentDocument() {
     // Round-trip the active document through a temp .mid to get an independent
     // copy. save() sets the original's saved-flag, so preserve+restore it -
     // cloning must not make unsaved work look saved.
+    // Remember the source's name now (cloning blanks the copy's path below).
+    const QString cloneTitle = tr("%1 (copy)").arg(documentTabTitle(file));
     const QString tmp = QDir::temp().filePath(
         QStringLiteral("midieditor_clone_%1.mid").arg(QDateTime::currentMSecsSinceEpoch()));
     const bool wasSaved = file->saved();
@@ -2694,10 +2697,11 @@ void MainWindow::cloneCurrentDocument() {
                              tr("Could not duplicate the current document."));
         return;
     }
-    // A fresh, untitled copy the user saves explicitly under a new name.
+    // A fresh, untitled copy the user saves explicitly under a new name; the tab
+    // is labelled "<original> (copy)" so it is distinguishable from a blank New.
     clone->setPath(QString());
     clone->setSaved(false);
-    openInNewTab(clone);
+    openInNewTab(clone, cloneTitle);
 }
 
 void MainWindow::rebuildTabBar(QTabBar *bar, DocumentManager *mgr) {
@@ -3798,18 +3802,13 @@ void MainWindow::closeEvent(QCloseEvent *event) {
     if (_forceCloseForUpdate) {
         shouldClose = true;
         event->accept();
-    } else if (!file || file->saved()) {
+    } else if (promptSaveAllDirtyTabs()) {
+        // Phase 28: prompt for EVERY dirty tab across both editor groups, not
+        // just the active one (returns true immediately when nothing is dirty).
         shouldClose = true;
         event->accept();
     } else {
-        bool sbc = saveBeforeClose();
-
-        if (sbc) {
-            shouldClose = true;
-            event->accept();
-        } else {
-            event->ignore();
-        }
+        event->ignore();
     }
 
     // Only perform early cleanup if we're actually closing
@@ -3907,9 +3906,12 @@ void MainWindow::setStartDir(QString dir) {
 }
 
 bool MainWindow::saveBeforeClose() {
+    const QString name = file->path().isEmpty()
+        ? tr("Untitled document")
+        : QFileInfo(file->path()).fileName();
     QMessageBox msgBox(this);
     msgBox.setWindowTitle(tr("Save file?"));
-    msgBox.setText(tr("Save file ") + file->path() + tr(" before closing?"));
+    msgBox.setText(tr("Save \"%1\" before closing?").arg(name));
     msgBox.addButton(tr("Save"), QMessageBox::AcceptRole);
     msgBox.addButton(tr("Close without saving"), QMessageBox::DestructiveRole);
     msgBox.addButton(tr("Cancel"), QMessageBox::RejectRole);
@@ -3937,6 +3939,37 @@ bool MainWindow::saveBeforeClose() {
         default: // DestructiveRole - close without saving
             return true;
     }
+}
+
+bool MainWindow::promptSaveAllDirtyTabs() {
+    // Collect every open document from both groups, in tab order (group 0 first).
+    QList<MidiFile *> all;
+    if (_documentManager) {
+        for (Document *d : _documentManager->documents()) {
+            if (d->file()) all.append(d->file());
+        }
+    }
+    if (_group1Docs) {
+        for (Document *d : _group1Docs->documents()) {
+            if (d->file() && !all.contains(d->file())) all.append(d->file());
+        }
+    }
+
+    // saveBeforeClose() prompts/saves the member `file`, so point it at each
+    // dirty document in turn. (We are closing, so the heavier per-view rebind of
+    // setActiveDocument() is unnecessary - save() works on the MidiFile itself.)
+    MidiFile *originalActive = file;
+    for (MidiFile *f : all) {
+        if (f && !f->saved()) {
+            file = f;
+            if (!saveBeforeClose()) {
+                file = originalActive; // user cancelled -> abort the quit
+                return false;
+            }
+        }
+    }
+    file = originalActive;
+    return true;
 }
 
 void MainWindow::newFile() {

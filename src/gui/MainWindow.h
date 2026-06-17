@@ -172,6 +172,14 @@ public:
     bool saveBeforeClose();
 
     /**
+     * \brief Phase 28 (editor groups): on app close, prompt to save EVERY dirty
+     * open document across both editor groups (in tab order), not just the
+     * active one. \return true if it is safe to close (all saved/discarded),
+     * false if the user cancelled any prompt (abort the quit).
+     */
+    bool promptSaveAllDirtyTabs();
+
+    /**
      * \brief Returns a copy of the action map (id -> QAction*)
      */
     QMap<QString, QAction*> getActionMap() const { return _actionMap; }
@@ -1196,9 +1204,11 @@ private:
 
     /**
      * \brief Phase 28: open `f` as a NEW document/tab (non-destructive - the
-     * current document stays open in its own tab) and make it active.
+     * current document stays open in its own tab) and make it active. \a title
+     * overrides the tab label when non-empty (e.g. "song.mid (copy)" for Clone);
+     * otherwise the label is derived from the file path.
      */
-    void openInNewTab(MidiFile *f);
+    void openInNewTab(MidiFile *f, const QString &title = QString());
 
     /** \brief Phase 28: tab label for a file (basename, or "Untitled"). */
     QString documentTabTitle(MidiFile *f) const;
