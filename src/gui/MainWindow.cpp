@@ -8755,15 +8755,19 @@ void MainWindow::checkForUpdates(bool silent) {
                     connect(_autoUpdater, &AutoUpdater::downloadComplete, this,
                         [this, updateNow](const QString &zipPath) {
                         if (updateNow) {
-                            QString midiPath;
-                            if (file) {
-                                midiPath = file->path();
-                                if (!file->saved() && !midiPath.isEmpty()) {
-                                    file->save(midiPath);
-                                }
+                            // Update-restart bypasses closeEvent, so do the same
+                            // work here: prompt to save every dirty tab across
+                            // both groups (abort the update if cancelled) and
+                            // persist the session so the updated instance
+                            // restores the full workspace, not just one file.
+                            if (!promptSaveAllDirtyTabs()) {
+                                _forceCloseForUpdate = false;
+                                return;
                             }
+                            saveSession();
+                            _settings->sync(); // flush: executeUpdateNow ExitProcess()es, no dtors run
                             _forceCloseForUpdate = true;
-                            _autoUpdater->executeUpdateNow(midiPath);
+                            _autoUpdater->executeUpdateNow(file ? file->path() : QString());
                         } else {
                             _autoUpdater->scheduleUpdateOnExit();
                             QMessageBox::information(this, tr("Update Scheduled"),
