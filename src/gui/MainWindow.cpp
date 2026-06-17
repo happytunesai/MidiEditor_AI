@@ -2212,6 +2212,13 @@ void MainWindow::ensureGroup1() {
     // runs calcSizes(); mirror the primary's rendering settings.
     _viewSplitter->addWidget(_group1Container);
     _compareMatrixWidget->updateRenderingSettings();
+    // Inherit the primary view's current colour mode so a freshly split group
+    // matches (even if the mode was changed at runtime and not yet persisted).
+    if (mw_matrixWidget && mw_matrixWidget->colorsByChannel()) {
+        _compareMatrixWidget->setColorsByChannel();
+    } else {
+        _compareMatrixWidget->setColorsByTracks();
+    }
 
     // Split the editor area evenly so the new group opens at a usable width.
     const int splitW = _viewSplitter->width();
@@ -6054,6 +6061,13 @@ void MainWindow::colorsByChannel() {
     mw_matrixWidget->registerRelayout();
     _matrixWidgetContainer->update();
     _miscWidgetContainer->update();
+    // Phase 28: colouring is a global view preference - keep the secondary
+    // editor group in sync (otherwise it only changed the primary pane).
+    if (_compareMatrixWidget) {
+        _compareMatrixWidget->setColorsByChannel();
+        _compareMatrixWidget->registerRelayout();
+        _compareMatrixWidget->update();
+    }
 }
 
 void MainWindow::colorsByTrack() {
@@ -6063,6 +6077,12 @@ void MainWindow::colorsByTrack() {
     mw_matrixWidget->registerRelayout();
     _matrixWidgetContainer->update();
     _miscWidgetContainer->update();
+    // Phase 28: keep the secondary editor group in sync (see colorsByChannel).
+    if (_compareMatrixWidget) {
+        _compareMatrixWidget->setColorsByTracks();
+        _compareMatrixWidget->registerRelayout();
+        _compareMatrixWidget->update();
+    }
 }
 
 void MainWindow::editChannel(int i, bool assign) {
