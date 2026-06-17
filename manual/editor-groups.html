@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tabs &amp; Editor Groups - MidiEditor AI Manual</title>
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="icon" type="image/x-icon" href="favicon.ico" sizes="any">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="theme-color" content="#0B1020">
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="site.css">
+  <link rel="stylesheet" href="audio.css">
+</head>
+<body>
+<nav class="site-nav" role="navigation" aria-label="Main navigation">
+<div class="container">
+    <a href="index.html" class="nav-brand">
+        <img class="brand-logo" src="Midieditor-ai_banner_w.png" alt="MidiEditor AI">
+    </a>
+    <button class="nav-hamburger" aria-label="Toggle menu" aria-expanded="false">&#x2630;</button>
+    <ul class="nav-links">
+        <li><a href="index.html#features">Features</a></li>
+        <li><a href="index.html#showcase">Showcase</a></li>
+        <li class="nav-dropdown">
+            <span class="nav-dropdown-trigger active">Docs &#x25BE;</span>
+            <div class="nav-dropdown-menu">
+                <a href="docs-index.html">Manual Overview</a>
+                <a href="midipilot.html">MidiPilot AI</a>
+                <a href="prompt-examples.html">Prompt Examples</a>
+                <a href="ffxiv-channel-fixer.html">FFXIV Channel Fixer</a>
+                <a href="ffxiv-voice-limiter.html">FFXIV Voice Limiter</a>
+                <a href="tempo-conversion.html">Convert Tempo</a>
+                <a href="supported-files.html">Supported Files</a>
+                <a href="themes.html">Themes &amp; Appearance</a>
+                <a href="lyrics.html">Lyric Editor</a>
+                <a href="soundfont.html">SoundFonts &amp; FluidSynth</a>
+                <a href="shortcuts.html">Keyboard Shortcuts</a>
+                <a href="mcp-server.html">MCP Server</a>
+                <a href="setup.html">Setup &amp; Installation</a>
+            </div>
+        </li>
+        <li><a href="changelog.html">Changelog</a></li>
+        <li><a href="https://github.com/happytunesai/MidiEditor_AI" target="_blank" rel="noopener noreferrer">GitHub &#x2197;</a></li>
+        <li><a href="download.html" class="nav-cta">&#x2B07; Download</a></li>
+    </ul>
+</div>
+</nav>
+
+
+<!-- Navigation injected by navigation.js -->
+
+<a href="#main-content" class="skip-link">Skip to main content</a>
+
+<main id="main-content">
+<h2>Tabs &amp; Editor Groups</h2>
+
+<p>
+    Since <b>v1.9.0</b> you can keep several MIDI files open at once as
+    <b>tabs</b> and view two of them <b>side by side</b> in independent
+    <b>editor groups</b> &mdash; much like the editor groups in a modern code
+    editor. Each group has its own tab bar, its own set of open documents and
+    its own fully-editable note view.
+</p>
+
+<!-- TODO: screenshot - full editor with two groups open side by side, several tabs each -->
+<img class="figure" width="800" src="screenshots/editor-groups-overview.png" hspace="10" vspace="10"
+     alt="Two editor groups side by side, each with its own tab bar"/>
+
+<h3>Working with tabs</h3>
+<p>
+    <b>File &rarr; New</b> and <b>File &rarr; Open</b> now open each document in
+    its own tab instead of replacing the current one. The tab bar sits directly
+    above the timeline.
+</p>
+<ul>
+    <li><b>Switch</b> documents by clicking a tab.</li>
+    <li><b>Close</b> a tab with its <b>&#x2715;</b> button. If the document has
+        unsaved changes you are asked to save first.</li>
+    <li><b>Reorder</b> tabs by dragging them along the bar.</li>
+    <li><b>New tab</b> with the <b>+</b> button at the left of the bar.</li>
+</ul>
+<p>
+    When you quit, all unsaved tabs (in <em>both</em> groups) are listed for
+    saving &mdash; nothing is discarded silently.
+</p>
+
+<h3>The tab tools</h3>
+<p>
+    In the default two-row toolbar a small <b>tab-tools row</b> appears under the
+    standard <i>New / Open / Save / Undo / Redo</i> buttons:
+</p>
+<!-- TODO: screenshot - close-up of the tab-tools row (New Tab / Split / Clone) under the essential toolbar -->
+<img class="figure" width="420" src="screenshots/editor-groups-tab-tools.png" hspace="10" vspace="10"
+     alt="Tab-tools row: New Tab, Split, Clone"/>
+<table class="menu-table" style="width:100%;border-collapse:collapse;margin:1rem 0 2rem;">
+    <tr><td style="white-space:nowrap;"><b>New Tab</b></td>
+        <td>Opens a new, empty document in a tab in the focused group.</td></tr>
+    <tr><td style="white-space:nowrap;"><b>Split</b></td>
+        <td>Creates the second editor group (and toggles it &mdash; see below).</td></tr>
+    <tr><td style="white-space:nowrap;"><b>Clone</b></td>
+        <td>Duplicates the current document into a new, unsaved
+            &ldquo;<i>&lt;name&gt;</i> (copy)&rdquo; tab so you can experiment
+            without touching the original.</td></tr>
+</table>
+
+<h3>Splitting into two editor groups</h3>
+<p>
+    Press <b>Split</b> (or <b>View &rarr; Split View</b>) to open a second group
+    beside the first. The selected tab moves over into the new group, and both
+    groups become independent, fully editable panes. The <b>focused</b> pane is
+    the one you last clicked: the side panels, tools, selection, zoom and the
+    playback cursor all follow it.
+</p>
+<!-- TODO: screenshot - split view, the focused (right) pane highlighted -->
+<img class="figure" width="800" src="screenshots/editor-groups-split.png" hspace="10" vspace="10"
+     alt="A document split into a second editor group"/>
+
+<h3>Moving tabs between groups</h3>
+<p>
+    Drag a tab from one group's bar onto the other group to move the document
+    across. A blue <b>insertion caret</b> shows exactly where the tab will land.
+    You don't have to hit the thin tab strip precisely &mdash; dropping a tab
+    anywhere inside a group's editor area moves it into that group.
+</p>
+<!-- TODO: screenshot - a tab being dragged between groups with the insertion caret visible -->
+<img class="figure" width="800" src="screenshots/editor-groups-drag.png" hspace="10" vspace="10"
+     alt="Dragging a tab between editor groups, with the insertion caret"/>
+
+<h3>Collapsing, restoring and closing the second group</h3>
+<p>
+    The second group's tab bar carries two extra controls on the right:
+</p>
+<ul>
+    <li><b>&#x2013;</b> (collapse) hides the group but <b>keeps its tabs</b>. A
+        colour-highlighted <b>&ldquo;Group 2 (N)&rdquo;</b> chip then appears at
+        the right of the primary tab bar &mdash; click it (or <b>Split</b>
+        again) to bring the group back at its previous width.</li>
+    <li><b>&#x2715;</b> (close) closes the group <b>and</b> all its tabs, asking
+        to save any unsaved documents first.</li>
+</ul>
+<!-- TODO: screenshot - the collapsed-group chip "Group 2 (N)" with its X, at the right of the primary tab bar -->
+<img class="figure" width="420" src="screenshots/editor-groups-collapsed-chip.png" hspace="10" vspace="10"
+     alt="The collapsed-group restore chip and its close button"/>
+<p>
+    The chip uses the colours of the active theme, so it fits light, dark and
+    accent themes alike.
+</p>
+
+<h3>Dropping files into a pane</h3>
+<p>
+    Drag a MIDI file from your file manager onto a specific pane to open it
+    there. While you drag, the target group is outlined so you can see where the
+    file will open.
+</p>
+
+<h3>Your session is remembered</h3>
+<p>
+    When you restart MidiEditor AI &mdash; including the restart that applies a
+    <a href="themes.html">theme change</a> or an update &mdash; your open tabs,
+    the split layout and the active tab are restored. Documents that were never
+    saved (no file on disk) can't be reopened by path, so they are offered for
+    saving when you close or restart.
+</p>
+
+</main>
+
+<footer class="site-footer">
+    <div class="footer-links">
+        <a href="https://github.com/happytunesai/MidiEditor_AI" class="repo-link" target="_blank" rel="noopener noreferrer"><img class="repo-logo" src="Midieditor-ai_logo.png" alt="">GitHub Repo</a>
+        <a href="https://github.com/happytunesai" target="_blank" rel="noopener noreferrer">All Projects</a>
+        <a href="docs-index.html">Documentation</a>
+        <a href="changelog.html">Changelog</a>
+        <a href="https://github.com/happytunesai/MidiEditor_AI/issues" target="_blank" rel="noopener noreferrer">Issues</a>
+        <a href="midipilot.html">MidiPilot</a>
+        <a href="supported-files.html">Supported Files</a>
+        <a href="https://www.happytunes.de" target="_blank" rel="noopener noreferrer">Happy Tunes &#x1F3B6;</a>
+    </div>
+    <p class="footer-copy">
+        MidiEditor AI &copy; 2026 &middot;
+        <a href="https://github.com/happytunesai/MidiEditor_AI/blob/main/LICENSE">License</a>
+        &middot; Made with &#x266A; + &#x1F916;
+        &middot; A <a href="https://www.happytunes.de" target="_blank" rel="noopener noreferrer">Happy Tunes</a> project
+    </p>
+</footer>
+<button class="scroll-top" aria-label="Scroll to top">&#x2191;</button>
+<script src="lightbox.js"></script>
+<script src="navigation.js"></script>
+<script src="site.js"></script>
+</body>
+</html>

@@ -5,6 +5,37 @@ Releases: https://github.com/happytunesai/web/releases
 
 ---
 
+## [1.9.0] - 2026-06-17 - Tabs & Editor Groups
+
+### Summary
+
+* **Multiple files open at once, as tabs.** *New* and *Open* now add a tab instead of replacing the current document. Switch by clicking, close with a per-tab save prompt, reorder by dragging, and open a fresh tab with the **+** button.
+* **Two files side by side - VS Code-style editor groups.** **Split** opens a second, fully-editable editor group with its own tab bar. **Drag tabs between the groups** (a blue caret shows where they land; dropping anywhere in a pane works too). The focused pane drives the side panels, tools, zoom and the playback cursor.
+* **Your session is remembered.** Open tabs, the split layout and the active tab are restored on the next launch - including the restart that applies a theme change or an update.
+
+<details>
+<summary>Full Changelog - Tabs & Editor Groups</summary>
+
+### Added
+
+* **Multi-document tabs.** A tab strip above the timeline; *File -> New* / *File -> Open* open each document in its own tab (the current one stays open). Close a tab with its **&#x2715;** (save prompt on unsaved changes), reorder tabs by dragging, open an empty tab with the **+** button. Per-document selection, channel visibility and viewport are kept, so switching tabs restores that document's state.
+* **Editor groups (Split View).** *View -> Split View* (or the **Split** tab-tool) opens a second editor group beside the first and moves the chosen tab into it. Both groups are independent and fully editable; each has its own tab bar and its own set of documents. The **focused** pane (the one you last clicked) is the active document - side panels, tools, selection, zoom and playback all follow it.
+* **Cross-group tab drag & drop.** Drag a tab from one group onto the other to move the document across, with a blue **insertion caret** showing the drop position. Dropping a tab anywhere inside a group's editor area (not just on the thin tab bar) moves it into that group.
+* **Tab-tools row.** Under the standard *New / Open / Save / Undo / Redo* buttons (two-row toolbar): **New Tab**, **Split**, and **Clone** (duplicates the current document into a new, unsaved "*&lt;name&gt;* (copy)" tab). The Split icon is drawn from the active theme's colours.
+* **Collapse / restore / close the second group.** The secondary group's bar has a **collapse** control that hides the pane while keeping its tabs - a theme-coloured **"Group 2 (N)"** chip then appears in the primary tab bar to restore it - and a **close** control that closes the group and all its tabs (with save prompts).
+* **Drop a file into a specific pane.** Dragging a MIDI file from the file manager onto a pane opens it there; the target group is outlined while you drag.
+* **Session restore.** The open tabs of both groups, the split/collapsed state and the active tab are saved on exit and reopened on the next start - across normal restarts, theme-change restarts and auto-update restarts. (Never-saved documents can't be reopened by path, so they're offered for saving on close.)
+
+### Fixed / Changed
+
+* **View operations follow the focused pane.** Zoom, the playback cursor, measure/marker navigation and smooth-scrolling now act on the focused editor group instead of always the primary one.
+* **Selection is per-pane.** Each pane draws its own document's selection (and only the focused pane draws the tool overlay), so selecting in one group no longer paints a "ghost" selection in the other.
+* **Closing prompts every unsaved tab.** Quitting now offers to save *all* unsaved documents across both groups, not just the active one - and cancelling the save dialog no longer discards the document.
+
+</details>
+
+---
+
 ## [1.8.2] - 2026-06-14 - Local AI, MCP Tools & Editor Polish
 
 ### Summary

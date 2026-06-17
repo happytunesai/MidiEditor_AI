@@ -13,7 +13,7 @@
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-0078D6?logo=windows)](https://github.com/happytunesai/MidiEditor_AI/releases)
 
-**Version:** 1.8.2
+**Version:** 1.9.0
 **Status:** Release
 
 📥 **[Download Latest Release](https://github.com/happytunesai/MidiEditor_AI/releases/latest)**
@@ -72,6 +72,7 @@ MidiPilot is the AI brain embedded directly in MidiEditor AI. Open the sidebar, 
 | 🎸 **Fix X\|V Channels** | One-click deterministic channel fixer - Rebuild or Preserve mode, velocity normalization, rich result summary |
 | 🔀 **Split Channels to Tracks** | Convert single-track multi-channel GM MIDI files into one track per instrument with auto-naming |
 | 💥 **Explode Chords to Tracks** | Split polyphonic chords into separate monophonic tracks - one note per track, ideal for FFXIV ensemble prep |
+| 🗂️ **Tabs & Editor Groups** | Keep several files open as tabs and view two **side by side** in independent, fully-editable editor groups (VS Code-style). Drag tabs between groups (with a drop caret), Split / Clone / New-Tab tools, collapse/restore the second group, drop files into a specific pane. Your tabs + split are restored after a restart |
 | 🎼 **Score & Tab Import** | Open Guitar Pro (GP1-GP8: `.gp`, `.gp3`-`.gp5`, `.gpx`, `.gtp`), MusicXML (`.musicxml`, `.xml`, `.mxl`) and MuseScore (`.mscz`, `.mscx`) files directly - auto-converted to MIDI on open |
 | 🕹️ **Commodore 64 / SID** | Open `.sid` tunes as editable MIDI and play them **authentically** - the converted MIDI through a C64 SoundFont, or the *original* SID through the cycle-accurate **libsidplayfp** engine (transport-controlled, cursor-synced, per-voice mute). A retro `SF2 ⟷ EMU` toolbar switch flips engines |
 | 🎼 **MusicXML Export** | Write the current song out as a MusicXML score (*File → Export MusicXML*) - opens in MuseScore, Finale, Sibelius, Dorico. Reconstructs measures, note values, rests, ties, chords and key spelling from the MIDI |
