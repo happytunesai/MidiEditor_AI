@@ -1273,6 +1273,14 @@ private:
     void cloneCurrentDocument();
 
     /**
+     * \brief Phase 28 (editor groups): close every tab in both groups (with
+     * save prompts, exactly as closing each by hand), tear down the split, and
+     * start fresh with a single empty document. Aborts if a save prompt is
+     * cancelled.
+     */
+    void closeAllTabs();
+
+    /**
      * \brief Phase 28 (editor groups): rebuild \a bar's tabs from \a mgr (order
      * + active tab), guarded against re-entrant tab signals. Called after a
      * move/reorder so the bar exactly matches the manager.

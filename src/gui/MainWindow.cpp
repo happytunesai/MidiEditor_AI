@@ -2798,6 +2798,11 @@ QToolBar *MainWindow::buildTabToolsBar(QWidget *parent, int iconSize) {
     connect(cloneAct, &QAction::triggered, this, &MainWindow::cloneCurrentDocument);
     bar->addAction(cloneAct);
 
+    QAction *closeAllAct = new QAction(tr("Close All Tabs"), bar);
+    closeAllAct->setToolTip(tr("Close all tabs in both editor groups (with save prompts), then start fresh"));
+    connect(closeAllAct, &QAction::triggered, this, &MainWindow::closeAllTabs);
+    bar->addAction(closeAllAct);
+
     return bar;
 }
 
@@ -2872,6 +2877,61 @@ void MainWindow::cloneCurrentDocument() {
     clone->setPath(QString());
     clone->setSaved(false);
     openInNewTab(clone, cloneTitle);
+}
+
+void MainWindow::closeAllTabs() {
+    if (!_documentManager) {
+        return;
+    }
+    // Prompt to save every dirty document across both groups (same as closing
+    // each tab by hand); abort the whole operation if the user cancels.
+    if (!promptSaveAllDirtyTabs()) {
+        return;
+    }
+    stop();
+
+    // Collect every open file from both groups; they are deleted only after we
+    // have switched the views/active document to a fresh document below.
+    QList<MidiFile *> oldFiles;
+    if (_group1Docs) {
+        for (Document *d : _group1Docs->documents()) {
+            if (d->file()) oldFiles.append(d->file());
+        }
+    }
+    for (Document *d : _documentManager->documents()) {
+        if (d->file() && !oldFiles.contains(d->file())) {
+            oldFiles.append(d->file());
+        }
+    }
+
+    // Drop the secondary group entirely (its view/handles; files freed below).
+    if (_group1Docs) {
+        _compareFile = nullptr;
+        tearDownGroup1();
+    }
+
+    // Empty the primary group's tab bar + manager (detach only - the MidiFiles
+    // are in oldFiles and deleted at the end).
+    _suppressTabSignals = true;
+    while (_documentTabBar->count() > 0) {
+        _documentTabBar->removeTab(0);
+    }
+    _suppressTabSignals = false;
+    while (_documentManager->count() > 0) {
+        _documentManager->removeAt(0);
+    }
+
+    // Start fresh with a single empty document (creates the first tab + binds
+    // the primary view + makes it active).
+    _activeView = mw_matrixWidget;
+    newFile();
+
+    // Nothing references the old files anymore, so tear them down.
+    for (MidiFile *f : oldFiles) {
+        closeDocumentFile(f);
+    }
+
+    statusBar()->showMessage(tr("Closed all tabs"), 3000);
 }
 
 void MainWindow::rebuildTabBar(QTabBar *bar, DocumentManager *mgr) {
