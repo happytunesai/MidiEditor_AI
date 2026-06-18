@@ -516,6 +516,7 @@ MainWindow::MainWindow(QString initFile)
     // Group 0's tab strip ( [ + | tabs ] ), built the same way as group 1's so
     // the two strips have matching heights.
     QWidget *tabStripRow = buildGroupTabStrip(newTabButton, _documentTabBar);
+    _group0Strip = tabStripRow; // kept so collab can lock it
 
     // A colour-highlighted "restore" chip at the FAR RIGHT of the primary strip,
     // shown only while the secondary group is collapsed - it signals that a
@@ -1331,6 +1332,10 @@ MainWindow::MainWindow(QString initFile)
     };
     connect(LanLiveSession::instance(), &LanLiveSession::roleChanged,
             this, [applyShowModeLock](LanLiveSession::Role) { applyShowModeLock(); });
+    // Phase 28: lock the tab UI to a single document while a live session runs
+    // (collab is single-doc), and unlock it when the session ends.
+    connect(LanLiveSession::instance(), &LanLiveSession::roleChanged, this,
+            [this](LanLiveSession::Role r) { setCollabTabLock(r != LanLiveSession::Role::Idle); });
     connect(LanLiveSession::instance(), &LanLiveSession::hatTransferred,
             this, [applyShowModeLock, refreshLiveLabel](const QString &, const QString &, const QString &) {
                 applyShowModeLock();
@@ -2181,6 +2186,7 @@ void MainWindow::ensureGroup1() {
     // the two strips align in height. This group carries its own tabs (VS Code-
     // style editor group) and travels as one unit in the splitter.
     QWidget *g1Strip = buildGroupTabStrip(group1NewTab, _group1TabBar);
+    _group1Strip = g1Strip; // kept so collab can lock it
     // Far-right controls for the secondary group: collapse (hide, keep tabs) and
     // close (close the group + its tabs, with save prompts). buildGroupTabStrip
     // ends the strip with a stretch, so these land at the right edge.
@@ -2402,6 +2408,7 @@ void MainWindow::tearDownGroup1() {
     }
     _group1Container = nullptr;
     _group1TabBar = nullptr;
+    _group1Strip = nullptr;
     _compareMatrixWidget = nullptr;
     _compareFile = nullptr;
     _group1Collapsed = false;
@@ -2540,6 +2547,12 @@ void MainWindow::closeGroup1() {
 
 void MainWindow::onViewFocused(MatrixWidget *view) {
     if (!view) {
+        return;
+    }
+    // While a live collab session is running the tabs are locked to the session
+    // document, so a pane click must not switch the active document (that would
+    // end the session). The session pane stays focused.
+    if (collabLiveActive()) {
         return;
     }
     // Remember which pane is focused: a "+"/tab/open loads its document here.
@@ -2932,6 +2945,48 @@ void MainWindow::closeAllTabs() {
     }
 
     statusBar()->showMessage(tr("Closed all tabs"), 3000);
+}
+
+bool MainWindow::collabLiveActive() const {
+#ifdef MIDIEDITOR_COLLAB_ENABLED
+    return LanLiveSession::instance()->role() != LanLiveSession::Role::Idle;
+#else
+    return false;
+#endif
+}
+
+void MainWindow::setCollabTabLock(bool lock) {
+    if (_collabTabsLocked == lock) {
+        return;
+    }
+    _collabTabsLocked = lock;
+
+    // Freeze/unfreeze both tab strips (tab bar + New-Tab / Split / Clone /
+    // Close-All / collapse / close buttons) so the session stays single-document.
+    if (_group0Strip) _group0Strip->setEnabled(!lock);
+    if (_group1Strip) _group1Strip->setEnabled(!lock);
+
+    // No new documents while collab is single-doc.
+    if (QAction *a = getActionById("new")) a->setEnabled(!lock);
+    if (QAction *a = getActionById("open")) a->setEnabled(!lock);
+
+    // In a split, freeze the NON-session pane so it can't grab the tools or
+    // selection (the session document is the one in the focused view at lock
+    // time). On unlock, both panes are editable again.
+    if (_compareMatrixWidget) {
+        if (lock) {
+            MatrixWidget *other = (_activeView == _compareMatrixWidget)
+                                      ? mw_matrixWidget : _compareMatrixWidget;
+            if (other) other->setClaimsToolTarget(false);
+        } else {
+            if (mw_matrixWidget) mw_matrixWidget->setClaimsToolTarget(true);
+            _compareMatrixWidget->setClaimsToolTarget(true);
+        }
+    }
+
+    statusBar()->showMessage(lock
+        ? tr("Tabs are locked for the live collaboration session")
+        : tr("Collaboration session ended - tabs unlocked"), 4000);
 }
 
 void MainWindow::rebuildTabBar(QTabBar *bar, DocumentManager *mgr) {

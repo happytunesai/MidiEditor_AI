@@ -1125,6 +1125,26 @@ private:
     QWidget *_group0Container = nullptr;
 
     /**
+     * \brief Phase 28 (editor groups): the two groups' tab-strip widgets (tab bar
+     * + control buttons), kept so they can be disabled wholesale while a live
+     * collaboration session is active (tabs are frozen to the session document).
+     */
+    QWidget *_group0Strip = nullptr;
+    QWidget *_group1Strip = nullptr;
+
+    /** \brief True while tabs are locked for an active live collab session. */
+    bool _collabTabsLocked = false;
+
+    /** \brief True iff a live (LAN/WAN) collaboration session is running. While
+     *  it is, collab is treated as single-document: the tabs are locked. */
+    bool collabLiveActive() const;
+
+    /** \brief Lock/unlock the tab UI for a live collab session: freeze both tab
+     *  strips + File New/Open + the non-session pane, so the session stays on
+     *  one document (legacy single-doc behaviour). Reversed when the session ends. */
+    void setCollabTabLock(bool lock);
+
+    /**
      * \brief Phase 28 (editor groups): when split, return the editor VIEW of the
      * group whose container contains \a windowPos (the primary view or the
      * secondary view); nullptr when not split. Used to route a dropped file to
