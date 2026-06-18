@@ -31,6 +31,7 @@ Releases: https://github.com/happytunesai/web/releases
 * **View operations follow the focused pane.** Zoom, the playback cursor, measure/marker navigation and smooth-scrolling now act on the focused editor group instead of always the primary one.
 * **Selection is per-pane.** Each pane draws its own document's selection (and only the focused pane draws the tool overlay), so selecting in one group no longer paints a "ghost" selection in the other.
 * **Closing prompts every unsaved tab.** Quitting now offers to save *all* unsaved documents across both groups, not just the active one - and cancelling the save dialog no longer discards the document.
+* **Live collaboration stays single-document.** While a LAN/WAN session is active the tabs are locked to the shared document (other tabs, the tab tools and File New/Open are disabled, and in a split the non-session pane is frozen); everything unlocks again when the session ends. This keeps live collaboration on the proven single-document model.
 
 </details>
 
