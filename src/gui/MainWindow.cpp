@@ -1122,6 +1122,24 @@ MainWindow::MainWindow(QString initFile)
     // Connect to the actual displayed widget (OpenGL or software)
     connect(vert, SIGNAL(valueChanged(int)), matrixContainer, SLOT(scrollYChanged(int)));
     connect(hori, SIGNAL(valueChanged(int)), matrixContainer, SLOT(scrollXChanged(int)));
+    // Phase 28: comparison sync-lock - the shared scrollbars drive the PRIMARY
+    // view; mirror their moves onto the secondary too (covers both dragging the
+    // bottom scrollbar and wheel-scrolling). Skipped during playback, where the
+    // secondary is driven directly by timeMsChanged.
+    connect(hori, &QScrollBar::valueChanged, this, [this](int v) {
+        if (_syncViews && _compareMatrixWidget && !_syncInProgress && !MidiPlayer::isPlaying()) {
+            _syncInProgress = true;
+            _compareMatrixWidget->scrollXChanged(v);
+            _syncInProgress = false;
+        }
+    });
+    connect(vert, &QScrollBar::valueChanged, this, [this](int v) {
+        if (_syncViews && _compareMatrixWidget && !_syncInProgress && !MidiPlayer::isPlaying()) {
+            _syncInProgress = true;
+            _compareMatrixWidget->scrollYChanged(v);
+            _syncInProgress = false;
+        }
+    });
 
     connect(channelWidget, SIGNAL(channelStateChanged()), matrixContainer, SLOT(update()));
     connect(mw_matrixWidget, SIGNAL(sizeChanged(int, int, int, int)), this, SLOT(matrixSizeChanged(int, int, int, int)));
@@ -1685,6 +1703,9 @@ void MainWindow::scrollPositionsChanged(int startMs, int maxMs, int startLine,
     hori->setValue(clampedStartMs);
     vert->setMaximum(maxLine);
     vert->setValue(startLine);
+    // Phase 28: the comparison sync-lock mirrors scroll onto the secondary via
+    // the hori/vert valueChanged handlers (setValue above triggers them), which
+    // also covers dragging the bottom scrollbar.
 #ifdef MIDIEDITOR_COLLAB_ENABLED
     // Phase 9.9f §15.2: shadow the current viewport so the
     // presenter-side viewState broadcast can read it later. We don't
@@ -1964,6 +1985,9 @@ void MainWindow::setActiveDocument(MidiFile *newFile) {
 
         connect(newFile, SIGNAL(trackChanged()), this, SLOT(updateTrackMenu()));
         connect(newFile, SIGNAL(cursorPositionChanged()), channelWidget, SLOT(update()));
+        // Phase 28: comparison sync-lock - mirror the active document's cursor
+        // onto the secondary (read-only) view.
+        connect(newFile, &MidiFile::cursorPositionChanged, this, &MainWindow::syncSecondaryCursor);
         connect(newFile, SIGNAL(recalcWidgetSize()), _matrixWidgetContainer, SLOT(calcSizes()));
         connect(newFile->protocol(), SIGNAL(actionFinished()), this, SLOT(markEdited()));
         connect(newFile->protocol(), SIGNAL(actionFinished()), eventWidget(), SLOT(reload()));
@@ -2191,6 +2215,18 @@ void MainWindow::ensureGroup1() {
     // close (close the group + its tabs, with save prompts). buildGroupTabStrip
     // ends the strip with a stretch, so these land at the right edge.
     if (QHBoxLayout *sl = qobject_cast<QHBoxLayout *>(g1Strip->layout())) {
+        // Comparison sync-lock toggle: makes this group follow the left one
+        // (scroll/cursor/playback) as a read-only reference.
+        QToolButton *syncBtn = new QToolButton();
+        syncBtn->setText(tr("Sync"));
+        syncBtn->setCheckable(true);
+        syncBtn->setChecked(_syncViews);
+        syncBtn->setAutoRaise(true);
+        syncBtn->setToolTip(tr("Sync this view to the left for comparison: scroll, cursor and playback follow the left view, and this side becomes read-only"));
+        connect(syncBtn, &QToolButton::toggled, this, &MainWindow::setSyncViews);
+        sl->addWidget(syncBtn, 0);
+        _syncViewsButton = syncBtn;
+
         QToolButton *collapseBtn = new QToolButton();
         collapseBtn->setText(QChar(0x2013)); // en dash = "minimize / retract"
         collapseBtn->setAutoRaise(true);
@@ -2412,6 +2448,8 @@ void MainWindow::tearDownGroup1() {
     _compareMatrixWidget = nullptr;
     _compareFile = nullptr;
     _group1Collapsed = false;
+    _syncViews = false;          // the secondary group is gone; sync is moot
+    _syncViewsButton = nullptr;  // lived in the (now deleted) group-1 strip
     _viewSplitterSizes.clear();
     if (_group1RestoreButton) {
         _group1RestoreButton->setVisible(false); // the group is gone, not just hidden
@@ -2774,8 +2812,14 @@ void MainWindow::scrollActiveViewToTickMs(int ms) {
 }
 
 void MainWindow::zoomActiveView(const char *method) {
-    if (QWidget *vc = activeViewContainer()) {
+    QWidget *vc = activeViewContainer();
+    if (vc) {
         QMetaObject::invokeMethod(vc, method);
+    }
+    // Comparison sync-lock: zoom the secondary view by the same step so the two
+    // stay on the same zoom level (and thus aligned).
+    if (_syncViews && _compareMatrixWidget && vc != _compareMatrixWidget) {
+        QMetaObject::invokeMethod(_compareMatrixWidget, method);
     }
 }
 
@@ -2987,6 +3031,65 @@ void MainWindow::setCollabTabLock(bool lock) {
     statusBar()->showMessage(lock
         ? tr("Tabs are locked for the live collaboration session")
         : tr("Collaboration session ended - tabs unlocked"), 4000);
+}
+
+void MainWindow::setSyncViews(bool on) {
+    _syncViews = on;
+    if (_syncViewsButton && _syncViewsButton->isChecked() != on) {
+        _syncViewsButton->setChecked(on);
+    }
+    if (!_compareMatrixWidget) {
+        return;
+    }
+
+    if (on) {
+        // The secondary group becomes a read-only comparison mirror for NOTES
+        // (editingLocked), but it stays focusable so you can still select its tab
+        // and adjust ITS track/channel visibility via the side panels (visibility
+        // is per-document, not synced). Note edits happen on the left. Scroll /
+        // cursor / playback stay anchored to the left regardless of focus.
+        _compareMatrixWidget->setClaimsToolTarget(true);
+        _compareMatrixWidget->setEditingLocked(true);
+        _activeView = mw_matrixWidget;
+        if (Document *a = _documentManager ? _documentManager->active() : nullptr) {
+            activateDocument(a->file());
+        }
+        // Snap the secondary to the primary's current scroll + cursor.
+        _syncInProgress = true;
+        _compareMatrixWidget->scrollXChanged(hori->value());
+        _compareMatrixWidget->scrollYChanged(vert->value());
+        if (_compareFile && file) {
+            _compareFile->setCursorTick(file->cursorTick());
+        }
+        _compareMatrixWidget->update();
+        _syncInProgress = false;
+        statusBar()->showMessage(
+            tr("Sync on - the right view follows the left (scroll, cursor & playback); right is read-only"), 5000);
+    } else {
+        _compareMatrixWidget->setClaimsToolTarget(true);
+        _compareMatrixWidget->setEditingLocked(false);
+        statusBar()->showMessage(tr("Sync off - both views are independent again"), 3000);
+    }
+}
+
+void MainWindow::syncSecondaryCursor() {
+    if (!_syncViews || _syncInProgress || !_compareMatrixWidget || !_compareFile) {
+        return;
+    }
+    // The master is the PRIMARY (left) group's document, regardless of which pane
+    // currently has focus (you may focus the right to adjust its visibility). The
+    // secondary always follows the master's cursor.
+    Document *masterDoc = _documentManager ? _documentManager->active() : nullptr;
+    MidiFile *master = masterDoc ? masterDoc->file() : nullptr;
+    if (!master || master == _compareFile) {
+        return;
+    }
+    _syncInProgress = true;
+    if (_compareFile->cursorTick() != master->cursorTick()) {
+        _compareFile->setCursorTick(master->cursorTick());
+    }
+    _compareMatrixWidget->update();
+    _syncInProgress = false;
 }
 
 void MainWindow::rebuildTabBar(QTabBar *bar, DocumentManager *mgr) {
@@ -3238,6 +3341,17 @@ void MainWindow::feedSidVisualizer(int ms) {
 }
 
 void MainWindow::play() {
+    // Comparison sync-lock: playback is ALWAYS the left (master) document - the
+    // right is only a synced reference ("cheat sheet"). If the right was focused
+    // (e.g. to adjust its visibility), switch back to the left before playing.
+    if (_syncViews && _compareMatrixWidget && _documentManager) {
+        if (Document *m = _documentManager->active()) {
+            if (m->file() && m->file() != file) {
+                _activeView = mw_matrixWidget;
+                activateDocument(m->file());
+            }
+        }
+    }
     // Authentic SID playback: when Emulation mode is armed (C64 button) and a
     // .sid is loaded, the normal Play button plays the ORIGINAL tune through
     // libsidplayfp from the cursor position; the matrix cursor follows along.
@@ -3322,6 +3436,17 @@ void MainWindow::play() {
             disconnect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _compareMatrixWidget, SLOT(timeMsChanged(int)));
         }
         connect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), activeViewContainer(), SLOT(timeMsChanged(int)));
+        // Phase 28: comparison sync-lock - run the playback cursor in BOTH panes
+        // (regardless of which is focused) so they scroll along together; audio is
+        // the active document only.
+        if (_syncViews && _compareMatrixWidget) {
+            if (activeViewContainer() != _matrixWidgetContainer) {
+                connect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _matrixWidgetContainer, SLOT(timeMsChanged(int)));
+            }
+            if (activeViewContainer() != _compareMatrixWidget) {
+                connect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _compareMatrixWidget, SLOT(timeMsChanged(int)));
+            }
+        }
 
         // Connect lyric timeline playback cursor
         disconnect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _lyricTimeline, SLOT(onPlaybackPositionChanged(int)));

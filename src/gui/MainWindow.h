@@ -1135,6 +1135,25 @@ private:
     /** \brief True while tabs are locked for an active live collab session. */
     bool _collabTabsLocked = false;
 
+    /**
+     * \brief Phase 28 (editor groups): comparison "sync" lock. When on, the
+     * secondary group becomes a read-only mirror of the primary - same scroll,
+     * same cursor/marker, and during playback both cursors run (audio is the
+     * primary/active document only). For e.g. editing a cover on the left while
+     * watching the original on the right. _syncInProgress guards the re-entrant
+     * scroll/cursor mirroring; _syncViewsButton is the checkable toggle.
+     */
+    bool _syncViews = false;
+    bool _syncInProgress = false;
+    QToolButton *_syncViewsButton = nullptr;
+
+    /** \brief Toggle the comparison sync-lock between the two editor groups. */
+    void setSyncViews(bool on);
+
+    /** \brief Mirror the primary document's cursor/marker onto the secondary
+     *  (read-only) view while the sync-lock is on. */
+    void syncSecondaryCursor();
+
     /** \brief True iff a live (LAN/WAN) collaboration session is running. While
      *  it is, collab is treated as single-document: the tabs are locked. */
     bool collabLiveActive() const;
