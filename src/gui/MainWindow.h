@@ -1286,6 +1286,19 @@ private:
      *  two-arg timeMsChanged that force-centres), routed to activeViewContainer(). */
     void scrollActiveViewToTickMs(int ms);
 
+    /**
+     * \brief Phase 28 (editor groups): the INNER MatrixWidget whose scroll the
+     * shared scrollbars drive/reflect - the left (master) view while a sync-lock
+     * is on, otherwise the focused view's inner widget. With no split this is
+     * always the primary, so single-view behaviour is unchanged.
+     */
+    MatrixWidget *scrollbarSourceInner() const;
+
+    /** \brief Phase 28 (editor groups): re-pull the scrollbar source view's
+     *  current scroll range/position into the shared scrollbars (after a focus
+     *  switch the bars must reflect the newly-focused pane). */
+    void refreshScrollbarsForFocus();
+
     /** \brief Phase 28 (editor groups): invoke a zoom slot (e.g. "zoomHorIn") on
      *  the FOCUSED view's container. */
     void zoomActiveView(const char *method);

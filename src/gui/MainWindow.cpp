@@ -1120,24 +1120,31 @@ MainWindow::MainWindow(QString initFile)
     chooserLayout->setColumnStretch(1, 1);
     // connect Scrollbars and Widgets
     // Connect to the actual displayed widget (OpenGL or software)
-    connect(vert, SIGNAL(valueChanged(int)), matrixContainer, SLOT(scrollYChanged(int)));
-    connect(hori, SIGNAL(valueChanged(int)), matrixContainer, SLOT(scrollXChanged(int)));
-    // Phase 28: comparison sync-lock - the shared scrollbars drive the PRIMARY
-    // view; mirror their moves onto the secondary too (covers both dragging the
-    // bottom scrollbar and wheel-scrolling). Skipped during playback, where the
-    // secondary is driven directly by timeMsChanged.
+    // Phase 28 (editor groups): the shared scrollbars drive the FOCUSED pane, so
+    // each side can be scrolled independently with the same bar. While a sync-lock
+    // is on they always drive the LEFT (master) and mirror onto the secondary.
+    // With no split, activeViewContainer() is the primary, so single-view scrolling
+    // is unchanged.
     connect(hori, &QScrollBar::valueChanged, this, [this](int v) {
-        if (_syncViews && _compareMatrixWidget && !_syncInProgress && !MidiPlayer::isPlaying()) {
+        if (_syncInProgress) return;
+        if (_syncViews && _compareMatrixWidget) {
             _syncInProgress = true;
-            _compareMatrixWidget->scrollXChanged(v);
+            QMetaObject::invokeMethod(_matrixWidgetContainer, "scrollXChanged", Q_ARG(int, v));
+            if (!MidiPlayer::isPlaying()) _compareMatrixWidget->scrollXChanged(v);
             _syncInProgress = false;
+        } else {
+            QMetaObject::invokeMethod(activeViewContainer(), "scrollXChanged", Q_ARG(int, v));
         }
     });
     connect(vert, &QScrollBar::valueChanged, this, [this](int v) {
-        if (_syncViews && _compareMatrixWidget && !_syncInProgress && !MidiPlayer::isPlaying()) {
+        if (_syncInProgress) return;
+        if (_syncViews && _compareMatrixWidget) {
             _syncInProgress = true;
-            _compareMatrixWidget->scrollYChanged(v);
+            QMetaObject::invokeMethod(_matrixWidgetContainer, "scrollYChanged", Q_ARG(int, v));
+            if (!MidiPlayer::isPlaying()) _compareMatrixWidget->scrollYChanged(v);
             _syncInProgress = false;
+        } else {
+            QMetaObject::invokeMethod(activeViewContainer(), "scrollYChanged", Q_ARG(int, v));
         }
     });
 
@@ -1696,13 +1703,19 @@ void MainWindow::highlightDropGroup(QWidget *target) {
 
 void MainWindow::scrollPositionsChanged(int startMs, int maxMs, int startLine,
                                         int maxLine) {
-    hori->setMinimum(0);
-    hori->setMaximum(maxMs);
-    // Force startMs to 0 if it's very close to 0 to eliminate dead space
-    int clampedStartMs = (startMs < 10) ? 0 : startMs;
-    hori->setValue(clampedStartMs);
-    vert->setMaximum(maxLine);
-    vert->setValue(startLine);
+    // Phase 28 (editor groups): both panes' inner views are connected here, but
+    // only the pane the shared scrollbars represent (the focused one, or the left
+    // master in sync) may write to them - otherwise the unfocused pane's scroll
+    // would fight the bars. With no split this is always the primary.
+    if (QObject::sender() == nullptr || QObject::sender() == scrollbarSourceInner()) {
+        hori->setMinimum(0);
+        hori->setMaximum(maxMs);
+        // Force startMs to 0 if it's very close to 0 to eliminate dead space
+        int clampedStartMs = (startMs < 10) ? 0 : startMs;
+        hori->setValue(clampedStartMs);
+        vert->setMaximum(maxLine);
+        vert->setValue(startLine);
+    }
     // Phase 28: the comparison sync-lock mirrors scroll onto the secondary via
     // the hori/vert valueChanged handlers (setValue above triggers them), which
     // also covers dragging the bottom scrollbar.
@@ -1712,10 +1725,14 @@ void MainWindow::scrollPositionsChanged(int startMs, int maxMs, int startLine,
     // broadcast directly here — the actionFinished signal already does
     // (visibility changes), and a dedicated lambda connected to
     // mw_matrixWidget->scrollChanged handles the scroll case.
-    _viewStartMs   = startMs;
-    _viewMaxMs     = maxMs;
-    _viewStartLine = startLine;
-    _viewMaxLine   = maxLine;
+    // Phase 28: only the PRIMARY (shared collab document) feeds this shadow -
+    // a secondary compare pane must never overwrite the broadcast viewport.
+    if (QObject::sender() == nullptr || QObject::sender() == mw_matrixWidget) {
+        _viewStartMs   = startMs;
+        _viewMaxMs     = maxMs;
+        _viewStartLine = startLine;
+        _viewMaxLine   = maxLine;
+    }
 #endif
 }
 
@@ -2205,6 +2222,14 @@ void MainWindow::ensureGroup1() {
                     _compareMatrixWidget->scrollYChanged(startLine);
                 }
             });
+    // Let the shared scrollbars reflect the secondary view's range/position when
+    // IT is the focused pane. matrixSizeChanged()/scrollPositionsChanged() guard on
+    // the sender, so these are ignored while the secondary is not the scrollbar
+    // source (e.g. when the left is focused or driving a sync-lock).
+    connect(_compareMatrixWidget, SIGNAL(sizeChanged(int, int, int, int)),
+            this, SLOT(matrixSizeChanged(int, int, int, int)));
+    connect(_compareMatrixWidget, SIGNAL(scrollChanged(int, int, int, int)),
+            this, SLOT(scrollPositionsChanged(int, int, int, int)));
 
     // Container = vertical [ tab strip | view ], built exactly like group 0 so
     // the two strips align in height. This group carries its own tabs (VS Code-
@@ -2624,6 +2649,9 @@ void MainWindow::onViewFocused(MatrixWidget *view) {
             _suppressTabSignals = false;
         }
     }
+    // The shared scrollbars now represent the newly-focused pane - pull its
+    // current scroll range/position into them.
+    refreshScrollbarsForFocus();
 }
 
 QString MainWindow::documentTabTitle(MidiFile *f) const {
@@ -2800,6 +2828,32 @@ QWidget *MainWindow::activeViewContainer() const {
         return _compareMatrixWidget;
     }
     return _matrixWidgetContainer;
+}
+
+MatrixWidget *MainWindow::scrollbarSourceInner() const {
+    // The inner MatrixWidget that emits sizeChanged/scrollChanged for the pane the
+    // shared scrollbars represent. In a sync-lock the bars always track the left
+    // (master); otherwise they track the focused pane's inner widget.
+    if (_syncViews) {
+        return mw_matrixWidget;
+    }
+    if (_activeView == _compareMatrixWidget && _compareMatrixWidget) {
+        return _compareMatrixWidget;
+    }
+    return mw_matrixWidget;
+}
+
+void MainWindow::refreshScrollbarsForFocus() {
+    // After a focus switch the shared scrollbars must reflect the newly-focused
+    // pane. The view re-emits sizeChanged/scrollChanged on its next relayout/paint;
+    // matrixSizeChanged()/scrollPositionsChanged() then accept it (the sender is now
+    // the scrollbar source) and update the bar range + position.
+    MatrixWidget *src = scrollbarSourceInner();
+    if (!src) {
+        return;
+    }
+    src->registerRelayout();
+    src->update();
 }
 
 void MainWindow::scrollActiveViewToTickMs(int ms) {
@@ -3070,6 +3124,9 @@ void MainWindow::setSyncViews(bool on) {
         _compareMatrixWidget->setEditingLocked(false);
         statusBar()->showMessage(tr("Sync off - both views are independent again"), 3000);
     }
+    // The scrollbar source view changed (master while synced, focused otherwise) -
+    // make the bars reflect it.
+    refreshScrollbarsForFocus();
 }
 
 void MainWindow::syncSecondaryCursor() {
@@ -3268,16 +3325,21 @@ MatrixWidget *MainWindow::matrixWidget() {
 
 void MainWindow::matrixSizeChanged(int maxScrollTime, int maxScrollLine,
                                    int vX, int vY) {
-    // Set scroll bar ranges
-    vert->setMaximum(maxScrollLine);
-    hori->setMinimum(0);
-    hori->setMaximum(maxScrollTime);
-    
-    // Set scroll bar values - ensure horizontal starts at 0 for new files
-    vert->setValue(qMax(0, qMin(vY, maxScrollLine)));
-    // For horizontal: clamp small values to 0 to eliminate dead space
-    int clampedVX = (vX < 10) ? 0 : vX;
-    hori->setValue(qMax(0, qMin(clampedVX, maxScrollTime)));
+    // Phase 28 (editor groups): only the pane the shared scrollbars represent
+    // updates their range/value (see scrollPositionsChanged). With no split this
+    // is always the primary, so single-view behaviour is unchanged.
+    if (QObject::sender() == nullptr || QObject::sender() == scrollbarSourceInner()) {
+        // Set scroll bar ranges
+        vert->setMaximum(maxScrollLine);
+        hori->setMinimum(0);
+        hori->setMaximum(maxScrollTime);
+
+        // Set scroll bar values - ensure horizontal starts at 0 for new files
+        vert->setValue(qMax(0, qMin(vY, maxScrollLine)));
+        // For horizontal: clamp small values to 0 to eliminate dead space
+        int clampedVX = (vX < 10) ? 0 : vX;
+        hori->setValue(qMax(0, qMin(clampedVX, maxScrollTime)));
+    }
 
     // Update the matrix widget
     _matrixWidgetContainer->update();
