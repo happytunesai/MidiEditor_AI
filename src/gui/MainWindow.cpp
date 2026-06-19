@@ -494,6 +494,7 @@ MainWindow::MainWindow(QString initFile)
     _documentTabBar = group0Bar;
     configureDocumentTabBar(_documentTabBar);
     connect(_documentTabBar, &QTabBar::currentChanged, this, &MainWindow::onDocumentTabChanged);
+    connect(_documentTabBar, &QTabBar::tabBarClicked, this, &MainWindow::onDocumentTabBarClicked);
     connect(_documentTabBar, &QTabBar::tabCloseRequested, this, &MainWindow::onDocumentTabCloseRequested);
     connect(group0Bar, &DocumentTabBar::tabMoveRequested, this, &MainWindow::onTabMoveRequested);
 
@@ -2195,6 +2196,7 @@ void MainWindow::ensureGroup1() {
     _group1TabBar = group1Bar;
     configureDocumentTabBar(_group1TabBar);
     connect(_group1TabBar, &QTabBar::currentChanged, this, &MainWindow::onGroup1TabChanged);
+    connect(_group1TabBar, &QTabBar::tabBarClicked, this, &MainWindow::onGroup1TabBarClicked);
     connect(_group1TabBar, &QTabBar::tabCloseRequested, this, &MainWindow::onGroup1TabCloseRequested);
     connect(group1Bar, &DocumentTabBar::tabMoveRequested, this, &MainWindow::onTabMoveRequested);
 
@@ -2767,6 +2769,32 @@ void MainWindow::onGroup1TabChanged(int index) {
     setActiveDocument(f);
     refreshScrollbarsForFocus();
     updateActiveGroupHighlight();
+}
+
+void MainWindow::onDocumentTabBarClicked(int index) {
+    // tabBarClicked fires on EVERY click (before the index updates), unlike
+    // currentChanged which only fires when the index actually changes. Clicking a
+    // tab that switches the index is handled by onDocumentTabChanged; here we cover
+    // the missing case - clicking the tab that is ALREADY current must still focus
+    // group 0 (same effect as clicking its pane), so the focus is reliable either
+    // way.
+    if (index < 0 || !_documentTabBar) {
+        return;
+    }
+    if (_documentTabBar->currentIndex() == index) {
+        onViewFocused(mw_matrixWidget);
+    }
+}
+
+void MainWindow::onGroup1TabBarClicked(int index) {
+    // See onDocumentTabBarClicked: clicking the already-current secondary tab must
+    // focus group 1 even though currentChanged won't fire.
+    if (index < 0 || !_group1TabBar || !_compareMatrixWidget) {
+        return;
+    }
+    if (_group1TabBar->currentIndex() == index) {
+        onViewFocused(_compareMatrixWidget);
+    }
 }
 
 void MainWindow::onGroup1TabCloseRequested(int index) {

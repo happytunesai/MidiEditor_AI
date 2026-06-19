@@ -1261,6 +1261,15 @@ private:
     void onGroup1TabCloseRequested(int index);
 
     /**
+     * \brief Phase 28 (editor groups): a tab bar was clicked. currentChanged only
+     * fires when the index changes, so clicking the ALREADY-active tab of a group
+     * never switched focus to it (the "I had to click the note roll" bug). These
+     * handle that case by focusing the clicked group exactly like a pane click.
+     */
+    void onDocumentTabBarClicked(int index);
+    void onGroup1TabBarClicked(int index);
+
+    /**
      * \brief Phase 28 (editor groups): a tab was dragged+dropped. source ==
      * target reorders within a group; otherwise the document moves between
      * groups (the dropped tab becomes active + focused in its new group; the
