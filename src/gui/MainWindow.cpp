@@ -1991,6 +1991,10 @@ void MainWindow::setActiveDocument(MidiFile *newFile) {
     this->file = newFile;
     if (newFile) {
         setWindowTitle(QApplication::applicationName() + " v" + QApplication::applicationVersion() + " - " + newFile->path() + "[*]");
+        // Phase 28 (editor groups): the "[*]" modified marker is window-global, so
+        // on a tab switch it must be re-pointed at the newly-active document's
+        // saved state - otherwise it keeps showing the PREVIOUS tab's dirty flag.
+        setWindowModified(!newFile->saved());
     }
 
     // ----- one-time per-file signal wiring -------------------------------
@@ -3398,7 +3402,12 @@ MidiFile *MainWindow::getFile() {
 }
 
 MatrixWidget *MainWindow::matrixWidget() {
-    return mw_matrixWidget;
+    // Phase 28 (editor groups): return the FOCUSED pane's view. Every caller pairs
+    // this with the active document's Selection (SelectionNavigator, TweakTarget,
+    // MidiPilot context capture), so they must use the same document's matrix or
+    // they'd snap/navigate against the wrong pane when a split is focused on the
+    // right. With no split _activeView is the primary, so single-view is unchanged.
+    return _activeView ? _activeView : mw_matrixWidget;
 }
 
 void MainWindow::matrixSizeChanged(int maxScrollTime, int maxScrollLine,
@@ -3500,6 +3509,14 @@ void MainWindow::play() {
         if (file && sid->isArmed() && sid->hasSource() && !MidiInput::recording()
             && !MidiPlayer::isPlaying() && !sid->isPlaying()) {
             const int fromMs = file->msOfTick(file->cursorTick());
+            // Phase 28 (editor groups): route the SID cursor to the FOCUSED pane.
+            // sid is a singleton, so (like the MIDI player path below) drop any
+            // prior pane's connection first - otherwise a UniqueConnection made
+            // while the other pane was focused stays live and both cursors move.
+            disconnect(sid, SIGNAL(positionChanged(int)), _matrixWidgetContainer, SLOT(timeMsChanged(int)));
+            if (_compareMatrixWidget) {
+                disconnect(sid, SIGNAL(positionChanged(int)), _compareMatrixWidget, SLOT(timeMsChanged(int)));
+            }
             connect(sid, SIGNAL(positionChanged(int)),
                     activeViewContainer(), SLOT(timeMsChanged(int)),
                     Qt::UniqueConnection);

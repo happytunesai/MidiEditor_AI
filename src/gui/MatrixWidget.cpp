@@ -1343,12 +1343,23 @@ void MatrixWidget::paintPianoKey(QPainter *painter, int number, int x, int y,
 }
 
 void MatrixWidget::setFile(MidiFile *f) {
+    MidiFile *previous = file;
     file = f;
 
     // Defensive: unbinding (file == nullptr, e.g. tearing down a compare view)
     // must not dereference file->protocol() below. Just drop the binding.
     if (!file) {
         return;
+    }
+
+    // Phase 28 (editor groups): setFile() is now called again every time the user
+    // returns to a previously-viewed tab, so drop the previous file's
+    // protocol->relayout/repaint links here. UniqueConnection below then makes a
+    // repeated bind to the SAME file a no-op instead of stacking another pair of
+    // connections (which would fire N redundant relayouts+repaints per edit).
+    if (previous && previous != file && previous->protocol()) {
+        disconnect(previous->protocol(), SIGNAL(actionFinished()), this, SLOT(registerRelayout()));
+        disconnect(previous->protocol(), SIGNAL(actionFinished()), this, SLOT(update()));
     }
 
     scaleX = 1;
@@ -1359,8 +1370,8 @@ void MatrixWidget::setFile(MidiFile *f) {
     // any notes and how tall the viewport currently is.
     startLineY = 40;
 
-    connect(file->protocol(), SIGNAL(actionFinished()), this, SLOT(registerRelayout()));
-    connect(file->protocol(), SIGNAL(actionFinished()), this, SLOT(update()));
+    connect(file->protocol(), SIGNAL(actionFinished()), this, SLOT(registerRelayout()), Qt::UniqueConnection);
+    connect(file->protocol(), SIGNAL(actionFinished()), this, SLOT(update()), Qt::UniqueConnection);
 
     calcSizes();
 
