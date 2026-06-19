@@ -41,6 +41,7 @@
 #include <QProgressDialog>
 #include <QScopedPointer>
 #include <QScopedValueRollback>
+#include <QGraphicsOpacityEffect>
 #include <QSet>
 #include <QSettings>
 #include <QSplitter>
@@ -1459,6 +1460,8 @@ MainWindow::MainWindow(QString initFile)
         if (_group1TabBar && _group1Docs && _group1Docs->count() > 0) {
             rebuildTabBar(_group1TabBar, _group1Docs);
         }
+        // A restored split starts focused on the primary group - set the dim state.
+        updateActiveGroupHighlight();
     });
 
     // Start MCP Server if enabled in settings (server object created earlier, before setupActions)
@@ -2356,6 +2359,8 @@ void MainWindow::toggleCompareView() {
     _compareFile = moveFile;
 
     statusBar()->showMessage(tr("Moved %1 into a second editor group (click a pane to focus it)").arg(moveTitle), 4000);
+    // Focus stays on the primary group after the split - dim the new group's tabs.
+    updateActiveGroupHighlight();
 }
 
 void MainWindow::saveSession() {
@@ -2494,6 +2499,8 @@ void MainWindow::tearDownGroup1() {
         _suppressTabSignals = false;
         activateDocument(a->file());
     }
+    // No split anymore - clear any leftover dim on the primary group's tabs.
+    updateActiveGroupHighlight();
 }
 
 void MainWindow::collapseGroup1() {
@@ -2526,6 +2533,8 @@ void MainWindow::collapseGroup1() {
     }
     statusBar()->showMessage(
         tr("Second editor group collapsed - its tabs are kept (Split restores it)"), 4000);
+    // Only the primary group is visible now - restore its tabs to full opacity.
+    updateActiveGroupHighlight();
 }
 
 void MainWindow::restoreGroup1() {
@@ -2549,6 +2558,8 @@ void MainWindow::restoreGroup1() {
         }
     }
     statusBar()->showMessage(tr("Second editor group restored"), 3000);
+    // Both groups visible again; focus is on the primary - dim the secondary's tabs.
+    updateActiveGroupHighlight();
 }
 
 void MainWindow::closeGroup1() {
@@ -2652,6 +2663,8 @@ void MainWindow::onViewFocused(MatrixWidget *view) {
     // The shared scrollbars now represent the newly-focused pane - pull its
     // current scroll range/position into them.
     refreshScrollbarsForFocus();
+    // Grey out the other group's tabs so the focused group stands out.
+    updateActiveGroupHighlight();
 }
 
 QString MainWindow::documentTabTitle(MidiFile *f) const {
@@ -2728,6 +2741,8 @@ void MainWindow::onDocumentTabChanged(int index) {
     // tab bar (onGroup1TabChanged) and never reacts to this one.
     _activeView = mw_matrixWidget;
     activateDocument(f);
+    refreshScrollbarsForFocus();
+    updateActiveGroupHighlight();
 }
 
 void MainWindow::onGroup1TabChanged(int index) {
@@ -2750,6 +2765,8 @@ void MainWindow::onGroup1TabChanged(int index) {
         _compareFile = f;
     }
     setActiveDocument(f);
+    refreshScrollbarsForFocus();
+    updateActiveGroupHighlight();
 }
 
 void MainWindow::onGroup1TabCloseRequested(int index) {
@@ -2854,6 +2871,39 @@ void MainWindow::refreshScrollbarsForFocus() {
     }
     src->registerRelayout();
     src->update();
+}
+
+void MainWindow::setTabBarDimmed(QWidget *w, bool dim) {
+    if (!w) {
+        return;
+    }
+    QGraphicsOpacityEffect *eff =
+        qobject_cast<QGraphicsOpacityEffect *>(w->graphicsEffect());
+    if (dim) {
+        if (!eff) {
+            eff = new QGraphicsOpacityEffect(w);
+            w->setGraphicsEffect(eff); // takes ownership
+        }
+        eff->setOpacity(0.45);
+        eff->setEnabled(true);
+    } else if (eff) {
+        eff->setEnabled(false); // back to full opacity (effect kept for reuse)
+    }
+}
+
+void MainWindow::updateActiveGroupHighlight() {
+    // Grey out the tab bar of the NON-focused editor group so the active group is
+    // obvious. Only meaningful while actually split (two groups visible); with a
+    // single group everything stays at full opacity.
+    const bool split = (_group1TabBar && _group1Container && !_group1Collapsed);
+    if (!split) {
+        setTabBarDimmed(_documentTabBar, false);
+        setTabBarDimmed(_group1TabBar, false);
+        return;
+    }
+    const bool group1Active = (_activeView == _compareMatrixWidget);
+    setTabBarDimmed(_documentTabBar, group1Active);  // dim group 0 when group 1 is active
+    setTabBarDimmed(_group1TabBar, !group1Active);   // dim group 1 when group 0 is active
 }
 
 void MainWindow::scrollActiveViewToTickMs(int ms) {

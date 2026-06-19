@@ -1299,6 +1299,13 @@ private:
      *  switch the bars must reflect the newly-focused pane). */
     void refreshScrollbarsForFocus();
 
+    /** \brief Phase 28 (editor groups): grey out the NON-focused group's tab bar
+     *  so the active editor group is obvious. No-op (full opacity) when not split. */
+    void updateActiveGroupHighlight();
+
+    /** \brief Dim (or restore) a widget via a reusable QGraphicsOpacityEffect. */
+    void setTabBarDimmed(QWidget *w, bool dim);
+
     /** \brief Phase 28 (editor groups): invoke a zoom slot (e.g. "zoomHorIn") on
      *  the FOCUSED view's container. */
     void zoomActiveView(const char *method);
