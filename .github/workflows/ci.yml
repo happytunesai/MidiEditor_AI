@@ -81,7 +81,7 @@ jobs:
       # ── Dependencies ──────────────────────────────────
 
       - name: "\U0001F4E5 Checkout"
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           fetch-depth: ${{ steps.detect.outputs.is_release == 'true' && 0 || 1 }}
           submodules: recursive
@@ -228,7 +228,7 @@ jobs:
       contents: write
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
