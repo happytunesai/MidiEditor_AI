@@ -696,8 +696,12 @@ QJsonObject ToolDefinitions::execGetSelection(MidiFile *file) {
         return result;
     }
     // Same list (and order) delete_events_by_index indexes into, so the "id"
-    // field on each serialized event IS the index to pass to that tool.
-    QList<MidiEvent *> selected = Selection::instance()->selectedEvents();
+    // field on each serialized event IS the index to pass to that tool. Read THIS
+    // file's selection (forFile), not the globally-active one: during an agent run
+    // the user may have switched tabs, but the run targets its own file, so the
+    // indices the model gets here must match what the write tools act on.
+    Selection *sel = Selection::forFile(file);
+    QList<MidiEvent *> selected = sel ? sel->selectedEvents() : QList<MidiEvent *>();
     QJsonArray events = MidiEventSerializer::serialize(selected, file);
     result["success"] = true;
     result["count"] = selected.size();

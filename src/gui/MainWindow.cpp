@@ -2138,6 +2138,13 @@ void MainWindow::closeDocumentFile(MidiFile *oldFile) {
     if (!oldFile) {
         return;
     }
+    // Phase 28 (editor groups): if a MidiPilot agent run is editing the document
+    // being closed, abort it first - otherwise the run would try to apply its
+    // result to a freed file. cancel() stops the loop, so no further tool call
+    // runs against oldFile after this.
+    if (_midiPilotWidget && _midiPilotWidget->isAgentRunningOn(oldFile)) {
+        _midiPilotWidget->abortActiveRequest();
+    }
     // Phase 28: drop the closing document's per-file state so nothing leaks or
     // dangles past the delete. Deleting the MidiFile (a QObject) automatically
     // disconnects every signal connection made to it in activateDocument.

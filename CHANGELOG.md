@@ -31,6 +31,7 @@ Releases: https://github.com/happytunesai/web/releases
 
 * **View operations follow the focused pane.** Zoom, the playback cursor, measure/marker navigation, smooth-scrolling and the shared scrollbars now act on the focused editor group instead of always the primary one, so each split pane can be scrolled independently with the same bars.
 * **Active editor group is highlighted.** When split, the focused group's tabs stay fully lit while the other group's tabs dim, making it obvious which side is active.
+* **MidiPilot edits always land on the document they were started on.** If you switch tabs while MidiPilot is working, its result is applied to the original document (and its selection), not whichever tab happens to be active when the response arrives. Closing that document mid-run safely stops the run.
 * **Selection is per-pane.** Each pane draws its own document's selection (and only the focused pane draws the tool overlay), so selecting in one group no longer paints a "ghost" selection in the other.
 * **Closing prompts every unsaved tab.** Quitting now offers to save *all* unsaved documents across both groups, not just the active one - and cancelling the save dialog no longer discards the document.
 * **Live collaboration stays single-document.** While a LAN/WAN session is active the tabs are locked to the shared document (other tabs, the tab tools and File New/Open are disabled, and in a split the non-session pane is frozen); everything unlocks again when the session ends. This keeps live collaboration on the proven single-document model.

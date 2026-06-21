@@ -18,6 +18,7 @@ class QPushButton;
 class QScrollArea;
 class QComboBox;
 class MidiFile;
+class Selection;
 class AiClient;
 class AgentRunner;
 class PromptProfileStore;
@@ -68,6 +69,16 @@ public:
      * running — it is a no-op in that case. (BUG-MIDIPILOT-001)
      */
     void abortActiveRequest();
+
+    /** \brief True while an agent run is generating/applying. */
+    bool isAgentRunning() const;
+
+    /**
+     * \brief Phase 28 (editor groups): true if an agent run is in flight AND it
+     * was started against \a f. Lets MainWindow abort the run before deleting the
+     * document the agent is editing (e.g. its tab is closed mid-run).
+     */
+    bool isAgentRunningOn(MidiFile *f) const;
 
     /**
      * \brief Lock the MidiPilot panel for Show-mode viewers (Phase 9.9c
@@ -161,8 +172,25 @@ private:
     QJsonObject applySelectAndEdit(const QJsonObject &response, bool showBubbles = true);
     QJsonObject applySelectAndDelete(const QJsonObject &response, bool showBubbles = true);
 
+    /**
+     * \brief Phase 28 (editor groups): the document an agent edit must target.
+     *
+     * During an agent run this is the ORIGIN document the run was started on
+     * (_runOriginFile), NOT the widget's live _file - so switching tabs mid-run
+     * can't redirect the edit to the wrong document. Outside a run it is _file.
+     * Returns null only if the origin was closed mid-run (the apply then aborts).
+     */
+    MidiFile *activeEditFile() const;
+
+    /** \brief The Selection of activeEditFile() (never null - falls back to the
+     *  active selection), so agent delete/move/select act on the origin doc. */
+    Selection *activeEditSelection() const;
+
     MainWindow *_mainWindow;
     MidiFile *_file;
+    /** Phase 28: document captured at agent-run start; the apply path targets
+     *  this instead of the live _file. nullptr when no run is in flight. */
+    MidiFile *_runOriginFile = nullptr;
     AiClient *_client;
     AgentRunner *_agentRunner;
     bool _isAgentRunning;

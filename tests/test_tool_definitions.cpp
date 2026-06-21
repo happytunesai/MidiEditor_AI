@@ -137,12 +137,16 @@ public:
 QJsonArray MidiEventSerializer::serialize(QList<MidiEvent *> const &, MidiFile *) { return QJsonArray(); }
 
 // execGetSelection() (added with the get_selection tool) references these.
+// forFile() is used since Phase 28 (per-document selection) so the tool reads the
+// run's own document selection rather than the globally-active one.
 class Selection {
 public:
     static Selection *instance();
+    static Selection *forFile(MidiFile *);
     QList<MidiEvent *> selectedEvents();
 };
 Selection *Selection::instance() { return nullptr; }
+Selection *Selection::forFile(MidiFile *) { return nullptr; }
 QList<MidiEvent *> Selection::selectedEvents() { return QList<MidiEvent *>(); }
 
 #include "../src/ai/ToolDefinitions.h"
