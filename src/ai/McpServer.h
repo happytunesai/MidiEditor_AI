@@ -107,6 +107,10 @@ private:
         // get_editor_state resyncs it to the active document; forgetFile() clears
         // it when that document is closed. nullptr = bind to active on next use.
         MidiFile *boundFile = nullptr;
+        // Set by forgetFile() when boundFile was the closed document, so the next
+        // non-get_editor_state tool returns an error ("re-read state") instead of
+        // silently rebinding to (and editing) whatever document is now active.
+        bool boundFileClosed = false;
     };
 
     HttpRequest parseHttpRequest(const QByteArray &data);

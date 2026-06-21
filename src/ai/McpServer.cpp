@@ -118,6 +118,7 @@ void McpServer::forgetFile(MidiFile *file) {
     for (auto &session : _sessions) {
         if (session.boundFile == file) {
             session.boundFile = nullptr;
+            session.boundFileClosed = true; // next tool call must re-read, not silently retarget
         }
     }
 }
@@ -660,10 +661,28 @@ QJsonObject McpServer::handleToolsCall(const QJsonObject &params, Session &sessi
     // switches tabs in between - mirroring MidiPilot's run-origin behaviour.
     // get_editor_state is the explicit resync point: it re-binds to whatever is
     // active now (so the client can intentionally move to another document);
-    // every other tool acts on the bound document (bound to active on first use,
-    // or re-bound to active if the previous binding was closed -> forgetFile).
+    // every other tool acts on the bound document (bound to active on first use).
+    //
+    // If the bound document was CLOSED mid-conversation (forgetFile set the flag),
+    // refuse a stateful tool call rather than silently retargeting it onto whatever
+    // is now active - the client's indices/payload were computed for the old doc.
+    // The client must call get_editor_state to re-read state and re-bind.
+    if (session.boundFileClosed && toolName != QStringLiteral("get_editor_state")) {
+        QJsonObject result;
+        QJsonArray content;
+        QJsonObject textContent;
+        textContent["type"] = QString("text");
+        textContent["text"] = QStringLiteral(
+            "Error: the document this session was working on was closed. Call "
+            "get_editor_state to re-read the editor state and re-bind before editing.");
+        content.append(textContent);
+        result["content"] = content;
+        result["isError"] = true;
+        return result;
+    }
     if (toolName == QStringLiteral("get_editor_state") || !session.boundFile) {
         session.boundFile = _file;
+        session.boundFileClosed = false; // resynced to the active document
     }
     MidiFile *targetFile = session.boundFile;
 

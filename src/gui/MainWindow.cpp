@@ -1531,6 +1531,11 @@ void MainWindow::performEarlyCleanup() {
         delete openglMatrix;
         _matrixWidgetContainer = nullptr;
         mw_matrixWidget = nullptr;
+        // matrixWidget() returns `_activeView ? _activeView : mw_matrixWidget`, so a
+        // stale _activeView pointing at the just-deleted inner widget would dangle
+        // (processEvents() below can still dispatch a queued MidiPilot callback). Drop
+        // it so the nullptr fallback is restored.
+        _activeView = nullptr;
     }
 
     if (_miscWidgetContainer && _miscWidgetContainer != _miscWidget) {
@@ -2909,8 +2914,12 @@ void MainWindow::refreshScrollbarsForFocus() {
     if (!src) {
         return;
     }
-    src->registerRelayout();
-    src->update();
+    // calcSizes() (a public slot) recomputes and SYNCHRONOUSLY re-emits sizeChanged
+    // -> matrixSizeChanged() (whose sender==scrollbarSourceInner() guard then writes
+    // the bar range+value). A bare update() can't do this: it only repaints (and in
+    // the default OpenGL build mw_matrixWidget is the HIDDEN inner widget, so its
+    // update() schedules no paint at all), and paintEvent never re-emits sizeChanged.
+    src->calcSizes();
 }
 
 void MainWindow::setTabBarDimmed(QWidget *w, bool dim) {

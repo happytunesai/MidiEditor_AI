@@ -352,6 +352,15 @@ void MiscWidget::mouseMoveEvent(QMouseEvent *event) {
 }
 
 void MiscWidget::mousePressEvent(QMouseEvent *event) {
+    // Phase 28 (editor groups): this lane is bound to ONE pane (the primary), but
+    // its selection/edit calls go through EventTool, which acts on the GLOBALLY
+    // active document (the focused pane). In a split focused on the OTHER pane,
+    // that mismatch would mutate the wrong document's selection. Claim this lane's
+    // pane as the active view first, so the active document == the document this
+    // lane displays and all selection/edit ops below target the right file.
+    if (matrixWidget) {
+        matrixWidget->claimAsActiveView();
+    }
     if (edit_mode == SINGLE_MODE) {
         if (mode == VelocityEditor) {
             // check whether selection has to be changed.

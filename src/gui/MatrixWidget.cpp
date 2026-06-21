@@ -1346,20 +1346,21 @@ void MatrixWidget::setFile(MidiFile *f) {
     MidiFile *previous = file;
     file = f;
 
+    // Phase 28 (editor groups): setFile() is now called again every time the user
+    // returns to a previously-viewed tab, so drop the previous file's
+    // protocol->relayout/repaint links here - BEFORE the !file early-return, so
+    // unbinding (setFile(nullptr)) also drops them. UniqueConnection below then
+    // makes a repeated bind to the SAME file a no-op instead of stacking another
+    // pair of connections (which would fire N redundant relayouts+repaints per edit).
+    if (previous && previous != file && previous->protocol()) {
+        disconnect(previous->protocol(), SIGNAL(actionFinished()), this, SLOT(registerRelayout()));
+        disconnect(previous->protocol(), SIGNAL(actionFinished()), this, SLOT(update()));
+    }
+
     // Defensive: unbinding (file == nullptr, e.g. tearing down a compare view)
     // must not dereference file->protocol() below. Just drop the binding.
     if (!file) {
         return;
-    }
-
-    // Phase 28 (editor groups): setFile() is now called again every time the user
-    // returns to a previously-viewed tab, so drop the previous file's
-    // protocol->relayout/repaint links here. UniqueConnection below then makes a
-    // repeated bind to the SAME file a no-op instead of stacking another pair of
-    // connections (which would fire N redundant relayouts+repaints per edit).
-    if (previous && previous != file && previous->protocol()) {
-        disconnect(previous->protocol(), SIGNAL(actionFinished()), this, SLOT(registerRelayout()));
-        disconnect(previous->protocol(), SIGNAL(actionFinished()), this, SLOT(update()));
     }
 
     scaleX = 1;
@@ -1539,6 +1540,18 @@ void MatrixWidget::leaveEvent(QEvent *event) {
         if (enabled) {
             update();
         }
+    }
+}
+
+void MatrixWidget::claimAsActiveView() {
+    // Phase 28: make this view the active tool/document target programmatically.
+    // Used by the velocity lane (MiscWidget), which is bound to ONE pane: a click
+    // there must focus that pane so selection edits land on the document the lane
+    // displays, not on whichever split pane currently has focus. Mirrors the claim
+    // done in focusInEvent/mousePressEvent; a no-op for a read-only compare view.
+    if (_claimsToolTarget) {
+        EditorTool::setMatrixWidget(this);
+        emit focusReceived(this);
     }
 }
 

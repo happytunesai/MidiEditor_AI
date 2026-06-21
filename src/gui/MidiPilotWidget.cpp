@@ -1048,25 +1048,34 @@ void MidiPilotWidget::abortActiveRequest() {
     // Phase 28 (editor groups): release the pinned edit target immediately on any
     // abort (user Stop, or MainWindow aborting because the origin tab is closing).
     _runOriginFile = nullptr;
+    // Invalidate any pending simple-mode self-healing retry: it captured the old
+    // generation and bails when it no longer matches. Must run BEFORE the isBusy()
+    // check below, because during the retry backoff window the client is NOT busy
+    // (the failed reply already finished) - so the old code never stopped it.
+    _requestGeneration++;
+
     if (_isAgentRunning && _agentRunner) {
         // AgentRunner::cancel() aborts the reply AND emits errorOccurred,
         // which lands in onAgentError → _isAgentRunning=false + UI reset.
         _agentRunner->cancel();
         return;
     }
+
+    // Simple mode. Reset when there is something to stop: an in-flight request OR
+    // a pending retry waiting on the backoff timer (client not busy in that window).
+    const bool hadSimpleWork = (_client && _client->isBusy()) || _simpleRetryPending;
     if (_client && _client->isBusy()) {
-        // Simple mode. AiClient::cancelRequest() is intentionally silent
-        // (no errorOccurred) because AgentRunner relies on that to avoid a
-        // double signal — so we have to reset the simple-mode UI here.
+        // AiClient::cancelRequest() is intentionally silent (no errorOccurred) so
+        // AgentRunner avoids a double signal — so we reset the simple-mode UI here.
         _client->cancelRequest();
+    }
+    if (hadSimpleWork) {
+        _simpleRetryPending = false;
         _isAgentRunning = false;
         _simpleRetryCount = 0;
         _lastSimpleMessage.clear();
         setStatus(tr("Stopped"), "gray");
-        // Phase 9.9c §15.2: respect the show-mode lock when re-enabling
-        // input after an abort — a viewer pressing Stop on an in-flight
-        // request (probably stale from before the hat changed hands)
-        // should land back in a locked state, not a usable one.
+        // Phase 9.9c §15.2: respect the show-mode lock when re-enabling input.
         bool inputEnabled = !_showModeLocked;
         _inputField->setEnabled(inputEnabled);
         _sendButton->setEnabled(inputEnabled);
@@ -1275,6 +1284,7 @@ void MidiPilotWidget::onSendMessage() {
         // Phase 28 (editor groups): pin the document this run edits NOW, so that
         // switching tabs while the agent generates can't redirect the applied
         // edits to the wrong file (the apply path reads activeEditFile()).
+        _requestGeneration++;
         _runOriginFile = _file;
         _sendButton->setVisible(false);
         _stopButton->setVisible(true);
@@ -1387,6 +1397,9 @@ void MidiPilotWidget::onSendMessage() {
 
         // Phase 28 (editor groups): pin the edit target for simple mode too, so a
         // tab switch during the streaming request can't redirect the applied edit.
+        // Bumping the generation invalidates any retry still pending from a prior
+        // request so it can't fire after this new send.
+        _requestGeneration++;
         _runOriginFile = _file;
         _client->sendStreamingRequest(simplePrompt,
                                        historyForApi, fullMessage);
@@ -1740,7 +1753,18 @@ void MidiPilotWidget::onErrorOccurred(const QString &errorMessage) {
         QString sysP = _lastSimpleSystemPrompt;
         QJsonArray hist = _lastSimpleHistory;
         QString msg = _lastSimpleMessage;
-        QTimer::singleShot(delayMs, this, [this, sysP, hist, msg]() {
+        // Phase 28: pin the retry to this request's generation + origin document so
+        // a Stop / tab-close / new send during the backoff invalidates it, and a tab
+        // switch during the backoff still applies the edit to the origin document.
+        const quint64 gen = _requestGeneration;
+        MidiFile *origin = _runOriginFile;
+        _simpleRetryPending = true;
+        QTimer::singleShot(delayMs, this, [this, sysP, hist, msg, gen, origin]() {
+            if (gen != _requestGeneration) {
+                return; // aborted, superseded by a new send, or the origin tab was closed
+            }
+            _simpleRetryPending = false;
+            _runOriginFile = origin; // re-pin (covers a tab switch during the backoff)
             _client->sendStreamingRequest(sysP, hist, msg);
             QJsonObject userMsg;
             userMsg["role"] = "user";
@@ -1777,6 +1801,10 @@ void MidiPilotWidget::onErrorOccurred(const QString &errorMessage) {
     addChatBubble("system", "Error: " + surfaced);
     _simpleRetryCount = 0;
     _lastSimpleMessage.clear();
+    // Phase 28: release the request-origin pin symmetrically with the other
+    // terminal handlers (onResponseReceived / onAgentFinished / onAgentError) so
+    // isAgentRunningOn() doesn't keep reporting a phantom run after a dead request.
+    _runOriginFile = nullptr;
 }
 
 void MidiPilotWidget::onSettingsClicked() {

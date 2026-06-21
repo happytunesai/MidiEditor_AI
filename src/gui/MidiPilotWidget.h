@@ -226,6 +226,12 @@ private:
     QString _lastSimpleMessage;
     int _simpleRetryCount;
     int _simpleMaxRetries;
+    // Phase 28: makes the simple-mode self-healing retry (a QTimer::singleShot)
+    // cancellable. Bumped on every new send and on abort; the retry lambda captures
+    // the value and bails if it no longer matches, so a Stop / tab-close / new send
+    // during the backoff window can't resurrect a request or apply to the wrong doc.
+    quint64 _requestGeneration = 0;
+    bool _simpleRetryPending = false;
 
     // Live reasoning / "thought" display. Rendered as plain gray italic
     // text inline in the chat (not a speech bubble). Lazy-created on first

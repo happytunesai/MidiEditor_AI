@@ -329,6 +329,11 @@ public:
     void setClaimsToolTarget(bool b) { _claimsToolTarget = b; }
     bool claimsToolTarget() const { return _claimsToolTarget; }
 
+    /** \brief Phase 28: make this view the active tool/document target (emits
+     *  focusReceived). Used by the velocity lane so a click there focuses the
+     *  lane's pane before mutating its document's selection. */
+    void claimAsActiveView();
+
     // === Grid and Division ===
 
     /**
