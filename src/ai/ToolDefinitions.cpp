@@ -503,6 +503,17 @@ QJsonObject ToolDefinitions::executeTool(const QString &toolName,
                                          MidiFile *file,
                                          MidiPilotWidget *widget,
                                          const QString &source) {
+    // Phase 28 (editor groups): pin the apply target to THIS call's file for the
+    // whole tool call. Write tools route through widget->executeAction(), which
+    // reads the widget's live _file; without this an agent edit applied after a
+    // tab switch - or any MCP edit - would land on the wrong document. The guard
+    // sets the target on entry and clears it on every return (RAII).
+    struct ApplyTargetScope {
+        MidiPilotWidget *w;
+        ApplyTargetScope(MidiPilotWidget *w, MidiFile *f) : w(w) { if (w) w->setApplyTarget(f); }
+        ~ApplyTargetScope() { if (w) w->setApplyTarget(nullptr); }
+    } applyTargetScope(widget, file);
+
     // Hardening: validate required parameters against the tool's own schema
     // before dispatching. Without this, a missing or misnamed argument (common
     // from MCP clients, which — unlike the OpenAI/Gemini strict-mode path —

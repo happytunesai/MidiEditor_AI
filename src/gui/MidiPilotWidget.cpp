@@ -1477,6 +1477,12 @@ void MidiPilotWidget::onResponseReceived(const QString &content, const QJsonObje
         }
     }
 
+    // Phase 28 (editor groups): simple mode applies the edit HERE, after a
+    // possible tab switch. Pin the apply target to the document the request was
+    // sent against (captured in _runOriginFile) for the duration of the dispatch,
+    // then clear it so a later MCP/manual edit follows the live _file again.
+    _applyTargetFile = _runOriginFile ? _runOriginFile : _file;
+
     // Try to parse as JSON action response
     QJsonDocument doc = QJsonDocument::fromJson(cleaned.toUtf8());
     if (doc.isObject()) {
@@ -1537,6 +1543,10 @@ void MidiPilotWidget::onResponseReceived(const QString &content, const QJsonObje
             addChatBubble("assistant", content);
         }
     }
+    // The simple-mode edit (if any) has been applied - release both the scoped
+    // apply target and the request-origin pin.
+    _applyTargetFile = nullptr;
+    _runOriginFile = nullptr;
 
     // Store entry
     ConversationEntry entry;
@@ -1831,13 +1841,16 @@ void MidiPilotWidget::updateTokenLabel() {
 }
 
 MidiFile *MidiPilotWidget::activeEditFile() const {
-    // While a request is in flight (agent OR simple mode), edits target the
-    // document the request STARTED on, even if the user has since switched tabs
-    // (onFileChanged swaps _file, but the request's target must not move).
-    // _runOriginFile is cleared when the request ends; if the origin document is
-    // closed mid-request, MainWindow aborts it first (isAgentRunningOn), so this
-    // never dereferences a stale pointer.
-    return _runOriginFile ? _runOriginFile : _file;
+    // The apply target is set in a tight scope around each dispatch (see
+    // setApplyTarget): the document the request was made against, even if the
+    // user switched tabs mid-request. Outside an apply it is null, so edits fall
+    // back to the live _file - this is what keeps a finished MidiPilot run from
+    // hijacking a later MCP/manual edit.
+    return _applyTargetFile ? _applyTargetFile : _file;
+}
+
+void MidiPilotWidget::setApplyTarget(MidiFile *f) {
+    _applyTargetFile = f;
 }
 
 Selection *MidiPilotWidget::activeEditSelection() const {
@@ -2071,6 +2084,8 @@ void MidiPilotWidget::onAgentStepCompleted(int step, const QString &toolName, co
 
 void MidiPilotWidget::onAgentFinished(const QString &finalMessage) {
     _isAgentRunning = false;
+    // Phase 28: the run (and all its tool applies) is done - release the origin pin.
+    _runOriginFile = nullptr;
 
     // Stop the thought-cursor pulse and freeze the thought label at its
     // final accumulated text (drop the trailing blinking cursor glyph).
@@ -2168,6 +2183,9 @@ void MidiPilotWidget::onAgentFinished(const QString &finalMessage) {
 
 void MidiPilotWidget::onAgentError(const QString &error) {
     _isAgentRunning = false;
+    // Phase 28: run aborted/failed - release the origin pin (apply target is
+    // scoped separately and already reset).
+    _runOriginFile = nullptr;
 
 #ifdef MIDIEDITOR_COLLAB_ENABLED
     // Phase 9.3 — drop any pending PR-mode snapshot so the next agent run
@@ -3153,9 +3171,10 @@ void MidiPilotWidget::resetTurnState()
 void MidiPilotWidget::finalizeTurn(const QString &finalText, const QString &status)
 {
     Q_UNUSED(finalText);
-    // Phase 28 (editor groups): the run is over - release the pinned edit target
-    // so subsequent edits follow the live _file again.
-    _runOriginFile = nullptr;
+    // NB: do NOT clear _runOriginFile here. In simple mode finalizeTurn() runs in
+    // onResponseReceived BEFORE the response is parsed and applied (dispatchAction),
+    // so clearing it here would un-pin the edit target before the edit lands. It is
+    // overwritten at the next send and cleared on abort / origin-close instead.
     // Anchor the turn to the just-appended assistant message so that on
     // reload we know which message in `messages[]` it belongs to.
     int assistantIndex = _conversationHistory.size() - 1;

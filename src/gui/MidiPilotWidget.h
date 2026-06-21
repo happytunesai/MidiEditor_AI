@@ -74,6 +74,14 @@ public:
     bool isAgentRunning() const;
 
     /**
+     * \brief Phase 28: set the document the next apply (dispatchAction) must
+     * target. Called by ToolDefinitions::executeTool (scoped to one tool call)
+     * so agent and MCP writes land on the file the call was made against, not
+     * the live _file. Pass nullptr to clear.
+     */
+    void setApplyTarget(MidiFile *f);
+
+    /**
      * \brief Phase 28 (editor groups): true if an agent run is in flight AND it
      * was started against \a f. Lets MainWindow abort the run before deleting the
      * document the agent is editing (e.g. its tab is closed mid-run).
@@ -188,9 +196,16 @@ private:
 
     MainWindow *_mainWindow;
     MidiFile *_file;
-    /** Phase 28: document captured at agent-run start; the apply path targets
-     *  this instead of the live _file. nullptr when no run is in flight. */
+    /** Phase 28: document captured at request START (agent or simple). Used to
+     *  abort the run if that document is closed (isAgentRunningOn) and as the
+     *  apply target for simple mode. nullptr when no request is in flight. */
     MidiFile *_runOriginFile = nullptr;
+    /** Phase 28: the document the CURRENTLY-dispatching apply targets. Set in a
+     *  tight scope around each dispatch (executeTool's guard for agent/MCP, the
+     *  simple-mode wrapper) and reset to nullptr after, so activeEditFile() only
+     *  diverges from _file while an edit is actually being applied. This keeps a
+     *  finished MidiPilot run from mis-routing a later MCP/manual edit. */
+    MidiFile *_applyTargetFile = nullptr;
     AiClient *_client;
     AgentRunner *_agentRunner;
     bool _isAgentRunning;

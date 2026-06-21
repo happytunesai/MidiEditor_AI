@@ -121,8 +121,10 @@ void Protocol::endAction() {}
 class MidiPilotWidget {
 public:
     QJsonObject executeAction(QJsonObject const &);
+    void setApplyTarget(MidiFile *);  // Phase 28: executeTool's apply-target guard
 };
 QJsonObject MidiPilotWidget::executeAction(QJsonObject const &) { return QJsonObject(); }
+void MidiPilotWidget::setApplyTarget(MidiFile *) {}
 
 class EditorContext {
 public:
