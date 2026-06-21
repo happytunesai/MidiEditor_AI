@@ -950,6 +950,73 @@ target_link_libraries(test_midi_channel PRIVATE
 add_test(NAME MidiChannel COMMAND test_midi_channel)
 
 # -----------------------------------------------------------------------------
+# test_event_perf
+# -----------------------------------------------------------------------------
+# Performance / memory smoke-harness: builds up to 100k NoteOn/Off pairs in
+# real MidiChannels and reports build time, select-all/scan time and (on
+# Windows, via PSAPI) the working-set delta -> measured bytes-per-note for
+# the Phase 28 multi-document memory budget. Same ODR-shim linkage as
+# test_midi_channel. Asserts are loose anti-hang guards; the numbers come
+# out via qInfo (run: ctest -R EventPerf -V).
+add_executable(test_event_perf
+    test_event_perf.cpp
+    ../src/midi/MidiChannel.cpp
+    ../src/gui/ChannelVisibilityManager.cpp
+    ../src/MidiEvent/NoteOnEvent.cpp
+    ../src/MidiEvent/OffEvent.cpp
+    ../src/MidiEvent/OnEvent.cpp
+    ../src/MidiEvent/ProgChangeEvent.cpp
+    ../src/protocol/Protocol.cpp
+    ../src/protocol/ProtocolStep.cpp
+    ../src/protocol/ProtocolItem.cpp
+    ../src/protocol/ProtocolEntry.cpp
+)
+target_include_directories(test_event_perf PRIVATE
+    ../src/midi
+    ../src/MidiEvent
+    ../src/protocol
+    ../src/gui
+)
+target_link_libraries(test_event_perf PRIVATE
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Widgets
+    Qt6::Test
+)
+if(WIN32)
+    target_link_libraries(test_event_perf PRIVATE psapi)
+endif()
+add_test(NAME EventPerf COMMAND test_event_perf)
+# Qt DLLs must be on PATH for the ctest runner (same fix as ModelListFetcher).
+get_target_property(_qt_core_loc Qt6::Core LOCATION)
+get_filename_component(_qt_bin_dir "${_qt_core_loc}" DIRECTORY)
+set_tests_properties(EventPerf PROPERTIES
+    ENVIRONMENT "PATH=${_qt_bin_dir};$ENV{PATH}")
+
+# -----------------------------------------------------------------------------
+# test_document_manager
+# -----------------------------------------------------------------------------
+# Phase 28: pure list/active-index bookkeeping for multi-document tabs.
+# DocumentManager never dereferences the MidiFile, so the test links only the
+# single .cpp and uses sentinel pointers.
+add_executable(test_document_manager
+    test_document_manager.cpp
+    ../src/gui/DocumentManager.cpp
+)
+target_include_directories(test_document_manager PRIVATE
+    ../src/gui
+)
+target_link_libraries(test_document_manager PRIVATE
+    Qt6::Core
+    Qt6::Test
+)
+add_test(NAME DocumentManager COMMAND test_document_manager)
+get_target_property(_qt_core_loc Qt6::Core LOCATION)
+get_filename_component(_qt_bin_dir "${_qt_core_loc}" DIRECTORY)
+set_tests_properties(DocumentManager PROPERTIES
+    ENVIRONMENT "PATH=${_qt_bin_dir};$ENV{PATH}")
+
+# -----------------------------------------------------------------------------
 # test_tempo_conversion_service
 # -----------------------------------------------------------------------------
 # Validates src/converter/TempoConversionService — Phase 33's

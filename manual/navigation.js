@@ -21,6 +21,7 @@
             title: 'Editor',
             pages: [
                 { href: 'editor-and-components.html', icon: '🖥️', name: 'Editor & Components' },
+                { href: 'editor-groups.html', icon: '🗂️', name: 'Tabs & Editor Groups' },
                 { href: 'editing-midi-files.html', icon: '✏️', name: 'Editing MIDI Files' },
                 { href: 'playback.html', icon: '▶️', name: 'Playback' },
                 { href: 'cursor-time-display.html', icon: '🕒', name: 'Cursor Time Display' },

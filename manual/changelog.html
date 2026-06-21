@@ -93,10 +93,13 @@
         font-style: italic;
     }
     .cl-blockquote {
-        font-size: .85rem; color: var(--text-muted); font-style: italic;
-        margin-bottom: .5rem; padding-left: .75rem;
-        border-left: 2px solid var(--border);
+        font-size: .95rem; color: var(--text); line-height: 1.6;
+        margin: 0 0 1rem; padding: .85rem 1.1rem;
+        border-left: 3px solid var(--accent);
+        background: rgba(0,184,255,.05);
+        border-radius: 0 8px 8px 0;
     }
+    .cl-blockquote strong { color: var(--text); }
 
     /* summary bullets */
     .cl-summary { list-style: none; padding: 0; margin: 0 0 .75rem; }
@@ -218,12 +221,29 @@
 <div class="cl-no-results" id="cl-no-results">No matching releases found.</div>
 
 <div class="cl-timeline">
-<article class="cl-version latest" data-version="1.8.2">
+<article class="cl-version latest" data-version="1.9.0">
+<div class="cl-dot"></div>
+<div class="cl-version-head">
+<h2><a href="https://github.com/happytunesai/MidiEditor_AI/releases/tag/v1.9.0" target="_blank" rel="noopener noreferrer">v1.9.0</a></h2>
+<span class="cl-date">2026-06-21</span>
+<span class="cl-badge-latest">Latest</span>
+</div>
+<div class="cl-title">Tabs &amp; Editor Groups</div>
+<div class="cl-blockquote"><strong>The deepest structural change MidiEditor AI has had.</strong> The editor was single-document to its core - one open file, one of every widget, shared global state throughout. 1.9.0 rebuilds that foundation into a true multi-document architecture and turns the front end into a modern editing workspace: keep several files open as <strong>tabs</strong>, <strong>split</strong> the editor into two side-by-side <strong>editor groups</strong>, and drag tabs between them - with selection, channel visibility, tools, MidiPilot, the MCP server and live collaboration all reworked to act per-document. The short feature list below sits on top of that rebuild; despite how far it reaches, every existing single-file workflow behaves exactly as before.</div>
+<ul class="cl-summary">
+<li><strong>Multiple files open at once, as tabs.</strong> *New* and *Open* now add a tab instead of replacing the current document. Switch by clicking, close with a per-tab save prompt, reorder by dragging, and open a fresh tab with the <strong>+</strong> button.</li>
+<li><strong>Two files side by side - independent editor groups.</strong> <strong>Split</strong> opens a second, fully-editable editor group with its own tab bar. <strong>Drag tabs between the groups</strong> (a blue caret shows where they land; dropping anywhere in a pane works too). The focused pane drives the side panels, tools, zoom and the playback cursor.</li>
+<li><strong>Your session is remembered.</strong> Open tabs, the split layout and the active tab are restored on the next launch - including the restart that applies a theme change or an update.</li>
+</ul>
+<button class="cl-toggle" type="button"><span class="arrow">▶</span> Show full changelog</button>
+<div class="cl-details"><div class="cl-cat cat-feature"><h4><span class="cat-badge">✨ Added</span> Added</h4><ul><li><strong>Multi-document tabs.</strong> A tab strip above the timeline; *File -&gt; New* / *File -&gt; Open* open each document in its own tab (the current one stays open). Close a tab with its <strong>&amp;#x2715;</strong> (save prompt on unsaved changes), reorder tabs by dragging, open an empty tab with the <strong>+</strong> button. Per-document selection, channel visibility and viewport are kept, so switching tabs restores that document&#x27;s state.</li><li><strong>Editor groups (Split View).</strong> *View -&gt; Split View* (or the <strong>Split</strong> tab-tool) opens a second editor group beside the first and moves the chosen tab into it. Both groups are independent and fully editable; each has its own tab bar and its own set of documents. The <strong>focused</strong> pane (the one you last clicked) is the active document - side panels, tools, selection, zoom and playback all follow it.</li><li><strong>Cross-group tab drag &amp; drop.</strong> Drag a tab from one group onto the other to move the document across, with a blue <strong>insertion caret</strong> showing the drop position. Dropping a tab anywhere inside a group&#x27;s editor area (not just on the thin tab bar) moves it into that group.</li><li><strong>Tab-tools row.</strong> Under the standard *New / Open / Save / Undo / Redo* buttons (two-row toolbar): <strong>New Tab</strong>, <strong>Split</strong>, <strong>Clone</strong> (duplicates the current document into a new, unsaved &quot;*&amp;lt;name&amp;gt;* (copy)&quot; tab), and <strong>Close All Tabs</strong> (closes every tab in both groups with save prompts, then starts fresh with one empty document). The Split icon is drawn from the active theme&#x27;s colours.</li><li><strong>Collapse / restore / close the second group.</strong> The secondary group&#x27;s bar has a <strong>collapse</strong> control that hides the pane while keeping its tabs - a theme-coloured <strong>&quot;Group 2 (N)&quot;</strong> chip then appears in the primary tab bar to restore it - and a <strong>close</strong> control that closes the group and all its tabs (with save prompts).</li><li><strong>Drop a file into a specific pane.</strong> Dragging a MIDI file from the file manager onto a pane opens it there; the target group is outlined while you drag.</li><li><strong>Side-by-side comparison (Sync).</strong> The secondary group&#x27;s <strong>Sync</strong> toggle links the two views: scroll, zoom and the cursor/marker follow the left (master) document, and playback plays the left while both panes&#x27; cursors run together. The right is a read-only reference, but you can still pick its tab to toggle its own track/channel visibility (per-document) - ideal for lining up a cover against the original.</li><li><strong>Session restore.</strong> The open tabs of both groups, the split/collapsed state and the active tab are saved on exit and reopened on the next start - across normal restarts, theme-change restarts and auto-update restarts. (Never-saved documents can&#x27;t be reopened by path, so they&#x27;re offered for saving on close.)</li></ul></div>
+<div class="cl-cat cat-fix"><h4><span class="cat-badge">🔧 Fixed</span> Fixed / Changed</h4><ul><li><strong>View operations follow the focused pane.</strong> Zoom, the playback cursor, measure/marker navigation, smooth-scrolling and the shared scrollbars now act on the focused editor group instead of always the primary one, so each split pane can be scrolled independently with the same bars.</li><li><strong>Active editor group is highlighted.</strong> When split, the focused group&#x27;s tabs stay fully lit while the other group&#x27;s tabs dim, making it obvious which side is active.</li><li><strong>Clicking any tab focuses its group.</strong> Clicking a tab now always focuses that editor group - including clicking the tab a group already has selected - so you no longer have to click into the note roll to move focus.</li><li><strong>AI edits always land on the document they were started on.</strong> If you switch tabs while MidiPilot (agent or simple mode) is working, its result is applied to the original document (and its selection), not whichever tab happens to be active when the response arrives. MCP sessions likewise bind to the document they are working on, so a read-then-edit stays on the same document across tab switches (the <code class="hl">get_editor_state</code> tool re-syncs the session to the active document). Closing that document mid-run safely stops the run / unbinds the session.</li><li><strong>Selection is per-pane.</strong> Each pane draws its own document&#x27;s selection (and only the focused pane draws the tool overlay), so selecting in one group no longer paints a &quot;ghost&quot; selection in the other.</li><li><strong>Closing prompts every unsaved tab.</strong> Quitting now offers to save *all* unsaved documents across both groups, not just the active one - and cancelling the save dialog no longer discards the document.</li><li><strong>Live collaboration stays single-document.</strong> While a LAN/WAN session is active the tabs are locked to the shared document (other tabs, the tab tools and File New/Open are disabled, and in a split the non-session pane is frozen); everything unlocks again when the session ends. This keeps live collaboration on the proven single-document model.</li></ul></div></div>
+</article>
+<article class="cl-version" data-version="1.8.2">
 <div class="cl-dot"></div>
 <div class="cl-version-head">
 <h2><a href="https://github.com/happytunesai/MidiEditor_AI/releases/tag/v1.8.2" target="_blank" rel="noopener noreferrer">v1.8.2</a></h2>
 <span class="cl-date">2026-06-14</span>
-<span class="cl-badge-latest">Latest</span>
 </div>
 <div class="cl-title">Local AI, MCP Tools &amp; Editor Polish</div>
 <ul class="cl-summary">
@@ -654,7 +674,7 @@
 <span class="cl-date">2026-04-12</span>
 </div>
 <div class="cl-title">Hotfix: Selection Regression (superseded by v1.3.2)</div>
-<div class="cl-blockquote">Note:** Both fixes below were reverted in v1.3.2 and replaced by a proper architectural fix (<code class="hl">selectedEvents()</code> returns by value, SEL-001 early-return removed entirely). See v1.3.2 &quot;Selection System Overhaul&quot; for details.</div>
+<div class="cl-blockquote"><strong>Note:</strong> Both fixes below were reverted in v1.3.2 and replaced by a proper architectural fix (<code class="hl">selectedEvents()</code> returns by value, SEL-001 early-return removed entirely). See v1.3.2 &quot;Selection System Overhaul&quot; for details.</div>
 <ul class="cl-summary">
 <li><strong>Fixed Ctrl+A / large selection freezing the UI</strong> - <code class="hl">batchSelectEvents()</code> obtained a reference to the internal <code class="hl">_selectedEvents</code> list and modified it in-place (clear + append), so <code class="hl">setSelection()</code>&#x27;s equality check (SEL-001) always saw them as identical and returned early - no protocol entry, no EventWidget update, no Ctrl+T. Fixed by building a new local list instead of mutating through the reference.</li>
 <li><strong>Fixed O(n) selection comparison blocking large files</strong> - <code class="hl">setSelection()</code> did an element-by-element <code class="hl">QList::operator==</code> on every call, taking seconds for 4000+ events. Now only performs the full comparison for selections under 200 events; larger selections skip the check entirely.</li>
@@ -834,7 +854,7 @@
 <span class="cl-date">2026-04-06</span>
 </div>
 <div class="cl-title">Mewo Feature Sync</div>
-<div class="cl-blockquote">Cherry-picking the best upstream features: context menus, note presets, timeline markers, chord detection, MML import, drum presets, and a whole lotta polish.</div>
+<div class="cl-blockquote">*Cherry-picking the best upstream features: context menus, note presets, timeline markers, chord detection, MML import, drum presets, and a whole lotta polish.*</div>
 <ul class="cl-summary">
 <li>Right-click context menu, note duration presets, smooth playback scrolling</li>
 <li>Timeline markers (CC/PC/Text), status bar with chord detection</li>
@@ -854,7 +874,7 @@
 <span class="cl-date">2026-04-05</span>
 </div>
 <div class="cl-title">The Totally Unnecessary Glow Up</div>
-<div class="cl-blockquote">Adding Dark/Light Mode and a totally useless but cool MIDI Visualizer.</div>
+<div class="cl-blockquote">*Adding Dark/Light Mode and a totally useless but cool MIDI Visualizer.*</div>
 <ul class="cl-summary">
 <li>7 dark/light QSS themes (Dark, Light, Sakura, AMOLED, Material Dark, System, Classic)</li>
 <li>Real-time 16-channel MIDI Visualizer in the toolbar</li>

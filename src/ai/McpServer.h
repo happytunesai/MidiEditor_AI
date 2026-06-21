@@ -52,6 +52,10 @@ public:
     /** Set the current MIDI file reference (updated on file load). */
     void setFile(MidiFile *file);
 
+    /** Phase 28 (editor groups): a document was closed - drop it as the bound
+     *  document of any session so no session keeps acting on a freed file. */
+    void forgetFile(MidiFile *file);
+
     /** Set the MidiPilot widget reference (for tool execution). */
     void setWidget(MidiPilotWidget *widget);
 
@@ -97,6 +101,16 @@ private:
         QDateTime lastActivity;
         int toolCallCount = 0;
         QDateTime rateLimitWindow;
+        // Phase 28 (editor groups): the document this session is working on. Like
+        // MidiPilot's run origin, tool calls act on THIS document even if the user
+        // switches tabs, so a read-then-write across a tab switch stays coherent.
+        // get_editor_state resyncs it to the active document; forgetFile() clears
+        // it when that document is closed. nullptr = bind to active on next use.
+        MidiFile *boundFile = nullptr;
+        // Set by forgetFile() when boundFile was the closed document, so the next
+        // non-get_editor_state tool returns an error ("re-read state") instead of
+        // silently rebinding to (and editing) whatever document is now active.
+        bool boundFileClosed = false;
     };
 
     HttpRequest parseHttpRequest(const QByteArray &data);

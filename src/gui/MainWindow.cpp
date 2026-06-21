@@ -24,6 +24,8 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QIcon>
+#include <QPainter>
+#include <QPainterPath>
 #include <QInputDialog>
 #include <QJsonArray>
 #include <QJsonObject>
@@ -32,9 +34,14 @@
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QMimeData>
+#include <QDragEnterEvent>
+#include <QDragMoveEvent>
+#include <QDragLeaveEvent>
+#include <QDropEvent>
 #include <QProgressDialog>
 #include <QScopedPointer>
 #include <QScopedValueRollback>
+#include <QGraphicsOpacityEffect>
 #include <QSet>
 #include <QSettings>
 #include <QSplitter>
@@ -42,11 +49,14 @@
 #include <QTabWidget>
 #include <QToolBar>
 #include <QToolButton>
+#include <QHBoxLayout>
+#include <QVBoxLayout>
 #include <QDesktopServices>
 #include <QKeyEvent>
 #include <QTimer>
 #include <QStandardPaths>
 #include <QDir>
+#include <QDateTime>
 #include <QStatusBar>
 #include <QLabel>
 #include <QLocale>
@@ -119,6 +129,8 @@
 #include "UpdateDialogs.h"
 #include "AutoUpdater.h"
 #include "MidiPilotWidget.h"
+#include "DocumentManager.h"
+#include "DocumentTabBar.h"
 #include "MidiVisualizerWidget.h"
 #include "TimeDisplayWidget.h"
 #include "LyricVisualizerWidget.h"
@@ -464,15 +476,124 @@ MainWindow::MainWindow(QString initFile)
         qDebug() << "Created MatrixWidget with software rendering";
     }
 
+    // Phase 28 (B): clicking/focusing the primary view makes its document the
+    // active one again (mirrors the compare pane's wiring). No-op in single
+    // view since the primary already shows the active document.
+    connect(mw_matrixWidget, &MatrixWidget::focusReceived, this, &MainWindow::onViewFocused);
+    _activeView = mw_matrixWidget; // the primary view is focused by default
+
     vert = new QScrollBar(Qt::Vertical, matrixArea);
-    QGridLayout *matrixAreaLayout = new QGridLayout(matrixArea);
-    matrixAreaLayout->setHorizontalSpacing(6);
-    QWidget *placeholder0 = new QWidget(matrixArea);
+
+    // Phase 28 (editor groups): the editor area is a horizontal splitter of
+    // editor GROUPS. Each group is a vertical [ tab strip | body ] stack with
+    // its OWN tab bar, so a second group sits beside the first with its tab
+    // strip at the same height (VS Code-style). Group 0 (the primary) is built
+    // here; group 1 is created on demand in toggleCompareView().
+    _documentManager = new DocumentManager();
+    DocumentTabBar *group0Bar = new DocumentTabBar(matrixArea);
+    _documentTabBar = group0Bar;
+    configureDocumentTabBar(_documentTabBar);
+    connect(_documentTabBar, &QTabBar::currentChanged, this, &MainWindow::onDocumentTabChanged);
+    connect(_documentTabBar, &QTabBar::tabBarClicked, this, &MainWindow::onDocumentTabBarClicked);
+    connect(_documentTabBar, &QTabBar::tabCloseRequested, this, &MainWindow::onDocumentTabCloseRequested);
+    connect(group0Bar, &DocumentTabBar::tabMoveRequested, this, &MainWindow::onTabMoveRequested);
+
+    // Phase 28: a "+" New-Tab button so a new document can be opened in a tab
+    // from any toolbar layout (the freed toolbar space only exists in two-row
+    // mode). It triggers the same path as File > New, which now opens a new
+    // tab. Placed to the LEFT of the tabs so it always hugs the first tab - a
+    // QTabBar reserves extra width with few tabs, so a trailing "+" would float
+    // away from a single tab until more tabs fill that reserved space.
+    QToolButton *newTabButton = new QToolButton(matrixArea);
+    newTabButton->setIcon(Appearance::adjustIconForDarkMode(":/run_environment/graphics/tool/add.png"));
+    newTabButton->setToolTip(tr("New tab (new empty document)"));
+    newTabButton->setAutoRaise(true);
+    // This "+" belongs to the primary group (group 0): focus it first so the new
+    // tab opens here even if the secondary group currently has focus.
+    connect(newTabButton, &QToolButton::clicked, this, [this] {
+        _activeView = mw_matrixWidget;
+        newFile();
+    });
+
+    // Group 0's tab strip ( [ + | tabs ] ), built the same way as group 1's so
+    // the two strips have matching heights.
+    QWidget *tabStripRow = buildGroupTabStrip(newTabButton, _documentTabBar);
+    _group0Strip = tabStripRow; // kept so collab can lock it
+
+    // A colour-highlighted "restore" chip at the FAR RIGHT of the primary strip,
+    // shown only while the secondary group is collapsed - it signals that a
+    // hidden second editor group exists and restores it on click.
+    _group1RestoreButton = new QToolButton();
+    _group1RestoreButton->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    _group1RestoreButton->setToolTip(tr("A second editor group is collapsed here - click to restore it"));
+    // Theme-aware chip: the highlight/foreground/border colours all change with
+    // the active theme (the chip is rebuilt on the restart that a theme change
+    // triggers), so it no longer clashes (e.g. a blue chip on the pink theme).
+    {
+        const QColor chipBg = Appearance::stripHighlightColor();
+        const QColor chipFg = Appearance::foregroundColor();
+        const QColor chipBorder = Appearance::borderColor();
+        _group1RestoreButton->setStyleSheet(QStringLiteral(
+            "QToolButton { background:%1; color:%2; border:1px solid %3;"
+            " border-radius:3px; padding:1px 6px; }"
+            "QToolButton:hover { background:%4; }")
+            .arg(chipBg.name(), chipFg.name(), chipBorder.name(),
+                 chipBg.lighter(115).name()));
+    }
+    _group1RestoreButton->setVisible(false);
+    connect(_group1RestoreButton, &QToolButton::clicked, this, &MainWindow::restoreGroup1);
+
+    // ...and an X right next to it to close the collapsed group outright.
+    _group1RestoreCloseButton = new QToolButton();
+    _group1RestoreCloseButton->setText(QChar(0x2715)); // multiplication X = "close"
+    _group1RestoreCloseButton->setAutoRaise(true);
+    _group1RestoreCloseButton->setToolTip(tr("Close the collapsed second editor group and its tabs"));
+    _group1RestoreCloseButton->setVisible(false);
+    connect(_group1RestoreCloseButton, &QToolButton::clicked, this, &MainWindow::closeGroup1);
+
+    if (QHBoxLayout *stripLayout = qobject_cast<QHBoxLayout *>(tabStripRow->layout())) {
+        stripLayout->addWidget(_group1RestoreButton, 0);
+        stripLayout->addWidget(_group1RestoreCloseButton, 0);
+    }
+
+    // Group 0's body keeps the original editor grid: the matrix view in column 0
+    // and the vertical scrollbar in column 1, offset 50px down by a spacer so it
+    // aligns just below the timeline ruler drawn at the top of the matrix view.
+    QWidget *group0Body = new QWidget();
+    QGridLayout *group0BodyLayout = new QGridLayout(group0Body);
+    group0BodyLayout->setContentsMargins(0, 0, 0, 0);
+    group0BodyLayout->setHorizontalSpacing(6);
+    QWidget *placeholder0 = new QWidget(group0Body);
     placeholder0->setFixedHeight(50);
+    group0BodyLayout->addWidget(matrixContainer, 0, 0, 2, 1);
+    group0BodyLayout->addWidget(placeholder0, 0, 1, 1, 1);
+    group0BodyLayout->addWidget(vert, 1, 1, 1, 1);
+    group0BodyLayout->setColumnStretch(0, 1);
+
+    // Group 0 container = [ tab strip | body ]. A 2px transparent border is
+    // reserved so the drop-target highlight (a coloured border) can appear
+    // without shifting the layout; the #objectName selector keeps the border
+    // off the child widgets.
+    QWidget *group0Container = new QWidget();
+    _group0Container = group0Container;
+    group0Container->setObjectName("editorGroup0");
+    group0Container->setStyleSheet("#editorGroup0 { border: 2px solid transparent; }");
+    QVBoxLayout *group0Layout = new QVBoxLayout(group0Container);
+    group0Layout->setContentsMargins(0, 0, 0, 0);
+    group0Layout->setSpacing(0);
+    group0Layout->addWidget(tabStripRow, 0);
+    group0Layout->addWidget(group0Body, 1);
+
+    // The editor groups live inside a horizontal splitter. With a single group
+    // it holds only group 0's container and looks identical to before.
+    _viewSplitter = new QSplitter(Qt::Horizontal, matrixArea);
+    _viewSplitter->setChildrenCollapsible(false);
+    _viewSplitter->setHandleWidth(2);
+    _viewSplitter->addWidget(group0Container);
+
+    QGridLayout *matrixAreaLayout = new QGridLayout(matrixArea);
     matrixAreaLayout->setContentsMargins(0, 0, 0, 0);
-    matrixAreaLayout->addWidget(matrixContainer, 0, 0, 2, 1);
-    matrixAreaLayout->addWidget(placeholder0, 0, 1, 1, 1);
-    matrixAreaLayout->addWidget(vert, 1, 1, 1, 1);
+    matrixAreaLayout->addWidget(_viewSplitter, 0, 0, 1, 1);
     matrixAreaLayout->setColumnStretch(0, 1);
     matrixArea->setLayout(matrixAreaLayout);
 
@@ -1001,8 +1122,33 @@ MainWindow::MainWindow(QString initFile)
     chooserLayout->setColumnStretch(1, 1);
     // connect Scrollbars and Widgets
     // Connect to the actual displayed widget (OpenGL or software)
-    connect(vert, SIGNAL(valueChanged(int)), matrixContainer, SLOT(scrollYChanged(int)));
-    connect(hori, SIGNAL(valueChanged(int)), matrixContainer, SLOT(scrollXChanged(int)));
+    // Phase 28 (editor groups): the shared scrollbars drive the FOCUSED pane, so
+    // each side can be scrolled independently with the same bar. While a sync-lock
+    // is on they always drive the LEFT (master) and mirror onto the secondary.
+    // With no split, activeViewContainer() is the primary, so single-view scrolling
+    // is unchanged.
+    connect(hori, &QScrollBar::valueChanged, this, [this](int v) {
+        if (_syncInProgress) return;
+        if (_syncViews && _compareMatrixWidget) {
+            _syncInProgress = true;
+            QMetaObject::invokeMethod(_matrixWidgetContainer, "scrollXChanged", Q_ARG(int, v));
+            if (!MidiPlayer::isPlaying()) _compareMatrixWidget->scrollXChanged(v);
+            _syncInProgress = false;
+        } else {
+            QMetaObject::invokeMethod(activeViewContainer(), "scrollXChanged", Q_ARG(int, v));
+        }
+    });
+    connect(vert, &QScrollBar::valueChanged, this, [this](int v) {
+        if (_syncInProgress) return;
+        if (_syncViews && _compareMatrixWidget) {
+            _syncInProgress = true;
+            QMetaObject::invokeMethod(_matrixWidgetContainer, "scrollYChanged", Q_ARG(int, v));
+            if (!MidiPlayer::isPlaying()) _compareMatrixWidget->scrollYChanged(v);
+            _syncInProgress = false;
+        } else {
+            QMetaObject::invokeMethod(activeViewContainer(), "scrollYChanged", Q_ARG(int, v));
+        }
+    });
 
     connect(channelWidget, SIGNAL(channelStateChanged()), matrixContainer, SLOT(update()));
     connect(mw_matrixWidget, SIGNAL(sizeChanged(int, int, int, int)), this, SLOT(matrixSizeChanged(int, int, int, int)));
@@ -1213,6 +1359,10 @@ MainWindow::MainWindow(QString initFile)
     };
     connect(LanLiveSession::instance(), &LanLiveSession::roleChanged,
             this, [applyShowModeLock](LanLiveSession::Role) { applyShowModeLock(); });
+    // Phase 28: lock the tab UI to a single document while a live session runs
+    // (collab is single-doc), and unlock it when the session ends.
+    connect(LanLiveSession::instance(), &LanLiveSession::roleChanged, this,
+            [this](LanLiveSession::Role r) { setCollabTabLock(r != LanLiveSession::Role::Idle); });
     connect(LanLiveSession::instance(), &LanLiveSession::hatTransferred,
             this, [applyShowModeLock, refreshLiveLabel](const QString &, const QString &, const QString &) {
                 applyShowModeLock();
@@ -1295,6 +1445,26 @@ MainWindow::MainWindow(QString initFile)
     // Load initial file immediately - no need for artificial delay
     loadInitFile();
 
+    // Phase 28: the initial document's tab is added to the bar during the
+    // constructor, before the nested splitter/tab-strip is first laid out, so
+    // the QTabBar can cache a zero geometry and not paint that first tab until a
+    // later relayout. Re-sync the active group's bar from its manager once the
+    // event loop is running so the startup tab is reliably visible.
+    QTimer::singleShot(0, this, [this] {
+        if (_documentTabBar && _documentManager && _documentManager->count() > 0) {
+            rebuildTabBar(_documentTabBar, _documentManager);
+        }
+        // Same fix for the secondary group when a session was restored into it:
+        // its tab bar was also populated before the first layout, so re-sync it
+        // too (otherwise the restored group-1 tabs stay unpainted until a later
+        // relayout - the "tabs missing after a theme-change restart" symptom).
+        if (_group1TabBar && _group1Docs && _group1Docs->count() > 0) {
+            rebuildTabBar(_group1TabBar, _group1Docs);
+        }
+        // A restored split starts focused on the primary group - set the dim state.
+        updateActiveGroupHighlight();
+    });
+
     // Start MCP Server if enabled in settings (server object created earlier, before setupActions)
     if (_settings->value("MCP/enabled", false).toBool()) {
         quint16 mcpPort = _settings->value("MCP/port", 9420).toInt();
@@ -1361,6 +1531,11 @@ void MainWindow::performEarlyCleanup() {
         delete openglMatrix;
         _matrixWidgetContainer = nullptr;
         mw_matrixWidget = nullptr;
+        // matrixWidget() returns `_activeView ? _activeView : mw_matrixWidget`, so a
+        // stale _activeView pointing at the just-deleted inner widget would dangle
+        // (processEvents() below can still dispatch a queued MidiPilot callback). Drop
+        // it so the nullptr fallback is restored.
+        _activeView = nullptr;
     }
 
     if (_miscWidgetContainer && _miscWidgetContainer != _miscWidget) {
@@ -1395,16 +1570,63 @@ void MainWindow::updatePasteActionState() {
 }
 
 void MainWindow::loadInitFile() {
-    // Check for untitled auto-save recovery before loading
-    checkAutoSaveRecovery();
+    // Check for untitled auto-save recovery before loading. If a document was
+    // recovered it is already open as the first tab - do NOT also open the init
+    // file / a blank document (that produced a spurious extra tab).
+    if (checkAutoSaveRecovery()) {
+        return;
+    }
 
-    if (_initFile != "")
+    // Launched with a specific file (double-click / --open): just open it.
+    if (_initFile != "") {
         loadFile(_initFile);
-    else
-        newFile();
+        return;
+    }
+
+    // Otherwise reopen the previous session (tabs + split) if there is one.
+    if (restoreSession()) {
+        return;
+    }
+
+    newFile();
 }
 
 void MainWindow::dropEvent(QDropEvent *ev) {
+    highlightDropGroup(nullptr); // clear any drag-over highlight
+
+    // Phase 28 (editor groups): a tab dragged out of a DocumentTabBar and
+    // dropped on a pane's EDITOR AREA (i.e. not precisely on a tab bar, which
+    // handles its own positional drop) moves into the group under the cursor,
+    // appended. This makes the whole pane a drop target, so moving a tab to the
+    // other group is forgiving (no need to hit the thin tab strip exactly).
+    if (ev->mimeData()->hasFormat(DocumentTabBar::tabMimeType())) {
+        DocumentTabBar *src = qobject_cast<DocumentTabBar *>(ev->source());
+        if (src) {
+            const int srcIndex =
+                ev->mimeData()->data(DocumentTabBar::tabMimeType()).toInt();
+            MatrixWidget *targetView = viewAtWindowPos(ev->position().toPoint());
+            DocumentTabBar *targetBar =
+                (targetView == _compareMatrixWidget)
+                    ? qobject_cast<DocumentTabBar *>(_group1TabBar)
+                    : qobject_cast<DocumentTabBar *>(_documentTabBar);
+            // A pane drop appends to THAT group. Ignore a drop on the source's
+            // own pane - it would otherwise yank the tab to the end for no reason
+            // (the user was aiming at the other group and missed).
+            if (targetBar && targetBar != src) {
+                ev->acceptProposedAction();
+                onTabMoveRequested(src, srcIndex, targetBar, targetBar->count());
+            }
+        }
+        return;
+    }
+
+    // Otherwise: a file/URL drop -> open in the group under the cursor (when
+    // split, not just whichever group happens to be focused). We focus that
+    // group's view first; loadFile -> openInNewTab then opens into it.
+    if (MatrixWidget *target = viewAtWindowPos(ev->position().toPoint())) {
+        _activeView = target;
+    }
+
     QList<QUrl> urls = ev->mimeData()->urls();
     foreach(QUrl url, urls) {
         QString newFile = url.toLocalFile();
@@ -1419,25 +1641,107 @@ void MainWindow::dragEnterEvent(QDragEnterEvent *ev) {
     ev->accept();
 }
 
+void MainWindow::dragMoveEvent(QDragMoveEvent *ev) {
+    // Highlight the editor group the drop would go into (only meaningful when
+    // split). Falls back to no highlight when there is a single group.
+    if (_group1Container) {
+        MatrixWidget *target = viewAtWindowPos(ev->position().toPoint());
+        highlightDropGroup(target == _compareMatrixWidget ? _group1Container
+                           : target == mw_matrixWidget    ? _group0Container
+                                                          : nullptr);
+
+        // For a TAB drag, also show the insertion caret at the append position
+        // of the target group's bar - so the landing spot is visible while the
+        // cursor is still over the editor area, not only once it reaches the bar.
+        // (Over the bar itself, the bar's own dragMove shows the precise caret.)
+        if (ev->mimeData()->hasFormat(DocumentTabBar::tabMimeType())) {
+            DocumentTabBar *g0 = qobject_cast<DocumentTabBar *>(_documentTabBar);
+            DocumentTabBar *g1 = qobject_cast<DocumentTabBar *>(_group1TabBar);
+            DocumentTabBar *targetBar = (target == _compareMatrixWidget) ? g1 : g0;
+            if (g0) {
+                (g0 == targetBar) ? g0->showAppendDropIndicator() : g0->clearDropIndicator();
+            }
+            if (g1) {
+                (g1 == targetBar) ? g1->showAppendDropIndicator() : g1->clearDropIndicator();
+            }
+        }
+    }
+    ev->accept();
+}
+
+void MainWindow::dragLeaveEvent(QDragLeaveEvent *ev) {
+    highlightDropGroup(nullptr);
+    if (DocumentTabBar *g0 = qobject_cast<DocumentTabBar *>(_documentTabBar)) {
+        g0->clearDropIndicator();
+    }
+    if (DocumentTabBar *g1 = qobject_cast<DocumentTabBar *>(_group1TabBar)) {
+        g1->clearDropIndicator();
+    }
+    ev->accept();
+}
+
+MatrixWidget *MainWindow::viewAtWindowPos(const QPoint &windowPos) const {
+    if (!_group1Container || !_compareMatrixWidget || _group1Collapsed ||
+        !_group1Container->isVisible()) {
+        return nullptr; // not split (or collapsed) -> single (primary) group
+    }
+    const QPoint inG1 = _group1Container->mapFrom(const_cast<MainWindow *>(this), windowPos);
+    if (_group1Container->rect().contains(inG1)) {
+        return _compareMatrixWidget;
+    }
+    return mw_matrixWidget;
+}
+
+void MainWindow::highlightDropGroup(QWidget *target) {
+    if (target == _dropHighlightTarget) {
+        return; // unchanged - dragMoveEvent fires continuously
+    }
+    _dropHighlightTarget = target;
+    const QString accent = QStringLiteral("#3daee9");
+    if (_group0Container) {
+        _group0Container->setStyleSheet(
+            QStringLiteral("#editorGroup0 { border: 2px solid %1; }")
+                .arg(target == _group0Container ? accent : QStringLiteral("transparent")));
+    }
+    if (_group1Container) {
+        _group1Container->setStyleSheet(
+            QStringLiteral("#editorGroup1 { border: 2px solid %1; }")
+                .arg(target == _group1Container ? accent : QStringLiteral("transparent")));
+    }
+}
+
 void MainWindow::scrollPositionsChanged(int startMs, int maxMs, int startLine,
                                         int maxLine) {
-    hori->setMinimum(0);
-    hori->setMaximum(maxMs);
-    // Force startMs to 0 if it's very close to 0 to eliminate dead space
-    int clampedStartMs = (startMs < 10) ? 0 : startMs;
-    hori->setValue(clampedStartMs);
-    vert->setMaximum(maxLine);
-    vert->setValue(startLine);
+    // Phase 28 (editor groups): both panes' inner views are connected here, but
+    // only the pane the shared scrollbars represent (the focused one, or the left
+    // master in sync) may write to them - otherwise the unfocused pane's scroll
+    // would fight the bars. With no split this is always the primary.
+    if (QObject::sender() == nullptr || QObject::sender() == scrollbarSourceInner()) {
+        hori->setMinimum(0);
+        hori->setMaximum(maxMs);
+        // Force startMs to 0 if it's very close to 0 to eliminate dead space
+        int clampedStartMs = (startMs < 10) ? 0 : startMs;
+        hori->setValue(clampedStartMs);
+        vert->setMaximum(maxLine);
+        vert->setValue(startLine);
+    }
+    // Phase 28: the comparison sync-lock mirrors scroll onto the secondary via
+    // the hori/vert valueChanged handlers (setValue above triggers them), which
+    // also covers dragging the bottom scrollbar.
 #ifdef MIDIEDITOR_COLLAB_ENABLED
     // Phase 9.9f §15.2: shadow the current viewport so the
     // presenter-side viewState broadcast can read it later. We don't
     // broadcast directly here — the actionFinished signal already does
     // (visibility changes), and a dedicated lambda connected to
     // mw_matrixWidget->scrollChanged handles the scroll case.
-    _viewStartMs   = startMs;
-    _viewMaxMs     = maxMs;
-    _viewStartLine = startLine;
-    _viewMaxLine   = maxLine;
+    // Phase 28: only the PRIMARY (shared collab document) feeds this shadow -
+    // a secondary compare pane must never overwrite the broadcast viewport.
+    if (QObject::sender() == nullptr || QObject::sender() == mw_matrixWidget) {
+        _viewStartMs   = startMs;
+        _viewMaxMs     = maxMs;
+        _viewStartLine = startLine;
+        _viewMaxLine   = maxLine;
+    }
 #endif
 }
 
@@ -1611,14 +1915,69 @@ void MainWindow::applyRemoteViewState(
 #endif
 
 void MainWindow::setFile(MidiFile *newFile) {
-    // Store reference to old file for cleanup
+    // Single-document "replace" path: swap the one open document for newFile
+    // and destroy the old one. (Phase 28: opening files in tabs goes through
+    // activateDocument + closeDocumentFile instead, so the active document is
+    // not destroyed on switch.) Behaviour here is unchanged from before the
+    // split: every caller passes a freshly-constructed MidiFile, so it is
+    // activated exactly once and then the previous file is closed.
     MidiFile *oldFile = this->file;
 
+    // Clear the outgoing selection. (Channel visibility is per-document since
+    // 28.1c: a fresh document defaults to all-visible via setActiveFile, so no
+    // global reset is needed here - and a reset would wrongly target whichever
+    // document is currently active.)
     EventTool::clearSelection();
-    Selection::setFile(newFile);
 
-    // Reset channel visibility to show all channels when loading a new file
-    ChannelVisibilityManager::instance().resetAllVisible();
+    activateDocument(newFile);
+
+    // Keep the DocumentManager + tab strip in sync. setFile is the "replace
+    // the active document" path: update the active document's file (and its
+    // tab label), or create the very first document/tab if none exist yet
+    // (startup). Other open tabs are untouched.
+    if (_documentManager) {
+        Document *active = _documentManager->active();
+        if (active) {
+            active->setFile(newFile);
+            if (_documentTabBar && _documentManager->activeIndex() >= 0) {
+                _suppressTabSignals = true;
+                _documentTabBar->setTabText(_documentManager->activeIndex(), documentTabTitle(newFile));
+                _suppressTabSignals = false;
+            }
+        } else {
+            Document *d = _documentManager->openAndActivate(newFile, documentTabTitle(newFile));
+            if (_documentTabBar) {
+                _suppressTabSignals = true;
+                int idx = _documentTabBar->addTab(d->title());
+                _documentTabBar->setCurrentIndex(idx);
+                _suppressTabSignals = false;
+            }
+        }
+    }
+
+    if (oldFile && oldFile != newFile) {
+        closeDocumentFile(oldFile);
+    }
+}
+
+void MainWindow::setActiveDocument(MidiFile *newFile) {
+    // Phase 28 (B): rebind sidebars / globals / selection / tools / transport /
+    // MidiPilot / MCP to the active (focused) document - WITHOUT touching any
+    // editor view's file binding (the views are bound separately so two panes
+    // can show different documents). activateDocument() adds the primary-view
+    // rebind on top of this for the single-view / tab-switch path.
+    //
+    // The one-time, per-file signal wiring must run exactly once per MidiFile.
+    // In the single-document replace path each file is activated once, so this
+    // matches the historical behaviour; for tab switching it prevents the
+    // connections from stacking up every time the user returns to a tab.
+    const bool firstActivation = newFile && !_connectedFiles.contains(newFile);
+
+    Selection::setFile(newFile);
+    // Phase 28.1c: channel visibility is per-document; make this document's
+    // state active before the panels (channelWidget etc.) read it below. A new
+    // document defaults to all-visible; returning to one restores its state.
+    ChannelVisibilityManager::instance().setActiveFile(newFile);
 
     Metronome::instance()->setFile(newFile);
     protocolWidget->setFile(newFile);
@@ -1630,56 +1989,65 @@ void MainWindow::setFile(MidiFile *newFile) {
     _midiPilotWidget->onFileChanged(newFile);
     if (_mcpServer) _mcpServer->setFile(newFile);
 
-    // Live track-mute -> authentic-SID voice mute (channels already covered by
-    // channelWidget::channelStateChanged). Connections to old tracks fall away
-    // when the previous file is destroyed.
-    if (newFile) {
-        for (MidiTrack *t : *(newFile->tracks()))
-            connect(t, &MidiTrack::trackChanged, this,
-                    [this] { syncSidVoiceMutes(file); });
-    }
 #ifdef MIDIEDITOR_COLLAB_ENABLED
     CollabService::instance()->onFileLoaded(newFile, newFile ? newFile->path() : QString());
 #endif
+
     this->file = newFile;
-    connect(newFile, SIGNAL(trackChanged()), this, SLOT(updateTrackMenu()));
-    setWindowTitle(QApplication::applicationName() + " v" + QApplication::applicationVersion() + " - " + newFile->path() + "[*]");
-    connect(newFile, SIGNAL(cursorPositionChanged()), channelWidget, SLOT(update()));
-
-    // Connect recalcWidgetSize to the matrix widget container
-    connect(newFile, SIGNAL(recalcWidgetSize()), _matrixWidgetContainer, SLOT(calcSizes()));
-    connect(newFile->protocol(), SIGNAL(actionFinished()), this, SLOT(markEdited()));
-    connect(newFile->protocol(), SIGNAL(actionFinished()), eventWidget(), SLOT(reload()));
-    connect(newFile->protocol(), SIGNAL(actionFinished()), this, SLOT(checkEnableActionsForSelection()));
-    connect(newFile->protocol(), SIGNAL(actionFinished()), this, SLOT(updateStatusBar()));
-#ifdef MIDIEDITOR_COLLAB_ENABLED
-    // Phase 9.9f §15.2: piggyback on actionFinished to broadcast the
-    // presenter's view-state (track/channel visibility primarily —
-    // those changes go through Protocol via setHidden/setVisible).
-    // broadcastViewState is internally guarded on role+mode+isPresenter,
-    // so this connect is safe even outside Show mode (silent no-op).
-    // The throttle in LanLiveSession coalesces rapid sequences.
-    connect(newFile->protocol(), &Protocol::actionFinished, this,
-            [this]() { broadcastLocalViewState(); });
-    // Same for cursor moves — file emits cursorPositionChanged whenever
-    // setCursorTick lands. Lets viewers see where the host is editing.
-    connect(newFile, &MidiFile::cursorPositionChanged, this,
-            [this]() { broadcastLocalViewState(); });
-#endif
-
-    // Refresh LyricManager from MIDI events after undo/redo so blocks stay in sync
-    connect(newFile->protocol(), &Protocol::undoRedoPerformed, newFile->lyricManager(), &LyricManager::importFromTextEvents);
-    // Update lyric timeline after undo/redo
-    connect(newFile->protocol(), &Protocol::undoRedoPerformed, _lyricTimeline, QOverload<>::of(&QWidget::update));
-    connect(newFile, SIGNAL(cursorPositionChanged()), this, SLOT(updateStatusBar()));
-    // Set file on the appropriate widget based on rendering mode
-    if (OpenGLMatrixWidget *openglMatrix = qobject_cast<OpenGLMatrixWidget*>(_matrixWidgetContainer)) {
-        // Using OpenGL acceleration - set file on OpenGL widget (which delegates to internal widget)
-        openglMatrix->setFile(newFile);
-    } else {
-        // Using software rendering - set file directly on MatrixWidget
-        mw_matrixWidget->setFile(newFile);
+    if (newFile) {
+        setWindowTitle(QApplication::applicationName() + " v" + QApplication::applicationVersion() + " - " + newFile->path() + "[*]");
+        // Phase 28 (editor groups): the "[*]" modified marker is window-global, so
+        // on a tab switch it must be re-pointed at the newly-active document's
+        // saved state - otherwise it keeps showing the PREVIOUS tab's dirty flag.
+        setWindowModified(!newFile->saved());
     }
+
+    // ----- one-time per-file signal wiring -------------------------------
+    if (firstActivation) {
+        _connectedFiles.insert(newFile);
+
+        // Live track-mute -> authentic-SID voice mute (channels already covered
+        // by channelWidget::channelStateChanged). Connections to a file's tracks
+        // fall away when that file is destroyed.
+        for (MidiTrack *t : *(newFile->tracks()))
+            connect(t, &MidiTrack::trackChanged, this,
+                    [this] { syncSidVoiceMutes(file); });
+
+        connect(newFile, SIGNAL(trackChanged()), this, SLOT(updateTrackMenu()));
+        connect(newFile, SIGNAL(cursorPositionChanged()), channelWidget, SLOT(update()));
+        // Phase 28: comparison sync-lock - mirror the active document's cursor
+        // onto the secondary (read-only) view.
+        connect(newFile, &MidiFile::cursorPositionChanged, this, &MainWindow::syncSecondaryCursor);
+        connect(newFile, SIGNAL(recalcWidgetSize()), _matrixWidgetContainer, SLOT(calcSizes()));
+        connect(newFile->protocol(), SIGNAL(actionFinished()), this, SLOT(markEdited()));
+        connect(newFile->protocol(), SIGNAL(actionFinished()), eventWidget(), SLOT(reload()));
+        connect(newFile->protocol(), SIGNAL(actionFinished()), this, SLOT(checkEnableActionsForSelection()));
+        connect(newFile->protocol(), SIGNAL(actionFinished()), this, SLOT(updateStatusBar()));
+#ifdef MIDIEDITOR_COLLAB_ENABLED
+        // Phase 9.9f §15.2: piggyback on actionFinished to broadcast the
+        // presenter's view-state (track/channel visibility primarily —
+        // those changes go through Protocol via setHidden/setVisible).
+        // broadcastViewState is internally guarded on role+mode+isPresenter,
+        // so this connect is safe even outside Show mode (silent no-op).
+        // The throttle in LanLiveSession coalesces rapid sequences.
+        connect(newFile->protocol(), &Protocol::actionFinished, this,
+                [this]() { broadcastLocalViewState(); });
+        // Same for cursor moves — file emits cursorPositionChanged whenever
+        // setCursorTick lands. Lets viewers see where the host is editing.
+        connect(newFile, &MidiFile::cursorPositionChanged, this,
+                [this]() { broadcastLocalViewState(); });
+#endif
+        // Refresh LyricManager from MIDI events after undo/redo so blocks stay in sync
+        connect(newFile->protocol(), &Protocol::undoRedoPerformed, newFile->lyricManager(), &LyricManager::importFromTextEvents);
+        // Update lyric timeline after undo/redo
+        connect(newFile->protocol(), &Protocol::undoRedoPerformed, _lyricTimeline, QOverload<>::of(&QWidget::update));
+        connect(newFile, SIGNAL(cursorPositionChanged()), this, SLOT(updateStatusBar()));
+    }
+
+    // ----- sidebar / aux-panel rebinds (every activation) ----------------
+    // NB: the primary editor view is rebound in activateDocument(), not here -
+    // setActiveDocument() must not touch any view so a side-by-side pane keeps
+    // showing its own document when another pane is focused.
 
     // Update lyric timeline
     _lyricTimeline->setFile(newFile);
@@ -1709,9 +2077,6 @@ void MainWindow::setFile(MidiFile *newFile) {
     // in the toolbar.
     if (newFile) {
         FfxivVoiceAnalyzer::instance()->watchFile(newFile);
-    }
-    if (oldFile && oldFile != newFile) {
-        FfxivVoiceAnalyzer::instance()->forgetFile(oldFile);
     }
 
     // Auto-show/hide lyric timeline based on lyrics presence
@@ -1744,7 +2109,7 @@ void MainWindow::setFile(MidiFile *newFile) {
 #endif
 
     // Reset MIDI output channel programs and apply initial program changes
-    if (MidiOutput::isConnected()) {
+    if (file && MidiOutput::isConnected()) {
         MidiOutput::resetChannelPrograms();
         // Send program change events from the beginning of the file
         for (int ch = 0; ch < 16; ch++) {
@@ -1754,11 +2119,1298 @@ void MainWindow::setFile(MidiFile *newFile) {
             }
         }
     }
+}
 
-    // Clean up the old file after everything has been switched to the new file
-    // This ensures all widgets have switched to the new file before cleanup
-    if (oldFile) {
-        delete oldFile;
+void MainWindow::bindPrimaryView(MidiFile *f) {
+    // Rebind ONLY the primary editor view to f (OpenGL wrapper or the software
+    // MatrixWidget, depending on the rendering mode) - no sidebar/active changes.
+    if (OpenGLMatrixWidget *openglMatrix = qobject_cast<OpenGLMatrixWidget*>(_matrixWidgetContainer)) {
+        openglMatrix->setFile(f);
+    } else {
+        mw_matrixWidget->setFile(f);
+    }
+}
+
+void MainWindow::activateDocument(MidiFile *newFile) {
+    // Single-view / tab-switch path: make newFile the active document AND show
+    // it in the primary editor view. (Side-by-side panes bind their views
+    // separately and only call setActiveDocument() on focus.)
+    setActiveDocument(newFile);
+    bindPrimaryView(newFile);
+}
+
+void MainWindow::closeDocumentFile(MidiFile *oldFile) {
+    if (!oldFile) {
+        return;
+    }
+    // Phase 28 (editor groups): if a MidiPilot agent run is editing the document
+    // being closed, abort it first - otherwise the run would try to apply its
+    // result to a freed file. cancel() stops the loop, so no further tool call
+    // runs against oldFile after this.
+    if (_midiPilotWidget && _midiPilotWidget->isAgentRunningOn(oldFile)) {
+        _midiPilotWidget->abortActiveRequest();
+    }
+    // Phase 28: drop the closing document's per-file state so nothing leaks or
+    // dangles past the delete. Deleting the MidiFile (a QObject) automatically
+    // disconnects every signal connection made to it in activateDocument.
+    // Phase 28 (editor groups): defensive - documents are partitioned between
+    // the groups, so a file closed through a group-0 path is never the one shown
+    // in the secondary group. If that invariant is ever broken, drop the
+    // secondary group entirely so its view does not dangle on the deleted file.
+    if (_compareFile == oldFile && _group1Docs) {
+        _compareFile = nullptr;
+        tearDownGroup1();
+    }
+
+    FfxivVoiceAnalyzer::instance()->forgetFile(oldFile);
+    Selection::forgetFile(oldFile);
+    ChannelVisibilityManager::instance().forgetFile(oldFile);
+    if (_mcpServer) _mcpServer->forgetFile(oldFile);
+    _connectedFiles.remove(oldFile);
+    delete oldFile;
+}
+
+void MainWindow::configureDocumentTabBar(QTabBar *bar) {
+    if (!bar) {
+        return;
+    }
+    // The built-in mover stays OFF - DocumentTabBar implements its own drag for
+    // both in-bar reordering and moving tabs between editor groups.
+    bar->setMovable(false);
+    bar->setTabsClosable(true);
+    bar->setExpanding(false);
+    bar->setDrawBase(false);
+    bar->setElideMode(Qt::ElideRight);
+    bar->setUsesScrollButtons(true);
+}
+
+QWidget *MainWindow::buildGroupTabStrip(QToolButton *plusButton, QTabBar *bar) {
+    QWidget *strip = new QWidget();
+    // Only as tall as the tab bar itself - without a fixed vertical policy the
+    // wrapper expands and the strip floats in the middle of the editor area.
+    strip->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
+    QHBoxLayout *layout = new QHBoxLayout(strip);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(2);
+    // "+" to the LEFT of the tabs so it hugs the first tab (a QTabBar reserves
+    // extra width with few tabs, so a trailing "+" would float away from them).
+    layout->addWidget(plusButton, 0);
+    layout->addWidget(bar, 0);
+    layout->addStretch(1);
+    return strip;
+}
+
+void MainWindow::ensureGroup1() {
+    if (_group1Docs) {
+        return; // already built
+    }
+    _group1Collapsed = false;
+
+    // ----- build an EMPTY secondary group (group 1) ----------------------
+    _group1Docs = new DocumentManager();
+
+    DocumentTabBar *group1Bar = new DocumentTabBar();
+    _group1TabBar = group1Bar;
+    configureDocumentTabBar(_group1TabBar);
+    connect(_group1TabBar, &QTabBar::currentChanged, this, &MainWindow::onGroup1TabChanged);
+    connect(_group1TabBar, &QTabBar::tabBarClicked, this, &MainWindow::onGroup1TabBarClicked);
+    connect(_group1TabBar, &QTabBar::tabCloseRequested, this, &MainWindow::onGroup1TabCloseRequested);
+    connect(group1Bar, &DocumentTabBar::tabMoveRequested, this, &MainWindow::onTabMoveRequested);
+
+    // A "+" that opens a new tab IN this (secondary) group.
+    QToolButton *group1NewTab = new QToolButton();
+    group1NewTab->setIcon(Appearance::adjustIconForDarkMode(":/run_environment/graphics/tool/add.png"));
+    group1NewTab->setToolTip(tr("New tab in this editor group"));
+    group1NewTab->setAutoRaise(true);
+    connect(group1NewTab, &QToolButton::clicked, this, [this] {
+        _activeView = _compareMatrixWidget;
+        newFile();
+    });
+
+    // A lightweight software MatrixWidget (no second GL context). It is a FULLY
+    // EDITABLE pane (defaults: claimsToolTarget=true, editingLocked=false);
+    // clicking it makes its document active (focusReceived -> onViewFocused).
+    _compareMatrixWidget = new MatrixWidget(_settings);
+    connect(_compareMatrixWidget, &MatrixWidget::focusReceived,
+            this, &MainWindow::onViewFocused);
+    // The secondary view has no external scrollbars, so its scroll requests (from
+    // playback-follow + smooth-scrolling, which the primary routes through the
+    // shared scrollbars) must drive its OWN scroll slots - otherwise smooth
+    // playback scrolling and edge-follow don't work in the secondary group.
+    connect(_compareMatrixWidget, &MatrixWidget::scrollChanged, this,
+            [this](int startMs, int, int startLine, int) {
+                if (_compareMatrixWidget) {
+                    _compareMatrixWidget->scrollXChanged(startMs);
+                    _compareMatrixWidget->scrollYChanged(startLine);
+                }
+            });
+    // Let the shared scrollbars reflect the secondary view's range/position when
+    // IT is the focused pane. matrixSizeChanged()/scrollPositionsChanged() guard on
+    // the sender, so these are ignored while the secondary is not the scrollbar
+    // source (e.g. when the left is focused or driving a sync-lock).
+    connect(_compareMatrixWidget, SIGNAL(sizeChanged(int, int, int, int)),
+            this, SLOT(matrixSizeChanged(int, int, int, int)));
+    connect(_compareMatrixWidget, SIGNAL(scrollChanged(int, int, int, int)),
+            this, SLOT(scrollPositionsChanged(int, int, int, int)));
+
+    // Container = vertical [ tab strip | view ], built exactly like group 0 so
+    // the two strips align in height. This group carries its own tabs (VS Code-
+    // style editor group) and travels as one unit in the splitter.
+    QWidget *g1Strip = buildGroupTabStrip(group1NewTab, _group1TabBar);
+    _group1Strip = g1Strip; // kept so collab can lock it
+    // Far-right controls for the secondary group: collapse (hide, keep tabs) and
+    // close (close the group + its tabs, with save prompts). buildGroupTabStrip
+    // ends the strip with a stretch, so these land at the right edge.
+    if (QHBoxLayout *sl = qobject_cast<QHBoxLayout *>(g1Strip->layout())) {
+        // Comparison sync-lock toggle: makes this group follow the left one
+        // (scroll/cursor/playback) as a read-only reference.
+        QToolButton *syncBtn = new QToolButton();
+        syncBtn->setText(tr("Sync"));
+        syncBtn->setCheckable(true);
+        syncBtn->setChecked(_syncViews);
+        syncBtn->setAutoRaise(true);
+        syncBtn->setToolTip(tr("Sync this view to the left for comparison: scroll, cursor and playback follow the left view, and this side becomes read-only"));
+        connect(syncBtn, &QToolButton::toggled, this, &MainWindow::setSyncViews);
+        sl->addWidget(syncBtn, 0);
+        _syncViewsButton = syncBtn;
+
+        QToolButton *collapseBtn = new QToolButton();
+        collapseBtn->setText(QChar(0x2013)); // en dash = "minimize / retract"
+        collapseBtn->setAutoRaise(true);
+        collapseBtn->setToolTip(tr("Collapse this group (keep its tabs; Split restores it)"));
+        connect(collapseBtn, &QToolButton::clicked, this, &MainWindow::collapseGroup1);
+        sl->addWidget(collapseBtn, 0);
+
+        QToolButton *closeBtn = new QToolButton();
+        closeBtn->setText(QChar(0x2715)); // multiplication X = "close"
+        closeBtn->setAutoRaise(true);
+        closeBtn->setToolTip(tr("Close this group and all its tabs"));
+        connect(closeBtn, &QToolButton::clicked, this, &MainWindow::closeGroup1);
+        sl->addWidget(closeBtn, 0);
+    }
+    _group1Container = new QWidget();
+    _group1Container->setObjectName("editorGroup1");
+    _group1Container->setStyleSheet("#editorGroup1 { border: 2px solid transparent; }");
+    QVBoxLayout *g1Layout = new QVBoxLayout(_group1Container);
+    g1Layout->setContentsMargins(0, 0, 0, 0);
+    g1Layout->setSpacing(0);
+    g1Layout->addWidget(g1Strip, 0);
+    g1Layout->addWidget(_compareMatrixWidget, 1);
+
+    // Add to the splitter first so the view has a real width before setFile()
+    // runs calcSizes(); mirror the primary's rendering settings.
+    _viewSplitter->addWidget(_group1Container);
+    _compareMatrixWidget->updateRenderingSettings();
+    // Inherit the primary view's current colour mode so a freshly split group
+    // matches (even if the mode was changed at runtime and not yet persisted).
+    if (mw_matrixWidget && mw_matrixWidget->colorsByChannel()) {
+        _compareMatrixWidget->setColorsByChannel();
+    } else {
+        _compareMatrixWidget->setColorsByTracks();
+    }
+
+    // Split the editor area evenly so the new group opens at a usable width.
+    const int splitW = _viewSplitter->width();
+    if (splitW > 0) {
+        _viewSplitter->setSizes(QList<int>() << splitW / 2 << splitW / 2);
+    }
+
+    // The MatrixWidget ctor stole the static tool target; hand it back to the
+    // primary view until the user clicks a pane (onViewFocused then routes it).
+    if (mw_matrixWidget) EditorTool::setMatrixWidget(mw_matrixWidget);
+    _activeView = mw_matrixWidget;
+}
+
+void MainWindow::toggleCompareView() {
+    if (!_viewSplitter || !_documentManager) {
+        return;
+    }
+
+    // Already split? -> the Split button now toggles the secondary group's
+    // visibility: collapse it (keeping its tabs) when shown, restore it when
+    // collapsed. Fully closing the group (with save prompts) is the group's own
+    // close button.
+    if (_group1Docs) {
+        if (_group1Collapsed) {
+            restoreGroup1();
+        } else {
+            collapseGroup1();
+        }
+        return;
+    }
+
+    // Need a second document to move into the new group. (Splitting the same
+    // file into two groups can come later; for now keep group 0 non-empty.)
+    MidiFile *moveFile = nullptr;
+    QString moveTitle;
+    int moveIdx = -1;
+    const int activeIdx = _documentManager->activeIndex();
+    for (int i = 0; i < _documentManager->count(); ++i) {
+        if (i != activeIdx) {
+            Document *d = _documentManager->at(i);
+            moveFile = d->file();
+            moveTitle = d->title();
+            moveIdx = i;
+            break;
+        }
+    }
+    if (!moveFile) {
+        QMessageBox::information(this, tr("Editor Groups"),
+            tr("Open a second file in another tab, then split to move it into a second editor group."));
+        return;
+    }
+
+    ensureGroup1();
+
+    // ----- move the chosen document from group 0 into group 1 ------------
+    _documentManager->removeAt(moveIdx);   // detaches (does NOT delete the file)
+    _suppressTabSignals = true;
+    _documentTabBar->removeTab(moveIdx);
+    _documentTabBar->setCurrentIndex(_documentManager->activeIndex());
+    _suppressTabSignals = false;
+
+    Document *gd = _group1Docs->openAndActivate(moveFile, moveTitle);
+    _suppressGroup1TabSignals = true;
+    int gi = _group1TabBar->addTab(gd->title());
+    _group1TabBar->setCurrentIndex(gi);
+    _suppressGroup1TabSignals = false;
+    _compareMatrixWidget->setFile(moveFile);
+    _compareFile = moveFile;
+
+    statusBar()->showMessage(tr("Moved %1 into a second editor group (click a pane to focus it)").arg(moveTitle), 4000);
+    // Focus stays on the primary group after the split - dim the new group's tabs.
+    updateActiveGroupHighlight();
+}
+
+void MainWindow::saveSession() {
+    // Persist each group's open documents (by path) + active tab, so the session
+    // can be reopened after a restart. Untitled docs (no path) are skipped - on a
+    // proper close/restart they were already save-prompted (saved -> get a path,
+    // or discarded), so only reopenable files remain.
+    auto collect = [](DocumentManager *m, QStringList &paths, int &active) {
+        paths.clear();
+        active = 0;
+        if (!m) return;
+        int saved = 0;
+        for (int i = 0; i < m->count(); ++i) {
+            MidiFile *f = m->at(i)->file();
+            if (f && !f->path().isEmpty()) {
+                paths << f->path();
+                if (i == m->activeIndex()) active = saved;
+                saved++;
+            }
+        }
+    };
+    QStringList g0, g1;
+    int a0 = 0, a1 = 0;
+    collect(_documentManager, g0, a0);
+    collect(_group1Docs, g1, a1);
+
+    _settings->beginGroup("session");
+    _settings->setValue("g0paths", g0);
+    _settings->setValue("g0active", a0);
+    _settings->setValue("g1paths", g1);
+    _settings->setValue("g1active", a1);
+    _settings->setValue("g1collapsed", _group1Collapsed);
+    _settings->setValue("focusGroup", (_activeView == _compareMatrixWidget) ? 1 : 0);
+    _settings->endGroup();
+}
+
+bool MainWindow::restoreSession() {
+    _settings->beginGroup("session");
+    const QStringList g0 = _settings->value("g0paths").toStringList();
+    const QStringList g1 = _settings->value("g1paths").toStringList();
+    const int a0 = _settings->value("g0active", 0).toInt();
+    const int a1 = _settings->value("g1active", 0).toInt();
+    const bool g1collapsed = _settings->value("g1collapsed", false).toBool();
+    const int focusGroup = _settings->value("focusGroup", 0).toInt();
+    _settings->endGroup();
+
+    if (g0.isEmpty() && g1.isEmpty()) {
+        return false; // no saved session
+    }
+
+    // ----- primary group ------------------------------------------------
+    _activeView = mw_matrixWidget;
+    for (const QString &p : g0) {
+        if (QFile::exists(p)) {
+            loadFile(p); // -> openInNewTab into group 0
+        }
+    }
+    if (_documentManager->count() == 0) {
+        return false; // none of the saved files still exist -> caller opens a new doc
+    }
+    if (a0 >= 0 && a0 < _documentManager->count()) {
+        _documentTabBar->setCurrentIndex(a0); // drives onDocumentTabChanged -> activate
+    }
+
+    // ----- secondary group ----------------------------------------------
+    QStringList g1existing;
+    for (const QString &p : g1) {
+        if (QFile::exists(p)) g1existing << p;
+    }
+    if (!g1existing.isEmpty()) {
+        ensureGroup1();
+        _activeView = _compareMatrixWidget; // route the loads into group 1
+        for (const QString &p : g1existing) {
+            loadFile(p);
+        }
+        if (_group1Docs && a1 >= 0 && a1 < _group1Docs->count()) {
+            _group1TabBar->setCurrentIndex(a1);
+        }
+        if (g1collapsed) {
+            collapseGroup1();
+        }
+    }
+
+    // ----- final focus --------------------------------------------------
+    if (focusGroup == 1 && _group1Docs && !_group1Collapsed && _compareMatrixWidget) {
+        _activeView = _compareMatrixWidget;
+        if (Document *a = _group1Docs->active()) setActiveDocument(a->file());
+    } else {
+        _activeView = mw_matrixWidget;
+        if (Document *a = _documentManager->active()) activateDocument(a->file());
+    }
+    return true;
+}
+
+void MainWindow::tearDownGroup1() {
+    if (!_group1Docs) {
+        return; // not split
+    }
+
+    // _group1Docs owns only the Document handles (not the MidiFiles); deleting
+    // it leaves the files intact (the caller deletes/keeps them as needed).
+    delete _group1Docs;
+    _group1Docs = nullptr;
+    // Deleting the container deletes its children (the tab bar + the view). This
+    // can run from inside the tab bar's own tabCloseRequested slot (collapse on
+    // last-tab-close), so detach it from the splitter now and deleteLater() the
+    // widget tree - deleting a signal sender mid-emission would crash.
+    if (_group1Container) {
+        _group1Container->setParent(nullptr); // removes it from the splitter + hides it
+        _group1Container->deleteLater();
+    }
+    _group1Container = nullptr;
+    _group1TabBar = nullptr;
+    _group1Strip = nullptr;
+    _compareMatrixWidget = nullptr;
+    _compareFile = nullptr;
+    _group1Collapsed = false;
+    _syncViews = false;          // the secondary group is gone; sync is moot
+    _syncViewsButton = nullptr;  // lived in the (now deleted) group-1 strip
+    _viewSplitterSizes.clear();
+    if (_group1RestoreButton) {
+        _group1RestoreButton->setVisible(false); // the group is gone, not just hidden
+    }
+    if (_group1RestoreCloseButton) {
+        _group1RestoreCloseButton->setVisible(false);
+    }
+
+    _activeView = mw_matrixWidget;
+    if (mw_matrixWidget) EditorTool::setMatrixWidget(mw_matrixWidget);
+
+    // The primary view is the only one left; make its active document current.
+    Document *a = _documentManager ? _documentManager->active() : nullptr;
+    if (a) {
+        _suppressTabSignals = true;
+        _documentTabBar->setCurrentIndex(_documentManager->activeIndex());
+        _suppressTabSignals = false;
+        activateDocument(a->file());
+    }
+    // No split anymore - clear any leftover dim on the primary group's tabs.
+    updateActiveGroupHighlight();
+}
+
+void MainWindow::collapseGroup1() {
+    if (!_group1Container || _group1Collapsed) {
+        return;
+    }
+    // Remember the split so restore returns to the same widths, then hide the
+    // pane. The documents/tabs stay alive in _group1Docs.
+    _viewSplitterSizes = _viewSplitter->sizes();
+    _group1Container->hide();
+    _group1Collapsed = true;
+
+    // Surface the restore chip (with the group's tab count + the editor-group
+    // glyph) so the hidden group is discoverable.
+    if (_group1RestoreButton) {
+        const int n = _group1Docs ? _group1Docs->count() : 0;
+        _group1RestoreButton->setIcon(makeSplitViewIcon(14));
+        _group1RestoreButton->setText(tr("Group 2 (%1)").arg(n));
+        _group1RestoreButton->setVisible(true);
+    }
+    if (_group1RestoreCloseButton) {
+        _group1RestoreCloseButton->setVisible(true);
+    }
+
+    // Focus returns to the (now only visible) primary group.
+    _activeView = mw_matrixWidget;
+    if (mw_matrixWidget) EditorTool::setMatrixWidget(mw_matrixWidget);
+    if (Document *a = _documentManager->active()) {
+        activateDocument(a->file());
+    }
+    statusBar()->showMessage(
+        tr("Second editor group collapsed - its tabs are kept (Split restores it)"), 4000);
+    // Only the primary group is visible now - restore its tabs to full opacity.
+    updateActiveGroupHighlight();
+}
+
+void MainWindow::restoreGroup1() {
+    if (!_group1Container || !_group1Collapsed) {
+        return;
+    }
+    _group1Container->show();
+    _group1Collapsed = false;
+    if (_group1RestoreButton) {
+        _group1RestoreButton->setVisible(false);
+    }
+    if (_group1RestoreCloseButton) {
+        _group1RestoreCloseButton->setVisible(false);
+    }
+    if (_viewSplitterSizes.size() == _viewSplitter->count()) {
+        _viewSplitter->setSizes(_viewSplitterSizes);
+    } else {
+        const int w = _viewSplitter->width();
+        if (w > 0) {
+            _viewSplitter->setSizes(QList<int>() << w / 2 << w / 2);
+        }
+    }
+    statusBar()->showMessage(tr("Second editor group restored"), 3000);
+    // Both groups visible again; focus is on the primary - dim the secondary's tabs.
+    updateActiveGroupHighlight();
+}
+
+void MainWindow::closeGroup1() {
+    if (!_group1Docs) {
+        return;
+    }
+    // Snapshot the MidiFile* list UP FRONT, before any modal save prompt. The
+    // files are only ever deleted by closeDocumentFile (never during a modal
+    // prompt), so this list stays valid even if the Document handles were to
+    // change - we delete exactly these files at the end.
+    const QList<Document *> docs = _group1Docs->documents();
+    QList<MidiFile *> files;
+    bool anyDirty = false;
+    for (Document *d : docs) {
+        files.append(d->file());
+        if (d->file() && !d->file()->saved()) {
+            anyDirty = true;
+        }
+    }
+    // Only un-collapse if we actually have to show a save prompt (so the user
+    // sees what they are saving). With nothing dirty, close silently - no flash.
+    if (_group1Collapsed && anyDirty) {
+        restoreGroup1();
+    }
+    // Prompt to save each dirty document (saveBeforeClose acts on the active
+    // file, so make each one active in the secondary group first). Abort the
+    // whole close if the user cancels any prompt.
+    for (Document *d : docs) {
+        MidiFile *f = d->file();
+        if (f && !f->saved()) {
+            _activeView = _compareMatrixWidget;
+            if (_compareFile != f) {
+                _compareMatrixWidget->setFile(f);
+                _compareFile = f;
+            }
+            const int idx = _group1Docs->indexOf(d);
+            _group1Docs->setActiveIndex(idx);
+            if (idx >= 0 && _group1TabBar) {
+                _suppressGroup1TabSignals = true;
+                _group1TabBar->setCurrentIndex(idx);
+                _suppressGroup1TabSignals = false;
+            }
+            setActiveDocument(f);
+            if (!saveBeforeClose()) {
+                return; // user cancelled -> keep the group open
+            }
+        }
+    }
+
+    // Tear the group's view/bar/manager down, then delete the snapshot files.
+    // (tearDownGroup1 deletes the Document handles, not the MidiFiles.)
+    _compareFile = nullptr;
+    tearDownGroup1();
+    for (MidiFile *f : files) {
+        closeDocumentFile(f);
+    }
+    statusBar()->showMessage(tr("Second editor group closed"), 3000);
+}
+
+void MainWindow::onViewFocused(MatrixWidget *view) {
+    if (!view) {
+        return;
+    }
+    // While a live collab session is running the tabs are locked to the session
+    // document, so a pane click must not switch the active document (that would
+    // end the session). The session pane stays focused.
+    if (collabLiveActive()) {
+        return;
+    }
+    // Remember which pane is focused: a "+"/tab/open loads its document here.
+    _activeView = view;
+    MidiFile *f = view->midiFile();
+    if (!f) {
+        return;
+    }
+    // Make the focused pane's document active. setActiveDocument rebinds the
+    // sidebars/selection/tools/transport WITHOUT touching either view's file,
+    // so each pane keeps showing its own document.
+    if (f != this->file) {
+        setActiveDocument(f);
+    }
+    // Keep the focused group's tab highlight in sync, without re-triggering a
+    // tab switch (which would rebind a view).
+    if (view == _compareMatrixWidget && _group1Docs && _group1TabBar) {
+        const int gi = _group1Docs->indexOfFile(f);
+        if (gi >= 0) {
+            _group1Docs->setActiveIndex(gi);
+            _suppressGroup1TabSignals = true;
+            _group1TabBar->setCurrentIndex(gi);
+            _suppressGroup1TabSignals = false;
+        }
+    } else if (_documentManager && _documentTabBar) {
+        const int idx = _documentManager->indexOfFile(f);
+        if (idx >= 0) {
+            _documentManager->setActiveIndex(idx);
+            _suppressTabSignals = true;
+            _documentTabBar->setCurrentIndex(idx);
+            _suppressTabSignals = false;
+        }
+    }
+    // The shared scrollbars now represent the newly-focused pane - pull its
+    // current scroll range/position into them.
+    refreshScrollbarsForFocus();
+    // Grey out the other group's tabs so the focused group stands out.
+    updateActiveGroupHighlight();
+}
+
+QString MainWindow::documentTabTitle(MidiFile *f) const {
+    if (!f) {
+        return tr("Untitled");
+    }
+    const QString p = f->path();
+    if (p.isEmpty()) {
+        return tr("Untitled");
+    }
+    return QFileInfo(p).fileName();
+}
+
+void MainWindow::openInNewTab(MidiFile *f, const QString &title) {
+    if (!f) {
+        return;
+    }
+    // Safety net: if the manager/tab bar somehow are not constructed yet, fall
+    // back to the single-document replace path.
+    if (!_documentManager || !_documentTabBar) {
+        setFile(f);
+        return;
+    }
+    const QString tabTitle = title.isEmpty() ? documentTabTitle(f) : title;
+
+    // A freshly opened document starts with all channels visible: that is the
+    // per-document default created lazily by ChannelVisibilityManager when the
+    // new file becomes active in activateDocument()/setActiveDocument() below
+    // (28.1c). No global reset here - it would clobber another tab's visibility.
+
+    // Phase 28 (editor groups): open into the FOCUSED group. If the secondary
+    // group has focus, the new document/tab is created there; otherwise it goes
+    // into the primary group (group 0).
+    if (_group1Docs && _group1TabBar && _compareMatrixWidget &&
+        !_group1Collapsed && _activeView == _compareMatrixWidget) {
+        Document *d = _group1Docs->openAndActivate(f, tabTitle);
+        _suppressGroup1TabSignals = true;
+        const int idx = _group1TabBar->addTab(d->title());
+        _group1TabBar->setCurrentIndex(idx);
+        _suppressGroup1TabSignals = false;
+        _compareMatrixWidget->setFile(f);
+        _compareFile = f;
+        setActiveDocument(f);
+        return;
+    }
+
+    Document *d = _documentManager->openAndActivate(f, tabTitle);
+    _suppressTabSignals = true;
+    const int idx = _documentTabBar->addTab(d->title());
+    _documentTabBar->setCurrentIndex(idx);
+    _suppressTabSignals = false;
+
+    _activeView = mw_matrixWidget;
+    activateDocument(f);
+}
+
+void MainWindow::onDocumentTabChanged(int index) {
+    if (_suppressTabSignals || !_documentManager) {
+        return;
+    }
+    Document *d = _documentManager->at(index);
+    if (!d) {
+        return;
+    }
+    MidiFile *f = d->file();
+    // Single playback stream: stop when leaving a tab. Selection/visibility are
+    // per-document (Selection is already keyed per file), so we do NOT clear
+    // the selection on switch.
+    stop();
+    _documentManager->setActiveIndex(index);
+
+    // Phase 28 (editor groups): group 0's tab bar always drives the primary
+    // view (group 0 is the focused group now). The secondary group has its own
+    // tab bar (onGroup1TabChanged) and never reacts to this one.
+    _activeView = mw_matrixWidget;
+    activateDocument(f);
+    refreshScrollbarsForFocus();
+    updateActiveGroupHighlight();
+}
+
+void MainWindow::onGroup1TabChanged(int index) {
+    if (_suppressGroup1TabSignals || !_group1Docs || !_compareMatrixWidget) {
+        return;
+    }
+    Document *d = _group1Docs->at(index);
+    if (!d) {
+        return;
+    }
+    MidiFile *f = d->file();
+    stop();
+    _group1Docs->setActiveIndex(index);
+
+    // The secondary group is now the focused one; load its tab into the
+    // secondary view and make that document active (sidebars/tools follow).
+    _activeView = _compareMatrixWidget;
+    if (_compareFile != f) {
+        _compareMatrixWidget->setFile(f);
+        _compareFile = f;
+    }
+    setActiveDocument(f);
+    refreshScrollbarsForFocus();
+    updateActiveGroupHighlight();
+}
+
+void MainWindow::onDocumentTabBarClicked(int index) {
+    // tabBarClicked fires on EVERY click (before the index updates), unlike
+    // currentChanged which only fires when the index actually changes. Clicking a
+    // tab that switches the index is handled by onDocumentTabChanged; here we cover
+    // the missing case - clicking the tab that is ALREADY current must still focus
+    // group 0 (same effect as clicking its pane), so the focus is reliable either
+    // way.
+    if (index < 0 || !_documentTabBar) {
+        return;
+    }
+    if (_documentTabBar->currentIndex() == index) {
+        onViewFocused(mw_matrixWidget);
+    }
+}
+
+void MainWindow::onGroup1TabBarClicked(int index) {
+    // See onDocumentTabBarClicked: clicking the already-current secondary tab must
+    // focus group 1 even though currentChanged won't fire.
+    if (index < 0 || !_group1TabBar || !_compareMatrixWidget) {
+        return;
+    }
+    if (_group1TabBar->currentIndex() == index) {
+        onViewFocused(_compareMatrixWidget);
+    }
+}
+
+void MainWindow::onGroup1TabCloseRequested(int index) {
+    if (!_group1Docs || !_group1TabBar) {
+        return;
+    }
+    Document *d = _group1Docs->at(index);
+    if (!d) {
+        return;
+    }
+    MidiFile *f = d->file();
+
+    // Prompt to save if the closing tab has unsaved changes. saveBeforeClose
+    // acts on the active file, so make the closing tab active (in the secondary
+    // group) first.
+    if (f && !f->saved()) {
+        _activeView = _compareMatrixWidget;
+        if (_compareFile != f) {
+            _compareMatrixWidget->setFile(f);
+            _compareFile = f;
+        }
+        _group1Docs->setActiveIndex(index);
+        _suppressGroup1TabSignals = true;
+        _group1TabBar->setCurrentIndex(index);
+        _suppressGroup1TabSignals = false;
+        setActiveDocument(f);
+        if (!saveBeforeClose()) {
+            return; // user cancelled
+        }
+    }
+
+    const bool closingActive = (index == _group1Docs->activeIndex());
+
+    _group1Docs->removeAt(index);   // detaches (does NOT delete the file)
+    _suppressGroup1TabSignals = true;
+    _group1TabBar->removeTab(index);
+    _suppressGroup1TabSignals = false;
+
+    // Last tab in the secondary group closed -> collapse the group.
+    if (_group1Docs->isEmpty()) {
+        _compareFile = nullptr;         // stop the teardown guard double-acting
+        tearDownGroup1();
+        closeDocumentFile(f);
+        return;
+    }
+
+    if (closingActive) {
+        Document *na = _group1Docs->active();
+        if (na) {
+            _suppressGroup1TabSignals = true;
+            _group1TabBar->setCurrentIndex(_group1Docs->activeIndex());
+            _suppressGroup1TabSignals = false;
+            stop();
+            _compareMatrixWidget->setFile(na->file());
+            _compareFile = na->file();
+            setActiveDocument(na->file());
+        }
+    }
+
+    // The closed file is no longer bound to any group/view, so tear it down.
+    closeDocumentFile(f);
+}
+
+DocumentManager *MainWindow::managerForTabBar(QTabBar *bar) const {
+    if (bar == _documentTabBar) {
+        return _documentManager;
+    }
+    if (bar == _group1TabBar) {
+        return _group1Docs;
+    }
+    return nullptr;
+}
+
+QWidget *MainWindow::activeViewContainer() const {
+    if (_activeView == _compareMatrixWidget && _compareMatrixWidget) {
+        return _compareMatrixWidget;
+    }
+    return _matrixWidgetContainer;
+}
+
+MatrixWidget *MainWindow::scrollbarSourceInner() const {
+    // The inner MatrixWidget that emits sizeChanged/scrollChanged for the pane the
+    // shared scrollbars represent. In a sync-lock the bars always track the left
+    // (master); otherwise they track the focused pane's inner widget.
+    if (_syncViews) {
+        return mw_matrixWidget;
+    }
+    if (_activeView == _compareMatrixWidget && _compareMatrixWidget) {
+        return _compareMatrixWidget;
+    }
+    return mw_matrixWidget;
+}
+
+void MainWindow::refreshScrollbarsForFocus() {
+    // After a focus switch the shared scrollbars must reflect the newly-focused
+    // pane. The view re-emits sizeChanged/scrollChanged on its next relayout/paint;
+    // matrixSizeChanged()/scrollPositionsChanged() then accept it (the sender is now
+    // the scrollbar source) and update the bar range + position.
+    MatrixWidget *src = scrollbarSourceInner();
+    if (!src) {
+        return;
+    }
+    // calcSizes() (a public slot) recomputes and SYNCHRONOUSLY re-emits sizeChanged
+    // -> matrixSizeChanged() (whose sender==scrollbarSourceInner() guard then writes
+    // the bar range+value). A bare update() can't do this: it only repaints (and in
+    // the default OpenGL build mw_matrixWidget is the HIDDEN inner widget, so its
+    // update() schedules no paint at all), and paintEvent never re-emits sizeChanged.
+    src->calcSizes();
+}
+
+void MainWindow::setTabBarDimmed(QWidget *w, bool dim) {
+    if (!w) {
+        return;
+    }
+    QGraphicsOpacityEffect *eff =
+        qobject_cast<QGraphicsOpacityEffect *>(w->graphicsEffect());
+    if (dim) {
+        if (!eff) {
+            eff = new QGraphicsOpacityEffect(w);
+            w->setGraphicsEffect(eff); // takes ownership
+        }
+        eff->setOpacity(0.45);
+        eff->setEnabled(true);
+    } else if (eff) {
+        eff->setEnabled(false); // back to full opacity (effect kept for reuse)
+    }
+}
+
+void MainWindow::updateActiveGroupHighlight() {
+    // Grey out the tab bar of the NON-focused editor group so the active group is
+    // obvious. Only meaningful while actually split (two groups visible); with a
+    // single group everything stays at full opacity.
+    const bool split = (_group1TabBar && _group1Container && !_group1Collapsed);
+    if (!split) {
+        setTabBarDimmed(_documentTabBar, false);
+        setTabBarDimmed(_group1TabBar, false);
+        return;
+    }
+    const bool group1Active = (_activeView == _compareMatrixWidget);
+    setTabBarDimmed(_documentTabBar, group1Active);  // dim group 0 when group 1 is active
+    setTabBarDimmed(_group1TabBar, !group1Active);   // dim group 1 when group 0 is active
+}
+
+void MainWindow::scrollActiveViewToTickMs(int ms) {
+    QWidget *vc = activeViewContainer();
+    if (OpenGLMatrixWidget *gl = qobject_cast<OpenGLMatrixWidget *>(vc)) {
+        gl->timeMsChanged(ms, true);
+    } else if (MatrixWidget *m = qobject_cast<MatrixWidget *>(vc)) {
+        m->timeMsChanged(ms, true);
+    }
+}
+
+void MainWindow::zoomActiveView(const char *method) {
+    QWidget *vc = activeViewContainer();
+    if (vc) {
+        QMetaObject::invokeMethod(vc, method);
+    }
+    // Comparison sync-lock: zoom the secondary view by the same step so the two
+    // stay on the same zoom level (and thus aligned).
+    if (_syncViews && _compareMatrixWidget && vc != _compareMatrixWidget) {
+        QMetaObject::invokeMethod(_compareMatrixWidget, method);
+    }
+}
+
+QToolBar *MainWindow::buildTabToolsBar(QWidget *parent, int iconSize) {
+    // The tab-tools row that sits under the essential (New/Open/Save/Undo/Redo)
+    // toolbar in two-row mode: New Tab / Split / Clone. Styled like the essential
+    // bar (text beside icon) so it reads as a labelled second row.
+    QToolBar *bar = new QToolBar("TabTools", parent);
+    bar->setObjectName("tabToolsBar");
+    bar->setFloatable(false);
+    bar->setMovable(false);
+    bar->setContentsMargins(0, 0, 0, 0);
+    bar->layout()->setSpacing(3);
+    bar->setIconSize(QSize(iconSize, iconSize));
+    bar->setStyleSheet("QToolBar { border: 0px }");
+    bar->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+
+    QAction *newTabAct = new QAction(tr("New Tab"), bar);
+    Appearance::setActionIcon(newTabAct, ":/run_environment/graphics/tool/add.png");
+    newTabAct->setToolTip(tr("Open a new empty document in a tab (in the focused group)"));
+    connect(newTabAct, &QAction::triggered, this, [this] { newFile(); });
+    bar->addAction(newTabAct);
+
+    QAction *splitAct = new QAction(tr("Split"), bar);
+    splitAct->setIcon(makeSplitViewIcon(iconSize));
+    splitAct->setToolTip(tr("Split into a second editor group / close it again"));
+    connect(splitAct, &QAction::triggered, this, &MainWindow::toggleCompareView);
+    bar->addAction(splitAct);
+
+    QAction *cloneAct = new QAction(tr("Clone"), bar);
+    Appearance::setActionIcon(cloneAct, ":/run_environment/graphics/tool/copy.png");
+    cloneAct->setToolTip(tr("Duplicate the current document into a new tab"));
+    connect(cloneAct, &QAction::triggered, this, &MainWindow::cloneCurrentDocument);
+    bar->addAction(cloneAct);
+
+    QAction *closeAllAct = new QAction(tr("Close All Tabs"), bar);
+    closeAllAct->setToolTip(tr("Close all tabs in both editor groups (with save prompts), then start fresh"));
+    connect(closeAllAct, &QAction::triggered, this, &MainWindow::closeAllTabs);
+    bar->addAction(closeAllAct);
+
+    return bar;
+}
+
+QIcon MainWindow::makeSplitViewIcon(int size) const {
+    if (size <= 0) {
+        size = 16;
+    }
+    QPixmap pm(size, size);
+    pm.fill(Qt::transparent);
+
+    QPainter p(&pm);
+    p.setRenderHint(QPainter::Antialiasing, true);
+
+    const QColor fg = Appearance::foregroundColor();
+    const qreal penW = qMax(1.0, size / 16.0);
+    const qreal pad = qMax(2.0, size * 0.16);
+    const QRectF frame(pad, pad, size - 2 * pad, size - 2 * pad);
+    const qreal radius = qMax(2.0, size * 0.14);
+    const qreal midX = frame.center().x();
+
+    // Subtle fill in the right pane so the glyph clearly reads as two panes.
+    QPainterPath clip;
+    clip.addRoundedRect(frame, radius, radius);
+    p.setClipPath(clip);
+    QColor paneFill = fg;
+    paneFill.setAlpha(55);
+    p.fillRect(QRectF(midX, frame.top(), frame.right() - midX, frame.height()), paneFill);
+    p.setClipping(false);
+
+    // Rounded frame + the vertical divider between the two panes.
+    p.setPen(QPen(fg, penW));
+    p.setBrush(Qt::NoBrush);
+    p.drawRoundedRect(frame, radius, radius);
+    p.drawLine(QPointF(midX, frame.top()), QPointF(midX, frame.bottom()));
+    p.end();
+
+    return QIcon(pm);
+}
+
+void MainWindow::cloneCurrentDocument() {
+    if (!file) {
+        return;
+    }
+    // Round-trip the active document through a temp .mid to get an independent
+    // copy. save() sets the original's saved-flag, so preserve+restore it -
+    // cloning must not make unsaved work look saved.
+    // Remember the source's name now (cloning blanks the copy's path below).
+    const QString cloneTitle = tr("%1 (copy)").arg(documentTabTitle(file));
+    const QString tmp = QDir::temp().filePath(
+        QStringLiteral("midieditor_clone_%1.mid").arg(QDateTime::currentMSecsSinceEpoch()));
+    const bool wasSaved = file->saved();
+    const bool savedOk = file->save(tmp);
+    file->setSaved(wasSaved);
+    if (!savedOk) {
+        QMessageBox::warning(this, tr("Clone Tab"),
+                             tr("Could not duplicate the current document."));
+        return;
+    }
+
+    bool loadOk = false;
+    QStringList log;
+    MidiFile *clone = new MidiFile(tmp, &loadOk, &log);
+    QFile::remove(tmp);
+    if (!loadOk) {
+        delete clone;
+        QMessageBox::warning(this, tr("Clone Tab"),
+                             tr("Could not duplicate the current document."));
+        return;
+    }
+    // A fresh, untitled copy the user saves explicitly under a new name; the tab
+    // is labelled "<original> (copy)" so it is distinguishable from a blank New.
+    clone->setPath(QString());
+    clone->setSaved(false);
+    openInNewTab(clone, cloneTitle);
+}
+
+void MainWindow::closeAllTabs() {
+    if (!_documentManager) {
+        return;
+    }
+    // Prompt to save every dirty document across both groups (same as closing
+    // each tab by hand); abort the whole operation if the user cancels.
+    if (!promptSaveAllDirtyTabs()) {
+        return;
+    }
+    stop();
+
+    // Collect every open file from both groups; they are deleted only after we
+    // have switched the views/active document to a fresh document below.
+    QList<MidiFile *> oldFiles;
+    if (_group1Docs) {
+        for (Document *d : _group1Docs->documents()) {
+            if (d->file()) oldFiles.append(d->file());
+        }
+    }
+    for (Document *d : _documentManager->documents()) {
+        if (d->file() && !oldFiles.contains(d->file())) {
+            oldFiles.append(d->file());
+        }
+    }
+
+    // Drop the secondary group entirely (its view/handles; files freed below).
+    if (_group1Docs) {
+        _compareFile = nullptr;
+        tearDownGroup1();
+    }
+
+    // Empty the primary group's tab bar + manager (detach only - the MidiFiles
+    // are in oldFiles and deleted at the end).
+    _suppressTabSignals = true;
+    while (_documentTabBar->count() > 0) {
+        _documentTabBar->removeTab(0);
+    }
+    _suppressTabSignals = false;
+    while (_documentManager->count() > 0) {
+        _documentManager->removeAt(0);
+    }
+
+    // Start fresh with a single empty document (creates the first tab + binds
+    // the primary view + makes it active).
+    _activeView = mw_matrixWidget;
+    newFile();
+
+    // Nothing references the old files anymore, so tear them down.
+    for (MidiFile *f : oldFiles) {
+        closeDocumentFile(f);
+    }
+
+    statusBar()->showMessage(tr("Closed all tabs"), 3000);
+}
+
+bool MainWindow::collabLiveActive() const {
+#ifdef MIDIEDITOR_COLLAB_ENABLED
+    return LanLiveSession::instance()->role() != LanLiveSession::Role::Idle;
+#else
+    return false;
+#endif
+}
+
+void MainWindow::setCollabTabLock(bool lock) {
+    if (_collabTabsLocked == lock) {
+        return;
+    }
+    _collabTabsLocked = lock;
+
+    // Freeze/unfreeze both tab strips (tab bar + New-Tab / Split / Clone /
+    // Close-All / collapse / close buttons) so the session stays single-document.
+    if (_group0Strip) _group0Strip->setEnabled(!lock);
+    if (_group1Strip) _group1Strip->setEnabled(!lock);
+
+    // No new documents while collab is single-doc.
+    if (QAction *a = getActionById("new")) a->setEnabled(!lock);
+    if (QAction *a = getActionById("open")) a->setEnabled(!lock);
+
+    // In a split, freeze the NON-session pane so it can't grab the tools or
+    // selection (the session document is the one in the focused view at lock
+    // time). On unlock, both panes are editable again.
+    if (_compareMatrixWidget) {
+        if (lock) {
+            MatrixWidget *other = (_activeView == _compareMatrixWidget)
+                                      ? mw_matrixWidget : _compareMatrixWidget;
+            if (other) other->setClaimsToolTarget(false);
+        } else {
+            if (mw_matrixWidget) mw_matrixWidget->setClaimsToolTarget(true);
+            _compareMatrixWidget->setClaimsToolTarget(true);
+        }
+    }
+
+    statusBar()->showMessage(lock
+        ? tr("Tabs are locked for the live collaboration session")
+        : tr("Collaboration session ended - tabs unlocked"), 4000);
+}
+
+void MainWindow::setSyncViews(bool on) {
+    _syncViews = on;
+    if (_syncViewsButton && _syncViewsButton->isChecked() != on) {
+        _syncViewsButton->setChecked(on);
+    }
+    if (!_compareMatrixWidget) {
+        return;
+    }
+
+    if (on) {
+        // The secondary group becomes a read-only comparison mirror for NOTES
+        // (editingLocked), but it stays focusable so you can still select its tab
+        // and adjust ITS track/channel visibility via the side panels (visibility
+        // is per-document, not synced). Note edits happen on the left. Scroll /
+        // cursor / playback stay anchored to the left regardless of focus.
+        _compareMatrixWidget->setClaimsToolTarget(true);
+        _compareMatrixWidget->setEditingLocked(true);
+        _activeView = mw_matrixWidget;
+        if (Document *a = _documentManager ? _documentManager->active() : nullptr) {
+            activateDocument(a->file());
+        }
+        // Snap the secondary to the primary's current scroll + cursor.
+        _syncInProgress = true;
+        _compareMatrixWidget->scrollXChanged(hori->value());
+        _compareMatrixWidget->scrollYChanged(vert->value());
+        if (_compareFile && file) {
+            _compareFile->setCursorTick(file->cursorTick());
+        }
+        _compareMatrixWidget->update();
+        _syncInProgress = false;
+        statusBar()->showMessage(
+            tr("Sync on - the right view follows the left (scroll, cursor & playback); right is read-only"), 5000);
+    } else {
+        _compareMatrixWidget->setClaimsToolTarget(true);
+        _compareMatrixWidget->setEditingLocked(false);
+        statusBar()->showMessage(tr("Sync off - both views are independent again"), 3000);
+    }
+    // The scrollbar source view changed (master while synced, focused otherwise) -
+    // make the bars reflect it.
+    refreshScrollbarsForFocus();
+}
+
+void MainWindow::syncSecondaryCursor() {
+    if (!_syncViews || _syncInProgress || !_compareMatrixWidget || !_compareFile) {
+        return;
+    }
+    // The master is the PRIMARY (left) group's document, regardless of which pane
+    // currently has focus (you may focus the right to adjust its visibility). The
+    // secondary always follows the master's cursor.
+    Document *masterDoc = _documentManager ? _documentManager->active() : nullptr;
+    MidiFile *master = masterDoc ? masterDoc->file() : nullptr;
+    if (!master || master == _compareFile) {
+        return;
+    }
+    _syncInProgress = true;
+    if (_compareFile->cursorTick() != master->cursorTick()) {
+        _compareFile->setCursorTick(master->cursorTick());
+    }
+    _compareMatrixWidget->update();
+    _syncInProgress = false;
+}
+
+void MainWindow::rebuildTabBar(QTabBar *bar, DocumentManager *mgr) {
+    if (!bar || !mgr) {
+        return;
+    }
+    const bool group1 = (bar == _group1TabBar);
+    bool &suppress = group1 ? _suppressGroup1TabSignals : _suppressTabSignals;
+    suppress = true;
+    while (bar->count() > 0) {
+        bar->removeTab(0);
+    }
+    for (int i = 0; i < mgr->count(); ++i) {
+        bar->addTab(mgr->at(i)->title());
+    }
+    if (mgr->activeIndex() >= 0) {
+        bar->setCurrentIndex(mgr->activeIndex());
+    }
+    suppress = false;
+}
+
+void MainWindow::onTabMoveRequested(DocumentTabBar *source, int sourceIndex,
+                                    DocumentTabBar *target, int targetIndex) {
+    // A drop ends any drag feedback (group highlight + both bars' carets).
+    highlightDropGroup(nullptr);
+    if (DocumentTabBar *g0 = qobject_cast<DocumentTabBar *>(_documentTabBar)) {
+        g0->clearDropIndicator();
+    }
+    if (DocumentTabBar *g1 = qobject_cast<DocumentTabBar *>(_group1TabBar)) {
+        g1->clearDropIndicator();
+    }
+    DocumentManager *srcMgr = managerForTabBar(source);
+    DocumentManager *tgtMgr = managerForTabBar(target);
+    if (!srcMgr || !tgtMgr) {
+        return;
+    }
+    Document *srcDoc = srcMgr->at(sourceIndex);
+    if (!srcDoc) {
+        return;
+    }
+
+    // ----- in-bar reorder ------------------------------------------------
+    if (source == target) {
+        // targetIndex is an insertion GAP (0..count); map it to the move() index
+        // (removing the dragged tab shifts items after it left by one). Pure,
+        // unit-tested logic - see DocumentManager::gapToMoveIndex.
+        const int to = DocumentManager::gapToMoveIndex(sourceIndex, targetIndex, srcMgr->count());
+        if (to == sourceIndex) {
+            return;
+        }
+        srcMgr->move(sourceIndex, to);
+        rebuildTabBar(source, srcMgr);
+        return;
+    }
+
+    // ----- move between groups -------------------------------------------
+    MidiFile *f = srcDoc->file();
+    const QString title = srcDoc->title();
+
+    // The primary group (group 0) must always keep at least one document - the
+    // primary editor view needs something to show.
+    if (srcMgr == _documentManager && srcMgr->count() <= 1) {
+        statusBar()->showMessage(tr("The primary group must keep at least one tab"), 3000);
+        return;
+    }
+
+    stop();
+    srcMgr->removeAt(sourceIndex);            // detaches the file (Document deleted)
+    Document *nd = tgtMgr->insert(targetIndex, f, title);
+    tgtMgr->setActive(nd);                    // the dropped tab is active in its new group
+
+    rebuildTabBar(source, srcMgr);
+    rebuildTabBar(target, tgtMgr);
+
+    // The drop focuses the target group and shows the moved document there.
+    if (target == _group1TabBar && _compareMatrixWidget) {
+        _activeView = _compareMatrixWidget;
+        _compareMatrixWidget->setFile(f);
+        _compareFile = f;
+        setActiveDocument(f);
+    } else { // target is the primary group
+        _activeView = mw_matrixWidget;
+        activateDocument(f);                  // binds primary view + makes f active
+    }
+
+    // Refresh the SOURCE group's view to its new active document - or collapse
+    // the secondary group if it just lost its last tab.
+    if (srcMgr == _group1Docs) {
+        if (_group1Docs->isEmpty()) {
+            _compareFile = nullptr;
+            tearDownGroup1();
+        } else if (_compareMatrixWidget) {
+            Document *sa = _group1Docs->active();
+            if (sa) {
+                _compareMatrixWidget->setFile(sa->file());
+                _compareFile = sa->file();
+            }
+        }
+    } else { // source is the primary group: keep its pane on group 0's active
+        Document *sa = _documentManager->active();
+        if (sa) {
+            bindPrimaryView(sa->file());      // view only - the active doc is in the target group
+        }
+    }
+}
+
+void MainWindow::onDocumentTabCloseRequested(int index) {
+    if (!_documentManager || !_documentTabBar) {
+        return;
+    }
+    // Keep at least one document open.
+    if (_documentManager->count() <= 1) {
+        return;
+    }
+    Document *d = _documentManager->at(index);
+    if (!d) {
+        return;
+    }
+    MidiFile *f = d->file();
+
+    // Prompt to save if the tab being closed has unsaved changes. saveBeforeClose
+    // acts on the active file, so make the closing tab active first.
+    if (f && !f->saved()) {
+        if (file != f) {
+            _suppressTabSignals = true;
+            _documentTabBar->setCurrentIndex(index);
+            _suppressTabSignals = false;
+            _documentManager->setActiveIndex(index);
+            activateDocument(f);
+        }
+        if (!saveBeforeClose()) {
+            return; // user cancelled
+        }
+    }
+
+    const bool closingActive = (index == _documentManager->activeIndex());
+
+    _documentManager->removeAt(index);
+    _suppressTabSignals = true;
+    _documentTabBar->removeTab(index);
+    _suppressTabSignals = false;
+
+    if (closingActive) {
+        Document *na = _documentManager->active();
+        if (na) {
+            _suppressTabSignals = true;
+            _documentTabBar->setCurrentIndex(_documentManager->activeIndex());
+            _suppressTabSignals = false;
+            stop();
+            activateDocument(na->file());
+        }
+    }
+
+    // The closed file is no longer bound to any panel/active document, so tear
+    // it down (delete + forget). Guard against deleting the still-active file.
+    if (f && f != file) {
+        closeDocumentFile(f);
+    }
+
+    // If the secondary group is the focused/visible one, closing a primary-group
+    // tab must NOT have stolen the active document: restore group 1's document as
+    // active (its view already shows it) while the primary view keeps group 0's.
+    if (_group1Docs && !_group1Collapsed && _activeView == _compareMatrixWidget &&
+        _compareFile) {
+        setActiveDocument(_compareFile);
     }
 }
 
@@ -1767,21 +3419,31 @@ MidiFile *MainWindow::getFile() {
 }
 
 MatrixWidget *MainWindow::matrixWidget() {
-    return mw_matrixWidget;
+    // Phase 28 (editor groups): return the FOCUSED pane's view. Every caller pairs
+    // this with the active document's Selection (SelectionNavigator, TweakTarget,
+    // MidiPilot context capture), so they must use the same document's matrix or
+    // they'd snap/navigate against the wrong pane when a split is focused on the
+    // right. With no split _activeView is the primary, so single-view is unchanged.
+    return _activeView ? _activeView : mw_matrixWidget;
 }
 
 void MainWindow::matrixSizeChanged(int maxScrollTime, int maxScrollLine,
                                    int vX, int vY) {
-    // Set scroll bar ranges
-    vert->setMaximum(maxScrollLine);
-    hori->setMinimum(0);
-    hori->setMaximum(maxScrollTime);
-    
-    // Set scroll bar values - ensure horizontal starts at 0 for new files
-    vert->setValue(qMax(0, qMin(vY, maxScrollLine)));
-    // For horizontal: clamp small values to 0 to eliminate dead space
-    int clampedVX = (vX < 10) ? 0 : vX;
-    hori->setValue(qMax(0, qMin(clampedVX, maxScrollTime)));
+    // Phase 28 (editor groups): only the pane the shared scrollbars represent
+    // updates their range/value (see scrollPositionsChanged). With no split this
+    // is always the primary, so single-view behaviour is unchanged.
+    if (QObject::sender() == nullptr || QObject::sender() == scrollbarSourceInner()) {
+        // Set scroll bar ranges
+        vert->setMaximum(maxScrollLine);
+        hori->setMinimum(0);
+        hori->setMaximum(maxScrollTime);
+
+        // Set scroll bar values - ensure horizontal starts at 0 for new files
+        vert->setValue(qMax(0, qMin(vY, maxScrollLine)));
+        // For horizontal: clamp small values to 0 to eliminate dead space
+        int clampedVX = (vX < 10) ? 0 : vX;
+        hori->setValue(qMax(0, qMin(clampedVX, maxScrollTime)));
+    }
 
     // Update the matrix widget
     _matrixWidgetContainer->update();
@@ -1845,6 +3507,17 @@ void MainWindow::feedSidVisualizer(int ms) {
 }
 
 void MainWindow::play() {
+    // Comparison sync-lock: playback is ALWAYS the left (master) document - the
+    // right is only a synced reference ("cheat sheet"). If the right was focused
+    // (e.g. to adjust its visibility), switch back to the left before playing.
+    if (_syncViews && _compareMatrixWidget && _documentManager) {
+        if (Document *m = _documentManager->active()) {
+            if (m->file() && m->file() != file) {
+                _activeView = mw_matrixWidget;
+                activateDocument(m->file());
+            }
+        }
+    }
     // Authentic SID playback: when Emulation mode is armed (C64 button) and a
     // .sid is loaded, the normal Play button plays the ORIGINAL tune through
     // libsidplayfp from the cursor position; the matrix cursor follows along.
@@ -1853,8 +3526,16 @@ void MainWindow::play() {
         if (file && sid->isArmed() && sid->hasSource() && !MidiInput::recording()
             && !MidiPlayer::isPlaying() && !sid->isPlaying()) {
             const int fromMs = file->msOfTick(file->cursorTick());
+            // Phase 28 (editor groups): route the SID cursor to the FOCUSED pane.
+            // sid is a singleton, so (like the MIDI player path below) drop any
+            // prior pane's connection first - otherwise a UniqueConnection made
+            // while the other pane was focused stays live and both cursors move.
+            disconnect(sid, SIGNAL(positionChanged(int)), _matrixWidgetContainer, SLOT(timeMsChanged(int)));
+            if (_compareMatrixWidget) {
+                disconnect(sid, SIGNAL(positionChanged(int)), _compareMatrixWidget, SLOT(timeMsChanged(int)));
+            }
             connect(sid, SIGNAL(positionChanged(int)),
-                    _matrixWidgetContainer, SLOT(timeMsChanged(int)),
+                    activeViewContainer(), SLOT(timeMsChanged(int)),
                     Qt::UniqueConnection);
             // Drive the MIDI Visualizer from the SID position (no MIDI is sent
             // to the output in Emulation mode, so its bars would stay empty).
@@ -1888,12 +3569,8 @@ void MainWindow::play() {
         return;
     }
     if (file && !MidiInput::recording() && !MidiPlayer::isPlaying()) {
-        // Update playback cursor position using the appropriate widget type
-        if (OpenGLMatrixWidget *openglMatrix = qobject_cast<OpenGLMatrixWidget*>(_matrixWidgetContainer)) {
-            openglMatrix->timeMsChanged(file->msOfTick(file->cursorTick()), true);
-        } else if (MatrixWidget *matrixWidget = qobject_cast<MatrixWidget*>(_matrixWidgetContainer)) {
-            matrixWidget->timeMsChanged(file->msOfTick(file->cursorTick()), true);
-        }
+        // Position the FOCUSED view's cursor at the play start.
+        scrollActiveViewToTickMs(file->msOfTick(file->cursorTick()));
 
         // UX-PLAY-001: keep tracks/channels/event/protocol panels live during playback
         // by default so the user can toggle visibility while listening. Opt-out via
@@ -1926,8 +3603,24 @@ void MainWindow::play() {
         // Connect playback cursor updates for all platforms (not just Windows)
         // This is essential for the playback cursor to move during playback
         // Disconnect first to prevent accumulating connections across play/stop cycles
+        // Route the playback cursor to the FOCUSED view (the pane showing the
+        // file being played), clearing any stale connection on either view first.
         disconnect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _matrixWidgetContainer, SLOT(timeMsChanged(int)));
-        connect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _matrixWidgetContainer, SLOT(timeMsChanged(int)));
+        if (_compareMatrixWidget) {
+            disconnect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _compareMatrixWidget, SLOT(timeMsChanged(int)));
+        }
+        connect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), activeViewContainer(), SLOT(timeMsChanged(int)));
+        // Phase 28: comparison sync-lock - run the playback cursor in BOTH panes
+        // (regardless of which is focused) so they scroll along together; audio is
+        // the active document only.
+        if (_syncViews && _compareMatrixWidget) {
+            if (activeViewContainer() != _matrixWidgetContainer) {
+                connect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _matrixWidgetContainer, SLOT(timeMsChanged(int)));
+            }
+            if (activeViewContainer() != _compareMatrixWidget) {
+                connect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _compareMatrixWidget, SLOT(timeMsChanged(int)));
+            }
+        }
 
         // Connect lyric timeline playback cursor
         disconnect(MidiPlayer::playerThread(), SIGNAL(timeMsChanged(int)), _lyricTimeline, SLOT(onPlaybackPositionChanged(int)));
@@ -2168,14 +3861,9 @@ void MainWindow::forward() {
     file->setPauseTick(-1);
     if (newTick <= file->endTick()) {
         file->setCursorTick(newTick);
-        // Update playback cursor position using the appropriate widget type
-        if (OpenGLMatrixWidget *openglMatrix = qobject_cast<OpenGLMatrixWidget*>(_matrixWidgetContainer)) {
-            openglMatrix->timeMsChanged(file->msOfTick(newTick), true);
-        } else if (MatrixWidget *matrixWidget = qobject_cast<MatrixWidget*>(_matrixWidgetContainer)) {
-            matrixWidget->timeMsChanged(file->msOfTick(newTick), true);
-        }
+        scrollActiveViewToTickMs(file->msOfTick(newTick)); // follow the FOCUSED view
     }
-    _matrixWidgetContainer->update();
+    activeViewContainer()->update();
 }
 
 void MainWindow::back() {
@@ -2207,14 +3895,9 @@ void MainWindow::back() {
     file->setPauseTick(-1);
     if (newTick >= 0) {
         file->setCursorTick(newTick);
-        // Update playback cursor position using the appropriate widget type
-        if (OpenGLMatrixWidget *openglMatrix = qobject_cast<OpenGLMatrixWidget*>(_matrixWidgetContainer)) {
-            openglMatrix->timeMsChanged(file->msOfTick(newTick), true);
-        } else if (MatrixWidget *matrixWidget = qobject_cast<MatrixWidget*>(_matrixWidgetContainer)) {
-            matrixWidget->timeMsChanged(file->msOfTick(newTick), true);
-        }
+        scrollActiveViewToTickMs(file->msOfTick(newTick)); // follow the FOCUSED view
     }
-    _matrixWidgetContainer->update();
+    activeViewContainer()->update();
 }
 
 void MainWindow::backToBegin() {
@@ -2224,7 +3907,7 @@ void MainWindow::backToBegin() {
     file->setPauseTick(0);
     file->setCursorTick(0);
 
-    _matrixWidgetContainer->update();
+    activeViewContainer()->update();
 }
 
 void MainWindow::forwardMarker() {
@@ -2256,13 +3939,8 @@ void MainWindow::forwardMarker() {
     if (newTick < 0) return;
     file->setPauseTick(newTick);
     file->setCursorTick(newTick);
-    // Update playback cursor position using the appropriate widget type
-    if (OpenGLMatrixWidget *openglMatrix = qobject_cast<OpenGLMatrixWidget*>(_matrixWidgetContainer)) {
-        openglMatrix->timeMsChanged(file->msOfTick(newTick), true);
-    } else if (MatrixWidget *matrixWidget = qobject_cast<MatrixWidget*>(_matrixWidgetContainer)) {
-        matrixWidget->timeMsChanged(file->msOfTick(newTick), true);
-    }
-    _matrixWidgetContainer->update();
+    scrollActiveViewToTickMs(file->msOfTick(newTick)); // follow the FOCUSED view
+    activeViewContainer()->update();
 }
 
 void MainWindow::backMarker() {
@@ -2295,13 +3973,8 @@ void MainWindow::backMarker() {
 
     file->setPauseTick(newTick);
     file->setCursorTick(newTick);
-    // Update playback cursor position using the appropriate widget type
-    if (OpenGLMatrixWidget *openglMatrix = qobject_cast<OpenGLMatrixWidget*>(_matrixWidgetContainer)) {
-        openglMatrix->timeMsChanged(file->msOfTick(newTick), true);
-    } else if (MatrixWidget *matrixWidget = qobject_cast<MatrixWidget*>(_matrixWidgetContainer)) {
-        matrixWidget->timeMsChanged(file->msOfTick(newTick), true);
-    }
-    _matrixWidgetContainer->update();
+    scrollActiveViewToTickMs(file->msOfTick(newTick)); // follow the FOCUSED view
+    activeViewContainer()->update();
 }
 
 void MainWindow::save() {
@@ -2358,9 +4031,9 @@ void MainWindow::save() {
     }
 }
 
-void MainWindow::saveas() {
+bool MainWindow::saveas() {
     if (!file)
-        return;
+        return false;
 
     QString oldPath = file->path();
     QFileInfo oldInfo(oldPath);
@@ -2380,7 +4053,7 @@ void MainWindow::saveas() {
     QString newPath = QFileDialog::getSaveFileName(this, tr("Save file as..."), startLocation);
 
     if (newPath == "") {
-        return;
+        return false; // user cancelled the dialog
     }
 
     // automatically add '.mid' extension
@@ -2415,20 +4088,20 @@ void MainWindow::saveas() {
 #ifdef MIDIEDITOR_COLLAB_ENABLED
         CollabService::instance()->onFileSaved(file, newPath);
 #endif
+        return true;
     } else {
         QMessageBox::warning(this, tr("Error"), QString(tr("The file could not be saved. Please make sure that the destination directory exists and that you have the correct access rights to write into this directory.")));
+        return false;
     }
 }
 
 void MainWindow::load() {
+    // Phase 28: Open loads the chosen file into a new tab; the current document
+    // stays open, so no save-prompt here (it lives on tab close). oldPath is
+    // still used to seed the dialog's starting directory.
     QString oldPath = startDirectory;
     if (file) {
         oldPath = file->path();
-        if (!file->saved()) {
-            if (!saveBeforeClose()) {
-                return;
-            }
-        }
     }
 
     QFile f(oldPath);
@@ -2465,15 +4138,8 @@ void MainWindow::load() {
 }
 
 void MainWindow::loadFile(QString nfile) {
-    QString oldPath = startDirectory;
-    if (file) {
-        oldPath = file->path();
-        if (!file->saved()) {
-            if (!saveBeforeClose()) {
-                return;
-            }
-        }
-    }
+    // Phase 28: loads into a new tab (see load()); no save-prompt for the
+    // current document here.
     if (!nfile.isEmpty()) {
         openFile(nfile);
     }
@@ -2569,7 +4235,7 @@ void MainWindow::openFile(QString filePath) {
             mf->setPath(filePath);   // Point to original file path
             mf->setSaved(false);     // Mark as dirty â€” user should save explicitly
         }
-        setFile(mf);
+        openInNewTab(mf);            // Phase 28: open the loaded file in a new tab
         if (useAutoSave) {
             setWindowModified(true);
             statusBar()->showMessage(tr("Recovered from auto-save backup"), 5000);
@@ -2701,22 +4367,18 @@ void MainWindow::closeEvent(QCloseEvent *event) {
     if (_forceCloseForUpdate) {
         shouldClose = true;
         event->accept();
-    } else if (!file || file->saved()) {
+    } else if (promptSaveAllDirtyTabs()) {
+        // Phase 28: prompt for EVERY dirty tab across both editor groups, not
+        // just the active one (returns true immediately when nothing is dirty).
         shouldClose = true;
         event->accept();
     } else {
-        bool sbc = saveBeforeClose();
-
-        if (sbc) {
-            shouldClose = true;
-            event->accept();
-        } else {
-            event->ignore();
-        }
+        event->ignore();
     }
 
     // Only perform early cleanup if we're actually closing
     if (shouldClose) {
+        saveSession(); // persist open tabs/groups for next launch (before teardown)
         cleanupAutoSave();
         performEarlyCleanup();
     }
@@ -2810,9 +4472,12 @@ void MainWindow::setStartDir(QString dir) {
 }
 
 bool MainWindow::saveBeforeClose() {
+    const QString name = file->path().isEmpty()
+        ? tr("Untitled document")
+        : QFileInfo(file->path()).fileName();
     QMessageBox msgBox(this);
     msgBox.setWindowTitle(tr("Save file?"));
-    msgBox.setText(tr("Save file ") + file->path() + tr(" before closing?"));
+    msgBox.setText(tr("Save \"%1\" before closing?").arg(name));
     msgBox.addButton(tr("Save"), QMessageBox::AcceptRole);
     msgBox.addButton(tr("Close without saving"), QMessageBox::DestructiveRole);
     msgBox.addButton(tr("Cancel"), QMessageBox::RejectRole);
@@ -2826,11 +4491,12 @@ bool MainWindow::saveBeforeClose() {
 
     switch (role) {
         case QMessageBox::AcceptRole:
-            // save
+            // Save; only proceed with the close when the save actually succeeds.
+            // A failed write or a cancelled "Save As" must NOT discard the
+            // document (this is what makes a Cancel in the file dialog safe).
             if (QFile(file->path()).exists())
-                file->save(file->path());
-            else saveas();
-            return true;
+                return file->save(file->path());
+            return saveas();
 
         case QMessageBox::RejectRole:
             // cancel - break
@@ -2841,23 +4507,50 @@ bool MainWindow::saveBeforeClose() {
     }
 }
 
-void MainWindow::newFile() {
-    if (file) {
-        if (!file->saved()) {
-            if (!saveBeforeClose()) {
-                return;
-            }
+bool MainWindow::promptSaveAllDirtyTabs() {
+    // Collect every open document from both groups, in tab order (group 0 first).
+    QList<MidiFile *> all;
+    if (_documentManager) {
+        for (Document *d : _documentManager->documents()) {
+            if (d->file()) all.append(d->file());
+        }
+    }
+    if (_group1Docs) {
+        for (Document *d : _group1Docs->documents()) {
+            if (d->file() && !all.contains(d->file())) all.append(d->file());
         }
     }
 
-    // Stop playback before replacing the file to prevent use-after-free
+    // saveBeforeClose() prompts/saves the member `file`, so point it at each
+    // dirty document in turn. (We are closing, so the heavier per-view rebind of
+    // setActiveDocument() is unnecessary - save() works on the MidiFile itself.)
+    MidiFile *originalActive = file;
+    for (MidiFile *f : all) {
+        if (f && !f->saved()) {
+            file = f;
+            if (!saveBeforeClose()) {
+                file = originalActive; // user cancelled -> abort the quit
+                return false;
+            }
+        }
+    }
+    file = originalActive;
+    return true;
+}
+
+void MainWindow::newFile() {
+    // Phase 28: New opens a fresh document in its own tab; the current document
+    // stays open in its tab, so there is nothing to save-prompt about here
+    // (that prompt now lives on tab close).
+
+    // Stop playback before switching the active file to prevent use-after-free
     // (PlayerThread runs on a separate thread and accesses the MidiFile)
     stop();
 
     // create new File
     MidiFile *f = new MidiFile();
 
-    setFile(f);
+    openInNewTab(f);
 
     editTrack(1);
     setWindowTitle(QApplication::applicationName() + " v" + QApplication::applicationVersion() + tr(" - Untitled Document[*]"));
@@ -4737,12 +6430,12 @@ void MainWindow::cleanupAutoSave() {
     QFile::remove(untitledPath);
 }
 
-void MainWindow::checkAutoSaveRecovery() {
+bool MainWindow::checkAutoSaveRecovery() {
     // Check for untitled auto-save backup in AppData
     QString untitledPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
                          + "/autosave/untitled.autosave.mid";
 
-    if (!QFile::exists(untitledPath)) return;
+    if (!QFile::exists(untitledPath)) return false;
 
     QFileInfo info(untitledPath);
     auto result = QMessageBox::question(this, tr("Auto-Save Recovery"),
@@ -4758,20 +6451,21 @@ void MainWindow::checkAutoSaveRecovery() {
         if (ok) {
             stop();
             setFile(mf);
-            mf->setPath(QString());   // Clear path â€” this is an untitled recovered doc
+            mf->setPath(QString());   // Clear path - this is an untitled recovered doc
             mf->setSaved(false);
             setWindowTitle(QApplication::applicationName() + " v" +
                 QApplication::applicationVersion() + tr(" - Recovered Document[*]"));
             setWindowModified(true);
             statusBar()->showMessage(tr("Recovered from auto-save backup"), 5000);
             QFile::remove(untitledPath);
-            _initFile = "";  // Prevent loadInitFile from loading another file
-            return;
+            return true; // a document is now open; loadInitFile must not add another
         }
+        delete mf; // load failed - don't leak the half-constructed file
     }
 
-    // Declined or failed â€” delete the stale backup
+    // Declined or failed - delete the stale backup
     QFile::remove(untitledPath);
+    return false;
 }
 
 void MainWindow::colorsByChannel() {
@@ -4781,6 +6475,13 @@ void MainWindow::colorsByChannel() {
     mw_matrixWidget->registerRelayout();
     _matrixWidgetContainer->update();
     _miscWidgetContainer->update();
+    // Phase 28: colouring is a global view preference - keep the secondary
+    // editor group in sync (otherwise it only changed the primary pane).
+    if (_compareMatrixWidget) {
+        _compareMatrixWidget->setColorsByChannel();
+        _compareMatrixWidget->registerRelayout();
+        _compareMatrixWidget->update();
+    }
 }
 
 void MainWindow::colorsByTrack() {
@@ -4790,6 +6491,12 @@ void MainWindow::colorsByTrack() {
     mw_matrixWidget->registerRelayout();
     _matrixWidgetContainer->update();
     _miscWidgetContainer->update();
+    // Phase 28: keep the secondary editor group in sync (see colorsByChannel).
+    if (_compareMatrixWidget) {
+        _compareMatrixWidget->setColorsByTracks();
+        _compareMatrixWidget->registerRelayout();
+        _compareMatrixWidget->update();
+    }
 }
 
 void MainWindow::editChannel(int i, bool assign) {
@@ -6810,7 +8517,7 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
     zoomHorOutAction->setShortcut(QKeySequence(QKeyCombination(Qt::CTRL, Qt::Key_Minus)));
     _defaultShortcuts["zoom_hor_out"] = QList<QKeySequence>() << zoomHorOutAction->shortcut();
     Appearance::setActionIcon(zoomHorOutAction, ":/run_environment/graphics/tool/zoom_hor_out.png");
-    connect(zoomHorOutAction, SIGNAL(triggered()), _matrixWidgetContainer, SLOT(zoomHorOut()));
+    connect(zoomHorOutAction, &QAction::triggered, this, [this] { zoomActiveView("zoomHorOut"); });
     zoomMenu->addAction(zoomHorOutAction);
     _actionMap["zoom_hor_out"] = zoomHorOutAction;
 
@@ -6818,7 +8525,7 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
     Appearance::setActionIcon(zoomHorInAction, ":/run_environment/graphics/tool/zoom_hor_in.png");
     zoomHorInAction->setShortcut(QKeySequence(QKeyCombination(Qt::CTRL, Qt::Key_Equal)));
     _defaultShortcuts["zoom_hor_in"] = QList<QKeySequence>() << zoomHorInAction->shortcut();
-    connect(zoomHorInAction, SIGNAL(triggered()), _matrixWidgetContainer, SLOT(zoomHorIn()));
+    connect(zoomHorInAction, &QAction::triggered, this, [this] { zoomActiveView("zoomHorIn"); });
     zoomMenu->addAction(zoomHorInAction);
     _actionMap["zoom_hor_in"] = zoomHorInAction;
 
@@ -6826,7 +8533,7 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
     Appearance::setActionIcon(zoomVerOutAction, ":/run_environment/graphics/tool/zoom_ver_out.png");
     zoomVerOutAction->setShortcut(QKeySequence(QKeyCombination(Qt::SHIFT, Qt::Key_Minus)));
     _defaultShortcuts["zoom_ver_out"] = QList<QKeySequence>() << zoomVerOutAction->shortcut();
-    connect(zoomVerOutAction, SIGNAL(triggered()), _matrixWidgetContainer, SLOT(zoomVerOut()));
+    connect(zoomVerOutAction, &QAction::triggered, this, [this] { zoomActiveView("zoomVerOut"); });
     zoomMenu->addAction(zoomVerOutAction);
     _actionMap["zoom_ver_out"] = zoomVerOutAction;
 
@@ -6834,7 +8541,7 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
     Appearance::setActionIcon(zoomVerInAction, ":/run_environment/graphics/tool/zoom_ver_in.png");
     zoomVerInAction->setShortcut(QKeySequence(QKeyCombination(Qt::SHIFT, Qt::Key_Equal)));
     _defaultShortcuts["zoom_ver_in"] = QList<QKeySequence>() << zoomVerInAction->shortcut();
-    connect(zoomVerInAction, SIGNAL(triggered()), _matrixWidgetContainer, SLOT(zoomVerIn()));
+    connect(zoomVerInAction, &QAction::triggered, this, [this] { zoomActiveView("zoomVerIn"); });
     zoomMenu->addAction(zoomVerInAction);
     _actionMap["zoom_ver_in"] = zoomVerInAction;
 
@@ -6843,7 +8550,7 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
     QAction *zoomStdAction = new QAction(tr("Restore default zoom"), this);
     zoomStdAction->setShortcut(QKeySequence(QKeyCombination(Qt::CTRL, Qt::Key_Backspace)));
     _defaultShortcuts["zoom_std"] = QList<QKeySequence>() << zoomStdAction->shortcut();
-    connect(zoomStdAction, SIGNAL(triggered()), _matrixWidgetContainer, SLOT(zoomStd()));
+    connect(zoomStdAction, &QAction::triggered, this, [this] { zoomActiveView("zoomStd"); });
     zoomMenu->addAction(zoomStdAction);
     _actionMap["zoom_std"] = zoomStdAction;
 
@@ -6858,6 +8565,15 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
     connect(resetViewAction, SIGNAL(triggered()), this, SLOT(resetView()));
     viewMB->addAction(resetViewAction);
     _actionMap["reset_view"] = resetViewAction;
+
+    viewMB->addSeparator();
+
+    // Phase 28: side-by-side compare view (read-only second document).
+    QAction *compareViewAction = new QAction(tr("Compare View (side by side)"), this);
+    compareViewAction->setToolTip(tr("Show another open document next to the editor for comparison"));
+    connect(compareViewAction, &QAction::triggered, this, &MainWindow::toggleCompareView);
+    viewMB->addAction(compareViewAction);
+    _actionMap["compare_view"] = compareViewAction;
 
     viewMB->addSeparator();
 
@@ -7498,15 +9214,19 @@ void MainWindow::checkForUpdates(bool silent) {
                     connect(_autoUpdater, &AutoUpdater::downloadComplete, this,
                         [this, updateNow](const QString &zipPath) {
                         if (updateNow) {
-                            QString midiPath;
-                            if (file) {
-                                midiPath = file->path();
-                                if (!file->saved() && !midiPath.isEmpty()) {
-                                    file->save(midiPath);
-                                }
+                            // Update-restart bypasses closeEvent, so do the same
+                            // work here: prompt to save every dirty tab across
+                            // both groups (abort the update if cancelled) and
+                            // persist the session so the updated instance
+                            // restores the full workspace, not just one file.
+                            if (!promptSaveAllDirtyTabs()) {
+                                _forceCloseForUpdate = false;
+                                return;
                             }
+                            saveSession();
+                            _settings->sync(); // flush: executeUpdateNow ExitProcess()es, no dtors run
                             _forceCloseForUpdate = true;
-                            _autoUpdater->executeUpdateNow(midiPath);
+                            _autoUpdater->executeUpdateNow(file ? file->path() : QString());
                         } else {
                             _autoUpdater->scheduleUpdateOnExit();
                             QMessageBox::information(this, tr("Update Scheduled"),
@@ -7590,22 +9310,22 @@ void MainWindow::openConfig() {
 }
 
 void MainWindow::restartForThemeChange() {
-    // Save current file if modified
-    if (file && !file->saved()) {
-        if (!saveBeforeClose()) {
-            return; // User cancelled â€” abort restart
-        }
+    // Prompt to save every dirty tab across both groups (not just the active
+    // one) - the restart bypasses closeEvent, so do it here too.
+    if (!promptSaveAllDirtyTabs()) {
+        return; // user cancelled - abort restart
     }
 
-    // Persist all settings to disk
+    // Persist the open tabs/groups so the restarted instance restores them, plus
+    // all settings.
+    saveSession();
     Appearance::writeSettings(_settings);
     _settings->sync();
 
-    // Build command-line arguments for the restarted instance
+    // Build command-line arguments for the restarted instance. We do NOT pass
+    // --open here: the full session (all tabs + the split) is reopened from the
+    // persisted session on startup instead of just the active file.
     QStringList args;
-    if (file && QFile::exists(file->path())) {
-        args << "--open" << file->path();
-    }
     args << "--open-settings";
 
     QString exePath = QCoreApplication::applicationFilePath();
@@ -7932,7 +9652,7 @@ QWidget *MainWindow::createCustomToolbar(QWidget *parent) {
         QToolBar *bottomToolBar = new QToolBar("Bottom", buttonBar);
 
         // Essential toolbar setup (larger icons)
-        int essentialIconSize = iconSize + 8;
+        int essentialIconSize = iconSize;
         essentialToolBar->setFloatable(false);
         essentialToolBar->setContentsMargins(0, 0, 0, 0);
         essentialToolBar->layout()->setSpacing(3);
@@ -7989,7 +9709,7 @@ QWidget *MainWindow::createCustomToolbar(QWidget *parent) {
                 // Set text under icon for essential actions
                 QWidget *toolButton = essentialToolBar->widgetForAction(action);
                 if (QToolButton *button = qobject_cast<QToolButton *>(toolButton)) {
-                    button->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
+                    button->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
                 }
             }
         }
@@ -8154,7 +9874,8 @@ QWidget *MainWindow::createCustomToolbar(QWidget *parent) {
         // Layout: Essential toolbar on left, content toolbars stacked on right
         btnLayout->setColumnStretch(1, 1);
         btnLayout->setColumnMinimumWidth(1, 800); // Ensure content toolbars have adequate width for double row
-        btnLayout->addWidget(essentialToolBar, 0, 0, 2, 1); // Spans both rows
+        btnLayout->addWidget(essentialToolBar, 0, 0, 1, 1, Qt::AlignTop | Qt::AlignLeft); // Essential bar in the top row of column 0...
+        btnLayout->addWidget(buildTabToolsBar(btnLayout->parentWidget(), essentialIconSize), 1, 0, 1, 1, Qt::AlignTop | Qt::AlignLeft); // ...with the Phase 28 tab-tools row (New Tab / Split / Clone) below it
         btnLayout->addWidget(topToolBar, 0, 1, 1, 1);
         btnLayout->addWidget(bottomToolBar, 1, 1, 1, 1);
     } else {
@@ -8332,9 +10053,10 @@ QWidget *MainWindow::createCustomToolbar(QWidget *parent) {
                         // Set the toolbar style for this specific action
                         QWidget *toolButton = toolBar->widgetForAction(action);
                         if (QToolButton *button = qobject_cast<QToolButton *>(toolButton)) {
-                            button->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
-                            // Make essential action icons slightly larger
-                            button->setIconSize(QSize(iconSize + 4, iconSize + 4));
+                            button->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+                            // Phase 28: keep essential icons at row size so the
+                            // block stays flush with the two-row toolbar.
+                            button->setIconSize(QSize(iconSize, iconSize));
                         }
                     }
                 } catch (...) {
@@ -8555,7 +10277,7 @@ void MainWindow::updateToolbarContents(QWidget *toolbarWidget, QGridLayout *btnL
         QToolBar *bottomToolBar = new QToolBar("Bottom", toolbarWidget);
 
         // Essential toolbar setup (larger icons)
-        int essentialIconSize = iconSize + 8;
+        int essentialIconSize = iconSize;
         essentialToolBar->setFloatable(false);
         essentialToolBar->setContentsMargins(0, 0, 0, 0);
         essentialToolBar->layout()->setSpacing(3);
@@ -8612,7 +10334,7 @@ void MainWindow::updateToolbarContents(QWidget *toolbarWidget, QGridLayout *btnL
                 // Set text under icon for essential actions
                 QWidget *toolButton = essentialToolBar->widgetForAction(action);
                 if (QToolButton *button = qobject_cast<QToolButton *>(toolButton)) {
-                    button->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
+                    button->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
                 }
             }
         }
@@ -8755,7 +10477,8 @@ void MainWindow::updateToolbarContents(QWidget *toolbarWidget, QGridLayout *btnL
         // Layout: Essential toolbar on left, content toolbars stacked on right
         btnLayout->setColumnStretch(1, 1);
         btnLayout->setColumnMinimumWidth(1, 800); // Ensure content toolbars have adequate width for double row
-        btnLayout->addWidget(essentialToolBar, 0, 0, 2, 1); // Spans both rows
+        btnLayout->addWidget(essentialToolBar, 0, 0, 1, 1, Qt::AlignTop | Qt::AlignLeft); // Essential bar in the top row of column 0...
+        btnLayout->addWidget(buildTabToolsBar(btnLayout->parentWidget(), essentialIconSize), 1, 0, 1, 1, Qt::AlignTop | Qt::AlignLeft); // ...with the Phase 28 tab-tools row (New Tab / Split / Clone) below it
         btnLayout->addWidget(topToolBar, 0, 1, 1, 1);
         btnLayout->addWidget(bottomToolBar, 1, 1, 1, 1);
     } else {

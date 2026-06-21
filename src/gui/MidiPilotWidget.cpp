@@ -1045,25 +1045,37 @@ void MidiPilotWidget::onFileChanged(MidiFile *f) {
 }
 
 void MidiPilotWidget::abortActiveRequest() {
+    // Phase 28 (editor groups): release the pinned edit target immediately on any
+    // abort (user Stop, or MainWindow aborting because the origin tab is closing).
+    _runOriginFile = nullptr;
+    // Invalidate any pending simple-mode self-healing retry: it captured the old
+    // generation and bails when it no longer matches. Must run BEFORE the isBusy()
+    // check below, because during the retry backoff window the client is NOT busy
+    // (the failed reply already finished) - so the old code never stopped it.
+    _requestGeneration++;
+
     if (_isAgentRunning && _agentRunner) {
         // AgentRunner::cancel() aborts the reply AND emits errorOccurred,
         // which lands in onAgentError → _isAgentRunning=false + UI reset.
         _agentRunner->cancel();
         return;
     }
+
+    // Simple mode. Reset when there is something to stop: an in-flight request OR
+    // a pending retry waiting on the backoff timer (client not busy in that window).
+    const bool hadSimpleWork = (_client && _client->isBusy()) || _simpleRetryPending;
     if (_client && _client->isBusy()) {
-        // Simple mode. AiClient::cancelRequest() is intentionally silent
-        // (no errorOccurred) because AgentRunner relies on that to avoid a
-        // double signal — so we have to reset the simple-mode UI here.
+        // AiClient::cancelRequest() is intentionally silent (no errorOccurred) so
+        // AgentRunner avoids a double signal — so we reset the simple-mode UI here.
         _client->cancelRequest();
+    }
+    if (hadSimpleWork) {
+        _simpleRetryPending = false;
         _isAgentRunning = false;
         _simpleRetryCount = 0;
         _lastSimpleMessage.clear();
         setStatus(tr("Stopped"), "gray");
-        // Phase 9.9c §15.2: respect the show-mode lock when re-enabling
-        // input after an abort — a viewer pressing Stop on an in-flight
-        // request (probably stale from before the hat changed hands)
-        // should land back in a locked state, not a usable one.
+        // Phase 9.9c §15.2: respect the show-mode lock when re-enabling input.
         bool inputEnabled = !_showModeLocked;
         _inputField->setEnabled(inputEnabled);
         _sendButton->setEnabled(inputEnabled);
@@ -1269,6 +1281,11 @@ void MidiPilotWidget::onSendMessage() {
 
         // Wrap all tool calls in a single undo action
         _isAgentRunning = true;
+        // Phase 28 (editor groups): pin the document this run edits NOW, so that
+        // switching tabs while the agent generates can't redirect the applied
+        // edits to the wrong file (the apply path reads activeEditFile()).
+        _requestGeneration++;
+        _runOriginFile = _file;
         _sendButton->setVisible(false);
         _stopButton->setVisible(true);
 
@@ -1378,6 +1395,12 @@ void MidiPilotWidget::onSendMessage() {
                                                     _client->contextWindowForModel(),
                                                     simplePrompt.length());
 
+        // Phase 28 (editor groups): pin the edit target for simple mode too, so a
+        // tab switch during the streaming request can't redirect the applied edit.
+        // Bumping the generation invalidates any retry still pending from a prior
+        // request so it can't fire after this new send.
+        _requestGeneration++;
+        _runOriginFile = _file;
         _client->sendStreamingRequest(simplePrompt,
                                        historyForApi, fullMessage);
         // Give simple mode a Stop affordance too — mirror the agent path's
@@ -1467,6 +1490,12 @@ void MidiPilotWidget::onResponseReceived(const QString &content, const QJsonObje
         }
     }
 
+    // Phase 28 (editor groups): simple mode applies the edit HERE, after a
+    // possible tab switch. Pin the apply target to the document the request was
+    // sent against (captured in _runOriginFile) for the duration of the dispatch,
+    // then clear it so a later MCP/manual edit follows the live _file again.
+    _applyTargetFile = _runOriginFile ? _runOriginFile : _file;
+
     // Try to parse as JSON action response
     QJsonDocument doc = QJsonDocument::fromJson(cleaned.toUtf8());
     if (doc.isObject()) {
@@ -1527,6 +1556,10 @@ void MidiPilotWidget::onResponseReceived(const QString &content, const QJsonObje
             addChatBubble("assistant", content);
         }
     }
+    // The simple-mode edit (if any) has been applied - release both the scoped
+    // apply target and the request-origin pin.
+    _applyTargetFile = nullptr;
+    _runOriginFile = nullptr;
 
     // Store entry
     ConversationEntry entry;
@@ -1720,7 +1753,18 @@ void MidiPilotWidget::onErrorOccurred(const QString &errorMessage) {
         QString sysP = _lastSimpleSystemPrompt;
         QJsonArray hist = _lastSimpleHistory;
         QString msg = _lastSimpleMessage;
-        QTimer::singleShot(delayMs, this, [this, sysP, hist, msg]() {
+        // Phase 28: pin the retry to this request's generation + origin document so
+        // a Stop / tab-close / new send during the backoff invalidates it, and a tab
+        // switch during the backoff still applies the edit to the origin document.
+        const quint64 gen = _requestGeneration;
+        MidiFile *origin = _runOriginFile;
+        _simpleRetryPending = true;
+        QTimer::singleShot(delayMs, this, [this, sysP, hist, msg, gen, origin]() {
+            if (gen != _requestGeneration) {
+                return; // aborted, superseded by a new send, or the origin tab was closed
+            }
+            _simpleRetryPending = false;
+            _runOriginFile = origin; // re-pin (covers a tab switch during the backoff)
             _client->sendStreamingRequest(sysP, hist, msg);
             QJsonObject userMsg;
             userMsg["role"] = "user";
@@ -1757,6 +1801,10 @@ void MidiPilotWidget::onErrorOccurred(const QString &errorMessage) {
     addChatBubble("system", "Error: " + surfaced);
     _simpleRetryCount = 0;
     _lastSimpleMessage.clear();
+    // Phase 28: release the request-origin pin symmetrically with the other
+    // terminal handlers (onResponseReceived / onAgentFinished / onAgentError) so
+    // isAgentRunningOn() doesn't keep reporting a phantom run after a dead request.
+    _runOriginFile = nullptr;
 }
 
 void MidiPilotWidget::onSettingsClicked() {
@@ -1818,6 +1866,36 @@ void MidiPilotWidget::updateTokenLabel() {
         else
             _tokenLabel->setStyleSheet("font-size: 10px; color: #888;");
     }
+}
+
+MidiFile *MidiPilotWidget::activeEditFile() const {
+    // The apply target is set in a tight scope around each dispatch (see
+    // setApplyTarget): the document the request was made against, even if the
+    // user switched tabs mid-request. Outside an apply it is null, so edits fall
+    // back to the live _file - this is what keeps a finished MidiPilot run from
+    // hijacking a later MCP/manual edit.
+    return _applyTargetFile ? _applyTargetFile : _file;
+}
+
+void MidiPilotWidget::setApplyTarget(MidiFile *f) {
+    _applyTargetFile = f;
+}
+
+Selection *MidiPilotWidget::activeEditSelection() const {
+    MidiFile *f = activeEditFile();
+    Selection *s = f ? Selection::forFile(f) : nullptr;
+    // Never null: outside a run forFile(_file) == instance(); during a run the
+    // origin always has a retained selection. Fall back defensively.
+    return s ? s : Selection::instance();
+}
+
+bool MidiPilotWidget::isAgentRunning() const {
+    return _isAgentRunning;
+}
+
+bool MidiPilotWidget::isAgentRunningOn(MidiFile *f) const {
+    // True if an in-flight request (agent or simple) was started against f.
+    return f && _runOriginFile == f;
 }
 
 QJsonObject MidiPilotWidget::executeAction(const QJsonObject &actionObj) {
@@ -2034,6 +2112,8 @@ void MidiPilotWidget::onAgentStepCompleted(int step, const QString &toolName, co
 
 void MidiPilotWidget::onAgentFinished(const QString &finalMessage) {
     _isAgentRunning = false;
+    // Phase 28: the run (and all its tool applies) is done - release the origin pin.
+    _runOriginFile = nullptr;
 
     // Stop the thought-cursor pulse and freeze the thought label at its
     // final accumulated text (drop the trailing blinking cursor glyph).
@@ -2131,6 +2211,9 @@ void MidiPilotWidget::onAgentFinished(const QString &finalMessage) {
 
 void MidiPilotWidget::onAgentError(const QString &error) {
     _isAgentRunning = false;
+    // Phase 28: run aborted/failed - release the origin pin (apply target is
+    // scoped separately and already reset).
+    _runOriginFile = nullptr;
 
 #ifdef MIDIEDITOR_COLLAB_ENABLED
     // Phase 9.3 — drop any pending PR-mode snapshot so the next agent run
@@ -2387,7 +2470,7 @@ QJsonObject MidiPilotWidget::applyAiEdits(const QJsonObject &response, bool show
     QJsonObject result;
     result["action"] = QString("edit");
 
-    if (!_file) {
+    if (!activeEditFile()) {
         result["success"] = false;
         result["error"] = QString("No file loaded.");
         return result;
@@ -2407,7 +2490,7 @@ QJsonObject MidiPilotWidget::applyAiEdits(const QJsonObject &response, bool show
     if (response.contains("track")) {
         trackIndex = response["track"].toInt(-1);
     }
-    if (trackIndex < 0 || trackIndex >= _file->numTracks()) {
+    if (trackIndex < 0 || trackIndex >= activeEditFile()->numTracks()) {
         trackIndex = NewNoteTool::editTrack();
     }
 
@@ -2416,18 +2499,18 @@ QJsonObject MidiPilotWidget::applyAiEdits(const QJsonObject &response, bool show
     if (response.contains("channel")) {
         channel = response["channel"].toInt(-1);
     }
-    if (channel < 0 && trackIndex >= 0 && trackIndex < _file->numTracks()) {
-        channel = _file->track(trackIndex)->assignedChannel();
+    if (channel < 0 && trackIndex >= 0 && trackIndex < activeEditFile()->numTracks()) {
+        channel = activeEditFile()->track(trackIndex)->assignedChannel();
     }
     if (channel < 0) {
         channel = NewNoteTool::editChannel();
     }
 
     MidiTrack *track = nullptr;
-    if (trackIndex >= 0 && trackIndex < _file->numTracks()) {
-        track = _file->track(trackIndex);
-    } else if (_file->numTracks() > 0) {
-        track = _file->track(0);
+    if (trackIndex >= 0 && trackIndex < activeEditFile()->numTracks()) {
+        track = activeEditFile()->track(trackIndex);
+    } else if (activeEditFile()->numTracks() > 0) {
+        track = activeEditFile()->track(0);
     }
 
     if (!track) {
@@ -2441,26 +2524,26 @@ QJsonObject MidiPilotWidget::applyAiEdits(const QJsonObject &response, bool show
                            .arg(protoPrefix(response))
                            .arg(track->name())
                            .arg(events.size());
-    _file->protocol()->startNewAction(protoMsg);
+    activeEditFile()->protocol()->startNewAction(protoMsg);
 
     // In simple mode, remove currently selected events (they will be replaced by AI output).
     // In agent mode (showBubbles=false), skip this — each tool call is an independent insert.
     if (showBubbles) {
-        QList<MidiEvent *> selected = Selection::instance()->selectedEvents();
+        QList<MidiEvent *> selected = activeEditSelection()->selectedEvents();
         for (MidiEvent *ev : selected) {
-            MidiChannel *ch = _file->channel(ev->channel());
+            MidiChannel *ch = activeEditFile()->channel(ev->channel());
             if (ch) ch->removeEvent(ev);
         }
-        Selection::instance()->clearSelection();
+        activeEditSelection()->clearSelection();
     }
 
     // Deserialize and insert new events
     QList<MidiEvent *> created;
     QStringList skippedErrors;
-    bool ok = MidiEventSerializer::deserialize(events, _file, track, channel, created, &skippedErrors);
+    bool ok = MidiEventSerializer::deserialize(events, activeEditFile(), track, channel, created, &skippedErrors);
 
     if (!ok) {
-        _file->protocol()->endAction();
+        activeEditFile()->protocol()->endAction();
         if (showBubbles) {
             addChatBubble("system", "Warning: Some events could not be applied.");
         }
@@ -2472,9 +2555,9 @@ QJsonObject MidiPilotWidget::applyAiEdits(const QJsonObject &response, bool show
     // In simple mode, select the newly created events for visual feedback.
     // In agent mode, skip selection to prevent next tool call from deleting these events.
     if (showBubbles) {
-        Selection::instance()->setSelection(created);
+        activeEditSelection()->setSelection(created);
     }
-    _file->protocol()->endAction();
+    activeEditFile()->protocol()->endAction();
 
     emit requestRepaint();
 
@@ -2495,7 +2578,7 @@ QJsonObject MidiPilotWidget::applyAiDeletes(const QJsonObject &response, bool sh
     QJsonObject result;
     result["action"] = QString("delete");
 
-    if (!_file) {
+    if (!activeEditFile()) {
         result["success"] = false;
         result["error"] = QString("No file loaded.");
         return result;
@@ -2510,7 +2593,7 @@ QJsonObject MidiPilotWidget::applyAiDeletes(const QJsonObject &response, bool sh
 
     QString explanation = response["explanation"].toString("MidiPilot delete");
 
-    QList<MidiEvent *> selected = Selection::instance()->selectedEvents();
+    QList<MidiEvent *> selected = activeEditSelection()->selectedEvents();
     if (selected.isEmpty()) {
         result["success"] = false;
         result["error"] = QString("No events selected.");
@@ -2532,26 +2615,26 @@ QJsonObject MidiPilotWidget::applyAiDeletes(const QJsonObject &response, bool sh
         return result;
     }
 
-    _file->protocol()->startNewAction(
+    activeEditFile()->protocol()->startNewAction(
         QStringLiteral("%1: Agent delete events (%2)").arg(protoPrefix(response)).arg(toDelete.size()));
 
     // Remove the specified events
     QList<MidiEvent *> remaining;
     for (int i = 0; i < selected.size(); i++) {
         if (toDelete.contains(i)) {
-            MidiChannel *ch = _file->channel(selected[i]->channel());
+            MidiChannel *ch = activeEditFile()->channel(selected[i]->channel());
             if (ch) ch->removeEvent(selected[i]);
         } else {
             remaining.append(selected[i]);
         }
     }
 
-    Selection::instance()->clearSelection();
+    activeEditSelection()->clearSelection();
     if (!remaining.isEmpty()) {
-        Selection::instance()->setSelection(remaining);
+        activeEditSelection()->setSelection(remaining);
     }
 
-    _file->protocol()->endAction();
+    activeEditFile()->protocol()->endAction();
 
     emit requestRepaint();
 
@@ -2564,7 +2647,7 @@ QJsonObject MidiPilotWidget::applyTrackAction(const QJsonObject &response, bool 
     QJsonObject result;
     result["action"] = response["action"].toString();
 
-    if (!_file) {
+    if (!activeEditFile()) {
         result["success"] = false;
         result["error"] = QString("No file loaded.");
         return result;
@@ -2577,35 +2660,35 @@ QJsonObject MidiPilotWidget::applyTrackAction(const QJsonObject &response, bool 
         QString trackName = response["trackName"].toString("New Track");
         int channel = response["channel"].toInt(-1);
 
-        _file->protocol()->startNewAction(
+        activeEditFile()->protocol()->startNewAction(
             QStringLiteral("%1: Agent create track - %2").arg(protoPrefix(response)).arg(trackName));
-        _file->addTrack();
-        MidiTrack *newTrack = _file->tracks()->at(_file->numTracks() - 1);
+        activeEditFile()->addTrack();
+        MidiTrack *newTrack = activeEditFile()->tracks()->at(activeEditFile()->numTracks() - 1);
         newTrack->setName(trackName);
         if (channel >= 0 && channel <= 15) {
             newTrack->assignChannel(channel);
         }
-        _file->protocol()->endAction();
+        activeEditFile()->protocol()->endAction();
 
         result["success"] = true;
-        result["trackIndex"] = _file->numTracks() - 1;
+        result["trackIndex"] = activeEditFile()->numTracks() - 1;
         result["hint"] = QString("Remember to insert a program_change at tick 0 to set the instrument sound.");
 
     } else if (action == "rename_track") {
         int trackIndex = response["trackIndex"].toInt(-1);
         QString newName = response["newName"].toString();
 
-        if (trackIndex < 0 || trackIndex >= _file->numTracks() || newName.isEmpty()) {
+        if (trackIndex < 0 || trackIndex >= activeEditFile()->numTracks() || newName.isEmpty()) {
             if (showBubbles) addChatBubble("system", "Invalid track index or name for rename.");
             result["success"] = false;
             result["error"] = QString("Invalid track index or name for rename.");
             return result;
         }
 
-        _file->protocol()->startNewAction(
+        activeEditFile()->protocol()->startNewAction(
             QStringLiteral("%1: Agent rename track %2 - %3").arg(protoPrefix(response)).arg(trackIndex).arg(newName));
-        _file->track(trackIndex)->setName(newName);
-        _file->protocol()->endAction();
+        activeEditFile()->track(trackIndex)->setName(newName);
+        activeEditFile()->protocol()->endAction();
 
         result["success"] = true;
 
@@ -2613,7 +2696,7 @@ QJsonObject MidiPilotWidget::applyTrackAction(const QJsonObject &response, bool 
         int trackIndex = response["trackIndex"].toInt(-1);
         int channel = response["channel"].toInt(-1);
 
-        if (trackIndex < 0 || trackIndex >= _file->numTracks()) {
+        if (trackIndex < 0 || trackIndex >= activeEditFile()->numTracks()) {
             if (showBubbles) addChatBubble("system", "Invalid track index for channel assignment.");
             result["success"] = false;
             result["error"] = QString("Invalid track index for channel assignment.");
@@ -2626,37 +2709,37 @@ QJsonObject MidiPilotWidget::applyTrackAction(const QJsonObject &response, bool 
             return result;
         }
 
-        _file->protocol()->startNewAction(
+        activeEditFile()->protocol()->startNewAction(
             QStringLiteral("%1: Agent set channel - Track %2 - Ch %3").arg(protoPrefix(response)).arg(trackIndex).arg(channel));
-        _file->track(trackIndex)->assignChannel(channel);
-        _file->protocol()->endAction();
+        activeEditFile()->track(trackIndex)->assignChannel(channel);
+        activeEditFile()->protocol()->endAction();
 
         result["success"] = true;
 
     } else if (action == "remove_track") {
         int trackIndex = response["trackIndex"].toInt(-1);
 
-        if (trackIndex < 0 || trackIndex >= _file->numTracks()) {
+        if (trackIndex < 0 || trackIndex >= activeEditFile()->numTracks()) {
             if (showBubbles) addChatBubble("system", "Invalid track index for remove.");
             result["success"] = false;
             result["error"] = QString("Invalid track index: %1").arg(trackIndex);
             return result;
         }
-        if (_file->numTracks() <= 1) {
+        if (activeEditFile()->numTracks() <= 1) {
             result["success"] = false;
             result["error"] = QString("Cannot remove the last track of the file.");
             return result;
         }
 
-        MidiTrack *track = _file->track(trackIndex);
+        MidiTrack *track = activeEditFile()->track(trackIndex);
         QString removedName = track->name();
-        _file->protocol()->startNewAction(
+        activeEditFile()->protocol()->startNewAction(
             QStringLiteral("%1: Agent remove track %2").arg(protoPrefix(response)).arg(trackIndex));
         // Clear the selection first: any selected events on this track would be
         // dangling pointers once the track (and its events) are gone.
-        Selection::instance()->clearSelection();
-        bool ok = _file->removeTrack(track);
-        _file->protocol()->endAction();
+        activeEditSelection()->clearSelection();
+        bool ok = activeEditFile()->removeTrack(track);
+        activeEditFile()->protocol()->endAction();
 
         if (!ok) {
             result["success"] = false;
@@ -2683,14 +2766,14 @@ QJsonObject MidiPilotWidget::applyMoveToTrack(const QJsonObject &response, bool 
     QJsonObject result;
     result["action"] = QString("move_to_track");
 
-    if (!_file) {
+    if (!activeEditFile()) {
         result["success"] = false;
         result["error"] = QString("No file loaded.");
         return result;
     }
 
     int targetTrackIndex = response["trackIndex"].toInt(-1);
-    if (targetTrackIndex < 0 || targetTrackIndex >= _file->numTracks()) {
+    if (targetTrackIndex < 0 || targetTrackIndex >= activeEditFile()->numTracks()) {
         if (showBubbles) addChatBubble("system", "Invalid target track index.");
         result["success"] = false;
         result["error"] = QString("Invalid target track index.");
@@ -2702,13 +2785,13 @@ QJsonObject MidiPilotWidget::applyMoveToTrack(const QJsonObject &response, bool 
     QList<MidiEvent *> toMove;
 
     int sourceTrackIndex = response["sourceTrackIndex"].toInt(-1);
-    if (sourceTrackIndex >= 0 && sourceTrackIndex < _file->numTracks()) {
-        MidiTrack *srcTrack = _file->track(sourceTrackIndex);
+    if (sourceTrackIndex >= 0 && sourceTrackIndex < activeEditFile()->numTracks()) {
+        MidiTrack *srcTrack = activeEditFile()->track(sourceTrackIndex);
         int startTick = response["startTick"].toInt(0);
         int endTick   = response["endTick"].toInt(INT_MAX);
         // Gather all events on the source track within the tick range
         for (int ch = 0; ch < 19; ch++) {
-            MidiChannel *channel = _file->channel(ch);
+            MidiChannel *channel = activeEditFile()->channel(ch);
             if (!channel) continue;
             QMultiMap<int, MidiEvent *> *map = channel->eventMap();
             for (auto it = map->begin(); it != map->end(); ++it) {
@@ -2722,7 +2805,7 @@ QJsonObject MidiPilotWidget::applyMoveToTrack(const QJsonObject &response, bool 
             }
         }
     } else {
-        toMove = Selection::instance()->selectedEvents();
+        toMove = activeEditSelection()->selectedEvents();
     }
 
     if (toMove.isEmpty()) {
@@ -2732,9 +2815,9 @@ QJsonObject MidiPilotWidget::applyMoveToTrack(const QJsonObject &response, bool 
         return result;
     }
 
-    MidiTrack *targetTrack = _file->track(targetTrackIndex);
+    MidiTrack *targetTrack = activeEditFile()->track(targetTrackIndex);
 
-    _file->protocol()->startNewAction(
+    activeEditFile()->protocol()->startNewAction(
         QStringLiteral("%1: Agent move events - %2 (%3)")
             .arg(protoPrefix(response)).arg(targetTrack->name()).arg(toMove.size()));
 
@@ -2742,7 +2825,7 @@ QJsonObject MidiPilotWidget::applyMoveToTrack(const QJsonObject &response, bool 
         ev->setTrack(targetTrack, false);
     }
 
-    _file->protocol()->endAction();
+    activeEditFile()->protocol()->endAction();
 
     emit requestRepaint();
 
@@ -2755,7 +2838,7 @@ QJsonObject MidiPilotWidget::applyTempoAction(const QJsonObject &response, bool 
     QJsonObject result;
     result["action"] = QString("set_tempo");
 
-    if (!_file) {
+    if (!activeEditFile()) {
         result["success"] = false;
         result["error"] = QString("No file loaded.");
         return result;
@@ -2772,11 +2855,11 @@ QJsonObject MidiPilotWidget::applyTempoAction(const QJsonObject &response, bool 
     int tick = response["tick"].toInt(0);
     if (tick < 0) tick = 0;
 
-    _file->protocol()->startNewAction(
+    activeEditFile()->protocol()->startNewAction(
         QStringLiteral("%1: Agent set tempo - %2 BPM").arg(protoPrefix(response)).arg(bpm));
 
     // Check if there's already a tempo event at this tick
-    QMultiMap<int, MidiEvent *> *tempoMap = _file->tempoEvents();
+    QMultiMap<int, MidiEvent *> *tempoMap = activeEditFile()->tempoEvents();
     TempoChangeEvent *existing = nullptr;
     if (tempoMap) {
         auto it = tempoMap->find(tick);
@@ -2791,13 +2874,13 @@ QJsonObject MidiPilotWidget::applyTempoAction(const QJsonObject &response, bool 
     } else {
         // Create new tempo event
         int microsPerQuarter = 60000000 / bpm;
-        MidiTrack *track = _file->track(0);
+        MidiTrack *track = activeEditFile()->track(0);
         TempoChangeEvent *ev = new TempoChangeEvent(17, microsPerQuarter, track);
-        _file->channel(17)->insertEvent(ev, tick);
+        activeEditFile()->channel(17)->insertEvent(ev, tick);
     }
 
-    _file->protocol()->endAction();
-    _file->calcMaxTime();
+    activeEditFile()->protocol()->endAction();
+    activeEditFile()->calcMaxTime();
 
     emit requestRepaint();
 
@@ -2810,7 +2893,7 @@ QJsonObject MidiPilotWidget::applyTimeSignatureAction(const QJsonObject &respons
     QJsonObject result;
     result["action"] = QString("set_time_signature");
 
-    if (!_file) {
+    if (!activeEditFile()) {
         result["success"] = false;
         result["error"] = QString("No file loaded.");
         return result;
@@ -2844,11 +2927,11 @@ QJsonObject MidiPilotWidget::applyTimeSignatureAction(const QJsonObject &respons
     int tick = response["tick"].toInt(0);
     if (tick < 0) tick = 0;
 
-    _file->protocol()->startNewAction(
+    activeEditFile()->protocol()->startNewAction(
         QStringLiteral("%1: Agent set time sig - %2/%3").arg(protoPrefix(response)).arg(num).arg(denomActual));
 
     // Check if there's already a time signature event at this tick
-    QMultiMap<int, MidiEvent *> *tsMap = _file->timeSignatureEvents();
+    QMultiMap<int, MidiEvent *> *tsMap = activeEditFile()->timeSignatureEvents();
     TimeSignatureEvent *existing = nullptr;
     if (tsMap) {
         auto it = tsMap->find(tick);
@@ -2863,12 +2946,12 @@ QJsonObject MidiPilotWidget::applyTimeSignatureAction(const QJsonObject &respons
         existing->setDenominator(denomMidi);
     } else {
         // Create new time signature event
-        MidiTrack *track = _file->track(0);
+        MidiTrack *track = activeEditFile()->track(0);
         TimeSignatureEvent *ev = new TimeSignatureEvent(18, num, denomMidi, 24, 8, track);
-        _file->channel(18)->insertEvent(ev, tick);
+        activeEditFile()->channel(18)->insertEvent(ev, tick);
     }
 
-    _file->protocol()->endAction();
+    activeEditFile()->protocol()->endAction();
 
     emit requestRepaint();
 
@@ -2882,7 +2965,7 @@ QJsonObject MidiPilotWidget::applySelectAndEdit(const QJsonObject &response, boo
     QJsonObject result;
     result["action"] = QString("select_and_edit");
 
-    if (!_file) {
+    if (!activeEditFile()) {
         result["success"] = false;
         result["error"] = QString("No file loaded.");
         return result;
@@ -2893,7 +2976,7 @@ QJsonObject MidiPilotWidget::applySelectAndEdit(const QJsonObject &response, boo
     int endTick = response["endTick"].toInt(-1);
     QJsonArray events = response["events"].toArray();
 
-    if (trackIndex < 0 || trackIndex >= _file->numTracks()) {
+    if (trackIndex < 0 || trackIndex >= activeEditFile()->numTracks()) {
         if (showBubbles) addChatBubble("system", "Invalid track index for select_and_edit.");
         result["success"] = false;
         result["error"] = QString("Invalid track index for select_and_edit.");
@@ -2912,16 +2995,16 @@ QJsonObject MidiPilotWidget::applySelectAndEdit(const QJsonObject &response, boo
         return result;
     }
 
-    MidiTrack *targetTrack = _file->track(trackIndex);
+    MidiTrack *targetTrack = activeEditFile()->track(trackIndex);
     int channel = targetTrack->assignedChannel();
     if (channel < 0) channel = NewNoteTool::editChannel();
 
-    _file->protocol()->startNewAction(
+    activeEditFile()->protocol()->startNewAction(
         QStringLiteral("%1: Agent edit events - %2 (%3)")
             .arg(protoPrefix(response)).arg(targetTrack->name()).arg(events.size()));
 
     // Find and remove existing events in the tick range on this track
-    QList<MidiEvent *> *allEvents = _file->eventsBetween(startTick, endTick);
+    QList<MidiEvent *> *allEvents = activeEditFile()->eventsBetween(startTick, endTick);
     if (allEvents) {
         for (MidiEvent *ev : *allEvents) {
             // Skip OffEvents, tempo/time sig/meta channels
@@ -2930,23 +3013,23 @@ QJsonObject MidiPilotWidget::applySelectAndEdit(const QJsonObject &response, boo
             // Only remove events on the target track
             if (ev->track() != targetTrack) continue;
 
-            MidiChannel *ch = _file->channel(ev->channel());
+            MidiChannel *ch = activeEditFile()->channel(ev->channel());
             if (ch) ch->removeEvent(ev);
         }
         delete allEvents;
     }
 
     // Deserialize and insert new events
-    Selection::instance()->clearSelection();
+    activeEditSelection()->clearSelection();
     QList<MidiEvent *> created;
     QStringList skippedErrors;
-    MidiEventSerializer::deserialize(events, _file, targetTrack, channel, created, &skippedErrors);
+    MidiEventSerializer::deserialize(events, activeEditFile(), targetTrack, channel, created, &skippedErrors);
 
     if (!created.isEmpty()) {
-        Selection::instance()->setSelection(created);
+        activeEditSelection()->setSelection(created);
     }
 
-    _file->protocol()->endAction();
+    activeEditFile()->protocol()->endAction();
 
     emit requestRepaint();
 
@@ -2967,7 +3050,7 @@ QJsonObject MidiPilotWidget::applySelectAndDelete(const QJsonObject &response, b
     QJsonObject result;
     result["action"] = QString("select_and_delete");
 
-    if (!_file) {
+    if (!activeEditFile()) {
         result["success"] = false;
         result["error"] = QString("No file loaded.");
         return result;
@@ -2977,7 +3060,7 @@ QJsonObject MidiPilotWidget::applySelectAndDelete(const QJsonObject &response, b
     int startTick = response["startTick"].toInt(-1);
     int endTick = response["endTick"].toInt(-1);
 
-    if (trackIndex < 0 || trackIndex >= _file->numTracks()) {
+    if (trackIndex < 0 || trackIndex >= activeEditFile()->numTracks()) {
         if (showBubbles) addChatBubble("system", "Invalid track index for select_and_delete.");
         result["success"] = false;
         result["error"] = QString("Invalid track index for select_and_delete.");
@@ -2990,14 +3073,14 @@ QJsonObject MidiPilotWidget::applySelectAndDelete(const QJsonObject &response, b
         return result;
     }
 
-    MidiTrack *targetTrack = _file->track(trackIndex);
+    MidiTrack *targetTrack = activeEditFile()->track(trackIndex);
 
-    _file->protocol()->startNewAction(
+    activeEditFile()->protocol()->startNewAction(
         QStringLiteral("%1: Agent delete events - %2")
             .arg(protoPrefix(response)).arg(targetTrack->name()));
 
     // Find and remove events in the tick range on this track
-    QList<MidiEvent *> *allEvents = _file->eventsBetween(startTick, endTick);
+    QList<MidiEvent *> *allEvents = activeEditFile()->eventsBetween(startTick, endTick);
     int deletedCount = 0;
     if (allEvents) {
         for (MidiEvent *ev : *allEvents) {
@@ -3005,7 +3088,7 @@ QJsonObject MidiPilotWidget::applySelectAndDelete(const QJsonObject &response, b
             if (ev->channel() >= 16) continue;
             if (ev->track() != targetTrack) continue;
 
-            MidiChannel *ch = _file->channel(ev->channel());
+            MidiChannel *ch = activeEditFile()->channel(ev->channel());
             if (ch) {
                 ch->removeEvent(ev);
                 deletedCount++;
@@ -3014,9 +3097,9 @@ QJsonObject MidiPilotWidget::applySelectAndDelete(const QJsonObject &response, b
         delete allEvents;
     }
 
-    Selection::instance()->clearSelection();
+    activeEditSelection()->clearSelection();
 
-    _file->protocol()->endAction();
+    activeEditFile()->protocol()->endAction();
 
     if (deletedCount == 0) {
         if (showBubbles) addChatBubble("system", "No events found in the specified range.");
@@ -3116,6 +3199,10 @@ void MidiPilotWidget::resetTurnState()
 void MidiPilotWidget::finalizeTurn(const QString &finalText, const QString &status)
 {
     Q_UNUSED(finalText);
+    // NB: do NOT clear _runOriginFile here. In simple mode finalizeTurn() runs in
+    // onResponseReceived BEFORE the response is parsed and applied (dispatchAction),
+    // so clearing it here would un-pin the edit target before the edit lands. It is
+    // overwritten at the next send and cleared on abort / origin-close instead.
     // Anchor the turn to the just-appended assistant message so that on
     // reload we know which message in `messages[]` it belongs to.
     int assistantIndex = _conversationHistory.size() - 1;

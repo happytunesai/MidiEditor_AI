@@ -26,6 +26,7 @@
 #include <QSettings>
 #include <QKeySequence>
 #include <QVector>
+#include <QSet>
 
 #include <atomic>
 
@@ -37,11 +38,16 @@
 
 // Forward declarations
 class QProgressDialog;
+class QTabBar;
+class QToolButton;
+class DocumentTabBar;
 class MatrixWidget;
 class OpenGLMatrixWidget;
 class OpenGLMiscWidget;
 class MidiEvent;
 class MidiFile;
+class DocumentManager;
+class Document;
 
 #ifdef FLUIDSYNTH_SUPPORT
 struct ExportOptions;
@@ -166,6 +172,14 @@ public:
     bool saveBeforeClose();
 
     /**
+     * \brief Phase 28 (editor groups): on app close, prompt to save EVERY dirty
+     * open document across both editor groups (in tab order), not just the
+     * active one. \return true if it is safe to close (all saved/discarded),
+     * false if the user cancelled any prompt (abort the quit).
+     */
+    bool promptSaveAllDirtyTabs();
+
+    /**
      * \brief Returns a copy of the action map (id -> QAction*)
      */
     QMap<QString, QAction*> getActionMap() const { return _actionMap; }
@@ -197,6 +211,14 @@ protected:
      * \param ev The drag enter event
      */
     void dragEnterEvent(QDragEnterEvent *ev);
+
+    /**
+     * \brief Phase 28 (editor groups): while a file is dragged over a split
+     * editor, highlight the group under the cursor so the user sees where the
+     * file will open. dragLeave clears the highlight.
+     */
+    void dragMoveEvent(QDragMoveEvent *ev);
+    void dragLeaveEvent(QDragLeaveEvent *ev);
 
 public slots:
     // === General Update Methods ===
@@ -311,8 +333,10 @@ public slots:
 
     /**
      * \brief Opens a save-as dialog to save the file with a new name.
+     * \return true if the file was actually written; false if the dialog was
+     * cancelled or the write failed (so close paths can abort safely).
      */
-    void saveas();
+    bool saveas();
 
     /**
      * \brief Undoes the last action.
@@ -1033,6 +1057,146 @@ private:
     /** \brief Container for the displayed matrix widget (OpenGL or software) */
     QWidget *_matrixWidgetContainer;
 
+    /**
+     * \brief Phase 28: horizontal splitter that holds the editor view(s). With
+     * a single document it contains just the primary matrix container (visually
+     * identical to before); the side-by-side compare view is added here.
+     */
+    QSplitter *_viewSplitter = nullptr;
+
+    /**
+     * \brief Phase 28: read-only side-by-side compare view (nullptr when off).
+     * Shows another open document next to the primary editor for comparison;
+     * it never claims the tools/selection. _compareFile is the document it is
+     * pinned to, tracked so closing that document can tear the view down.
+     */
+    MatrixWidget *_compareMatrixWidget = nullptr;
+    MidiFile *_compareFile = nullptr;
+
+    /**
+     * \brief Phase 28 (editor groups): the secondary editor group ("group 1").
+     * Created on split, torn down on un-split. Like group 0 (the primary) it has
+     * its OWN tab bar + document list + view, so each tab belongs to a group and
+     * can be moved between groups (VS Code-style editor groups). The pieces:
+     * _compareMatrixWidget is the group's view; _group1Docs its open documents;
+     * _group1TabBar its tab strip; _group1Container the vertical [tab bar | view]
+     * wrapper that lives in _viewSplitter beside the primary group.
+     */
+    QWidget *_group1Container = nullptr;
+    DocumentManager *_group1Docs = nullptr;
+    QTabBar *_group1TabBar = nullptr;
+    bool _suppressGroup1TabSignals = false;
+
+    /**
+     * \brief Phase 28 (editor groups): the secondary group can be COLLAPSED -
+     * its pane is hidden but its tabs/documents are kept alive - to reclaim
+     * space without closing anything. _viewSplitterSizes remembers the split so
+     * restore returns to the same widths.
+     */
+    bool _group1Collapsed = false;
+    QList<int> _viewSplitterSizes;
+
+    /**
+     * \brief Phase 28 (editor groups): a colour-highlighted chip at the right of
+     * the primary tab strip, shown ONLY while the secondary group is collapsed.
+     * It signals "a second editor group is hidden here" and restores it on click.
+     */
+    QToolButton *_group1RestoreButton = nullptr;
+
+    /**
+     * \brief Phase 28 (editor groups): an X next to the restore chip (shown only
+     * while the secondary group is collapsed) that closes the collapsed group
+     * outright (with save prompts), without restoring it first.
+     */
+    QToolButton *_group1RestoreCloseButton = nullptr;
+
+    /** \brief Phase 28 (editor groups): collapse / restore / close the secondary
+     *  group. Collapse hides it (tabs kept); close prompts to save each dirty
+     *  tab then tears the group down. */
+    void collapseGroup1();
+    void restoreGroup1();
+    void closeGroup1();
+
+    /**
+     * \brief Phase 28 (editor groups): the primary group's container (the
+     * [ tab strip | body ] widget in the splitter). Kept so a file dragged over
+     * it can be highlighted / targeted, symmetrically with _group1Container.
+     */
+    QWidget *_group0Container = nullptr;
+
+    /**
+     * \brief Phase 28 (editor groups): the two groups' tab-strip widgets (tab bar
+     * + control buttons), kept so they can be disabled wholesale while a live
+     * collaboration session is active (tabs are frozen to the session document).
+     */
+    QWidget *_group0Strip = nullptr;
+    QWidget *_group1Strip = nullptr;
+
+    /** \brief True while tabs are locked for an active live collab session. */
+    bool _collabTabsLocked = false;
+
+    /**
+     * \brief Phase 28 (editor groups): comparison "sync" lock. When on, the
+     * secondary group becomes a read-only mirror of the primary - same scroll,
+     * same cursor/marker, and during playback both cursors run (audio is the
+     * primary/active document only). For e.g. editing a cover on the left while
+     * watching the original on the right. _syncInProgress guards the re-entrant
+     * scroll/cursor mirroring; _syncViewsButton is the checkable toggle.
+     */
+    bool _syncViews = false;
+    bool _syncInProgress = false;
+    QToolButton *_syncViewsButton = nullptr;
+
+    /** \brief Toggle the comparison sync-lock between the two editor groups. */
+    void setSyncViews(bool on);
+
+    /** \brief Mirror the primary document's cursor/marker onto the secondary
+     *  (read-only) view while the sync-lock is on. */
+    void syncSecondaryCursor();
+
+    /** \brief True iff a live (LAN/WAN) collaboration session is running. While
+     *  it is, collab is treated as single-document: the tabs are locked. */
+    bool collabLiveActive() const;
+
+    /** \brief Lock/unlock the tab UI for a live collab session: freeze both tab
+     *  strips + File New/Open + the non-session pane, so the session stays on
+     *  one document (legacy single-doc behaviour). Reversed when the session ends. */
+    void setCollabTabLock(bool lock);
+
+    /**
+     * \brief Phase 28 (editor groups): when split, return the editor VIEW of the
+     * group whose container contains \a windowPos (the primary view or the
+     * secondary view); nullptr when not split. Used to route a dropped file to
+     * the pane under the cursor.
+     */
+    MatrixWidget *viewAtWindowPos(const QPoint &windowPos) const;
+
+    /** \brief Phase 28 (editor groups): highlight \a target group's container as
+     *  the drop target (transparent border otherwise), or clear when nullptr.
+     *  No-op when the target is unchanged (dragMove fires continuously). */
+    void highlightDropGroup(QWidget *target);
+
+    /** \brief Phase 28 (editor groups): the container currently drop-highlighted. */
+    QWidget *_dropHighlightTarget = nullptr;
+
+    /**
+     * \brief Phase 28 (B): the currently focused editor pane. A tab click loads
+     * its document into THIS pane, so the user can set each pane's document
+     * independently. Defaults to / falls back to the primary view.
+     */
+    MatrixWidget *_activeView = nullptr;
+
+    /** \brief Phase 28: show/hide the side-by-side compare/edit view. */
+    void toggleCompareView();
+
+    /**
+     * \brief Phase 28 (B): a side-by-side view received focus (click/keyboard).
+     * Makes that view's document the active one (sidebars/selection/tools/
+     * transport follow) without rebinding the other view. No-op when the
+     * focused view already shows the active document.
+     */
+    void onViewFocused(MatrixWidget *view);
+
     /** \brief Container for the displayed misc widget (OpenGL or software) */
     QWidget *_miscWidgetContainer;
 
@@ -1048,8 +1212,212 @@ private:
     /** \brief Widget for managing MIDI tracks */
     TrackListWidget *_trackWidget;
 
-    /** \brief Current MIDI file */
+    /** \brief Current MIDI file (the active document's file) */
     MidiFile *file;
+
+    /**
+     * \brief Phase 28: bind the active document's file to all panels, globals
+     * and the editor view. The per-file signal wiring runs only the first time
+     * a given file is activated (tracked in _connectedFiles), so this is safe
+     * to call repeatedly for tab switching without duplicating connections.
+     * Does NOT delete any previously-active file.
+     */
+    void activateDocument(MidiFile *newFile);
+
+    /**
+     * \brief Phase 28 (B): rebind the sidebars / globals / selection / tools /
+     * transport / MidiPilot / MCP to \a newFile WITHOUT touching any editor
+     * view's file binding. The "active document" is the focused view's
+     * document; this is what makes the panels follow the focused pane in a
+     * side-by-side layout. activateDocument() = setActiveDocument() + rebinding
+     * the primary view (the single-view / tab-switch path).
+     */
+    void setActiveDocument(MidiFile *newFile);
+
+    /**
+     * \brief Phase 28: tear down a document's file when it is closed - drop its
+     * retained selection + analyzer state, forget its connection bookkeeping,
+     * and delete it (QObject destruction auto-disconnects its signals).
+     */
+    void closeDocumentFile(MidiFile *oldFile);
+
+    /**
+     * \brief Phase 28: open `f` as a NEW document/tab (non-destructive - the
+     * current document stays open in its own tab) and make it active. \a title
+     * overrides the tab label when non-empty (e.g. "song.mid (copy)" for Clone);
+     * otherwise the label is derived from the file path.
+     */
+    void openInNewTab(MidiFile *f, const QString &title = QString());
+
+    /** \brief Phase 28: tab label for a file (basename, or "Untitled"). */
+    QString documentTabTitle(MidiFile *f) const;
+
+    /** \brief Phase 28: tab-bar slots (regular members, connected via PMF). */
+    void onDocumentTabChanged(int index);
+    void onDocumentTabCloseRequested(int index);
+
+    /** \brief Phase 28 (editor groups): group-1 (secondary) tab-bar slots. */
+    void onGroup1TabChanged(int index);
+    void onGroup1TabCloseRequested(int index);
+
+    /**
+     * \brief Phase 28 (editor groups): a tab bar was clicked. currentChanged only
+     * fires when the index changes, so clicking the ALREADY-active tab of a group
+     * never switched focus to it (the "I had to click the note roll" bug). These
+     * handle that case by focusing the clicked group exactly like a pane click.
+     */
+    void onDocumentTabBarClicked(int index);
+    void onGroup1TabBarClicked(int index);
+
+    /**
+     * \brief Phase 28 (editor groups): a tab was dragged+dropped. source ==
+     * target reorders within a group; otherwise the document moves between
+     * groups (the dropped tab becomes active + focused in its new group; the
+     * secondary group collapses if it loses its last tab). The DocumentManagers
+     * are updated and both tab bars rebuilt from them.
+     */
+    void onTabMoveRequested(DocumentTabBar *source, int sourceIndex,
+                            DocumentTabBar *target, int targetIndex);
+
+    /** \brief Phase 28 (editor groups): the DocumentManager owning \a bar's tabs. */
+    DocumentManager *managerForTabBar(QTabBar *bar) const;
+
+    /**
+     * \brief Phase 28 (editor groups): the container widget of the FOCUSED editor
+     * view - the secondary view when group 1 has focus, otherwise the primary
+     * container (OpenGL wrapper or software MatrixWidget). View-level operations
+     * (zoom, playback cursor, measure navigation) must target this so they act on
+     * the pane the user is actually working in, not always the primary one.
+     */
+    QWidget *activeViewContainer() const;
+
+    /** \brief Phase 28 (editor groups): scroll the FOCUSED view to \a ms (the
+     *  two-arg timeMsChanged that force-centres), routed to activeViewContainer(). */
+    void scrollActiveViewToTickMs(int ms);
+
+    /**
+     * \brief Phase 28 (editor groups): the INNER MatrixWidget whose scroll the
+     * shared scrollbars drive/reflect - the left (master) view while a sync-lock
+     * is on, otherwise the focused view's inner widget. With no split this is
+     * always the primary, so single-view behaviour is unchanged.
+     */
+    MatrixWidget *scrollbarSourceInner() const;
+
+    /** \brief Phase 28 (editor groups): re-pull the scrollbar source view's
+     *  current scroll range/position into the shared scrollbars (after a focus
+     *  switch the bars must reflect the newly-focused pane). */
+    void refreshScrollbarsForFocus();
+
+    /** \brief Phase 28 (editor groups): grey out the NON-focused group's tab bar
+     *  so the active editor group is obvious. No-op (full opacity) when not split. */
+    void updateActiveGroupHighlight();
+
+    /** \brief Dim (or restore) a widget via a reusable QGraphicsOpacityEffect. */
+    void setTabBarDimmed(QWidget *w, bool dim);
+
+    /** \brief Phase 28 (editor groups): invoke a zoom slot (e.g. "zoomHorIn") on
+     *  the FOCUSED view's container. */
+    void zoomActiveView(const char *method);
+
+    /**
+     * \brief Phase 28 (editor groups): the tab-tools toolbar (New Tab / Split /
+     * Clone) placed under the essential toolbar in two-row mode. \a iconSize
+     * matches the essential toolbar so the row lines up.
+     */
+    QToolBar *buildTabToolsBar(QWidget *parent, int iconSize);
+
+    /**
+     * \brief Phase 28 (editor groups): a hand-drawn "split editor" glyph (a
+     * rounded frame split into two panes) for the Split tab-tool, painted in the
+     * theme foreground colour so it matches both light and dark toolbars.
+     */
+    QIcon makeSplitViewIcon(int size) const;
+
+    /**
+     * \brief Phase 28 (editor groups): duplicate the active document into a new
+     * tab (an untitled, unsaved copy). Round-trips through a temp .mid; the
+     * original's saved-state is preserved (save() would otherwise clear it).
+     */
+    void cloneCurrentDocument();
+
+    /**
+     * \brief Phase 28 (editor groups): close every tab in both groups (with
+     * save prompts, exactly as closing each by hand), tear down the split, and
+     * start fresh with a single empty document. Aborts if a save prompt is
+     * cancelled.
+     */
+    void closeAllTabs();
+
+    /**
+     * \brief Phase 28 (editor groups): rebuild \a bar's tabs from \a mgr (order
+     * + active tab), guarded against re-entrant tab signals. Called after a
+     * move/reorder so the bar exactly matches the manager.
+     */
+    void rebuildTabBar(QTabBar *bar, DocumentManager *mgr);
+
+    /**
+     * \brief Phase 28 (editor groups): bind ONLY the primary editor view to \a f
+     * (OpenGL-wrapper-aware) without touching the active document/sidebars. Used
+     * to keep the primary pane showing group 0's document while another group is
+     * the focused/active one. activateDocument() = setActiveDocument + this.
+     */
+    void bindPrimaryView(MidiFile *f);
+
+    /**
+     * \brief Phase 28 (editor groups): configure a document tab bar (movable,
+     * closable, eliding) - shared by both groups so they look/behave alike.
+     */
+    void configureDocumentTabBar(QTabBar *bar);
+
+    /**
+     * \brief Phase 28 (editor groups): build a group's tab strip widget
+     * ( [ + | tab bar | stretch ] ), used identically for both groups so their
+     * strips have the same height and sit aligned beside each other.
+     */
+    QWidget *buildGroupTabStrip(QToolButton *plusButton, QTabBar *bar);
+
+    /**
+     * \brief Phase 28 (editor groups): tear down the secondary group (group 1) -
+     * delete its view/tab-bar/manager (the Document handles, NOT the MidiFiles;
+     * the caller disposes of those) and restore the primary view as focused.
+     */
+    void tearDownGroup1();
+
+    /**
+     * \brief Phase 28 (editor groups): build an EMPTY secondary group (container
+     * + tab bar + manager + view, added to the splitter), without moving any
+     * document into it. No-op if group 1 already exists. Used by both Split
+     * (which then moves a doc over) and session restore (which opens docs into it).
+     */
+    void ensureGroup1();
+
+    /**
+     * \brief Phase 28 (editor groups): persist the open documents of both groups
+     * (paths + active tab + split/collapse state) to QSettings, so the session
+     * can be restored after a restart (e.g. a theme change). Only documents with
+     * a real file path are saved (untitled docs cannot be reopened by path).
+     */
+    void saveSession();
+
+    /**
+     * \brief Phase 28 (editor groups): reopen the documents/groups persisted by
+     * saveSession(). \return true if at least one document was reopened (so the
+     * caller skips the default new/initial document); false if there was no
+     * usable session.
+     */
+    bool restoreSession();
+
+    /** \brief Phase 28: files whose one-time signal wiring has been done. */
+    QSet<MidiFile *> _connectedFiles;
+
+    /** \brief Phase 28: open documents + active-tab tracking. */
+    DocumentManager *_documentManager = nullptr;
+
+    /** \brief Phase 28: the tab strip above the editor (one tab per document). */
+    QTabBar *_documentTabBar = nullptr;
+
+    /** \brief Phase 28: guards programmatic tab-bar edits from re-entrant slots. */
+    bool _suppressTabSignals = false;
 
     /** \brief Start directory and initialization file */
     QString startDirectory, _initFile;
@@ -1361,8 +1729,10 @@ private:
     /** \brief Removes auto-save sidecar files and stops the timer */
     void cleanupAutoSave();
 
-    /** \brief Checks for leftover auto-save files on startup and offers recovery */
-    void checkAutoSaveRecovery();
+    /** \brief Checks for leftover auto-save files on startup and offers recovery.
+     *  \return true if a document was actually recovered (and is now open), so
+     *  the caller must NOT also open a blank/initial document. */
+    bool checkAutoSaveRecovery();
 };
 
 #endif // MAINWINDOW_H_

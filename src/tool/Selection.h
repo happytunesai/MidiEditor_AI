@@ -82,19 +82,46 @@ public:
      */
     virtual MidiFile *file();
 
-    // === Singleton Management ===
+    // === Active-document selection management ===
+    //
+    // Phase 28 (multi-document tabs): selection is now per-document. Each
+    // MidiFile keeps its own Selection so switching documents/tabs restores
+    // that document's selection. instance() resolves to the *active*
+    // document's selection. With a single open document this behaves exactly
+    // as the old global singleton did. A null file (no active document) gets
+    // a fresh, transient selection that is not retained.
 
     /**
-     * \brief Gets the global selection instance.
-     * \return Pointer to the singleton Selection instance
+     * \brief Gets the selection of the currently active document.
+     * \return Pointer to the active Selection (never null)
      */
     static Selection *instance();
 
     /**
-     * \brief Sets the MIDI file for the global selection.
-     * \param file The MidiFile to associate with the selection
+     * \brief Makes the given file's selection the active one, creating it on
+     *        first use. Existing per-file selections are preserved (not
+     *        recreated), so switching back to a document restores its
+     *        selection. Passing nullptr activates a fresh transient selection.
+     * \param file The MidiFile whose selection should become active.
      */
     static void setFile(MidiFile *file);
+
+    /**
+     * \brief Drops the retained selection for a file that is being closed.
+     *        Call this when a document/MidiFile is destroyed (e.g. tab close
+     *        or the single-document swap) to avoid leaking its selection or
+     *        leaving a dangling active pointer.
+     * \param file The MidiFile being forgotten.
+     */
+    static void forgetFile(MidiFile *file);
+
+    /**
+     * \brief Returns the retained selection for \a file WITHOUT changing the
+     * active one, or nullptr if that file has no selection yet. Lets a view draw
+     * ITS OWN document's selection even when another document is active, so a
+     * side-by-side pane no longer renders the active doc's selection as a ghost.
+     */
+    static Selection *forFile(MidiFile *file);
 
     // === Selection Management ===
 
@@ -132,9 +159,6 @@ public:
 private:
     /** \brief List of currently selected events */
     QList<MidiEvent *> _selectedEvents;
-
-    /** \brief Singleton instance pointer */
-    static Selection *_selectionInstance;
 
     /** \brief Associated MIDI file */
     MidiFile *_file;

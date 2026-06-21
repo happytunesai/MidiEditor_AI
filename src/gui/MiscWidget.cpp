@@ -149,7 +149,7 @@ void MiscWidget::paintEvent(QPaintEvent *event) {
         // paint selected events above all others
         EventTool *t = dynamic_cast<EventTool *>(Tool::currentTool());
         if (t && t->showsSelection()) {
-            foreach(MidiEvent* event, Selection::instance()->selectedEvents()) {
+            foreach(MidiEvent* event, displayedSelectedEvents()) {
                 // Use global visibility manager to avoid corrupted MidiChannel access
                 if (!ChannelVisibilityManager::instance().isChannelVisible(event->channel())) {
                     continue;
@@ -226,7 +226,7 @@ void MiscWidget::paintEvent(QPaintEvent *event) {
             }
 
             if (edit_mode == SINGLE_MODE && (dragging || mouseOver)) {
-                if (accordingEvents.at(i) && Selection::instance()->selectedEvents().contains(accordingEvents.at(i))) {
+                if (accordingEvents.at(i) && displayedSelectedEvents().contains(accordingEvents.at(i))) {
                     painter.setBrush(Qt::darkBlue);
                 }
                 painter.setPen(circlePen);
@@ -352,11 +352,20 @@ void MiscWidget::mouseMoveEvent(QMouseEvent *event) {
 }
 
 void MiscWidget::mousePressEvent(QMouseEvent *event) {
+    // Phase 28 (editor groups): this lane is bound to ONE pane (the primary), but
+    // its selection/edit calls go through EventTool, which acts on the GLOBALLY
+    // active document (the focused pane). In a split focused on the OTHER pane,
+    // that mismatch would mutate the wrong document's selection. Claim this lane's
+    // pane as the active view first, so the active document == the document this
+    // lane displays and all selection/edit ops below target the right file.
+    if (matrixWidget) {
+        matrixWidget->claimAsActiveView();
+    }
     if (edit_mode == SINGLE_MODE) {
         if (mode == VelocityEditor) {
             // check whether selection has to be changed.
             bool clickHandlesSelected = false;
-            foreach(MidiEvent* event, Selection::instance()->selectedEvents()) {
+            foreach(MidiEvent* event, displayedSelectedEvents()) {
                 int velocity = 0;
                 NoteOnEvent *noteOn = dynamic_cast<NoteOnEvent *>(event);
 
@@ -408,7 +417,7 @@ void MiscWidget::mousePressEvent(QMouseEvent *event) {
             }
 
             // if nothing selected deselect all
-            if (Selection::instance()->selectedEvents().size() > 0 && !clickHandlesSelected && !selectedNew) {
+            if (displayedSelectedEvents().size() > 0 && !clickHandlesSelected && !selectedNew) {
                 matrixWidget->midiFile()->protocol()->startNewAction(tr("Cleared selection"));
                 ProtocolEntry *toCopy = _dummyTool->copy();
                 EventTool::clearSelection();
@@ -418,7 +427,7 @@ void MiscWidget::mousePressEvent(QMouseEvent *event) {
             }
 
             // start drag
-            if (Selection::instance()->selectedEvents().size() > 0) {
+            if (displayedSelectedEvents().size() > 0) {
                 dragY = mouseY;
                 dragging = true;
             }
@@ -485,7 +494,7 @@ void MiscWidget::mouseReleaseEvent(QMouseEvent *event) {
                     matrixWidget->midiFile()->protocol()->startNewAction(tr("Edited velocity"));
 
                     int dV = 127 * dX / height();
-                    foreach(MidiEvent* event, Selection::instance()->selectedEvents()) {
+                    foreach(MidiEvent* event, displayedSelectedEvents()) {
                         NoteOnEvent *noteOn = dynamic_cast<NoteOnEvent *>(event);
                         if (noteOn) {
                             int v = dV + noteOn->velocity();
@@ -777,8 +786,8 @@ void MiscWidget::mouseReleaseEvent(QMouseEvent *event) {
                 // when any events are selected, only use those. Else all
                 // in the range
                 QList<MidiEvent *> events;
-                if (Selection::instance()->selectedEvents().size() > 0) {
-                    foreach(MidiEvent* event, Selection::instance()->selectedEvents()) {
+                if (displayedSelectedEvents().size() > 0) {
+                    foreach(MidiEvent* event, displayedSelectedEvents()) {
                         NoteOnEvent *noteOn = dynamic_cast<NoteOnEvent *>(event);
                         if (noteOn) {
                             if (noteOn->midiTime() >= minTick && noteOn->midiTime() <= maxTick) {
@@ -992,6 +1001,17 @@ void MiscWidget::keyReleaseEvent(QKeyEvent *event) {
             update();
         }
     }
+}
+
+QList<MidiEvent *> MiscWidget::displayedSelectedEvents() const {
+    if (!matrixWidget || !matrixWidget->midiFile()) {
+        return QList<MidiEvent *>();
+    }
+    // Phase 28: use the selection of the document this lane displays, not the
+    // globally-active one (which follows the focused pane). forFile() returns
+    // null if that document has no retained selection yet.
+    Selection *sel = Selection::forFile(matrixWidget->midiFile());
+    return sel ? sel->selectedEvents() : QList<MidiEvent *>();
 }
 
 QList<QPair<int, int> > MiscWidget::getTrack(QList<MidiEvent *> *accordingEvents) {

@@ -276,6 +276,16 @@ void MatrixWidget::paintEvent(QPaintEvent *event) {
         startTick = file->tick(startTimeX, endTimeX, &currentTempoEvents,
                                &endTick, &msOfFirstEventInList);
 
+        // A degenerate time range (e.g. a freshly-created side-by-side view
+        // before the splitter has given it a real width) can yield no tempo
+        // events; at(0) on the empty list would be an out-of-bounds crash.
+        // Bail gracefully - a valid resize triggers a correct repaint.
+        if (currentTempoEvents->isEmpty()) {
+            delete pixpainter;
+            delete painter;
+            return;
+        }
+
         TempoChangeEvent *ev = dynamic_cast<TempoChangeEvent *>(
             currentTempoEvents->at(0));
         if (!ev) {
@@ -654,7 +664,13 @@ void MatrixWidget::paintEvent(QPaintEvent *event) {
         }
     }
 
-    if (Tool::currentTool()) {
+    // Phase 28: the active tool belongs to the FOCUSED view only. The tool
+    // resolves event positions through EditorTool::matrixWidget (the focused
+    // pane), so a non-focused pane drawing the overlay would paint the focused
+    // doc's selection rects at the focused view's coords -> a ghost selection.
+    // Only the pane that is the current tool target draws the overlay (this also
+    // covers the old read-only _editingLocked compare view).
+    if (Tool::currentTool() && !_editingLocked && EditorTool::currentMatrixWidget() == this) {
         painter->setClipping(true);
         painter->setClipRect(ToolArea);
         Tool::currentTool()->draw(painter);
@@ -739,11 +755,15 @@ void MatrixWidget::paintChannel(QPainter *painter, int channel) {
     }
     QColor cC = *file->channel(channel)->color();
 
-    // PERFORMANCE: Cache selected events to avoid expensive lookups during this channel's painting
+    // PERFORMANCE: Cache selected events to avoid expensive lookups during this channel's painting.
+    // Use THIS widget's own file's selection (not the global active one) so a
+    // side-by-side pane doesn't draw the focused document's selection as a ghost.
     QSet<MidiEvent*> cachedSelection;
-    const QList<MidiEvent*>& selectedEvents = Selection::instance()->selectedEvents();
-    for (MidiEvent* event : selectedEvents) {
-        cachedSelection.insert(event);
+    Selection *fileSelection = Selection::forFile(file);
+    if (fileSelection) {
+        for (MidiEvent* event : fileSelection->selectedEvents()) {
+            cachedSelection.insert(event);
+        }
     }
 
     // filter events
@@ -1221,10 +1241,12 @@ void MatrixWidget::paintPianoKey(QPainter *painter, int number, int x, int y,
         }
 
         bool selected = mouseY >= y && mouseY <= y + height && mouseX > lineNameWidth && mouseOver;
-        foreach(MidiEvent* event, Selection::instance()->selectedEvents()) {
-            if (event->line() == 127 - number) {
-                selected = true;
-                break;
+        if (Selection *fileSel = Selection::forFile(file)) {
+            foreach(MidiEvent* event, fileSel->selectedEvents()) {
+                if (event->line() == 127 - number) {
+                    selected = true;
+                    break;
+                }
             }
         }
 
@@ -1321,7 +1343,25 @@ void MatrixWidget::paintPianoKey(QPainter *painter, int number, int x, int y,
 }
 
 void MatrixWidget::setFile(MidiFile *f) {
+    MidiFile *previous = file;
     file = f;
+
+    // Phase 28 (editor groups): setFile() is now called again every time the user
+    // returns to a previously-viewed tab, so drop the previous file's
+    // protocol->relayout/repaint links here - BEFORE the !file early-return, so
+    // unbinding (setFile(nullptr)) also drops them. UniqueConnection below then
+    // makes a repeated bind to the SAME file a no-op instead of stacking another
+    // pair of connections (which would fire N redundant relayouts+repaints per edit).
+    if (previous && previous != file && previous->protocol()) {
+        disconnect(previous->protocol(), SIGNAL(actionFinished()), this, SLOT(registerRelayout()));
+        disconnect(previous->protocol(), SIGNAL(actionFinished()), this, SLOT(update()));
+    }
+
+    // Defensive: unbinding (file == nullptr, e.g. tearing down a compare view)
+    // must not dereference file->protocol() below. Just drop the binding.
+    if (!file) {
+        return;
+    }
 
     scaleX = 1;
     scaleY = 1;
@@ -1331,8 +1371,8 @@ void MatrixWidget::setFile(MidiFile *f) {
     // any notes and how tall the viewport currently is.
     startLineY = 40;
 
-    connect(file->protocol(), SIGNAL(actionFinished()), this, SLOT(registerRelayout()));
-    connect(file->protocol(), SIGNAL(actionFinished()), this, SLOT(update()));
+    connect(file->protocol(), SIGNAL(actionFinished()), this, SLOT(registerRelayout()), Qt::UniqueConnection);
+    connect(file->protocol(), SIGNAL(actionFinished()), this, SLOT(update()), Qt::UniqueConnection);
 
     calcSizes();
 
@@ -1503,8 +1543,43 @@ void MatrixWidget::leaveEvent(QEvent *event) {
     }
 }
 
+void MatrixWidget::claimAsActiveView() {
+    // Phase 28: make this view the active tool/document target programmatically.
+    // Used by the velocity lane (MiscWidget), which is bound to ONE pane: a click
+    // there must focus that pane so selection edits land on the document the lane
+    // displays, not on whichever split pane currently has focus. Mirrors the claim
+    // done in focusInEvent/mousePressEvent; a no-op for a read-only compare view.
+    if (_claimsToolTarget) {
+        EditorTool::setMatrixWidget(this);
+        emit focusReceived(this);
+    }
+}
+
+void MatrixWidget::focusInEvent(QFocusEvent *event) {
+    PaintWidget::focusInEvent(event);
+    // Phase 28: when this view gains focus, it becomes the active tool target
+    // (keyboard tools act on it) and asks the host to make its document active
+    // so the sidebars / selection / transport follow. Single-view: a no-op.
+    // A read-only compare view (_claimsToolTarget == false) is skipped.
+    if (_claimsToolTarget) {
+        EditorTool::setMatrixWidget(this);
+        emit focusReceived(this);
+    }
+}
+
 void MatrixWidget::mousePressEvent(QMouseEvent *event) {
     PaintWidget::mousePressEvent(event);
+    // Phase 28: the view being interacted with is the active tool target, so
+    // tools operate on it (not whichever view was constructed last). A no-op
+    // with a single view; essential once views are shown side by side. A
+    // read-only compare view (_claimsToolTarget == false) never claims it.
+    // Also announce focus here (not only in focusInEvent): in OpenGL mode the
+    // wrapper may keep keyboard focus, but the mouse press always reaches the
+    // internal MatrixWidget, so this reliably switches the active document.
+    if (_claimsToolTarget) {
+        EditorTool::setMatrixWidget(this);
+        emit focusReceived(this);
+    }
     // Right-click without Ctrl opens context menu (handled by contextMenuEvent).
     // Only forward to tool on left-click or Ctrl+right-click.
     bool isRightClick = (event->buttons() & Qt::RightButton);
@@ -2031,7 +2106,8 @@ void MatrixWidget::contextMenuEvent(QContextMenuEvent *event) {
     // QContextMenuEvent would propagate back up to the wrapper, which forwards
     // it here again — an unbounded loop that overflows the stack. Accepting it
     // ends the propagation cleanly. (See OpenGLMatrixWidget::contextMenuEvent.)
-    if (!file || Selection::instance()->selectedEvents().isEmpty()) {
+    Selection *fileSel = Selection::forFile(file);
+    if (!file || !fileSel || fileSel->selectedEvents().isEmpty()) {
         event->accept();
         return;
     }

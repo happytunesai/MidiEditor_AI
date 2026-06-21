@@ -321,6 +321,19 @@ public:
     void setEditingLocked(bool locked) { _editingLocked = locked; }
     bool isEditingLocked() const { return _editingLocked; }
 
+    /**
+     * \brief Phase 28: whether this view may become the active tool target on
+     * click/focus. The primary editor view is true; a read-only side-by-side
+     * compare view sets this false so it never steals the tools/selection.
+     */
+    void setClaimsToolTarget(bool b) { _claimsToolTarget = b; }
+    bool claimsToolTarget() const { return _claimsToolTarget; }
+
+    /** \brief Phase 28: make this view the active tool/document target (emits
+     *  focusReceived). Used by the velocity lane so a click there focuses the
+     *  lane's pane before mutating its document's selection. */
+    void claimAsActiveView();
+
     // === Grid and Division ===
 
     /**
@@ -441,6 +454,13 @@ signals:
     // === Widget State Signals ===
 
     /**
+     * \brief Phase 28: emitted when this view receives focus (e.g. the user
+     * clicks it). The host (MainWindow) uses this to make this view's document
+     * the active one when several views are shown side by side.
+     */
+    void focusReceived(MatrixWidget *view);
+
+    /**
      * \brief Emitted when the widget size or scroll limits change.
      * \param maxScrollTime Maximum scroll time in milliseconds
      * \param maxScrollLine Maximum scroll line number
@@ -531,6 +551,12 @@ protected:
      * \param event The mouse press event
      */
     void mousePressEvent(QMouseEvent *event);
+
+    /**
+     * \brief Phase 28: claim the active tool target and announce focus, so the
+     * view the user clicks drives the tools and becomes the active document.
+     */
+    void focusInEvent(QFocusEvent *event);
 
     /**
      * \brief Handles mouse double-click events.
@@ -793,6 +819,9 @@ private:
      * changes in a Show-mode session.
      */
     bool _editingLocked = false;
+
+    /** \brief Phase 28: may this view claim the active tool target? (see setter) */
+    bool _claimsToolTarget = true;
 };
 
 #endif // MATRIXWIDGET_H_

@@ -69,8 +69,11 @@ QJsonObject EditorContext::captureState(MidiFile *file, MatrixWidget *matrix)
     // Active channel
     state[QStringLiteral("activeChannel")] = NewNoteTool::editChannel();
 
-    // Selection info
-    QList<MidiEvent *> selected = Selection::instance()->selectedEvents();
+    // Selection info - read THIS file's selection (not the globally-active one),
+    // so an agent run reports the selection of the document it is editing even if
+    // the user switched tabs mid-run.
+    Selection *sel = Selection::forFile(file);
+    QList<MidiEvent *> selected = sel ? sel->selectedEvents() : QList<MidiEvent *>();
     state[QStringLiteral("selectedEventCount")] = selected.size();
 
     // Viewport (visible tick range)

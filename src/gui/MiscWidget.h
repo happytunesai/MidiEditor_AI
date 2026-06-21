@@ -185,6 +185,17 @@ private:
     void resetState();
 
     /**
+     * \brief The selected events of the document this lane actually displays.
+     *
+     * Phase 28 (editor groups): the velocity lane is bound to one MatrixWidget
+     * (the primary view), but the global Selection::instance() follows the FOCUSED
+     * pane. Reading the selection of matrixWidget's own file keeps the lane
+     * self-consistent (it never highlights or edits another document's events
+     * through this view's protocol). Returns empty if the file has no selection.
+     */
+    QList<MidiEvent *> displayedSelectedEvents() const;
+
+    /**
      * \brief Gets the track data for the current mode.
      * \param accordingEvents Optional list of events to consider
      * \return List of time-value pairs representing the track

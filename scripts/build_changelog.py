@@ -106,16 +106,21 @@ def parse_changelog(text: str):
             summary_md = body
             details_md = ""
 
-        # blockquote lines (> ...) become a subtitle
-        blockquote = ""
+        # blockquote lines (> ...) become a lead paragraph. Accumulate ALL of them
+        # (a multi-line blockquote is one paragraph) and keep inline markdown so
+        # md_inline() renders **bold**/`code`/links at output time - the previous
+        # code overwrote per line (keeping only the last) and stripped a leading
+        # "**", which mangled bold-prefixed leads.
+        blockquote_lines = []
         summary_lines = []
         for line in summary_md.split("\n"):
             stripped = line.strip()
-            if stripped.startswith("> "):
-                blockquote = stripped[2:].strip("*_ ")
+            if stripped.startswith(">"):
+                blockquote_lines.append(stripped.lstrip(">").strip())
             elif stripped.startswith("* "):
                 summary_lines.append(stripped[2:])
             # skip --- and blank lines
+        blockquote = " ".join(l for l in blockquote_lines if l).strip()
 
         # Parse details block into categorised sections
         details_html = _parse_details(details_md) if details_md else ""
@@ -286,10 +291,13 @@ HTML_HEAD = """\
         font-style: italic;
     }
     .cl-blockquote {
-        font-size: .85rem; color: var(--text-muted); font-style: italic;
-        margin-bottom: .5rem; padding-left: .75rem;
-        border-left: 2px solid var(--border);
+        font-size: .95rem; color: var(--text); line-height: 1.6;
+        margin: 0 0 1rem; padding: .85rem 1.1rem;
+        border-left: 3px solid var(--accent);
+        background: rgba(0,184,255,.05);
+        border-radius: 0 8px 8px 0;
     }
+    .cl-blockquote strong { color: var(--text); }
 
     /* summary bullets */
     .cl-summary { list-style: none; padding: 0; margin: 0 0 .75rem; }

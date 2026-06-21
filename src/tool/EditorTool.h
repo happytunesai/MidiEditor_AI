@@ -173,6 +173,13 @@ public:
     static void setMatrixWidget(MatrixWidget *w);
 
     /**
+     * \brief The matrix widget the tools currently act on - i.e. the FOCUSED
+     * editor view in a multi-pane layout. Lets a view tell whether it is the
+     * tool's target, so only the focused pane draws the tool overlay/selection.
+     */
+    static MatrixWidget *currentMatrixWidget();
+
+    /**
      * \brief Sets the OpenGL container widget for cursor operations.
      * \param container The OpenGL container widget that should receive cursor changes
      *

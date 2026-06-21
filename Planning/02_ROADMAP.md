@@ -11703,19 +11703,61 @@ Export/Import JSON + Reset All. Nothing is lost for advanced users.
   mode (current `onSave` rejects empty) - with blocks, that means "at least the
   locked/core blocks enabled".
 
-## Phase 28: Multi-Document Tabs + Side-by-Side MIDI-Diff (Planned)
+## Phase 28: Multi-Document Tabs + Editor Groups (v1.9.0 — ✅ SHIPPED 2026-06-21)
 
-> **Goal:** turn MidiEditor AI from a single-document editor into a tabbed,
-> multi-document one - each note-roll is a tab; you can open many at once, drag
-> two side by side to compare, and copy notes between them - while tools, the
-> sidebars (Tracks / Events / MidiPilot) and the transport always act on the
-> *active* tab only. This is the "IDE / code-review for MIDIs" direction (see
-> [[project_midi_diff_vision]]). Target version: **TBD** (large, multi-step).
+> **Goal:** turn MidiEditor AI into a tabbed, multi-document editor with
+> **VS Code-style editor groups**: each note-roll is a tab; you can open many at
+> once; you can **split the editor into two groups, each with its OWN tab bar**,
+> **drag tabs between the groups**, and edit both fully. Tools, the sidebars
+> (Tracks / Events / MidiPilot) and the transport always follow the **focused
+> group's active tab**. Comparing two MIDIs is then simply "open one file in each
+> group side by side" - no separate compare/diff construct is needed for the
+> core. Target version: **1.9.0** (large, multi-step). See [[project_tabs_19_progress]].
 >
-> **Status: PLANNING ONLY.** This phase is fully scoped and verified against the
-> current code below, but **no code is to be written yet**. The point is a
-> surprise-free implementation: the hard part is not the tab bar, it's that the
-> editor is single-document at its core (globals + singletons + one MatrixWidget).
+> **DRIFT CORRECTION (2026-06-14):** an earlier draft of 28.4/28.7 framed the
+> second pane as a read-only "side-by-side compare / MIDI-diff" view. That drifted
+> from the actual vision. The real target is **editor groups** - two full editable
+> groups, each with its own tabs, drag tabs between them. That covers every case
+> the feature needs, so the dedicated read-only compare pane AND the visual
+> MIDI-diff are NOT core (the diff is demoted to an optional later nice-to-have).
+> 28.4 is rewritten as "editor groups" and 28.7 demoted accordingly.
+>
+> **✅ SHIPPED in 1.9.0 (branch `feature/tabs-1.9.0`, merged 2026-06-21).** Everything below was delivered:
+>
+> - **28.1 — singletons de-coupled:** per-document `Selection` (`Selection::forFile`), per-document channel
+>   visibility, focus-based tool routing (`MatrixWidget::focusReceived` → the focused view claims the EditorTool
+>   target). Selection is per-pane (each pane draws its own doc's selection; only the focused pane draws the tool
+>   overlay → no "ghost" selection).
+> - **28.2 — `DocumentManager`** (owns Document handles, not MidiFiles) + the non-destructive
+>   `activateDocument` / `setActiveDocument` / `bindPrimaryView` / `closeDocumentFile` split of the old `setFile`.
+> - **28.3 — tab strip** above the timeline, New-Tab **+** button, essential-toolbar compaction, and a
+>   **tab-tools row** (New Tab / Split / Clone / Close All Tabs; theme-drawn Split icon).
+> - **Editor groups (28.4 — the core):** per-group `DocumentTabBar` (custom QDrag), **Split** into two fully
+>   editable groups each with its own tab bar + DocumentManager; **cross-group tab drag-and-drop** with a blue
+>   insertion caret (drop anywhere in a pane works too); **collapse** (theme-coloured "Group 2 (N)" restore chip) /
+>   **close** the secondary group; **drop a MIDI file into a specific pane**.
+> - **Focused-view routing:** zoom, playback cursor, measure/marker nav, smooth-scroll, the shared scrollbars,
+>   and Track/Channel colour mode all follow the focused pane (each split pane scrolls independently); the inactive
+>   group's tabs **dim**; clicking any tab (even the already-active one) focuses its group.
+> - **Side-by-side comparison (Sync):** the secondary group's **Sync** toggle locks scroll/zoom/cursor/playback to
+>   the left (master); the right is a synced read-only reference whose own track/channel visibility stays togglable.
+> - **Session restore:** both groups' open tabs + split/collapsed state + active tab persist across normal,
+>   theme-change and auto-update restarts. App-exit save-prompts **every** dirty tab in both groups.
+> - **28.5 — MidiPilot per document (✅):** a run captures its origin document at send; agent **and** simple mode
+>   apply to that document (and its selection) even if you switch tabs mid-run. Read tools (`get_selection`,
+>   `get_editor_state`) read the run's document too. Closing the origin tab mid-run aborts the run.
+> - **MCP per document (✅):** each MCP session binds to its working document (like MidiPilot's origin), so a
+>   read-then-edit stays coherent across tab switches; `get_editor_state` re-syncs the session to the active doc;
+>   `McpServer::forgetFile` unbinds a closed doc. The shared apply target is scoped per tool call
+>   (`_applyTargetFile` + `ToolDefinitions::executeTool` RAII guard) so MidiPilot and MCP never mis-route each other.
+> - **28.6 — collaboration with tabs (✅):** a live LAN/WAN session **locks the tabs** to its single shared
+>   document (both strips + New/Open disabled, focus pinned) and unlocks when the session ends.
+> - **Deep bug-hunt + a full pre-release review** (multi-agent): fixed save-on-cancel data loss, the
+>   `matrixWidget()`-vs-focused-pane consumers (velocity lane, SelectionNavigator, TweakTarget, MidiPilot context),
+>   a `MatrixWidget::setFile` connection leak, the stale window-modified title, and a SID-cursor connection leak.
+>
+> **NOT in 1.9.0 (deferred):** the optional visual **MIDI-diff** view (28.7) — editor groups cover the
+> compare use case, so the dedicated diff is a later nice-to-have.
 
 ### User requirements (verbatim intent, 2026-06-11)
 
@@ -11764,14 +11806,31 @@ The editor is single-document to the core. Verified:
   `static MidiFile *_currentFile` and `static EditorTool *_currentTool`
   ([Tool.h:216-224](src/tool/Tool.h#L216-L224)). A tool literally cannot know
   *which* of two side-by-side views it is acting on today.
-* **MidiPilot cancels the agent on file change.**
-  `MidiPilotWidget::onFileChanged()` sets `_file = f` and calls
-  `_agentRunner->cancel()` if an agent is running
-  ([MidiPilotWidget.cpp:1027-1055](src/gui/MidiPilotWidget.cpp#L1027)) - the exact
-  opposite of requirement 8. Good news: `AgentRunner` already owns its own
-  `MidiFile *_file` bound at `run()` ([AgentRunner.h:143](src/ai/AgentRunner.h#L143)),
-  and `EditorContext::captureState(file, matrixWidget)` is already parameterised
-  on (file, widget) - so per-document agents are feasible.
+* **The real requirement-8 blocker: the write path drops the agent's origin
+  file.** (Corrected 2026-06-14 - an earlier draft wrongly said
+  `onFileChanged()` cancels the agent; it does NOT.) `MidiPilotWidget::onFileChanged()`
+  only sets `_file`, refreshes context and loads the per-file preset
+  ([MidiPilotWidget.cpp:1028](src/gui/MidiPilotWidget.cpp#L1028)); the only
+  `cancel()` is in `abortActiveRequest()` (the Stop button, ~L1051), so there is
+  nothing to "un-cancel". The actual problem: `AgentRunner` *does* bind its origin
+  file at `run(..., _file, this)` (`_file`/`_widget`, [AgentRunner.cpp:338](src/ai/AgentRunner.cpp#L338)),
+  but the write tools throw it away - `execWriteAction` calls `widget->executeAction()`
+  ([ToolDefinitions.cpp:809](src/ai/ToolDefinitions.cpp#L809)) ->
+  `dispatchAction` -> `applyAiEdits/Deletes`, which mutate
+  `MidiPilotWidget::_file` (which FOLLOWS the active tab) plus
+  `NewNoteTool::editTrack()/editChannel()` statics; and `get_selection` reads the
+  global `Selection::instance()` ([ToolDefinitions.cpp:700](src/ai/ToolDefinitions.cpp#L700)).
+  So a run started on Tab 1 would write into Tab 2 after a switch. Good news:
+  `EditorContext::captureState(file, matrix)` is already parameterised - per-document
+  agents are feasible, but the apply path must thread the run's origin file all the
+  way through (see 28.5).
+* **`setFile()`'s `connect()` calls are bind-once-per-file.** Reusing the
+  `setFile()` body for tab *switching* would duplicate signal/slot wiring
+  (markEdited, eventWidget reload, view-state broadcast) on every switch - 28.2
+  must split bind-once-at-open from rebind-panels-on-activate. Also `setFile`
+  dereferences `newFile` un-guarded ([MainWindow.cpp:1645](src/gui/MainWindow.cpp#L1645)),
+  so a "zero open documents" state is not representable today (relevant to
+  closing the last tab).
 * **Globals keyed to the one active file:** `Metronome::instance()->setFile()`,
   `ChannelVisibilityManager::instance().resetAllVisible()`,
   `FfxivVoiceAnalyzer::instance()->watchFile()/forgetFile()`, `Tool::setFile()`,
@@ -11823,27 +11882,78 @@ behaviour intact (no visible change, fully testable):
 globals + transport to an already-open document, **without** deleting anything).
 Move `delete oldFile` to tab-close only.
 
-**28.3 - Tab strip UI + layout (requirements 1, 5, 6).** A `QTabBar` (movable,
-closable) above the timeline, laid out flush under the two-row toolbar; shrink the
-New/Open/Save/Undo/Redo buttons to make room. New tab via New / Open / drag-drop
-(`MainWindow` already handles file drops -> route to "open in new tab"). Reorder =
-`QTabBar::setMovable(true)`.
+**28.3 - Tab strip UI + layout (requirements 1, 5, 6).** Two distinct pieces:
 
-**28.4 - One editor view per tab + side-by-side (requirements 2, 3, 4).** Turn the
-single matrix container into a stack/`QSplitter` of document views; the active
-(focused) view drives tools and sidebars. Side-by-side = show two views in the
-splitter. Cross-tab copy: the clipboard path (`EventTool` copy/paste) is already
-serialisation-based; verify paste targets the **active** document so copy-from-A,
-focus-B, paste lands in B.
+* **Shrink the "essential" block (the real culprit).** The big New / Open / Save /
+  Undo / Redo block on the left is the `essentialToolBar` built in `twoRowMode`
+  ([MainWindow.cpp:8553](src/gui/MainWindow.cpp#L8553)). It is taller than the two
+  customizable rows for two reasons: `essentialIconSize = iconSize + 8`
+  ([MainWindow.cpp:8558](src/gui/MainWindow.cpp#L8558)) and
+  `Qt::ToolButtonTextUnderIcon` ([MainWindow.cpp:8615](src/gui/MainWindow.cpp#L8615))
+  - the under-icon text label adds a whole row, so the block does not align with the
+  Top/Bottom rows. Fix: drop to `iconSize` (match the rows) and `ToolButtonIconOnly`
+  (or TextBesideIcon), so the essential block ends flush with the two-row toolbar.
+  The action set comes from `LayoutSettingsWidget::getEssentialActionIds()`. There is
+  a second, near-identical builder around [MainWindow.cpp:7930](src/gui/MainWindow.cpp#L7930)
+  (the other layout path) - both must be changed.
+* **Tab Tools go in the freed space *under* the shrunk essential block:** **New Tab,
+  Split Tab, Clone Tab** (a short row beneath New/Open/Save/Undo/Redo, ending flush
+  with the toolbar's bottom edge). These are tab *operations*, distinct from the tab
+  *strip*. "Split Tab" = open the active document side-by-side (28.4); "Clone Tab" =
+  duplicate the active document into a new tab.
+* **The tab *strip* sits above the timeline** - a `QTabBar` (`setMovable(true)` for
+  reorder, `setTabsClosable(true)` for the built-in close x, so no custom close
+  icon is needed) placed in the `matrixArea` grid's 50px `placeholder0` zone
+  ([MainWindow.cpp:470-474](src/gui/MainWindow.cpp#L470-L474)) or a new strip just
+  above it. New tab via New / Open / drag-drop (`MainWindow` already handles file
+  drops -> route to "open in new tab").
+* **Icons:** New Tab can reuse `new.png`/`add.png`; close is Qt-native; only **Split**
+  and **Diff/Compare** glyphs are missing - pull from an MIT set (Tabler: `columns`
+  + `git-compare`), render as black monochrome PNGs (20px; 28px like
+  `channel_split_28.png`) into `run_environment/graphics/tool/`, register in
+  `resources.qrc`. The dark-mode recolor (`Appearance::adjustIconForDarkMode`,
+  SourceAtop fill to gray) expects exactly black-on-transparent monochrome.
 
-**28.5 - MidiPilot per document (requirement 8).** Bind a running agent to its
-**origin** Document, not the active one. Options to evaluate: (a) one
-`MidiPilotWidget`/`AgentRunner` per Document (matches the existing per-file chat
-/ preset model - `loadPresetForFile`), with the panel showing the active tab's
-instance; or (b) one widget, but route in-flight runs to the origin Document via
-the agent's existing `_file`. Either way: **remove the cancel-on-switch** in
-`onFileChanged` and make `EditorContext::captureState` read the origin
-document's view, not `_mainWindow->matrixWidget()`.
+**28.4 - Editor groups (THE core; requirements 2, 3, 4 + the 2026-06-14
+clarification).** NOT a read-only compare view - two FULL editable editor groups,
+VS Code-style:
+
+* Generalise to an **`EditorGroup`** = `{ its own QTabBar + its own set of open
+  Documents + its editor view (MatrixWidget/OpenGL) + active document }`. Group 0
+  is the primary (always present); group 1 appears when the editor is split.
+  Today's single global `_documentTabBar` + `DocumentManager` become **per-group**.
+* **Per-group tab bar:** group 1 gets its own tab strip above its view (inside the
+  splitter pane). Clicking a tab shows that document in *that group's* view.
+* **Cross-group tab drag-and-drop (the hard part):** drag a tab from one group's
+  bar to the other to move the document between groups. `QTabBar` has no native
+  inter-bar move - needs custom `QDrag`/`dropEvent` handling or a `QTabBar`
+  subclass. Reorder within a bar stays `setMovable(true)`.
+* **Focused group = active** (already wired: `MatrixWidget::focusReceived` ->
+  `setActiveDocument`): the focused group's active document drives the sidebars,
+  tools, selection and transport. Cross-group note copy works via the existing
+  serialisation-based `EventTool` clipboard once the active document follows focus.
+* **Collapse / close the second group:** a button to *collapse* (hide) the second
+  group without closing its tabs; a separate full *close* that closes its tabs
+  one-by-one with save prompts where needed.
+* **Stepping stones already built (now superseded by the per-group model):** a
+  single global tab bar that loads the focused pane + a read-only compare pane.
+  They work on the branch but the editor-groups model replaces the single-bar
+  approach - the read-only/compare framing is the drift being corrected here.
+
+**28.5 - MidiPilot per document (requirement 8).** Bind a running agent's *writes*
+to its **origin** Document, not the active one. The fix is NOT "remove a cancel"
+(there is none - see above); it is to **thread the run's origin file through the
+apply path**: `execWriteAction` currently discards the `file` already plumbed into
+`executeTool` and calls `widget->executeAction()` -> `applyAiEdits/Deletes`, which
+write `MidiPilotWidget::_file` (active tab) + `NewNoteTool` statics. Options to
+evaluate: (a) one `MidiPilotWidget`/`AgentRunner` per Document (matches the
+existing per-file chat / preset model - `loadPresetForFile`), with the panel
+showing the active tab's instance; or (b) one widget, but make the apply path
+(`executeAction`/`applyAi*`) operate on the run's origin `MidiFile *` rather than
+`_file`. Either way: make read tools (`get_selection`) read the origin document's
+selection, not the global `Selection::instance()`, and make
+`EditorContext::captureState` read the origin document's view, not
+`_mainWindow->matrixWidget()`.
 
 **28.6 - Collaboration with tabs (requirement 9).** A collab session binds to a
 specific Document (like the agent binds to its origin tab); switching tabs must
@@ -11853,11 +11963,12 @@ document, vs. per-document sessions. Re-verify the Show-Mode view-broadcast and
 the snapshot/diff sync after the Selection/visibility de-singletoning (28.1),
 since those read global state today.
 
-**28.7 - Side-by-side MIDI-diff view (the payoff).** With two views already
-possible (28.4), add synced scroll/transport between two chosen tabs and a visual
-diff (added / removed / moved notes). **Reuse seed:** a `MidiDiff` engine already
-exists under `src/collab/MidiDiff` (JSON in/out, used by collab) - candidate for
-the diff computation. This sub-phase can ship after the core tabs work.
+**28.7 - (OPTIONAL, later) visual MIDI-diff - NOT core.** Editor groups (28.4)
+already cover "compare two files side by side" by opening one in each group, so
+this is no longer the payoff - it is a deferred nice-to-have. IF a *highlighted*
+diff (added / removed / moved notes) + synced scroll/transport between two groups
+is ever wanted, the `MidiDiff` engine under `src/collab/MidiDiff` (JSON in/out,
+used by collab) is the reuse seed. Not part of the 1.9.0 core.
 
 ### Reuse seeds (don't reinvent)
 
@@ -11880,6 +11991,46 @@ the diff computation. This sub-phase can ship after the core tabs work.
   context). Many tabs / two live side-by-side = real GPU cost; consider lazily
   constructing the view and only keeping the active (+ a pinned compare) view
   "hot". Mind the hardware-acceleration auto-disable path on high-DPI.
+
+### Performance & memory budget (multi-document) - code-grounded estimate
+
+Verified against the data structures (2026-06-14). **The note data is cheap; the
+cost is GL views and the per-tab undo stack.**
+
+* **Per-event footprint.** `MidiEvent : ProtocolEntry, GraphicObject`
+  ([MidiEvent.h:54](src/MidiEvent/MidiEvent.h#L54)). `ProtocolEntry` is vtable-only;
+  `GraphicObject` holds 4 ints + a bool ([GraphicObject.h:120](src/gui/GraphicObject.h#L120));
+  `MidiEvent` adds 2 ints + 2 ptrs + 1 int. With two vptrs (multiple polymorphic
+  bases) a base event is ~64-72 B; a NoteOn/Off pair ~160 B of object data. Events
+  live in per-channel `QMultiMap<int, MidiEvent*>` (red-black tree, ~40 B/node).
+  **All-in ~= 250-300 B per note.**
+* **Per-document MIDI data** therefore: 20k notes ~= 6 MB, 50k ~= 15 MB, 100k (a
+  very dense file) ~= 30 MB. Even heavy files are tens of MB - **not** the binding
+  constraint. 20-30 such documents = a few hundred MB of note data.
+* **The two real variables:**
+  1. **Undo/Protocol stack is per-`MidiFile` and grows unbounded with editing**
+     (each action stores `copy()`s of touched events). This is per-tab and the main
+     RAM wildcard in long sessions. Consider a configurable undo-depth cap and/or a
+     memory readout.
+  2. **GL contexts dominate** (tens of MB each, driver-dependent). Keep only the
+     active (+ a pinned compare) `OpenGLMatrixWidget` live; lazily build/destroy the
+     view for inactive tabs while keeping their `MidiFile` resident.
+* **Tab limit?** No hard *data* limit is needed. Recommended guardrails: (a) lazy
+  GL-view lifecycle (the single most important decision); (b) a generous,
+  configurable **soft** cap on open tabs (~20-30) with a warning rather than a hard
+  block; (c) keep the existing "max 2 side-by-side" non-goal (<=2 live GL contexts);
+  (d) one playback stream (already true).
+* **MEASURED (2026-06-14, `tests/test_event_perf.cpp` / ctest `EventPerf`).** A
+  smoke-harness now builds dense NoteOn/Off populations in per-channel QMultiMaps and
+  reports working-set delta via PSAPI. Result on Win64/MSVC2019/Qt6.5.3:
+  **~336-341 B per note all-in** (50k notes -> ~16.2 MB; 100k -> ~32.0 MB; perfectly
+  linear), build 43 ms for 100k, select-all of 200k events 16 ms. This confirms the
+  ~250-300 B estimate (real number is a touch higher: allocator + page overhead).
+  **Bottom line: a 100k-note document costs ~32 MB; 20-30 such tabs ~= 0.6-1 GB of
+  event data - comfortably not the constraint.** Run the numbers with
+  `test_event_perf.exe -v2 -o out.txt,txt` (qInfo is hidden at default verbosity).
+  Still TODO before 28.4: measure a live `OpenGLMatrixWidget`'s GL-context cost (the
+  actual dominant term) and the undo-stack growth under heavy editing.
 * **Playback is single-stream.** Only one document plays at a time; decide whether
   Play follows the active tab or stays pinned to the playing tab (suggest: follows
   active, stop on switch-away, like today's single stream).

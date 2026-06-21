@@ -503,6 +503,17 @@ QJsonObject ToolDefinitions::executeTool(const QString &toolName,
                                          MidiFile *file,
                                          MidiPilotWidget *widget,
                                          const QString &source) {
+    // Phase 28 (editor groups): pin the apply target to THIS call's file for the
+    // whole tool call. Write tools route through widget->executeAction(), which
+    // reads the widget's live _file; without this an agent edit applied after a
+    // tab switch - or any MCP edit - would land on the wrong document. The guard
+    // sets the target on entry and clears it on every return (RAII).
+    struct ApplyTargetScope {
+        MidiPilotWidget *w;
+        ApplyTargetScope(MidiPilotWidget *w, MidiFile *f) : w(w) { if (w) w->setApplyTarget(f); }
+        ~ApplyTargetScope() { if (w) w->setApplyTarget(nullptr); }
+    } applyTargetScope(widget, file);
+
     // Hardening: validate required parameters against the tool's own schema
     // before dispatching. Without this, a missing or misnamed argument (common
     // from MCP clients, which — unlike the OpenAI/Gemini strict-mode path —
@@ -696,8 +707,12 @@ QJsonObject ToolDefinitions::execGetSelection(MidiFile *file) {
         return result;
     }
     // Same list (and order) delete_events_by_index indexes into, so the "id"
-    // field on each serialized event IS the index to pass to that tool.
-    QList<MidiEvent *> selected = Selection::instance()->selectedEvents();
+    // field on each serialized event IS the index to pass to that tool. Read THIS
+    // file's selection (forFile), not the globally-active one: during an agent run
+    // the user may have switched tabs, but the run targets its own file, so the
+    // indices the model gets here must match what the write tools act on.
+    Selection *sel = Selection::forFile(file);
+    QList<MidiEvent *> selected = sel ? sel->selectedEvents() : QList<MidiEvent *>();
     QJsonArray events = MidiEventSerializer::serialize(selected, file);
     result["success"] = true;
     result["count"] = selected.size();

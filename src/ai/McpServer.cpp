@@ -104,6 +104,25 @@ void McpServer::setFile(MidiFile *file) {
     _file = file;
 }
 
+void McpServer::forgetFile(MidiFile *file) {
+    if (!file) {
+        return;
+    }
+    // Phase 28 (editor groups): a document was closed - drop it as any session's
+    // bound document so the next tool call rebinds to the active one instead of
+    // acting on a freed file.
+    if (_file == file) {
+        _file = nullptr;
+    }
+    QMutexLocker lock(&_sessionMutex);
+    for (auto &session : _sessions) {
+        if (session.boundFile == file) {
+            session.boundFile = nullptr;
+            session.boundFileClosed = true; // next tool call must re-read, not silently retarget
+        }
+    }
+}
+
 void McpServer::setWidget(MidiPilotWidget *widget) {
     _widget = widget;
 }
@@ -636,18 +655,49 @@ QJsonObject McpServer::handleToolsCall(const QJsonObject &params, Session &sessi
                          ? QStringLiteral("mcp")
                          : QStringLiteral("mcp:") + session.clientName;
 
+    // Phase 28 (editor groups): resolve which document this call acts on. The
+    // session binds to a document so a read (get_selection) and a later write
+    // (delete_events_by_index) stay on the SAME document even if the user
+    // switches tabs in between - mirroring MidiPilot's run-origin behaviour.
+    // get_editor_state is the explicit resync point: it re-binds to whatever is
+    // active now (so the client can intentionally move to another document);
+    // every other tool acts on the bound document (bound to active on first use).
+    //
+    // If the bound document was CLOSED mid-conversation (forgetFile set the flag),
+    // refuse a stateful tool call rather than silently retargeting it onto whatever
+    // is now active - the client's indices/payload were computed for the old doc.
+    // The client must call get_editor_state to re-read state and re-bind.
+    if (session.boundFileClosed && toolName != QStringLiteral("get_editor_state")) {
+        QJsonObject result;
+        QJsonArray content;
+        QJsonObject textContent;
+        textContent["type"] = QString("text");
+        textContent["text"] = QStringLiteral(
+            "Error: the document this session was working on was closed. Call "
+            "get_editor_state to re-read the editor state and re-bind before editing.");
+        content.append(textContent);
+        result["content"] = content;
+        result["isError"] = true;
+        return result;
+    }
+    if (toolName == QStringLiteral("get_editor_state") || !session.boundFile) {
+        session.boundFile = _file;
+        session.boundFileClosed = false; // resynced to the active document
+    }
+    MidiFile *targetFile = session.boundFile;
+
     // Execute the tool on the main thread (thread safety for MIDI data)
     QJsonObject toolResult;
     bool executed = false;
 
     if (QThread::currentThread() == QCoreApplication::instance()->thread()) {
         // Already on main thread
-        toolResult = ToolDefinitions::executeTool(toolName, args, _file, _widget, source);
+        toolResult = ToolDefinitions::executeTool(toolName, args, targetFile, _widget, source);
         executed = true;
     } else {
         // Cross-thread invocation
         QMetaObject::invokeMethod(this, [&]() {
-            toolResult = ToolDefinitions::executeTool(toolName, args, _file, _widget, source);
+            toolResult = ToolDefinitions::executeTool(toolName, args, targetFile, _widget, source);
             executed = true;
         }, Qt::BlockingQueuedConnection);
     }

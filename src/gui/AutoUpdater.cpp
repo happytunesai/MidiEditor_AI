@@ -369,9 +369,12 @@ bool AutoUpdater::applyUpdate(const QString &zipPath, const QString &midiPath)
     // (unlike batch files which had all the console/quoting problems)
     QString newExePath = QDir(appDir).filePath(exeName);
     QStringList args;
-    if (!midiPath.isEmpty()) {
-        args << "--open" << midiPath;
-    }
+    // NOTE: we deliberately do NOT pass "--open <midiPath>" here. The caller
+    // persisted the full editor session (all tabs in both groups + the split)
+    // before relaunching, and the new instance restores that session on startup.
+    // Passing --open would set the init-file and make startup skip the session
+    // restore, reopening only the single active file (the pre-1.9.0 behaviour).
+    Q_UNUSED(midiPath);
     // Tell the new instance that it was just updated so it can show the post-update dialog
     // Use --updated-from=X.Y.Z (single arg) so older versions that don't understand it
     // will silently ignore the flag instead of treating the version as a filename.

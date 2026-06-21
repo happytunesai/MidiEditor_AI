@@ -184,10 +184,58 @@ private slots:
         resetSelection();
         Selection::instance()->setSelection(makeFakeList({0x77, 0x88}));
         QCOMPARE(Selection::instance()->selectedEvents().size(), 2);
-        // setFile() destroys the old instance and creates a fresh one.
+        // setFile(nullptr) activates a fresh transient selection.
         Selection::setFile(nullptr);
         QVERIFY(Selection::instance() != nullptr);
         QVERIFY(Selection::instance()->selectedEvents().isEmpty());
+    }
+
+    // --- Phase 28: per-document selection -------------------------------
+    // MidiFile* values are sentinels; Selection stores but never dereferences
+    // them (file() just returns the pointer).
+    void setFile_perDocument_thenSwitchingBackRestoresThatDocsSelection() {
+        MidiFile *fileA = reinterpret_cast<MidiFile *>(quintptr(0xA000));
+        MidiFile *fileB = reinterpret_cast<MidiFile *>(quintptr(0xB000));
+
+        Selection::setFile(fileA);
+        Selection::instance()->setSelection(makeFakeList({0x11, 0x12}));
+        QCOMPARE(Selection::instance()->selectedEvents().size(), 2);
+
+        // Switching to a different document gives that document a fresh,
+        // empty selection - it must NOT see fileA's selection.
+        Selection::setFile(fileB);
+        QVERIFY(Selection::instance()->selectedEvents().isEmpty());
+        Selection::instance()->setSelection(makeFakeList({0x21}));
+        QCOMPARE(Selection::instance()->selectedEvents().size(), 1);
+
+        // Switching back restores each document's own retained selection.
+        Selection::setFile(fileA);
+        QCOMPARE(Selection::instance()->selectedEvents().size(), 2);
+        Selection::setFile(fileB);
+        QCOMPARE(Selection::instance()->selectedEvents().size(), 1);
+
+        // Closing a document drops its selection without affecting others.
+        Selection::forgetFile(fileA);
+        Selection::setFile(fileB);
+        QCOMPARE(Selection::instance()->selectedEvents().size(), 1);
+
+        // Cleanup so later/other tests start clean.
+        Selection::forgetFile(fileB);
+        Selection::setFile(nullptr);
+    }
+
+    void forgetFile_activeDocument_thenInstanceStaysValidAndEmpty() {
+        MidiFile *fileC = reinterpret_cast<MidiFile *>(quintptr(0xC000));
+        Selection::setFile(fileC);
+        Selection::instance()->setSelection(makeFakeList({0x31, 0x32}));
+        QCOMPARE(Selection::instance()->selectedEvents().size(), 2);
+
+        // Forgetting the active document must leave instance() valid + empty.
+        Selection::forgetFile(fileC);
+        QVERIFY(Selection::instance() != nullptr);
+        QVERIFY(Selection::instance()->selectedEvents().isEmpty());
+
+        Selection::setFile(nullptr);
     }
 };
 

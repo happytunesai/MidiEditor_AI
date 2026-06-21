@@ -344,6 +344,7 @@ The agent loop is wrapped by a lightweight <b>conductor</b> that owns a compact,
 <li>After every successful tool call, the conductor distils a one-line confirmation into the working state (e.g. <i>&ldquo;Tempo set to 82 BPM&rdquo;</i>, <i>&ldquo;8 tracks created&rdquo;</i>) so the model resumes from real progress instead of re-deriving it from raw tool output.</li>
 <li>After a rejected write (validation error, FFXIV violation, capability error&hellip;), the conductor injects a short, <b>positive</b> rejection guidance - describing what should be tried next instead of restating what failed.</li>
 <li>If two consecutive write attempts fail without making progress, the conductor performs a <b>bounded-failure stop</b> and reports the remaining problem in plain language instead of looping forever.</li>
+<li>The run remembers the document it was started on. If you switch to another <a href="editor-groups.html">tab</a> while MidiPilot is working, its edits still land on the original document and its selection.</li>
 </ul>
 
 <h3>GPT-5.5 model-isolation policy</h3>
