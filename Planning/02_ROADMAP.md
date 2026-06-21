@@ -11703,7 +11703,7 @@ Export/Import JSON + Reset All. Nothing is lost for advanced users.
   mode (current `onSave` rejects empty) - with blocks, that means "at least the
   locked/core blocks enabled".
 
-## Phase 28: Multi-Document Tabs + Editor Groups (v1.9.0, IN PROGRESS)
+## Phase 28: Multi-Document Tabs + Editor Groups (v1.9.0 — ✅ SHIPPED 2026-06-21)
 
 > **Goal:** turn MidiEditor AI into a tabbed, multi-document editor with
 > **VS Code-style editor groups**: each note-roll is a tab; you can open many at
@@ -11722,15 +11722,42 @@ Export/Import JSON + Reset All. Nothing is lost for advanced users.
 > MIDI-diff are NOT core (the diff is demoted to an optional later nice-to-have).
 > 28.4 is rewritten as "editor groups" and 28.7 demoted accordingly.
 >
-> **Status / done so far (branch `feature/tabs-1.9.0`, all committed):** 28.1
-> (singletons de-coupled: per-document Selection + channel visibility +
-> focus-based tool routing) DONE; 28.2 (`DocumentManager` + non-destructive
-> `activateDocument`/`setActiveDocument` split) DONE; 28.3 (tab strip + New-Tab
-> "+" button + essential-toolbar compaction) DONE; **editable side-by-side panes**
-> DONE (both panes editable, focused pane drives sidebars/tools, tab click loads
-> into the focused pane). REMAINING = the **editor-groups** model (28.4 below:
-> per-group tab bars + cross-group tab drag-and-drop + collapse/close), then 28.5
-> (MidiPilot per document) + 28.6 (collab with groups).
+> **✅ SHIPPED in 1.9.0 (branch `feature/tabs-1.9.0`, merged 2026-06-21).** Everything below was delivered:
+>
+> - **28.1 — singletons de-coupled:** per-document `Selection` (`Selection::forFile`), per-document channel
+>   visibility, focus-based tool routing (`MatrixWidget::focusReceived` → the focused view claims the EditorTool
+>   target). Selection is per-pane (each pane draws its own doc's selection; only the focused pane draws the tool
+>   overlay → no "ghost" selection).
+> - **28.2 — `DocumentManager`** (owns Document handles, not MidiFiles) + the non-destructive
+>   `activateDocument` / `setActiveDocument` / `bindPrimaryView` / `closeDocumentFile` split of the old `setFile`.
+> - **28.3 — tab strip** above the timeline, New-Tab **+** button, essential-toolbar compaction, and a
+>   **tab-tools row** (New Tab / Split / Clone / Close All Tabs; theme-drawn Split icon).
+> - **Editor groups (28.4 — the core):** per-group `DocumentTabBar` (custom QDrag), **Split** into two fully
+>   editable groups each with its own tab bar + DocumentManager; **cross-group tab drag-and-drop** with a blue
+>   insertion caret (drop anywhere in a pane works too); **collapse** (theme-coloured "Group 2 (N)" restore chip) /
+>   **close** the secondary group; **drop a MIDI file into a specific pane**.
+> - **Focused-view routing:** zoom, playback cursor, measure/marker nav, smooth-scroll, the shared scrollbars,
+>   and Track/Channel colour mode all follow the focused pane (each split pane scrolls independently); the inactive
+>   group's tabs **dim**; clicking any tab (even the already-active one) focuses its group.
+> - **Side-by-side comparison (Sync):** the secondary group's **Sync** toggle locks scroll/zoom/cursor/playback to
+>   the left (master); the right is a synced read-only reference whose own track/channel visibility stays togglable.
+> - **Session restore:** both groups' open tabs + split/collapsed state + active tab persist across normal,
+>   theme-change and auto-update restarts. App-exit save-prompts **every** dirty tab in both groups.
+> - **28.5 — MidiPilot per document (✅):** a run captures its origin document at send; agent **and** simple mode
+>   apply to that document (and its selection) even if you switch tabs mid-run. Read tools (`get_selection`,
+>   `get_editor_state`) read the run's document too. Closing the origin tab mid-run aborts the run.
+> - **MCP per document (✅):** each MCP session binds to its working document (like MidiPilot's origin), so a
+>   read-then-edit stays coherent across tab switches; `get_editor_state` re-syncs the session to the active doc;
+>   `McpServer::forgetFile` unbinds a closed doc. The shared apply target is scoped per tool call
+>   (`_applyTargetFile` + `ToolDefinitions::executeTool` RAII guard) so MidiPilot and MCP never mis-route each other.
+> - **28.6 — collaboration with tabs (✅):** a live LAN/WAN session **locks the tabs** to its single shared
+>   document (both strips + New/Open disabled, focus pinned) and unlocks when the session ends.
+> - **Deep bug-hunt + a full pre-release review** (multi-agent): fixed save-on-cancel data loss, the
+>   `matrixWidget()`-vs-focused-pane consumers (velocity lane, SelectionNavigator, TweakTarget, MidiPilot context),
+>   a `MatrixWidget::setFile` connection leak, the stale window-modified title, and a SID-cursor connection leak.
+>
+> **NOT in 1.9.0 (deferred):** the optional visual **MIDI-diff** view (28.7) — editor groups cover the
+> compare use case, so the dedicated diff is a later nice-to-have.
 
 ### User requirements (verbatim intent, 2026-06-11)
 

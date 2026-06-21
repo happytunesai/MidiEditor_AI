@@ -5,7 +5,7 @@ Releases: https://github.com/happytunesai/web/releases
 
 ---
 
-## [1.9.0] - 2026-06-17 - Tabs & Editor Groups
+## [1.9.0] - 2026-06-21 - Tabs & Editor Groups
 
 ### Summary
 
@@ -31,6 +31,7 @@ Releases: https://github.com/happytunesai/web/releases
 
 * **View operations follow the focused pane.** Zoom, the playback cursor, measure/marker navigation, smooth-scrolling and the shared scrollbars now act on the focused editor group instead of always the primary one, so each split pane can be scrolled independently with the same bars.
 * **Active editor group is highlighted.** When split, the focused group's tabs stay fully lit while the other group's tabs dim, making it obvious which side is active.
+* **Clicking any tab focuses its group.** Clicking a tab now always focuses that editor group - including clicking the tab a group already has selected - so you no longer have to click into the note roll to move focus.
 * **AI edits always land on the document they were started on.** If you switch tabs while MidiPilot (agent or simple mode) is working, its result is applied to the original document (and its selection), not whichever tab happens to be active when the response arrives. MCP sessions likewise bind to the document they are working on, so a read-then-edit stays on the same document across tab switches (the `get_editor_state` tool re-syncs the session to the active document). Closing that document mid-run safely stops the run / unbinds the session.
 * **Selection is per-pane.** Each pane draws its own document's selection (and only the focused pane draws the tool overlay), so selecting in one group no longer paints a "ghost" selection in the other.
 * **Closing prompts every unsaved tab.** Quitting now offers to save *all* unsaved documents across both groups, not just the active one - and cancelling the save dialog no longer discards the document.
