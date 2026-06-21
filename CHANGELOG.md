@@ -7,6 +7,17 @@ Releases: https://github.com/happytunesai/web/releases
 
 ## [1.9.0] - 2026-06-21 - Tabs & Editor Groups
 
+> **The deepest structural change MidiEditor AI has had.** The editor was
+> single-document to its core - one open file, one of every widget, shared global
+> state throughout. 1.9.0 rebuilds that foundation into a true multi-document
+> architecture and turns the front end into a modern, VS Code-style editing
+> surface: keep many files open as **tabs**, **split** the editor into two
+> side-by-side **editor groups**, and drag tabs between them - with selection,
+> channel visibility, tools, MidiPilot, the MCP server and live collaboration all
+> reworked to act per-document. The short feature list below sits on top of that
+> rebuild; despite how far it reaches, every existing single-file workflow behaves
+> exactly as before.
+
 ### Summary
 
 * **Multiple files open at once, as tabs.** *New* and *Open* now add a tab instead of replacing the current document. Switch by clicking, close with a per-tab save prompt, reorder by dragging, and open a fresh tab with the **+** button.
