@@ -104,6 +104,24 @@ void McpServer::setFile(MidiFile *file) {
     _file = file;
 }
 
+void McpServer::forgetFile(MidiFile *file) {
+    if (!file) {
+        return;
+    }
+    // Phase 28 (editor groups): a document was closed - drop it as any session's
+    // bound document so the next tool call rebinds to the active one instead of
+    // acting on a freed file.
+    if (_file == file) {
+        _file = nullptr;
+    }
+    QMutexLocker lock(&_sessionMutex);
+    for (auto &session : _sessions) {
+        if (session.boundFile == file) {
+            session.boundFile = nullptr;
+        }
+    }
+}
+
 void McpServer::setWidget(MidiPilotWidget *widget) {
     _widget = widget;
 }
@@ -636,18 +654,31 @@ QJsonObject McpServer::handleToolsCall(const QJsonObject &params, Session &sessi
                          ? QStringLiteral("mcp")
                          : QStringLiteral("mcp:") + session.clientName;
 
+    // Phase 28 (editor groups): resolve which document this call acts on. The
+    // session binds to a document so a read (get_selection) and a later write
+    // (delete_events_by_index) stay on the SAME document even if the user
+    // switches tabs in between - mirroring MidiPilot's run-origin behaviour.
+    // get_editor_state is the explicit resync point: it re-binds to whatever is
+    // active now (so the client can intentionally move to another document);
+    // every other tool acts on the bound document (bound to active on first use,
+    // or re-bound to active if the previous binding was closed -> forgetFile).
+    if (toolName == QStringLiteral("get_editor_state") || !session.boundFile) {
+        session.boundFile = _file;
+    }
+    MidiFile *targetFile = session.boundFile;
+
     // Execute the tool on the main thread (thread safety for MIDI data)
     QJsonObject toolResult;
     bool executed = false;
 
     if (QThread::currentThread() == QCoreApplication::instance()->thread()) {
         // Already on main thread
-        toolResult = ToolDefinitions::executeTool(toolName, args, _file, _widget, source);
+        toolResult = ToolDefinitions::executeTool(toolName, args, targetFile, _widget, source);
         executed = true;
     } else {
         // Cross-thread invocation
         QMetaObject::invokeMethod(this, [&]() {
-            toolResult = ToolDefinitions::executeTool(toolName, args, _file, _widget, source);
+            toolResult = ToolDefinitions::executeTool(toolName, args, targetFile, _widget, source);
             executed = true;
         }, Qt::BlockingQueuedConnection);
     }

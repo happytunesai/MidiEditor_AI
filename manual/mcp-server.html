@@ -307,6 +307,13 @@ All 15 core tools from MidiEditor AI&rsquo;s built-in MidiPilot are exposed via 
 tools below when FFXIV mode is on). The AI client discovers them automatically via <code>tools/list</code>.
 </p>
 
+<p>
+Each MCP connection works on <b>one document at a time</b>. The session binds to the document that is
+active when it first acts, and stays on it &mdash; so a read followed by an edit lands on the same
+document even if you switch tabs in the editor meanwhile. Call <code>get_editor_state</code> to point the
+session at whichever document is currently active.
+</p>
+
 <h3>Read-Only Tools <span class="tool-badge badge-read">READ</span></h3>
 
 <table>

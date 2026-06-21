@@ -2160,6 +2160,7 @@ void MainWindow::closeDocumentFile(MidiFile *oldFile) {
     FfxivVoiceAnalyzer::instance()->forgetFile(oldFile);
     Selection::forgetFile(oldFile);
     ChannelVisibilityManager::instance().forgetFile(oldFile);
+    if (_mcpServer) _mcpServer->forgetFile(oldFile);
     _connectedFiles.remove(oldFile);
     delete oldFile;
 }
