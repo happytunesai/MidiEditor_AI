@@ -594,14 +594,14 @@
     </div>
     <div class="whats-new reveal">
         <span class="latest-badge">Latest</span>
-        <h3>v1.9.0 - May 2026</h3>
-        <p class="whats-new-subtitle">Show Mode, In-Session Chat &amp; Follow-the-Host</p>
+        <h3>v1.9.0 - June 2026</h3>
+        <p class="whats-new-subtitle">Tabs &amp; Editor Groups</p>
         <ul>
-            <li><strong>Show Mode - hat-passing presentation sessions</strong> - pick Edit or Show when you start a Live Session; in Show mode one peer at a time holds <em>the hat</em> (= editing rights) while everyone else watches. Request-and-approve hat passing, host can reclaim from a silent presenter, viewers' matrices / tools / MidiPilot / MCP all lock cleanly. Designed for tutorial streams, classroom teaching, AI walkthroughs (<a href="collab-show-mode.html">read more</a>)</li>
-            <li><strong>Follow-the-host viewport sync</strong> - viewers see exactly what the presenter is looking at, regardless of window size or zoom. Auto-fit-to-focus keeps you on the same notes; track + channel visibility, edit cursor, active tool name, and the presenter's selected notes all mirror onto every viewer's screen (<a href="collab-show-mode.html#follow-the-host">read more</a>)</li>
-            <li><strong>In-session chat side-channel</strong> - a new Chat tab in the lower sidebar lets peers talk during a Live Session without alt-tabbing to Discord. Plain UTF-8, 4&nbsp;KB cap per message, no persistence, unread badge + tab blink for incoming. Works in both Edit and Show modes (<a href="collab-chat.html">read more</a>)</li>
-            <li><strong>Version-mismatch warnings</strong> - from v1.9.0 onward every <code>hello</code> handshake carries the build version. Hosts and joiners both warn about peers on older or different builds: modal popup for pre-1.7.2 "blind generation" peers (they can't see warnings on their side), low-key status-bar tip for matched-but-different versions (<a href="collab-show-mode.html#version-mismatch">read more</a>)</li>
-            <li><strong>v1.9.0 / v1.9.0 features still apply</strong> - the underlying Live Session machinery (LAN multicast + WAN WebRTC, async PRs, Discord, logging, Cloudflare self-hosting) is unchanged. Show Mode and Chat are orthogonal feature modifiers, not replacements (<a href="collaboration.html">collaboration overview</a>)</li>
+            <li><strong>Several files open at once, as tabs</strong> - <em>New</em> and <em>Open</em> add a tab instead of replacing the current document. Switch by clicking, reorder by dragging, close with a per-tab save prompt; each document keeps its own selection, channel visibility and viewport (<a href="editor-groups.html">read more</a>)</li>
+            <li><strong>Two files side by side - editor groups</strong> - <em>Split</em> opens a second, fully-editable editor group with its own tab bar, and you can drag tabs between the groups (a caret shows where they land). Perfect for comparing or copying between two MIDIs (<a href="editor-groups.html">read more</a>)</li>
+            <li><strong>Sync comparison</strong> - link the two panes so scroll, zoom, cursor and playback follow the left view while the right stays a read-only reference - edit a cover on the left with the original running alongside (<a href="editor-groups.html">read more</a>)</li>
+            <li><strong>The AI stays on your document</strong> - MidiPilot and the MCP server apply their edits to the document you started them on, even if you switch tabs while they are working (<a href="midipilot.html">read more</a>)</li>
+            <li><strong>Your session is remembered</strong> - open tabs, the split layout and the active tab come back on the next launch, including after a theme change or an update</li>
         </ul>
         <a href="changelog.html" class="changelog-link">View Full Changelog &rarr;</a>
     </div>
