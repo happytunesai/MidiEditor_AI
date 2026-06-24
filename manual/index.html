@@ -179,7 +179,7 @@
     "description": "AI-powered MIDI editor with intelligent copilot, Guitar Pro import, FFXIV bard mode, and FluidSynth playback.",
     "url": "https://midieditor-ai.de",
     "downloadUrl": "https://github.com/happytunesai/MidiEditor_AI/releases/latest",
-    "softwareVersion": "1.9.0",
+    "softwareVersion": "1.9.1",
     "license": "https://github.com/happytunesai/MidiEditor_AI/blob/main/LICENSE",
     "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
 }
@@ -242,7 +242,7 @@
              onerror="this.parentElement.style.display='none';">
     </div>
 
-    <span class="hero-badge">v1.9.0 &middot; Open Source &middot; Windows</span>
+    <span class="hero-badge">v1.9.1 &middot; Open Source &middot; Windows</span>
 
     <h1 class="hero-title">
         The <span class="text-gradient">AI-Powered</span> MIDI Editor
@@ -254,7 +254,7 @@
 
     <div class="hero-actions">
         <a href="download.html" class="btn btn-primary">
-            &#x2B07; Download v1.9.0
+            &#x2B07; Download v1.9.1
         </a>
         <a href="docs-index.html" class="btn btn-secondary" target="_blank" rel="noopener noreferrer">
             &#x1F4D6; Documentation
@@ -310,6 +310,13 @@
                 <p>15 AI tools, live Agent streaming, provider model refresh, favourites,
                     and natural language MIDI editing. Compose, harmonize, fix, and refine - just ask.</p>
         </a>
+        <a class="feature-card" href="editor-groups.html">
+            <span class="card-icon">&#x1F5C2;&#xFE0F;</span>
+            <h3>Tabs &amp; Editor Groups</h3>
+            <p>Keep several MIDI files open as tabs and edit two side by side in independent
+               editor groups. Drag tabs between groups, compare with synced scroll, zoom and
+               cursor, and each document keeps its own selection and view.</p>
+        </a>
         <a class="feature-card" href="collaboration.html">
             <span class="card-icon">&#x1F91D;</span>
             <h3>Real-time Collaboration</h3>
@@ -329,11 +336,25 @@
             <p>One-click FFXIV channel fixer for MidiBard2 - deterministic algorithm,
                no AI needed. Guitar variant switching, range clamping, validation.</p>
         </a>
+        <a class="feature-card" href="ffxiv-voice-limiter.html">
+            <span class="card-icon">&#x1F39A;&#xFE0F;</span>
+            <h3>FFXIV Voice Limiter</h3>
+            <p>A live analyser for FFXIV bard performances: a toolbar gauge and a voice-load
+               lane show where your arrangement would exceed the game's 16-voice ceiling and
+               be silently degraded - so you can spot and fix hot-spots before you upload.</p>
+        </a>
         <a class="feature-card" href="soundfont.html">
             <span class="card-icon">&#x1F50A;</span>
-            <h3>FluidSynth &amp; Audio Export</h3>
-            <p>Built-in FluidSynth synthesizer with SoundFont management.
-               Export to WAV, FLAC, OGG, or MP3 with the bundled LAME encoder.</p>
+            <h3>FluidSynth &amp; SoundFonts</h3>
+            <p>Built-in FluidSynth synthesizer with multi-SoundFont stacking and per-font
+               gain - high-quality General MIDI playback right inside the editor.</p>
+        </a>
+        <a class="feature-card" href="export-audio.html">
+            <span class="card-icon">&#x1F4BE;</span>
+            <h3>Audio Export</h3>
+            <p>Render your MIDI to WAV, FLAC, OGG, or MP3 (bundled LAME encoder) through the
+               current SoundFont stack - full song or a custom range, with reverb-tail capture
+               and per-channel solo.</p>
         </a>
         <a class="feature-card" href="themes.html">
             <span class="card-icon">&#x1F3A8;</span>
@@ -594,7 +615,17 @@
     </div>
     <div class="whats-new reveal">
         <span class="latest-badge">Latest</span>
-        <h3>v1.9.0 - June 2026</h3>
+        <h3>v1.9.1 - June 2026</h3>
+        <p class="whats-new-subtitle">Tabs &amp; Editor Groups - refined</p>
+        <ul>
+            <li><strong>Copy &amp; paste between tabs, the way you expect</strong> - pasted notes land on the track they came from, the view jumps straight to them, and a repeated paste won't pile up invisible duplicates (<a href="editor-groups.html">read more</a>)</li>
+            <li><strong>A velocity / controller lane under each pane</strong> - split the editor and both groups get their own editable velocity, CC and pitch-bend lane</li>
+            <li><strong>Reliable tab focus</strong> - clicking a tab focuses that editor group, so edits, shortcuts and Paste Special always act on the document you are looking at</li>
+            <li><strong>Startup &amp; multi-document polish</strong> - a restored split lines its lanes up immediately, and the track list always follows the active document</li>
+        </ul>
+    </div>
+    <div class="whats-new reveal" style="margin-top: 2rem;">
+        <h3>v1.9.1 - June 2026</h3>
         <p class="whats-new-subtitle">Tabs &amp; Editor Groups</p>
         <ul>
             <li><strong>Several files open at once, as tabs</strong> - <em>New</em> and <em>Open</em> add a tab instead of replacing the current document. Switch by clicking, reorder by dragging, close with a per-tab save prompt; each document keeps its own selection, channel visibility and viewport (<a href="editor-groups.html">read more</a>)</li>
@@ -659,7 +690,7 @@
     </div>
     <div class="hero-actions reveal" style="margin-bottom: 1.5rem;">
         <a href="download.html" class="btn btn-primary" style="font-size: 1.15rem; padding: 1rem 2.5rem;">
-            &#x2B07; Download MidiEditor AI v1.9.0
+            &#x2B07; Download MidiEditor AI v1.9.1
         </a>
     </div>
     <p class="reveal" style="color: var(--text-muted); font-size: .9rem;">

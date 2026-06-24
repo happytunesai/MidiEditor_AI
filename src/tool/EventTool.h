@@ -149,6 +149,21 @@ public:
                                                     bool allowSameProcess = false);
 
     /**
+     * \brief Returns the NoteOnEvents in \a events that would land EXACTLY on an
+     * identical existing note (same channel + tick + pitch) in \a target if pasted
+     * now, using the same placement math as pasteFromSharedClipboardWithOptions().
+     *
+     * Relies on the SharedClipboard source metadata (timings/channels) populated by
+     * the deserialize that produced \a events, so call it right after that
+     * deserialize. \a assignment is the int value of PasteAssignment (only
+     * CurrentEditTarget = 2 changes the per-event channel). Used both to warn in the
+     * Paste Special dialog and to skip duplicates during the actual paste.
+     */
+    static QList<MidiEvent *> findDuplicatePasteNotes(MidiFile *target,
+                                                      const QList<MidiEvent *> &events,
+                                                      int assignment);
+
+    /**
      * \brief Checks if shared clipboard has data.
      * \return True if shared clipboard contains events
      */

@@ -73,7 +73,7 @@ This is the simplest collab mode - no servers, no realtime, just text.
 </p>
 
 <div class="screenshot-single">
-    <img src="screenshots/Create-PR_dialog.png" alt="Create PR dialog with title, message, and Copy inline token button" loading="lazy">
+    <img src="screenshots/Create-PR_dialog.png" alt="Create PR dialog with message field and Copy token, Save bundle and Post to Discord buttons" loading="lazy">
     <div class="caption">The Create-PR dialog - pick title and message, then copy a single token to share.</div>
 </div>
 
@@ -104,7 +104,7 @@ the PR flow is better.
     captured in the local commit history).</li>
 <li>Open <em>Collab &rarr; Create PR&hellip;</em>. Pick a short title
     and an optional longer message describing what's in the change.</li>
-<li>Click <em>Copy inline token</em>. The clipboard now holds a
+<li>Click <em>Copy token</em>. The clipboard now holds a
     single string that fully encodes your change-set.</li>
 <li>Paste the token into Discord, email, a chat, a text file -
     anywhere it'll reach the recipient.</li>
@@ -118,19 +118,26 @@ the PR flow is better.
 
 <p>
 Open <em>Collab &rarr; Create PR&hellip;</em> after you've made and
-saved some edits. The dialog shows what'll be included in the bundle
-and gives you two share modes:
+saved some edits. The dialog shows what'll be included (the commits and
+hunk counts since your last share), a message field, and a live size
+readout, with three ways to share:
 </p>
 
 <ul>
-<li><b>Inline token</b> - the entire bundle is base64-encoded into
-the token text itself (<code>mep://&lt;sessionId&gt;:inline:&hellip;</code>).
-Self-contained, no follow-up download. Works for change-sets up to
-roughly 30 KB compressed; larger PRs nudge you toward the link form.</li>
-<li><b>Link token</b> - for very large bundles. Saves the bundle
-file to disk and produces a token that points at the URL where you've
-hosted it (<code>mep://&lt;sessionId&gt;:link:&lt;url&gt;</code>). Useful
-when you're sharing through a hosting platform that strips long messages.</li>
+<li><b>Copy token</b> - copies a single, self-contained smart-paste
+token (<code>midiedit-pr://v1:&lt;sessionId&gt;:inline:&hellip;</code>) to the
+clipboard. The recipient pastes it with <code>Ctrl+V</code> in the matrix
+view - no follow-up download. The size readout tells you when a token is
+small enough to drop straight into a Discord code block.</li>
+<li><b>Save bundle&hellip;</b> - writes the change-set to a
+<code>.midiedit-pr.json</code> file you can attach to an email, drop in a
+shared folder, or keep next to the song. Best when a token is too long to
+paste into chat.</li>
+<li><b>Post to Discord</b> - sends the PR to your configured webhook
+channel as an embed, with the bundle uploaded as an attachment, so large
+change-sets travel as a file. Enabled only once a webhook URL is set, and
+posting is a deliberate click each time (never automatic). See the
+<a href="collab-settings.html#discord">Discord webhook setting</a> for setup.</li>
 </ul>
 
 <p>
@@ -138,13 +145,6 @@ The PR's <em>scope</em> is automatically "everything since your last
 share" - the local commit history (sidecar file) is the source of
 truth. If you've shared 3 PRs already, the 4th covers only the
 changes since the 3rd.
-</p>
-
-<p>
-When the inline token gets long, the dialog still lets you copy it in
-one click. If your audience is Discord, the bundled
-<a href="collab-discord.html">Webhook integration</a> can post the same
-token to a channel automatically.
 </p>
 
 <hr>
@@ -183,16 +183,16 @@ MidiEditor warns you with a "PR is from a different session" dialog
 <h2 id="token-formats">Token formats</h2>
 
 <p>
-Both forms start with the unique <code>mep://</code> scheme so
+Both forms start with the unique <code>midiedit-pr://v1:</code> scheme so
 <code>Ctrl+V</code> can route them to the Review dialog instead of
 falling through to a normal paste:
 </p>
 
 <ul>
-<li><code>mep://&lt;sessionId&gt;:inline:&lt;base64-zlib&gt;</code>
+<li><code>midiedit-pr://v1:&lt;sessionId&gt;:inline:&lt;base64-zlib&gt;</code>
 - the bundle is encoded directly into the token. Roughly
 1.4&times; the bundle's compressed size in characters.</li>
-<li><code>mep://&lt;sessionId&gt;:link:&lt;url&gt;</code> - the
+<li><code>midiedit-pr://v1:&lt;sessionId&gt;:link:&lt;url&gt;</code> - the
 token holds only a URL pointing at the bundle file. The file itself
 must be reachable when the recipient pastes - otherwise the
 Review dialog reports a download error and the token is harmless to
@@ -234,10 +234,10 @@ in async PRs the bundle carries only the slice you chose.
 <h2 id="troubleshooting">Troubleshooting</h2>
 
 <ul>
-<li><b>"Token doesn't start with <code>mep://</code>"</b> -
+<li><b>"Token doesn't start with <code>midiedit-pr://v1:</code>"</b> -
 the token had surrounding whitespace, line breaks, or markdown
 backticks (e.g. when pasted from a Discord code block). MidiEditor
-auto-trims those before checking, so pasting <code>```mep://...```</code>
+auto-trims those before checking, so pasting <code>```midiedit-pr://v1:...```</code>
 works as well as the bare token. If you still see this, the source
 copy lost characters - ask the sender to re-share.</li>
 <li><b>"PR is from a different session"</b> - the file you have

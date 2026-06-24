@@ -73,7 +73,7 @@
 <p>There are three ways to start an audio export:</p>
 
 <ol>
-  <li><b>File &rarr; Export Audio&hellip;</b> (or <kbd>Ctrl+Shift+E</kbd>) - exports the full MIDI file or a custom range.</li>
+  <li><b>File &rarr; Export Audio&hellip;</b> (or <kbd>Ctrl+Shift+X</kbd>) - exports the full MIDI file or a custom range.</li>
   <li><b>Right-click selection &rarr; Export Selection as Audio&hellip;</b> - exports only the currently selected notes.</li>
   <li><b>Export Audio button</b> in the FluidSynth settings panel.</li>
 </ol>
@@ -113,8 +113,8 @@
     <ul>
       <li><b>Draft</b> - 22050 Hz, 16-bit (fast rendering, small files)</li>
       <li><b>CD</b> - 44100 Hz, 16-bit (standard quality)</li>
-      <li><b>Studio</b> - 48000 Hz, 16-bit (professional)</li>
-      <li><b>Hi-Res</b> - 96000 Hz, 16-bit (audiophile)</li>
+      <li><b>Studio</b> - 48000 Hz, 24-bit (professional)</li>
+      <li><b>Hi-Res</b> - 96000 Hz, 24-bit (audiophile)</li>
     </ul>
   </td>
 </tr>
@@ -240,7 +240,7 @@
 <tr><td><b>WAV</b></td><td>Uncompressed PCM</td><td>Large (~10 MB/min at CD)</td><td>Further editing in a DAW, maximum quality</td></tr>
 <tr><td><b>FLAC</b></td><td>Lossless</td><td>Medium (~6 MB/min at CD)</td><td>Archival, quality-conscious distribution</td></tr>
 <tr><td><b>OGG</b></td><td>Lossy</td><td>Small (~1.5 MB/min)</td><td>Web, games, Linux ecosystem</td></tr>
-<tr><td><b>MP3</b></td><td>Lossy (LAME VBR)</td><td>Small (~1.5 MB/min)</td><td>Universal sharing, broad player support</td></tr>
+<tr><td><b>MP3</b></td><td>Lossy (LAME CBR)</td><td>Small (~1.5 MB/min)</td><td>Universal sharing, broad player support</td></tr>
 </table>
 
 <!-- â”€â”€â”€â”€â”€â”€â”€â”€â”€ Keyboard shortcut â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
@@ -248,7 +248,7 @@
 
 <table>
 <tr><th>Shortcut</th><th>Action</th></tr>
-<tr><td><kbd>Ctrl+Shift+E</kbd></td><td>Open the Export Audio dialog (full file)</td></tr>
+<tr><td><kbd>Ctrl+Shift+X</kbd></td><td>Open the Export Audio dialog (full file)</td></tr>
 </table>
 
 <!-- â”€â”€â”€â”€â”€â”€â”€â”€â”€ Tips â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
@@ -263,11 +263,11 @@
   <li><b>FFXIV SoundFont Mode:</b> If you have <a href="soundfont.html#ffxiv-mode">FFXIV SoundFont Mode</a> enabled, the export respects it - your bard arrangements will sound correct.</li>
 </ul>
 
-<!-- â”€â”€â”€â”€â”€â”€â”€â”€â”€ Stem export via mute / solo (1.5.3) â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
+<!-- â”€â”€â”€â”€â”€â”€â”€â”€â”€ Stem export via mute / solo â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
 <h3 id="stems">Exporting Stems - Mute &amp; Solo</h3>
 
 <p>
-  Since <b>1.5.3</b>, audio export honours the same <b>mute</b> and <b>solo</b> state as live playback,
+  Audio export honours the same <b>mute</b> and <b>solo</b> state as live playback,
   on both the channel list and the track list. This lets you bounce stems - one instrument at a
   time - without re-arranging the file. The behaviour is <b>format-agnostic</b>: it works for
   WAV, FLAC, OGG and MP3 alike, because the mute / solo filtering happens before FluidSynth's encoder
@@ -279,7 +279,7 @@
 <tr>
   <td><b>Export only one channel</b></td>
   <td>In the <b>Channels</b> panel (right side), <kbd>Solo</kbd> the channel you want, then
-      <kbd>Ctrl+Shift+E</kbd>. The MP3/WAV will contain only the soloed channel.</td>
+      <kbd>Ctrl+Shift+X</kbd>. The MP3/WAV will contain only the soloed channel.</td>
 </tr>
 <tr>
   <td><b>Export everything except a channel</b></td>

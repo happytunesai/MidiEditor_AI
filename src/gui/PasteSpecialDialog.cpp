@@ -63,7 +63,9 @@ PasteSpecialDialog::PasteSpecialDialog(const PasteClipboardSummary &summary,
       _radioCurrentTarget(nullptr),
       _dontAskAgain(nullptr),
       _makeDefault(nullptr),
-      _summaryLabel(nullptr) {
+      _skipDuplicates(nullptr),
+      _summaryLabel(nullptr),
+      _warningLabel(nullptr) {
     setWindowTitle(tr("Paste Special"));
     setModal(true);
 
@@ -75,6 +77,22 @@ PasteSpecialDialog::PasteSpecialDialog(const PasteClipboardSummary &summary,
     f.setItalic(true);
     _summaryLabel->setFont(f);
     root->addWidget(_summaryLabel);
+
+    // Repeat-paste guard: when some of the clipboard notes already exist exactly
+    // at the target (same channel + tick + pitch), warn so the user does not
+    // silently stack invisible duplicates - this dialog is shown even if "don't
+    // ask again" was set for the session.
+    const bool hasDuplicates = summary.duplicateNoteCount > 0;
+    _warningLabel = new QLabel(
+        tr("⚠  %1 of these notes are already present here "
+           "(they were pasted to this spot before). Paste again anyway?")
+            .arg(summary.duplicateNoteCount),
+        this);
+    _warningLabel->setWordWrap(true);
+    _warningLabel->setStyleSheet(
+        QStringLiteral("QLabel { color: #d29922; font-weight: 600; }"));
+    _warningLabel->setVisible(hasDuplicates);
+    root->addWidget(_warningLabel);
 
     auto *group = new QGroupBox(tr("Where should the pasted events go?"), this);
     auto *vbox = new QVBoxLayout(group);
@@ -116,6 +134,18 @@ PasteSpecialDialog::PasteSpecialDialog(const PasteClipboardSummary &summary,
 
     root->addWidget(group);
 
+    _skipDuplicates = new QCheckBox(
+        tr("Skip notes already present at the target (avoid duplicates)"), this);
+    _skipDuplicates->setToolTip(tr(
+        "When checked, note events that would land exactly on an identical "
+        "existing note (same channel, position and pitch) are not pasted, so a "
+        "repeated paste doesn't create invisible stacked duplicates."));
+    // Default ON exactly when duplicates were detected, so the common "I pressed
+    // Ctrl+V again" case does nothing harmful; off otherwise so a normal paste is
+    // unaffected.
+    _skipDuplicates->setChecked(hasDuplicates);
+    root->addWidget(_skipDuplicates);
+
     _dontAskAgain = new QCheckBox(
         tr("Don't ask again \u2014 use this for the rest of the session"), this);
     root->addWidget(_dontAskAgain);
@@ -151,6 +181,10 @@ bool PasteSpecialDialog::dontAskAgainThisSession() const {
 
 bool PasteSpecialDialog::makeThisTheNewDefault() const {
     return _makeDefault && _makeDefault->isChecked() && _makeDefault->isEnabled();
+}
+
+bool PasteSpecialDialog::skipAlreadyPresent() const {
+    return _skipDuplicates && _skipDuplicates->isChecked();
 }
 
 void PasteSpecialDialog::updateMakeDefaultEnabled() {

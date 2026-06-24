@@ -141,7 +141,7 @@
 <h1>&#x1F4C2; Supported Files</h1>
 
 <p>
-MidiEditor AI can natively open <b>four file-format families</b>: standard MIDI, Guitar Pro tablature, MusicXML scores, and MuseScore project files. Non-MIDI formats are converted to MIDI on-the-fly with tempo, time signature, key signature, and instrument mapping preserved - no external converter or third-party software required.
+MidiEditor AI can natively open <b>six file-format families</b>: standard MIDI, Guitar Pro tablature, MML / 3MLE text scores, MusicXML scores, MuseScore project files, and Commodore 64 SID tunes. Non-MIDI formats are converted to MIDI on-the-fly with tempo, time signature, key signature, and instrument mapping preserved - no external converter or third-party software required.
 </p>
 
 <div class="highlight-box">
@@ -153,6 +153,7 @@ MidiEditor AI can natively open <b>four file-format families</b>: standard MIDI,
 <div class="format-toc">
 <a href="#midi"><strong>&#x1F3B5; MIDI</strong><span>.mid &middot; .midi</span></a>
 <a href="#guitar-pro"><strong>&#x1F3B8; Guitar Pro</strong><span>.gp .gp3 .gp4 .gp5 .gpx .gtp</span></a>
+<a href="#mml"><strong>&#x1F4DD; MML / 3MLE</strong><span>.mml &middot; .3mle</span></a>
 <a href="#musicxml"><strong>&#x1F3BC; MusicXML</strong><span>.musicxml &middot; .xml &middot; .mxl</span></a>
 <a href="#musescore"><strong>&#x1F3BB; MuseScore</strong><span>.mscz &middot; .mscx</span></a>
 <a href="commodore-64.html"><strong>&#x1F579;&#xFE0F; Commodore 64 / SID</strong><span>.sid</span></a>
@@ -181,6 +182,13 @@ MidiEditor AI can natively open <b>four file-format families</b>: standard MIDI,
 <td><code>.mid</code></td>
 </tr>
 <tr>
+<td><b>MML / 3MLE</b></td>
+<td><code>.mml</code>, <code>.3mle</code></td>
+<td>Music Macro Language / 3MLE text scores</td>
+<td>MML &rarr; MIDI on open</td>
+<td><code>.mid</code></td>
+</tr>
+<tr>
 <td><b>MusicXML</b></td>
 <td><code>.musicxml</code>, <code>.xml</code>, <code>.mxl</code></td>
 <td>Finale, Sibelius, MuseScore, Dorico, etc.</td>
@@ -204,7 +212,7 @@ MidiEditor AI can natively open <b>four file-format families</b>: standard MIDI,
 </table>
 
 <div class="highlight-box">
-<p>&#x26A0;&#xFE0F; <b>Import converts to MIDI:</b> opened files are converted to MIDI in memory and the original Guitar Pro / MusicXML / MuseScore / SID document is never modified. For notation, MidiEditor AI can <b>export to MusicXML</b> (<b>File &rarr; Export MusicXML&hellip;</b>) - openable in MuseScore, Finale, Sibelius and Dorico. Because MIDI doesn't store notation, the score is reconstructed (note values, rests, ties, chords, key spelling) rather than round-tripped byte-for-byte.</p>
+<p>&#x26A0;&#xFE0F; <b>Import converts to MIDI:</b> opened files are converted to MIDI in memory and the original Guitar Pro / MML / MusicXML / MuseScore / SID document is never modified. For notation, MidiEditor AI can <b>export to MusicXML</b> (<b>File &rarr; Export MusicXML&hellip;</b>) - openable in MuseScore, Finale, Sibelius and Dorico. Because MIDI doesn't store notation, the score is reconstructed (note values, rests, ties, chords, key spelling) rather than round-tripped byte-for-byte.</p>
 <p>&#x1F4BE; <b>Saving an imported file:</b> these formats can only be read, not written back - a MIDI editor saves Standard MIDI bytes, which a <code>.sid</code>, <code>.gp5</code> or <code>.musicxml</code> can't hold. So pressing <b>Save</b> (Ctrl+S) on a freshly imported file shows a short notice and opens <b>Save As</b> instead, pre-filled with the original song name and a <code>.mid</code> extension - your original file on disk is never overwritten. Once it has been saved as <code>.mid</code>, Save works normally from then on.</p>
 </div>
 
@@ -414,6 +422,38 @@ MidiEditor AI does <b>not</b> rely on the file extension to determine the GP for
 
 <hr>
 
+<h2 id="mml">&#x1F4DD; MML / 3MLE</h2>
+
+<p>
+MML (Music Macro Language) is a compact text notation that writes melodies as letters, octave shifts, and length numbers. MidiEditor AI imports both plain MML and the <b>3MLE</b> multi-track project format, converting the text score to MIDI on open.
+</p>
+
+<table class="info-table">
+<tr><th>Extensions</th><td><code>.mml</code>, <code>.3mle</code></td></tr>
+<tr><th>Type</th><td>Music Macro Language text score &middot; 3MLE multi-track project</td></tr>
+<tr><th>Format detection</th><td>Files ending in <code>.3mle</code>, or text containing a <code>[Settings]</code> section, are read as 3MLE; everything else is read as plain MML</td></tr>
+<tr><th>Parser</th><td><code>MmlImporter</code> &rarr; <code>MmlConverter</code> / <code>ThreeMleParser</code> &rarr; <code>MmlMidiWriter</code> (shared SMF writer)</td></tr>
+</table>
+
+<h3 id="mml-coverage">What Gets Imported</h3>
+
+<div class="step-grid">
+<div class="step-card">
+<h4>&#x1F3B5; Notes &amp; Octaves</h4>
+<p>Note letters, octave shifts, and length numbers are converted to MIDI note numbers with the correct pitch and duration.</p>
+</div>
+<div class="step-card">
+<h4>&#x1F3BC; Tracks</h4>
+<p>Each 3MLE track becomes its own MIDI track and channel. Plain MML is read as a single voice.</p>
+</div>
+<div class="step-card">
+<h4>&#x23F1;&#xFE0F; Tempo</h4>
+<p>Tempo commands are converted to MIDI tempo meta events at the correct tick positions.</p>
+</div>
+</div>
+
+<hr>
+
 <h2 id="musicxml">&#x1F3BC; MusicXML</h2>
 
 <p>
@@ -495,7 +535,7 @@ notes rather than round-tripped byte-for-byte. MidiEditor AI derives:
 </ul>
 
 <div class="highlight-box">
-<p>&#x2139;&#xFE0F; <b>v1 scope:</b> one voice per part (overlap beyond chords is clipped to mono), a 1/16-note grid (triplets are approximated as tied notes), and plain <code>.musicxml</code> output (the compressed <code>.mxl</code> container is a planned follow-up). The goal is a correct, openable score everywhere - not publication-perfect engraving, which MIDI doesn't carry enough information for.</p>
+<p>&#x2139;&#xFE0F; <b>Export scope:</b> one voice per part (overlap beyond chords is clipped to mono), a 1/16-note grid (triplets are approximated as tied notes), and plain <code>.musicxml</code> output. The goal is a correct, openable score everywhere - not publication-perfect engraving, which MIDI doesn't carry enough information for.</p>
 </div>
 
 <hr>

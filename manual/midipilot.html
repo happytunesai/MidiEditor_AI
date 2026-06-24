@@ -285,7 +285,7 @@ Agent mode is the powerhouse for complex compositions and large-scale edits. Ins
 <h3>How It Works</h3>
 
 <ol>
-<li>Your prompt is sent along with the system prompt and a set of <b>16 tools</b> the model can call</li>
+<li>Your prompt is sent along with the system prompt and a set of <b>15 tools</b> (plus 4 FFXIV tools when FFXIV mode is on) the model can call</li>
 <li>The model responds with one or more <b>tool calls</b> (e.g., <code>create_track</code>, <code>insert_events</code>, <code>get_editor_state</code>)</li>
 <li>MidiEditor executes each tool call and sends the results back to the model</li>
 <li>The model reviews the results, decides the next step, and issues more tool calls</li>
@@ -372,7 +372,7 @@ When the <b>FFXIV</b> checkbox is enabled, MidiPilot appends additional constrai
 </p>
 
 <ul>
-<li><b>Agent + FFXIV</b> - Full FFXIV context (~3500 chars) with detailed guidance + 3 FFXIV-specific tools (<code>validate_ffxiv</code>, <code>convert_drums_ffxiv</code>, <code>setup_channel_pattern</code>)</li>
+<li><b>Agent + FFXIV</b> - Full FFXIV context (~3500 chars) with detailed guidance + 4 FFXIV-specific tools (<code>validate_ffxiv</code>, <code>convert_drums_ffxiv</code>, <code>setup_channel_pattern</code>, <code>analyze_voice_load</code>)</li>
 <li><b>Simple + FFXIV</b> - Compact FFXIV context (~1300 chars) optimized for token budget. Includes a warning that large compositions may exceed limits</li>
 </ul>
 
@@ -419,7 +419,7 @@ before/after screenshots, and tips.
 <table>
 <tr><th>Feature</th><th>Simple Mode</th><th>Agent Mode</th></tr>
 <tr><td><b>API Calls</b></td><td>1 (one-shot)</td><td>Multiple (iterative loop)</td></tr>
-<tr><td><b>Tool Access</b></td><td>None</td><td>16 tools</td></tr>
+<tr><td><b>Tool Access</b></td><td>None</td><td>15 tools (19 with FFXIV)</td></tr>
 <tr><td><b>Self-Correction</b></td><td>No</td><td>Yes - can inspect and fix</td></tr>
 <tr><td><b>Token Limit Risk</b></td><td>High for complex tasks</td><td>Low - work is split</td></tr>
 <tr><td><b>Truncation Handling</b></td><td>Warns, suggests Agent mode</td><td>Per-step, can continue</td></tr>

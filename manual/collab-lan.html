@@ -355,7 +355,7 @@
 Two or more PCs on the same network can co-edit a MIDI file in realtime.
 UDP multicast handles peer discovery, TCP carries the data, and the
 host's file auto-transfers to anyone who joins. Edits flow in every
-direction every 200&nbsp;ms.
+direction about once a second.
 </p>
 
 <p style="background: rgba(88, 166, 255, 0.08); border-left: 4px solid #58a6ff; padding: 0.8rem 1rem; border-radius: 6px;">
@@ -368,11 +368,19 @@ for the hat-passing + follow-the-host details. The
 lower sidebar in both modes.
 </p>
 
+<p style="background: rgba(88, 166, 255, 0.08); border-left: 4px solid #58a6ff; padding: 0.8rem 1rem; border-radius: 6px;">
+A Live Session shares a single document. While one is running, the
+<a href="editor-groups.html">tabs and editor groups</a> are locked to
+the session document - any other tabs stay put and reopen for editing
+the moment the session ends. You can still keep several files open in
+tabs before you start.
+</p>
+
 <div class="dual-demo">
     <div class="demo-pane">
         <video src="screenshots/live_LAN_pc1.webm" muted autoplay loop playsinline></video>
         <div class="demo-label">PC 1 - Host</div>
-        <div class="demo-sublabel">Edits Live, ships diffs every 200 ms</div>
+        <div class="demo-sublabel">Edits Live, ships diffs about once a second</div>
     </div>
     <div class="demo-bridge" aria-hidden="true">
         <div class="bridge-label">LAN sync</div>
@@ -385,7 +393,7 @@ lower sidebar in both modes.
     <div class="demo-pane">
         <video src="screenshots/live_LAN_pc2.webm" muted autoplay loop playsinline></video>
         <div class="demo-label">PC 2 - Joiner</div>
-        <div class="demo-sublabel">Sees host's edits within ~200 ms</div>
+        <div class="demo-sublabel">Sees host's edits within ~1 s</div>
     </div>
 </div>
 
@@ -658,10 +666,10 @@ under both profiles.</li>
 <h3 id="ghost-notes">"Ghost notes after sync"</h3>
 <p>
 Symptom: the file plays notes that aren't visible in the editor, or
-the end-tick keeps resetting after a delete-measures operation. This
-was a sync-loop fixed in v1.7.0 - the receiver now removes events
-past a shrunken end-tick atomically with the file-length change. If
-you ever see this on v1.7.0 or later, please file an issue with the
+the end-tick keeps resetting after a delete-measures operation. The
+receiver removes events past a shrunken end-tick atomically with the
+file-length change, so this shouldn't happen. If you ever see it,
+please file an issue with the
 <code>midieditor_ai.log</code> that's saved next to the executable.
 </p>
 

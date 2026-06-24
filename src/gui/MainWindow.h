@@ -1097,6 +1097,20 @@ private:
     QList<int> _viewSplitterSizes;
 
     /**
+     * \brief Phase 28 (editor groups): per-pane velocity / controller lane.
+     *
+     * The bottom velocity area holds a horizontal _velocitySplitter that mirrors
+     * _viewSplitter. The left panel (control + primary MiscWidget + dummy
+     * scrollbar) is always present; when the editor is split, a second panel
+     * (a piano-width spacer + _compareMisc bound to _compareMatrixWidget) is added
+     * so the right pane gets its own velocity lane, aligned under it. The two
+     * splitters are kept size-synced so each lane tracks its pane.
+     */
+    QSplitter *_velocitySplitter = nullptr;
+    QWidget *_compareMiscPanel = nullptr;
+    MiscWidget *_compareMisc = nullptr;
+
+    /**
      * \brief Phase 28 (editor groups): a colour-highlighted chip at the right of
      * the primary tab strip, shown ONLY while the secondary group is collapsed.
      * It signals "a second editor group is hidden here" and restores it on click.
@@ -1196,6 +1210,16 @@ private:
      * focused view already shows the active document.
      */
     void onViewFocused(MatrixWidget *view);
+
+    /**
+     * \brief Phase 28 (editor groups): give an editor pane REAL keyboard focus and
+     * make it the static tool target. A tab/strip click only switched the active
+     * document logically; without this the clicked pane never got Qt keyboard
+     * focus, so a later modal dialog (e.g. Paste Special) restored focus to the
+     * previously-focused pane on close - whose focusInEvent then re-activated the
+     * wrong document right before the operation ran.
+     */
+    void focusEditorView(MatrixWidget *view);
 
     /** \brief Container for the displayed misc widget (OpenGL or software) */
     QWidget *_miscWidgetContainer;
@@ -1390,6 +1414,17 @@ private:
      * (which then moves a doc over) and session restore (which opens docs into it).
      */
     void ensureGroup1();
+
+    /**
+     * \brief Phase 28 (editor groups): build / tear down the secondary velocity
+     * lane (a MiscWidget bound to _compareMatrixWidget, in _velocitySplitter's
+     * right panel) when the editor is split / unsplit. buildCompareVelocityLane()
+     * mirrors the primary lane's current mode/channel/controller; syncing keeps it
+     * aligned under the right pane.
+     */
+    void buildCompareVelocityLane();
+    void destroyCompareVelocityLane();
+    void syncVelocitySplitterFromView();
 
     /**
      * \brief Phase 28 (editor groups): persist the open documents of both groups

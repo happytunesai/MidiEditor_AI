@@ -186,11 +186,13 @@ the channel attached to this webhook.</p>
 </div>
 
 <p>
-Even with a URL set, every individual <em>Create PR</em> dialog has a
-checkbox to skip the post for that one share - useful for private
-one-offs you don't want broadcast to the channel. See the
-<a href="collab-discord.html">Discord page</a> for the full webhook
-setup and embed format.
+Even with a URL set, posting is never automatic: each <em>Create PR</em>
+dialog only sends to the channel when you click <em>Post to Discord</em>, so
+a private one-off simply isn't posted. Creating the webhook URL itself is
+done in Discord (Channel Settings -> Integrations -> Webhooks); MidiEditor
+just needs the resulting URL pasted into the field above. Each post is an
+embed carrying the same smart-paste token as
+<a href="collab-pr.html">Async PR</a>, with the PR bundle attached.
 </p>
 
 <hr>

@@ -134,6 +134,7 @@
     <li><a href="#quantize"><span class="toc-icon">📐</span><span class="toc-label">Quantize</span></a></li>
     <li><a href="#midi-tools"><span class="toc-icon">🤖</span><span class="toc-label">MIDI / FFXIV / AI</span></a></li>
     <li><a href="#view"><span class="toc-icon">🔍</span><span class="toc-label">View &amp; zoom</span></a></li>
+    <li><a href="#tabs"><span class="toc-icon">🗂️</span><span class="toc-label">Tabs &amp; groups</span></a></li>
     <li><a href="#playback"><span class="toc-icon">▶️</span><span class="toc-label">Playback</span></a></li>
     <li><a href="#midi"><span class="toc-icon">🚨</span><span class="toc-label">MIDI panic / thru</span></a></li>
     <li><a href="#tracks"><span class="toc-icon">🎚️</span><span class="toc-label">Move to track</span></a></li>
@@ -149,7 +150,7 @@
 <tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>O</kbd></td><td>Open&hellip;</td><td class="id-cell">open</td></tr>
 <tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>S</kbd></td><td>Save</td><td class="id-cell">save</td></tr>
 <tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>S</kbd></td><td>Save as&hellip;</td><td class="id-cell">save_as</td></tr>
-<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>E</kbd></td><td>Export Audio&hellip; (WAV / FLAC / OGG / MP3)</td><td class="id-cell">export_audio</td></tr>
+<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>X</kbd></td><td>Export Audio&hellip; (WAV / FLAC / OGG / MP3)</td><td class="id-cell">export_audio</td></tr>
 <tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>Q</kbd></td><td>Quit</td><td class="id-cell">quit</td></tr>
 </table>
 
@@ -322,6 +323,16 @@
 <tr><td class="kbd-cell"><kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Backspace</kbd></td><td>Reset view (zoom + scroll)</td><td class="id-cell">reset_view</td></tr>
 </table>
 
+<!-- ───────── Tabs & Editor Groups ───────── -->
+<h3 id="tabs">Tabs &amp; Editor Groups</h3>
+
+<p>
+  Each open document is shown as a tab. The <b>New Tab</b>, <b>Split</b>, and <b>Clone</b> buttons
+  on the tab-tools row, together with <b>View &rarr; Compare View (side by side)</b>, manage tabs and
+  the two-editor-group layout. These are toolbar and menu actions rather than default key bindings.
+  See <a href="editor-groups.html">Tabs &amp; Editor Groups</a> for details.
+</p>
+
 <!-- ───────── Playback ───────── -->
 <h3 id="playback">Playback</h3>
 
@@ -379,7 +390,7 @@
 <tr><th>Gesture</th><th>Action</th></tr>
 <tr><td class="kbd-cell">Right-click on note</td><td>Context menu (Quantize, Copy, Delete, Transpose, Move to Track/Channel, Scale, Legato, Export selection&hellip;)</td></tr>
 <tr><td class="kbd-cell"><kbd>Ctrl</kbd>+Right-click</td><td>Create note at click position</td></tr>
-<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+drag (Box select)</td><td>Toggle - <em>removes</em> events inside box from current selection (since v1.3.3)</td></tr>
+<tr><td class="kbd-cell"><kbd>Ctrl</kbd>+drag (Box select)</td><td>Toggle - <em>removes</em> events inside box from current selection</td></tr>
 <tr><td class="kbd-cell"><kbd>Shift</kbd>+drag (Box select)</td><td>Add events inside box to current selection</td></tr>
 <tr><td class="kbd-cell">Mouse wheel</td><td>Vertical scroll</td></tr>
 <tr><td class="kbd-cell"><kbd>Shift</kbd>+wheel</td><td>Horizontal scroll</td></tr>

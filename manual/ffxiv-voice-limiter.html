@@ -152,9 +152,9 @@ out of the game does not. Three constraints matter for arranging:
 </table>
 
 <p>
-The <a href="ffxiv-channel-fixer.html">FFXIV Channel Fixer</a> already enforces <b>range</b> and
-the <i>Bard accuracy</i> path enforces percussion behaviour. What was missing - and what
-this phase adds - is <b>predictive feedback</b> on the polyphony ceiling and the note-rate
+The <a href="ffxiv-channel-fixer.html">FFXIV Channel Fixer</a> enforces <b>range</b> and
+the <i>Bard accuracy</i> path enforces percussion behaviour. The Voice Limiter adds
+<b>predictive feedback</b> on the polyphony ceiling and the note-rate
 ceiling <i>while you are editing</i>.
 </p>
 
@@ -216,7 +216,7 @@ A compact ~120&times;25&nbsp;px LED-style widget that sits next to the
   <li><b>Tooltip</b> - <code>Voices: 14 / 16 (max in piece: 22 at bar 17 beat 3.2)</code>.</li>
   <li><b>Click</b> - toggles the piano-roll voice-load lane.</li>
   <li><b>Auto-bind</b> - visible only when FFXIV SoundFont Mode is on. Same idiom as the
-    existing <i>X|V</i> toolbar widget from 1.5.2.</li>
+    existing <i>X|V</i> toolbar widget.</li>
 </ul>
 
 <div class="screenshot-single">
@@ -326,8 +326,8 @@ CH9 is counted exactly like every other channel; no special-casing.
 <tr>
   <td>Enable Voice Awareness widgets</td>
   <td>On (when FFXIV Mode is on)</td>
-  <td>Auto-bound to FFXIV SoundFont Mode the same way the bard-accurate-mode auto-bind from
-    1.5.3 (BARD-MODE-001) works. Manually unchecking it while FFXIV Mode is on persists the
+  <td>Auto-bound to FFXIV SoundFont Mode the same way the bard-accurate-mode auto-bind
+    works. Manually unchecking it while FFXIV Mode is on persists the
     OFF choice (<code>FFXIV/voiceLimiter/userOverride = "off"</code>); clearing the override or
     a fresh install restores the auto-bound behaviour.</td>
 </tr>

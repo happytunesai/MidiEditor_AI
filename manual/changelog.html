@@ -221,12 +221,34 @@
 <div class="cl-no-results" id="cl-no-results">No matching releases found.</div>
 
 <div class="cl-timeline">
-<article class="cl-version latest" data-version="1.9.0">
+<article class="cl-version latest" data-version="1.9.1">
+<div class="cl-dot"></div>
+<div class="cl-version-head">
+<h2><a href="https://github.com/happytunesai/MidiEditor_AI/releases/tag/v1.9.1" target="_blank" rel="noopener noreferrer">v1.9.1</a></h2>
+<span class="cl-date">2026-06-24</span>
+<span class="cl-badge-latest">Latest</span>
+</div>
+<div class="cl-title">Bugfixes &amp; Polish</div>
+<div class="cl-blockquote">Follow-up bugfix/polish release after the 1.9.0 Tabs &amp; Editor Groups rebuild, hardening the new multi-document editor with fixes found in real use.</div>
+<ul class="cl-summary">
+<li><strong>Velocity / controller lane in split view.</strong> The bottom velocity / CC / pitch-bend editor now appears under *both* editor groups when the editor is split, each lane tracking its own pane. Previously it showed and edited only the primary (left) pane and stopped at the middle of the window, leaving the right pane without a lane.</li>
+<li><strong>Track list refreshing across documents.</strong> The Tracks panel is shared across open documents and was re-subscribing to each document&#x27;s change signal on every tab/pane switch without dropping the old subscription, so it refreshed in response to edits in a document it wasn&#x27;t even showing (and slowly leaked connections). It now rebinds cleanly to the active document only.</li>
+<li><strong>Clicking a tab now focuses that editor group fully.</strong> Selecting a document by its tab (rather than clicking inside the note area) now gives that pane real keyboard focus, not just a logical switch. Previously a tab-only focus could let a following dialog hand focus back to the other pane - most visibly with Paste Special, where pasting after a tab-click could create the new track in the *other* document. Paste Special now also pins the target document for the whole operation, so the paste always lands where you started it.</li>
+<li><strong>Same-file paste keeps the original track.</strong> Copying notes and pasting them back into the same document now puts them on the track they came from, instead of collapsing every paste onto the &quot;add new events to&quot; edit track (usually track 0) - which made it look like a paste had gone missing when you were watching the source track. Cross-document pastes still map by track name (or the edit track) as before.</li>
+<li><strong>Cross-file paste no longer seems to &quot;vanish&quot;.</strong> Pasting a track from another tab inserts the notes at the cursor (often the very start) and at their own pitches, which frequently sat outside the current scroll position - so the paste looked like it did nothing even though the events were really there (only the protocol log and the velocity lane showed them). Two fixes: the file&#x27;s length is now always recomputed after a paste, so the timeline grows to include notes that extend past the old song end; and the view now scrolls to the freshly-pasted (selected) notes so you immediately see where they landed.</li>
+<li><strong>Repeated paste no longer silently stacks exact duplicates.</strong> When a paste would drop notes exactly on top of identical existing notes (same channel, position and pitch), Paste Special now reappears - even if you ticked &quot;don&#x27;t ask again this session&quot; - with a warning and a pre-checked <strong>&quot;Skip notes already present at the target&quot;</strong> option. A fully-duplicate paste then does nothing and says so in the status bar instead of layering hidden copies (which would double up on playback/export).</li>
+<li><strong>Cross-file paste of unnamed tracks no longer spawns a new track every time.</strong> With &quot;preserve source mapping&quot;, an unnamed source track now reuses the track a previous paste created for it instead of appending a fresh &quot;Pasted Track&quot; on each paste.</li>
+<li><strong>Memory leak on a corrupt clipboard buffer.</strong> A truncated/malformed cross-process clipboard could leak the partially-deserialized events; they are now freed on the failure path.</li>
+<li><strong>Velocity / controller lane aligned on startup.</strong> When a session was restored, the bottom lane could start out horizontally offset from the notes (it only snapped into place after nudging a splitter), because the restored split/scroll is applied programmatically and didn&#x27;t trigger a relayout. The lane now realigns automatically once the window has finished laying out.</li>
+<li><strong>Shortcut clash on <code class="hl">Ctrl+Shift+E</code>.</strong> Export Audio and &quot;Split channels to tracks&quot; were both bound to <code class="hl">Ctrl+Shift+E</code>, so the shortcut was ambiguous and could trigger the wrong one (or neither). Export Audio now uses <strong><code class="hl">Ctrl+Shift+X</code></strong>; Split channels to tracks keeps <code class="hl">Ctrl+Shift+E</code>.</li>
+<li><strong>Pasting between two open files now matches tracks by name by default.</strong> When you copy in one document and paste into another (e.g. two copies of the same song side by side), the default is now to drop the notes onto the existing track of the same name, only creating a new track when there is no match - instead of always creating a new track per source track. You can still pick a different mapping per paste in the Paste Special dialog.</li>
+</ul>
+</article>
+<article class="cl-version" data-version="1.9.0">
 <div class="cl-dot"></div>
 <div class="cl-version-head">
 <h2><a href="https://github.com/happytunesai/MidiEditor_AI/releases/tag/v1.9.0" target="_blank" rel="noopener noreferrer">v1.9.0</a></h2>
 <span class="cl-date">2026-06-21</span>
-<span class="cl-badge-latest">Latest</span>
 </div>
 <div class="cl-title">Tabs &amp; Editor Groups</div>
 <div class="cl-blockquote"><strong>The deepest structural change MidiEditor AI has had.</strong> The editor was single-document to its core - one open file, one of every widget, shared global state throughout. 1.9.0 rebuilds that foundation into a true multi-document architecture and turns the front end into a modern editing workspace: keep several files open as <strong>tabs</strong>, <strong>split</strong> the editor into two side-by-side <strong>editor groups</strong>, and drag tabs between them - with selection, channel visibility, tools, MidiPilot, the MCP server and live collaboration all reworked to act per-document. The short feature list below sits on top of that rebuild; despite how far it reaches, every existing single-file workflow behaves exactly as before.</div>

@@ -36,7 +36,7 @@
     /* Detailed animated rendezvous flow - same shape as the WAN-page
        version, but with explicit per-step labels that highlight as
        each step's dot animates. 12-second loop covering all 6 steps
-       of the v3 protocol. */
+       of the rendezvous protocol. */
     .rdv-flow {
         position: relative;
         background: linear-gradient(135deg, #10192A 0%, #162238 100%);
@@ -643,11 +643,10 @@ tier for hobby use.</li>
 </ul>
 
 <p>
-MidiEditor's ICE server list is a comma-separated set of
-<code>stun:</code> and <code>turn:</code> URLs. Internal config - for
-v1.7 we don't surface a UI for it; edit your QSettings store under
-<code>Collab/wan/iceServers</code> if you need to override the
-defaults. A future release will expose this in Settings.
+MidiEditor's ICE server list holds one
+<code>stun:</code> or <code>turn:</code> URL per line. It's stored in
+your QSettings under <code>Collab/lan/iceServers</code> - edit that
+key if you need to override the defaults.
 </p>
 
 <hr>

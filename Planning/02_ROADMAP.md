@@ -12056,3 +12056,51 @@ migration note; (2) a small written contract for the `Document` interface; (3) a
 decision on 28.5 option (a) vs (b) and 28.6 single-vs-per-doc collab. Only then
 start with 28.1.
 
+---
+
+## Housekeeping no decision needed (for 1.9.1)
+
+ bugfix/polish release** after the 1.9.0 Tabs & Editor Groups rebuild. Tracking:
+
+### Repo housekeeping - remove legacy upstream/Meow build & installer infra
+
+The current pipeline is **CMake build → CI ZIP → GitHub release → in-app AutoUpdater**. The following are
+leftovers from the old qmake/xmake + Qt Installer Framework (IFW) days and are used by **nothing active** (verified
+against CMakeLists, the active `ci.yml`, and `resources.qrc`). Safe to remove:
+
+- `midieditor.pro` (qmake build), `xmake.lua` (xmake build) - CMake is the only build.
+- `midieditor.icns` (macOS icon - only referenced by the .pro/.lua; no macOS build).
+- `midieditor.ico` (top-level legacy icon - superseded by `Midieditor-ai_logo.ico`; only referenced by a disabled
+  workflow + the legacy build files).
+- `.github/workflows/qmake.yml.disabled`, `xmake.yml.disabled`, `deploy-pages.yml.disabled` (an active
+  `deploy-pages.yml` already exists).
+- `packaging/` (IFW component metadata) + `scripts/packaging/windows/config.xml` + the CMake **`installer`** target
+  block (CMakeLists ~859-883) - the ZIP release never builds an IFW Install.exe. Remove the target with the folder
+  to avoid dangling refs.
+- `scripts/packaging/debian/` (Debian .deb packaging - Windows-only release).
+
+**KEEP (verified still used):** `run_environment/` (96 icons embedded via `resources.qrc` + shipped in the ZIP),
+`examples/` (README/manual/CI references), `Midieditor-ai_logo_blk.ico` (in the qrc), `lame/`, `third_party/`,
+`cloudflare/`, `resources.qrc`, `midieditor.rc`, `scripts/release.bat`.
+
+### Bugs found post-1.9.0 (for 1.9.1)
+
+- **Velocity/CC lane not split** (the "echter bug"): the bottom velocity/controller editor (`MiscWidget` in
+  `velocityArea`, bound to `mw_matrixWidget`) only shows/edits the PRIMARY pane and stops mid-window in a split.
+  **Fix = Option A (clean split):** a per-pane lane - a second `MiscWidget` bound to `_compareMatrixWidget`, aligned
+  under the right pane, widths mirroring `_viewSplitter`. Needs the misc-mode control panel handled for two lanes
+  (shared controls drive both). Real layout build - do focused with build/test.
+- **`Ctrl+Shift+E` double-bound**: `export_audio` AND `split_channels_to_tracks` (MainWindow.cpp ~6752 & ~8157).
+  Rebind one.
+- Deferred LOWs from the 1.9.0 review: MCP `resources/*` session-awareness; SID voice-mute for tracks added after
+  first activation. (See [[project_v191_plans]].)
+
+### Manual content pass (web-only, deploys via Pages)
+
+A 5-agent code-verified content review (2026-06-21) found factual errors (FFXIV program numbers, MP3 CBR vs VBR +
+export bit-depths, MidiPilot "16 tools"→15, collab sync 200 ms→~1 s, token scheme `mep://`→`midiedit-pr://v1:`,
+Discord opt-out-checkbox→explicit button, Connection Test two→three stage, themes "seven"→eight, soundfont folder
+`soundfont/`→`soundfonts/`), v1.9.0 coverage gaps (Tabs/Editor-Groups + View→"Compare View" not in the menu/editor
+pages; tab-lock note missing on collab-lan/-wan), and a version-number style sweep across ~10 pages. Apply as a
+batch; regenerate `manual/changelog.html` after.
+

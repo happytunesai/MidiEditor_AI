@@ -254,11 +254,12 @@ and types the 4-character code. That's the entire setup.</p>
     <div class="mode-icon">&#x1F4E2;</div>
     <h3>Discord</h3>
     <div class="mode-tag">Webhook broadcast</div>
-    <p class="mode-desc">Post a smart-paste token plus a summary embed to a Discord channel
-    every time you click <em>Create PR</em>. The token is the same one as the Async PR mode.</p>
+    <p class="mode-desc">In the Create-PR dialog, click <em>Post to Discord</em> to send a
+    smart-paste token plus a summary embed to a Discord channel. The token is the same one as
+    the Async PR mode.</p>
     <div class="when"><strong>Best for:</strong> band channels, sharing in a community, audit
     trail of what was sent when.</div>
-    <a class="mode-link" href="collab-discord.html">Read more &rarr;</a>
+    <a class="mode-link" href="collab-settings.html#discord">Read more &rarr;</a>
 </div>
 
 <div class="mode-card">
@@ -266,7 +267,7 @@ and types the 4-character code. That's the entire setup.</p>
     <h3>LAN Live</h3>
     <div class="mode-tag">Same network, real-time</div>
     <p class="mode-desc">UDP multicast peer discovery, direct TCP for the data. The host's file
-    auto-transfers to the joiner. Edits flow both ways every 200&nbsp;ms.</p>
+    auto-transfers to the joiner. Edits flow both ways about once a second.</p>
     <div class="when"><strong>Best for:</strong> two PCs in the same room, office network, VPN.
     No internet required.</div>
     <a class="mode-link" href="collab-lan.html">Read more &rarr;</a>
@@ -354,8 +355,8 @@ get from one machine to the other</em> and what kind of latency / setup that imp
     <td><b>Realtime?</b></td>
     <td><span class="no">No</span> - manual review</td>
     <td><span class="no">No</span> - manual review</td>
-    <td><span class="yes">Yes</span> (~200 ms)</td>
-    <td><span class="yes">Yes</span> (~200 ms + WAN RTT)</td>
+    <td><span class="yes">Yes</span> (~1 s)</td>
+    <td><span class="yes">Yes</span> (~1 s + WAN RTT)</td>
 </tr>
 <tr>
     <td><b>Internet required?</b></td>
@@ -427,7 +428,7 @@ as your local commit log. Optional - only created once you opt in to collab on a
 <div class="concept-card">
 <h4>&#x1F517; Smart-paste token</h4>
 <p>Compact text that encodes a full PR bundle (zlib + base64-url). Starts with
-<code>mep://</code> so MidiEditor recognises it on <code>Ctrl+V</code>.</p>
+<code>midiedit-pr://v1:</code> so MidiEditor recognises it on <code>Ctrl+V</code>.</p>
 </div>
 
 <div class="concept-card">
@@ -481,8 +482,9 @@ edits.</p>
 <p>Collab is opt-in across the board. With every feature off (default), nothing collab-related
 ever touches the network.</p>
 <ul>
-<li><b>Async PR &amp; Discord:</b> nothing until you click <em>Create PR</em>. Then either a token
-appears on your clipboard (PR), or one HTTPS POST goes to your configured Discord webhook URL.</li>
+<li><b>Async PR &amp; Discord:</b> nothing until you act in the Create-PR dialog. <em>Copy token</em>
+puts a token on your clipboard; <em>Post to Discord</em> sends one HTTPS POST to your configured
+Discord webhook URL. Posting is a deliberate click each time, never automatic.</li>
 <li><b>LAN Live:</b> while hosting / joined, UDP multicast announces your machine on the local
 broadcast group. The MIDI bytes themselves stay between the two PCs over plain TCP.</li>
 <li><b>WAN Live:</b> three small HTTPS calls to the rendezvous Worker (offer / get / answer),
@@ -535,8 +537,8 @@ hint inline. Full details on
 
 <div class="mode-card">
     <h3>Discord</h3>
-    <p class="mode-desc">Webhook setup, embed format, what gets posted, what doesn't.</p>
-    <a class="mode-link" href="collab-discord.html">Read &rarr;</a>
+    <p class="mode-desc">How MidiEditor uses the webhook: where to set the URL and what each PR posts.</p>
+    <a class="mode-link" href="collab-settings.html#discord">Read &rarr;</a>
 </div>
 
 <div class="mode-card">

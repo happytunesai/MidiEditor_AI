@@ -161,8 +161,20 @@ TrackListWidget::TrackListWidget(QWidget *parent)
 }
 
 void TrackListWidget::setFile(MidiFile *f) {
+    // Editor groups (Phase 28): this dock is shared across documents and is
+    // re-bound on every pane/tab switch. Drop the previous file's protocol
+    // connection and use UniqueConnection so we don't stack a fresh
+    // actionFinished->update() on each switch (which would leak connections and
+    // refresh the dock in response to the OTHER document's edits). Mirrors the
+    // disconnect+UniqueConnection treatment in MatrixWidget::setFile.
+    if (file && file != f && file->protocol()) {
+        disconnect(file->protocol(), SIGNAL(actionFinished()), this, SLOT(update()));
+    }
     file = f;
-    connect(file->protocol(), SIGNAL(actionFinished()), this, SLOT(update()));
+    if (file && file->protocol()) {
+        connect(file->protocol(), SIGNAL(actionFinished()), this, SLOT(update()),
+                Qt::UniqueConnection);
+    }
     update();
 }
 

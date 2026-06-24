@@ -44,6 +44,8 @@
 #include <set>
 #include <vector>
 #include <cmath>
+#include <QSet>
+#include <QStatusBar>
 
 QList<MidiEvent *> *EventTool::copiedEvents = new QList<MidiEvent *>;
 int EventTool::_copiedTicksPerQuarter = 0;
@@ -363,12 +365,20 @@ void EventTool::pasteAction() {
 
             // get track
             MidiTrack *track = event->track();
-            if (pasteTrack() == -2) {
-                track = currentFile()->track(NewNoteTool::editTrack());
-            } else if ((pasteTrack() >= 0) && (pasteTrack() < currentFile()->tracks()->size())) {
+            if ((pasteTrack() >= 0) && (pasteTrack() < currentFile()->tracks()->size())) {
+                // Explicit "paste to track N" override (Edit > Paste to track).
                 track = currentFile()->track(pasteTrack());
             } else if (track && currentFile()->tracks()->contains(track)) {
-                // Track is still valid and belongs to the current file — keep it
+                // Same-file paste (including pasting back into the file the events
+                // were copied from): KEEP the event's own track so the notes land
+                // on the track they came from. Previously the pasteTrack()==-2
+                // default collapsed every paste onto the "add new events to" edit
+                // track (usually track 0), so copying a track and pasting it back
+                // silently moved the notes to track 0. (PASTE-TRACK-001)
+            } else if (pasteTrack() == -2) {
+                // Cross-file / deleted-track default: drop onto the current edit
+                // track chosen in the "add new events to" selector.
+                track = currentFile()->track(NewNoteTool::editTrack());
             } else {
                 // Cross-file paste or track from deleted file
                 track = currentFile()->getPasteTrack(event->track(), event->file());
@@ -519,6 +529,13 @@ bool EventTool::pasteFromSharedClipboardWithOptions(const PasteSpecialOptions &o
     QList<MidiEvent *> sharedEvents;
     if (!clipboard->pasteEvents(currentFile(), sharedEvents, opts.applyTempoConversion,
                                 opts.targetCursorTick)) {
+        // deserializeEvents() can new[] and append events before bailing on a
+        // mid-stream sanity check (truncated/corrupt buffer). Free them here so a
+        // malformed cross-process buffer doesn't leak MidiEvents (and clearing the
+        // list also drains any unpaired NoteOnEvent from OffEvent::onEvents via
+        // ~NoteOnEvent). The probe path in pasteSpecial() already does this.
+        qDeleteAll(sharedEvents);
+        sharedEvents.clear();
         return false;
     }
     if (sharedEvents.isEmpty()) {
@@ -543,8 +560,61 @@ bool EventTool::pasteFromSharedClipboardWithOptions(const PasteSpecialOptions &o
             return false;
         }
 
+        // Repeat-paste guard: when requested, skip note events that would land
+        // EXACTLY on an identical existing note (same channel + tick + pitch), so a
+        // second identical paste doesn't silently stack invisible duplicates. Build
+        // the skip set (duplicate NoteOns + their paired OffEvents) BEFORE opening
+        // the protocol action.
+        //
+        // SAFETY: findDuplicatePasteNotes() indexes the clipboard metadata by the
+        // full-list position, but the insertion loop below indexes regular events by
+        // (tempoEvents.size() + position). Those indices only agree when there are NO
+        // tempo / time-sig / key-sig events in the clipboard. With interleaved meta
+        // events the two diverge, so a "duplicate" could be computed at the wrong
+        // position and a NON-duplicate note silently deleted. Only enable the skip on
+        // the notes-only fast path (the common case); otherwise paste everything (a
+        // visible duplicate is far better than silent data loss).
+        bool clipboardHasMetaEvents = false;
+        for (MidiEvent *e : sharedEvents) {
+            if (dynamic_cast<TempoChangeEvent *>(e) || dynamic_cast<TimeSignatureEvent *>(e)
+                || dynamic_cast<KeySignatureEvent *>(e)) {
+                clipboardHasMetaEvents = true;
+                break;
+            }
+        }
+        QSet<MidiEvent *> skipSet;
+        int skippedNotes = 0;
+        if (opts.skipDuplicates && !clipboardHasMetaEvents) {
+            const QList<MidiEvent *> dupOns =
+                findDuplicatePasteNotes(currentFile(), sharedEvents,
+                                        static_cast<int>(opts.assignment));
+            skippedNotes = dupOns.size();
+            for (MidiEvent *e : dupOns) {
+                skipSet.insert(e);
+                if (NoteOnEvent *on = dynamic_cast<NoteOnEvent *>(e)) {
+                    if (on->offEvent()) skipSet.insert(on->offEvent());
+                }
+            }
+        }
+        const int insertCount = sharedEvents.count() - skipSet.size();
+        if (insertCount <= 0) {
+            // Everything is already present here - paste nothing (and don't open an
+            // empty undo step). The events are freed here since none are inserted.
+            // Clear the selection so the caller's "reveal" step doesn't scroll to a
+            // stale (pre-paste) selection.
+            clearSelection();
+            qDeleteAll(sharedEvents);
+            sharedEvents.clear();
+            if (_mainWindow) {
+                _mainWindow->statusBar()->showMessage(
+                    QObject::tr("All pasted notes are already present here - nothing pasted"),
+                    4000);
+            }
+            return true;
+        }
+
         // Begin a new ProtocolAction
-        currentFile()->protocol()->startNewAction(QObject::tr("Paste ") + QString::number(sharedEvents.count()) + QObject::tr(" events from shared clipboard"));
+        currentFile()->protocol()->startNewAction(QObject::tr("Paste ") + QString::number(insertCount) + QObject::tr(" events from shared clipboard"));
 
         // Phase 36.x -- rescale source ticks into the target file's tick
         // grid when the two MidiFiles use different ticksPerQuarter. The
@@ -593,18 +663,26 @@ bool EventTool::pasteFromSharedClipboardWithOptions(const PasteSpecialOptions &o
         QHash<int, MidiTrack *> sourceTrackToTarget;
         const QList<QPair<int, QString>> sourceTracks = SharedClipboard::sourceTrackList();
         if (opts.assignment != PasteAssignment::CurrentEditTarget) {
-            int unnamedCounter = 1;
             for (const auto &p : sourceTracks) {
                 const int sourceId = p.first;
                 const QString sourceName = p.second;
                 MidiTrack *resolved = nullptr;
 
-                if (opts.assignment == PasteAssignment::PreserveSourceMapping
-                    && !sourceName.isEmpty()) {
+                // PreserveSourceMapping reuses an existing target track by name.
+                // For an UNNAMED source track use a name derived from the (stable,
+                // clipboard-provided) source id so a repeated paste reuses the SAME
+                // track instead of spawning a fresh "Pasted Track" each time. The
+                // matcher and the creator below MUST agree on this name, or the
+                // match never succeeds and every paste appends another track.
+                const QString preserveName = sourceName.isEmpty()
+                    ? QObject::tr("Pasted Track %1").arg(sourceId)
+                    : sourceName;
+
+                if (opts.assignment == PasteAssignment::PreserveSourceMapping) {
                     // Try to reuse an existing target track by name.
                     if (currentFile()->tracks()) {
                         for (MidiTrack *t : *currentFile()->tracks()) {
-                            if (t && t->name() == sourceName) {
+                            if (t && t->name() == preserveName) {
                                 resolved = t;
                                 break;
                             }
@@ -624,12 +702,10 @@ bool EventTool::pasteFromSharedClipboardWithOptions(const PasteSpecialOptions &o
                         QString newName;
                         if (opts.assignment == PasteAssignment::NewTracksPerSource) {
                             newName = sourceName.isEmpty()
-                                          ? QObject::tr("Pasted Track %1").arg(unnamedCounter++)
+                                          ? QObject::tr("Pasted Track %1").arg(sourceId)
                                           : QObject::tr("Pasted: %1").arg(sourceName);
                         } else { // PreserveSourceMapping with no match
-                            newName = sourceName.isEmpty()
-                                          ? QObject::tr("Pasted Track %1").arg(unnamedCounter++)
-                                          : sourceName;
+                            newName = preserveName;
                         }
                         resolved->setName(newName);
                     }
@@ -788,6 +864,15 @@ bool EventTool::pasteFromSharedClipboardWithOptions(const PasteSpecialOptions &o
                 continue;
             }
 
+            // Repeat-paste guard: drop events that duplicate an existing note (and
+            // their paired OffEvents). Delete the (un-inserted) event and keep the
+            // metadata index advancing so timing/source lookups stay aligned.
+            if (opts.skipDuplicates && skipSet.contains(event)) {
+                delete event;
+                regularEventIndex++;
+                continue;
+            }
+
             try {
                 // Get the original timing information from SharedClipboard
                 QPair<int, int> originalTiming = SharedClipboard::getOriginalTiming(regularEventIndex);
@@ -845,11 +930,15 @@ bool EventTool::pasteFromSharedClipboardWithOptions(const PasteSpecialOptions &o
             channel->protocol(channel, channelPair.second);
         }
 
+        // Pasted notes can extend past the song's previous end, so ALWAYS
+        // recompute the file's max time - otherwise the timeline and scrollbars
+        // don't grow to reach the new notes and they look "missing" off the right
+        // edge. (Previously this only ran when tempo events were pasted.)
+        currentFile()->calcMaxTime();
+
         // If tempo/time signature events were pasted, recalculate existing notes
         // This must happen AFTER protocol entries are committed so recalculation is included in undo
         if (!tempoEvents.isEmpty()) {
-            // Force the MIDI file to recalculate its tempo map
-            currentFile()->calcMaxTime();
             recalculateExistingNotesAfterTempoChange(tempoEvents);
         }
 
@@ -858,10 +947,82 @@ bool EventTool::pasteFromSharedClipboardWithOptions(const PasteSpecialOptions &o
         _mainWindow->eventWidget()->reportSelectionChangedByTool();
 
         currentFile()->protocol()->endAction();
+
+        if (skippedNotes > 0 && _mainWindow) {
+            _mainWindow->statusBar()->showMessage(
+                QObject::tr("Pasted %1 events (%2 already-present note(s) skipped)")
+                    .arg(insertCount).arg(skippedNotes),
+                4000);
+        }
     }
 
     // Note: sharedEvents are now owned by the file/channels
     return true;
+}
+
+QList<MidiEvent *> EventTool::findDuplicatePasteNotes(MidiFile *target,
+                                                      const QList<MidiEvent *> &events,
+                                                      int assignment) {
+    QList<MidiEvent *> dups;
+    if (!target || events.isEmpty()) {
+        return dups;
+    }
+
+    // Mirror the placement math of pasteFromSharedClipboardWithOptions so the
+    // detected positions match where the events would actually land.
+    const int sourceTpq = SharedClipboard::sourceTicksPerQuarter();
+    const int targetTpq = target->ticksPerQuarter();
+    double tickscale = 1.0;
+    if (sourceTpq > 0 && targetTpq > 0 && sourceTpq != targetTpq) {
+        tickscale = static_cast<double>(targetTpq) / static_cast<double>(sourceTpq);
+    }
+    auto scaleTick = [tickscale](int t) {
+        return static_cast<int>(std::lround(tickscale * static_cast<double>(t)));
+    };
+
+    int firstTick = -1;
+    for (int i = 0; i < events.size(); ++i) {
+        const int ot = SharedClipboard::getOriginalTiming(i).first;
+        if (ot != -1) {
+            const int s = scaleTick(ot);
+            if (s < firstTick || firstTick < 0) firstTick = s;
+        }
+    }
+    if (firstTick < 0) firstTick = 0;
+    const int diff = target->cursorTick() - firstTick;
+
+    const bool collapse =
+        (assignment == static_cast<int>(PasteAssignment::CurrentEditTarget));
+    const int editChannel = NewNoteTool::editChannel();
+
+    for (int i = 0; i < events.size(); ++i) {
+        NoteOnEvent *on = dynamic_cast<NoteOnEvent *>(events.at(i));
+        if (!on) continue;
+
+        int ot = SharedClipboard::getOriginalTiming(i).first;
+        if (ot == -1) ot = on->midiTime();
+        const int newTime = scaleTick(ot) + diff;
+
+        int channel = editChannel;
+        if (!collapse) {
+            const PasteSourceInfo info = SharedClipboard::getPasteSourceInfo(i);
+            if (info.originalChannel >= 0 && info.originalChannel <= 15) {
+                channel = info.originalChannel;
+            }
+        }
+
+        QMultiMap<int, MidiEvent *> *chanEvents = target->channelEvents(channel);
+        if (!chanEvents) continue;
+        const QList<MidiEvent *> atTick = chanEvents->values(newTime);
+        for (MidiEvent *existing : atTick) {
+            NoteOnEvent *exOn = dynamic_cast<NoteOnEvent *>(existing);
+            if (exOn && exOn->note() == on->note()) {
+                dups.append(on);
+                break;
+            }
+        }
+    }
+    return dups;
 }
 
 bool EventTool::hasSharedClipboardData() {

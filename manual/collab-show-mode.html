@@ -399,7 +399,7 @@ knows how to look:
 <ul>
 <li><b>Host detects an older joiner:</b> a modal popup names the peer and explains what they won't see. The host can then ask them to update and reconnect.</li>
 <li><b>Joiner detects an older host:</b> the symmetric modal popup, triggered by the absence of the host's session-welcome handshake.</li>
-<li><b>Both peers on newer builds but different versions</b> (e.g. one on 1.7.2 and one on 1.7.5): a low-key status-bar tip on both sides. No modal - future versions are expected to remain wire-compatible.</li>
+<li><b>Both peers on builds that differ but are wire-compatible:</b> a low-key status-bar tip on both sides. No modal - the indicators, locks, and hat-pass menus all work.</li>
 </ul>
 
 <div class="screenshot-single">
@@ -414,8 +414,8 @@ knows how to look:
 <h2 id="differences-from-review">How is Show Mode different from Review Mode?</h2>
 
 <p>
-<a href="collab-lan.html">Review Mode</a> (added in v1.7.0) already
-lets the host approve each incoming edit before it lands. It might
+<a href="collab-lan.html">Review Mode</a> lets the host approve
+each incoming edit before it lands. It might
 sound similar to Show Mode - both are about controlling what
 gets applied - but the intent is different:
 </p>
@@ -424,12 +424,6 @@ gets applied - but the intent is different:
 <li><b>Review Mode:</b> anyone <em>can</em> edit, the host approves before applying. Edits pile up in a queue; the host cherry-picks. Useful for trust-asymmetric collaboration ("my AI agent is editing, I want to vet"). Good when there are simultaneous editors.</li>
 <li><b>Show Mode:</b> only the presenter <em>can</em> edit, viewers can't even attempt. No queue, no approval - just a one-way stream. Useful for zero-noise demonstrations.</li>
 </ul>
-
-<p>
-The two could be combined later (Review + Show = "presenter shows,
-host approves their edits before they land for everyone else") but
-that's not in the current scope.
-</p>
 
 <hr>
 

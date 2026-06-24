@@ -91,6 +91,12 @@ def parse_changelog(text: str):
         version = m.group(1)
         date = m.group(2)
         title = m.group(3) or ""
+        # Skip not-yet-released entries (## [x.y.z] - Unreleased - ...). They live
+        # in CHANGELOG.md as the working changelog for the next release, but must
+        # NOT drive the website (download buttons / softwareVersion) or appear on
+        # the public changelog page until they get a real date.
+        if date.strip().lower().startswith("unrel"):
+            continue
         start = m.end()
         end = splits[i + 1].start() if i + 1 < len(splits) else len(text)
         body = text[start:end].strip()

@@ -5,6 +5,30 @@ Releases: https://github.com/happytunesai/web/releases
 
 ---
 
+## [1.9.1] - 2026-06-24 - Bugfixes & Polish
+
+> Follow-up bugfix/polish release after the 1.9.0 Tabs & Editor Groups rebuild,
+> hardening the new multi-document editor with fixes found in real use.
+
+### Fixed
+
+* **Velocity / controller lane in split view.** The bottom velocity / CC / pitch-bend editor now appears under *both* editor groups when the editor is split, each lane tracking its own pane. Previously it showed and edited only the primary (left) pane and stopped at the middle of the window, leaving the right pane without a lane.
+* **Track list refreshing across documents.** The Tracks panel is shared across open documents and was re-subscribing to each document's change signal on every tab/pane switch without dropping the old subscription, so it refreshed in response to edits in a document it wasn't even showing (and slowly leaked connections). It now rebinds cleanly to the active document only.
+* **Clicking a tab now focuses that editor group fully.** Selecting a document by its tab (rather than clicking inside the note area) now gives that pane real keyboard focus, not just a logical switch. Previously a tab-only focus could let a following dialog hand focus back to the other pane - most visibly with Paste Special, where pasting after a tab-click could create the new track in the *other* document. Paste Special now also pins the target document for the whole operation, so the paste always lands where you started it.
+* **Same-file paste keeps the original track.** Copying notes and pasting them back into the same document now puts them on the track they came from, instead of collapsing every paste onto the "add new events to" edit track (usually track 0) - which made it look like a paste had gone missing when you were watching the source track. Cross-document pastes still map by track name (or the edit track) as before.
+* **Cross-file paste no longer seems to "vanish".** Pasting a track from another tab inserts the notes at the cursor (often the very start) and at their own pitches, which frequently sat outside the current scroll position - so the paste looked like it did nothing even though the events were really there (only the protocol log and the velocity lane showed them). Two fixes: the file's length is now always recomputed after a paste, so the timeline grows to include notes that extend past the old song end; and the view now scrolls to the freshly-pasted (selected) notes so you immediately see where they landed.
+* **Repeated paste no longer silently stacks exact duplicates.** When a paste would drop notes exactly on top of identical existing notes (same channel, position and pitch), Paste Special now reappears - even if you ticked "don't ask again this session" - with a warning and a pre-checked **"Skip notes already present at the target"** option. A fully-duplicate paste then does nothing and says so in the status bar instead of layering hidden copies (which would double up on playback/export).
+* **Cross-file paste of unnamed tracks no longer spawns a new track every time.** With "preserve source mapping", an unnamed source track now reuses the track a previous paste created for it instead of appending a fresh "Pasted Track" on each paste.
+* **Memory leak on a corrupt clipboard buffer.** A truncated/malformed cross-process clipboard could leak the partially-deserialized events; they are now freed on the failure path.
+* **Velocity / controller lane aligned on startup.** When a session was restored, the bottom lane could start out horizontally offset from the notes (it only snapped into place after nudging a splitter), because the restored split/scroll is applied programmatically and didn't trigger a relayout. The lane now realigns automatically once the window has finished laying out.
+* **Shortcut clash on `Ctrl+Shift+E`.** Export Audio and "Split channels to tracks" were both bound to `Ctrl+Shift+E`, so the shortcut was ambiguous and could trigger the wrong one (or neither). Export Audio now uses **`Ctrl+Shift+X`**; Split channels to tracks keeps `Ctrl+Shift+E`.
+
+### Changed
+
+* **Pasting between two open files now matches tracks by name by default.** When you copy in one document and paste into another (e.g. two copies of the same song side by side), the default is now to drop the notes onto the existing track of the same name, only creating a new track when there is no match - instead of always creating a new track per source track. You can still pick a different mapping per paste in the Paste Special dialog.
+
+---
+
 ## [1.9.0] - 2026-06-21 - Tabs & Editor Groups
 
 > **The deepest structural change MidiEditor AI has had.** The editor was

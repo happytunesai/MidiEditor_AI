@@ -45,7 +45,6 @@
             pages: [
                 { href: 'collaboration.html',     icon: '🤝', name: 'Overview' },
                 { href: 'collab-pr.html',         icon: '📝', name: 'Async PR' },
-                { href: 'collab-discord.html',    icon: '📢', name: 'Discord' },
                 { href: 'collab-lan.html',        icon: '🏠', name: 'LAN Live' },
                 { href: 'collab-wan.html',        icon: '🌐', name: 'WAN Live' },
                 { href: 'collab-show-mode.html',  icon: '🎩', name: 'Show Mode' },

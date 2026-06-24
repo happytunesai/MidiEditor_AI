@@ -97,7 +97,7 @@
         }
     }
 
-    /* Rendezvous handshake-flow animation (Plan §11.10f).
+    /* Rendezvous handshake-flow animation.
        Two parallel tracks make the data-flow story explicit:
          • Top track (orange): always visible, shows phase-1 SDP
            handshake. BOTH PCs bounce a dot off the Cloudflare worker
@@ -363,6 +363,14 @@ for the hat-passing + follow-the-host details. The
 lower sidebar in both modes.
 </p>
 
+<p style="background: rgba(88, 166, 255, 0.08); border-left: 4px solid #58a6ff; padding: 0.8rem 1rem; border-radius: 6px;">
+A Live Session shares a single document. While one is running, the
+<a href="editor-groups.html">tabs and editor groups</a> are locked to
+the session document - any other tabs stay put and reopen for editing
+the moment the session ends. You can still keep several files open in
+tabs before you start.
+</p>
+
 <div class="dual-demo">
     <div class="demo-pane">
         <video src="screenshots/live_WAN_pc_1.webm" muted autoplay loop playsinline></video>
@@ -386,7 +394,7 @@ lower sidebar in both modes.
 
 <p style="text-align: center; color: var(--text-muted); font-style: italic; font-size: 0.9rem;">
 Two screen captures from a real WAN session over the internet. Same
-~200 ms tick rate as LAN, plus the round-trip latency of your link.
+~1 s tick rate as LAN, plus the round-trip latency of your link.
 </p>
 
 <div class="rdv-flow" aria-hidden="true">
@@ -694,7 +702,7 @@ Session</em> - a fresh joinerId is generated each time.</li>
 
 <p><b>"Session is full" / 503 from rendezvous:</b></p>
 <ul>
-<li>Soft cap of 8 peers per session (Phase 9.8). Wait for an existing
+<li>Soft cap of 8 peers per session. Wait for an existing
 peer to leave, or start a new session.</li>
 </ul>
 

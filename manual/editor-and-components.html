@@ -116,6 +116,14 @@ structured within the following submenus. For the <b>Tools</b> menu, see the
 </tr>
 <tr>
 <td></td>
+<td><i>Export Audio&hellip;</i><br>Render the current file to an audio file (WAV / FLAC / OGG / MP3) using the active SoundFont. Shortcut <b>Ctrl+Shift+X</b>.</td>
+</tr>
+<tr>
+<td></td>
+<td><i>Export MusicXML&hellip;</i><br>Save the current file as MusicXML, openable in notation software such as MuseScore, Finale, Sibelius, or Dorico.</td>
+</tr>
+<tr>
+<td></td>
 <td><i>Quit</i><br>Close MidiEditor AI.</td>
 </tr>
 </table>
@@ -159,6 +167,10 @@ structured within the following submenus. For the <b>Tools</b> menu, see the
 <td><i>Paste Special&hellip;</i><br>Opens the <a href="editing-midi-files.html#paste-special">cross-instance paste dialog</a>. Pick <i>Create new tracks per source</i>, <i>Preserve source mapping (1:1)</i>, or <i>Paste to current edit track + channel</i>. One Ctrl+Z reverts the paste <em>and</em> any newly created tracks together.</td>
 </tr>
 <tr>
+<td></td>
+<td><i>Ask MidiPilot&hellip;</i><br>Opens the <a href="midipilot.html">MidiPilot</a> panel and moves focus to its input so you can type a request right away.</td>
+</tr>
+<tr>
 <td><img src="tools/config.png" width="20" height="20"></td>
 <td><i>Settings&hellip;</i><br>Opens the <a href="setup.html">Settings dialog</a>.</td>
 </tr>
@@ -169,6 +181,14 @@ structured within the following submenus. For the <b>Tools</b> menu, see the
 <tr>
 <td></td>
 <td><i>Zoom&hellip;</i><br>Zoom in/out horizontally and vertically, or restore default zoom settings.</td>
+</tr>
+<tr>
+<td></td>
+<td><i>Reset view</i><br>Resets zoom, scroll position, and cursor to their defaults.</td>
+</tr>
+<tr>
+<td></td>
+<td><i>Compare View (side by side)</i><br>Shows another open document next to the editor for comparison. See <a href="editor-groups.html">Tabs &amp; Editor Groups</a>.</td>
 </tr>
 <tr>
 <td><img src="tools/all_visible.png" width="20" height="20"></td>
@@ -193,6 +213,18 @@ structured within the following submenus. For the <b>Tools</b> menu, see the
 <tr>
 <td></td>
 <td><i>Raster</i><br>Customize the grid raster in the event view. Set to quarter notes, 8ths, 16ths, etc. See <a href="editing-midi-files.html#magnet">Magnet &amp; Raster</a>.</td>
+</tr>
+<tr>
+<td></td>
+<td><i>MidiPilot</i><br>Shows or hides the <a href="midipilot.html">MidiPilot</a> AI assistant panel. Shortcut <b>Ctrl+I</b>.</td>
+</tr>
+<tr>
+<td></td>
+<td><i>Lyric Timeline</i><br>Shows or hides the <a href="lyrics.html">Lyric Timeline</a> panel below the velocity lane. Shortcut <b>Ctrl+L</b>.</td>
+</tr>
+<tr>
+<td></td>
+<td><i>Show FFXIV Voice Lane</i><br>Shows the voice-load graph beneath the piano roll, which plots the simultaneous voice count against the FFXIV voice ceiling. A companion entry, <i>Auto-show FFXIV Voice Lane with FFXIV SoundFont Mode</i>, shows the lane automatically while FFXIV SoundFont Mode is on.</td>
 </tr>
 </table>
 
@@ -219,6 +251,15 @@ See the <a href="playback.html">Playback &amp; Recording</a> page for full detai
 <h3 id="tools">Toolbar</h3>
 <p>
   The toolbar contains items from the menubar in order to provide quick access to the most frequently used actions.
+</p>
+
+<h3 id="tabs-and-groups">Tabs &amp; Editor Groups</h3>
+<p>
+  Several documents can be open at once, each shown as its own tab. A <i>New Tab</i> button opens an
+  additional empty document, and a <i>Split</i> button divides the editor area into two editor groups
+  so two documents can be edited side by side, with their own tab strips. The same side-by-side
+  layout is reachable from <b>View &rarr; Compare View (side by side)</b>. For full details, see
+  <a href="editor-groups.html">Tabs &amp; Editor Groups</a>.
 </p>
 
 <h3 id="event-view">Event View</h3>
@@ -254,7 +295,7 @@ See the <a href="playback.html">Playback &amp; Recording</a> page for full detai
 	show and edit on the left of the window.
 </p>
 
-<h4 id="context-menu-visibility">Context Menu - Visibility at a Glance <span style="font-size:0.7em; color:var(--text-muted); font-weight:normal;">(new in v1.4.2)</span></h4>
+<h4 id="context-menu-visibility">Context Menu - Visibility at a Glance</h4>
 <p>
   Right-clicking any note in the event view opens a context menu with quick reassignment shortcuts.
   Both the <b>Move to Track</b> and <b>Move to Channel</b> submenus now display a small visibility
@@ -330,10 +371,6 @@ See the <a href="playback.html">Playback &amp; Recording</a> page for full detai
 <a href="screenshots/statusbar_chord_detection.png" class="lightbox-link"><img src="screenshots/statusbar_chord_detection.png" style="max-width:900px; border:1px solid var(--border); border-radius:8px;" alt="Status bar showing chord detection, note info, tick position, and event count"></a>
 <p style="text-align:center; color:var(--text-muted); font-style:italic; margin-top:0.5rem; font-size:0.9rem;">The status bar with chord detection - selecting notes shows the detected chord name.</p>
 </div>
-
-<p>
-  Toggle the status bar in <b>Settings &rarr; System &amp; Performance</b>.
-</p>
 
 </main>
 

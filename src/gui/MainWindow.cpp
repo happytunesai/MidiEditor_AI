@@ -602,26 +602,56 @@ MainWindow::MainWindow(QString initFile)
     int div = _settings->value("div", 2).toInt();
     mw_matrixWidget->setDiv(div);
 
-    // VelocityArea
+    // VelocityArea. Holds a horizontal _velocitySplitter that mirrors _viewSplitter,
+    // so each editor group gets its own velocity / controller lane aligned under it.
+    // With a single group the splitter holds only the left panel and looks identical
+    // to before the split feature.
     QWidget *velocityArea = new QWidget(leftSplitter);
     velocityArea->setContentsMargins(0, 0, 0, 0);
     leftSplitter->addWidget(velocityArea);
-    
-    QGridLayout *velocityAreaLayout = new QGridLayout(velocityArea);
-    velocityAreaLayout->setContentsMargins(0, 0, 0, 0);
-    velocityAreaLayout->setHorizontalSpacing(6);
-    _miscWidgetControl = new QWidget(velocityArea);
-    _miscWidgetControl->setFixedWidth(110 - velocityAreaLayout->horizontalSpacing());
 
-    velocityAreaLayout->addWidget(_miscWidgetControl, 0, 0, 1, 1);
+    QHBoxLayout *velocityAreaLayout = new QHBoxLayout(velocityArea);
+    velocityAreaLayout->setContentsMargins(0, 0, 0, 0);
+    velocityAreaLayout->setSpacing(0);
+    _velocitySplitter = new QSplitter(Qt::Horizontal, velocityArea);
+    _velocitySplitter->setChildrenCollapsible(false);
+    _velocitySplitter->setHandleWidth(2);
+    velocityAreaLayout->addWidget(_velocitySplitter);
+    velocityArea->setLayout(velocityAreaLayout);
+
+    // Keep the velocity lanes aligned with the editor panes: dragging either
+    // splitter handle moves the other. setSizes() does not emit splitterMoved, so
+    // there is no feedback loop.
+    connect(_viewSplitter, &QSplitter::splitterMoved, this,
+            [this](int, int) { syncVelocitySplitterFromView(); });
+    connect(_velocitySplitter, &QSplitter::splitterMoved, this,
+            [this](int, int) {
+                if (_viewSplitter && _velocitySplitter &&
+                    _velocitySplitter->count() == _viewSplitter->count()) {
+                    _viewSplitter->setSizes(_velocitySplitter->sizes());
+                }
+            });
+
+    // Left velocity panel = [ control | primary MiscWidget | dummy scrollbar ], the
+    // classic layout. The dummy vertical scrollbar keeps the lane exactly as wide as
+    // the matrix view (whose own vertical scrollbar occupies that strip).
+    QWidget *leftMiscPanel = new QWidget();
+    QGridLayout *leftMiscLayout = new QGridLayout(leftMiscPanel);
+    leftMiscLayout->setContentsMargins(0, 0, 0, 0);
+    leftMiscLayout->setHorizontalSpacing(6);
+    _miscWidgetControl = new QWidget(leftMiscPanel);
+    _miscWidgetControl->setFixedWidth(110 - leftMiscLayout->horizontalSpacing());
+    leftMiscLayout->addWidget(_miscWidgetControl, 0, 0, 1, 1);
     // there is a Scrollbar on the right side of the velocityWidget doing
     // nothing but making the VelocityWidget as big as the matrixWidget
-    QScrollBar *scrollNothing = new QScrollBar(Qt::Vertical, velocityArea);
+    QScrollBar *scrollNothing = new QScrollBar(Qt::Vertical, leftMiscPanel);
     scrollNothing->setMinimum(0);
     scrollNothing->setMaximum(0);
-    velocityAreaLayout->addWidget(scrollNothing, 0, 2, 1, 1);
-    velocityAreaLayout->setRowStretch(0, 1);
-    velocityArea->setLayout(velocityAreaLayout);
+    leftMiscLayout->addWidget(scrollNothing, 0, 2, 1, 1);
+    leftMiscLayout->setColumnStretch(1, 1);
+    leftMiscLayout->setRowStretch(0, 1);
+    leftMiscPanel->setLayout(leftMiscLayout);
+    _velocitySplitter->addWidget(leftMiscPanel);
 
     // Lyric Timeline area (between velocity and scrollbar)
     _lyricArea = new QWidget(leftSplitter);
@@ -727,7 +757,7 @@ MainWindow::MainWindow(QString initFile)
     if (useHardwareAcceleration) {
         // Use direct OpenGL acceleration
         // Connect MiscWidget to the internal MatrixWidget for data access
-        OpenGLMiscWidget *openglMisc = new OpenGLMiscWidget(mw_matrixWidget, _settings, velocityArea);
+        OpenGLMiscWidget *openglMisc = new OpenGLMiscWidget(mw_matrixWidget, _settings, leftMiscPanel);
         _miscWidget = openglMisc->getMiscWidget(); // Get the internal MiscWidget for data access
         _miscWidgetContainer = openglMisc; // Store the displayed widget for UI operations
         miscContainer = openglMisc;
@@ -735,7 +765,7 @@ MainWindow::MainWindow(QString initFile)
         qDebug() << "Created MiscWidget with direct OpenGL acceleration";
     } else {
         // Use software rendering
-        _miscWidget = new MiscWidget(mw_matrixWidget, velocityArea);
+        _miscWidget = new MiscWidget(mw_matrixWidget, leftMiscPanel);
         _miscWidgetContainer = _miscWidget; // Same widget for both data and UI
         miscContainer = _miscWidget;
         // Software rendering - no accelerator needed
@@ -743,7 +773,7 @@ MainWindow::MainWindow(QString initFile)
     }
 
     _miscWidget->setContentsMargins(0, 0, 0, 0);
-    velocityAreaLayout->addWidget(miscContainer, 0, 1, 1, 1);
+    leftMiscLayout->addWidget(miscContainer, 0, 1, 1, 1);
 
     // controls for velocity widget
     _miscControlLayout = new QGridLayout(_miscWidgetControl);
@@ -1578,17 +1608,27 @@ void MainWindow::loadInitFile() {
     }
 
     // Launched with a specific file (double-click / --open): just open it.
+    // Otherwise reopen the previous session (tabs + split) if there is one,
+    // falling back to a fresh document.
     if (_initFile != "") {
         loadFile(_initFile);
-        return;
+    } else if (!restoreSession()) {
+        newFile();
     }
 
-    // Otherwise reopen the previous session (tabs + split) if there is one.
-    if (restoreSession()) {
-        return;
-    }
-
-    newFile();
+    // The velocity / controller lane mirrors the matrix via a separate splitter and
+    // the matrix's pixel mapping. At startup the matrix/splitter geometry isn't final
+    // until the window is shown and laid out, and a programmatic split/scroll restore
+    // does NOT emit splitterMoved - so the lane can start out horizontally misaligned
+    // with the notes until the user nudges a splitter. Re-sync the velocity splitter
+    // and recompute the matrices once the layout settles, then repaint the lanes.
+    QTimer::singleShot(0, this, [this]() {
+        syncVelocitySplitterFromView();
+        if (mw_matrixWidget) mw_matrixWidget->calcSizes();
+        if (_compareMatrixWidget) _compareMatrixWidget->calcSizes();
+        if (_miscWidgetContainer) _miscWidgetContainer->update();
+        if (_compareMisc) _compareMisc->update();
+    });
 }
 
 void MainWindow::dropEvent(QDropEvent *ev) {
@@ -2319,6 +2359,10 @@ void MainWindow::ensureGroup1() {
     // primary view until the user clicks a pane (onViewFocused then routes it).
     if (mw_matrixWidget) EditorTool::setMatrixWidget(mw_matrixWidget);
     _activeView = mw_matrixWidget;
+
+    // Phase 28: give the new (right) pane its own velocity / controller lane,
+    // aligned under it in the velocity area.
+    buildCompareVelocityLane();
 }
 
 void MainWindow::toggleCompareView() {
@@ -2479,6 +2523,10 @@ void MainWindow::tearDownGroup1() {
         return; // not split
     }
 
+    // Remove the secondary velocity lane first, while its compare matrix is still
+    // alive (the lane is bound to it), so its destructor disconnects cleanly.
+    destroyCompareVelocityLane();
+
     // _group1Docs owns only the Document handles (not the MidiFiles); deleting
     // it leaves the files intact (the caller deletes/keeps them as needed).
     delete _group1Docs;
@@ -2522,6 +2570,70 @@ void MainWindow::tearDownGroup1() {
     updateActiveGroupHighlight();
 }
 
+void MainWindow::buildCompareVelocityLane() {
+    if (!_velocitySplitter || !_compareMatrixWidget || _compareMiscPanel) {
+        return;
+    }
+    // Right velocity panel mirrors the right editor pane: a piano-width spacer (so
+    // the lane starts under the pane's content, after its piano keys) + a software
+    // MiscWidget bound to the compare view. Software (not OpenGL) avoids a second GL
+    // context, matching the compare matrix.
+    QWidget *panel = new QWidget();
+    _compareMiscPanel = panel;
+    QGridLayout *rl = new QGridLayout(panel);
+    rl->setContentsMargins(0, 0, 0, 0);
+    rl->setHorizontalSpacing(6);
+    QWidget *spacer = new QWidget(panel);
+    spacer->setFixedWidth(110 - rl->horizontalSpacing());
+    rl->addWidget(spacer, 0, 0, 1, 1);
+    _compareMisc = new MiscWidget(_compareMatrixWidget, panel);
+    _compareMisc->setContentsMargins(0, 0, 0, 0);
+    rl->addWidget(_compareMisc, 0, 1, 1, 1);
+    rl->setColumnStretch(1, 1);
+    rl->setRowStretch(0, 1);
+    panel->setLayout(rl);
+    _velocitySplitter->addWidget(panel);
+
+    // Mirror the primary lane's current mode/channel/controller, and keep them in
+    // sync as the shared controls change. _compareMisc is deleted on teardown, so
+    // these connections auto-disconnect.
+    if (_miscMode) {
+        _compareMisc->setMode(_miscMode->currentIndex());
+    }
+    if (_miscChannel) {
+        _compareMisc->setChannel(_miscChannel->currentIndex());
+        connect(_miscChannel, SIGNAL(currentIndexChanged(int)),
+                _compareMisc, SLOT(setChannel(int)));
+    }
+    if (_miscController) {
+        _compareMisc->setControl(_miscController->currentIndex());
+        connect(_miscController, SIGNAL(currentIndexChanged(int)),
+                _compareMisc, SLOT(setControl(int)));
+    }
+    syncVelocitySplitterFromView();
+}
+
+void MainWindow::destroyCompareVelocityLane() {
+    _compareMisc = nullptr; // child of _compareMiscPanel - deleted with it
+    if (_compareMiscPanel) {
+        _compareMiscPanel->setParent(nullptr);
+        _compareMiscPanel->deleteLater();
+        _compareMiscPanel = nullptr;
+    }
+}
+
+void MainWindow::syncVelocitySplitterFromView() {
+    if (!_velocitySplitter || !_viewSplitter) {
+        return;
+    }
+    if (_velocitySplitter->count() < 2 ||
+        _velocitySplitter->count() != _viewSplitter->count()) {
+        return; // not split (or out of sync mid-build)
+    }
+    // setSizes() does not emit splitterMoved, so this never loops back.
+    _velocitySplitter->setSizes(_viewSplitter->sizes());
+}
+
 void MainWindow::collapseGroup1() {
     if (!_group1Container || _group1Collapsed) {
         return;
@@ -2530,6 +2642,9 @@ void MainWindow::collapseGroup1() {
     // pane. The documents/tabs stay alive in _group1Docs.
     _viewSplitterSizes = _viewSplitter->sizes();
     _group1Container->hide();
+    if (_compareMiscPanel) {
+        _compareMiscPanel->hide(); // the left lane reclaims the full width
+    }
     _group1Collapsed = true;
 
     // Surface the restore chip (with the group's tab count + the editor-group
@@ -2561,6 +2676,9 @@ void MainWindow::restoreGroup1() {
         return;
     }
     _group1Container->show();
+    if (_compareMiscPanel) {
+        _compareMiscPanel->show();
+    }
     _group1Collapsed = false;
     if (_group1RestoreButton) {
         _group1RestoreButton->setVisible(false);
@@ -2576,6 +2694,7 @@ void MainWindow::restoreGroup1() {
             _viewSplitter->setSizes(QList<int>() << w / 2 << w / 2);
         }
     }
+    syncVelocitySplitterFromView(); // realign the velocity lanes with the panes
     statusBar()->showMessage(tr("Second editor group restored"), 3000);
     // Both groups visible again; focus is on the primary - dim the secondary's tabs.
     updateActiveGroupHighlight();
@@ -2684,6 +2803,21 @@ void MainWindow::onViewFocused(MatrixWidget *view) {
     refreshScrollbarsForFocus();
     // Grey out the other group's tabs so the focused group stands out.
     updateActiveGroupHighlight();
+    // Give the pane REAL keyboard focus + tool target (see focusEditorView).
+    focusEditorView(view);
+}
+
+void MainWindow::focusEditorView(MatrixWidget *view) {
+    if (!view) {
+        return;
+    }
+    EditorTool::setMatrixWidget(view);
+    // setFocus() triggers focusInEvent -> claimAsActiveView, which is a no-op when
+    // the view already holds focus; the hasFocus() guard avoids needless churn and
+    // re-entrancy through onViewFocused.
+    if (!view->hasFocus()) {
+        view->setFocus(Qt::MouseFocusReason);
+    }
 }
 
 QString MainWindow::documentTabTitle(MidiFile *f) const {
@@ -2762,6 +2896,7 @@ void MainWindow::onDocumentTabChanged(int index) {
     activateDocument(f);
     refreshScrollbarsForFocus();
     updateActiveGroupHighlight();
+    focusEditorView(mw_matrixWidget);
 }
 
 void MainWindow::onGroup1TabChanged(int index) {
@@ -2786,6 +2921,7 @@ void MainWindow::onGroup1TabChanged(int index) {
     setActiveDocument(f);
     refreshScrollbarsForFocus();
     updateActiveGroupHighlight();
+    focusEditorView(_compareMatrixWidget);
 }
 
 void MainWindow::onDocumentTabBarClicked(int index) {
@@ -6145,7 +6281,7 @@ void MainWindow::transposeNSemitones() {
 // --------------------------------------------------------------------------
 static bool s_pasteSpecialDontAskSession = false;
 static PasteAssignment s_pasteSpecialSessionAssignment =
-    PasteAssignment::NewTracksPerSource;
+    PasteAssignment::PreserveSourceMapping;
 
 void MainWindow::copy() {
     EventTool::copyAction();
@@ -6267,6 +6403,13 @@ void MainWindow::pasteSpecial() {
     if (!file) {
         return;
     }
+    // Capture the intended paste target UP FRONT. The modal Paste Special dialog
+    // below can hand keyboard focus back to a DIFFERENT pane when it closes (that
+    // pane's focusInEvent re-activates its document), which would otherwise
+    // redirect the paste to the wrong file. We re-assert this target right before
+    // the actual paste runs. (Editor groups / Phase 28.)
+    MidiFile *const targetFile = file;
+    MatrixWidget *const targetView = _activeView;
     // Eligibility: either cross-process shared clipboard data, or a
     // local copy that originated in a different MidiFile in this same
     // process (Phase 36.x "copy in A, open B, paste" flow). When only
@@ -6333,17 +6476,33 @@ void MainWindow::pasteSpecial() {
         summary.approxDurationMs = 0;
     }
 
-    // Discard the probe events so we don't leak memory before the real paste.
-    qDeleteAll(probe);
-
     // Resolve default assignment from QSettings.
     const int storedDefault = _settings->value("Editing/pasteSpecialDefault", -1).toInt();
     PasteAssignment defaultAssignment = (storedDefault >= 0 && storedDefault <= 2)
         ? static_cast<PasteAssignment>(storedDefault)
-        : PasteAssignment::NewTracksPerSource;
+        : PasteAssignment::PreserveSourceMapping;
+
+    // Repeat-paste guard: count how many of these notes would land exactly on an
+    // identical existing note in the target ("already pasted here"). Needs the probe
+    // events, so compute it before discarding them. Use the assignment that will
+    // ACTUALLY run if the dialog is suppressed (the session opt-out choice), not just
+    // the persisted default - otherwise the channel mapping used for detection can
+    // differ from the paste and a duplicate paste could slip through silently.
+    const PasteAssignment effectiveAssignment =
+        s_pasteSpecialDontAskSession ? s_pasteSpecialSessionAssignment : defaultAssignment;
+    summary.duplicateNoteCount = EventTool::findDuplicatePasteNotes(
+        file, probe, static_cast<int>(effectiveAssignment)).size();
+    const bool hasDuplicates = summary.duplicateNoteCount > 0;
+
+    // Discard the probe events so we don't leak memory before the real paste.
+    qDeleteAll(probe);
 
     PasteAssignment chosen = defaultAssignment;
-    if (s_pasteSpecialDontAskSession) {
+    bool skipDuplicates = false;
+    // When duplicates are detected, ALWAYS show the dialog - even if the user opted
+    // out for the session - so a repeated paste onto already-present notes is never
+    // silent. Otherwise honour the session opt-out as before.
+    if (s_pasteSpecialDontAskSession && !hasDuplicates) {
         // User opted out of the dialog earlier this session — reuse their
         // last choice silently. Persistent default still wins if the user
         // explicitly chose "Make this the new default" back then (it was
@@ -6355,6 +6514,7 @@ void MainWindow::pasteSpecial() {
             return;
         }
         chosen = dlg.chosenAssignment();
+        skipDuplicates = dlg.skipAlreadyPresent();
 
         if (dlg.makeThisTheNewDefault()) {
             _settings->setValue("Editing/pasteSpecialDefault",
@@ -6366,11 +6526,50 @@ void MainWindow::pasteSpecial() {
         }
     }
 
+    // Re-assert the captured target: if the modal dialog flipped focus to the
+    // other pane while it was open, restore the active document/tool target to the
+    // file the user actually pasted into before EventTool reads currentFile().
+    if (targetFile != file) {
+        if (targetView) {
+            _activeView = targetView;
+            EditorTool::setMatrixWidget(targetView);
+        }
+        setActiveDocument(targetFile);
+    }
+
     PasteSpecialOptions opts;
     opts.assignment = chosen;
     opts.applyTempoConversion = true;
-    opts.targetCursorTick = file->cursorTick();
+    opts.targetCursorTick = targetFile->cursorTick();
+    opts.skipDuplicates = skipDuplicates;
     EventTool::pasteFromSharedClipboardWithOptions(opts, allowSameProcess);
+
+    // Reveal the pasted material so a cross-file paste is never "invisible": the
+    // notes are inserted at the cursor (often tick 0) and at their own pitches,
+    // which may sit outside the current scroll position. Scroll the active view to
+    // the start + top pitch of the freshly-pasted (now-selected) events.
+    const QList<MidiEvent *> pastedSel = Selection::instance()->selectedEvents();
+    if (!pastedSel.isEmpty()) {
+        int minTick = INT_MAX, minLine = INT_MAX;
+        for (MidiEvent *e : pastedSel) {
+            if (!e) continue;
+            minTick = qMin(minTick, e->midiTime());
+            if (NoteOnEvent *on = dynamic_cast<NoteOnEvent *>(e)) {
+                minLine = qMin(minLine, on->line());
+            }
+        }
+        // Recalibrate the shared scrollbars to the focused pane FIRST. The paste may
+        // have extended the timeline, and for a secondary-pane target the scrollbar
+        // maximum is otherwise stale - so a setValue() below would clamp short and the
+        // pasted notes would stay off-screen (the very thing the reveal prevents).
+        refreshScrollbarsForFocus();
+        if (minTick != INT_MAX && hori) {
+            hori->setValue(qMax(0, targetFile->msOfTick(minTick) - 200));
+        }
+        if (minLine != INT_MAX && vert) {
+            vert->setValue(qMax(0, minLine - 3));
+        }
+    }
 }
 
 void MainWindow::markEdited() {
@@ -6628,6 +6827,9 @@ void MainWindow::changeMiscMode(int mode) {
     } else if (MiscWidget *miscWidget = qobject_cast<MiscWidget*>(_miscWidgetContainer)) {
         miscWidget->setMode(mode);
     }
+    if (_compareMisc) {
+        _compareMisc->setMode(mode); // keep the secondary lane on the same mode
+    }
     if (mode == VelocityEditor || mode == TempoEditor) {
         _miscChannel->setEnabled(false);
     } else {
@@ -6749,7 +6951,9 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
 #ifdef FLUIDSYNTH_SUPPORT
     fileMB->addSeparator();
     _exportAudioAction = new QAction(tr("Export Audio..."), this);
-    _exportAudioAction->setShortcut(QKeySequence(tr("Ctrl+Shift+E")));
+    // Ctrl+Shift+E is taken by "Split channels to tracks" (createMenubar, Tools);
+    // use Ctrl+Shift+X ("eXport") so the two no longer clash as an ambiguous shortcut.
+    _exportAudioAction->setShortcut(QKeySequence(tr("Ctrl+Shift+X")));
     _defaultShortcuts["export_audio"] = QList<QKeySequence>() << _exportAudioAction->shortcut();
     Appearance::setActionIcon(_exportAudioAction, ":/run_environment/graphics/tool/noicon.png");
     connect(_exportAudioAction, &QAction::triggered, this, &MainWindow::exportAudio);

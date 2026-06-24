@@ -24,8 +24,8 @@ class QLabel;
  * \brief Three behaviours offered by the Paste Special flow.
  */
 enum class PasteAssignment {
-    NewTracksPerSource = 0,    ///< (default) one new MidiTrack per source trackId
-    PreserveSourceMapping = 1, ///< Reuse target tracks by name, else create
+    NewTracksPerSource = 0,    ///< one new MidiTrack per source trackId
+    PreserveSourceMapping = 1, ///< (default) reuse target tracks by name, else create
     CurrentEditTarget = 2      ///< Legacy: collapse onto NewNoteTool::editTrack/Channel
 };
 
@@ -33,9 +33,13 @@ enum class PasteAssignment {
  * \brief Per-paste options consumed by EventTool::pasteFromSharedClipboard().
  */
 struct PasteSpecialOptions {
-    PasteAssignment assignment = PasteAssignment::NewTracksPerSource;
+    PasteAssignment assignment = PasteAssignment::PreserveSourceMapping;
     bool applyTempoConversion = true;
     int targetCursorTick = 0;
+    /// When true, note events that would land EXACTLY on an identical existing
+    /// note (same channel + tick + pitch) in the target are skipped instead of
+    /// inserted, so a repeated paste does not silently stack invisible duplicates.
+    bool skipDuplicates = false;
 };
 
 /**
@@ -48,6 +52,10 @@ struct PasteClipboardSummary {
     QList<QPair<int, QString>> sourceTracks; ///< (trackId, name)
     QList<int> distinctChannels;
     int approxDurationMs = 0;
+    /// How many note events would land exactly on an identical existing note in
+    /// the target (i.e. "already pasted here"). When > 0 the dialog shows a
+    /// warning and pre-checks "skip already-present notes".
+    int duplicateNoteCount = 0;
 };
 
 class PasteSpecialDialog : public QDialog {
@@ -60,6 +68,8 @@ public:
     PasteAssignment chosenAssignment() const;
     bool dontAskAgainThisSession() const;
     bool makeThisTheNewDefault() const;
+    /// Whether the user wants notes that already exist at the target skipped.
+    bool skipAlreadyPresent() const;
 
 private slots:
     void updateMakeDefaultEnabled();
@@ -70,7 +80,9 @@ private:
     QRadioButton *_radioCurrentTarget;
     QCheckBox *_dontAskAgain;
     QCheckBox *_makeDefault;
+    QCheckBox *_skipDuplicates;
     QLabel *_summaryLabel;
+    QLabel *_warningLabel;
 };
 
 #endif // PASTE_SPECIAL_DIALOG_H_
