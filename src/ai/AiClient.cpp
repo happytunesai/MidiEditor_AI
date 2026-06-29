@@ -5,8 +5,10 @@
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
+#include <QHash>
 #include <QJsonDocument>
 #include <QNetworkRequest>
+#include <QRandomGenerator>
 #include <QSet>
 #include <QTimer>
 #include <QUrl>
@@ -40,6 +42,40 @@ static QSet<QString> &sessionStreamingBlocklist()
 {
     static QSet<QString> blocked;
     return blocked;
+}
+
+// Transient streaming blocks (a 429 / 5xx hit while streaming) auto-expire after
+// kTransientStreamBlockMs, so a brief rate limit makes ONE request fall back to
+// non-streaming without disabling streaming for the rest of the session. Genuine
+// "streaming unsupported" blocks (silent 200, schema mismatch) stay permanent.
+// Keyed like the permanent blocklist; value = epoch ms when the block was set.
+static constexpr qint64 kTransientStreamBlockMs = 60000;
+
+static QHash<QString, qint64> &transientStreamingBlocks()
+{
+    static QHash<QString, qint64> blocks;
+    return blocks;
+}
+
+// Transient HTTP statuses worth a one-request non-streaming fallback + retry
+// rather than a permanent streaming block.
+static bool isTransientHttpStatus(int status)
+{
+    return status == 429 || status == 408 || status == 425 || status == 500
+        || status == 502 || status == 503 || status == 504 || status == 529;
+}
+
+// OpenAI "pro" models (gpt-5-pro, gpt-5.5-pro, o3-pro, o1-pro, ...) are served
+// ONLY by the Responses API; /v1/chat/completions returns HTTP 404 for them.
+// They must use /v1/responses in BOTH Simple and Agent mode. Scoped to native
+// OpenAI - other providers (OpenRouter, custom) proxy via their own
+// chat/completions endpoint and are unaffected. Exposed as a static member so
+// the routing predicate is unit-testable (see tests/test_streaming_fallback.cpp).
+bool AiClient::modelRequiresResponsesApi(const QString &provider, const QString &model)
+{
+    const bool openAiNative = provider.isEmpty()
+                              || provider == QStringLiteral("openai");
+    return openAiNative && model.toLower().contains(QStringLiteral("-pro"));
 }
 
 AiClient::AiClient(QObject *parent)
@@ -393,9 +429,10 @@ void AiClient::sendMessagesInternal(const QJsonArray &messages,
     // /v1/chat/completions; use /v1/responses for that combination
     // (OpenAI-native only). Keep this family-wide so newly released
     // versions such as gpt-5.5 inherit the same transport automatically.
-    _useResponsesApi = !tools.isEmpty()
-                       && _model.toLower().startsWith(QStringLiteral("gpt-5"))
-                       && (_provider.isEmpty() || _provider == QStringLiteral("openai"));
+    _useResponsesApi = (!tools.isEmpty()
+                        && _model.toLower().startsWith(QStringLiteral("gpt-5"))
+                        && (_provider.isEmpty() || _provider == QStringLiteral("openai")))
+                       || modelRequiresResponsesApi(_provider, _model);
 
     QJsonObject body;
     body[QStringLiteral("model")] = _model;
@@ -617,29 +654,54 @@ void AiClient::testConnection()
     msg[QStringLiteral("content")] = QStringLiteral("Reply with: OK");
     messages.append(msg);
 
-    QJsonObject body;
-    body[QStringLiteral("model")] = _model;
-    body[QStringLiteral("messages")] = messages;
+    QByteArray data;
+    QString endpointPath;
 
-    if (reasoning) {
-        // Reasoning models: use top-level reasoning_effort string
-        body[QStringLiteral("reasoning_effort")] = QStringLiteral("low");
-        body[QStringLiteral("max_completion_tokens")] = 64;
-    } else if (_provider == QStringLiteral("ollama")) {
-        // Keep the test fast even if the user's default Ollama model is a heavy
-        // "thinking" one (qwen3.x) — otherwise a "Reply with: OK" probe can spin
-        // for minutes. Mirrors the reasoning_effort lever used for real requests
-        // (Phase 26.2b).
-        body[QStringLiteral("reasoning_effort")] = QStringLiteral("low");
-        body[QStringLiteral("max_completion_tokens")] = 64;
+    if (modelRequiresResponsesApi(_provider, _model)) {
+        // "Pro" OpenAI models are served only by the Responses API; the chat
+        // endpoint returns 404 ("not a chat model"). Probe /v1/responses instead
+        // so the Test button matches how real requests are routed.
+        QJsonObject body;
+        body[QStringLiteral("model")] = _model;
+        QJsonArray input;
+        QJsonObject item;
+        item[QStringLiteral("role")] = QStringLiteral("user");
+        item[QStringLiteral("content")] = QStringLiteral("Reply with: OK");
+        input.append(item);
+        body[QStringLiteral("input")] = input;
+        body[QStringLiteral("max_output_tokens")] = 64;
+        if (reasoning) {
+            QJsonObject r;
+            r[QStringLiteral("effort")] = QStringLiteral("low");
+            body[QStringLiteral("reasoning")] = r;
+        }
+        data = QJsonDocument(body).toJson(QJsonDocument::Compact);
+        endpointPath = QStringLiteral("/responses");
     } else {
-        body[QStringLiteral("max_completion_tokens")] = 16;
+        QJsonObject body;
+        body[QStringLiteral("model")] = _model;
+        body[QStringLiteral("messages")] = messages;
+
+        if (reasoning) {
+            // Reasoning models: use top-level reasoning_effort string
+            body[QStringLiteral("reasoning_effort")] = QStringLiteral("low");
+            body[QStringLiteral("max_completion_tokens")] = 64;
+        } else if (_provider == QStringLiteral("ollama")) {
+            // Keep the test fast even if the user's default Ollama model is a heavy
+            // "thinking" one (qwen3.x) — otherwise a "Reply with: OK" probe can spin
+            // for minutes. Mirrors the reasoning_effort lever used for real requests
+            // (Phase 26.2b).
+            body[QStringLiteral("reasoning_effort")] = QStringLiteral("low");
+            body[QStringLiteral("max_completion_tokens")] = 64;
+        } else {
+            body[QStringLiteral("max_completion_tokens")] = 16;
+        }
+
+        data = QJsonDocument(body).toJson(QJsonDocument::Compact);
+        endpointPath = QStringLiteral("/chat/completions");
     }
 
-    QJsonDocument doc(body);
-    QByteArray data = doc.toJson(QJsonDocument::Compact);
-
-    QNetworkRequest request{QUrl(_apiBaseUrl + QStringLiteral("/chat/completions"))};
+    QNetworkRequest request{QUrl(_apiBaseUrl + endpointPath)};
     request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
     applyAuthHeader(request);
     request.setTransferTimeout(15000);
@@ -875,6 +937,38 @@ static QJsonObject normalizeResponsesApiResponse(const QJsonObject &respObj,
     return normalized;
 }
 
+// Parse an HTTP Retry-After header into milliseconds. Supports the integer-seconds
+// form (what AI providers almost always send) and the HTTP-date form. Returns -1
+// when the header is absent or unparseable. Clamped to one hour.
+static int parseRetryAfterMs(QNetworkReply *reply)
+{
+    if (!reply) return -1;
+    const QByteArray raw = reply->rawHeader("Retry-After").trimmed();
+    if (raw.isEmpty()) return -1;
+    bool isInt = false;
+    const long secs = raw.toLong(&isInt);
+    if (isInt) {
+        return secs > 0 ? static_cast<int>(qMin<long>(secs, 3600) * 1000) : 0;
+    }
+    const QDateTime when = QDateTime::fromString(QString::fromLatin1(raw), Qt::RFC2822Date);
+    if (when.isValid()) {
+        const qint64 ms = QDateTime::currentDateTimeUtc().msecsTo(when.toUTC());
+        return ms > 0 ? static_cast<int>(qMin<qint64>(ms, 3600LL * 1000)) : 0;
+    }
+    return -1;
+}
+
+// Friendly provider name for user-facing error messages.
+static QString providerDisplayName(const QString &id)
+{
+    if (id == QStringLiteral("openai"))     return QStringLiteral("OpenAI");
+    if (id == QStringLiteral("openrouter")) return QStringLiteral("OpenRouter");
+    if (id == QStringLiteral("gemini"))     return QStringLiteral("Google Gemini");
+    if (id == QStringLiteral("ollama"))     return QStringLiteral("Ollama");
+    if (id.isEmpty() || id == QStringLiteral("custom")) return QStringLiteral("the API");
+    return id;
+}
+
 void AiClient::onReplyFinished(QNetworkReply *reply)
 {
     // Streaming requests handle their own finish — skip the normal handler
@@ -904,18 +998,48 @@ void AiClient::onReplyFinished(QNetworkReply *reply)
         QString errorMsg;
 
         bool retriable = false;
-        int retryDelayMs = 0;
+        int baseDelayMs = 0;
+        const bool rateLimited = (statusCode == 429);
+
+        // 429 covers two very different cases: a transient rate limit (a retry
+        // helps) and "insufficient_quota" (the account is out of credits/budget -
+        // retrying is pointless). Tell them apart by the provider's error code so
+        // we don't sit through three useless retries on a hard billing error.
+        bool insufficientQuota = false;
+        QString apiErrorMessage;
+        {
+            const QJsonDocument errDoc = QJsonDocument::fromJson(responseData);
+            if (errDoc.isObject()) {
+                const QJsonObject e = errDoc.object().value(QStringLiteral("error")).toObject();
+                apiErrorMessage = e.value(QStringLiteral("message")).toString().trimmed();
+                insufficientQuota =
+                    e.value(QStringLiteral("code")).toString() == QStringLiteral("insufficient_quota")
+                    || e.value(QStringLiteral("type")).toString() == QStringLiteral("insufficient_quota");
+            }
+        }
 
         if (statusCode == 401) {
             errorMsg = tr("Invalid API key. Please check your key in Settings.");
+        } else if (statusCode == 429 && insufficientQuota) {
+            // Out of quota - pass the provider's own message straight through (it
+            // already says to check plan/billing and links the docs).
+            errorMsg = apiErrorMessage.isEmpty()
+                ? tr("You exceeded your current quota, please check your plan and billing details.")
+                : apiErrorMessage;
+            // Hard quota error - leave retriable = false so we surface it at once.
         } else if (statusCode == 429) {
-            errorMsg = tr("Rate limit exceeded. Please wait a moment and try again.");
+            errorMsg = tr("Rate limit reached for %1. Please wait a moment and try again - "
+                          "if it keeps happening, check your provider quota or switch model.")
+                           .arg(providerDisplayName(_provider));
             retriable = true;
-            retryDelayMs = 2000;
-        } else if (statusCode == 500 || statusCode == 503) {
-            errorMsg = tr("API service is temporarily unavailable. Please try again later.");
+            baseDelayMs = 2000;
+        } else if (statusCode == 408 || statusCode == 425 || statusCode == 500
+                   || statusCode == 502 || statusCode == 503 || statusCode == 504
+                   || statusCode == 529) {
+            errorMsg = tr("%1 is busy or temporarily unavailable (HTTP %2). Please try again in a moment.")
+                           .arg(providerDisplayName(_provider)).arg(statusCode);
             retriable = true;
-            retryDelayMs = 1000;
+            baseDelayMs = 1000;
         } else if (reply->error() == QNetworkReply::HostNotFoundError ||
                    reply->error() == QNetworkReply::ConnectionRefusedError) {
             if (_provider == QStringLiteral("ollama")) {
@@ -928,21 +1052,57 @@ void AiClient::onReplyFinished(QNetworkReply *reply)
             } else {
                 errorMsg = tr("Unable to connect to the API. Please check your internet connection.");
             }
+        } else if (statusCode == 0 &&
+                   (reply->error() == QNetworkReply::TimeoutError ||
+                    reply->error() == QNetworkReply::TemporaryNetworkFailureError ||
+                    reply->error() == QNetworkReply::ProxyTimeoutError)) {
+            // Transient network blip with no HTTP status - worth a couple of retries.
+            errorMsg = tr("Network hiccup talking to %1. Please try again.")
+                           .arg(providerDisplayName(_provider));
+            retriable = true;
+            baseDelayMs = 1000;
         } else {
             errorMsg = tr("API error (HTTP %1): %2").arg(statusCode).arg(reply->errorString());
         }
 
-        // Retry once for transient errors (429 rate limit, 5xx server errors)
-        if (retriable && !_isTestRequest && _retryCount < 1 && !_lastRequestData.isEmpty()) {
+        // Retry transient errors with backoff. Honor the provider's Retry-After
+        // header when present (the exact wait it asks for); otherwise exponential
+        // backoff (base, x2, x4) with a little jitter. We do NOT sit and auto-wait
+        // longer than kMaxAutoRetryDelayMs - a long Retry-After (e.g. an hourly
+        // quota) is surfaced to the user instead of silently hanging the request.
+        const int kMaxRetries = 3;
+        const int kMaxAutoRetryDelayMs = 20000;
+        int retryDelayMs = baseDelayMs << _retryCount;                 // base, 2x, 4x...
+        const int retryAfterMs = parseRetryAfterMs(reply);
+        if (retryAfterMs >= 0) {
+            retryDelayMs = retryAfterMs;
+        }
+        retryDelayMs += static_cast<int>(QRandomGenerator::global()->bounded(400)); // jitter
+
+        if (retriable && !_isTestRequest && _retryCount < kMaxRetries
+            && !_lastRequestData.isEmpty() && retryDelayMs <= kMaxAutoRetryDelayMs) {
             _retryCount++;
             reply->deleteLater();
-            logApi(QStringLiteral("[RETRY] Scheduling retry %1/1 in %2ms for HTTP %3")
-                       .arg(_retryCount).arg(retryDelayMs).arg(statusCode));
-            emit retrying(tr("Retrying... (%1/1)").arg(_retryCount));
+            const int waitSec = (retryDelayMs + 999) / 1000;
+            logApi(QStringLiteral("[RETRY] Scheduling retry %1/%2 in %3ms for HTTP %4 (retry-after=%5ms)")
+                       .arg(_retryCount).arg(kMaxRetries).arg(retryDelayMs).arg(statusCode).arg(retryAfterMs));
+            emit retrying((rateLimited ? tr("Rate limited - retrying in %1 s (%2/%3)...")
+                                       : tr("Service busy - retrying in %1 s (%2/%3)..."))
+                              .arg(waitSec).arg(_retryCount).arg(kMaxRetries));
             QTimer::singleShot(retryDelayMs, this, [this]() {
                 _currentReply = _manager->post(_lastRequest, _lastRequestData);
             });
             return;
+        }
+
+        // Retries exhausted (or the requested wait was too long to sit through):
+        // if a rate-limit told us how long, fold it into the message so the user
+        // understands it's their provider account's limit, not an app bug.
+        if (rateLimited && retryAfterMs > 0) {
+            errorMsg = tr("Rate limit reached for %1. Try again in about %2 s - this is your "
+                          "provider account's limit, not a bug. Check your quota or switch model "
+                          "if it persists.")
+                           .arg(providerDisplayName(_provider)).arg((retryAfterMs + 999) / 1000);
         }
 
         if (_isTestRequest) {
@@ -1109,9 +1269,8 @@ bool AiClient::streamingDisabledForCurrentModel(bool withTools) const
 bool AiClient::streamingBlockedForSession(const QString &provider, const QString &model)
 {
     if (model.isEmpty()) return false;
-    auto &bl = sessionStreamingBlocklist();
-    return bl.contains(sessionStreamingBlockKey(provider, model, false))
-        || bl.contains(sessionStreamingBlockKey(provider, model, true));
+    return streamingBlockedForSession(provider, model, false)
+        || streamingBlockedForSession(provider, model, true);
 }
 
 bool AiClient::streamingBlockedForSession(const QString &provider,
@@ -1119,20 +1278,29 @@ bool AiClient::streamingBlockedForSession(const QString &provider,
                                           bool withTools)
 {
     if (model.isEmpty()) return false;
-    return sessionStreamingBlocklist().contains(
-        sessionStreamingBlockKey(provider, model, withTools));
+    const QString key = sessionStreamingBlockKey(provider, model, withTools);
+    if (sessionStreamingBlocklist().contains(key)) return true;
+    // Honor a transient block only while it is still fresh; an expired one means
+    // the rate-limit window has passed, so streaming is allowed to try again.
+    const auto it = transientStreamingBlocks().constFind(key);
+    return it != transientStreamingBlocks().constEnd()
+        && (QDateTime::currentMSecsSinceEpoch() - it.value()) < kTransientStreamBlockMs;
 }
 
 void AiClient::clearStreamingBlockForSession(const QString &provider, const QString &model)
 {
     if (provider.isEmpty() && model.isEmpty()) {
         sessionStreamingBlocklist().clear();
+        transientStreamingBlocks().clear();
         return;
     }
     if (model.isEmpty()) return;
     auto &bl = sessionStreamingBlocklist();
     bl.remove(sessionStreamingBlockKey(provider, model, false));
     bl.remove(sessionStreamingBlockKey(provider, model, true));
+    auto &tb = transientStreamingBlocks();
+    tb.remove(sessionStreamingBlockKey(provider, model, false));
+    tb.remove(sessionStreamingBlockKey(provider, model, true));
 }
 
 void AiClient::markStreamingUnsupportedForCurrentModel(const QString &reason)
@@ -1157,10 +1325,23 @@ void AiClient::markStreamingUnsupported(const QString &provider,
 void AiClient::markStreamingUnsupported(const QString &provider,
                                         const QString &model,
                                         bool withTools,
-                                        const QString &reason)
+                                        const QString &reason,
+                                        bool transient)
 {
     if (model.isEmpty()) return;
-    sessionStreamingBlocklist().insert(sessionStreamingBlockKey(provider, model, withTools));
+    const QString key = sessionStreamingBlockKey(provider, model, withTools);
+    if (transient) {
+        // Brief throttle/outage: skip streaming for this one request but let it
+        // resume once the window passes (don't poison the whole session).
+        transientStreamingBlocks()[key] = QDateTime::currentMSecsSinceEpoch();
+        logApi(QStringLiteral("[STREAM-FALLBACK] transient stream skip (~%1s) for %2:%3 mode=%4 (%5)")
+               .arg(kTransientStreamBlockMs / 1000)
+               .arg(provider, model,
+                    withTools ? QStringLiteral("agent") : QStringLiteral("simple"),
+                    reason));
+        return;
+    }
+    sessionStreamingBlocklist().insert(key);
     logApi(QStringLiteral("[STREAM-FALLBACK] disabling stream for this session for %1:%2 mode=%3 (%4)")
            .arg(provider, model,
                 withTools ? QStringLiteral("agent") : QStringLiteral("simple"),
@@ -1312,7 +1493,7 @@ bool AiClient::shouldFallbackToNonStreaming(int httpStatus,
     return false;
 }
 
-bool AiClient::tryStreamingFallback(const QString &reason)
+bool AiClient::tryStreamingFallback(const QString &reason, bool transient)
 {
     if (!_streamRetryArmed) return false;
     // Snapshot + clear context BEFORE re-dispatching: the non-streaming send
@@ -1328,7 +1509,7 @@ bool AiClient::tryStreamingFallback(const QString &reason)
     QString retryApiBaseUrl = _streamRetryApiBaseUrl;
     clearStreamingRetryContext();
 
-    markStreamingUnsupported(retryProvider, retryModel, !wasSimple, reason);
+    markStreamingUnsupported(retryProvider, retryModel, !wasSimple, reason, transient);
     emit retrying(tr("Streaming failed (%1) — retrying without streaming…").arg(reason));
 
     if (wasSimple) {
@@ -1491,7 +1672,7 @@ void AiClient::sendStreamingMessages(const QJsonArray &messages, const QJsonArra
                 _streamHasTools = false;
                 _streamToolCalls.clear();
                 reply->deleteLater();
-                tryStreamingFallback(QStringLiteral("HTTP %1").arg(statusCode));
+                tryStreamingFallback(QStringLiteral("HTTP %1").arg(statusCode), isTransientHttpStatus(statusCode));
                 return;
             }
             emit errorOccurred(tr("Streaming error (HTTP %1): %2 %3")
@@ -1603,6 +1784,17 @@ void AiClient::sendStreamingRequest(const QString &systemPrompt,
         return;
     }
 
+    // "Pro" OpenAI models are Responses-API only - /v1/chat/completions (which
+    // this streaming path uses) returns 404 for them. Route through the
+    // non-streaming Responses path instead (sendRequest -> sendMessagesInternal
+    // sets _useResponsesApi for these models), so Simple Mode works too.
+    if (modelRequiresResponsesApi(_provider, _model)) {
+        logApi(QStringLiteral("[STREAM-SKIP] %1:%2 is Responses-API only - using non-streaming Responses send")
+               .arg(_provider, _model));
+        sendRequest(systemPrompt, conversationHistory, userMessage);
+        return;
+    }
+
     _isTestRequest = false;
     _isStreaming = true;
     _streamHasTools = false;
@@ -1698,7 +1890,7 @@ void AiClient::sendStreamingRequest(const QString &systemPrompt,
             int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
             if (shouldFallbackToNonStreaming(statusCode, reply->error(), false, false)) {
                 reply->deleteLater();
-                tryStreamingFallback(QStringLiteral("HTTP %1").arg(statusCode));
+                tryStreamingFallback(QStringLiteral("HTTP %1").arg(statusCode), isTransientHttpStatus(statusCode));
                 return;
             }
             emit errorOccurred(tr("Streaming error (HTTP %1): %2").arg(statusCode).arg(reply->errorString()));
@@ -2310,7 +2502,7 @@ void AiClient::sendStreamingMessagesResponses(const QJsonArray &messages,
                 _responsesStreamItems.clear();
                 _responsesStreamUsage = QJsonObject();
                 reply->deleteLater();
-                tryStreamingFallback(QStringLiteral("Responses HTTP %1").arg(statusCode));
+                tryStreamingFallback(QStringLiteral("Responses HTTP %1").arg(statusCode), isTransientHttpStatus(statusCode));
                 return;
             }
             emit errorOccurred(tr("Streaming error (HTTP %1): %2 %3")
@@ -2680,7 +2872,7 @@ void AiClient::sendStreamingMessagesGemini(const QJsonArray &messages,
                 _streamHasTools = false;
                 _streamToolCalls.clear();
                 reply->deleteLater();
-                tryStreamingFallback(QStringLiteral("Gemini HTTP %1").arg(statusCode));
+                tryStreamingFallback(QStringLiteral("Gemini HTTP %1").arg(statusCode), isTransientHttpStatus(statusCode));
                 return;
             }
             emit errorOccurred(tr("Gemini streaming error (HTTP %1): %2\n%3")

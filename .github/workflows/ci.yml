@@ -100,9 +100,28 @@ jobs:
           cache: true
 
       - name: "\U0001F527 Setup MSVC x64"
-        uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: x64
+        shell: pwsh
+        run: |
+          # Import the MSVC x64 build environment (INCLUDE/LIB/LIBPATH/PATH/...)
+          # into the job so the NMake-generator configure/build below find cl.exe
+          # and the toolchain. Replaces ilammy/msvc-dev-cmd (a Node 20 action that
+          # GitHub now force-runs on Node 24) with a plain shell step - no
+          # third-party action, no Node 20 deprecation warning.
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $vsPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $vsPath) { Write-Error "Visual Studio with the VC x64 toolset was not found"; exit 1 }
+          $vcvars = Join-Path $vsPath "VC\Auxiliary\Build\vcvars64.bat"
+          if (-not (Test-Path $vcvars)) { Write-Error "vcvars64.bat not found at $vcvars"; exit 1 }
+          # vcvars64 runs in cmd; capture the resulting environment and forward the
+          # changed variables to $GITHUB_ENV. The leading >nul drops the banner;
+          # `set` after && is NOT redirected, so its output reaches the pipeline.
+          # Lines starting with "=" (cmd drive pseudo-vars) are skipped by the regex.
+          cmd /c "`"$vcvars`" >nul 2>&1 && set" | ForEach-Object {
+            if ($_ -match '^([^=]+)=(.*)$') {
+              "$($matches[1])=$($matches[2])" >> $env:GITHUB_ENV
+            }
+          }
+          "- [x] **MSVC** - x64 environment imported via vcvars64 (vswhere, no Node action)" >> $env:GITHUB_STEP_SUMMARY
 
       - name: "\U0001F3B5 Download FluidSynth"
         shell: pwsh

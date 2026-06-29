@@ -221,12 +221,31 @@
 <div class="cl-no-results" id="cl-no-results">No matching releases found.</div>
 
 <div class="cl-timeline">
-<article class="cl-version latest" data-version="1.9.1">
+<article class="cl-version latest" data-version="1.9.2">
+<div class="cl-dot"></div>
+<div class="cl-version-head">
+<h2><a href="https://github.com/happytunesai/MidiEditor_AI/releases/tag/v1.9.2" target="_blank" rel="noopener noreferrer">v1.9.2</a></h2>
+<span class="cl-date">2026-06-29</span>
+<span class="cl-badge-latest">Latest</span>
+</div>
+<div class="cl-title">Bugfixes</div>
+<div class="cl-blockquote">Bugfix release after 1.9.1: editor and copy/paste fixes, AI reliability (rate-limit handling and OpenAI Pro-model routing), and build housekeeping.</div>
+<ul class="cl-summary">
+<li><strong>Save As renames the tab.</strong> Saving a document under a new name (File -&gt; Save as...) updated the window title but left the *old* filename on its tab, which was confusing when you&#x27;d deliberately saved under a new name. The tab - in whichever editor group holds the document - now updates to the new filename too.</li>
+<li><strong>OpenAI &quot;Pro&quot; models now work in Simple Mode.</strong> Pro models (such as gpt-5.5 Pro) are served only by OpenAI&#x27;s Responses API; the regular chat endpoint returns &quot;HTTP 404&quot; for them. Simple Mode always used the chat endpoint, so a Pro model failed there even though Agent Mode worked. Pro models are now routed to the Responses API in both modes, including the connection test in Settings.</li>
+<li><strong>Pasting a clipboard that mixes tempo / time-signature / key-signature changes with notes now keeps the right timing.</strong> Such a mixed paste could place the notes on the wrong ticks; notes-only pastes were always correct. The skip-already-present guard now works for these mixed pastes too, instead of being turned off for them.</li>
+<li><strong>Authentic-SID track mute follows tracks added after a file is opened.</strong> Muting a track that was added later in the session now updates its authentic-SID voice live during playback, like the tracks present when the file was opened.</li>
+<li><strong>MCP resource reads match the document the tools edit.</strong> For external MCP clients, reading <code class="hl">midi://state</code> / <code class="hl">midi://tracks</code> / <code class="hl">midi://config</code> now describes the same document the session&#x27;s tools act on, so reads and edits stay consistent after switching tabs.</li>
+<li><strong>AI requests survive brief rate limits and hiccups.</strong> When the AI provider replies with a rate limit (HTTP 429) or a temporary error (408/425/5xx, or a network blip), the app now retries up to three times with a growing back-off, and honours the provider&#x27;s <code class="hl">Retry-After</code> hint when one is sent - so short throttling recovers on its own instead of failing on the first try. A very long requested wait (e.g. an hourly quota) is surfaced instead of hanging. A genuine out-of-quota error (the provider&#x27;s <code class="hl">insufficient_quota</code>) is now shown straight away - with the provider&#x27;s own message - instead of being retried three times, since retrying it cannot succeed. Error messages now name the provider and make clear that a persistent rate limit is your account&#x27;s quota, not an app bug. A rate limit that lands mid-stream also no longer disables live streaming for the rest of the session - that fallback now lasts only until the limit clears.</li>
+<li>Removed the unused legacy build and installer infrastructure: the old qmake (<code class="hl">midieditor.pro</code>) and xmake (<code class="hl">xmake.lua</code>) project files, the macOS icon and the superseded top-level icon, the disabled CI workflows, and the Qt Installer Framework component layout (<code class="hl">packaging/</code>, <code class="hl">scripts/packaging/</code>, the CMake <code class="hl">installer</code> target). The project builds with CMake and ships as a portable ZIP.</li>
+<li>CI: replaced the Node-based MSVC setup action with a direct <code class="hl">vcvars64</code> environment import, removing a third-party dependency and the Node 20 deprecation warning.</li>
+</ul>
+</article>
+<article class="cl-version" data-version="1.9.1">
 <div class="cl-dot"></div>
 <div class="cl-version-head">
 <h2><a href="https://github.com/happytunesai/MidiEditor_AI/releases/tag/v1.9.1" target="_blank" rel="noopener noreferrer">v1.9.1</a></h2>
 <span class="cl-date">2026-06-24</span>
-<span class="cl-badge-latest">Latest</span>
 </div>
 <div class="cl-title">Bugfixes &amp; Polish</div>
 <div class="cl-blockquote">Follow-up bugfix/polish release after the 1.9.0 Tabs &amp; Editor Groups rebuild, hardening the new multi-document editor with fixes found in real use.</div>

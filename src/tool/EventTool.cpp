@@ -566,25 +566,16 @@ bool EventTool::pasteFromSharedClipboardWithOptions(const PasteSpecialOptions &o
         // the skip set (duplicate NoteOns + their paired OffEvents) BEFORE opening
         // the protocol action.
         //
-        // SAFETY: findDuplicatePasteNotes() indexes the clipboard metadata by the
-        // full-list position, but the insertion loop below indexes regular events by
-        // (tempoEvents.size() + position). Those indices only agree when there are NO
-        // tempo / time-sig / key-sig events in the clipboard. With interleaved meta
-        // events the two diverge, so a "duplicate" could be computed at the wrong
-        // position and a NON-duplicate note silently deleted. Only enable the skip on
-        // the notes-only fast path (the common case); otherwise paste everything (a
-        // visible duplicate is far better than silent data loss).
-        bool clipboardHasMetaEvents = false;
-        for (MidiEvent *e : sharedEvents) {
-            if (dynamic_cast<TempoChangeEvent *>(e) || dynamic_cast<TimeSignatureEvent *>(e)
-                || dynamic_cast<KeySignatureEvent *>(e)) {
-                clipboardHasMetaEvents = true;
-                break;
-            }
-        }
+        // findDuplicatePasteNotes() and the insertion loop below BOTH index the
+        // clipboard timing/source metadata by each event's position in the full
+        // sharedEvents list (the loop via sharedIndexOf, built at the split below),
+        // so a detected duplicate lands exactly where it was computed. This holds
+        // for interleaved tempo/time-sig/key-sig + note clipboards too, not just the
+        // notes-only fast path - earlier this was gated off for meta clipboards
+        // because the loop used a tempo-first running index that diverged.
         QSet<MidiEvent *> skipSet;
         int skippedNotes = 0;
-        if (opts.skipDuplicates && !clipboardHasMetaEvents) {
+        if (opts.skipDuplicates) {
             const QList<MidiEvent *> dupOns =
                 findDuplicatePasteNotes(currentFile(), sharedEvents,
                                         static_cast<int>(opts.assignment));
@@ -724,11 +715,20 @@ bool EventTool::pasteFromSharedClipboardWithOptions(const PasteSpecialOptions &o
         // the internal Selection list through a reference. (PASTE-001)
         QList<MidiEvent *> pastedSelection;
 
-        // Separate tempo/time signature events from regular events first
+        // Separate tempo/time signature events from regular events first.
+        // IMPORTANT: the clipboard timing/source metadata is indexed by each
+        // event's position in the FULL sharedEvents list. Splitting into two lists
+        // loses that position, so remember it per event (sharedIndexOf) and use it
+        // for every getOriginalTiming()/getPasteSourceInfo() lookup below. A
+        // per-list running index only matches when serialization is strictly
+        // tempo-first; an interleaved clipboard would mis-time the regular events.
         QList<MidiEvent *> tempoEvents;
         QList<MidiEvent *> regularEvents;
-        
-        for (MidiEvent *event : sharedEvents) {
+        QHash<MidiEvent *, int> sharedIndexOf;
+
+        for (int i = 0; i < sharedEvents.size(); ++i) {
+            MidiEvent *event = sharedEvents.at(i);
+            sharedIndexOf.insert(event, i);
             if (dynamic_cast<TempoChangeEvent *>(event) || dynamic_cast<TimeSignatureEvent *>(event) || dynamic_cast<KeySignatureEvent *>(event)) {
                 tempoEvents.append(event);
             } else {
@@ -762,7 +762,7 @@ bool EventTool::pasteFromSharedClipboardWithOptions(const PasteSpecialOptions &o
             } else {
                 for (int i = 0; i < regularEvents.size(); ++i) {
                     const PasteSourceInfo info =
-                        SharedClipboard::getPasteSourceInfo(tempoEvents.size() + i);
+                        SharedClipboard::getPasteSourceInfo(sharedIndexOf.value(regularEvents.at(i)));
                     if (info.originalChannel >= 0 && info.originalChannel <= 15) {
                         snapshotChannelOnce(info.originalChannel);
                     } else {
@@ -799,16 +799,15 @@ bool EventTool::pasteFromSharedClipboardWithOptions(const PasteSpecialOptions &o
         }
 
         // First, paste tempo/time signature events and integrate them into the file
-        int tempoEventIndex = 0;
         for (MidiEvent *event : tempoEvents) {
             if (!event) {
-                tempoEventIndex++;
                 continue;
             }
 
             try {
-                // Get the original timing information
-                QPair<int, int> originalTiming = SharedClipboard::getOriginalTiming(tempoEventIndex);
+                // Get the original timing information (metadata is keyed by the
+                // event's position in the full sharedEvents list, not a per-list index)
+                QPair<int, int> originalTiming = SharedClipboard::getOriginalTiming(sharedIndexOf.value(event));
                 int originalTime = originalTiming.first;
 
                 if (originalTime == -1) {
@@ -852,30 +851,27 @@ bool EventTool::pasteFromSharedClipboardWithOptions(const PasteSpecialOptions &o
             } catch (...) {
                 delete event;
             }
-
-            tempoEventIndex++;
         }
 
-        // Then paste regular events
-        int regularEventIndex = tempoEvents.size(); // Offset by tempo events
+        // Then paste regular events. Metadata is keyed by each event's position in
+        // the full sharedEvents list (sharedIndexOf), independent of how tempo/meta
+        // and regular events are interleaved in the clipboard.
         for (MidiEvent *event : regularEvents) {
             if (!event) {
-                regularEventIndex++;
                 continue;
             }
 
             // Repeat-paste guard: drop events that duplicate an existing note (and
-            // their paired OffEvents). Delete the (un-inserted) event and keep the
-            // metadata index advancing so timing/source lookups stay aligned.
+            // their paired OffEvents). Delete the (un-inserted) event.
             if (opts.skipDuplicates && skipSet.contains(event)) {
                 delete event;
-                regularEventIndex++;
                 continue;
             }
 
             try {
+                const int metaIndex = sharedIndexOf.value(event);
                 // Get the original timing information from SharedClipboard
-                QPair<int, int> originalTiming = SharedClipboard::getOriginalTiming(regularEventIndex);
+                QPair<int, int> originalTiming = SharedClipboard::getOriginalTiming(metaIndex);
                 int originalTime = originalTiming.first;
 
                 if (originalTime == -1) {
@@ -891,7 +887,7 @@ bool EventTool::pasteFromSharedClipboardWithOptions(const PasteSpecialOptions &o
                 MidiTrack *eventTrack = targetTrack;
                 if (opts.assignment != PasteAssignment::CurrentEditTarget) {
                     const PasteSourceInfo info =
-                        SharedClipboard::getPasteSourceInfo(regularEventIndex);
+                        SharedClipboard::getPasteSourceInfo(metaIndex);
                     if (info.originalChannel >= 0 && info.originalChannel <= 15) {
                         eventChannel = info.originalChannel;
                     }
@@ -920,8 +916,6 @@ bool EventTool::pasteFromSharedClipboardWithOptions(const PasteSpecialOptions &o
             } catch (...) {
                 delete event;
             }
-
-            regularEventIndex++;
         }
 
         // Put the copied channels from before the event insertion onto the protocol stack

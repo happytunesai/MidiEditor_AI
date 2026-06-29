@@ -12062,7 +12062,11 @@ start with 28.1.
 
  bugfix/polish release** after the 1.9.0 Tabs & Editor Groups rebuild. Tracking:
 
-### Repo housekeeping - remove legacy upstream/Meow build & installer infra
+### Repo housekeeping - remove legacy upstream/Meow build & installer infra ✅ DONE (1.9.2)
+
+**Done in 1.9.2:** all items below removed; CMake `installer` target + the whole `cmake --install`/packaging section
+dropped from CMakeLists (the CI ZIP uses windeployqt directly, never `cmake --install`); dead `packaging/` lines
+pulled from `.gitignore`. Reconfigure + build + 54/54 tests green afterwards.
 
 The current pipeline is **CMake build → CI ZIP → GitHub release → in-app AutoUpdater**. The following are
 leftovers from the old qmake/xmake + Qt Installer Framework (IFW) days and are used by **nothing active** (verified
@@ -12070,8 +12074,11 @@ against CMakeLists, the active `ci.yml`, and `resources.qrc`). Safe to remove:
 
 - `midieditor.pro` (qmake build), `xmake.lua` (xmake build) - CMake is the only build.
 - `midieditor.icns` (macOS icon - only referenced by the .pro/.lua; no macOS build).
-- `midieditor.ico` (top-level legacy icon - superseded by `Midieditor-ai_logo.ico`; only referenced by a disabled
-  workflow + the legacy build files).
+- `midieditor.ico` (top-level) - a BYTE-IDENTICAL duplicate of the new branded icon (same sha1 as
+  `Midieditor-ai_logo.ico` AND `run_environment/midieditor.ico`, 54129 B). It is the current logo, just a redundant
+  copy referenced only by the disabled workflow + the legacy build files; the icon itself lives on in the two kept
+  copies (EXE uses `Midieditor-ai_logo.ico` via `midieditor.rc`; the loose ICO shipped beside the .exe is
+  `run_environment/midieditor.ico`).
 - `.github/workflows/qmake.yml.disabled`, `xmake.yml.disabled`, `deploy-pages.yml.disabled` (an active
   `deploy-pages.yml` already exists).
 - `packaging/` (IFW component metadata) + `scripts/packaging/windows/config.xml` + the CMake **`installer`** target

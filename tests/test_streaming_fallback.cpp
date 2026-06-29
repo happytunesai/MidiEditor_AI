@@ -278,6 +278,38 @@ private slots:
         QVERIFY2(spy.isValid(),
                  "AiClient::retrying(QString) must be a connectable signal.");
     }
+
+    // ------------------------------------------------------------------
+    // modelRequiresResponsesApi(): OpenAI "pro" models are served only by the
+    // Responses API (/v1/chat/completions 404s for them), so they must route
+    // there in BOTH Simple and Agent mode. Non-pro OpenAI models and non-OpenAI
+    // providers must NOT be forced. Guards the Simple-Mode pro-model fix.
+    // ------------------------------------------------------------------
+    void responsesApiRouting_proModelsOnly()
+    {
+        // OpenAI "pro" families -> Responses API.
+        QVERIFY(AiClient::modelRequiresResponsesApi(QStringLiteral("openai"), QStringLiteral("gpt-5.5-pro")));
+        QVERIFY(AiClient::modelRequiresResponsesApi(QStringLiteral("openai"), QStringLiteral("gpt-5-pro")));
+        QVERIFY(AiClient::modelRequiresResponsesApi(QStringLiteral("openai"), QStringLiteral("gpt-5.4-pro")));
+        QVERIFY(AiClient::modelRequiresResponsesApi(QStringLiteral("openai"), QStringLiteral("o3-pro")));
+        QVERIFY(AiClient::modelRequiresResponsesApi(QStringLiteral("openai"), QStringLiteral("o1-pro")));
+        // Case-insensitive + dated variants still match.
+        QVERIFY(AiClient::modelRequiresResponsesApi(QStringLiteral("openai"), QStringLiteral("GPT-5.5-PRO")));
+        QVERIFY(AiClient::modelRequiresResponsesApi(QStringLiteral("openai"), QStringLiteral("gpt-5-pro-2026-01-01")));
+        // Empty provider == native OpenAI default.
+        QVERIFY(AiClient::modelRequiresResponsesApi(QString(), QStringLiteral("gpt-5.5-pro")));
+
+        // Non-pro OpenAI models stay on chat/completions.
+        QVERIFY(!AiClient::modelRequiresResponsesApi(QStringLiteral("openai"), QStringLiteral("gpt-5.5")));
+        QVERIFY(!AiClient::modelRequiresResponsesApi(QStringLiteral("openai"), QStringLiteral("gpt-5")));
+        QVERIFY(!AiClient::modelRequiresResponsesApi(QStringLiteral("openai"), QStringLiteral("gpt-4o")));
+
+        // Non-OpenAI providers proxy via their own chat endpoint - never forced,
+        // even when the model name happens to contain "-pro".
+        QVERIFY(!AiClient::modelRequiresResponsesApi(QStringLiteral("openrouter"), QStringLiteral("openai/gpt-5.5-pro")));
+        QVERIFY(!AiClient::modelRequiresResponsesApi(QStringLiteral("gemini"), QStringLiteral("gemini-2.5-pro")));
+        QVERIFY(!AiClient::modelRequiresResponsesApi(QStringLiteral("ollama"), QStringLiteral("qwen3-pro")));
+    }
 };
 
 QTEST_MAIN(TestStreamingFallback)

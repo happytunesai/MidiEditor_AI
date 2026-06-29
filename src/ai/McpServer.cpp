@@ -508,7 +508,7 @@ QJsonObject McpServer::handleJsonRpc(const QJsonObject &request, Session &sessio
         return makeJsonRpcResult(id, handleResourcesList(params));
     }
     if (method == "resources/read") {
-        return makeJsonRpcResult(id, handleResourcesRead(params));
+        return makeJsonRpcResult(id, handleResourcesRead(params, session));
     }
     if (method == "ping") {
         return makeJsonRpcResult(id, QJsonObject());
@@ -769,19 +769,26 @@ QJsonObject McpServer::handleResourcesList(const QJsonObject &params) {
 // MCP method: resources/read (Phase 23.5b)
 // ---------------------------------------------------------------------------
 
-QJsonObject McpServer::handleResourcesRead(const QJsonObject &params) {
+QJsonObject McpServer::handleResourcesRead(const QJsonObject &params, Session &session) {
     QString uri = params["uri"].toString();
 
     QJsonObject result;
     QJsonArray contents;
+
+    // Read the SAME document the session's tools act on, so a client mixing
+    // resources/read with tool calls stays coherent after a tab switch. Tool
+    // calls bind to session.boundFile (bound to the active document on first
+    // use); a plain read before any tool call - or after the bound document was
+    // closed - falls back to whatever is active now.
+    MidiFile *target = session.boundFile ? session.boundFile : _file;
 
     if (uri == "midi://state") {
         QJsonObject content;
         content["uri"] = uri;
         content["mimeType"] = QString("application/json");
 
-        if (_file) {
-            QJsonObject state = EditorContext::captureState(_file);
+        if (target) {
+            QJsonObject state = EditorContext::captureState(target);
             content["text"] = QString::fromUtf8(QJsonDocument(state).toJson(QJsonDocument::Compact));
         } else {
             content["text"] = QString("{}");
@@ -794,16 +801,16 @@ QJsonObject McpServer::handleResourcesRead(const QJsonObject &params) {
         content["mimeType"] = QString("application/json");
 
         QJsonArray tracks;
-        if (_file) {
-            for (int i = 0; i < _file->tracks()->size(); ++i) {
-                MidiTrack *track = _file->tracks()->at(i);
+        if (target) {
+            for (int i = 0; i < target->tracks()->size(); ++i) {
+                MidiTrack *track = target->tracks()->at(i);
                 QJsonObject t;
                 t["index"] = i;
                 t["name"] = track->name();
                 // Count events on this track
                 int eventCount = 0;
                 for (int ch = 0; ch < 17; ++ch) {
-                    auto *events = _file->channelEvents(ch);
+                    auto *events = target->channelEvents(ch);
                     if (!events) continue;
                     for (auto it = events->begin(); it != events->end(); ++it) {
                         if (it.value()->track() == track)
@@ -825,11 +832,11 @@ QJsonObject McpServer::handleResourcesRead(const QJsonObject &params) {
         QJsonObject config;
         QSettings settings("MidiEditor", "NONE");
         config["ffxivMode"] = settings.value("AI/ffxiv_mode", false).toBool();
-        config["filePath"] = _file ? _file->path() : QString();
-        config["ticksPerBeat"] = _file ? _file->ticksPerQuarter() : 480;
+        config["filePath"] = target ? target->path() : QString();
+        config["ticksPerBeat"] = target ? target->ticksPerQuarter() : 480;
         // Tempo is part of the state, but provide a quick reference
-        if (_file) {
-            config["tempo"] = EditorContext::captureState(_file)["tempo"];
+        if (target) {
+            config["tempo"] = EditorContext::captureState(target)["tempo"];
         }
         content["text"] = QString::fromUtf8(QJsonDocument(config).toJson(QJsonDocument::Compact));
         contents.append(content);

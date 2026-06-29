@@ -9,7 +9,7 @@ cmake_minimum_required(VERSION 3.20 FATAL_ERROR)
 # IPO request and silences the warnings.
 set(CMAKE_POLICY_DEFAULT_CMP0069 NEW)
 
-set(MIDIEDITOR_RELEASE_VERSION_STRING "1.9.1")
+set(MIDIEDITOR_RELEASE_VERSION_STRING "1.9.2")
 project(MidiEditorAI VERSION ${MIDIEDITOR_RELEASE_VERSION_STRING} LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -819,84 +819,8 @@ if(BUILD_TESTING)
     add_subdirectory(tests)
 endif()
 
-# Installation
-set(INSTALL_DIR "packaging/org.midieditor.midieditor/data/")
-set(BIN_DIR "${INSTALL_DIR}/bin")
-set(PLUGIN_DIR "${BIN_DIR}/plugins")
-
-install(TARGETS MidiEditorAI DESTINATION "${BIN_DIR}")
-
-if(PLAT_WINDOWS)
-    # Qt deployment
-    find_program(WINDEPLOYQT_EXECUTABLE windeployqt HINTS ${Qt6_DIR}/../../../bin)
-    if(WINDEPLOYQT_EXECUTABLE)
-        install(CODE "
-            execute_process(COMMAND ${WINDEPLOYQT_EXECUTABLE}
-                --plugindir ${PLUGIN_DIR}
-                --libdir ${BIN_DIR}
-                \${CMAKE_INSTALL_PREFIX}/${BIN_DIR}/MidiEditorAI.exe
-            )
-            file(GLOB DSENGINE_FILES \"\${CMAKE_INSTALL_PREFIX}/${BIN_DIR}/**/dsengine.dll\")
-            foreach(FILE \${DSENGINE_FILES})
-                file(REMOVE \${FILE})
-            endforeach()
-            if(NOT \"${FLUIDSYNTH_DIR}\" STREQUAL \"\")
-                file(GLOB FS_DLLS \"${FLUIDSYNTH_DIR}/bin/*.dll\")
-                if(FS_DLLS)
-                    file(COPY \${FS_DLLS} DESTINATION \${CMAKE_INSTALL_PREFIX}/${BIN_DIR})
-                endif()
-            endif()
-        ")
-    endif()
-endif()
-
-# Manual target (Windows only)
-if(PLAT_WINDOWS)
-    add_custom_target(manual ALL)
-    install(DIRECTORY "manual/" DESTINATION "packaging/org.midieditor.manual/data/manual")
-endif()
-
-# Installer target
-if(PLAT_WINDOWS OR PLAT_LINUX)
-    add_custom_target(installer DEPENDS MidiEditorAI)
-
-    if(PLAT_WINDOWS)
-        add_dependencies(installer manual)
-
-        find_program(BINARYCREATOR_EXECUTABLE binarycreator)
-        find_program(REPOGEN_EXECUTABLE repogen)
-
-        if(BINARYCREATOR_EXECUTABLE AND REPOGEN_EXECUTABLE)
-            if(GENERATE_REPOSITORY)
-                add_custom_command(TARGET installer POST_BUILD
-                        COMMAND ${REPOGEN_EXECUTABLE} --update-new-components --packages packaging ${CMAKE_BINARY_DIR}/website/repository
-                        COMMAND ${BINARYCREATOR_EXECUTABLE} --config scripts/packaging/windows/config.xml --packages packaging ${CMAKE_BINARY_DIR}/website/MidiEditor.exe
-                        COMMAND ${CMAKE_COMMAND} -E copy_directory manual ${CMAKE_BINARY_DIR}/website
-                        COMMENT "Generating repository and online installer"
-                )
-            else()
-                add_custom_command(TARGET installer POST_BUILD
-                        COMMAND ${BINARYCREATOR_EXECUTABLE} --config scripts/packaging/windows/config.xml --packages packaging packaging/Install.exe
-                        COMMENT "Generating offline installer"
-                )
-            endif()
-        endif()
-
-    elseif(PLAT_LINUX AND LINUX_DISTRO STREQUAL "Ubuntu")
-        install(FILES "scripts/packaging/debian/MidiEditor.desktop" DESTINATION "usr/share/applications")
-        install(FILES "scripts/packaging/debian/logo48.png" DESTINATION "usr/share/pixmaps")
-        install(FILES "scripts/packaging/debian/copyright" DESTINATION "usr/share/doc/midieditor")
-
-        configure_file("scripts/packaging/debian/control" "${CMAKE_BINARY_DIR}/control" @ONLY)
-        install(FILES "${CMAKE_BINARY_DIR}/control" DESTINATION "DEBIAN")
-
-        add_custom_command(TARGET installer POST_BUILD
-                COMMAND chmod 755 ${CMAKE_INSTALL_PREFIX}
-                COMMAND find ${CMAKE_INSTALL_PREFIX} -type d -exec chmod 755 {} +
-                COMMAND find ${CMAKE_INSTALL_PREFIX} -type f -exec chmod 644 {} +
-                COMMAND chmod +x ${CMAKE_INSTALL_PREFIX}/${BIN_DIR}/MidiEditorAI
-                COMMAND fakeroot dpkg-deb --build ${CMAKE_INSTALL_PREFIX}
-                COMMENT "Building Debian package"
-        )
-    endif()
-endif()
+# Deployment / packaging
+# The application is deployed by the windeployqt POST_BUILD step above and packaged
+# into a portable ZIP by CI (.github/workflows/ci.yml). The legacy Qt Installer
+# Framework "installer" target and the packaging/ component layout (plus the old
+# qmake/xmake build files) were removed in 1.9.2 - the release ships as a ZIP.

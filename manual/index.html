@@ -179,7 +179,7 @@
     "description": "AI-powered MIDI editor with intelligent copilot, Guitar Pro import, FFXIV bard mode, and FluidSynth playback.",
     "url": "https://midieditor-ai.de",
     "downloadUrl": "https://github.com/happytunesai/MidiEditor_AI/releases/latest",
-    "softwareVersion": "1.9.1",
+    "softwareVersion": "1.9.2",
     "license": "https://github.com/happytunesai/MidiEditor_AI/blob/main/LICENSE",
     "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
 }
@@ -242,7 +242,7 @@
              onerror="this.parentElement.style.display='none';">
     </div>
 
-    <span class="hero-badge">v1.9.1 &middot; Open Source &middot; Windows</span>
+    <span class="hero-badge">v1.9.2 &middot; Open Source &middot; Windows</span>
 
     <h1 class="hero-title">
         The <span class="text-gradient">AI-Powered</span> MIDI Editor
@@ -254,7 +254,7 @@
 
     <div class="hero-actions">
         <a href="download.html" class="btn btn-primary">
-            &#x2B07; Download v1.9.1
+            &#x2B07; Download v1.9.2
         </a>
         <a href="docs-index.html" class="btn btn-secondary" target="_blank" rel="noopener noreferrer">
             &#x1F4D6; Documentation
@@ -615,24 +615,13 @@
     </div>
     <div class="whats-new reveal">
         <span class="latest-badge">Latest</span>
-        <h3>v1.9.1 - June 2026</h3>
-        <p class="whats-new-subtitle">Tabs &amp; Editor Groups - refined</p>
+        <h3>v1.9.2 - June 2026</h3>
+        <p class="whats-new-subtitle">Bugfixes &amp; AI reliability</p>
         <ul>
-            <li><strong>Copy &amp; paste between tabs, the way you expect</strong> - pasted notes land on the track they came from, the view jumps straight to them, and a repeated paste won't pile up invisible duplicates (<a href="editor-groups.html">read more</a>)</li>
-            <li><strong>A velocity / controller lane under each pane</strong> - split the editor and both groups get their own editable velocity, CC and pitch-bend lane</li>
-            <li><strong>Reliable tab focus</strong> - clicking a tab focuses that editor group, so edits, shortcuts and Paste Special always act on the document you are looking at</li>
-            <li><strong>Startup &amp; multi-document polish</strong> - a restored split lines its lanes up immediately, and the track list always follows the active document</li>
-        </ul>
-    </div>
-    <div class="whats-new reveal" style="margin-top: 2rem;">
-        <h3>v1.9.1 - June 2026</h3>
-        <p class="whats-new-subtitle">Tabs &amp; Editor Groups</p>
-        <ul>
-            <li><strong>Several files open at once, as tabs</strong> - <em>New</em> and <em>Open</em> add a tab instead of replacing the current document. Switch by clicking, reorder by dragging, close with a per-tab save prompt; each document keeps its own selection, channel visibility and viewport (<a href="editor-groups.html">read more</a>)</li>
-            <li><strong>Two files side by side - editor groups</strong> - <em>Split</em> opens a second, fully-editable editor group with its own tab bar, and you can drag tabs between the groups (a caret shows where they land). Perfect for comparing or copying between two MIDIs (<a href="editor-groups.html">read more</a>)</li>
-            <li><strong>Sync comparison</strong> - link the two panes so scroll, zoom, cursor and playback follow the left view while the right stays a read-only reference - edit a cover on the left with the original running alongside (<a href="editor-groups.html">read more</a>)</li>
-            <li><strong>The AI stays on your document</strong> - MidiPilot and the MCP server apply their edits to the document you started them on, even if you switch tabs while they are working (<a href="midipilot.html">read more</a>)</li>
-            <li><strong>Your session is remembered</strong> - open tabs, the split layout and the active tab come back on the next launch, including after a theme change or an update</li>
+            <li><strong>Save As renames the tab</strong> - saving a document under a new name now updates its tab, not just the window title</li>
+            <li><strong>OpenAI Pro models work everywhere</strong> - models such as gpt-5.5 Pro now run in Simple mode and the connection test, not only in Agent mode (<a href="midipilot.html">read more</a>)</li>
+            <li><strong>The AI rides out rate limits</strong> - brief provider throttling and network hiccups retry on their own, and a genuine out-of-quota reply is shown right away with the provider&rsquo;s own message</li>
+            <li><strong>Steadier copy &amp; paste</strong> - pasting a clipboard that mixes tempo or time-signature changes with notes now keeps the notes on the right beats</li>
         </ul>
         <a href="changelog.html" class="changelog-link">View Full Changelog &rarr;</a>
     </div>
@@ -690,7 +679,7 @@
     </div>
     <div class="hero-actions reveal" style="margin-bottom: 1.5rem;">
         <a href="download.html" class="btn btn-primary" style="font-size: 1.15rem; padding: 1rem 2.5rem;">
-            &#x2B07; Download MidiEditor AI v1.9.1
+            &#x2B07; Download MidiEditor AI v1.9.2
         </a>
     </div>
     <p class="reveal" style="color: var(--text-muted); font-size: .9rem;">

@@ -135,7 +135,7 @@ private:
     QJsonObject handleToolsList(const QJsonObject &params);
     QJsonObject handleToolsCall(const QJsonObject &params, Session &session);
     QJsonObject handleResourcesList(const QJsonObject &params);
-    QJsonObject handleResourcesRead(const QJsonObject &params);
+    QJsonObject handleResourcesRead(const QJsonObject &params, Session &session);
 
     // Security
     bool validateOrigin(const HttpRequest &req);

@@ -1276,6 +1276,10 @@ private:
     /** \brief Phase 28: tab label for a file (basename, or "Untitled"). */
     QString documentTabTitle(MidiFile *f) const;
 
+    /** \brief Re-sync a file's tab label + Document title to its current path
+     *  (in whichever editor group holds it). Used after Save As renames a file. */
+    void refreshDocumentTabTitle(MidiFile *f);
+
     /** \brief Phase 28: tab-bar slots (regular members, connected via PMF). */
     void onDocumentTabChanged(int index);
     void onDocumentTabCloseRequested(int index);

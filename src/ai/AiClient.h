@@ -243,6 +243,16 @@ public:
     bool streamingDisabledForCurrentModel(bool withTools) const;
 
         /**
+        * \brief True for OpenAI "pro" models (gpt-5-pro, gpt-5.5-pro, o3-pro, ...),
+        *        which are served only by the Responses API - /v1/chat/completions
+        *        returns HTTP 404 for them. Scoped to native OpenAI; other providers
+        *        proxy via their own chat endpoint and are unaffected. Routes Simple
+        *        and Agent mode (and the connection test) to /v1/responses.
+        */
+        static bool modelRequiresResponsesApi(const QString &provider,
+                                              const QString &model);
+
+        /**
         * \brief True when a provider/model was marked as streaming-broken in
         *        this application session (any mode). Kept for UI/legacy use.
         */
@@ -544,7 +554,8 @@ private:
     void markStreamingUnsupported(const QString &provider,
                                   const QString &model,
                                   bool withTools,
-                                  const QString &reason);
+                                  const QString &reason,
+                                  bool transient = false);
     void sendMessagesInternal(const QJsonArray &messages,
                               const QJsonArray &tools,
                               bool allowGeminiNativeToolsPath);
@@ -569,7 +580,7 @@ private:
     // Issues the non-streaming retry using the previously-saved context.
     // Emits a `retrying(...)` signal first. Returns true when a retry was
     // dispatched.
-    bool tryStreamingFallback(const QString &reason);
+    bool tryStreamingFallback(const QString &reason, bool transient = false);
 
     static const QString API_URL;
     static const QString RESPONSES_API_URL;

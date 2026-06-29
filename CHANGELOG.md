@@ -5,6 +5,30 @@ Releases: https://github.com/happytunesai/web/releases
 
 ---
 
+## [1.9.2] - 2026-06-29 - Bugfixes
+
+> Bugfix release after 1.9.1: editor and copy/paste fixes, AI reliability
+> (rate-limit handling and OpenAI Pro-model routing), and build housekeeping.
+
+### Fixed
+
+* **Save As renames the tab.** Saving a document under a new name (File -> Save as...) updated the window title but left the *old* filename on its tab, which was confusing when you'd deliberately saved under a new name. The tab - in whichever editor group holds the document - now updates to the new filename too.
+* **OpenAI "Pro" models now work in Simple Mode.** Pro models (such as gpt-5.5 Pro) are served only by OpenAI's Responses API; the regular chat endpoint returns "HTTP 404" for them. Simple Mode always used the chat endpoint, so a Pro model failed there even though Agent Mode worked. Pro models are now routed to the Responses API in both modes, including the connection test in Settings.
+* **Pasting a clipboard that mixes tempo / time-signature / key-signature changes with notes now keeps the right timing.** Such a mixed paste could place the notes on the wrong ticks; notes-only pastes were always correct. The skip-already-present guard now works for these mixed pastes too, instead of being turned off for them.
+* **Authentic-SID track mute follows tracks added after a file is opened.** Muting a track that was added later in the session now updates its authentic-SID voice live during playback, like the tracks present when the file was opened.
+* **MCP resource reads match the document the tools edit.** For external MCP clients, reading `midi://state` / `midi://tracks` / `midi://config` now describes the same document the session's tools act on, so reads and edits stay consistent after switching tabs.
+
+### Changed
+
+* **AI requests survive brief rate limits and hiccups.** When the AI provider replies with a rate limit (HTTP 429) or a temporary error (408/425/5xx, or a network blip), the app now retries up to three times with a growing back-off, and honours the provider's `Retry-After` hint when one is sent - so short throttling recovers on its own instead of failing on the first try. A very long requested wait (e.g. an hourly quota) is surfaced instead of hanging. A genuine out-of-quota error (the provider's `insufficient_quota`) is now shown straight away - with the provider's own message - instead of being retried three times, since retrying it cannot succeed. Error messages now name the provider and make clear that a persistent rate limit is your account's quota, not an app bug. A rate limit that lands mid-stream also no longer disables live streaming for the rest of the session - that fallback now lasts only until the limit clears.
+
+### Internal
+
+* Removed the unused legacy build and installer infrastructure: the old qmake (`midieditor.pro`) and xmake (`xmake.lua`) project files, the macOS icon and the superseded top-level icon, the disabled CI workflows, and the Qt Installer Framework component layout (`packaging/`, `scripts/packaging/`, the CMake `installer` target). The project builds with CMake and ships as a portable ZIP.
+* CI: replaced the Node-based MSVC setup action with a direct `vcvars64` environment import, removing a third-party dependency and the Node 20 deprecation warning.
+
+---
+
 ## [1.9.1] - 2026-06-24 - Bugfixes & Polish
 
 > Follow-up bugfix/polish release after the 1.9.0 Tabs & Editor Groups rebuild,

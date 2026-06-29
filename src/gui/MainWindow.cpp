@@ -2047,11 +2047,13 @@ void MainWindow::setActiveDocument(MidiFile *newFile) {
         _connectedFiles.insert(newFile);
 
         // Live track-mute -> authentic-SID voice mute (channels already covered
-        // by channelWidget::channelStateChanged). Connections to a file's tracks
-        // fall away when that file is destroyed.
-        for (MidiTrack *t : *(newFile->tracks()))
-            connect(t, &MidiTrack::trackChanged, this,
-                    [this] { syncSidVoiceMutes(file); });
+        // by channelWidget::channelStateChanged). MidiFile re-emits every track's
+        // trackChanged() as its own - including tracks added AFTER this first
+        // activation - so one file-level connection covers them all. A per-track
+        // loop here would silently miss later-added tracks. Falls away when the
+        // file is destroyed.
+        connect(newFile, &MidiFile::trackChanged, this,
+                [this] { syncSidVoiceMutes(file); });
 
         connect(newFile, SIGNAL(trackChanged()), this, SLOT(updateTrackMenu()));
         connect(newFile, SIGNAL(cursorPositionChanged()), channelWidget, SLOT(update()));
@@ -2829,6 +2831,43 @@ QString MainWindow::documentTabTitle(MidiFile *f) const {
         return tr("Untitled");
     }
     return QFileInfo(p).fileName();
+}
+
+void MainWindow::refreshDocumentTabTitle(MidiFile *f) {
+    if (!f) {
+        return;
+    }
+    const QString title = documentTabTitle(f);
+    // The file belongs to exactly one editor group; update that group's Document
+    // title + tab label so renaming via Save As (which changes the path) renames
+    // the tab too, not just the window title.
+    if (_documentManager) {
+        const int idx = _documentManager->indexOfFile(f);
+        if (idx >= 0) {
+            if (Document *d = _documentManager->at(idx)) {
+                d->setTitle(title);
+            }
+            if (_documentTabBar && idx < _documentTabBar->count()) {
+                _suppressTabSignals = true;
+                _documentTabBar->setTabText(idx, title);
+                _suppressTabSignals = false;
+            }
+            return;
+        }
+    }
+    if (_group1Docs) {
+        const int idx = _group1Docs->indexOfFile(f);
+        if (idx >= 0) {
+            if (Document *d = _group1Docs->at(idx)) {
+                d->setTitle(title);
+            }
+            if (_group1TabBar && idx < _group1TabBar->count()) {
+                _suppressGroup1TabSignals = true;
+                _group1TabBar->setTabText(idx, title);
+                _suppressGroup1TabSignals = false;
+            }
+        }
+    }
 }
 
 void MainWindow::openInNewTab(MidiFile *f, const QString &title) {
@@ -4217,6 +4256,7 @@ bool MainWindow::saveas() {
         }
 
         file->setPath(newPath);
+        refreshDocumentTabTitle(file); // rename the tab to match the new filename
         setWindowTitle(QApplication::applicationName() + " v" + QApplication::applicationVersion() + " - " + file->path() + "[*]");
         updateRecentPathsList();
         setWindowModified(false);
