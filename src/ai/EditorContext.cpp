@@ -57,8 +57,14 @@ QJsonObject EditorContext::captureState(MidiFile *file, MatrixWidget *matrix)
     measureObj[QStringLiteral("endTick")] = measureEnd;
     state[QStringLiteral("currentMeasure")] = measureObj;
 
-    // Active track
+    // Active track. NewNoteTool's edit track/channel are GLOBAL statics that
+    // follow the active document - when capturing a non-active file (e.g. an
+    // MCP session bound to a background tab), the index can be out of range
+    // for THIS file. Clamp so the reported state is always valid for `file`.
     int trackIdx = NewNoteTool::editTrack();
+    if (trackIdx < 0 || trackIdx >= file->numTracks()) {
+        trackIdx = 0;
+    }
     MidiTrack *track = file->track(trackIdx);
     QJsonObject trackObj;
     trackObj[QStringLiteral("index")] = trackIdx;

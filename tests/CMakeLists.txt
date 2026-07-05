@@ -1253,6 +1253,27 @@ target_link_libraries(test_gp_binary_reader PRIVATE
 add_test(NAME GpBinaryReader COMMAND test_gp_binary_reader)
 
 # -----------------------------------------------------------------------------
+# test_gp_to_native
+# -----------------------------------------------------------------------------
+# Regression tests for the GP -> MIDI conversion math (GpToNative), driven via
+# the public NativeTrack::getMidi(). Guards the GP-01 fade-loop termination fix
+# (a faded note of 1-19 ticks used to hang the import in an infinite loop).
+# GpToNative.cpp + GpMidiExport.cpp are STL-only - no Qt/project deps.
+add_executable(test_gp_to_native
+    test_gp_to_native.cpp
+    ../src/converter/GuitarPro/GpToNative.cpp
+    ../src/converter/GuitarPro/GpMidiExport.cpp
+)
+target_include_directories(test_gp_to_native PRIVATE
+    ../src/converter/GuitarPro
+)
+target_link_libraries(test_gp_to_native PRIVATE
+    Qt6::Core
+    Qt6::Test
+)
+add_test(NAME GpToNative COMMAND test_gp_to_native)
+
+# -----------------------------------------------------------------------------
 # test_mml_midi_writer
 # -----------------------------------------------------------------------------
 # Validates the SMF byte serializer that turns an MmlSong into a Standard
@@ -1359,6 +1380,61 @@ target_link_libraries(test_drum_kit_preset PRIVATE
 )
 add_test(NAME DrumKitPreset COMMAND test_drum_kit_preset)
 
+# -----------------------------------------------------------------------------
+# test_ffxiv_fixer_resync
+# -----------------------------------------------------------------------------
+# Hard-gate tests for the v2.0 Tier-3 opt-in non-guitar instrument re-sync
+# (FFXIVChannelFixer). Compiles the REAL fixer + MidiFile/MidiChannel/
+# MidiTrack/Protocol/MidiEvent stack; only the GUI periphery (Appearance
+# colors, EventWidget) is ODR-shimmed in the test TU - same approach as
+# test_midi_event, extended to the full midi core.
+add_executable(test_ffxiv_fixer_resync
+    test_ffxiv_fixer_resync.cpp
+    ../src/ai/FFXIVChannelFixer.cpp
+    ../src/midi/MidiFile.cpp
+    ../src/midi/MidiChannel.cpp
+    ../src/midi/MidiTrack.cpp
+    ../src/midi/LyricManager.cpp
+    ../src/midi/InstrumentDefinitions.cpp
+    ../src/converter/SrtParser.cpp
+    ../src/protocol/Protocol.cpp
+    ../src/protocol/ProtocolEntry.cpp
+    ../src/protocol/ProtocolItem.cpp
+    ../src/protocol/ProtocolStep.cpp
+    ../src/gui/ChannelVisibilityManager.cpp
+    ../src/gui/GraphicObject.cpp
+    ../src/MidiEvent/MidiEvent.cpp
+    ../src/MidiEvent/NoteOnEvent.cpp
+    ../src/MidiEvent/OffEvent.cpp
+    ../src/MidiEvent/OnEvent.cpp
+    ../src/MidiEvent/ControlChangeEvent.cpp
+    ../src/MidiEvent/ProgChangeEvent.cpp
+    ../src/MidiEvent/PitchBendEvent.cpp
+    ../src/MidiEvent/ChannelPressureEvent.cpp
+    ../src/MidiEvent/KeyPressureEvent.cpp
+    ../src/MidiEvent/TempoChangeEvent.cpp
+    ../src/MidiEvent/TimeSignatureEvent.cpp
+    ../src/MidiEvent/KeySignatureEvent.cpp
+    ../src/MidiEvent/TextEvent.cpp
+    ../src/MidiEvent/SysExEvent.cpp
+    ../src/MidiEvent/UnknownEvent.cpp
+)
+target_include_directories(test_ffxiv_fixer_resync PRIVATE
+    ../src/ai
+    ../src/MidiEvent
+    ../src/midi
+    ../src/protocol
+    ../src/gui
+    ../src/converter
+)
+target_link_libraries(test_ffxiv_fixer_resync PRIVATE
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Widgets
+    Qt6::Test
+)
+add_test(NAME FfxivFixerResync COMMAND test_ffxiv_fixer_resync)
+
 # Make Qt DLLs visible to the tests at runtime on Windows.
 if(WIN32)
     get_target_property(_qmake_exe Qt6::qmake IMPORTED_LOCATION)
@@ -1396,6 +1472,8 @@ if(WIN32)
         MmlMidiWriter
         ThreeMleParser
         DrumKitPreset
+        FfxivFixerResync
+        GpToNative
         MidiDiff
         PrBundle
         MidiHash

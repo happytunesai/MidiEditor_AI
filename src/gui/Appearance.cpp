@@ -1678,7 +1678,7 @@ QPixmap Appearance::adjustIconForDarkMode(const QPixmap &original, const QString
 
     // List of icons that don't need color adjustment (they're not black or are intentionally colored)
     QStringList skipIcons = {"load", "new", "redo", "undo", "save", "saveas", "stop_record", "icon", "midieditor",
-                             "explode_chords_to_tracks", "channel_split_28", "ffxiv_fix", "midipilot", "XIV_on", "mcp_on"};
+                             "explode_chords_to_tracks", "channel_split_28", "ffxiv_fix", "ffxiv_fix_drums", "midipilot", "XIV_on", "mcp_on"};
 
     // Extract just the filename from the path for comparison
     QString fileName = iconName;

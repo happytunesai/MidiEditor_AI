@@ -1160,6 +1160,12 @@ void MidiPilotWidget::onNewChat() {
             item->widget()->deleteLater();
         delete item;
     }
+    // Null the streaming/thought widget pointers (deleted by the loop above)
+    // and stop the cursor timer so a later stream delta can't dereference a
+    // freed label (MP-02 use-after-free).
+    _streamBubble = nullptr;
+    _thoughtLabel = nullptr;
+    if (_thoughtCursorTimer) _thoughtCursorTimer->stop();
 }
 
 void MidiPilotWidget::onSendMessage() {
@@ -2711,7 +2717,13 @@ QJsonObject MidiPilotWidget::applyTrackAction(const QJsonObject &response, bool 
 
         activeEditFile()->protocol()->startNewAction(
             QStringLiteral("%1: Agent set channel - Track %2 - Ch %3").arg(protoPrefix(response)).arg(trackIndex).arg(channel));
-        activeEditFile()->track(trackIndex)->assignChannel(channel);
+        // Snapshot the track so the change is undoable - assignChannel() itself
+        // records no ProtocolItem, which would leave this action empty (and
+        // therefore discarded). MidiTrack::reloadState restores _assignedChannel.
+        MidiTrack *chTrack = activeEditFile()->track(trackIndex);
+        ProtocolEntry *chSnap = chTrack->copy();
+        chTrack->assignChannel(channel);
+        chTrack->protocol(chSnap, chTrack);
         activeEditFile()->protocol()->endAction();
 
         result["success"] = true;
@@ -2822,7 +2834,7 @@ QJsonObject MidiPilotWidget::applyMoveToTrack(const QJsonObject &response, bool 
             .arg(protoPrefix(response)).arg(targetTrack->name()).arg(toMove.size()));
 
     for (MidiEvent *ev : toMove) {
-        ev->setTrack(targetTrack, false);
+        ev->setTrack(targetTrack, true); // toProtocol=true so the move is undoable
     }
 
     activeEditFile()->protocol()->endAction();
@@ -3556,6 +3568,17 @@ void MidiPilotWidget::loadConversation(const QString &id)
     if (data.isEmpty())
         return;
 
+    // Never rebuild the chat while a request is streaming - the live callbacks
+    // still hold _thoughtLabel / _streamBubble / _agentStepsWidget pointers
+    // (same hazard as onNewChat / BUG-MIDIPILOT-001). Abort first, then let the
+    // user re-open the conversation once it has settled.
+    if (_isAgentRunning || (_client && _client->isBusy())) {
+        abortActiveRequest();
+        setStatus(tr("Stopped the running request — open the conversation again to load it"),
+                  "orange");
+        return;
+    }
+
     _conversationHistory = QJsonArray();
     _entries.clear();
     _lastPromptTokens = 0;
@@ -3569,6 +3592,12 @@ void MidiPilotWidget::loadConversation(const QString &id)
             item->widget()->deleteLater();
         delete item;
     }
+    // The clear loop just deleted the streaming/thought widgets (both live in
+    // _chatLayout); null the members and stop the cursor timer so no dangling
+    // pointer survives the rebuild (MP-02 use-after-free).
+    _streamBubble = nullptr;
+    _thoughtLabel = nullptr;
+    if (_thoughtCursorTimer) _thoughtCursorTimer->stop();
 
     _conversationId = id;
     _conversationHistory = data[QStringLiteral("messages")].toArray();

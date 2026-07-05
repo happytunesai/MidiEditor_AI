@@ -459,6 +459,14 @@ bool MidiEventSerializer::deserialize(const QJsonArray &eventsJson,
         int ch = (obj.contains(QStringLiteral("channel")) && obj[QStringLiteral("channel")].isDouble())
                      ? qBound(0, obj[QStringLiteral("channel")].toInt(), 18)
                      : channel;
+        // Voice events (notes, CC, pitch bend, program change, aftertouch) must
+        // live on channels 0-15; only meta events (tempo=17, time_sig=18,
+        // key_sig/text=16) may use 16-18. Without this, a malformed channel:17
+        // note would land on the tempo meta channel and corrupt the saved file.
+        if (type != QStringLiteral("tempo") && type != QStringLiteral("time_sig")
+            && type != QStringLiteral("key_sig") && type != QStringLiteral("text")) {
+            ch = qMin(ch, 15);
+        }
 
         // Per-event track override: if the AI specifies a track index, use it
         MidiTrack *track = defaultTrack;

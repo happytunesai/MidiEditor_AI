@@ -813,6 +813,7 @@ QList<ToolbarActionInfo> LayoutSettingsWidget::getDefaultActions() {
     actions << ToolbarActionInfo{"explode_chords_to_tracks", "Explode Chords to Tracks", ":/run_environment/graphics/tool/explode_chords_to_tracks.png", nullptr, false, false, "Tools"};
     actions << ToolbarActionInfo{"split_channels_to_tracks", "Split Channels to Tracks", ":/run_environment/graphics/tool/channel_split_28.png", nullptr, false, false, "Tools"};
     actions << ToolbarActionInfo{"fix_ffxiv_channels", "Fix X|V Channels", ":/run_environment/graphics/tool/ffxiv_fix.png", nullptr, false, false, "Tools"};
+    actions << ToolbarActionInfo{"ffxiv_drum_split", "FFXIV Drum Split", ":/run_environment/graphics/tool/ffxiv_fix_drums.png", nullptr, false, false, "Tools"};
 
     // MIDI Visualizer (widget)
     actions << ToolbarActionInfo{"midi_visualizer", "MIDI Visualizer", ":/run_environment/graphics/tool/midi_visualizer.png", nullptr, true, false, "View"};
@@ -914,7 +915,7 @@ QStringList LayoutSettingsWidget::getComprehensiveActionOrder() {
             << "quantize" << "magnet" << "separator11"
             << "thru" << "panic" << "separator12"
             << "measure" << "time_signature" << "tempo"
-            << "explode_chords_to_tracks" << "split_channels_to_tracks" << "fix_ffxiv_channels"
+            << "explode_chords_to_tracks" << "split_channels_to_tracks" << "fix_ffxiv_channels" << "ffxiv_drum_split"
             << "toggle_midipilot" << "separator14" << "midi_visualizer" << "lyric_visualizer" << "mcp_toggle" << "ffxiv_toggle" << "c64_toggle" << "c64_mode_switch" << "ffxiv_voice_gauge" << "time_display";
     return order;
 }
@@ -937,7 +938,7 @@ QStringList LayoutSettingsWidget::getDefaultEnabledActions() {
             // thru and panic disabled by default
             // << "thru" << "panic" << "separator12"
             << "measure" << "time_signature" << "tempo"
-            << "explode_chords_to_tracks" << "split_channels_to_tracks" << "fix_ffxiv_channels"
+            << "explode_chords_to_tracks" << "split_channels_to_tracks" << "fix_ffxiv_channels" << "ffxiv_drum_split"
             << "toggle_midipilot" << "separator14" << "midi_visualizer" << "lyric_visualizer" << "mcp_toggle" << "ffxiv_toggle" << "c64_toggle" << "c64_mode_switch" << "ffxiv_voice_gauge" << "time_display";
     return enabled;
 }
@@ -958,7 +959,7 @@ void LayoutSettingsWidget::getDefaultRowDistribution(QStringList &row1Actions, Q
             << "align_left" << "equalize" << "align_right" << "separator6"
             << "quantize" << "magnet" << "separator7"
             << "measure" << "time_signature" << "tempo"
-            << "explode_chords_to_tracks" << "split_channels_to_tracks" << "fix_ffxiv_channels"
+            << "explode_chords_to_tracks" << "split_channels_to_tracks" << "fix_ffxiv_channels" << "ffxiv_drum_split"
             << "toggle_midipilot" << "separator14" << "mcp_toggle" << "ffxiv_toggle" << "c64_toggle" << "c64_mode_switch";
 
     // Row 2: Playback / view / status widgets (visualizer, lyric, voice gauge)
@@ -1008,7 +1009,7 @@ QStringList LayoutSettingsWidget::getDefaultToolbarOrder() {
             << "align_left" << "equalize" << "align_right" << "separator6"
             << "quantize" << "magnet" << "separator7"
             << "measure" << "time_signature" << "tempo"
-            << "explode_chords_to_tracks" << "split_channels_to_tracks" << "fix_ffxiv_channels"
+            << "explode_chords_to_tracks" << "split_channels_to_tracks" << "fix_ffxiv_channels" << "ffxiv_drum_split"
             << "toggle_midipilot" << "separator14" << "mcp_toggle" << "ffxiv_toggle" << "c64_toggle" << "c64_mode_switch" << "row_separator"
             << "back_to_begin" << "back_marker" << "back" << "play" << "pause"
             << "stop" << "record" << "forward" << "forward_marker" << "separator10"
@@ -1039,7 +1040,7 @@ void LayoutSettingsWidget::getDefaultToolbarRowDistribution(QStringList &row1Act
             << "align_left" << "equalize" << "align_right" << "separator6"
             << "quantize" << "magnet" << "separator7"
             << "measure" << "time_signature" << "tempo"
-            << "explode_chords_to_tracks" << "split_channels_to_tracks" << "fix_ffxiv_channels"
+            << "explode_chords_to_tracks" << "split_channels_to_tracks" << "fix_ffxiv_channels" << "ffxiv_drum_split"
             << "toggle_midipilot" << "separator14" << "mcp_toggle" << "ffxiv_toggle" << "c64_toggle" << "c64_mode_switch";
 
     // Row 2: transport, zoom, MIDI I/O, status widgets

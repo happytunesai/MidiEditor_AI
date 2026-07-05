@@ -52,7 +52,11 @@ int EventTool::_copiedTicksPerQuarter = 0;
 QPointer<MidiFile> EventTool::_copiedSourceFile;
 
 int EventTool::_pasteChannel = -1;
-int EventTool::_pasteTrack = -2;
+// -1 = "Keep track" (the default): same-file pastes stay on their source
+// track. -2 = "Same as selected for new events": explicitly routes the paste
+// onto the current edit track - it must be distinct from the default, or the
+// explicit menu choice is dead for same-file pastes (review finding, v2.0).
+int EventTool::_pasteTrack = -1;
 
 bool EventTool::_magnet = false;
 // Default to Modern (hard grid) snap; MainWindow overrides from the saved
@@ -368,22 +372,26 @@ void EventTool::pasteAction() {
             if ((pasteTrack() >= 0) && (pasteTrack() < currentFile()->tracks()->size())) {
                 // Explicit "paste to track N" override (Edit > Paste to track).
                 track = currentFile()->track(pasteTrack());
-            } else if (track && currentFile()->tracks()->contains(track)) {
-                // Same-file paste (including pasting back into the file the events
-                // were copied from): KEEP the event's own track so the notes land
-                // on the track they came from. Previously the pasteTrack()==-2
-                // default collapsed every paste onto the "add new events to" edit
-                // track (usually track 0), so copying a track and pasting it back
-                // silently moved the notes to track 0. (PASTE-TRACK-001)
             } else if (pasteTrack() == -2) {
-                // Cross-file / deleted-track default: drop onto the current edit
-                // track chosen in the "add new events to" selector.
+                // Explicit "Same as selected for new events": route onto the
+                // current edit track. Checked BEFORE the keep-branch so the
+                // explicit choice also applies to same-file pastes (with the
+                // old -2 DEFAULT this ordering collapsed every paste onto
+                // track 0 - PASTE-TRACK-001 - which is why the default is now
+                // -1/keep and -2 means only the deliberate menu choice).
                 track = currentFile()->track(NewNoteTool::editTrack());
+            } else if (track && currentFile()->tracks()->contains(track)) {
+                // Default (-1 "Keep track") same-file paste: KEEP the event's
+                // own track so the notes land on the track they came from.
             } else {
-                // Cross-file paste or track from deleted file
+                // Cross-file paste or track from deleted file: use the
+                // remembered source->target mapping when one exists, else the
+                // current edit track (the 1.9.1 cross-file default).
                 track = currentFile()->getPasteTrack(event->track(), event->file());
                 if (!track) {
-                    // Fallback: try to find a track by index or use track 0
+                    track = currentFile()->track(NewNoteTool::editTrack());
+                }
+                if (!track) {
                     track = currentFile()->track(0);
                 }
             }
@@ -1285,28 +1293,55 @@ void EventTool::recalculateExistingNotesAfterTempoChange(const QList<MidiEvent *
         }
     }
 
+    // BULK-OP UNDO: snapshot each affected channel ONCE and run the per-event
+    // moves with toProtocol=false. removeEvent's default (true) deep-clones the
+    // ENTIRE channel map per moved event - O(moved x events) memory inside one
+    // undo action on large files (the documented blowup pattern; see
+    // MidiFile::removeTrack).
+    QSet<int> affectedChannels;
+    for (auto &pair : eventsToRecalculate) {
+        if (pair.first) {
+            affectedChannels.insert(pair.first->channel());
+        }
+    }
+    QHash<int, ProtocolEntry *> channelSnapshots;
+    for (int ch : affectedChannels) {
+        MidiChannel *channel = currentFile()->channel(ch);
+        if (channel) {
+            channelSnapshots.insert(ch, channel->copy());
+        }
+    }
+
     // Now recalculate positions for all affected events
     for (auto &pair : eventsToRecalculate) {
         MidiEvent *event = pair.first;
         int oldPosition = pair.second;
-        
+
         if (!event) {
             continue;
         }
-        
+
         // Convert old position to real time using old tempo map
         int oldMs = currentFile()->msOfTick(oldPosition);
-        
+
         // Convert back to ticks using new tempo map
         int newPosition = currentFile()->tick(oldMs);
-        
+
         // Only update if position actually changed
         if (newPosition != oldPosition && newPosition >= 0) {
-            // Remove from old position
-            currentFile()->channel(event->channel())->removeEvent(event);
-            
+            // Remove from old position (unprotocolled - covered by the snapshot)
+            currentFile()->channel(event->channel())->removeEvent(event, false);
+
             // Insert at new position
             currentFile()->channel(event->channel())->insertEvent(event, newPosition, false);
+        }
+    }
+
+    // Commit one ProtocolItem per touched channel (undo restores the maps).
+    for (auto it = channelSnapshots.constBegin(); it != channelSnapshots.constEnd(); ++it) {
+        MidiChannel *channel = currentFile()->channel(it.key());
+        if (channel) {
+            channel->protocol(it.value(), channel);
         }
     }
     

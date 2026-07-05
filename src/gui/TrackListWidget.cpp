@@ -374,9 +374,81 @@ void TrackListWidget::contextMenuEvent(QContextMenuEvent *event) {
     }
     QMenu menu(this);
     const int trackNumber = track->number();
+    // Track 0 is the conventional tempo/meta track - guard the destructive ops
+    // so its tempo / time-signature data can't be merged away or wiped.
+    const bool isTempoTrack = (trackNumber == 0);
+    const int trackCount = file->tracks() ? file->tracks()->size() : 0;
+
+    // --- structural ---
+    QAction *cloneAct = menu.addAction(tr("Clone Track"));
+    connect(cloneAct, &QAction::triggered, mw, [mw, track]() { mw->cloneTrack(track); });
+
+    QMenu *mergeMenu = menu.addMenu(tr("Merge Track Into"));
+    if (file->tracks()) {
+        for (MidiTrack *other : *file->tracks()) {
+            if (!other || other == track) continue;
+            QAction *a = mergeMenu->addAction(tr("Track %1: %2").arg(other->number()).arg(other->name()));
+            connect(a, &QAction::triggered, mw, [mw, track, other]() { mw->mergeTrack(track, other); });
+        }
+    }
+    mergeMenu->setEnabled(!isTempoTrack && !mergeMenu->actions().isEmpty());
+
+    QMenu *moveMenu = menu.addMenu(tr("Move Track"));
+    QAction *upAct = moveMenu->addAction(tr("Up"));
+    // Track 1 can't move up and track 0 can't move down: the tempo/meta
+    // track stays in slot 0 (the number()==0 guards protect BY POSITION).
+    upAct->setEnabled(trackNumber > 1);
+    connect(upAct, &QAction::triggered, mw, [mw, track]() { mw->moveTrackUp(track); });
+    QAction *downAct = moveMenu->addAction(tr("Down"));
+    downAct->setEnabled(trackNumber > 0 && trackNumber < trackCount - 1);
+    connect(downAct, &QAction::triggered, mw, [mw, track]() { mw->moveTrackDown(track); });
+
+    menu.addSeparator();
+
+    // --- transforms ---
+    QAction *quantizeAct = menu.addAction(tr("Quantize Track"));
+    connect(quantizeAct, &QAction::triggered, mw, [mw, track]() { mw->quantizeTrack(track); });
+
+    QMenu *transposeMenu = menu.addMenu(tr("Transpose Track"));
+    QAction *transAct = transposeMenu->addAction(tr("Transpose..."));
+    connect(transAct, &QAction::triggered, mw, [mw, track]() { mw->transposeTrack(track); });
+    QAction *octUpAct = transposeMenu->addAction(tr("Octave Up"));
+    connect(octUpAct, &QAction::triggered, mw, [mw, track]() { mw->transposeTrackOctaveUp(track); });
+    QAction *octDownAct = transposeMenu->addAction(tr("Octave Down"));
+    connect(octDownAct, &QAction::triggered, mw, [mw, track]() { mw->transposeTrackOctaveDown(track); });
+
+    QAction *explodeAct = menu.addAction(tr("Explode Chords to Tracks"));
+    connect(explodeAct, &QAction::triggered, mw, [mw, track]() { mw->explodeChordsToTracks(track); });
+    QAction *splitAct = menu.addAction(tr("Split Channels to Tracks"));
+    connect(splitAct, &QAction::triggered, mw, [mw, track]() { mw->splitChannelsToTracks(track); });
+
+    menu.addSeparator();
+
+    // --- selection / events ---
+    QAction *selectAct = menu.addAction(tr("Select All Events"));
+    connect(selectAct, &QAction::triggered, mw, [mw, track]() { mw->selectTrackEvents(track); });
+
+    QMenu *moveChanMenu = menu.addMenu(tr("Move Events to Channel"));
+    moveChanMenu->setEnabled(!isTempoTrack);
+    for (int ch = 0; ch < 16; ++ch) {
+        // 0-based to match the Channels panel and the Tools menu.
+        QString label = (ch == 9) ? tr("Channel %1 (Drums)").arg(ch)
+                                   : tr("Channel %1").arg(ch);
+        QAction *a = moveChanMenu->addAction(label);
+        connect(a, &QAction::triggered, mw, [mw, track, ch]() { mw->moveTrackEventsToChannel(track, ch); });
+    }
+
+    QAction *removeAct = menu.addAction(tr("Remove Events"));
+    removeAct->setEnabled(!isTempoTrack);
+    connect(removeAct, &QAction::triggered, mw, [mw, track]() { mw->clearTrackEvents(track); });
+
+    menu.addSeparator();
+
+    // --- existing tempo tool ---
     QAction *convertTempoAct = menu.addAction(tr("Convert Tempo, Preserve Duration..."));
     connect(convertTempoAct, &QAction::triggered, mw, [mw, trackNumber]() {
         mw->convertTempoForTrack(trackNumber);
     });
+
     menu.exec(event->globalPos());
 }

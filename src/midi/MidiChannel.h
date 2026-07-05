@@ -111,9 +111,15 @@ public:
      * \param endTick End time in MIDI ticks
      * \param velocity Note velocity (0-127)
      * \param track The MIDI track to associate with the note
+     * \param toProtocol when false, skips the full-channel snapshot - callers
+     *        doing BULK inserts must take one MidiChannel::copy() per touched
+     *        channel themselves and commit it via protocol() afterwards (see
+     *        MidiFile::removeTrack for the pattern); otherwise each call
+     *        deep-clones the whole event map into the open undo step.
      * \return Pointer to the created NoteOnEvent
      */
-    NoteOnEvent *insertNote(int note, int startTick, int endTick, int velocity, MidiTrack *track);
+    NoteOnEvent *insertNote(int note, int startTick, int endTick, int velocity, MidiTrack *track,
+                            bool toProtocol = true);
 
     /**
      * \brief Inserts an event into the channel's event map.

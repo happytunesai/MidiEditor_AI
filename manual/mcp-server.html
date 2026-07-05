@@ -100,8 +100,8 @@ can plug into MidiEditor AI and control it.
 </p>
 
 <p>
-MidiEditor AI&rsquo;s MCP server exposes the same <b>15 core tools</b> that the built-in MidiPilot AI uses
-(plus extra FFXIV tools when FFXIV mode is enabled).
+MidiEditor AI&rsquo;s MCP server exposes the <b>15 core tools</b> that the built-in MidiPilot AI uses, plus two document
+tools of its own (and extra FFXIV tools when FFXIV mode is enabled).
 The difference is that with MCP, <i>you choose</i> which AI client and model to use.
 </p>
 
@@ -303,15 +303,18 @@ the appropriate config file for your AI client.
 <h2 id="tools">Available Tools</h2>
 
 <p>
-All 15 core tools from MidiEditor AI&rsquo;s built-in MidiPilot are exposed via MCP (plus the FFXIV
-tools below when FFXIV mode is on). The AI client discovers them automatically via <code>tools/list</code>.
+All 15 core tools from MidiEditor AI&rsquo;s built-in MidiPilot are exposed via MCP, plus two MCP-only
+document tools (and the FFXIV tools below when FFXIV mode is on). The AI client discovers them
+automatically via <code>tools/list</code>.
 </p>
 
 <p>
 Each MCP connection works on <b>one document at a time</b>. The session binds to the document that is
 active when it first acts, and stays on it - so a read followed by an edit lands on the same
 document even if you switch tabs in the editor meanwhile. Call <code>get_editor_state</code> to point the
-session at whichever document is currently active.
+session at whichever document is currently active, or use <code>list_documents</code> /
+<code>switch_document</code> to change the editor's active tab first (followed by
+<code>get_editor_state</code> to bind the session to it).
 </p>
 
 <h3>Read-Only Tools <span class="tool-badge badge-read">READ</span></h3>
@@ -322,6 +325,14 @@ session at whichever document is currently active.
     <tr><td><code>get_track_info</code></td><td>Get details about a specific track (name, channel, note count, pitch range)</td></tr>
     <tr><td><code>query_events</code></td><td>Query MIDI events in a tick range on a track</td></tr>
     <tr><td><code>get_selection</code></td><td>Get the user's current selection as full events, each with a 0-based index (the index <code>delete_events_by_index</code> expects)</td></tr>
+    <tr><td><code>list_documents</code></td><td>List the open tabs: index, name, file path, modified flag, and which one is active</td></tr>
+</table>
+
+<h3>Document Tools <span class="tool-badge badge-write">WRITE</span></h3>
+
+<table>
+    <tr><th>Tool</th><th>Parameters</th><th>Description</th></tr>
+    <tr><td><code>switch_document</code></td><td><code>index</code></td><td>Make another open tab the active document (the index from <code>list_documents</code>). Call <code>get_editor_state</code> afterwards to bind the session to it - stateful tools keep acting on the previously bound document until then</td></tr>
 </table>
 
 <h3>Write Tools <span class="tool-badge badge-write">WRITE</span></h3>

@@ -40,7 +40,12 @@ MiscWidget::MiscWidget(MatrixWidget *mw, QWidget *parent)
     resetState();
     computeMinMax();
     connect(matrixWidget, SIGNAL(objectListChanged()), this, SLOT(update()));
-    _dummyTool = new SelectTool(SELECTION_TYPE_SINGLE);
+    // Shared process-lifetime dummy tool: MiscWidgets are created/destroyed
+    // per split cycle since 1.9.x, and a per-instance tool leaked (there is
+    // no destructor - and deleting it would dangle the Protocol undo entries
+    // created via _dummyTool->protocol(...), so sharing is the safe fix).
+    static SelectTool *sharedDummyTool = new SelectTool(SELECTION_TYPE_SINGLE);
+    _dummyTool = sharedDummyTool;
     setFocusPolicy(Qt::ClickFocus);
 }
 
@@ -119,7 +124,7 @@ void MiscWidget::paintEvent(QPaintEvent *event) {
         QList<MidiEvent *> *list = matrixWidget->velocityEvents();
         foreach(MidiEvent* event, *list) {
             // Use global visibility manager to avoid corrupted MidiChannel access
-            if (!ChannelVisibilityManager::instance().isChannelVisible(event->channel())) {
+            if (!ChannelVisibilityManager::instance().isChannelVisible(event->channel(), matrixWidget->midiFile())) {
                 continue;
             }
 
@@ -151,7 +156,7 @@ void MiscWidget::paintEvent(QPaintEvent *event) {
         if (t && t->showsSelection()) {
             foreach(MidiEvent* event, displayedSelectedEvents()) {
                 // Use global visibility manager to avoid corrupted MidiChannel access
-                if (!ChannelVisibilityManager::instance().isChannelVisible(event->channel())) {
+                if (!ChannelVisibilityManager::instance().isChannelVisible(event->channel(), matrixWidget->midiFile())) {
                     continue;
                 }
 
@@ -278,7 +283,7 @@ void MiscWidget::mouseMoveEvent(QMouseEvent *event) {
                 QList<MidiEvent *> *list = matrixWidget->velocityEvents();
                 foreach(MidiEvent* event, *list) {
                     // Use global visibility manager to avoid corrupted MidiChannel access
-                    if (!ChannelVisibilityManager::instance().isChannelVisible(event->channel())) {
+                    if (!ChannelVisibilityManager::instance().isChannelVisible(event->channel(), matrixWidget->midiFile())) {
                         continue;
                     }
 
@@ -387,7 +392,7 @@ void MiscWidget::mousePressEvent(QMouseEvent *event) {
                 QList<MidiEvent *> *list = matrixWidget->velocityEvents();
                 foreach(MidiEvent* event, *list) {
                     // Use global visibility manager to avoid corrupted MidiChannel access
-                    if (!ChannelVisibilityManager::instance().isChannelVisible(event->channel())) {
+                    if (!ChannelVisibilityManager::instance().isChannelVisible(event->channel(), matrixWidget->midiFile())) {
                         continue;
                     }
 
@@ -799,7 +804,7 @@ void MiscWidget::mouseReleaseEvent(QMouseEvent *event) {
                     QList<MidiEvent *> *list = matrixWidget->velocityEvents();
                     foreach(MidiEvent* event, *list) {
                         // Use global visibility manager to avoid corrupted MidiChannel access
-                        if (!ChannelVisibilityManager::instance().isChannelVisible(event->channel())) {
+                        if (!ChannelVisibilityManager::instance().isChannelVisible(event->channel(), matrixWidget->midiFile())) {
                             continue;
                         }
 

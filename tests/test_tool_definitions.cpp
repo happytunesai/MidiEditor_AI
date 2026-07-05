@@ -54,9 +54,10 @@ class MidiPilotWidget;
 class FFXIVChannelFixer {
 public:
     static QJsonObject fixChannels(MidiFile *file, int mode,
-                                   std::function<void(int, QString const &)> cb);
+                                   std::function<void(int, QString const &)> cb,
+                                   bool resyncNonGuitar);
 };
-QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *, int, std::function<void(int, QString const &)>) { return QJsonObject(); }
+QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *, int, std::function<void(int, QString const &)>, bool) { return QJsonObject(); }
 
 class MidiFile {
 public:

@@ -309,6 +309,15 @@ private slots:
         QVERIFY(!AiClient::modelRequiresResponsesApi(QStringLiteral("openrouter"), QStringLiteral("openai/gpt-5.5-pro")));
         QVERIFY(!AiClient::modelRequiresResponsesApi(QStringLiteral("gemini"), QStringLiteral("gemini-2.5-pro")));
         QVERIFY(!AiClient::modelRequiresResponsesApi(QStringLiteral("ollama"), QStringLiteral("qwen3-pro")));
+
+        // "-pro" as a SUBSTRING must not match: fine-tune IDs and custom names
+        // embed arbitrary text ("-prompt"/"-prod"/"-project"), and those models
+        // are chat-only - routing them to /v1/responses breaks them entirely.
+        QVERIFY(!AiClient::modelRequiresResponsesApi(QStringLiteral("openai"),
+                 QStringLiteral("ft:gpt-4o-mini-2024-07-18:acme:midi-prompt:xyz")));
+        QVERIFY(!AiClient::modelRequiresResponsesApi(QStringLiteral("openai"), QStringLiteral("gpt-4o-prod-v2")));
+        QVERIFY(!AiClient::modelRequiresResponsesApi(QStringLiteral("openai"), QStringLiteral("my-project-model")));
+        QVERIFY(!AiClient::modelRequiresResponsesApi(QStringLiteral("openai"), QStringLiteral("gpt-5-provider")));
     }
 };
 

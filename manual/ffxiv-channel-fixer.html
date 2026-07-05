@@ -61,6 +61,7 @@
                 <a href="midipilot.html">MidiPilot AI</a>
                 <a href="prompt-examples.html">Prompt Examples</a>
                 <a href="ffxiv-channel-fixer.html">FFXIV Channel Fixer</a>
+                <a href="ffxiv-drum-split.html">FFXIV Drum Split</a>
                 <a href="ffxiv-voice-limiter.html">FFXIV Voice Limiter</a>
                 <a href="tempo-conversion.html">Convert Tempo</a>
                 <a href="supported-files.html">Supported Files</a>
@@ -165,7 +166,7 @@ When you click <b>Fix X|V Channels</b>, a confirmation dialog appears with two m
 <td>
 <ul style="margin:0; padding-left:1.2em;">
 <li>Keeps all existing channel assignments (uses <code>assignedChannel()</code>)</li>
-<li>Non-guitar channels <b>completely untouched</b> - no PCs removed, no events moved</li>
+<li>Non-guitar channels <b>completely untouched</b> - no PCs removed, no events moved (unless the optional <a href="#resync">instrument re-sync</a> is enabled)</li>
 <li>Recognizes <b>reserved guitar channels</b> from a previous Rebuild (e.g. CH5, CH6 for unused variants)</li>
 <li>Refreshes guitar program changes at tick 0 + inserts switch PCs at variant change points</li>
 <li>Auto-renames guitar tracks if first note sits on a different variant's channel</li>
@@ -181,6 +182,35 @@ When you click <b>Fix X|V Channels</b>, a confirmation dialog appears with two m
 <ul>
 <li><b>Rebuild</b> is selected when the file has FFXIV instrument names but no existing guitar program changes</li>
 <li><b>Preserve</b> is selected when guitar program changes already exist, or when guitar tracks have notes spread across multiple channels (indicating a pre-configured file)</li>
+</ul>
+
+<h3 id="resync">Optional: Re-sync Non-Guitar Instruments (Preserve mode)</h3>
+
+<p>
+When you rename a track to a different instrument - say <b>Trumpet</b> becomes <b>Trombone</b> - the track name
+changes, but the channel's program change still plays the old instrument. Preserve mode has an optional checkbox
+for exactly this case:
+</p>
+
+<div class="highlight-box">
+<p>&#x2611;&#xFE0F; <b>Re-sync non-guitar channel instruments from track names</b> - rewrites a channel's program
+change at tick 0 when it no longer matches the track name. Available under the Preserve mode selection; off by
+default.</p>
+</div>
+
+<div class="screenshot-single">
+<img src="screenshots/ffxiv-channelfix_resync.png" alt="Preserve mode with the instrument re-sync checkbox" width="480">
+<div class="caption">Preserve mode with the optional instrument re-sync enabled</div>
+</div>
+
+<p>What it does - and deliberately does not do:</p>
+<ul>
+<li><b>Only mismatched channels are touched</b> - a channel whose program already matches its track name is left byte-identical</li>
+<li><b>Only the program change at tick 0 is rewritten</b> - instrument switches you placed later in the song survive</li>
+<li><b>Running the fixer again changes nothing</b> - once names and programs agree, repeated Preserve runs with the option enabled are no-ops</li>
+<li><b>Percussion and the drum channel are never touched</b> - the drum instruments follow their track names at playback; Timpani (a tonal instrument) is re-synced like any melodic track</li>
+<li><b>Shared channels follow the playing track</b> - when several tracks point at one channel, the track whose first note sounds earliest on that channel decides the instrument</li>
+<li><b>Tracks without notes on a channel cannot claim it</b> - an empty or moved-away track never overwrites another track's instrument</li>
 </ul>
 
 <hr>
@@ -321,6 +351,7 @@ The entire Fix X|V Channels operation is wrapped in a <b>single undo action</b>.
 <li><b>Name your tracks correctly</b> - the fixer identifies instruments purely by track name. Use the exact FFXIV instrument names listed above</li>
 <li><b>Run Rebuild first</b> - for fresh files, always start with Rebuild mode to get a clean baseline</li>
 <li><b>Use Preserve for touch-ups</b> - if you only need to fix guitar variants after manual editing, Preserve keeps everything else intact</li>
+<li><b>Split the drums first</b> - the <a href="ffxiv-drum-split.html">FFXIV Drum Split</a> turns a GM drum track into named percussion tracks the fixer routes automatically</li>
 <li><b>Combine with MidiPilot</b> - use "Convert this for FFXIV Bard performance" in Agent mode to compose, then Fix X|V to clean up channels</li>
 <li><b>Check with validate_ffxiv</b> - after fixing, ask MidiPilot to validate for complete FFXIV rule compliance</li>
 </ul>

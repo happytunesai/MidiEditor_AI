@@ -67,6 +67,14 @@ void MidiChannel::reloadState(ProtocolEntry *entry) {
     _visible = other->_visible;
     _mute = other->_mute;
     _solo = other->_solo;
+    // Free the container we are about to drop. copy() always allocates an
+    // independent QMultiMap, so this live channel is the sole owner of its
+    // current _events; the snapshot we adopt (other->_events) is a different
+    // container. Without this, every channel-level undo/redo orphaned one full
+    // event map. Guarded against a self-reload (other == this).
+    if (_events != other->_events) {
+        delete _events;
+    }
     _events = other->_events;
     _num = other->_num;
 }
@@ -76,13 +84,15 @@ MidiFile *MidiChannel::file() {
 }
 
 bool MidiChannel::visible() {
-    return ChannelVisibilityManager::instance().isChannelVisible(_num);
+    // File-scoped (split view): this channel belongs to a specific document,
+    // which is not necessarily the globally-active one.
+    return ChannelVisibilityManager::instance().isChannelVisible(_num, _midiFile);
 }
 
 
 void MidiChannel::setVisible(bool b) {
     if (_num < 0 || _num > 18) return;
-    ChannelVisibilityManager::instance().setChannelVisible(_num, b);
+    ChannelVisibilityManager::instance().setChannelVisible(_num, b, _midiFile);
     _visible = b;
     ProtocolEntry *toCopy = copy();
     protocol(toCopy, this);
@@ -94,7 +104,7 @@ void MidiChannel::setVisibleSilent(bool b) {
     // from) AND the local _visible mirror (kept for consistency
     // with the regular setVisible path). No protocol() call so the
     // viewer's undo history stays clean.
-    ChannelVisibilityManager::instance().setChannelVisible(_num, b);
+    ChannelVisibilityManager::instance().setChannelVisible(_num, b, _midiFile);
     _visible = b;
 }
 
@@ -133,8 +143,9 @@ QColor *MidiChannel::color() {
     return Appearance::channelColor(number());
 }
 
-NoteOnEvent *MidiChannel::insertNote(int note, int startTick, int endTick, int velocity, MidiTrack *track) {
-    ProtocolEntry *toCopy = copy();
+NoteOnEvent *MidiChannel::insertNote(int note, int startTick, int endTick, int velocity, MidiTrack *track,
+                                     bool toProtocol) {
+    ProtocolEntry *toCopy = toProtocol ? copy() : nullptr;
     NoteOnEvent *onEvent = new NoteOnEvent(note, velocity, number(), track);
 
     OffEvent *off = new OffEvent(number(), 127 - note, track);
@@ -144,7 +155,9 @@ NoteOnEvent *MidiChannel::insertNote(int note, int startTick, int endTick, int v
     onEvent->setFile(file());
     onEvent->setMidiTime(startTick, false);
 
-    protocol(toCopy, this);
+    if (toProtocol) {
+        protocol(toCopy, this);
+    }
 
     return onEvent;
 }

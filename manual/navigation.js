@@ -57,6 +57,7 @@
             title: 'FFXIV',
             pages: [
                 { href: 'ffxiv-channel-fixer.html', icon: '🎮', name: 'FFXIV Channel Fixer' },
+                { href: 'ffxiv-drum-split.html', icon: '🥁', name: 'FFXIV Drum Split' },
                 { href: 'ffxiv-voice-limiter.html', icon: '🎚️', name: 'Voice Limiter' },
                 { href: 'soundfont.html', icon: '🔊', name: 'SoundFonts & FluidSynth' }
             ]

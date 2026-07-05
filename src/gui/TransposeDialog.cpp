@@ -45,7 +45,8 @@ TransposeDialog::TransposeDialog(QList<NoteOnEvent *> toTranspose, MidiFile *fil
     group->addButton(_down);
 
     QPushButton *breakButton = new QPushButton(tr("Cancel"));
-    connect(breakButton, SIGNAL(clicked()), this, SLOT(hide()));
+    // reject() (not hide()): lets WA_DeleteOnClose callers reclaim the dialog.
+    connect(breakButton, SIGNAL(clicked()), this, SLOT(reject()));
     QPushButton *acceptButton = new QPushButton(tr("Accept"));
     connect(acceptButton, SIGNAL(clicked()), this, SLOT(accept()));
 
@@ -77,7 +78,10 @@ void TransposeDialog::accept() {
             onEvent->setNote(oldVal + num);
         }
     }
-    hide();
 
     _file->protocol()->endAction();
+
+    // Real accept (not hide()): fires done()/close so WA_DeleteOnClose
+    // callers reclaim the dialog instead of leaking a hidden child.
+    QDialog::accept();
 }

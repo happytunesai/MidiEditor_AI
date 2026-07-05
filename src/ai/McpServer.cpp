@@ -10,6 +10,7 @@
 #include "../midi/MidiTrack.h"
 #include "../midi/MidiChannel.h"
 #include "../gui/MidiPilotWidget.h"
+#include "../gui/MainWindow.h"
 
 #include <QJsonDocument>
 #include <QRandomGenerator>
@@ -655,6 +656,65 @@ QJsonObject McpServer::handleToolsCall(const QJsonObject &params, Session &sessi
                          ? QStringLiteral("mcp")
                          : QStringLiteral("mcp:") + session.clientName;
 
+    // v2.0: MCP-only document/tab tools. They act on the WINDOW (which tabs
+    // exist / which one is active), not on the session's bound document, so
+    // they run BEFORE the bound-file resolution below. After switch_document
+    // the client must call get_editor_state to re-bind the session to the
+    // newly active document (the binding itself is deliberately untouched).
+    if (toolName == QStringLiteral("list_documents")
+        || toolName == QStringLiteral("switch_document")) {
+        QJsonObject toolResult;
+        auto runDocTool = [&]() {
+            MainWindow *mw = _widget
+                ? qobject_cast<MainWindow *>(_widget->window())
+                : nullptr;
+            if (!mw) {
+                toolResult["success"] = false;
+                toolResult["error"] = QStringLiteral("Main window not available.");
+                return;
+            }
+            if (toolName == QStringLiteral("list_documents")) {
+                toolResult["success"] = true;
+                toolResult["documents"] = mw->listOpenDocumentsJson();
+            } else {
+                const int index = args.value(QStringLiteral("index")).toInt(-1);
+                if (mw->activateDocumentByListIndex(index)) {
+                    toolResult["success"] = true;
+                    toolResult["activeDocumentIndex"] = index;
+                    toolResult["note"] = QStringLiteral(
+                        "Document activated. Call get_editor_state to bind "
+                        "this session to the newly active document.");
+                } else {
+                    toolResult["success"] = false;
+                    toolResult["error"] =
+                        QStringLiteral("Invalid document index - call "
+                                       "list_documents for the current list.");
+                }
+            }
+        };
+        if (QThread::currentThread() == QCoreApplication::instance()->thread()) {
+            runDocTool();
+        } else {
+            QMetaObject::invokeMethod(this, [&]() { runDocTool(); },
+                                      Qt::BlockingQueuedConnection);
+        }
+        session.toolCallCount++;
+        emit toolCalled(session.id, toolName);
+
+        QJsonObject result;
+        QJsonArray content;
+        QJsonObject textContent;
+        textContent["type"] = QString("text");
+        textContent["text"] = QString::fromUtf8(
+            QJsonDocument(toolResult).toJson(QJsonDocument::Compact));
+        content.append(textContent);
+        result["content"] = content;
+        if (!toolResult.value(QStringLiteral("success")).toBool()) {
+            result["isError"] = true;
+        }
+        return result;
+    }
+
     // Phase 28 (editor groups): resolve which document this call acts on. The
     // session binds to a document so a read (get_selection) and a later write
     // (delete_events_by_index) stay on the SAME document even if the user
@@ -947,6 +1007,44 @@ QJsonArray McpServer::convertToolSchemas() {
         mcpTool["inputSchema"] = inputSchema;
 
         mcpTools.append(mcpTool);
+    }
+
+    // v2.0: MCP-only document/tab tools - appended HERE (not in
+    // ToolDefinitions::toolSchemas()) so the MidiPilot agent does not get
+    // them; agent runs stay pinned to their run-origin document.
+    {
+        QJsonObject t;
+        t["name"] = QStringLiteral("list_documents");
+        t["description"] = QStringLiteral(
+            "List all documents (tabs) open in the editor across both editor "
+            "groups: index, title, file path, group (0 = left, 1 = right), "
+            "active and modified flags. Use the index with switch_document.");
+        QJsonObject schema;
+        schema["type"] = QStringLiteral("object");
+        schema["properties"] = QJsonObject();
+        t["inputSchema"] = schema;
+        mcpTools.append(t);
+    }
+    {
+        QJsonObject t;
+        t["name"] = QStringLiteral("switch_document");
+        t["description"] = QStringLiteral(
+            "Activate the open document (tab) with the given index from "
+            "list_documents. IMPORTANT: afterwards call get_editor_state to "
+            "bind this session to the newly active document - stateful tools "
+            "keep acting on the previously bound document until then.");
+        QJsonObject props;
+        props["index"] = QJsonObject{
+            {"type", "integer"},
+            {"description", "Document index from list_documents."}};
+        QJsonObject schema;
+        schema["type"] = QStringLiteral("object");
+        schema["properties"] = props;
+        QJsonArray required;
+        required.append(QStringLiteral("index"));
+        schema["required"] = required;
+        t["inputSchema"] = schema;
+        mcpTools.append(t);
     }
 
     return mcpTools;

@@ -276,9 +276,28 @@ void ChannelListWidget::contextMenuEvent(QContextMenuEvent *event) {
         return;
     }
     QMenu menu(this);
+
+    // Channel-scoped event ops reuse the existing QAction-data slots (the action
+    // carries the channel index in data()). meow has no channel menu - this is a
+    // bonus over the reference build.
+    QAction *selectAct = menu.addAction(tr("Select All Events"));
+    selectAct->setData(channel);
+    connect(selectAct, &QAction::triggered, mw, [mw, selectAct]() {
+        mw->selectAllFromChannel(selectAct);
+    });
+
+    QAction *removeAct = menu.addAction(tr("Remove Events"));
+    removeAct->setData(channel);
+    connect(removeAct, &QAction::triggered, mw, [mw, removeAct]() {
+        mw->deleteChannel(removeAct);
+    });
+
+    menu.addSeparator();
+
     QAction *convertTempoAct = menu.addAction(tr("Convert Tempo, Preserve Duration..."));
     connect(convertTempoAct, &QAction::triggered, mw, [mw, channel]() {
         mw->convertTempoForChannel(channel);
     });
+
     menu.exec(event->globalPos());
 }

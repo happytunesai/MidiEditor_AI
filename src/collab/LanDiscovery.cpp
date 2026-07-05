@@ -231,7 +231,9 @@ QString LanDiscovery::generatePairingCode() {
     // Drop visually ambiguous characters (0/O, 1/I) so users can read codes
     // out loud without errors.
     static const char *kAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-    const int alphabetLen = 31;  // length of kAlphabet
+    // 24 letters (A-Z minus I/O) + 8 digits (2-9) = 32. The old hard-coded 31
+    // dropped the final symbol '9' from every generated code.
+    const int alphabetLen = 32;  // length of kAlphabet
     QString code;
     code.reserve(4);
     for (int i = 0; i < 4; ++i) {

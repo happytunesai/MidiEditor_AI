@@ -461,17 +461,28 @@ private slots:
 
     // -----------------------------------------------------------------
     void visible_delegatesToChannelVisibilityManager() {
+        // Since the split-view fix, MidiChannel::visible() resolves against
+        // ITS OWN document's visibility state (file-scoped overload), not the
+        // globally-active one - a non-active editor group must render with
+        // its own document's channel visibility.
         MidiFile file;
         MidiChannel ch(&file, 5);
 
-        ChannelVisibilityManager::instance().resetAllVisible();
-        QCOMPARE(ch.visible(), true);
+        QCOMPARE(ch.visible(), true); // fresh per-file state: all visible
 
-        ChannelVisibilityManager::instance().setChannelVisible(5, false);
+        ChannelVisibilityManager::instance().setChannelVisible(5, false, &file);
         QCOMPARE(ch.visible(), false);
 
-        ChannelVisibilityManager::instance().resetAllVisible();
+        ChannelVisibilityManager::instance().setChannelVisible(5, true, &file);
         QCOMPARE(ch.visible(), true);
+
+        // The ACTIVE document's state (no file given -> active/default array)
+        // must NOT bleed into this document's channels.
+        ChannelVisibilityManager::instance().setChannelVisible(5, false);
+        QCOMPARE(ch.visible(), true);
+        ChannelVisibilityManager::instance().resetAllVisible();
+
+        ChannelVisibilityManager::instance().forgetFile(&file);
     }
 
     // -----------------------------------------------------------------

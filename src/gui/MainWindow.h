@@ -21,6 +21,7 @@
 
 // Qt includes
 #include <QCloseEvent>
+#include <QJsonArray>
 #include <QMainWindow>
 #include <QScrollBar>
 #include <QSettings>
@@ -135,6 +136,22 @@ public:
      * \return The currently loaded MidiFile, or nullptr if none
      */
     MidiFile *getFile();
+
+    /**
+     * \brief Lists all open documents (tabs) across both editor groups for
+     *        the MCP server: index, title, path, group, active/modified.
+     *        The index is positional (group 0 tabs first, then group 1) and
+     *        matches what activateDocumentByListIndex() expects.
+     */
+    QJsonArray listOpenDocumentsJson() const;
+
+    /**
+     * \brief Activates the open document with the given list index (from
+     *        listOpenDocumentsJson()). Uses the same code path as clicking
+     *        the tab; restores the collapsed second group when needed.
+     * \return False when the index is out of range.
+     */
+    bool activateDocumentByListIndex(int index);
 
     /**
      * \brief Gets the matrix widget for note editing.
@@ -618,6 +635,32 @@ public slots:
      * \brief Splits a multi-channel track into one track per channel.
      */
     void splitChannelsToTracks();
+
+    /**
+     * \brief Splits the channel-9 drum kit into FFXIV percussion tracks
+     *        (Bass Drum / Snare Drum / Cymbal / Bongo / Other Percussion).
+     *        Cosmetic only - every event stays on channel 9.
+     */
+    void ffxivDrumSplit();
+
+    // v2.0 #3: per-track context-menu operations, called directly from the
+    // Tracks/Channels panel context menus (each captures the right-clicked
+    // MidiTrack* and resolves its document via track->file()). The MidiTrack*
+    // overloads of explode/split let the menu act on the right-clicked track
+    // instead of the global edit-track.
+    void explodeChordsToTracks(MidiTrack *sourceTrack);
+    void splitChannelsToTracks(MidiTrack *sourceTrack);
+    void cloneTrack(MidiTrack *track);
+    void mergeTrack(MidiTrack *source, MidiTrack *destination);
+    void moveTrackUp(MidiTrack *track);
+    void moveTrackDown(MidiTrack *track);
+    void quantizeTrack(MidiTrack *track);
+    void transposeTrack(MidiTrack *track);
+    void transposeTrackOctaveUp(MidiTrack *track);
+    void transposeTrackOctaveDown(MidiTrack *track);
+    void selectTrackEvents(MidiTrack *track);
+    void clearTrackEvents(MidiTrack *track);
+    void moveTrackEventsToChannel(MidiTrack *track, int channel);
 
     /**
      * \brief Opens the Strummer dialog to stagger notes.
@@ -1764,6 +1807,11 @@ private:
 
     /** \brief Returns the auto-save backup path for the current file */
     QString autoSavePath() const;
+
+    /** \brief Auto-save path for a SPECIFIC document (multi-doc auto-save).
+     *  Untitled documents only map to the stable AppData path when they are
+     *  the active file (a background untitled would collide on it). */
+    QString autoSavePathFor(MidiFile *f) const;
 
     /** \brief Removes auto-save sidecar files and stops the timer */
     void cleanupAutoSave();

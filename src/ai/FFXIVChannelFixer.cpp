@@ -161,7 +161,8 @@ int FFXIVChannelFixer::dominantNoteChannel(MidiFile *file, MidiTrack *track) {
 // ---------------------------------------------------------------------------
 
 QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
-                                           ProgressCallback progress) {
+                                           ProgressCallback progress,
+                                           bool resyncNonGuitar) {
     // Helper to report progress if callback is set
     auto reportProgress = [&](int pct, const QString &msg) {
         if (progress) progress(pct, msg);
@@ -430,6 +431,107 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
     }
 
     // -----------------------------------------------------------------------
+    // 1b. RESYNC PLAN (Tier 3 opt-in, v2.0) — non-guitar channels whose
+    //     tick-0 program no longer matches the owning track's name.
+    //
+    //     Read-only detection, computed BEFORE any mutation. Rules (from the
+    //     v2.0 pre-build verification):
+    //       * Detect by scanning the ACTUAL tick-0 ProgChangeEvents — never
+    //         progAtTick(0), which returns 0 both for "no PC at all" and for
+    //         a genuine Piano (program 0).
+    //       * "No tick-0 PC" and "more than one tick-0 PC" (stacked
+    //         duplicates from an old Tier 2 run) both count as needs-fix;
+    //         the fix collapses to exactly ONE PC per channel.
+    //       * Skip guitar tracks (guitar logic owns those channels), skip
+    //         percussion by NAME (Bass Drum/Snare Drum/Cymbal/Bongo live on
+    //         CH9 under per-hit name-keyed injection) — Timpani is tonal and
+    //         IS a resync target. Non-FFXIV track names are skipped, so their
+    //         channels stay untouched.
+    //       * When several tracks share one channel, the channel's program
+    //         follows the track with the EARLIEST first NoteOn on that
+    //         channel (tie-break: lowest track index) — deterministic across
+    //         repeated runs.
+    // -----------------------------------------------------------------------
+
+    struct ResyncTarget { int program; MidiTrack *ownerTrack; };
+    QHash<int, ResyncTarget> resyncPlan; // channel -> target program/owner
+    QJsonArray resyncLog;
+
+    if (isPreserveMode && resyncNonGuitar) {
+        QHash<int, QList<int>> tracksByChannel; // channel -> candidate tracks
+        for (int t = 0; t < trackCount; t++) {
+            if (isGuitar(baseNames[t])) continue;
+            if (isPercussion(baseNames[t])) continue;
+            int prog = programNumber(baseNames[t]);
+            if (prog < 0) continue;
+            int ch = channelFor[t];
+            if (ch < 0 || ch > 15) continue;
+            if (ch == 9) continue; // GM drum channel: owned by per-hit
+                                    // name-keyed injection - a melodic track
+                                    // assigned to CH9 must never strip the
+                                    // percussion PCs stacked there
+            if (allGuitarChs.contains(ch)) continue;
+            tracksByChannel[ch].append(t);
+        }
+
+        for (auto it = tracksByChannel.constBegin(); it != tracksByChannel.constEnd(); ++it) {
+            const int ch = it.key();
+            MidiChannel *channel = file->channel(ch);
+            if (!channel) continue;
+
+            // Owner = candidate with the earliest first NoteOn on THIS channel;
+            // candidates without notes here lose. When NO candidate actually
+            // plays on the channel, the channel is NOT ours to resync - an
+            // empty/idle FFXIV-named track with a stale assignedChannel must
+            // not clobber another (possibly non-FFXIV) track's deliberate
+            // tick-0 program change.
+            int ownerT = -1;
+            int bestTick = INT_MAX;
+            for (int t : it.value()) {
+                MidiTrack *track = file->track(t);
+                QMultiMap<int, MidiEvent *> *map = channel->eventMap();
+                for (auto eit = map->begin(); eit != map->end(); ++eit) {
+                    if (eit.value()->track() != track) continue;
+                    if (!dynamic_cast<NoteOnEvent *>(eit.value())) continue;
+                    if (eit.key() < bestTick) {
+                        bestTick = eit.key();
+                        ownerT = t;
+                    }
+                    break; // map sorted by tick: first hit = this track's earliest
+                }
+            }
+            if (ownerT < 0) continue; // no candidate plays here -> untouched
+            const int target = programNumber(baseNames[ownerT]);
+            if (target < 0) continue;
+
+            // Explicit tick-0 PC scan (presence + program).
+            int tickZeroPcCount = 0;
+            int currentProgram = -1;
+            const QList<MidiEvent *> atZero = channel->eventMap()->values(0);
+            for (MidiEvent *ev : atZero) {
+                if (ProgChangeEvent *pc = dynamic_cast<ProgChangeEvent *>(ev)) {
+                    tickZeroPcCount++;
+                    currentProgram = pc->program();
+                }
+            }
+
+            const bool needsFix = (tickZeroPcCount == 0)
+                               || (tickZeroPcCount > 1)
+                               || (currentProgram != target);
+            if (!needsFix) continue; // already clean -> idempotent no-op
+
+            resyncPlan.insert(ch, {target, file->track(ownerT)});
+            QJsonObject entry;
+            entry["channel"]    = ch;
+            entry["track"]      = ownerT;
+            entry["trackName"]  = file->track(ownerT)->name();
+            entry["oldProgram"] = (tickZeroPcCount > 0) ? currentProgram : -1;
+            entry["newProgram"] = target;
+            resyncLog.append(entry);
+        }
+    }
+
+    // -----------------------------------------------------------------------
     // 2. CLEAN â€" remove program_change events
     //    Tier 2: remove ALL PCs (full rebuild)
     //    Tier 3: only remove PCs on guitar channels (non-guitar untouched)
@@ -470,11 +572,28 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
 
     int removedPcCount = 0;
     for (int ch = 0; ch < 16; ch++) {
-        if (isPreserveMode && !guitarChsFromTracks.contains(ch))
-            continue; // Tier 3: only clean PCs on channels with guitar tracks
-                       // (reserved channels keep their Tier 2 PCs intact)
         MidiChannel *channel = file->channel(ch);
         if (!channel) continue;
+        if (isPreserveMode && !guitarChsFromTracks.contains(ch)) {
+            // Tier 3: non-guitar channels keep their PCs (reserved guitar
+            // channels keep their Tier 2 PCs intact) — EXCEPT an opt-in
+            // resync target, where ONLY the stale tick-0 PC(s) are removed.
+            // Mid-song program changes the user placed deliberately survive;
+            // the full-channel removal below stays guitar-only.
+            if (resyncPlan.contains(ch)) {
+                QList<MidiEvent *> toRemove;
+                const QList<MidiEvent *> atZero = channel->eventMap()->values(0);
+                for (MidiEvent *ev : atZero) {
+                    if (dynamic_cast<ProgChangeEvent *>(ev))
+                        toRemove.append(ev);
+                }
+                for (MidiEvent *ev : toRemove) {
+                    channel->removeEvent(ev, false);
+                }
+                removedPcCount += toRemove.size();
+            }
+            continue;
+        }
         QMultiMap<int, MidiEvent *> *map = channel->eventMap();
         QList<MidiEvent *> toRemove;
         for (auto it = map->begin(); it != map->end(); ++it) {
@@ -675,6 +794,19 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
         }
     }
 
+    // Tier-3 opt-in non-guitar resync: exactly ONE tick-0 PC per channel,
+    // attributed to the channel's owning track. Deliberately NOT routed
+    // through the per-track loop above — that inserts one PC per track and
+    // would stack duplicates on every run, breaking the "second consecutive
+    // run is a no-op" guarantee the daily Tier-3 workflow depends on.
+    if (isPreserveMode && resyncNonGuitar) {
+        for (auto it = resyncPlan.constBegin(); it != resyncPlan.constEnd(); ++it) {
+            auto *pc = new ProgChangeEvent(it.key(), it.value().program,
+                                           it.value().ownerTrack);
+            file->channel(it.key())->insertEvent(pc, 0, false);
+        }
+    }
+
     // -----------------------------------------------------------------------
     // 4b. SWITCH â€” insert program_change at guitar channel switch points
     // -----------------------------------------------------------------------
@@ -811,6 +943,10 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
 
     if (!renameLog.isEmpty())
         result["trackRenames"] = renameLog;
+
+    result["resyncedNonGuitarChannels"] = resyncPlan.size();
+    if (!resyncLog.isEmpty())
+        result["nonGuitarResyncs"] = resyncLog;
 
     result["success"] = true;
     result["tier"] = tier;

@@ -1826,6 +1826,29 @@ void MidiFile::addTrack() {
     connect(track, SIGNAL(trackChanged()), this, SIGNAL(trackChanged()));
 }
 
+bool MidiFile::moveTrack(MidiTrack *track, int delta) {
+    if (!track || !_tracks) {
+        return false;
+    }
+    int idx = _tracks->indexOf(track);
+    int to = idx + delta;
+    if (idx < 0 || to < 0 || to >= _tracks->size()) {
+        return false;
+    }
+    // Same protocol pattern as addTrack/removeTrack: the FILE snapshot covers
+    // the _tracks list ORDER (MidiTrack items only restore numbers). Without
+    // it, undo reverts the numbers but keeps the swapped order - positional
+    // track(int) lookups then disagree with the displayed list.
+    ProtocolEntry *toCopy = copy();
+    _tracks->swapItemsAt(idx, to);
+    int n = 0;
+    foreach(MidiTrack* t, *_tracks) {
+        t->setNumber(n++);
+    }
+    ProtocolEntry::protocol(toCopy, this);
+    return true;
+}
+
 bool MidiFile::removeTrack(MidiTrack *track) {
     if (numTracks() < 2) {
         return false;

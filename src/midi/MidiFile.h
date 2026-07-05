@@ -383,6 +383,14 @@ public:
      */
     bool removeTrack(MidiTrack *track);
 
+    /**
+     * \brief Moves a track one slot up/down (delta -1 / +1) in the track list
+     *        and renumbers all tracks, as one protocolled operation (the file
+     *        snapshot restores the LIST ORDER on undo, not just the numbers).
+     * \return False when the move is out of range.
+     */
+    bool moveTrack(MidiTrack *track, int delta);
+
     // === File Structure Modification ===
 
     /**

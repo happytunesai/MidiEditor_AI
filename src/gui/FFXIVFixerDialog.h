@@ -8,6 +8,7 @@ class QRadioButton;
 class QLabel;
 class QPushButton;
 class QButtonGroup;
+class QCheckBox;
 
 /**
  * \class FFXIVFixerDialog
@@ -27,6 +28,13 @@ public:
     /** \brief Returns the selected tier (2 or 3).  Returns 0 if none selected. */
     int selectedTier() const;
 
+    /**
+     * \brief Tier-3 opt-in (v2.0): re-sync non-guitar channel instruments
+     *        from track names. Only meaningful when Preserve is selected;
+     *        default unchecked so plain Tier 3 stays unchanged.
+     */
+    bool resyncNonGuitarInstruments() const;
+
 private slots:
     void onSelectionChanged();
 
@@ -36,6 +44,7 @@ private:
     QButtonGroup *_tierGroup;
     QRadioButton *_tier2Radio;
     QRadioButton *_tier3Radio;
+    QCheckBox    *_resyncCheck;
     QPushButton  *_continueButton;
     QPushButton  *_abortButton;
 };

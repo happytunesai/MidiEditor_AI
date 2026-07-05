@@ -13,17 +13,24 @@ ChannelVisibilityManager &ChannelVisibilityManager::instance() {
 }
 
 bool *ChannelVisibilityManager::activeArray() {
-    if (!_activeFile) {
+    return arrayFor(_activeFile);
+}
+
+bool *ChannelVisibilityManager::arrayFor(MidiFile *file) {
+    if (!file) {
+        file = _activeFile;
+    }
+    if (!file) {
         return channelVisibility;
     }
-    auto it = _perFile.find(_activeFile);
+    auto it = _perFile.find(file);
     if (it == _perFile.end()) {
         // First access for this document: default to all channels visible.
         State s;
         for (int i = 0; i < 19; i++) {
             s.v[i] = true;
         }
-        it = _perFile.insert(_activeFile, s);
+        it = _perFile.insert(file, s);
     }
     return it->v;
 }
@@ -42,12 +49,16 @@ void ChannelVisibilityManager::forgetFile(MidiFile *file) {
 }
 
 bool ChannelVisibilityManager::isChannelVisible(int channel) {
+    return isChannelVisible(channel, nullptr);
+}
+
+bool ChannelVisibilityManager::isChannelVisible(int channel, MidiFile *file) {
     // Bounds checking
     if (channel < 0 || channel >= 19) {
         return true; // Default to visible for invalid channels
     }
 
-    bool *vis = activeArray();
+    bool *vis = arrayFor(file);
 
     // Special inheritance: channels > 16 inherit from channel 16
     if (channel > 16) {
@@ -58,12 +69,16 @@ bool ChannelVisibilityManager::isChannelVisible(int channel) {
 }
 
 void ChannelVisibilityManager::setChannelVisible(int channel, bool visible) {
+    setChannelVisible(channel, visible, nullptr);
+}
+
+void ChannelVisibilityManager::setChannelVisible(int channel, bool visible, MidiFile *file) {
     // Bounds checking
     if (channel < 0 || channel >= 19) {
         return; // Ignore invalid channels
     }
 
-    activeArray()[channel] = visible;
+    arrayFor(file)[channel] = visible;
 }
 
 void ChannelVisibilityManager::resetAllVisible() {

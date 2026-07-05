@@ -33,6 +33,8 @@ private slots:
     void allPresetNotes_stayWithinGmPercussionRange();
     void notesAreUniqueWithinAPreset();
     void everyGroup_hasNonEmptyNameAndNoteList();
+    void ffxivPreset_mapsGmDrumsToFfxivInstrumentTracks();
+    void ffxivMapPresets_kitsAreSaneForBardRange();
 };
 
 // ---------------------------------------------------------------------------
@@ -121,6 +123,133 @@ void TestDrumKitPreset::everyGroup_hasNonEmptyNameAndNoteList()
             QVERIFY2(!g.noteNumbers.isEmpty(),
                      qPrintable(QString("preset '%1' group '%2' is empty")
                                     .arg(p.name).arg(g.name)));
+        }
+    }
+}
+
+void TestDrumKitPreset::ffxivPreset_mapsGmDrumsToFfxivInstrumentTracks()
+{
+    DrumKitPreset fx = DrumKitPreset::ffxivPreset();
+
+    // The four playable FFXIV percussion track names MUST match the keys in
+    // FluidSynthEngine::drumProgramForTrackName() exactly, or the name-keyed
+    // program-change injection won't fire and a cosmetic CH9 split would play
+    // as raw GM drums. (Names hard-asserted here as the contract.)
+    QVERIFY2(groupContains(fx, "Bass Drum",  35), "kick -> Bass Drum");
+    QVERIFY2(groupContains(fx, "Bass Drum",  36), "kick -> Bass Drum");
+    QVERIFY2(groupContains(fx, "Bass Drum",  41), "tom -> Bass Drum (FFXIV has no tom)");
+    QVERIFY2(groupContains(fx, "Bass Drum",  50), "high tom -> Bass Drum");
+    QVERIFY2(groupContains(fx, "Snare Drum", 38), "acoustic snare -> Snare Drum");
+    QVERIFY2(groupContains(fx, "Snare Drum", 40), "electric snare -> Snare Drum");
+    QVERIFY2(groupContains(fx, "Cymbal",     42), "closed hi-hat -> Cymbal");
+    QVERIFY2(groupContains(fx, "Cymbal",     46), "open hi-hat -> Cymbal");
+    QVERIFY2(groupContains(fx, "Cymbal",     49), "crash -> Cymbal");
+    QVERIFY2(groupContains(fx, "Cymbal",     51), "ride -> Cymbal");
+    QVERIFY2(groupContains(fx, "Bongo",      60), "high bongo -> Bongo");
+    QVERIFY2(groupContains(fx, "Bongo",      64), "low conga -> Bongo");
+    QVERIFY2(groupContains(fx, "Other Percussion", 76), "woodblock -> Other Percussion");
+    QVERIFY2(groupContains(fx, "Other Percussion", 80), "triangle -> Other Percussion");
+
+    // Toms must NOT be routed to a "Timpani" track - Timpani is tonal and is
+    // handled separately by the channel fixer, not by the percussion split.
+    for (const DrumGroup& g : fx.groups)
+        QVERIFY2(g.name != QString("Timpani"),
+                 "ffxivPreset must not create a Timpani drum group");
+
+    // No GM drum note in two groups, and every note 35..81 is covered so the
+    // split never silently drops a percussion hit.
+    QSet<int> seen;
+    for (const DrumGroup& g : fx.groups) {
+        QVERIFY2(!g.name.isEmpty(), "ffxiv group name must not be empty");
+        for (int n : g.noteNumbers) {
+            QVERIFY2(n >= 35 && n <= 81,
+                     qPrintable(QString("ffxiv group '%1' note %2 out of GM range")
+                                    .arg(g.name).arg(n)));
+            QVERIFY2(!seen.contains(n),
+                     qPrintable(QString("ffxiv preset duplicates note %1").arg(n)));
+            seen.insert(n);
+        }
+    }
+    for (int n = 35; n <= 81; ++n)
+        QVERIFY2(seen.contains(n),
+                 qPrintable(QString("ffxiv preset does not cover GM note %1").arg(n)));
+}
+
+void TestDrumKitPreset::ffxivMapPresets_kitsAreSaneForBardRange()
+{
+    const QList<FfxivDrumMapPreset> kits = FfxivDrumMapPreset::presets();
+
+    // The house kit first, then the four community kits, in this order.
+    QCOMPARE(kits.size(), 5);
+    QCOMPARE(kits[0].name, QString("MidiEditor AI (Happy Tunes)"));
+    QCOMPARE(kits[1].name, QString("Mog Amp"));
+    QCOMPARE(kits[2].name, QString("Bard Forge 1"));
+    QCOMPARE(kits[3].name, QString("Bard Forge 2"));
+    QCOMPARE(kits[4].name, QString("Bard Metal"));
+
+    // House-kit anchors (calibrated against real before/after edits): BOTH
+    // kicks anchor on C4, BOTH snares on C5, toms flat +24, crash convention
+    // low-crash->C5 / china->F#5 / high-crash->C6. Hi-hats/rides stay
+    // unmapped on purpose (they fall through to "Other Percussion" untouched
+    // - which cymbal goes to which zone is a per-song editor decision).
+    {
+        const FfxivDrumMapPreset &house = kits[0];
+        QSet<int> houseSources;
+        for (const FfxivDrumMapGroup &g : house.groups)
+            for (const FfxivDrumNoteMap &m : g.mappings)
+                houseSources.insert(m.sourceNote);
+        auto target = [&house](int src) {
+            for (const FfxivDrumMapGroup &g : house.groups)
+                for (const FfxivDrumNoteMap &m : g.mappings)
+                    if (m.sourceNote == src) return m.targetNote;
+            return -1;
+        };
+        QCOMPARE(target(35), 60); // kick anchor: C4
+        QCOMPARE(target(36), 60); // kick anchor: C4 (both kicks)
+        QCOMPARE(target(45), 69); // tom +24
+        QCOMPARE(target(38), 72); // snare anchor: C5
+        QCOMPARE(target(40), 72); // snare anchor: C5 (both snares)
+        QCOMPARE(target(49), 72); // low crash -> C5
+        QCOMPARE(target(52), 78); // china -> F#5
+        QCOMPARE(target(57), 84); // high crash -> C6
+        QCOMPARE(target(60), 70); // hi bongo (Bard Metal hand-perc block)
+        QCOMPARE(target(64), 74); // low conga
+        QVERIFY2(!houseSources.contains(42) && !houseSources.contains(46)
+                     && !houseSources.contains(51),
+                 "hi-hats and rides must stay unmapped (editor's call per song)");
+    }
+
+    // Track names must match FluidSynthEngine::drumProgramForTrackName()'s
+    // keys, and the programs must be OUR FF14 SoundFont presets - meow's
+    // originals used 96-99 for ITS SoundFont; a blind port would be silent.
+    const QHash<QString, int> expectedProgram = {
+        {"Bass Drum", 117}, {"Snare Drum", 118}, {"Cymbal", 119}, {"Bongo", 116},
+    };
+
+    for (const FfxivDrumMapPreset& kit : kits) {
+        QSet<int> seenSources;
+        for (const FfxivDrumMapGroup& g : kit.groups) {
+            QVERIFY2(expectedProgram.contains(g.trackName),
+                     qPrintable(QString("kit '%1' has unknown group '%2'")
+                                    .arg(kit.name).arg(g.trackName)));
+            QCOMPARE(g.programNumber, expectedProgram.value(g.trackName));
+            QVERIFY2(!g.mappings.isEmpty(),
+                     qPrintable(QString("kit '%1' group '%2' has no mappings")
+                                    .arg(kit.name).arg(g.trackName)));
+            for (const FfxivDrumNoteMap& m : g.mappings) {
+                QVERIFY2(m.sourceNote >= 35 && m.sourceNote <= 81,
+                         qPrintable(QString("kit '%1' source %2 outside GM drum range")
+                                        .arg(kit.name).arg(m.sourceNote)));
+                // FFXIV bard instruments play C3-C6 (MIDI 48-84); a target
+                // outside that range would be silent in game.
+                QVERIFY2(m.targetNote >= 48 && m.targetNote <= 84,
+                         qPrintable(QString("kit '%1' target %2 outside bard range C3-C6")
+                                        .arg(kit.name).arg(m.targetNote)));
+                QVERIFY2(!seenSources.contains(m.sourceNote),
+                         qPrintable(QString("kit '%1' maps GM note %2 twice")
+                                        .arg(kit.name).arg(m.sourceNote)));
+                seenSources.insert(m.sourceNote);
+            }
         }
     }
 }

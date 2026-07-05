@@ -467,6 +467,9 @@ private:
     int _maxTokensLimit;
     bool _hasToolsInRequest;
     bool _isStreaming;
+    // Set by cancelRequest() so onReplyFinished's OperationCanceled branch can
+    // stay silent for a user-initiated Stop (vs a real network timeout).
+    bool _userCancelled = false;
     bool _streamHasTools;
     QByteArray _streamBuffer;
     QString _streamContent;
@@ -510,6 +513,13 @@ private:
     int _streamGeminiThoughtChars = 0;
     QString _streamGeminiFinishReason;
     int _retryCount;
+
+    // Monotonic send generation: bumped on every request initiation and on
+    // cancelRequest(). A scheduled auto-retry captures the generation at
+    // schedule time and bails when superseded, so a user cancel / new send /
+    // switched request can never be re-posted as a stale duplicate (which
+    // would double-process replies - e.g. execute agent tool calls twice).
+    quint64 _sendGeneration = 0;
     QByteArray _lastRequestData;
     QNetworkRequest _lastRequest;
 

@@ -13,7 +13,7 @@
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-0078D6?logo=windows)](https://github.com/happytunesai/MidiEditor_AI/releases)
 
-**Version:** 1.9.2
+**Version:** 2.0.0
 **Status:** Release
 
 📥 **[Download Latest Release](https://github.com/happytunesai/MidiEditor_AI/releases/latest)**
@@ -69,7 +69,9 @@ MidiPilot is the AI brain embedded directly in MidiEditor AI. Open the sidebar, 
 | 💾 **Per-File AI Presets** | Save provider, model, mode, FFXIV, effort, and custom instructions per MIDI file as a sidecar `.midipilot.json` |
 | 📏 **Context Window Management** | Sliding-window truncation prevents exceeding model context limits, with usage warnings at 80% |
 | 🎮 **FFXIV Bard Mode** | Enforces Final Fantasy XIV Performance constraints (8 tracks, monophonic, C3-C6) |
-| 🎸 **Fix X\|V Channels** | One-click deterministic channel fixer - Rebuild or Preserve mode, velocity normalization, rich result summary |
+| 🎸 **Fix X\|V Channels** | One-click deterministic channel fixer - Rebuild or Preserve mode, optional instrument re-sync, velocity normalization, rich result summary |
+| 🥁 **FFXIV Drum Split** | Split the GM drum kit (channel 10) into separate FFXIV percussion tracks - optional pitch-mapping kits (house kit + community kits) transpose each drum onto its bard pitch, overlap cleanup removes stacked hits FFXIV cannot play |
+| 🖱️ **Track & Channel Context Menus** | Right-click a track row for Clone, Merge Into, Move Up/Down, Quantize, Transpose, Explode Chords, Split Channels, and event ops (select all / move to channel / remove / tempo conversion); channel rows get the matching event ops |
 | 🔀 **Split Channels to Tracks** | Convert single-track multi-channel GM MIDI files into one track per instrument with auto-naming |
 | 💥 **Explode Chords to Tracks** | Split polyphonic chords into separate monophonic tracks - one note per track, ideal for FFXIV ensemble prep |
 | 🗂️ **Tabs & Editor Groups** | Keep several files open as tabs and view two **side by side** in independent, fully-editable editor groups. Drag tabs between groups (with a drop caret), Split / Clone / New-Tab tools, collapse/restore the second group, drop files into a specific pane. Your tabs + split are restored after a restart |
@@ -174,7 +176,29 @@ The **Fix X|V Channels** button provides a deterministic channel fixer for FFXIV
   <i>Mode selection dialog - Rebuild (full reassignment) or Preserve (minimal changes)</i>
 </p>
 
-Find it in the toolbar or via **Tools → Fix X|V Channels**. The entire operation is a single undo action (Ctrl+Z).
+Find it in the toolbar or via **Tools → Fix X|V Channels**. The entire operation is a single undo action (Ctrl+Z). Preserve mode offers an optional **instrument re-sync** that repairs stale Program Changes on non-guitar channels without touching the channel layout.
+
+---
+
+## 🥁 FFXIV Drum Split
+
+The **FFXIV Drum Split** tool converts the GM drum kit (channel 10) into the separate percussion tracks FFXIV expects - Bass Drum, Snare Drum, Cymbal, Bongo and more, named so the bard SoundFont and audio export pick the right instrument automatically.
+
+<p align="center">
+  <img src="manual/screenshots/ffxiv-drum-split_kit-selected.png" alt="FFXIV Drum Split dialog with a pitch mapping kit selected" width="500"/>
+  <br/>
+  <i>Preview dialog - pitch mapping kit, per-group include checkboxes, and overlap cleanup</i>
+</p>
+
+**Features:**
+- **Pitch mapping kits** - the house kit plus community kits transpose each GM drum onto its FFXIV bard pitch; tracks stay on the drum channel because the instrument follows the track name
+- **Overlap cleanup** - stacked same-pitch reinforcement hits play sequentially in FFXIV and change the beat, so redundant overlaps are removed by default (or moved to a review track)
+- **Other Percussion** - everything the mapping does not cover is collected, never silently dropped
+- **Full undo** - the entire split is a single undo action (Ctrl+Z)
+
+Find it in the toolbar or via **Tools → FFXIV drum split**.
+
+📖 **[FFXIV Drum Split Documentation →](https://happytunesai.github.io/MidiEditor_AI/ffxiv-drum-split.html)**
 
 ---
 

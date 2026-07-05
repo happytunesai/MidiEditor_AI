@@ -42,13 +42,21 @@ public:
 
     /**
      * \brief Fix all channel assignments and program_change events.
-     * \param file       The loaded MidiFile
-     * \param forcedTier 0 = auto-detect, 2 = Rebuild, 3 = Preserve
-     * \param progress   Optional callback for progress updates
+     * \param file            The loaded MidiFile
+     * \param forcedTier      0 = auto-detect, 2 = Rebuild, 3 = Preserve
+     * \param progress        Optional callback for progress updates
+     * \param resyncNonGuitar Tier-3 opt-in (v2.0): rewrite a non-guitar
+     *        channel's tick-0 program change when it no longer matches the
+     *        owning track's name (e.g. after renaming Trumpet -> Trombone).
+     *        Only mismatched channels are touched, exactly ONE tick-0 PC per
+     *        channel is written, and mid-song PCs are preserved - a second
+     *        consecutive run is a no-op. Default off: plain Tier 3 leaves
+     *        non-guitar channels byte-identical, as before.
      * \return JSON result with success, channelMap, summary
      */
     static QJsonObject fixChannels(MidiFile *file, int forcedTier = 0,
-                                   ProgressCallback progress = nullptr);
+                                   ProgressCallback progress = nullptr,
+                                   bool resyncNonGuitar = false);
 
 private:
     // Percussion instrument base names that go to CH9

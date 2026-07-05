@@ -46,11 +46,22 @@ public:
     bool isChannelVisible(int channel);
 
     /**
+     * \brief File-scoped query (split view): resolves against the GIVEN
+     *        document's state instead of the globally-active one, so a
+     *        non-active editor group renders with its own visibility.
+     *        nullptr falls back to the active-document behavior.
+     */
+    bool isChannelVisible(int channel, MidiFile *file);
+
+    /**
      * \brief Sets the visibility of a channel
      * \param channel The channel number (0-18)
      * \param visible True to make the channel visible, false to hide it
      */
     void setChannelVisible(int channel, bool visible);
+
+    /** \brief File-scoped setter counterpart of the query overload. */
+    void setChannelVisible(int channel, bool visible, MidiFile *file);
 
     /**
      * \brief Resets all channels to visible
@@ -69,6 +80,10 @@ private:
      *  Looked up fresh on every call so no pointer is held across a possible
      *  rehash. */
     bool *activeArray();
+
+    /** \brief Returns the GIVEN document's state array (lazily created);
+     *  nullptr resolves like activeArray(). */
+    bool *arrayFor(MidiFile *file);
 
     /** \brief Default state used when no document is active (nullptr). */
     bool channelVisibility[19];

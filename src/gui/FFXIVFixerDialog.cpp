@@ -1,6 +1,7 @@
 #include "FFXIVFixerDialog.h"
 
 #include <QButtonGroup>
+#include <QCheckBox>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QJsonArray>
@@ -99,6 +100,19 @@ void FFXIVFixerDialog::setupUI(const QJsonObject &analysis) {
     tier3Desc->setStyleSheet("QLabel { color: gray; font-size: 10px; margin-left: 20px; margin-bottom: 8px; }");
     tierLayout->addWidget(tier3Desc);
 
+    // v2.0: opt-in non-guitar instrument re-sync (Preserve only, default off
+    // so plain Tier 3 keeps its "non-guitar channels untouched" contract).
+    _resyncCheck = new QCheckBox(tr("Re-sync non-guitar channel instruments from track names"), tierGroup);
+    _resyncCheck->setChecked(false);
+    _resyncCheck->setEnabled(false);
+    _resyncCheck->setToolTip(tr(
+        "Rewrites a channel's program change at tick 0 when it no longer matches\n"
+        "the track name (e.g. after renaming Trumpet to Trombone). Only channels\n"
+        "with a mismatch are touched; program changes later in the song are kept,\n"
+        "and running the fixer again changes nothing."));
+    _resyncCheck->setStyleSheet("QCheckBox { margin-left: 20px; }");
+    tierLayout->addWidget(_resyncCheck);
+
     _tierGroup->addButton(_tier2Radio, 2);
     _tierGroup->addButton(_tier3Radio, 3);
 
@@ -134,6 +148,13 @@ int FFXIVFixerDialog::selectedTier() const {
     return (id == 2 || id == 3) ? id : 0;
 }
 
+bool FFXIVFixerDialog::resyncNonGuitarInstruments() const {
+    return _resyncCheck && _resyncCheck->isChecked();
+}
+
 void FFXIVFixerDialog::onSelectionChanged() {
     _continueButton->setEnabled(_tierGroup->checkedId() >= 1);
+    // The re-sync option belongs to Preserve mode (Tier 2 rebuilds all
+    // non-guitar PCs anyway).
+    _resyncCheck->setEnabled(_tierGroup->checkedId() == 3);
 }

@@ -9,6 +9,7 @@
 #include <QJsonDocument>
 #include <QNetworkRequest>
 #include <QRandomGenerator>
+#include <QRegularExpression>
 #include <QSet>
 #include <QTimer>
 #include <QUrl>
@@ -75,7 +76,17 @@ bool AiClient::modelRequiresResponsesApi(const QString &provider, const QString 
 {
     const bool openAiNative = provider.isEmpty()
                               || provider == QStringLiteral("openai");
-    return openAiNative && model.toLower().contains(QStringLiteral("-pro"));
+    if (!openAiNative) {
+        return false;
+    }
+    // Anchored to the pro model FAMILY (o1-pro, o3-pro, gpt-5-pro,
+    // gpt-5.5-pro, dated snapshots like gpt-5-pro-2026-01-01) - a plain
+    // "-pro" substring match would also hit fine-tune IDs and custom names
+    // ("ft:gpt-4o...:midi-prompt:...", "-prod-...", "-project-..."), forcing
+    // chat-only models onto /v1/responses where they 400 on every send.
+    static const QRegularExpression proFamily(
+        QStringLiteral("^(o\\d+|gpt-\\d+(\\.\\d+)?)-pro(-.+)?$"));
+    return proFamily.match(model.toLower()).hasMatch();
 }
 
 AiClient::AiClient(QObject *parent)
@@ -319,10 +330,31 @@ bool AiClient::isBusy() const
 
 void AiClient::cancelRequest()
 {
+    // Also invalidates any scheduled auto-retry (its lambda checks the
+    // generation) - during a backoff wait _currentReply is null, so the
+    // abort below alone would not stop the pending re-post.
+    _sendGeneration++;
+    _userCancelled = true; // silence the OperationCanceled "timed out" toast
     if (_currentReply) {
-        _currentReply->disconnect(this);
-        _currentReply->abort();
+        QNetworkReply *reply = _currentReply;
         _currentReply = nullptr;
+        reply->disconnect(this);
+        reply->abort();
+        reply->deleteLater(); // was leaked on the streaming path (its finished
+                              // lambda, disconnected just above, never ran)
+    }
+    if (_isStreaming) {
+        // The stream's own finished lambda restores this state, but we just
+        // disconnected it, so it will never run. Without this, _isStreaming
+        // stays true (onReplyFinished then bails for EVERY later reply) and the
+        // manager-level finished handler stays disconnected -> the whole AI
+        // subsystem is wedged after a Stop-during-stream.
+        _isStreaming = false;
+        _streamHasTools = false;
+        _streamToolCalls.clear();
+        clearStreamingRetryContext();
+        connect(_manager, &QNetworkAccessManager::finished, this,
+                &AiClient::onReplyFinished, Qt::UniqueConnection);
     }
 }
 
@@ -418,6 +450,7 @@ void AiClient::sendMessagesInternal(const QJsonArray &messages,
         return;
     }
 
+    _sendGeneration++; // supersedes any pending auto-retry
     _isTestRequest = false;
     _hasToolsInRequest = !tools.isEmpty();
     _retryCount = 0;
@@ -608,6 +641,7 @@ void AiClient::sendMessagesInternal(const QJsonArray &messages,
 
     _lastRequest = request;
     _lastRequestData = data;
+    _userCancelled = false; // a new request supersedes any earlier Stop
     _currentReply = _manager->post(request, data);
 }
 
@@ -644,6 +678,7 @@ void AiClient::testConnection()
         return;
     }
 
+    _sendGeneration++; // supersedes any pending auto-retry
     _isTestRequest = true;
 
     bool reasoning = isReasoningModel();
@@ -708,6 +743,7 @@ void AiClient::testConnection()
 
     logApi(QStringLiteral("[TEST-REQ] model=%1 body=%2").arg(_model, QString::fromUtf8(data.left(4000))));
 
+    _userCancelled = false; // a new request supersedes any earlier Stop
     _currentReply = _manager->post(request, data);
 }
 
@@ -981,13 +1017,17 @@ void AiClient::onReplyFinished(QNetworkReply *reply)
 
     if (reply->error() == QNetworkReply::OperationCanceledError) {
         logApi(QStringLiteral("[TIMEOUT] Request timed out or was cancelled"));
-        if (!_isTestRequest) {
+        // A user Stop (cancelRequest set _userCancelled) is not an error - only
+        // a genuine transfer timeout should surface the toast.
+        if (!_isTestRequest && !_userCancelled) {
             emit errorOccurred(tr("Request timed out. The prompt may be too complex for this model, "
                                   "or the provider is slow. Try a simpler prompt or a different model."));
         }
+        _userCancelled = false;
         reply->deleteLater();
         return;
     }
+    _userCancelled = false;
 
     QByteArray responseData = reply->readAll();
     int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
@@ -1089,7 +1129,16 @@ void AiClient::onReplyFinished(QNetworkReply *reply)
             emit retrying((rateLimited ? tr("Rate limited - retrying in %1 s (%2/%3)...")
                                        : tr("Service busy - retrying in %1 s (%2/%3)..."))
                               .arg(waitSec).arg(_retryCount).arg(kMaxRetries));
-            QTimer::singleShot(retryDelayMs, this, [this]() {
+            const quint64 gen = _sendGeneration;
+            QTimer::singleShot(retryDelayMs, this, [this, gen]() {
+                // A cancel, a new send, or another in-flight request
+                // supersedes this retry - never re-post a stale request
+                // (a duplicate in-flight reply would be double-processed,
+                // e.g. executing the same agent tool calls twice).
+                if (gen != _sendGeneration || _currentReply) {
+                    logApi(QStringLiteral("[RETRY] skipped - superseded by a newer request or cancel"));
+                    return;
+                }
                 _currentReply = _manager->post(_lastRequest, _lastRequestData);
             });
             return;
@@ -1545,6 +1594,19 @@ void AiClient::sendStreamingMessages(const QJsonArray &messages, const QJsonArra
         return;
     }
 
+    // "Pro" OpenAI models are Responses-API only AND do not stream - without
+    // this early route the first Agent request of every session burned one
+    // failed round-trip (chat/completions SSE -> 404 -> fallback toast).
+    // Mirrors the Simple-Mode route in sendStreamingRequest; sendMessages
+    // reaches /v1/responses via modelRequiresResponsesApi in
+    // sendMessagesInternal.
+    if (modelRequiresResponsesApi(_provider, _model)) {
+        logApi(QStringLiteral("[STREAM-AGENT-SKIP] %1:%2 is Responses-API only - using non-streaming Responses send")
+               .arg(_provider, _model));
+        sendMessages(messages, tools);
+        return;
+    }
+
     // GPT-5 + tools requires the Responses API. We have a dedicated SSE
     // handler for it (sendStreamingMessagesResponses) so the user gets
     // live reasoning + text deltas just like Gemini. Keep this family-wide
@@ -1578,6 +1640,7 @@ void AiClient::sendStreamingMessages(const QJsonArray &messages, const QJsonArra
         return;
     }
 
+    _sendGeneration++; // supersedes any pending auto-retry
     _isTestRequest = false;
     _isStreaming = true;
     _streamHasTools = !tools.isEmpty();
@@ -1645,6 +1708,7 @@ void AiClient::sendStreamingMessages(const QJsonArray &messages, const QJsonArra
     logApi(QStringLiteral("[STREAM-AGENT-REQ] model=%1 tools=%2 body=%3")
         .arg(_model, QString::number(tools.size()), QString::fromUtf8(data.left(2000))));
 
+    _userCancelled = false; // a new request supersedes any earlier Stop
     _currentReply = _manager->post(request, data);
     disconnect(_manager, &QNetworkAccessManager::finished, this, &AiClient::onReplyFinished);
     connect(_currentReply, &QNetworkReply::readyRead, this, &AiClient::onStreamDataAvailable);
@@ -1795,6 +1859,7 @@ void AiClient::sendStreamingRequest(const QString &systemPrompt,
         return;
     }
 
+    _sendGeneration++; // supersedes any pending auto-retry
     _isTestRequest = false;
     _isStreaming = true;
     _streamHasTools = false;
@@ -1863,6 +1928,7 @@ void AiClient::sendStreamingRequest(const QString &systemPrompt,
 
     logApi(QStringLiteral("[STREAM-REQ] model=%1 body=%2").arg(_model, QString::fromUtf8(data.left(2000))));
 
+    _userCancelled = false; // a new request supersedes any earlier Stop
     _currentReply = _manager->post(request, data);
     // Don't use finished signal for streaming — use readyRead instead
     disconnect(_manager, &QNetworkAccessManager::finished, this, &AiClient::onReplyFinished);
@@ -2378,6 +2444,7 @@ void AiClient::sendStreamingMessagesResponses(const QJsonArray &messages,
         return;
     }
 
+    _sendGeneration++; // supersedes any pending auto-retry
     _isTestRequest = false;
     _isStreaming = true;
     _useResponsesApi = true;
@@ -2471,6 +2538,7 @@ void AiClient::sendStreamingMessagesResponses(const QJsonArray &messages,
     logApi(QStringLiteral("[STREAM-RESPONSES-REQ] model=%1 tools=%2 body=%3")
         .arg(_model, QString::number(tools.size()), QString::fromUtf8(data.left(2000))));
 
+    _userCancelled = false; // a new request supersedes any earlier Stop
     _currentReply = _manager->post(request, data);
     disconnect(_manager, &QNetworkAccessManager::finished, this, &AiClient::onReplyFinished);
     connect(_currentReply, &QNetworkReply::readyRead, this, &AiClient::onResponsesStreamDataAvailable);
@@ -2724,6 +2792,7 @@ void AiClient::sendStreamingMessagesGemini(const QJsonArray &messages,
         return;
     }
 
+    _sendGeneration++; // supersedes any pending auto-retry
     _isTestRequest = false;
     _isStreaming = true;
     _streamHasTools = !tools.isEmpty();

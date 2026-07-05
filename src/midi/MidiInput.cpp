@@ -58,7 +58,10 @@ void MidiInput::init() {
 }
 
 void MidiInput::receiveMessage(double deltatime, std::vector<unsigned char> *message, void *userData) {
-    if (message->size() > 1) {
+    // Only buffer while recording: _messages is consumed exclusively by
+    // endInput() (the recording pipeline). Without the guard, a long Thru /
+    // audition session accumulated every inbound message unboundedly.
+    if (_recording && message->size() > 1) {
         QMutexLocker lock(&_messagesMutex);
         _messages->insert(_currentTime, *message);
     }
@@ -327,6 +330,10 @@ QMultiMap<int, MidiEvent *> MidiInput::endInput(MidiTrack *track) {
         QMultiMap<int, MidiEvent *>::iterator remIt = toRemove.begin();
         while (remIt != toRemove.end()) {
             eventList.remove(remIt.key(), remIt.value());
+            // The dropped duplicate (CC/pitch-bend/pressure - never a paired
+            // note) is owned solely by eventList; free it or it leaks on
+            // every recording with dense controller data.
+            delete remIt.value();
             remIt++;
         }
     }

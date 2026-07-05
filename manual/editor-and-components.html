@@ -328,6 +328,35 @@ See the <a href="playback.html">Playback &amp; Recording</a> page for full detai
 <p>
   In order to mute or hide all tracks at once, the according actions above the track list can be used.
 </p>
+
+<h4 id="track_context_menu">Track Context Menu</h4>
+
+<div style="text-align:center; margin:1rem 0;">
+<img src="screenshots/track-context-menu.png" alt="Track context menu" width="360" style="border:1px solid var(--border); border-radius:8px;">
+<div style="text-align:center; color:var(--text-muted); font-style:italic; margin-top:0.5rem; font-size:0.9rem;">Right-click a track for the full set of track operations</div>
+</div>
+
+<p>
+  Right-clicking a track opens a context menu with the most common track operations, applied to the track
+  under the cursor:
+</p>
+<ul>
+  <li><b>Clone Track</b> - duplicates the track including all of its events, placed right below the original</li>
+  <li><b>Merge Track Into</b> - moves all of the track's events onto another track and removes the source track</li>
+  <li><b>Move Track</b> - moves the track one slot up or down in the list</li>
+  <li><b>Quantize Track</b> - quantizes every note of the track to the current quantization grid</li>
+  <li><b>Transpose Track</b> - transposes all notes of the track by a chosen interval, or a whole octave up/down</li>
+  <li><b>Explode Chords to Tracks</b> / <b>Split Channels to Tracks</b> - runs the split tools on this track</li>
+  <li><b>Select All Events</b> - selects every event of the track</li>
+  <li><b>Move Events to Channel</b> - moves all of the track's events onto a chosen MIDI channel</li>
+  <li><b>Remove Events</b> - clears all of the track's events (the track itself stays)</li>
+  <li><b>Convert Tempo, Preserve Duration</b> - opens the <a href="tempo-conversion.html">tempo conversion</a> scoped to this track</li>
+</ul>
+<p>
+  Every operation is a single undo step. Entries that would damage the tempo track (Merge, Remove Events,
+  Move Events to Channel, moving it out of the first slot) are disabled for it.
+</p>
+
 <p>
   Please refer to <a href="editing-midi-files.html#tracks-and-channels">Tracks and Channels</a> for more details about the track editor.
 </p>
@@ -340,6 +369,15 @@ See the <a href="playback.html">Playback &amp; Recording</a> page for full detai
 <p>
   As an instrument (or &quot;voice&quot;) is assigned to each channel at each time, the channels' instruments can be assigned by clicking <img src="tools/instrument.png" width="12px" height="12px"/>. This will open a dialog which lets the user specify the instrument for the given channel.
 </p>
+<p>
+  Right-clicking a channel opens a context menu with <b>Select All Events</b> (selects everything on the
+  channel), <b>Remove Events</b> (clears the channel) and <b>Convert Tempo, Preserve Duration</b> (opens the
+  <a href="tempo-conversion.html">tempo conversion</a> scoped to this channel).
+</p>
+<div style="text-align:center; margin:1rem 0;">
+<img src="screenshots/channel-context-menu.png" alt="Channel context menu" width="320" style="border:1px solid var(--border); border-radius:8px;">
+<div style="text-align:center; color:var(--text-muted); font-style:italic; margin-top:0.5rem; font-size:0.9rem;">Right-click a channel for channel-wide operations</div>
+</div>
 <p>
   Please refer to <a href="editing-midi-files.html#tracks-and-channels">Tracks and Channels</a> for more details about the channel editor.
 </p>

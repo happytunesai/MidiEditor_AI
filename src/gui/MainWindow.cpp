@@ -103,6 +103,7 @@
 #include "InstrumentChooser.h"
 #include "LayoutSettingsWidget.h"
 #include "SplitChannelsDialog.h"
+#include "FFXIVDrumSplitDialog.h"
 #include "DrumKitPreset.h"
 #include "MatrixWidget.h"
 #include "OpenGLMatrixWidget.h"
@@ -2612,6 +2613,14 @@ void MainWindow::buildCompareVelocityLane() {
         connect(_miscController, SIGNAL(currentIndexChanged(int)),
                 _compareMisc, SLOT(setControl(int)));
     }
+    // Seed the velocity edit mode from the checked toolbar action - the
+    // MiscWidget constructor defaults to single mode, and selectModeChanged
+    // only reaches lanes that exist at the time of the click.
+    if (setLineMode && setLineMode->isChecked()) {
+        _compareMisc->setEditMode(LINE_MODE);
+    } else if (setFreehandMode && setFreehandMode->isChecked()) {
+        _compareMisc->setEditMode(MOUSE_MODE);
+    }
     syncVelocitySplitterFromView();
 }
 
@@ -3591,6 +3600,60 @@ void MainWindow::onDocumentTabCloseRequested(int index) {
 
 MidiFile *MainWindow::getFile() {
     return file;
+}
+
+QJsonArray MainWindow::listOpenDocumentsJson() const {
+    QJsonArray arr;
+    int listIndex = 0;
+    auto addDocs = [&](DocumentManager *mgr, int group) {
+        if (!mgr) return;
+        for (int i = 0; i < mgr->count(); ++i) {
+            Document *doc = mgr->at(i);
+            if (!doc || !doc->file()) continue;
+            QJsonObject o;
+            o["index"] = listIndex++;
+            o["title"] = doc->title();
+            o["path"] = doc->file()->path();
+            o["group"] = group;
+            o["active"] = (doc->file() == file);
+            o["modified"] = !doc->file()->saved();
+            arr.append(o);
+        }
+    };
+    addDocs(_documentManager, 0);
+    addDocs(_group1Docs, 1);
+    return arr;
+}
+
+bool MainWindow::activateDocumentByListIndex(int index) {
+    if (index < 0) {
+        return false;
+    }
+    const int group0Count = _documentManager ? _documentManager->count() : 0;
+    if (index < group0Count) {
+        if (_documentTabBar && _documentTabBar->currentIndex() == index) {
+            onDocumentTabChanged(index); // already current: re-activate + focus
+        } else if (_documentTabBar) {
+            _documentTabBar->setCurrentIndex(index); // fires the tab-click path
+        } else {
+            return false;
+        }
+        return true;
+    }
+    const int g1Index = index - group0Count;
+    const int group1Count = _group1Docs ? _group1Docs->count() : 0;
+    if (g1Index < group1Count && _group1TabBar) {
+        if (_group1Collapsed) {
+            restoreGroup1(); // a hidden pane can't meaningfully be "active"
+        }
+        if (_group1TabBar->currentIndex() == g1Index) {
+            onGroup1TabChanged(g1Index);
+        } else {
+            _group1TabBar->setCurrentIndex(g1Index);
+        }
+        return true;
+    }
+    return false;
 }
 
 MatrixWidget *MainWindow::matrixWidget() {
@@ -4941,12 +5004,14 @@ void MainWindow::fixFFXIVChannels() {
     progressDlg.setValue(0);
     QApplication::processEvents();
 
+    const bool resyncNonGuitar = (tier == 3) && dialog.resyncNonGuitarInstruments();
     QJsonObject result = FFXIVChannelFixer::fixChannels(file, tier,
         [&](int pct, const QString &msg) {
             progressDlg.setLabelText(msg);
             progressDlg.setValue(pct);
             QApplication::processEvents();
-        });
+        },
+        resyncNonGuitar);
 
     progressDlg.close();
     file->protocol()->endAction();
@@ -5421,8 +5486,15 @@ void MainWindow::updateTrackMenu() {
         }
     }
     if (!checked) {
-        _pasteToTrackMenu->actions().first()->setChecked(true);
-        EventTool::setPasteTrack(0);
+        // Default: "Keep track" (-1) - check the matching menu entry, not
+        // blindly the first action (that one is -2 "Same as selected").
+        for (QAction *a : _pasteToTrackMenu->actions()) {
+            if (a->data().toInt() == -1) {
+                a->setChecked(true);
+                break;
+            }
+        }
+        EventTool::setPasteTrack(-1);
     }
 }
 
@@ -5893,10 +5965,12 @@ void MainWindow::explodeChordsToTracks() {
     if (!file) {
         return;
     }
+    // No-arg entry (menu / shortcut): operate on the current edit track.
+    explodeChordsToTracks(file->track(NewNoteTool::editTrack()));
+}
 
-    // Determine source scope: selected notes on current edit track, otherwise all notes on that track
-    MidiTrack *sourceTrack = file->track(NewNoteTool::editTrack());
-    if (!sourceTrack) {
+void MainWindow::explodeChordsToTracks(MidiTrack *sourceTrack) {
+    if (!file || !sourceTrack) {
         return;
     }
 
@@ -6073,14 +6147,43 @@ void MainWindow::explodeChordsToTracks() {
     updateAll();
 }
 
+// True when removing the track would lose events the old emptiness scans
+// missed: anything left on the musical channels, tempo (17) or time-signature
+// (18) events, or channel-16 meta events (lyrics / markers / key signatures)
+// other than the track's own TRACKNAME event. Used by the remove-empty-source
+// options of both split tools - MidiFile::removeTrack() deletes the track's
+// events across ALL channels, so a check limited to 0-15(+17) silently
+// dropped mid-song time signatures and lyrics that rode on the source track.
+static bool trackHasResidualEvents(MidiFile *file, MidiTrack *track) {
+    for (int ch = 0; ch < 16; ++ch) {
+        QMultiMap<int, MidiEvent *> *emap = file->channel(ch)->eventMap();
+        for (auto it = emap->begin(); it != emap->end(); ++it) {
+            if (it.value()->track() == track) return true;
+        }
+    }
+    const int metaChannels[] = {16, 17, 18};
+    for (int ch : metaChannels) {
+        QMultiMap<int, MidiEvent *> *emap = file->channelEvents(ch);
+        if (!emap) continue;
+        for (auto it = emap->begin(); it != emap->end(); ++it) {
+            if (it.value()->track() != track) continue;
+            if (ch == 16 && it.value() == track->nameEvent()) continue;
+            return true;
+        }
+    }
+    return false;
+}
+
 void MainWindow::splitChannelsToTracks() {
     if (!file) {
         return;
     }
+    // No-arg entry (menu / shortcut): operate on the current edit track.
+    splitChannelsToTracks(file->track(NewNoteTool::editTrack()));
+}
 
-    // Determine source track: the current edit track
-    MidiTrack *sourceTrack = file->track(NewNoteTool::editTrack());
-    if (!sourceTrack) {
+void MainWindow::splitChannelsToTracks(MidiTrack *sourceTrack) {
+    if (!file || !sourceTrack) {
         return;
     }
 
@@ -6246,35 +6349,11 @@ void MainWindow::splitChannelsToTracks() {
         }
     }
 
-    // Remove empty source track if requested
-    if (removeSource) {
-        bool sourceEmpty = true;
-        for (int ch = 0; ch < 16; ++ch) {
-            QMultiMap<int, MidiEvent *> *emap = file->channel(ch)->eventMap();
-            for (auto it = emap->begin(); it != emap->end(); ++it) {
-                if (it.value()->track() == sourceTrack) {
-                    sourceEmpty = false;
-                    break;
-                }
-            }
-            if (!sourceEmpty) break;
-        }
-        // Also check meta channel (17) for tempo/time sig events
-        // Keep the source track if it has meta events
-        if (sourceEmpty) {
-            QMultiMap<int, MidiEvent *> *metaMap = file->channelEvents(17);
-            if (metaMap) {
-                for (auto it = metaMap->begin(); it != metaMap->end(); ++it) {
-                    if (it.value()->track() == sourceTrack) {
-                        sourceEmpty = false;
-                        break;
-                    }
-                }
-            }
-        }
-        if (sourceEmpty) {
-            file->removeTrack(sourceTrack);
-        }
+    // Remove empty source track if requested (only when NO events would be
+    // lost - incl. time signatures, tempo and ch-16 meta events; removeTrack
+    // deletes across all channels).
+    if (removeSource && !trackHasResidualEvents(file, sourceTrack)) {
+        file->removeTrack(sourceTrack);
     }
 
     file->protocol()->endAction();
@@ -6284,6 +6363,642 @@ void MainWindow::splitChannelsToTracks() {
         .arg(newTracks.size())
         .arg(movedEvents), 5000);
 
+    updateAll();
+}
+
+void MainWindow::ffxivDrumSplit() {
+    if (!file) {
+        return;
+    }
+
+    // Source = the current edit track (same convention as Split channels to tracks).
+    MidiTrack *sourceTrack = file->track(NewNoteTool::editTrack());
+    if (!sourceTrack) {
+        return;
+    }
+
+    // Re-run guard: kit target pitches collide with other groups' GM source
+    // notes (e.g. Mog Amp bass targets 55/57 = its Cymbal sources), so
+    // splitting a previous split product again would silently re-map notes
+    // that are already correct. This is easy to hit accidentally: after
+    // "remove original track" the edit-track index lands on the first new
+    // kit track.
+    static const QStringList splitProductNames = {
+        QStringLiteral("Bass Drum"), QStringLiteral("Snare Drum"),
+        QStringLiteral("Cymbal"), QStringLiteral("Bongo"),
+        QStringLiteral("Other Percussion"), QStringLiteral("Overlaps")};
+    if (splitProductNames.contains(sourceTrack->name())) {
+        if (QMessageBox::warning(this, tr("FFXIV Drum Split"),
+                tr("This track looks like the result of a previous drum split. "
+                   "Splitting it again can re-map notes that are already correct.\n\n"
+                   "Continue anyway?"),
+                QMessageBox::Yes | QMessageBox::No,
+                QMessageBox::No) != QMessageBox::Yes) {
+            return;
+        }
+    }
+
+    // Channel-9 NoteOn histogram of the source track - drives the dialog's
+    // per-group note counts for whichever pitch mapping the user selects.
+    QHash<int, int> histogram;
+    int totalDrumNotes = 0;
+    QMultiMap<int, MidiEvent *> *emap = file->channel(9)->eventMap();
+    for (auto it = emap->begin(); it != emap->end(); ++it) {
+        NoteOnEvent *on = dynamic_cast<NoteOnEvent *>(it.value());
+        if (!on || on->track() != sourceTrack) {
+            continue;
+        }
+        histogram[on->note()] += 1;
+        totalDrumNotes++;
+    }
+
+    if (totalDrumNotes == 0) {
+        QMessageBox::information(this, tr("FFXIV Drum Split"),
+            tr("The current track has no drum notes on channel 10 to split."));
+        return;
+    }
+
+    FFXIVDrumSplitDialog dialog(histogram, this);
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    const bool transpose = dialog.transposeMode();
+    const bool keepOther = dialog.includeOtherPercussion();
+    const bool removeSource = dialog.removeEmptySource();
+    const FFXIVDrumSplitDialog::OverlapAction overlapAction = dialog.overlapAction();
+
+    // ---- Transpose mode planning (before opening the undo action) ----------
+    // The kit groups STAY on channel 9: percussion tracks recognised by NAME
+    // get their FFXIV program injected per hit from the track name (live:
+    // MidiOutput; export: MidiFile::save's name map) - the GM-note fallback,
+    // where the note number selects the drum, only applies to UNNAMED tracks.
+    // So transposing the pitches needs no channel moves and no program events;
+    // only the track split + per-note transpose.
+    struct TransposePlan {
+        FfxivDrumMapGroup group;
+        QList<NoteOnEvent *> notes;
+    };
+    QList<TransposePlan> plan;
+    QList<DrumGroup> cosmeticGroups;
+
+    if (transpose) {
+        const QList<FfxivDrumMapGroup> mapGroups = dialog.selectedMapGroups();
+        for (const FfxivDrumMapGroup &g : mapGroups) {
+            QSet<int> sources;
+            for (const FfxivDrumNoteMap &m : g.mappings) {
+                sources.insert(m.sourceNote);
+            }
+            QList<NoteOnEvent *> notes;
+            for (auto it = emap->begin(); it != emap->end(); ++it) {
+                if (it.value()->track() != sourceTrack) continue;
+                NoteOnEvent *on = dynamic_cast<NoteOnEvent *>(it.value());
+                if (on && sources.contains(on->note())) {
+                    notes.append(on);
+                }
+            }
+            if (!notes.isEmpty()) {
+                plan.append({g, notes});
+            }
+        }
+        if (plan.isEmpty() && !keepOther) {
+            return;
+        }
+    } else {
+        cosmeticGroups = dialog.selectedGroups();
+        if (cosmeticGroups.isEmpty() && !keepOther) {
+            return;
+        }
+    }
+
+    file->protocol()->startNewAction(tr("FFXIV drum split"));
+
+    int sourceTrackIdx = file->tracks()->indexOf(sourceTrack);
+    QList<MidiTrack *> newTracks;
+
+    if (transpose) {
+        // Kit mode: split each kit group onto its own TRACK and transpose the
+        // drums onto the kit's pitches. Everything stays on channel 9 - the
+        // per-hit name-keyed program injection plays the transposed pitches on
+        // the right FFXIV percussion preset. Per-note cost: two small event
+        // copies (setTrack + setNote), same style as the cosmetic path; the
+        // channel map is never touched.
+        for (const TransposePlan &p : plan) {
+            QHash<int, int> targetFor;
+            for (const FfxivDrumNoteMap &m : p.group.mappings) {
+                targetFor.insert(m.sourceNote, m.targetNote);
+            }
+            file->addTrack();
+            MidiTrack *dst = file->tracks()->last();
+            dst->setName(p.group.trackName);
+            dst->assignChannel(9); // STAYS on channel 9 - the name picks the sound
+            newTracks.append(dst);
+            for (NoteOnEvent *on : p.notes) {
+                const int target = targetFor.value(on->note(), -1);
+                on->setTrack(dst);
+                if (on->offEvent()) {
+                    on->offEvent()->setTrack(dst);
+                }
+                if (target >= 0 && target != on->note()) {
+                    on->setNote(target);
+                }
+            }
+        }
+    } else {
+        // Cosmetic mode: tracks stay on channel 9, pitches untouched. Track
+        // names match FluidSynthEngine::drumProgramForTrackName() so playback/
+        // export inject the right FFXIV percussion program automatically.
+        for (const DrumGroup &group : cosmeticGroups) {
+            QSet<int> noteSet(group.noteNumbers.begin(), group.noteNumbers.end());
+            QList<MidiEvent *> toMove;
+            for (auto it = emap->begin(); it != emap->end(); ++it) {
+                MidiEvent *ev = it.value();
+                if (ev->track() != sourceTrack) {
+                    continue;
+                }
+                NoteOnEvent *on = dynamic_cast<NoteOnEvent *>(ev);
+                if (on && noteSet.contains(on->note())) {
+                    toMove.append(ev);
+                    if (on->offEvent()) {
+                        toMove.append(on->offEvent());
+                    }
+                }
+            }
+            if (toMove.isEmpty()) {
+                continue;
+            }
+            file->addTrack();
+            MidiTrack *dst = file->tracks()->last();
+            dst->setName(group.name);
+            dst->assignChannel(9); // STAYS on channel 9 - cosmetic only
+            newTracks.append(dst);
+            for (MidiEvent *ev : toMove) {
+                ev->setTrack(dst);
+            }
+        }
+    }
+
+    // Sweep everything still on channel 9 of the source track (the
+    // "Other Percussion" notes + any out-of-range / non-note events) into one
+    // track, when that group is kept.
+    if (keepOther) {
+        QList<MidiEvent *> remaining;
+        for (auto it = emap->begin(); it != emap->end(); ++it) {
+            if (it.value()->track() == sourceTrack) {
+                remaining.append(it.value());
+            }
+        }
+        if (!remaining.isEmpty()) {
+            file->addTrack();
+            MidiTrack *dst = file->tracks()->last();
+            dst->setName(tr("Other Percussion"));
+            dst->assignChannel(9);
+            newTracks.append(dst);
+            for (MidiEvent *ev : remaining) {
+                ev->setTrack(dst);
+            }
+        }
+    }
+
+    // ---- Overlap polish pass ----------------------------------------------
+    // Drum lines stack same-pitch notes to reinforce a hit; FFXIV can only
+    // sound one at a time, so stacked overlaps play sequentially and change
+    // the beat. Per output track and pitch, keep the earliest note of each
+    // overlapping cluster and either delete or relocate the rest. (In kit
+    // mode this also collapses two GM kicks that both transpose onto the same
+    // target pitch.) Runs AFTER any transpose so it works on the final
+    // pitches. Same-pitch definition mirrors DeleteOverlapsTool::notesOverlap.
+    int overlapsHandled = 0;
+    if (overlapAction != FFXIVDrumSplitDialog::KeepOverlaps && !newTracks.isEmpty()) {
+        QSet<MidiTrack *> outputSet(newTracks.begin(), newTracks.end());
+        MidiChannel *ch9 = file->channel(9);
+        QMap<QPair<MidiTrack *, int>, QList<NoteOnEvent *>> byTrackPitch;
+        for (auto it = ch9->eventMap()->begin(); it != ch9->eventMap()->end(); ++it) {
+            NoteOnEvent *on = dynamic_cast<NoteOnEvent *>(it.value());
+            if (!on || !outputSet.contains(on->track())) continue;
+            byTrackPitch[qMakePair(on->track(), on->note())].append(on);
+        }
+
+        QList<NoteOnEvent *> extras;
+        for (auto it = byTrackPitch.begin(); it != byTrackPitch.end(); ++it) {
+            QList<NoteOnEvent *> &group = it.value();
+            if (group.size() < 2) continue;
+            // Tie-break equal starts by longest, then loudest, so the accented
+            // main hit of a same-tick reinforcement stack is the one kept
+            // (QMultiMap iterates equal keys in reverse insertion order, so
+            // without this the ghost layer would systematically win).
+            std::sort(group.begin(), group.end(),
+                      [](NoteOnEvent *a, NoteOnEvent *b) {
+                          if (a->midiTime() != b->midiTime())
+                              return a->midiTime() < b->midiTime();
+                          const int aEnd = a->offEvent() ? a->offEvent()->midiTime() : a->midiTime();
+                          const int bEnd = b->offEvent() ? b->offEvent()->midiTime() : b->midiTime();
+                          if (aEnd != bEnd)
+                              return aEnd > bEnd;
+                          return a->velocity() > b->velocity();
+                      });
+            int keptStart = group.first()->midiTime();
+            int keptEnd = group.first()->offEvent() ? group.first()->offEvent()->midiTime()
+                                                     : keptStart;
+            for (int i = 1; i < group.size(); ++i) {
+                NoteOnEvent *n = group.at(i);
+                const int s = n->midiTime();
+                const int e = n->offEvent() ? n->offEvent()->midiTime() : s;
+                if (s < keptEnd || s == keptStart) {
+                    extras.append(n); // overlaps the kept hit -> redundant in FFXIV
+                } else {
+                    keptStart = s;
+                    keptEnd = e;
+                }
+            }
+        }
+
+        overlapsHandled = extras.size();
+        if (!extras.isEmpty()) {
+            if (overlapAction == FFXIVDrumSplitDialog::MoveOverlaps) {
+                file->addTrack();
+                MidiTrack *ovl = file->tracks()->last();
+                // Untranslated on purpose: FluidSynthEngine keys FFXIV presets
+                // off exact track names, and the re-run guard compares this
+                // name too. Muted: these notes were pulled precisely because
+                // playing them corrupts the beat (and the name matches no
+                // FFXIV preset, so playback would fall back to GM programs
+                // picked from the transposed pitches).
+                ovl->setName(QStringLiteral("Overlaps"));
+                ovl->assignChannel(9);
+                ovl->setMuted(true);
+                newTracks.append(ovl);
+                for (NoteOnEvent *n : extras) {
+                    n->setTrack(ovl);
+                    if (n->offEvent()) n->offEvent()->setTrack(ovl);
+                }
+            } else { // RemoveOverlaps
+                // Deleted events must leave the Selection first - stale
+                // selection pointers get re-inserted into the channel map by
+                // any later selection edit (setMidiTime inserts uncondition-
+                // ally), resurrecting "removed" notes.
+                for (NoteOnEvent *n : extras) {
+                    if (Selection::instance()->selectedEvents().contains(n))
+                        EventTool::deselectEvent(n);
+                    if (n->offEvent() &&
+                        Selection::instance()->selectedEvents().contains(n->offEvent()))
+                        EventTool::deselectEvent(n->offEvent());
+                }
+                Selection::instance()->setSelection(Selection::instance()->selectedEvents());
+                eventWidget()->reportSelectionChangedByTool();
+                // Bulk snapshot (few clones), unprotocolled removals committed once.
+                ProtocolEntry *snap = ch9->copy();
+                for (NoteOnEvent *n : extras) {
+                    if (n->offEvent()) ch9->removeEvent(n->offEvent(), false);
+                    ch9->removeEvent(n, false);
+                }
+                ch9->protocol(snap, ch9);
+            }
+        }
+    }
+
+    // Insert the new tracks right after the source track.
+    if (sourceTrackIdx >= 0 && !newTracks.isEmpty()) {
+        QList<MidiTrack *> *trackList = file->tracks();
+        for (MidiTrack *t : newTracks) {
+            trackList->removeOne(t);
+        }
+        int insertPos = sourceTrackIdx + 1;
+        for (MidiTrack *t : newTracks) {
+            trackList->insert(insertPos++, t);
+        }
+        int n = 0;
+        foreach (MidiTrack *t, *trackList) {
+            t->setNumber(n++);
+        }
+    }
+
+    // Remove the source track if it is now empty (only when NO events would
+    // be lost - incl. time signatures, tempo and ch-16 meta events;
+    // removeTrack deletes across all channels).
+    if (removeSource && !trackHasResidualEvents(file, sourceTrack)) {
+        file->removeTrack(sourceTrack);
+    }
+
+    file->protocol()->endAction();
+    QString msg = tr("FFXIV drum split: created %1 percussion track(s)").arg(newTracks.size());
+    if (overlapsHandled > 0) {
+        msg += (overlapAction == FFXIVDrumSplitDialog::MoveOverlaps)
+                   ? tr(", moved %1 overlapping note(s)").arg(overlapsHandled)
+                   : tr(", removed %1 overlapping note(s)").arg(overlapsHandled);
+    }
+    statusBar()->showMessage(msg, 5000);
+    updateAll();
+}
+
+// ---------------------------------------------------------------------------
+// v2.0 #3: per-track context-menu operations (ported from the reference build,
+// made multi-document- and meta-channel-safe). Each resolves the track's OWN
+// document via track->file() and wraps its work in one Protocol action. Quantize
+// and Move-to-Channel skip the meta channels (16-18) so tempo / time-signature /
+// key events are never re-timed or re-channeled; the context menu additionally
+// disables the destructive ops on the tempo/meta track.
+// ---------------------------------------------------------------------------
+
+void MainWindow::cloneTrack(MidiTrack *track) {
+    MidiFile *f = track ? track->file() : nullptr;
+    if (!f) return;
+
+    f->protocol()->startNewAction(tr("Clone Track"));
+
+    f->addTrack();
+    MidiTrack *newTrack = f->tracks()->last();
+    newTrack->setName(track->name() + tr(" (copy)"));
+    newTrack->assignChannel(track->assignedChannel());
+
+    int originalIndex = f->tracks()->indexOf(track);
+    if (originalIndex >= 0) {
+        f->tracks()->removeOne(newTrack);
+        f->tracks()->insert(originalIndex + 1, newTrack);
+        for (int i = 0; i < f->tracks()->size(); ++i)
+            f->tracks()->at(i)->setNumber(i);
+    }
+
+    // BULK-OP UNDO: one MidiChannel snapshot per touched channel, inner
+    // inserts with toProtocol=false, committed once at the end - a per-note
+    // insertNote(toProtocol=true) would deep-clone the growing channel map on
+    // every call (the documented O(events x map) blowup; see
+    // MidiFile::removeTrack). The snapshot also makes undo remove the copied
+    // non-note events (they'd otherwise be orphaned in the map).
+    for (int ch = 0; ch < 19; ++ch) {
+        MidiChannel *channel = f->channel(ch);
+        QMultiMap<int, MidiEvent *> *emap = channel->eventMap();
+        // Collect BEFORE mutating (the inserts below grow this very map).
+        QList<QPair<int, MidiEvent *>> sourceEvents;
+        for (auto it = emap->begin(); it != emap->end(); ++it) {
+            if (it.value()->track() == track)
+                sourceEvents.append({it.key(), it.value()});
+        }
+        if (sourceEvents.isEmpty()) continue;
+
+        ProtocolEntry *snapshot = channel->copy();
+        for (const auto &pair : sourceEvents) {
+            MidiEvent *ev = pair.second;
+            // Skip the source's TRACKNAME meta event - setName() above
+            // already created the clone's own name event; copying this one
+            // would leave TWO TRACKNAME events on the clone (last one wins
+            // on save/reload, renaming the clone back to the source name).
+            if (ev == track->nameEvent()) continue;
+            if (NoteOnEvent *on = dynamic_cast<NoteOnEvent *>(ev)) {
+                if (on->offEvent())
+                    channel->insertNote(on->note(), on->midiTime(),
+                                        on->offEvent()->midiTime(),
+                                        on->velocity(), newTrack, false);
+            } else if (!dynamic_cast<OffEvent *>(ev)) {
+                ProtocolEntry *pe = ev->copy();
+                MidiEvent *copy = dynamic_cast<MidiEvent *>(pe);
+                if (copy) {
+                    copy->setTrack(newTrack, false);
+                    channel->insertEvent(copy, pair.first, false);
+                }
+            }
+        }
+        channel->protocol(snapshot, channel);
+    }
+
+    f->protocol()->endAction();
+    updateAll();
+}
+
+void MainWindow::mergeTrack(MidiTrack *source, MidiTrack *destination) {
+    MidiFile *f = source ? source->file() : nullptr;
+    if (!f || !destination || source == destination) return;
+
+    f->protocol()->startNewAction(tr("Merge Track"));
+
+    // Drop any selection on the source track before its events move / it is removed.
+    for (MidiEvent *event : Selection::instance()->selectedEvents()) {
+        if (event->track() == source)
+            EventTool::deselectEvent(event);
+    }
+    Selection::instance()->setSelection(Selection::instance()->selectedEvents());
+
+    for (int ch = 0; ch < 19; ++ch) {
+        QMultiMap<int, MidiEvent *> *emap = f->channel(ch)->eventMap();
+        const QList<int> ticks = emap->uniqueKeys();
+        for (int tick : ticks) {
+            const QList<MidiEvent *> events = emap->values(tick);
+            for (MidiEvent *ev : events) {
+                if (ev->track() != source) continue;
+                // Keep the source's TRACKNAME meta event on the source, so
+                // removeTrack() below disposes of it - moving it would give
+                // the destination TWO TRACKNAME events (last one wins on
+                // save/reload, renaming the destination to the source name).
+                if (ev == source->nameEvent()) continue;
+                ev->setTrack(destination, true);
+            }
+        }
+    }
+
+    if (!f->removeTrack(source))
+        QMessageBox::warning(this, tr("Merge Track"), tr("The selected track can't be removed."));
+
+    f->protocol()->endAction();
+    updateAll();
+}
+
+void MainWindow::moveTrackUp(MidiTrack *track) {
+    MidiFile *f = track ? track->file() : nullptr;
+    if (!f) return;
+
+    f->protocol()->startNewAction(tr("Move Track Up"));
+    f->moveTrack(track, -1); // protocolled list reorder (undo restores order)
+    f->protocol()->endAction();
+    updateAll();
+}
+
+void MainWindow::moveTrackDown(MidiTrack *track) {
+    MidiFile *f = track ? track->file() : nullptr;
+    if (!f) return;
+
+    f->protocol()->startNewAction(tr("Move Track Down"));
+    f->moveTrack(track, +1); // protocolled list reorder (undo restores order)
+    f->protocol()->endAction();
+    updateAll();
+}
+
+void MainWindow::quantizeTrack(MidiTrack *track) {
+    MidiFile *f = track ? track->file() : nullptr;
+    if (!f) return;
+    QList<int> ticks = f->quantization(_quantizationGrid);
+    f->protocol()->startNewAction(tr("Quantize Track"),
+                                  new QImage(":/run_environment/graphics/tool/quantize.png"));
+    // Musical channels only (0-15): never re-time tempo / time-sig / key events.
+    for (int ch = 0; ch < 16; ++ch) {
+        QMultiMap<int, MidiEvent *> *emap = f->channel(ch)->eventMap();
+        const QList<MidiEvent *> events = emap->values();
+        for (MidiEvent *e : events) {
+            if (e->track() != track) continue;
+            // Note ends are ONLY ever set through their OnEvent (grid-1
+            // convention + zero-length fixup below); quantizing the OffEvent
+            // itself would snap it back onto the grid line.
+            if (dynamic_cast<OffEvent *>(e)) continue;
+            e->setMidiTime(quantize(e->midiTime(), ticks));
+            OnEvent *on = dynamic_cast<OnEvent *>(e);
+            if (on && on->offEvent()) {
+                MidiEvent *off = on->offEvent();
+                off->setMidiTime(quantize(off->midiTime(), ticks) - 1);
+                if (off->midiTime() <= on->midiTime()) {
+                    int idx = ticks.indexOf(off->midiTime() + 1);
+                    if ((idx >= 0) && (ticks.size() > idx + 1))
+                        off->setMidiTime(ticks.at(idx + 1) - 1);
+                }
+            }
+        }
+    }
+    f->protocol()->endAction();
+    updateAll();
+}
+
+void MainWindow::transposeTrack(MidiTrack *track) {
+    MidiFile *f = track ? track->file() : nullptr;
+    if (!f) return;
+    QList<NoteOnEvent *> events;
+    for (int ch = 0; ch < 19; ++ch) {
+        QMultiMap<int, MidiEvent *> *emap = f->channel(ch)->eventMap();
+        const QList<MidiEvent *> all = emap->values();
+        for (MidiEvent *ev : all) {
+            if (ev->track() != track) continue;
+            if (NoteOnEvent *on = dynamic_cast<NoteOnEvent *>(ev)) events.append(on);
+        }
+    }
+    if (events.isEmpty()) return;
+    // TransposeDialog opens its own Protocol action on accept.
+    TransposeDialog *d = new TransposeDialog(events, f, this);
+    d->setAttribute(Qt::WA_DeleteOnClose);
+    d->setModal(true);
+    d->show();
+}
+
+void MainWindow::transposeTrackOctaveUp(MidiTrack *track) {
+    MidiFile *f = track ? track->file() : nullptr;
+    if (!f) return;
+    f->protocol()->startNewAction(tr("Transpose Octave Up"),
+                                  new QImage(":/run_environment/graphics/tool/transpose_up.png"));
+    for (int ch = 0; ch < 19; ++ch) {
+        QMultiMap<int, MidiEvent *> *emap = f->channel(ch)->eventMap();
+        const QList<MidiEvent *> all = emap->values();
+        for (MidiEvent *ev : all) {
+            if (ev->track() != track) continue;
+            if (NoteOnEvent *on = dynamic_cast<NoteOnEvent *>(ev)) {
+                int n = on->note() + 12;
+                if (n <= 127) on->setNote(n);
+            }
+        }
+    }
+    f->protocol()->endAction();
+    updateAll();
+}
+
+void MainWindow::transposeTrackOctaveDown(MidiTrack *track) {
+    MidiFile *f = track ? track->file() : nullptr;
+    if (!f) return;
+    f->protocol()->startNewAction(tr("Transpose Octave Down"),
+                                  new QImage(":/run_environment/graphics/tool/transpose_down.png"));
+    for (int ch = 0; ch < 19; ++ch) {
+        QMultiMap<int, MidiEvent *> *emap = f->channel(ch)->eventMap();
+        const QList<MidiEvent *> all = emap->values();
+        for (MidiEvent *ev : all) {
+            if (ev->track() != track) continue;
+            if (NoteOnEvent *on = dynamic_cast<NoteOnEvent *>(ev)) {
+                int n = on->note() - 12;
+                if (n >= 0) on->setNote(n);
+            }
+        }
+    }
+    f->protocol()->endAction();
+    updateAll();
+}
+
+void MainWindow::selectTrackEvents(MidiTrack *track) {
+    MidiFile *f = track ? track->file() : nullptr;
+    if (!f) return;
+    QList<MidiEvent *> events;
+    // Musical channels only (0-15): never expose tempo / time-signature /
+    // meta events to generic selection ops (matches selectAllFromTrack).
+    for (int ch = 0; ch < 16; ++ch) {
+        QMultiMap<int, MidiEvent *> *emap = f->channel(ch)->eventMap();
+        const QList<MidiEvent *> all = emap->values();
+        for (MidiEvent *ev : all) {
+            if (ev->track() == track && !dynamic_cast<OffEvent *>(ev))
+                events.append(ev);
+        }
+    }
+    Selection::instance()->setSelection(events);
+    updateAll();
+}
+
+void MainWindow::clearTrackEvents(MidiTrack *track) {
+    MidiFile *f = track ? track->file() : nullptr;
+    if (!f) return;
+    f->protocol()->startNewAction(tr("Clear Track Events"),
+                                  new QImage(":/run_environment/graphics/tool/eraser.png"));
+    // Musical channels only (0-15): the track's name event (ch 16) and the
+    // tempo/time-signature maps (17/18) are never wiped by this op.
+    // BULK-OP UNDO: one snapshot per touched channel + removeEvent(ev, false)
+    // - removeEvent with toProtocol=true would deep-clone the whole channel
+    // map per event (documented O(events x map) blowup).
+    for (int ch = 0; ch < 16; ++ch) {
+        MidiChannel *channel = f->channel(ch);
+        QMultiMap<int, MidiEvent *> *emap = channel->eventMap();
+        QList<MidiEvent *> toRemove;
+        const QList<MidiEvent *> all = emap->values();
+        for (MidiEvent *ev : all) {
+            if (ev->track() == track) toRemove.append(ev);
+        }
+        if (toRemove.isEmpty()) continue;
+        ProtocolEntry *snapshot = channel->copy();
+        for (MidiEvent *ev : toRemove)
+            channel->removeEvent(ev, false);
+        channel->protocol(snapshot, channel);
+    }
+    f->protocol()->endAction();
+    updateAll();
+}
+
+void MainWindow::moveTrackEventsToChannel(MidiTrack *track, int channel) {
+    MidiFile *f = track ? track->file() : nullptr;
+    if (!f || channel < 0 || channel >= 16) return;
+    f->protocol()->startNewAction(tr("Move Track Events to Channel"));
+    // Musical channels only (0-15): never re-channel meta events.
+    //
+    // Every event goes through moveToChannel (map remove + re-insert) - a
+    // setChannel(ch, false) would only flip the event's channel FIELD and
+    // leave it in the old channel's map (map corruption: duplicated on the
+    // next time edit, dangling entry once deleted). Undo: one bulk snapshot
+    // per channel restores the maps; a small per-event ProtocolItem restores
+    // each event's channel field (channel snapshots alone don't cover event
+    // fields, and per-event moveToChannel(true) would deep-clone the maps).
+    QVector<ProtocolEntry *> channelSnapshots(16, nullptr);
+    for (int ch = 0; ch < 16; ++ch)
+        channelSnapshots[ch] = f->channel(ch)->copy();
+    for (int ch = 0; ch < 16; ++ch) {
+        QMultiMap<int, MidiEvent *> *emap = f->channel(ch)->eventMap();
+        const QList<MidiEvent *> all = emap->values();
+        for (MidiEvent *ev : all) {
+            if (ev->track() != track) continue;
+            if (ev->channel() == channel) continue; // already there (or moved)
+            if (dynamic_cast<OffEvent *>(ev)) continue; // moved with their OnEvent
+            OffEvent *off = nullptr;
+            ProtocolEntry *beforeOff = nullptr;
+            if (OnEvent *on = dynamic_cast<OnEvent *>(ev)) {
+                off = on->offEvent();
+                if (off) beforeOff = off->copy();
+            }
+            ProtocolEntry *beforeEv = ev->copy();
+            ev->moveToChannel(channel, false); // OnEvent override moves the off too
+            ev->protocol(beforeEv, ev);
+            if (off) off->protocol(beforeOff, off);
+        }
+    }
+    for (int ch = 0; ch < 16; ++ch)
+        f->channel(ch)->protocol(channelSnapshots[ch], f->channel(ch));
+    f->protocol()->endAction();
     updateAll();
 }
 
@@ -6623,30 +7338,60 @@ void MainWindow::markEdited() {
 }
 
 QString MainWindow::autoSavePath() const {
-    if (!file) return QString();
+    return autoSavePathFor(file);
+}
 
-    if (!file->path().isEmpty() && QFile::exists(file->path())) {
+QString MainWindow::autoSavePathFor(MidiFile *f) const {
+    if (!f) return QString();
+
+    if (!f->path().isEmpty() && QFile::exists(f->path())) {
         // Named file â†’ sidecar: "MySong.mid" â†’ "MySong.mid.autosave"
-        return file->path() + ".autosave";
-    } else {
-        // Untitled â†’ stable path in AppData
-        QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
-                    + "/autosave";
-        QDir().mkpath(dir);
-        return dir + "/untitled.autosave.mid";
+        return f->path() + ".autosave";
     }
+    // Untitled â†’ stable path in AppData. Only the ACTIVE untitled document
+    // uses it: multiple untitled tabs would otherwise overwrite each other's
+    // backup on the same fixed path.
+    if (f != file) return QString();
+    QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+                + "/autosave";
+    QDir().mkpath(dir);
+    return dir + "/untitled.autosave.mid";
 }
 
 void MainWindow::performAutoSave() {
-    if (!file || file->saved()) return;
+    // Back up EVERY unsaved open document, not just the active one - a
+    // background document being edited by a running agent (or left dirty
+    // before a tab switch) must be protected too.
+    bool savedAny = false;
+    auto backupDoc = [this, &savedAny](MidiFile *f) {
+        if (!f || f->saved()) return;
+        QString backupPath = autoSavePathFor(f);
+        if (backupPath.isEmpty()) return;
+        if (f->save(backupPath)) {
+            // CRITICAL: backup save must NOT mark the file as saved
+            f->setSaved(false);
+            f->protocol()->addEmptyAction(tr("Auto-saved"));
+            savedAny = true;
+        }
+    };
 
-    QString backupPath = autoSavePath();
-    if (backupPath.isEmpty()) return;
+    if (_documentManager) {
+        for (int i = 0; i < _documentManager->count(); ++i) {
+            Document *doc = _documentManager->at(i);
+            if (doc) backupDoc(doc->file());
+        }
+    }
+    if (_group1Docs) {
+        for (int i = 0; i < _group1Docs->count(); ++i) {
+            Document *doc = _group1Docs->at(i);
+            if (doc) backupDoc(doc->file());
+        }
+    }
+    if (!_documentManager && !_group1Docs) {
+        backupDoc(file); // no document managers (shouldn't happen): active only
+    }
 
-    if (file->save(backupPath)) {
-        // CRITICAL: backup save must NOT mark the file as saved
-        file->setSaved(false);
-        file->protocol()->addEmptyAction(tr("Auto-saved"));
+    if (savedAny) {
         statusBar()->showMessage(tr("Auto-saved"), 3000);
     }
 }
@@ -6902,26 +7647,22 @@ void MainWindow::changeMiscMode(int mode) {
 
 void MainWindow::selectModeChanged(QAction *action) {
     // Use the container widget for UI operations (handles both OpenGL and software)
-    if (action == setSingleMode) {
-        if (OpenGLMiscWidget *openglMisc = qobject_cast<OpenGLMiscWidget*>(_miscWidgetContainer)) {
-            openglMisc->setEditMode(SINGLE_MODE);
-        } else if (MiscWidget *miscWidget = qobject_cast<MiscWidget*>(_miscWidgetContainer)) {
-            miscWidget->setEditMode(SINGLE_MODE);
-        }
+    int mode = -1;
+    if (action == setSingleMode) mode = SINGLE_MODE;
+    if (action == setLineMode) mode = LINE_MODE;
+    if (action == setFreehandMode) mode = MOUSE_MODE;
+    if (mode < 0) return;
+
+    if (OpenGLMiscWidget *openglMisc = qobject_cast<OpenGLMiscWidget*>(_miscWidgetContainer)) {
+        openglMisc->setEditMode(mode);
+    } else if (MiscWidget *miscWidget = qobject_cast<MiscWidget*>(_miscWidgetContainer)) {
+        miscWidget->setEditMode(mode);
     }
-    if (action == setLineMode) {
-        if (OpenGLMiscWidget *openglMisc = qobject_cast<OpenGLMiscWidget*>(_miscWidgetContainer)) {
-            openglMisc->setEditMode(LINE_MODE);
-        } else if (MiscWidget *miscWidget = qobject_cast<MiscWidget*>(_miscWidgetContainer)) {
-            miscWidget->setEditMode(LINE_MODE);
-        }
-    }
-    if (action == setFreehandMode) {
-        if (OpenGLMiscWidget *openglMisc = qobject_cast<OpenGLMiscWidget*>(_miscWidgetContainer)) {
-            openglMisc->setEditMode(MOUSE_MODE);
-        } else if (MiscWidget *miscWidget = qobject_cast<MiscWidget*>(_miscWidgetContainer)) {
-            miscWidget->setEditMode(MOUSE_MODE);
-        }
+    // The split view's secondary velocity lane edits the compare document
+    // with the SAME toolbar mode - without this it stays stuck in the
+    // constructor default (single mode) while the toolbar shows Line/Freehand.
+    if (_compareMisc) {
+        _compareMisc->setEditMode(mode);
     }
 }
 
@@ -8419,6 +9160,12 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
     toolsMB->addAction(fixFFXIVAction);
     _actionMap["fix_ffxiv_channels"] = fixFFXIVAction;
 
+    QAction *ffxivDrumSplitAction = new QAction(tr("FFXIV drum split"), this);
+    Appearance::setActionIcon(ffxivDrumSplitAction, ":/run_environment/graphics/tool/ffxiv_fix_drums.png");
+    connect(ffxivDrumSplitAction, SIGNAL(triggered()), this, SLOT(ffxivDrumSplit()));
+    toolsMB->addAction(ffxivDrumSplitAction);
+    _actionMap["ffxiv_drum_split"] = ffxivDrumSplitAction;
+
 #ifdef FLUIDSYNTH_SUPPORT
     // Phase 39 (FFXIV-EQ-001): per-instrument volume mixer.
     // Auto-enabled only while FFXIV SoundFont Mode is active so the
@@ -9711,8 +10458,11 @@ QWidget *MainWindow::createCustomToolbar(QWidget *parent) {
         actionOrder.clear(); // Force use of new defaults
     }
 
-    // If no enabled actions are set, enable all by default
-    if (enabledActions.isEmpty()) {
+    // If no enabled actions are set, enable all by default - but ONLY when
+    // customization is off (fresh install / defaults). With customization ON,
+    // an empty list is a legitimate user choice ("uncheck everything") and
+    // refilling it here would re-enable every action on the next rebuild.
+    if (enabledActions.isEmpty() && !customizeEnabled) {
         for (const QString &actionId: actionOrder) {
             if (!actionId.startsWith("separator") && actionId != "row_separator") {
                 enabledActions << actionId;
@@ -9765,6 +10515,16 @@ QWidget *MainWindow::createCustomToolbar(QWidget *parent) {
                 actionOrder << "fix_ffxiv_channels";
             if (!enabledActions.contains("fix_ffxiv_channels"))
                 enabledActions << "fix_ffxiv_channels";
+        }
+        // v2.0: place the FFXIV drum split right after Fix X|V Channels.
+        if (!actionOrder.contains("ffxiv_drum_split")) {
+            int ffxivIdx = actionOrder.indexOf("fix_ffxiv_channels");
+            if (ffxivIdx >= 0)
+                actionOrder.insert(ffxivIdx + 1, "ffxiv_drum_split");
+            else
+                actionOrder << "ffxiv_drum_split";
+            if (!enabledActions.contains("ffxiv_drum_split"))
+                enabledActions << "ffxiv_drum_split";
         }
         if (!actionOrder.contains("explode_chords_to_tracks")) {
             int splitIdx = actionOrder.indexOf("split_channels_to_tracks");
@@ -10390,6 +11150,16 @@ void MainWindow::updateToolbarContents(QWidget *toolbarWidget, QGridLayout *btnL
                 actionOrder << "fix_ffxiv_channels";
             if (!enabledActions.contains("fix_ffxiv_channels"))
                 enabledActions << "fix_ffxiv_channels";
+        }
+        // v2.0: place the FFXIV drum split right after Fix X|V Channels.
+        if (!actionOrder.contains("ffxiv_drum_split")) {
+            int ffxivIdx = actionOrder.indexOf("fix_ffxiv_channels");
+            if (ffxivIdx >= 0)
+                actionOrder.insert(ffxivIdx + 1, "ffxiv_drum_split");
+            else
+                actionOrder << "ffxiv_drum_split";
+            if (!enabledActions.contains("ffxiv_drum_split"))
+                enabledActions << "ffxiv_drum_split";
         }
         if (!actionOrder.contains("explode_chords_to_tracks")) {
             int splitIdx = actionOrder.indexOf("split_channels_to_tracks");

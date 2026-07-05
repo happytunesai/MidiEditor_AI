@@ -155,12 +155,16 @@ void GlueTool::mergeNoteGroup(const QList<NoteOnEvent *> &noteGroup) {
     if (noteGroup.size() < 2) return;
 
     NoteOnEvent *firstNote = noteGroup.first();
-    NoteOnEvent *lastNote = noteGroup.last();
+    if (!firstNote->offEvent()) return;
 
-    if (!firstNote->offEvent() || !lastNote->offEvent()) return;
-
-    // Calculate the new end time (end of the last note)
-    int newEndTime = lastNote->offEvent()->midiTime();
+    // The merged note ends at the LATEST off across the whole group - not the
+    // last note by start order. A long note followed by a shorter one would
+    // otherwise truncate the merge to the short note's end (data loss).
+    int newEndTime = firstNote->offEvent()->midiTime();
+    for (NoteOnEvent *n : noteGroup) {
+        if (n->offEvent() && n->offEvent()->midiTime() > newEndTime)
+            newEndTime = n->offEvent()->midiTime();
+    }
 
     // Extend the first note to the new end time
     firstNote->offEvent()->setMidiTime(newEndTime);

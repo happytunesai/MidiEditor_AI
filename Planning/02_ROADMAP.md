@@ -803,6 +803,10 @@ Phase 22   Lyric Visualizer (Karaoke Display)             ✅ DONE
 Phase 23   MCP Server, Documentation & Prompt v3          ✅ DONE (23.1-23.5, v1.3.2)
 Phase 24   MusicXML & MuseScore (.mscz) Import              ⬜ TODO
 Phase 4.6  Persistent history (SQLite)                    ⬜ TODO (low priority)
+              --- v2.0 (planned, see "v2.0 - FFXIV Power Tools" at the end) ---
+v2.0 #1    Fix XIV: opt-in non-guitar instrument re-sync    🔨 BUILT (feature/v2.0, af06d0b + 9 hard-gate tests)
+v2.0 #2    FFXIV drum split (cosmetic CH9 -> FFXIV tracks)  🔨 BUILT (feature/v2.0, ccac285.. + toolbar/icon)
+v2.0 #3    Rich track/channel right-click context menu      🔨 BUILT (feature/v2.0, 18dd5d6..149b5cd)
 ```
 
 #### Phase 11.5 — 3-Tier Smart Detection (Fix X|V v2)
@@ -12110,4 +12114,420 @@ Discord opt-out-checkbox→explicit button, Connection Test two→three stage, t
 `soundfont/`→`soundfonts/`), v1.9.0 coverage gaps (Tabs/Editor-Groups + View→"Compare View" not in the menu/editor
 pages; tab-lock note missing on collab-lan/-wan), and a version-number style sweep across ~10 pages. Apply as a
 batch; regenerate `manual/changelog.html` after.
+
+---
+
+## v2.0 - FFXIV Power Tools (planned)
+
+> Planned for the next MAJOR release: #1 + #2 are FFXIV authoring features, #3 is a general QoL context menu. Scoped +
+> designed 2026-06-29 via multi-agent investigation of the existing code (channel fixer, drum infrastructure, the
+> split-to-tracks tools, the FFXIV instrument model, the panel context menus) + research of the FFXIV bard drum
+> mapping. **Key finding: all three are mostly ASSEMBLY/PORT of primitives the codebase already ships - low
+> architectural risk.** All file:line references were spot-verified against the current tree.
+>
+> **Cross-cutting caveat (tabs):** the `MidiEditor_meow` reference is SINGLE-document; the AI repo is multi-document
+> (tabs + editor groups, Phase 28). Every port from meow MUST act on the ACTIVE document (the file the panel/view is
+> bound to) with the active doc's `protocol()` - see #3's "Tabs / multi-document compatibility" note. (Corrected by
+> the verification below: `Selection::instance()` IS already the active-doc selection, so don't "fix" the working
+> reuse-slots; the rule is just "never call `Selection::forFile` on a NON-active doc.")
+>
+> ⚠️ **Before building anything, read "v2.0 Implementation Pitfalls & Pre-Build Checklist" at the END of this v2.0
+> block** - an adversarial code verification (2026-06-29) found several blockers and corrected optimistic claims in
+> the sections below (a `DrumKitPreset` name collision, #1 idempotency landmines, `FFXIVFixerDialog` has no Options
+> section yet, explode/split read a global edit-track, etc.).
+
+### v2.0 #1 - Optimized Channel Fixer: clean non-guitar channel/instrument mapping
+
+**Problem.** "Instrument" is modelled **per CHANNEL**, not per track: a channel's instrument = its effective
+program at tick 0 (`MidiChannel::progAtTick(0)`, `MidiChannel.cpp:203`); the channel-list label and the
+InstrumentChooser both read/write that program-change (`ChannelListWidget.cpp:166`, `InstrumentChooser.cpp`). A
+TRACK only carries a name + a default channel (`MidiTrack::assignedChannel`, `MidiTrack.h:134`). The fixer derives a
+track's intended program from its NAME (`FFXIVChannelFixer::programNumber()`, `FFXIVChannelFixer.cpp:44`, e.g.
+Trumpet=56, Trombone=57). So when the user renames Track 2 "Trumpet" -> "Trombone", the track name says Trombone but
+channel 2's tick-0 PC still says Trumpet -> the MIDI is dirty.
+
+Today there is no minimal/idempotent way to fix that:
+- **Tier 2 (Rebuild)** ALREADY re-syncs non-guitar channel PCs from track names (the `!isPreserveMode` PROGRAM
+  branch, `FFXIVChannelFixer.cpp` ~640) - but it is a destructive full teardown+rebuild.
+- **Tier 3 (Preserve)** - the user's repeat-workflow tier - deliberately NEVER touches non-guitar channels (PROGRAM
+  branch gated by `isPreserveMode`; CLEAN phase only clears PCs on guitar channels). This is the documented quirk
+  the user's daily "Tier 2 once, then Tier 3 repeatedly" loop depends on ([[feedback_ffxiv_fixer_tier3]]).
+
+**Why the earlier attempt failed (design AROUND it).** The original Tier 3 (commit `668aa55`, v1.1.0) derived every
+track's channel - guitar AND non-guitar - from **note distribution** (count NoteOns per channel, pick the max). It
+was abandoned in commit `3d94bd2` (v1.1.8.1) for `assignedChannel()` because after a Tier 2 run inserts tick-0 PCs
+for every instrument on every channel, note distribution is no longer a reliable channel signal, and the heuristic
+led to forbidden Tier-3 ops (merging duplicate-named tracks, migrating their events). **Lessons:** never re-derive a
+track's channel from notes/PCs; always read the EFFECTIVE program via `progAtTick(0)` (not the first PC); never
+migrate events or change a track's channel in Tier 3 (`Planning/05_FFXIV_Channel_Fix.md` "ABSOLUTES VERBOT").
+
+**Corrected approach (opt-in, idempotent).** Extend Tier 3's PROGRAM phase with an **opt-in** "re-sync non-guitar
+instruments from track names", default OFF. For each non-guitar, non-CH9 track it rewrites the channel's **tick-0 PC
+only** when the track-name program (`programNumber(name)`) DIFFERS from the channel's current `progAtTick(0)`. When
+they already match it is a **no-op** - which is what keeps repeated Tier-3 runs byte-stable (the daily loop is
+safe). It never moves events, never changes routing; both inputs (`channelFor[t]` from `assignedChannel()` and
+`programNumber(name)`) are already computed in Tier 3.
+
+**UX.** A sub-checkbox under the "Preserve (Minimal Changes)" radio in `FFXIVFixerDialog` ("Re-sync non-guitar
+channel instruments from track names", default unchecked, enabled only under Preserve). Plain Tier 3 stays bit-
+identical to today when unchecked.
+
+**Edge cases.** Multiple tracks share one channel -> the chronologically-first track's name wins (mirror the guitar
+first-NoteOn logic); CH9/percussion hard-skipped (`isPercussion()`); only tick-0 PCs touched (deliberate mid-song
+PCs preserved); non-FFXIV names (`programNumber()<0`) skipped automatically; relies on the TEST-001 `_assignedChannel`
+copy/reload fix.
+
+**Implementation (files).** `FFXIVChannelFixer.{h,cpp}` (new `bool resyncNonGuitar=false` param; build a
+`nonGuitarChsNeedingProgramFix` set by comparing name-program vs `progAtTick(0)`; extend the Tier-3 CLEAN guard +
+the gated PROGRAM block to those channels; include them in the per-channel snapshot for the single-undo commit) -
+`FFXIVFixerDialog.{h,cpp}` (checkbox + `resyncNonGuitarInstruments()` getter) - `MainWindow::fixFFXIVChannels()`
+(`MainWindow.cpp:4909`, pass the flag inside the existing single Protocol action) - `setup_channel_pattern` AI tool
+(optional `resync_non_guitar` arg, default false) - docs (`Planning/05_FFXIV_Channel_Fix.md`,
+`manual/ffxiv-channel-fixer.html`).
+
+**Testing (gate before merge).** (1) Idempotency: Tier 2 -> Tier 3-with-resync TWICE -> the 2nd run produces ZERO
+non-guitar changes. (2) Off-by-default: resync OFF leaves CH2 byte-identical to today. (3) Re-target happy path:
+rename Track 2 -> Trombone, resync ON -> `channel(2)->progAtTick(0)==57`, no event `track()/channel()` changed. Plus
+no-op-when-correct, shared-channel precedence, CH9 untouched, non-FFXIV skipped, mid-track PC preserved, Tier 1/2
+regression. **Hard gate:** tests (1)+(2) must pass and plain Tier 3 confirmed unchanged ([[feedback_ffxiv_fixer_tier3]]).
+
+**Effort:** ~2-3 days (small/low-risk - reuses the guitar PC-rewrite pattern, `progAtTick(0)`, and the existing
+bulk-snapshot undo; no new routing/migration logic). Most of the value/risk is in the idempotency tests.
+
+### v2.0 #2 - FFXIV Drum Mapping (cosmetic CH9 split into FFXIV-instrument tracks)
+
+> **SCOPE DECISION (2026-06-29, supersedes the earlier meow-transpose design).** Keep OUR existing CH9 logic: the
+> drum kit stays on **channel 9**, split into TRACKS like the current split tool - just mapped to the CORRECT FFXIV
+> instrument tracks (Snare -> Snare Drum, kick + toms + similar -> Bass Drum, bongo/congas + similar -> Bongo,
+> hats/cymbals -> Cymbal), and everything with no FFXIV equivalent (woodblocks, whistles, bells, ...) onto separate
+> "Other Percussion" track(s) so the user can decide what to do with them. **Timpani logic is unchanged** - Timpani
+> is a tonal melodic instrument (not GM-drum-channel data), still handled by the existing fixer (own channel/track);
+> it is NOT part of the CH9 drum split. **No transpose, no off-CH9 move, no meow `DrumKitPresetManager`/per-note
+> editor/QSettings persistence** - the user confirmed those meow options are nice-to-have but unnecessary. This
+> RESOLVES the biggest #2 blockers (see the Pitfalls section): no isPercussion/CH9 conflict (drums stay on CH9, which
+> is exactly what the fixer wants), no distinct-channel assignment, no `setNote` overload, no `DrumKitPreset` name
+> collision (we EXTEND the existing `DrumKitPreset` model, not port meow's), no dialog Options-section restructuring.
+
+**Problem.** An imported MIDI collapses all drums onto one GM channel-9 track. To make it FFXIV-ready the user splits
+that into per-instrument tracks by hand. The existing "Split channels to tracks" tool *can* split CH9 by a drum
+preset (`MainWindow.cpp:6160-6210`) but uses GM lane names ("Hi-Hat"/"Crash"/"Low Tom"), not the 5 FFXIV percussion
+names - so the user then hand-renames/merges. We want one action that splits CH9 straight into correctly-named FFXIV
+instrument tracks.
+
+**Why cosmetic (no transpose) is sufficient.** Live playback (`MidiOutput.cpp:88`) and export (`MidiFile.cpp:1578`)
+inject the CH9 Program Change keyed on TRACK NAME first (`drumProgramForTrackName()`, `FluidSynthEngine.cpp:435`),
+falling back to the per-note GM map only when unnamed. So a CH9 track NAMED "Bass Drum" plays ALL its notes as the
+Bass Drum preset (117) regardless of GM note number - toms routed to the "Bass Drum" track therefore sound as Bass
+Drum WITHOUT transposing. Pitch fine-tuning (the user's manual "+12") stays a manual follow-up, exactly as today.
+
+**Grouping (stays on CH9, named for FFXIV).** Add a `static DrumKitPreset DrumKitPreset::ffxivPreset()` to the
+EXISTING model (`src/gui/DrumKitPreset.h`, `DrumGroup{QString name; QList<int> noteNumbers;}` - no meow port, no name
+collision):
+
+| FFXIV track (name) | GM channel-9 notes |
+|---|---|
+| Bass Drum | 35, 36 (kick) + 41, 43, 45, 47, 48, 50 (toms - "similar to bass drum") |
+| Snare Drum | 37, 38, 39, 40 |
+| Cymbal | 42, 44, 46 (hats) + 49, 51, 52, 53, 55, 57, 59 (crash/ride/splash) |
+| Bongo | 60, 61 (bongos) + 62, 63, 64 (congas) + 65, 66 (timbales) |
+| Other Percussion (separate track(s), no FFXIV equivalent) | 39 hand-clap, 54 tambourine, 56 cowbell, 58 vibraslap, 67-81 (agogo, cabasa, maracas, whistles, guiro, claves, woodblocks, cuica, triangle), 82-87 |
+
+(Note: toms -> **Bass Drum**, NOT Timpani - per the user; Timpani stays a separate tonal instrument outside this
+split. This grouping differs from the per-hit `ffxivDrumProgramForGmNote` default - that one is fine for unnamed
+playback, but the SPLIT uses this FFXIV-track grouping.) Exact bucket boundaries are tunable; the preview shows them.
+
+**UI - keep it simple (no checkable cleanup options).** Per the user: do NOT add meow-style Normalize-Velocity /
+Cleanup checkboxes - the fixer's velocity-normalize + event cleanup stay ALWAYS-ON as today (everyone leaves them on;
+making correct fixes optional adds no value). The drum split is a deliberate structural action, so expose it as a
+one-click **"FFXIV drum split"** (a light preview dialog showing the groups + live note counts from
+`channel(9)->eventMap()`, with per-group include/exclude + an editable track name; NO per-note editor, NO persisted
+presets). Reasonable homes: a Tools-menu action next to "Split channels to tracks", OR a "FFXIV" entry in that tool's
+existing drum-preset combo. Decide placement at build time.
+
+**Apply (one Protocol action).** Reuse the proven CH9-safe split branch (`MainWindow.cpp:6160-6210`) verbatim in
+spirit: per included group `file->addTrack()` -> `setName(ffxivName)` -> `assignChannel(9)` -> move matched NoteOn +
+paired `offEvent()` via `setTrack()` ONLY (channel stays 9, pitch untouched); unmatched/unmappable CH9 events -> the
+"Other Percussion" track(s); all inside one `startNewAction`/`endAction` + `updateAll`. Capture the source
+`MidiTrack*` (resolve the doc via `track->file()`), per the tabs caveat.
+
+**Implementation (files).** `src/gui/DrumKitPreset.{h,cpp}` - add `ffxivPreset()` (+ optionally split "Other" into a
+few named buckets). `MainWindow.cpp` - a new `ffxivDrumSplit()` slot mirroring `splitChannelsToTracks` drum branch
+(`:6160-6210`), + menu wiring (copy `:8392+`); declare the slot in `MainWindow.h`. `tests/test_drum_kit_preset.cpp` -
+extend with `ffxivPreset()` assertions (groups, anchors, no-dup). Manual: a short section. NO `FFXIVChannelFixer`
+change, NO dialog Options restructuring, NO meow port.
+
+**Edge cases.** Unmappable notes -> "Other Percussion" track(s) (never silently dropped); paired offs moved with ons;
+everything stays on CH9 with original pitches (pure cosmetics); empty groups skipped (no empty track); single undo
+restores the original drum track; Timpani (tonal, off-CH9) is untouched; re-running on already-split data is a no-op.
+
+**Testing.** Unit: `ffxivPreset()` has the right groups/anchors, no note in two buckets. Integration: synthetic CH9
+file -> split -> every moved event still on MIDI channel 9, pitches unchanged, offs moved with ons, unmappable note
+-> Other Percussion, one undo restores exactly. Manual QA: split a real bard MIDI, confirm playback/export use the
+correct FFXIV percussion presets via name-keyed PC injection, and a follow-up Channel-Fixer run still routes the new
+percussion tracks to CH9 (they're `isPercussion()` names).
+
+**Effort:** ~2-3 days (back to "mostly assembly"): the `ffxivPreset()` grouping + the new split slot (reusing the
+existing CH9-safe branch) + a light preview + tests. The meow-transpose complexity (per-note model, persistence,
+distinct channels, dialog restructuring) is dropped.
+
+**Phase 2 - "FFXIV pitch transpose" 🔨 BUILT (feature/v2.0, decided with the user 2026-07-01; reworked to
+STAY-ON-CH9 same day per the user).** The drum-split dialog gained a **"Pitch mapping"** combo: default "Keep GM
+drum notes" = the cosmetic CH9 split; selecting a community kit (**Mog Amp / Bard Forge 1 / Bard Forge 2 / Bard
+Metal** - tables transcribed from the meow reference; the `FfxivDrumMapGroup.programNumber` metadata carries OUR
+FF14 SF numbers 117/118/119/116) additionally TRANSPOSES each drum onto the kit's pitch.
+
+**KEY INSIGHT (corrects the earlier "transpose requires leaving CH9" assumption):** the note-number-selects-the-drum
+rule only applies to the GM-note FALLBACK for *unnamed* tracks. For percussion tracks recognised by NAME, both live
+playback (`MidiOutput.cpp:88-100`, name FIRST, GM-note fallback second) and export (`MidiFile::save` name map +
+`FluidSynthEngine.cpp:1006` fallback-only-without-explicit-PC) inject the FFXIV program from the TRACK NAME per hit -
+so the note number is free to carry the kit pitch **on channel 9**. The transposed kit tracks therefore STAY on CH9
+(exactly like the cosmetic split): no free-channel allocation, no `ProgChangeEvent` insertion, no channel-map moves,
+no bulk snapshots - per note just `setTrack` (On+Off) + `setNote` (two small protocolled event copies, same cost
+profile as the cosmetic path). This also keeps the tracks fully consistent with the channel fixer's
+`isPercussion()->CH9` routing (no fixer-ordering hazard at all). Unmapped drums (hi-hats/rides - the kits
+intentionally omit them) stay on CH9 in "Other Percussion", untransposed. Data model: NEW types
+`FfxivDrumNoteMap`/`FfxivDrumMapGroup`/`FfxivDrumMapPreset` (no collision with the existing `DrumKitPreset`
+consumers). Kit-sanity unit test: names/programs/GM-source-range/bard-range C3-C6 (48-84)/no-duplicate-sources.
+(An adversarial diff review of the interim off-CH9 design had caught a per-note `moveToChannel(toProtocol=true)`
+O(notes x map) undo blowup + a tick-0 PC ordering issue - both moot in the final stay-on-CH9 design, kept here as
+lessons for any future genuine channel-move bulk op.)
+
+**Out of scope (backlog):** editable persisted drum presets (the meow `DrumKitPresetManager`/QSettings model);
+MidiBard-specific maps.
+
+### v2.0 #3 - Rich right-click context menu on Tracks & Channels panels (QoL)
+
+> Decided 2026-06-29: port the meow track context menu (and extend a channel one - meow has none). Today right-click
+> shows only "Convert Tempo, Preserve Duration..."; meow has the full menu. Most actions ALREADY exist in the AI repo
+> as slots, so the menu is mostly wiring; a few per-track slots port near-verbatim from meow. file:line verified.
+
+**Problem.** Right-click on a Tracks/Channels row shows ONE item ("Convert Tempo, Preserve Duration...") - the rich
+menu was never ported. AI `TrackListWidget::contextMenuEvent` (`TrackListWidget.cpp:350`) builds a one-item QMenu;
+`ChannelListWidget::contextMenuEvent` (`ChannelListWidget.cpp:257`) the same. The AI header lacks the 13 meow signals;
+meow's full menu is `MidiEditor_meow/src/gui/TrackListWidget.cpp:324-424` -> per-track slots
+`meow MainWindow.cpp:3263-3525`.
+
+**Tracks menu** (REUSE = existing AI slot / BUILD = port from meow):
+
+| Item | Status |
+|---|---|
+| Clone Track | BUILD - port meow `cloneTrack` (meow:3263) |
+| Merge Track > (other tracks) | BUILD - meow `mergeTrack` (meow:3317) |
+| Move Track > Up/Down | BUILD (thin) - reuse `TrackListWidget::reorderTracks` renumber (`TrackListWidget.cpp:296`) |
+| Quantize Track | BUILD (thin) - reuse `quantize()` (`MainWindow.cpp:11036`); port loop meow:3385 |
+| Transpose Track > .../Oct Up/Down | BUILD (thin) - `TransposeDialog` exists (`MainWindow.cpp:126/6307`); port meow:3413 |
+| Explode Chords to Tracks | REUSE - `explodeChordsToTracks()` (`:5892`), add a `MidiTrack*` overload |
+| Split Channels to Tracks | REUSE - `splitChannelsToTracks()` (`:6076`), add overload |
+| Select All Events | REUSE - `selectAllFromTrack(QAction*)` (`:5656`) |
+| Move Events to Channel > (16, instrument-named) | BUILD - port meow `moveTrackEventsToChannel` (meow:3508); labels from `updateChannelMenu` (`:5300`) |
+| Remove Events | BUILD - port meow `clearTrackEvents` (meow:3491); AI `deleteSelectedEvents` is selection-scoped |
+| Convert Tempo, Preserve Duration... | REUSE - already wired (`:10987`) |
+
+**Channels menu** (meow has none; basis = AI QAction-data slots): Select All Events (REUSE `selectAllFromChannel`
+`:5627`); Move Events to Track > (BUILD, net-new); Remove Events (REUSE `deleteChannel` `:5160`); Convert Tempo
+(REUSE `:10998`). Quantize/Transpose omitted on channels in v1 (they are track concepts; selection-scoped versions
+exist via the matrix).
+
+**Implementation.** Extend the existing `contextMenuEvent` overrides IN PLACE (`TrackListWidget.cpp:350` /
+`ChannelListWidget.cpp:257`) - do NOT add a row-item menu (per-row toolbar buttons must keep working). Resolve the
+target from the right-clicked row (`trackorder.at(row)` / channel `row`), independent of selection (matches the
+Convert-Tempo entry today). Wire with the existing AI lambda style (`connect(act,&QAction::triggered,mw,[mw,track]{...})`)
+- no 13-signal header churn. Each mutating handler = one Protocol action (`startNewAction`/`endAction`/`updateAll`),
+per the established pattern (`removeTrack` `:5532`, `reorderTracks` `:303`). Add `MidiTrack*` overloads to
+explode/split rather than mutating `NewNoteTool::setEditTrack` as a side effect.
+
+**Tabs / multi-document compatibility (IMPORTANT - meow is single-document).** meow's per-track slots
+(`meow MainWindow.cpp:3263-3525`) operate on ONE global `file`; the AI repo is multi-document (tabs + editor groups,
+Phase 28). Every ported slot MUST act on the document the Tracks/Channels panel is bound to - the ACTIVE document -
+not a global/stale file. Resolve it from `_trackWidget->midiFile()` (the panel's bound file, `TrackListWidget.h:124`),
+which `setActiveDocument()` keeps in sync (`MainWindow.cpp:2003`, `_trackWidget->setFile(newFile)` `:2025`); use THAT
+file's `protocol()`/`channel()`. CORRECTION (verification 2026-06-29): `Selection::instance()` already RETURNS the
+active-doc selection (kept in lockstep by `setActiveDocument`, `MainWindow.cpp:2016/2025/2036`; `Selection.cpp:49-74`),
+so the existing reuse-slots are ALREADY tab-correct - do NOT "fix" them. The real rule is: never call
+`Selection::forFile` on a NON-active doc, and new ported handlers should capture the `MidiTrack*` POINTER and resolve
+the doc via `track->file()` (`MidiTrack.h:126`) - which also survives the renumbering that Clone/Move/reorder do (a
+captured track NUMBER would resolve to the wrong track afterwards). In split view the Tracks panel follows the
+active/focused group's document, so the right-clicked row already belongs to the correct doc - but avoid a stale
+capture (this area already had a cross-doc Tracks-panel bug fixed via `TrackListWidget::setFile` disconnect +
+UniqueConnection). Same applies to #1/#2: the Fix XIV dialog already runs on the active doc, but NEW mutation code
+must use that doc's file/protocol.
+
+**Port-first (MISSING in AI, confirmed by grep):** `cloneTrack`, `mergeTrack`, `moveTrackUp/Down`, `quantizeTrack`,
+`transposeTrack`(+Oct), `clearTrackEvents`, `moveTrackEventsToChannel` (all `meow MainWindow.cpp:3263-3525`,
+near-verbatim - the MidiFile/EventTool/Protocol/TransposeDialog APIs all exist in the AI repo). Net-new (no reference
+anywhere): "Merge into ALL", "Move to position N", "Move Channel Events to Track" - defer unless wanted.
+
+**Edge cases.** Tempo/meta track: disable Remove/Merge/Move-to-Channel; Move Up disabled at top, Down at bottom. CH9
+labelled "Percussion" in the channel submenu. Channels meta row 16 keeps no menu (or Convert-Tempo only). Empty-track
+ops open no protocol action (no empty undo entry). DECISION: meow track loops touch channels 0..18 (incl. meta) vs AI
+explode/split 0..15 - recommend 0..18 for clone/merge/clear, but EXCLUDE meta from Quantize/Transpose.
+
+**Testing.** Each item performs the op + exactly one undo step; right-clicking a non-selected row acts on that row;
+submenus correct (Merge lists the other tracks; Move-to-Channel = 16 entries + "Percussion"); per-row toolbar buttons
++ left-click edit (`editTrackAndChannel` `:6769`) unaffected; existing Convert-Tempo path unchanged; build green +
+smoke-test on a multi-track + an FFXIV file.
+
+**Effort:** ~4-4.5 days (low risk - mostly wiring + near-verbatim meow ports; main open decision = the meta-channel
+scope for track-scoped ops).
+
+### v2.0 Implementation Pitfalls & Pre-Build Checklist (verified 2026-06-29)
+
+> Adversarial verification of all three v2.0 features + the cross-cutting tabs concern, read against the actual code
+> (multi-agent run `wf_88c40604-7de`; load-bearing claims re-verified by hand). The headline architectural claims
+> hold (tabs plumbing is sound; #3 API parity is near-verbatim), but the landmines below are concrete and will cause
+> rework or break the idempotency/correctness gates if not decided FIRST. **Read this before building #1/#2/#3** - it
+> corrects several optimistic claims in the sections above.
+>
+> **SCOPE UPDATE (2026-06-29): #2 was simplified to a cosmetic CH9 split** (see the revised #2 section), which
+> RESOLVES / makes N/A the following #2 blockers below: the `isPercussion()->CH9` vs transpose conflict (no transpose;
+> drums stay on CH9), the distinct-channel assignment, the `setNote(int,bool)` overload, the `DrumKitPreset` name
+> collision (we EXTEND the existing model, not port meow's), `Appearance::settings()`/QSettings persistence, and the
+> `FFXIVFixerDialog` Options-section restructuring for #2. The remaining #2-core items are just: the FFXIV grouping
+> (toms->Bass Drum, not Timpani) and the standard CH9-split mechanics. #1 and #3 blockers below stand.
+>
+> The transpose-related #2 blockers (isPercussion/CH9 ordering, distinct per-instrument channels, the `setNote(int,bool)`
+> overload) are NOT gone - they are **DEFERRED to the planned Phase-2 "FFXIV transpose, our way" follow-up** (see end
+> of #2), approach to be decided at build time. They stay documented here as the constraints that follow-up must solve.
+
+#### (A) BLOCKERS - resolve/decide BEFORE coding
+
+- **[blocker] #2 `DrumKitPreset` name collision.** A *different*, simpler `DrumKitPreset`/`DrumGroup` already exists
+  (`src/gui/DrumKitPreset.h`, `struct DrumGroup{QString name; QList<int> noteNumbers;}`) with **3 live consumers**:
+  `SplitChannelsDialog.cpp:120,158-166`, `MainWindow::splitChannelsToTracks` (`MainWindow.cpp:6164-6190`), and
+  `tests/test_drum_kit_preset.cpp`. meow's rich model is structurally incompatible. **Decide first:** port meow's
+  model under a NEW name (e.g. `FFXIVDrumKitPreset*`, recommended) OR consciously migrate+rewrite all 3 consumers +
+  the test. Do NOT overwrite the file.
+- **[blocker] #1 `progAtTick(0)==0` is ambiguous: "no PC" vs genuine Piano (program 0).** `MidiChannel::progAtTick`
+  (`MidiChannel.cpp:203-216`, verified) returns 0 for an empty channel, for no-PC-found, AND for a real Piano
+  (`programNumber("Piano")==0`). The plan's "rewrite tick-0 PC only when name-program DIFFERS from `progAtTick(0)`"
+  leaves a "Piano" track on a bare channel with NO PC (silent synth-default). **Mitigation:** detect the *presence*
+  of an actual tick-0 `ProgChangeEvent` via `eventMap()->values(0)` and compare its `program()`; "no tick-0 PC" =
+  always-insert when resync is ON.
+- **[blocker] #1 the existing PROGRAM re-insert inserts one PC PER TRACK** (`FFXIVChannelFixer.cpp:670-676`,
+  tolerated for guitar only because CLEAN wipes guitar PCs first). Reusing it for non-guitar stacks N duplicate
+  tick-0 PCs on shared channels every run -> a 2nd Tier-3 run is NOT zero-change (fails the idempotency hard-gate).
+  **Mitigation:** insert exactly ONE tick-0 PC per non-guitar channel (never via the per-track loop), after removing
+  any existing tick-0 PC on that channel.
+- **[blocker] #2 `isPercussion()->CH9` routing destroys transpose mode.** Percussion-named tracks are forced to CH9
+  (`FFXIVChannelFixer.cpp:339-343` Tier3, `:354-355` Tier2), then Tier2 MIGRATE `moveToChannel(9)` + PROGRAM re-stamp.
+  If transpose mode makes melodic tracks named "Bass Drum" off CH9 and the fixer then runs, they get yanked back to
+  CH9 and re-stamped - transpose obliterated. **Decide:** run the drum pass as the LAST step in `fixFFXIVChannels()`,
+  AFTER `fixChannels()` returns, inside the same `startNewAction`, so the percussion router never sees the new tracks.
+- **[blocker] #3 `explode`/`split` read a GLOBAL static edit-track index.** `explodeChordsToTracks`
+  (`MainWindow.cpp:5898`) and `splitChannelsToTracks` (`:6082`) source via `file->track(NewNoteTool::editTrack())` (a
+  file-static global, only clamped on tab switch). A context-menu Explode/Split would act on the last edit-track
+  value, NOT the right-clicked row - **row-incorrect even in single-document use.** **Mitigation (required):** add
+  `MidiTrack*` overloads and pass the right-clicked track; do NOT route through `NewNoteTool::setEditTrack`.
+- **[high - decide up front] Keep the static `FFXIVChannelFixer` headless.** `fixChannels` is a static fn on a raw
+  `MidiFile*` (`src/ai/`, midi/protocol headers only, unit-tested headless). Do NOT pull a `DrumKitPresetManager`
+  (GUI/QSettings) pass *inside* `fixChannels()`. **Decide:** resolve the preset GUI-side in `fixFFXIVChannels()` and
+  run the drum pass there (same action), passing a plain resolved struct in. (Also resolves the CH9-routing blocker.)
+
+#### (B) Per-feature pitfalls & must-heed
+
+**#1 - Channel Fixer (opt-in non-guitar re-sync)**
+- [blocker] `progAtTick(0)==0` ambiguity + per-track insert loop (see A).
+- [high] CLEAN phase skips non-guitar channels and removes ALL PCs on a channel (`FFXIVChannelFixer.cpp:473-475,480-483`)
+  - reusing it would destroy deliberate mid-song instrument switches the plan promises to preserve. **Mitigation:**
+  dedicated tick-0-only PC removal for resync channels (iterate `eventMap()->values(0)`, `toProtocol=false`); keep
+  all-PC removal guitar-only. Test that a mid-song non-guitar PC survives.
+- [high] "Chronologically-first track wins" is NOT a mirror of the guitar logic (guitar `firstCh` `:593-608` picks a
+  *rename variant*; non-guitar needs a per-channel *owner*; multiple tracks legitimately share a channel since
+  `channelFor[]=assignedChannel()` `:344-348`). **Mitigation:** per channel, pick the track with the earliest
+  first-NoteOn on THAT channel; tie-break = lowest track index (document it). Add a shared-channel test.
+- [medium] CH9 skip is by NAME (`isPercussion()` `:30-38`), not channel 9 - and **Timpani is tonal (prog 47) and IS
+  a resync target.** Skip where `isPercussion(name)`; do NOT skip `channel==9`; confirm Timpani resyncs.
+- [medium] Undo wiring needs NO change - the snapshot (`:462-469`) + commit (`:775-782`) already cover all 16 ch +
+  all tracks (the plan over-stated this). But a no-op resync still emits a coarse undo step; the idempotency gate
+  must measure EVENT state, not "no undo step created."
+- must-heed: gate resync by the new bool AND `isPreserveMode` so plain (unchecked) Tier 3 stays byte-identical
+  ([[feedback_ffxiv_fixer_tier3]]).
+
+**#2 - FFXIV Drum Mapping (port meow model)**
+- [blocker] `DrumKitPreset` name collision; [blocker] `isPercussion()->CH9` vs transpose; [high] keep fixer headless (see A).
+- [high] meow apply puts every melodic group on **channel 0** (`meow MainWindow.cpp:3105,3127`), each stamping its
+  own ch0 PC -> all 5 timbres collapse to one. **Mitigation:** assign each transposed group a DISTINCT free channel
+  (mirror `nextFreeChannel` `FFXIVChannelFixer.cpp:389-395`, skip CH9 + used), one PC per channel; cap at 16, warn if >15.
+- [high] **`FFXIVFixerDialog` has NO Options section** - it is a 139-line tier picker (File Analysis + Select Action,
+  no checkboxes; verified). The screenshot with Normalize/Cleanup was the *reference* dialog, not ours. **Both #1's
+  sub-checkbox and #2's controls require real dialog restructuring** (new Options `QGroupBox` + enable/disable wiring
+  + getters). Budget it; not cosmetic.
+- [high] meow's `setNote(int,bool)` does NOT exist - AI `NoteOnEvent::setNote(int)` (`NoteOnEvent.h:94`, verified) has
+  no `toProtocol` arg and ALWAYS `copy()+protocol()`. The transpose loop won't compile and would O(events)-blow up
+  undo. **Mitigation:** add a `setNote(int n, bool toProtocol=true)` overload (mirror `moveToChannel`) first.
+- [medium] `Appearance::settings()` (meow) does not exist in AI - persist via `QSettings("MidiEditor","NONE")` per
+  `FfxivEqualizerService.cpp:23`.
+- [medium] "Reuse the split loop (`MainWindow.cpp:6160-6210`)" won't work (it iterates the OLD `DrumGroup` shape). The
+  transpose apply is effectively NEW code modeled on `meow MainWindow.cpp:3061-3172` (+ distinct-channel + `setNote(,false)`).
+- [medium] Tom routing DISAGREES: meow named presets route toms->Bass Drum (`meow DrumKitPreset.cpp:313-314`); AI
+  `ffxivDrumProgramForGmNote` + the GM-cosmetic default route toms->Timpani(47). Structural grouping diff, not a
+  program swap. **Decide:** keep them intentionally different (named vs cosmetic) or unify; document.
+- must-heed (verified GOOD): our SF uses Bongo 116 / Bass Drum 117 / Snare 118 / Cymbal 119 / Timpani 47
+  (`FFXIVChannelFixer.cpp:56-57`, `FluidSynthEngine.cpp:464-487`) - remap targets correct. cosmetic-CH9 mode must NOT
+  transpose (on CH9 the note number IS the drum selector).
+
+**#3 - Rich track/channel context menu (port meow per-track slots)**
+- [blocker] explode/split global edit-track (see A).
+- [high] Quantize/Clear at channels 0..18 corrupts the Tempo Track's meta events (`channel(17)`=tempo, `(18)`=timesig,
+  on track 0). meow loops `ch<19`. **Mitigation:** Quantize/Clear loop `ch<16` (or skip 16/17/18); DISABLE
+  Remove/Merge/Move-to-Channel on the Tempo/meta track. Clone/Merge may stay 0..18 (they preserve times). Transpose
+  uses `dynamic_cast<NoteOnEvent>` so is safe at 0..18.
+- [high] Capturing track NUMBER in lambdas breaks after Clone/Move/reorder (they RENUMBER). **Mitigation:** capture
+  the `MidiTrack*` POINTER and resolve the doc via `track->file()` (`MidiTrack.h:126`); int-data path only for
+  read-only Select-All resolved at click time.
+- [medium] Track-scoped Quantize/Transpose are NOT 1:1 reuse - AI entry points are selection-scoped
+  (`transposeNSemitones` `:6296`, `quantizeSelection` `:11018`). Gather the row's events first (port meow per-track
+  loop), then feed the existing op - do NOT call the selection-scoped slot.
+- [low] Move Up/Down via `reorderTracks` already opens its own protocol action (`TrackListWidget.cpp:303-332`) - call
+  it with NO outer `startNewAction`; disable Up at idx 0 / Down at last.
+- [low] Open NO protocol action for empty-track ops (avoid empty undo entries). `endAction` auto-refreshes the Tracks
+  panel (`TrackListWidget.cpp:174-177`).
+- must-heed (verified): all ported MidiFile/MidiChannel/MidiEvent/MidiTrack/EventTool/TransposeDialog APIs exist in AI
+  with identical signatures - ports are near-verbatim; the ONLY new edits are the meta-channel guard, pointer-capture,
+  and the explode/split + `setNote` overloads.
+
+#### (C) Plan corrections (the sections above are optimistic here)
+
+- #1: "differs from `progAtTick(0)`" -> check tick-0 PC *presence* via `eventMap()->values(0)`; "extend the PROGRAM
+  block" -> insert ONE PC per channel (not the per-track loop); "extend the CLEAN guard" -> tick-0-only removal;
+  "mirror the guitar first-NoteOn logic" -> new per-channel-owner logic; "include them in the snapshot" -> no change
+  needed (already covers all channels); "CH9 hard-skip" -> by NAME, and Timpani IS resynced.
+- #2: "Port `DrumKitPreset.{h,cpp}`" -> port under a NEW name (collision); "the dialog already has Options" -> FALSE,
+  it's a tier picker, budget restructuring; "reuse the split loop" -> new code per `meow:3061-3172`; "remap 96-99->116-119"
+  -> targets correct but tom grouping differs (decide); + `setNote(,bool)` overload needed; + QSettings not `Appearance::settings()`.
+- #3: "Quantize/Transpose = thin reuse" -> must port per-track loops (selection-scoped today); meow quantize `ch<19`
+  -> use `ch<16`; "explode/split add an overload" -> it is a BLOCKER (row-incorrect today); "Convert Tempo on channel
+  meta row = REUSE" -> row 16 early-returns, leave it menuless; "Select All = REUSE" loops 0..15 + matches by number.
+- cross-cutting: `MainWindow::currentFile()` does NOT exist -> it is `getFile()` (`MainWindow.h:137`);
+  `_trackWidget->midiFile()` (`TrackListWidget.h:124`) is correct. The "never use a global Selection" wording is
+  MISLEADING - `Selection::instance()` IS the active-doc selection (kept in lockstep by `setActiveDocument`,
+  `MainWindow.cpp:2016/2025/2036`); the existing reuse-slots are already tab-correct. **Real rule:** do NOT call
+  `Selection::forFile` on a NON-active doc, and do NOT "fix" the working slots. Program-map: only
+  `FFXIVChannelFixer.cpp:44` + `ToolDefinitions.cpp:1087` are true duplicates; the equalizer/FluidSynth maps are
+  documented siblings (different keys/shape) - centralize only the two.
+
+#### (D) Pre-build checklist (decide/verify FIRST)
+
+1. [blocker] #2 model NAME (`FFXIVDrumKitPreset*` new vs replace+migrate the 3 consumers).
+2. [blocker] #2 drum pass runs in `fixFFXIVChannels()` AFTER `fixChannels()`, same `startNewAction`; pass a resolved
+   struct in (keep the static fixer headless).
+3. [blocker] #2 transpose -> DISTINCT free channel per group (not meow's all-ch0), one PC each.
+4. [blocker] #1 detect tick-0 PC presence (not `progAtTick`); one PC per channel; tick-0-only removal; skip by
+   `isPercussion(name)` not channel 9; confirm Timpani resyncs.
+5. [blocker] #3 `MidiTrack*` overloads for explode/split (row-correctness, not just tabs).
+6. [high] meta-channel scope: Quantize/Clear `ch<16`; disable Remove/Merge/Move on Tempo/meta track; channel-panel
+   row 16 stays menuless.
+7. [high] add `NoteOnEvent::setNote(int,bool=true)` overload before #2 transpose.
+8. [high] `FFXIVFixerDialog` Options-section restructuring budget (serves #1 + #2).
+9. [high] capture `MidiTrack*` (resolve via `track->file()`) in mutating handlers; Move Up/Down with no outer action.
+10. [medium] centralize ONLY the two true program-map copies; leave equalizer/FluidSynth siblings.
+11. [medium] tom-routing decision (named meow->BassDrum vs cosmetic->Timpani).
+12. [medium] persistence via `QSettings("MidiEditor","NONE")`.
+13. [medium] track-scoped Quantize/Transpose gather the row's events (no selection-scoped reuse).
+14. tab-safety: do NOT "fix" the existing slots; `Selection::instance()`/`getFile()`/`_trackWidget->midiFile()` are
+    already the active doc; prefer `track->file()` in new ports for intent.
+15. [#1] idempotency hard-gate test: Tier-3-with-resync twice -> exactly ONE tick-0 PC per channel + zero net change
+    on run 2; plus mid-song-PC-survives, Timpani-resyncs, drum-untouched, shared-channel-precedence, 2-stale-PCs-collapse.
+16. [#2] regression test: transpose-run THEN a fix leaves drum tracks melodic/off-CH9 with distinct channels.
+17. pre-release: plain Tier 3 byte-identical ([[feedback_ffxiv_fixer_tier3]]); name scrub clean (no real names in tracked files); no Co-Authored-By.
 

@@ -97,6 +97,15 @@ public:
     void shutdown();
 
     /**
+     * \brief Stops any running playback (waiting for the player thread) before
+     *        a shutdown()+initialize() restart. Without this, changing the
+     *        sample rate / reverb engine / audio driver mid-playback freed the
+     *        synth while the player thread was still calling into it
+     *        (use-after-free race).
+     */
+    void stopPlaybackForRestart();
+
+    /**
      * \brief Returns true if the engine is initialized and ready.
      */
     bool isInitialized() const;

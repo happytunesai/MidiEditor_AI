@@ -195,7 +195,7 @@ std::vector<std::array<int,2>> NativeTrack::createVolumeChanges(
             if (fading == Fading::FadeOut) {
                 step = static_cast<int>(-step * 1.25f);
             }
-            for (int x = index; x < index + duration; x += duration / segments) {
+            for (int x = index; x < index + duration; x += std::max(1, duration / segments)) {
                 changes.push_back({x, std::min(127, std::max(0, val))});
                 val += step;
             }
@@ -205,7 +205,7 @@ std::vector<std::array<int,2>> NativeTrack::createVolumeChanges(
             int step = static_cast<int>(velocity / (segments * 0.8f));
             int val = 0;
             int times = 0;
-            for (int x = index; x < index + duration; x += duration / segments) {
+            for (int x = index; x < index + duration; x += std::max(1, duration / segments)) {
                 changes.push_back({x, std::min(127, std::max(0, val))});
                 val += step;
                 if (times == segments / 2) {
@@ -655,7 +655,9 @@ std::vector<NativeFormat::NativeTempo> NativeFormat::retrieveTempos() {
             t.value = static_cast<float>(mh->tempo.value);
             t.position = pos;
             pos += flipDuration(mh->timeSignature.denominator) * mh->timeSignature.numerator;
-            if (std::abs(oldTempo - t.value) > 0.0001f) {
+            // value != 0 mirrors the init guard above: a 0 tempo would make the
+            // 60000000/value set_tempo conversion divide by zero (getMidiHeader).
+            if (std::abs(oldTempo - t.value) > 0.0001f && t.value != 0) {
                 tempos.push_back(t);
             }
             oldTempo = t.value;
@@ -672,7 +674,8 @@ std::vector<NativeFormat::NativeTempo> NativeFormat::retrieveTempos() {
                 int smallPos = 0;
                 if (m->voices.empty()) continue;
                 for (const auto& b : m->voices[0]->beats) {
-                    if (b->effect.mixTableChange && b->effect.mixTableChange->tempo) {
+                    if (b->effect.mixTableChange && b->effect.mixTableChange->tempo
+                        && b->effect.mixTableChange->tempo->value != 0) {
                         NativeTempo t;
                         t.value = static_cast<float>(b->effect.mixTableChange->tempo->value);
                         t.position = pos + smallPos;

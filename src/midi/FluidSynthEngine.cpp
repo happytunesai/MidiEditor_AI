@@ -19,6 +19,7 @@
 #ifdef FLUIDSYNTH_SUPPORT
 
 #include "FluidSynthEngine.h"
+#include "MidiPlayer.h"
 
 #include <fluidsynth.h>
 
@@ -196,6 +197,16 @@ bool FluidSynthEngine::initialize() {
     applyFfxivEqualizerAttenuation(-1);
 
     return true;
+}
+
+void FluidSynthEngine::stopPlaybackForRestart() {
+    // MidiPlayer::stop() flips the playing flag AND wait()s for the player
+    // thread, so after this returns no thread can be inside sendMidiData()
+    // when shutdown() frees the synth. (Settings dialog is modeless - the
+    // combo handlers used to restart the synth under a live player thread.)
+    if (MidiPlayer::isPlaying()) {
+        MidiPlayer::stop();
+    }
 }
 
 void FluidSynthEngine::shutdown() {
@@ -1049,12 +1060,13 @@ int FluidSynthEngine::exportPlaybackCallback(void *data, fluid_midi_event_t *eve
         return FLUID_OK;
     }
 
-    // Bank select (CC#0 MSB or CC#32 LSB) → force 0; FFXIV SoundFont
-    // only ships bank 0 presets, any other selection silently falls
-    // back to a wrong preset.
+    // Bank select (CC#0 MSB or CC#32 LSB) → force 0 ONLY for the special
+    // SoundFont modes (FFXIV / C64), whose SoundFonts only ship bank 0. For a
+    // plain GM export (muted-channel mix only, both modes off) the bank select
+    // must pass through unchanged, or GS/XG voices get silently mis-resolved.
     if (type == 0xB0) {
         int ctrl = fluid_midi_event_get_control(event);
-        if (ctrl == 0 || ctrl == 32) {
+        if ((_exportBardActive || _exportC64Active) && (ctrl == 0 || ctrl == 32)) {
             fluid_midi_event_set_value(event, 0);
         }
         return fluid_synth_handle_midi_event(synth, event);
@@ -1063,6 +1075,13 @@ int FluidSynthEngine::exportPlaybackCallback(void *data, fluid_midi_event_t *eve
     // Program change → mirror live playback's remap for the active SoundFont
     // mode (sendMidiData / remapProgramForCurrentMode).
     if (type == 0xC0) {
+        // Plain GM export (neither FFXIV nor C64 mode): forward the program
+        // change as the file intended - no FFXIV/C64 remap, no forced bank 0.
+        // Otherwise a muted-channel GM export silently changed instruments
+        // (e.g. nylon guitar 24 -> Lute 25) and dropped bank selects.
+        if (!_exportBardActive && !_exportC64Active) {
+            return fluid_synth_handle_midi_event(synth, event);
+        }
         int program = fluid_midi_event_get_program(event);
         if (_exportC64Active) {
             // C64 SoundFont mode: remap the SID-import lead/noise programs onto
@@ -1145,6 +1164,7 @@ void FluidSynthEngine::setAudioDriver(const QString &driver) {
         // shutdown() preserves the full SoundFont state (enabled + disabled)
         // in _pendingSoundFontPaths/_pendingDisabledPaths, and initialize()
         // restores it automatically — no manual setSoundFontStack() needed.
+        stopPlaybackForRestart();
         shutdown();
         initialize();
     }
@@ -1164,6 +1184,7 @@ void FluidSynthEngine::setSampleRate(double rate) {
         // shutdown() preserves the full SoundFont state (enabled + disabled)
         // in _pendingSoundFontPaths/_pendingDisabledPaths, and initialize()
         // restores it automatically.
+        stopPlaybackForRestart();
         shutdown();
         initialize();
     }
@@ -1176,6 +1197,7 @@ void FluidSynthEngine::setReverbEngine(const QString &engine) {
         // shutdown() preserves the full SoundFont state (enabled + disabled)
         // in _pendingSoundFontPaths/_pendingDisabledPaths, and initialize()
         // restores it automatically.
+        stopPlaybackForRestart();
         shutdown();
         initialize();
     }

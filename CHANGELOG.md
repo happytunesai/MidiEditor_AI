@@ -5,6 +5,81 @@ Releases: https://github.com/happytunesai/web/releases
 
 ---
 
+## [2.0.0] - 2026-07-05 - FFXIV Power Tools & QoL
+
+### Summary
+* **FFXIV Drum Split - one click from a GM drum track to FFXIV percussion tracks** - splits the drum kit (channel 10) into correctly named Bass Drum / Snare Drum / Cymbal / Bongo tracks with a preview dialog, its own toolbar button, and everything staying on the drum channel
+* **Pitch-mapping kits: MidiEditor AI (Happy Tunes), Mog Amp, Bard Forge 1 & 2, Bard Metal** - the drum split can additionally transpose every drum onto the kit's pitches, so the percussion is instantly playable in game; drums a kit does not map (hi-hats, rides) land untouched in an "Other Percussion" track
+* **Fix X|V Channels: opt-in non-guitar instrument re-sync** - Preserve mode can now re-align a channel's program with its (renamed) track name, touching only mismatched channels and staying byte-stable on repeated runs
+* **Rich right-click menus on the Tracks and Channels panels** - Clone, Merge Into, Move Up/Down, Quantize, Transpose, Explode/Split, Select All Events, Move Events to Channel, Remove Events and Convert Tempo, one click away on the row you point at
+* **AI request hardening (AI-RETRY-001)** - a rate-limit auto-retry can no longer fire after a cancel or a newer request and duplicate the call (which could execute the same agent tool calls twice)
+* **OpenAI pro-model routing tightened (AI-PRO-002)** - custom and fine-tune model IDs containing "-pro" as a substring are no longer misrouted to the Responses API, and Agent-mode streaming no longer burns a failed round-trip per session for real pro models
+* **Stability & correctness pass** - Guitar Pro import hang on short faded notes, Glue truncating longer notes, plain-GM exports getting FFXIV instrument remaps, Stop-during-streaming wedging the AI, split-view channel visibility, background-document auto-save, and a set of undo and memory fixes across the editor
+
+<details>
+<summary>Full Changelog - FFXIV Power Tools & QoL</summary>
+
+### New Features
+* **FFXIV Drum Split (Tools menu + toolbar)** - Splits the channel-10 drum kit of the current track into FFXIV percussion tracks. A preview dialog shows each group with the real note count from the file (kick + toms -> Bass Drum, snares -> Snare Drum, hi-hats + cymbals -> Cymbal, hand percussion -> Bongo) plus an "Other Percussion" bucket for everything without an FFXIV equivalent; groups can be included/excluded per checkbox. The split is pure track layout: every event stays on the drum channel with its pitch untouched, and the track names drive the app's per-hit FFXIV program injection in playback and export. One undo step restores the original track.
+* **Drum split pitch-mapping kits** - A "Pitch mapping" selector in the drum split dialog offers the house kit "MidiEditor AI (Happy Tunes)" (kicks anchor on C4, snares on C5, toms +24, crash convention low->C5 / china->F#5 / high->C6, rhythm cymbals deliberately unmapped for per-song editing) plus the community kits Mog Amp, Bard Forge 1, Bard Forge 2 and Bard Metal. With a kit selected the split also transposes each drum onto the kit's target pitch (e.g. toms tuned upward on Bass Drum); tracks still stay on the drum channel because the FFXIV instrument follows the track name, not the note number. Splitting an already-split kit track again warns first (kit target pitches can collide with other groups' GM source notes). Kit note tables are unit-tested against the FFXIV bard range (C3-C6).
+* **Drum split overlap cleanup** - An "Overlapping notes" option in the drum split dialog removes redundant stacked same-pitch hits (drum reinforcement layers, or two GM drums a kit maps to the same pitch) that FFXIV can only play sequentially. Per output track and pitch it keeps the earliest note of each overlapping cluster - at equal starts the longest, then loudest hit wins - and either removes the rest (default), moves them to a separate muted "Overlaps" track for review, or keeps everything.
+* **MCP document tools: `list_documents` + `switch_document`** - MCP clients (Claude Desktop, VS Code, Cursor) can now list the open tabs (index, name, path, modified flag, active marker) and switch the active tab themselves, so a client can drive multi-document workflows end to end. MCP-only - the built-in MidiPilot agent keeps its per-document binding.
+* **Fix X|V Channels: "Re-sync non-guitar channel instruments from track names" (Preserve mode, opt-in)** - Rewrites a channel's tick-0 program change when it no longer matches the owning track's name (e.g. after renaming Trumpet to Trombone). Only mismatched channels are touched, exactly one tick-0 program change per channel is written, deliberate mid-song program changes survive, and a second consecutive run changes nothing - the plain Preserve run stays byte-identical when the option is off. Channel ownership follows the track with the earliest note on that channel; percussion names and the drum channel are never touched. Backed by an 11-scenario regression suite built on a new real-MidiFile test harness.
+* **Track panel context menu** - Right-click any track for: Clone Track, Merge Track Into (submenu), Move Track Up/Down, Quantize Track, Transpose Track (dialog / octave up / octave down), Explode Chords to Tracks, Split Channels to Tracks, Select All Events, Move Events to Channel (submenu), Remove Events, and Convert Tempo. Destructive entries are disabled on the tempo track, every operation is one undo step, and each acts on the exact row you clicked - also across multiple open documents.
+* **Channel panel context menu** - Right-click a channel for Select All Events, Remove Events and Convert Tempo.
+* **New MidiFile::moveTrack + protocolled track reordering** - moving a track up/down is now a first-class, fully undoable file operation (undo restores both the list order and the track numbers).
+
+### Bug Fixes
+* **Fixed AI auto-retry duplicating requests (AI-RETRY-001)** - The 1.9.2 rate-limit retry scheduled a timer that could not be cancelled (during the backoff wait no request is "in flight", so Stop did nothing) and re-posted whatever request was last sent - if the user cancelled and started something new during the wait, the same request went out twice and both replies were processed (in Agent mode: the same tool calls executed twice). A monotonic send-generation counter now invalidates a pending retry on every cancel and every new request.
+* **Fixed "-pro" substring misrouting custom OpenAI models (AI-PRO-002)** - `modelRequiresResponsesApi` matched "-pro" anywhere in the model ID, so fine-tune IDs and custom names containing "-prompt"/"-prod"/"-project" were forced onto the Responses API with a reasoning object and failed with HTTP 400 on every send. The predicate is now anchored to the actual pro model family (o1-pro, o3-pro, gpt-5-pro, gpt-5.5-pro, dated snapshots), with negative unit tests.
+* **Fixed Agent-mode streaming for pro models (AI-PRO-003)** - the Agent streaming path never consulted the pro-model route, so the first Agent request of every session burned a failed chat-completions round-trip plus a spurious "Streaming failed" toast before recovering. Pro models now route directly to the non-streaming Responses path in Agent mode too.
+* **Fixed "Paste to track - Same as selected for new events" being ignored (PASTE-TRACK-002)** - since the 1.9.1 paste fix, the explicit menu choice behaved identically to "Keep track" for same-file pastes. The default is now "Keep track"; the explicit choice routes the paste onto the current edit track again, and cross-file defaults are unchanged.
+* **Fixed the split view's right velocity lane ignoring Line/Freehand (LANE-MODE-001)** - the secondary velocity lane was permanently stuck in single-value editing regardless of the toolbar mode; it now follows the mode selection and picks up the current mode when the split is opened.
+* **Fixed a small leak per split/unsplit cycle (LANE-LEAK-001)** - each secondary velocity lane leaked one internal selection tool; the tool is now shared for the process lifetime.
+* **Fixed "remove empty source track" losing meta events (SPLIT-META-001)** - both Split Channels to Tracks and the FFXIV Drum Split judged the source track "empty" without checking time-signature and channel-16 meta events (lyrics, markers, key signatures), so removing the track silently deleted them. The emptiness check now covers all meta channels (the track's own name event still allows removal).
+* **Fixed Guitar Pro import hanging on short faded notes (GP-IMPORT-001)** - a fade-in/fade-out/volume-swell on a note shorter than 20 ticks (e.g. a staccato 128th) made the volume interpolation loop step by zero, freezing the import and exhausting memory. The step is now clamped; a new regression test drives the conversion.
+* **Fixed Guitar Pro tempo 0 corrupting the tempo map (GP-IMPORT-002)** - a mix-table or measure tempo of 0 in a GP file produced a division-by-zero set_tempo value; zero tempos are now ignored like the initial-tempo guard already did.
+* **Fixed Glue truncating notes (GLUE-001)** - merging notes of the same pitch used the end of the last note by START time, so a long note followed by a shorter one was cut back to the short note's end. The merged note now ends at the latest end across the whole group.
+* **Fixed plain-GM exports getting FFXIV instrument remaps (EXPORT-GM-001)** - exporting audio with a muted channel while FFXIV/C64 mode was OFF still forced bank 0 and remapped programs (e.g. nylon guitar to Lute). GM exports now pass program and bank data through unchanged.
+* **Fixed Stop during streaming wedging the AI (AI-CANCEL-001)** - cancelling a streaming request left the client in "streaming" state with its reply handler disconnected, silently swallowing every later request until restart (and leaking the reply). Stop now restores the state machine; a user cancel also no longer surfaces a spurious "Request timed out" toast.
+* **Fixed split view rendering with the wrong channel visibility (SPLITVIEW-VIS-001)** - channel show/hide is stored per document, but the piano roll and velocity lane resolved it against the ACTIVE document, so the other editor group rendered with the wrong document's visibility. All render paths are now file-scoped.
+* **Fixed auto-save skipping background documents (AUTOSAVE-001)** - only the active tab was ever backed up; a background document (e.g. being edited by a running agent) is now included in every auto-save cycle.
+* **Fixed agent edits that could not be undone (AGENT-UNDO-001)** - the move_events_to_track and set_channel AI tools mutated the file without recording undo entries; both are now fully undoable. AI-inserted events are also confined to the musical channels 0-15 (a malformed channel:17 note could corrupt the tempo channel).
+* **Fixed timeline grid hang on low-resolution files (GRID-001)** - dense tuplet rasters on a low-PPQ file could truncate the per-division tick step to zero and hang the paint loop; the step is now clamped.
+* **Fixed changing audio settings during playback (FS-01)** - switching the sample rate, reverb or audio driver while a song was playing restarted the synth under the running player; playback is now stopped first instead of risking a crash.
+* **Fixed loading a conversation while a response streams (MP-01/MP-02)** - opening a saved MidiPilot conversation mid-stream could crash on the disappearing streaming widgets; the running request is now aborted cleanly and the stream timer stopped before the chat is rebuilt.
+* **Fixed several leaks** - channel-level undo/redo orphaned a full event map per step; recording dropped duplicate controller events without freeing them; incoming MIDI was buffered even when not recording; large tempo pastes cloned the channel map once per moved note. LAN pairing codes can also contain "9" again, and a fully unchecked custom toolbar stays unchecked after a restart.
+
+### Test Harness
+* **test_ffxiv_fixer_resync** - first test target to instantiate the REAL MidiFile/MidiChannel/MidiTrack/Protocol stack (GUI periphery ODR-shimmed); 11 scenarios guard the re-sync hard gates (idempotency, off-by-default byte-identity, Piano/no-PC detection, stacked-PC collapse, mid-song PC survival, percussion/Timpani split, shared-channel ownership, drum-channel and idle-track protection).
+* **Kit + routing test extensions** - FFXIV drum grouping and kit note tables (bard range, no duplicate sources, exact FFXIV track names), pro-model routing negatives for fine-tune IDs.
+* **test_gp_to_native** - drives the Guitar Pro -> MIDI conversion through the public getMidi() path; guards the fade-loop termination fix (the test would hang without it) and the normal ~20-step fade interpolation.
+
+### Files Modified
+* `src/gui/DrumKitPreset.h/.cpp` - FFXIV drum grouping (`ffxivPreset()`) + pitch-mapping kit data (`FfxivDrumMapPreset`)
+* `src/gui/FFXIVDrumSplitDialog.h/.cpp` - new drum split preview dialog (groups, counts, pitch-mapping selector)
+* `src/gui/MainWindow.cpp/.h` - drum split apply, per-track context-menu operations, re-sync plumbing, review fixes
+* `src/gui/TrackListWidget.cpp` / `src/gui/ChannelListWidget.cpp` - rich right-click context menus
+* `src/ai/FFXIVChannelFixer.h/.cpp` - opt-in non-guitar re-sync (plan/CLEAN/PROGRAM phases)
+* `src/gui/FFXIVFixerDialog.h/.cpp` - re-sync checkbox under Preserve mode
+* `src/ai/AiClient.h/.cpp` - retry generation guard, anchored pro-model predicate, Agent-streaming pro route, streaming-cancel state restore
+* `src/tool/EventTool.cpp` - paste-to-track default/explicit split (-1 keep / -2 edit track), bulk-snapshot tempo-paste recalculation
+* `src/tool/GlueTool.cpp` - merged-note end = latest end across the group
+* `src/midi/MidiFile.h/.cpp` - `moveTrack()`; `src/midi/MidiChannel.h/.cpp` - `insertNote(..., toProtocol)`, reloadState map ownership
+* `src/midi/FluidSynthEngine.h/.cpp` - GM-export passthrough, playback stop before synth restart
+* `src/midi/MidiInput.cpp` - recording-only input buffering, duplicate-event cleanup
+* `src/converter/GuitarPro/GpToNative.cpp` - fade-loop termination, tempo-0 guards
+* `src/gui/ChannelVisibilityManager.h/.cpp` + render paths - file-scoped channel visibility
+* `src/gui/MidiPilotWidget.cpp` - streaming-widget lifetime guards, undoable agent tools
+* `src/ai/MidiEventSerializer.cpp` / `src/ai/EditorContext.cpp` - voice-channel clamp, per-file state capture
+* `src/ai/McpServer.cpp` - `list_documents` / `switch_document` MCP tools
+* `src/collab/LanDiscovery.cpp` - pairing-code alphabet length
+* `tests/` - `test_ffxiv_fixer_resync.cpp` + `test_gp_to_native.cpp` (new), extended drum-kit, streaming-fallback + midi-channel tests
+
+</details>
+
+---
+
 ## [1.9.2] - 2026-06-29 - Bugfixes
 
 > Bugfix release after 1.9.1: editor and copy/paste fixes, AI reliability

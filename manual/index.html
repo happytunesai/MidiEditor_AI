@@ -179,7 +179,7 @@
     "description": "AI-powered MIDI editor with intelligent copilot, Guitar Pro import, FFXIV bard mode, and FluidSynth playback.",
     "url": "https://midieditor-ai.de",
     "downloadUrl": "https://github.com/happytunesai/MidiEditor_AI/releases/latest",
-    "softwareVersion": "1.9.2",
+    "softwareVersion": "2.0.0",
     "license": "https://github.com/happytunesai/MidiEditor_AI/blob/main/LICENSE",
     "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
 }
@@ -242,7 +242,7 @@
              onerror="this.parentElement.style.display='none';">
     </div>
 
-    <span class="hero-badge">v1.9.2 &middot; Open Source &middot; Windows</span>
+    <span class="hero-badge">v2.0.0 &middot; Open Source &middot; Windows</span>
 
     <h1 class="hero-title">
         The <span class="text-gradient">AI-Powered</span> MIDI Editor
@@ -254,7 +254,7 @@
 
     <div class="hero-actions">
         <a href="download.html" class="btn btn-primary">
-            &#x2B07; Download v1.9.2
+            &#x2B07; Download v2.0.0
         </a>
         <a href="docs-index.html" class="btn btn-secondary" target="_blank" rel="noopener noreferrer">
             &#x1F4D6; Documentation
@@ -615,13 +615,14 @@
     </div>
     <div class="whats-new reveal">
         <span class="latest-badge">Latest</span>
-        <h3>v1.9.2 - June 2026</h3>
-        <p class="whats-new-subtitle">Bugfixes &amp; AI reliability</p>
+        <h3>v2.0.0 - July 2026</h3>
+        <p class="whats-new-subtitle">FFXIV Power Tools &amp; QoL</p>
         <ul>
-            <li><strong>Save As renames the tab</strong> - saving a document under a new name now updates its tab, not just the window title</li>
-            <li><strong>OpenAI Pro models work everywhere</strong> - models such as gpt-5.5 Pro now run in Simple mode and the connection test, not only in Agent mode (<a href="midipilot.html">read more</a>)</li>
-            <li><strong>The AI rides out rate limits</strong> - brief provider throttling and network hiccups retry on their own, and a genuine out-of-quota reply is shown right away with the provider&rsquo;s own message</li>
-            <li><strong>Steadier copy &amp; paste</strong> - pasting a clipboard that mixes tempo or time-signature changes with notes now keeps the notes on the right beats</li>
+            <li><strong>FFXIV Drum Split</strong> - one click turns the GM drum kit into correctly named FFXIV percussion tracks, with a preview dialog and full undo (<a href="ffxiv-drum-split.html">read more</a>)</li>
+            <li><strong>Pitch-mapping kits</strong> - the house kit plus community kits transpose every drum onto its bard pitch, and an overlap cleanup removes the stacked hits FFXIV cannot play - instantly playable in game</li>
+            <li><strong>Channel fixer instrument re-sync</strong> - Preserve mode can now repair stale instruments from the track names, touching only mismatched channels (<a href="ffxiv-channel-fixer.html">read more</a>)</li>
+            <li><strong>Rich right-click menus</strong> - Clone, Merge, Move, Quantize, Transpose and more, directly on the Tracks and Channels panels (<a href="editor-and-components.html">read more</a>)</li>
+            <li><strong>Stability pass</strong> - a full-codebase review fixed Guitar Pro import hangs, note-glue truncation, plain-GM export remaps, AI cancel wedges and a set of undo and memory issues</li>
         </ul>
         <a href="changelog.html" class="changelog-link">View Full Changelog &rarr;</a>
     </div>
@@ -652,6 +653,7 @@
             <tr><td>Chord Detection</td><td><span class="cross">&#x2716;</span></td><td><span class="check">&#x2714;</span></td></tr>
             <tr><td>Split Channels to Tracks</td><td><span class="cross">&#x2716;</span></td><td><span class="check">&#x2714;</span></td></tr>
             <tr><td>Explode Chords to Tracks</td><td><span class="cross">&#x2716;</span></td><td><span class="check">&#x2714;</span></td></tr>
+            <tr><td>FFXIV Drum Split (GM kit &rarr; bard percussion tracks)</td><td><span class="cross">&#x2716;</span></td><td><span class="check">&#x2714;</span></td></tr>
             <tr><td>Delete Overlaps Tool</td><td><span class="cross">&#x2716;</span></td><td><span class="check">&#x2714;</span></td></tr>
             <tr><td>Glue Notes Tool</td><td><span class="cross">&#x2716;</span></td><td><span class="check">&#x2714;</span></td></tr>
             <tr><td>Strum Tool</td><td><span class="cross">&#x2716;</span></td><td><span class="check">&#x2714;</span></td></tr>
@@ -679,7 +681,7 @@
     </div>
     <div class="hero-actions reveal" style="margin-bottom: 1.5rem;">
         <a href="download.html" class="btn btn-primary" style="font-size: 1.15rem; padding: 1rem 2.5rem;">
-            &#x2B07; Download MidiEditor AI v1.9.2
+            &#x2B07; Download MidiEditor AI v2.0.0
         </a>
     </div>
     <p class="reveal" style="color: var(--text-muted); font-size: .9rem;">

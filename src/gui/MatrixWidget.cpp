@@ -551,6 +551,10 @@ void MatrixWidget::paintEvent(QPaintEvent *event) {
                         }
                     }
 
+                    // Guarantee loop progress: integer division above can
+                    // truncate the per-division step to 0 on low-PPQ files with
+                    // dense tuplet rasters, which would hang the paint loop.
+                    if (ticksPerDiv < 1) ticksPerDiv = 1;
                     int startTickDiv = ticksPerDiv;
                     QPen oldPen = pixpainter->pen();
                     QPen dashPen = QPen(_cachedTimelineGridColor, 1, Qt::DashLine);
@@ -749,8 +753,9 @@ void MatrixWidget::paintEvent(QPaintEvent *event) {
 }
 
 void MatrixWidget::paintChannel(QPainter *painter, int channel) {
-    // Use global visibility manager to avoid corrupted MidiChannel access
-    if (!ChannelVisibilityManager::instance().isChannelVisible(channel)) {
+    // File-scoped visibility: this widget may render a non-active document
+    // (split view), whose visibility state differs from the active one.
+    if (!ChannelVisibilityManager::instance().isChannelVisible(channel, file)) {
         return;
     }
     QColor cC = *file->channel(channel)->color();
@@ -906,7 +911,7 @@ void MatrixWidget::paintTimelineMarkers(QPainter *painter) {
     QMap<int, QColor> markerTickColors;
 
     for (int ch = 0; ch < 17; ch++) {
-        if (ch < 16 && !ChannelVisibilityManager::instance().isChannelVisible(ch)) continue;
+        if (ch < 16 && !ChannelVisibilityManager::instance().isChannelVisible(ch, file)) continue;
 
         QMultiMap<int, MidiEvent *> *map = file->channelEvents(ch);
         if (!map) continue;
@@ -966,7 +971,7 @@ void MatrixWidget::paintMarkerBar(QPainter *painter) {
     QMap<int, QList<QPair<QString, QColor>>> markersByTick;
 
     for (int ch = 0; ch < 17; ch++) {
-        if (ch < 16 && !ChannelVisibilityManager::instance().isChannelVisible(ch)) continue;
+        if (ch < 16 && !ChannelVisibilityManager::instance().isChannelVisible(ch, file)) continue;
 
         QMultiMap<int, MidiEvent *> *map = file->channelEvents(ch);
         if (!map) continue;
