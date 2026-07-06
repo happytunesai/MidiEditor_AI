@@ -2030,6 +2030,20 @@ void MainWindow::setActiveDocument(MidiFile *newFile) {
     _midiPilotWidget->onFileChanged(newFile);
     if (_mcpServer) _mcpServer->setFile(newFile);
 
+    // The authentic-SID player is a singleton - rebind its source to the
+    // active document (a .sid document keeps the original .sid as its path).
+    // Without this it plays whatever .sid was opened LAST in every tab, even
+    // after that tab is closed. Same-path guard: re-activating the same
+    // document must not stop a running playback.
+    {
+        SidAudioPlayer *sid = SidAudioPlayer::instance();
+        const QString sidPath =
+            (newFile && newFile->path().toLower().endsWith(QStringLiteral(".sid")))
+                ? newFile->path() : QString();
+        if (sid->sourcePath() != sidPath)
+            sid->setSource(sidPath);
+    }
+
 #ifdef MIDIEDITOR_COLLAB_ENABLED
     CollabService::instance()->onFileLoaded(newFile, newFile ? newFile->path() : QString());
 #endif
@@ -4480,10 +4494,9 @@ void MainWindow::openFile(QString filePath) {
             statusBar()->showMessage(tr("Recovered from auto-save backup"), 5000);
         }
         updateRecentPathsList();
-        // Remember the original .sid for authentic libsidplayfp playback (C64
-        // button in Emulation mode); clear it when any other file is loaded.
-        SidAudioPlayer::instance()->setSource(
-            lowerPath.endsWith(".sid") ? filePath : QString());
+        // The authentic-SID source follows the ACTIVE document now -
+        // setActiveDocument() rebinds SidAudioPlayer on every tab switch
+        // (openInNewTab above already activated this document).
         // If no special mode is active, make sure a C64/FFXIV SoundFont left over
         // from a previous file doesn't keep playing the newly-loaded song (e.g.
         // a Guitar Pro file opened after a SID) - fall back to GM, else GS.

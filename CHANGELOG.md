@@ -5,6 +5,17 @@ Releases: https://github.com/happytunesai/web/releases
 
 ---
 
+## [2.0.1] - 2026-07-06 - Hotfix
+
+> Hotfix for SID emulation with multiple open documents, found in real use
+> right after the 2.0.0 release.
+
+### Fixed
+
+* **SID emulation now follows the active tab.** With several `.sid` files open as tabs, the C64 Emulation engine kept playing whichever `.sid` had been opened last - in every tab, and even after that tab was closed. The authentic-SID player now rebinds to the active document on every tab switch: each tab plays its own tune, switching to a non-SID document disarms Emulation, and closing a tab can no longer leave its song stuck in the player.
+
+---
+
 ## [2.0.0] - 2026-07-05 - FFXIV Power Tools & QoL
 
 ### Summary

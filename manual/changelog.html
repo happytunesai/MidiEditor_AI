@@ -221,12 +221,24 @@
 <div class="cl-no-results" id="cl-no-results">No matching releases found.</div>
 
 <div class="cl-timeline">
-<article class="cl-version latest" data-version="2.0.0">
+<article class="cl-version latest" data-version="2.0.1">
+<div class="cl-dot"></div>
+<div class="cl-version-head">
+<h2><a href="https://github.com/happytunesai/MidiEditor_AI/releases/tag/v2.0.1" target="_blank" rel="noopener noreferrer">v2.0.1</a></h2>
+<span class="cl-date">2026-07-06</span>
+<span class="cl-badge-latest">Latest</span>
+</div>
+<div class="cl-title">Hotfix</div>
+<div class="cl-blockquote">Hotfix for SID emulation with multiple open documents, found in real use right after the 2.0.0 release.</div>
+<ul class="cl-summary">
+<li><strong>SID emulation now follows the active tab.</strong> With several <code class="hl">.sid</code> files open as tabs, the C64 Emulation engine kept playing whichever <code class="hl">.sid</code> had been opened last - in every tab, and even after that tab was closed. The authentic-SID player now rebinds to the active document on every tab switch: each tab plays its own tune, switching to a non-SID document disarms Emulation, and closing a tab can no longer leave its song stuck in the player.</li>
+</ul>
+</article>
+<article class="cl-version" data-version="2.0.0">
 <div class="cl-dot"></div>
 <div class="cl-version-head">
 <h2><a href="https://github.com/happytunesai/MidiEditor_AI/releases/tag/v2.0.0" target="_blank" rel="noopener noreferrer">v2.0.0</a></h2>
 <span class="cl-date">2026-07-05</span>
-<span class="cl-badge-latest">Latest</span>
 </div>
 <div class="cl-title">FFXIV Power Tools &amp; QoL</div>
 <ul class="cl-summary">

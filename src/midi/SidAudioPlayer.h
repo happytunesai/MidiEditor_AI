@@ -30,6 +30,7 @@ public:
     /// Clears any current source/playback when given an empty path.
     void setSource(const QString &sidPath, int song = 0);
     bool hasSource() const { return !_bytes.isEmpty(); }
+    QString sourcePath() const { return _path; }
     bool isPlaying() const { return _playing; }
 
     /// "Armed": the C64 button selected Emulation mode, so the transport plays
