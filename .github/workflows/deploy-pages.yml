@@ -71,8 +71,17 @@ jobs:
         with:
           path: 'manual'
 
+      # The Pages backend intermittently aborts during syncing_files with a
+      # generic "Deployment failed, try again later." (hit both the v2.0.0 and
+      # v2.0.1 release pushes). One in-job retry rides out the hiccup; if the
+      # retry fails too, the job fails as before.
       - name: Deploy to GitHub Pages
         id: deployment
+        uses: actions/deploy-pages@v5
+        continue-on-error: true
+
+      - name: Deploy to GitHub Pages (retry after backend hiccup)
+        if: steps.deployment.outcome == 'failure'
         uses: actions/deploy-pages@v5
 
       - name: "Deployment Summary"
