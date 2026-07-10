@@ -36,6 +36,8 @@
 
 #ifdef Q_OS_WIN
 #include <windows.h>
+#else
+#include <unistd.h>
 #endif
 
 AutoUpdater::AutoUpdater(QWidget *parentWidget, QSettings *settings, QObject *parent)

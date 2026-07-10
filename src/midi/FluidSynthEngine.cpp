@@ -116,15 +116,57 @@ bool FluidSynthEngine::initialize() {
         return false;
     }
 
-    // Try to create the audio driver — first the preferred driver, then fallbacks
+    // Try to create the audio driver — first the preferred driver, then
+    // platform-priority fallbacks filtered by what this FluidSynth build supports.
+    QStringList availableDrivers;
+    fluid_settings_foreach_option(_settings, "audio.driver",
+        &availableDrivers,
+        [](void *data, const char * /*name*/, const char *option) {
+            QStringList *list = static_cast<QStringList*>(data);
+            const QString driverName = QString::fromUtf8(option);
+            if (!list->contains(driverName)) {
+                list->append(driverName);
+            }
+        });
+
     QStringList driversToTry;
+    auto appendIfSupported = [&](const QString &driver) {
+        if (!availableDrivers.isEmpty() && !availableDrivers.contains(driver)) {
+            return;
+        }
+        if (!driversToTry.contains(driver)) {
+            driversToTry << driver;
+        }
+    };
+
     if (!_audioDriverName.isEmpty()) {
-        driversToTry << _audioDriverName;
+        appendIfSupported(_audioDriverName);
     }
-    // Windows fallback chain
-    for (const QString &fb : {"wasapi", "dsound", "waveout", "sdl3", "sdl2"}) {
-        if (!driversToTry.contains(fb)) {
-            driversToTry << fb;
+
+#if defined(__APPLE__)
+    // Homebrew FluidSynth on macOS typically supports coreaudio/portaudio.
+    for (const QString &fb : {QStringLiteral("coreaudio"), QStringLiteral("portaudio")}) {
+        appendIfSupported(fb);
+    }
+#elif defined(_WIN32)
+    for (const QString &fb : {QStringLiteral("wasapi"), QStringLiteral("dsound"), QStringLiteral("waveout"), QStringLiteral("sdl3"), QStringLiteral("sdl2")}) {
+        appendIfSupported(fb);
+    }
+#elif defined(__linux__)
+    for (const QString &fb : {QStringLiteral("pipewire"), QStringLiteral("pulseaudio"), QStringLiteral("alsa"), QStringLiteral("jack"), QStringLiteral("portaudio"), QStringLiteral("sdl3"), QStringLiteral("sdl2")}) {
+        appendIfSupported(fb);
+    }
+#else
+    for (const QString &fb : {QStringLiteral("portaudio"), QStringLiteral("sdl3"), QStringLiteral("sdl2")}) {
+        appendIfSupported(fb);
+    }
+#endif
+
+    if (driversToTry.isEmpty()) {
+        for (const QString &drv : availableDrivers) {
+            if (drv != QLatin1String("file")) {
+                driversToTry << drv;
+            }
         }
     }
 
