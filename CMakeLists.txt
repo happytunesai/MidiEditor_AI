@@ -716,6 +716,13 @@ elseif(PLAT_MACOSX)
             "-framework CoreAudio"
             "-framework CoreFoundation"
     )
+    
+    set_target_properties(MidiEditorAI PROPERTIES
+            MACOSX_BUNDLE TRUE
+            MACOSX_BUNDLE_GUI_IDENTIFIER "com.happytunes.midieditorai"
+            MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
+            MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+    )
 endif()
 
 # Output directory
