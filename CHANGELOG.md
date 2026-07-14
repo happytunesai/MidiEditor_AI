@@ -5,6 +5,16 @@ Releases: https://github.com/happytunesai/web/releases
 
 ---
 
+## [Unreleased]
+
+### New Features
+* **macOS build-from-source support (experimental, community-maintained)** - the project now builds and runs on macOS: `make mac-setup && make mac-build` (Homebrew Bundle with Qt 6 and FluidSynth, CMake bundle configuration, optional local `.app` packaging via `make mac-app`). No prebuilt binaries and no auto-updates; a build-only macOS CI job guards the platform against regressions. Contributed by the community (#12).
+
+### Changed
+* **FluidSynth audio-driver selection hardened (all platforms)** - the engine now asks the local FluidSynth build which audio drivers it actually supports and only tries those, with platform-specific priority lists (Windows: WASAPI first, macOS: CoreAudio, Linux: PipeWire/PulseAudio/ALSA). Removes noisy fallback errors for drivers that were never available.
+
+---
+
 ## [2.0.1] - 2026-07-06 - Hotfix
 
 > Hotfix for SID emulation with multiple open documents, found in real use

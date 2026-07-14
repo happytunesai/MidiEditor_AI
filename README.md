@@ -611,6 +611,19 @@ cmake --build build --config Release
 
 The executable will be at `build/bin/MidiEditorAI.exe` with Qt DLLs auto-deployed.
 
+### macOS (experimental, community-maintained)
+
+macOS is supported as a **build-from-source** platform only: no prebuilt binaries, no auto-updates, and testing relies on the community and a build-only CI job. Contributed and maintained by the community.
+
+```bash
+make mac-setup   # install dependencies via Homebrew Bundle
+make mac-build   # configure + build into build-mac/
+make mac-run     # run the binary directly
+make mac-app     # package a local .app (ad-hoc signed)
+```
+
+Downloading SoundFonts and the in-app updater currently expect the Windows portable layout; see issue #13 before packaging macOS builds for distribution.
+
 ## 📂 Project Structure
 
 ```
