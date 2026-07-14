@@ -8,6 +8,7 @@ MAC_APP := $(MAC_BUILD_DIR)/MidiEditorAI.app
 help:
 	@echo "macOS targets:"
 	@echo "  make mac-setup      - install dependencies via Homebrew Bundle"
+	@echo "  make mac-configure  - configure the build directory with CMake"
 	@echo "  make mac-build      - build the macOS binary in $(MAC_BUILD_DIR)"
 	@echo "  make mac-run        - run the binary directly (no .app bundle)"
 	@echo "  make mac-run-direct - explicit alias for direct run (no .app bundle)"
@@ -18,10 +19,16 @@ help:
 mac-setup:
 	brew bundle
 
+# Configure the project using CMake if not already configured.
+mac-configure:
+	@if [ ! -f "$(MAC_BUILD_DIR)/CMakeCache.txt" ]; then \
+		cmake -S . -B $(MAC_BUILD_DIR); \
+	fi
+
 # Build the project for macOS using the existing build directory.
 # First pass is parallel for speed, second pass is serial to surface
 # the first clear error if final linking fails.
-mac-build:
+mac-build: mac-configure
 	cmake --build $(MAC_BUILD_DIR) -j8
 	cmake --build $(MAC_BUILD_DIR) -j1
 
@@ -35,12 +42,13 @@ mac-run-direct: mac-build
 
 # Package the binary into a self-contained .app with Qt frameworks/plugins,
 # clear local quarantine attributes, and ad-hoc sign for local execution.
+# CMake generates the .app bundle structure and Info.plist via MACOSX_BUNDLE
+# properties; macdeployqt embeds Qt frameworks and plugins. Codesign with
+# --force --sign - (not --deep, which Apple advises against) for ad-hoc signing.
 mac-app: mac-build
-	mkdir -p $(MAC_APP)/Contents/MacOS $(MAC_APP)/Contents/Resources
-	cp -f $(MAC_BIN) $(MAC_APP)/Contents/MacOS/MidiEditorAI
 	macdeployqt $(MAC_APP) -always-overwrite -no-strip
 	xattr -dr com.apple.quarantine $(MAC_APP) || true
-	codesign --force --deep --sign - $(MAC_APP)
+	codesign --force --sign - $(MAC_APP)
 
 # Fully clean macOS build/packaging output.
 mac-clean:
