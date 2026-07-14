@@ -1,9 +1,9 @@
 
-.PHONY: help mac-setup mac-build mac-run mac-run-direct mac-app mac-clean build-mac run-mac package-mac
+.PHONY: help mac-setup mac-configure mac-build mac-run mac-run-direct mac-app mac-clean build-mac run-mac package-mac
 
 MAC_BUILD_DIR := build-mac
-MAC_BIN := $(MAC_BUILD_DIR)/bin/MidiEditorAI
-MAC_APP := $(MAC_BUILD_DIR)/MidiEditorAI.app
+MAC_APP := $(abspath $(MAC_BUILD_DIR)/bin/MidiEditorAI.app)
+MAC_BIN := $(MAC_APP)/Contents/MacOS/MidiEditorAI
 
 help:
 	@echo "macOS targets:"
@@ -46,6 +46,8 @@ mac-run-direct: mac-build
 # properties; macdeployqt embeds Qt frameworks and plugins. Codesign with
 # --force --sign - (not --deep, which Apple advises against) for ad-hoc signing.
 mac-app: mac-build
+	rm -rf $(MAC_APP)
+	cmake --build $(MAC_BUILD_DIR) --target MidiEditorAI -j1
 	macdeployqt $(MAC_APP) -always-overwrite -no-strip
 	xattr -dr com.apple.quarantine $(MAC_APP) || true
 	codesign --force --sign - $(MAC_APP)
