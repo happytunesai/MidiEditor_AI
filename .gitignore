@@ -444,3 +444,6 @@ tests/data/*
 !tests/data/README.md
 !tests/data/.gitkeepCHANGELOG_TEMPLATE.md 
 build-vs/ 
+
+# Mac Desktop Services Store
+.DS_Store
