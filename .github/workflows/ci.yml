@@ -236,6 +236,31 @@ jobs:
           "@ >> $env:GITHUB_STEP_SUMMARY
 
   # ─────────────────────────────────────────────────────
+  #  Build macOS — build-only, no tests/artifacts
+  # ─────────────────────────────────────────────────────
+  build-macos:
+    name: "\U0001F528 Build macOS"
+    runs-on: macos-15
+    
+    steps:
+      - name: "\U0001F50D Checkout"
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+          submodules: recursive
+
+      - name: "\U0001F4E5 Install dependencies"
+        run: brew bundle
+        
+      - name: "\u2699\uFE0F CMake Configure"
+        run: cmake -S . -B build-mac
+        
+      - name: "\U0001F528 CMake Build"
+        run: |
+          cmake --build build-mac -j8
+          cmake --build build-mac -j1
+
+  # ─────────────────────────────────────────────────────
   #  Release — only on v* tag push or manual dispatch
   # ─────────────────────────────────────────────────────
   release:

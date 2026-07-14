@@ -275,9 +275,16 @@ if(FLUIDSYNTH_FOUND)
     set_property(TARGET MidiEditorAI APPEND PROPERTY AUTOMOC_MOC_OPTIONS "-DFLUIDSYNTH_SUPPORT")
     if(TARGET PkgConfig::FLUIDSYNTH)
         target_link_libraries(MidiEditorAI PRIVATE PkgConfig::FLUIDSYNTH)
-    else()
+    elseif(FLUIDSYNTH_LIBRARY)
         target_include_directories(MidiEditorAI PRIVATE ${FLUIDSYNTH_INCLUDE_DIR})
         target_link_libraries(MidiEditorAI PRIVATE ${FLUIDSYNTH_LIBRARY})
+    elseif(FLUIDSYNTH_LIBRARIES)
+        # pkg_check_modules may set vars without creating an IMPORTED target.
+        target_include_directories(MidiEditorAI PRIVATE ${FLUIDSYNTH_INCLUDE_DIRS})
+        target_link_directories(MidiEditorAI PRIVATE ${FLUIDSYNTH_LIBRARY_DIRS})
+        target_link_libraries(MidiEditorAI PRIVATE ${FLUIDSYNTH_LIBRARIES})
+    else()
+        message(FATAL_ERROR "FluidSynth was detected but no link target/library was resolved")
     endif()
 else()
     message(STATUS "FluidSynth not found - built-in synthesizer disabled")
@@ -478,7 +485,7 @@ if(MIDIEDITOR_ENABLE_WEBRTC)
     # to the standard names FindOpenSSL expects (libcrypto.lib,
     # libssl.lib). This is a one-time per-build-dir setup; subsequent
     # configures hit the if(NOT EXISTS) guard.
-    if(NOT EXISTS "${OPENSSL_INSTALL_DIR}/lib/libcrypto.lib")
+    if(WIN32 AND NOT EXISTS "${OPENSSL_INSTALL_DIR}/lib/libcrypto.lib")
         file(GLOB _ossl_crypto "${OPENSSL_INSTALL_DIR}/lib/libcrypto*.lib")
         file(GLOB _ossl_ssl    "${OPENSSL_INSTALL_DIR}/lib/libssl*.lib")
         list(GET _ossl_crypto 0 _crypto_src)
@@ -708,6 +715,13 @@ elseif(PLAT_MACOSX)
             "-framework CoreMidi"
             "-framework CoreAudio"
             "-framework CoreFoundation"
+    )
+    
+    set_target_properties(MidiEditorAI PROPERTIES
+            MACOSX_BUNDLE TRUE
+            MACOSX_BUNDLE_GUI_IDENTIFIER "com.happytunes.midieditorai"
+            MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
+            MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
     )
 endif()
 

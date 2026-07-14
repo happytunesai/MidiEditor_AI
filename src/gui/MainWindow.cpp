@@ -64,6 +64,8 @@
 
 #ifdef Q_OS_WIN
 #include <windows.h>
+#else
+#include <unistd.h>
 #endif
 
 #include <cmath>
