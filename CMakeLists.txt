@@ -726,9 +726,11 @@ elseif(PLAT_MACOSX)
     set_target_properties(MidiEditorAI PROPERTIES
             MACOSX_BUNDLE TRUE
             MACOSX_BUNDLE_GUI_IDENTIFIER "com.happytunes.midieditorai"
+            MACOSX_BUNDLE_BUNDLE_NAME "MidiEditor AI"
             MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
             MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
             MACOSX_BUNDLE_ICON_FILE "MidiEditorAI.icns"
+            MACOSX_BUNDLE_INFO_PLIST "${CMAKE_SOURCE_DIR}/macos/Info.plist.in"
     )
 endif()
 
