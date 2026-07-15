@@ -717,11 +717,18 @@ elseif(PLAT_MACOSX)
             "-framework CoreFoundation"
     )
     
+    set(MACOSX_ICON "${CMAKE_SOURCE_DIR}/MidiEditorAI.icns")
+    set_source_files_properties(${MACOSX_ICON} PROPERTIES
+            MACOSX_PACKAGE_LOCATION "Resources"
+    )
+    target_sources(MidiEditorAI PRIVATE ${MACOSX_ICON})
+
     set_target_properties(MidiEditorAI PROPERTIES
             MACOSX_BUNDLE TRUE
             MACOSX_BUNDLE_GUI_IDENTIFIER "com.happytunes.midieditorai"
             MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
             MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+            MACOSX_BUNDLE_ICON_FILE "MidiEditorAI.icns"
     )
 endif()
 
