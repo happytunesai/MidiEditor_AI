@@ -13,6 +13,9 @@ Releases: https://github.com/happytunesai/web/releases
 ### Changed
 * **FluidSynth audio-driver selection hardened (all platforms)** - the engine now asks the local FluidSynth build which audio drivers it actually supports and only tries those, with platform-specific priority lists (Windows: WASAPI first, macOS: CoreAudio, Linux: PipeWire/PulseAudio/ALSA). Removes noisy fallback errors for drivers that were never available.
 
+### Bug Fixes
+* **Fixed Smooth Transition tempo ramps freezing the editor (TEMPO-SMOOTH-001)** - the Edit Tempo tool wrote a tempo event every 5 ticks (a 25-BPM ramp over a few measures produced thousands of events, almost all duplicates), each one individually undo-protocolled, and every later tick-to-time conversion copied the whole tempo map per call - scrolling and editing crawled afterwards. Smooth Transition now writes exactly one event per BPM step (evenly spread, endpoints exact), applies as a single undo step, and the tick/time conversions walk the tempo map without copying it - which also un-lags files that already come with dense imported tempo ramps.
+
 ---
 
 ## [2.0.1] - 2026-07-06 - Hotfix

@@ -534,13 +534,15 @@ int MidiFile::timeMS(int midiTime) {
 int MidiFile::tick(int ms) {
     double time = 0;
 
-    QList<MidiEvent *> events = channels[17]->eventMap()->values();
+    // Walk the ordered tempo map directly (no QList copy - this runs on every
+    // playback/cursor position update and must stay cheap for dense maps).
+    QMultiMap<int, MidiEvent *> *map = channels[17]->eventMap();
     TempoChangeEvent *event = 0;
 
     double timeMsNextEvent = 0;
 
-    for (int i = 0; i < events.length(); i++) {
-        TempoChangeEvent *ev = dynamic_cast<TempoChangeEvent *>(events.at(i));
+    for (auto it = map->constBegin(); it != map->constEnd(); ++it) {
+        TempoChangeEvent *ev = dynamic_cast<TempoChangeEvent *>(it.value());
         if (!ev) {
             qWarning("unknown eventtype in the List [3]");
             continue;
@@ -548,12 +550,12 @@ int MidiFile::tick(int ms) {
         event = ev;
         time = timeMsNextEvent;
 
-        int ticks = 0;
-        if (i < events.length() - 1) {
-            ticks = events.at(i + 1)->midiTime() - ev->midiTime();
-        } else {
+        auto next = it;
+        ++next;
+        if (next == map->constEnd()) {
             break;
         }
+        int ticks = next.value()->midiTime() - ev->midiTime();
 
         timeMsNextEvent += ticks * ev->msPerTick();
         if (timeMsNextEvent > ms) {
@@ -571,10 +573,33 @@ int MidiFile::tick(int ms) {
 
 int MidiFile::msOfTick(int tick, QList<MidiEvent *> *events, int
                        msOfFirstEventInList) {
-    QList<MidiEvent *> localEvents;
     if (!events) {
-        localEvents = channels[17]->eventMap()->values();
-        events = &localEvents;
+        // Fast path: walk the ordered tempo map directly. This runs per grid
+        // line, note and cursor on every paint, so it must stay allocation
+        // free - copying the map into a QList here made dense tempo maps
+        // (e.g. imported ramps) freeze the whole editor.
+        double timeMs = 0;
+        TempoChangeEvent *event = 0;
+        QMultiMap<int, MidiEvent *> *map = channels[17]->eventMap();
+        for (auto it = map->constBegin(); it != map->constEnd(); ++it) {
+            TempoChangeEvent *ev = dynamic_cast<TempoChangeEvent *>(it.value());
+            if (!ev) {
+                continue;
+            }
+            if (!event || ev->midiTime() <= tick) {
+                if (event) {
+                    timeMs += event->msPerTick() * (ev->midiTime() - event->midiTime());
+                }
+                event = ev;
+            } else {
+                break; // ordered map: everything further is past the tick
+            }
+        }
+        if (!event) {
+            return 0;
+        }
+        timeMs += event->msPerTick() * (tick - event->midiTime());
+        return (int) timeMs;
     }
 
     // timeMs holds the time of the current tick

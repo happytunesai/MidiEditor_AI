@@ -126,6 +126,11 @@ void TempoDialog::accept() {
     MidiTrack *generalTrack = _file->track(0);
     _file->protocol()->startNewAction("Edit Tempo");
 
+    MidiChannel *tempoChannel = _file->channel(17);
+    // Bulk pattern: one channel snapshot, unprotocolled mutations, one commit.
+    // The old per-event protocolling cloned the whole tempo map per call.
+    ProtocolEntry *snap = tempoChannel->copy();
+
     // Delete all events in range
     QList<MidiEvent *> toRemove;
     QMultiMap<int, MidiEvent *> *events = _file->tempoEvents();
@@ -142,22 +147,45 @@ void TempoDialog::accept() {
         it++;
     }
     foreach(MidiEvent *ev, toRemove) {
-        _file->channel(17)->removeEvent(ev);
+        tempoChannel->removeEvent(ev, false);
     }
 
     if (_smoothTransition->isChecked()) {
         int startBeats = _startBeats->value();
         int endBeats = _endBeats->value();
 
-        for (int tick = _startTick; tick < _endTick; tick += 5) {
-            int beats = startBeats + static_cast<int>((static_cast<qint64>(endBeats - startBeats) * static_cast<qint64>(tick - _startTick)) / static_cast<qint64>(_endTick - _startTick));
-            _file->channel(17)->insertEvent(new TempoChangeEvent(17, 60000000 / beats, generalTrack), tick);
+        // One event per integer-BPM step, not one every 5 ticks: BPM is
+        // integral, so denser spacing only produces thousands of duplicate
+        // events (a 25-BPM ramp over 8 measures used to emit ~3000 events,
+        // making every later tick<->ms conversion crawl).
+        const int span = _endTick - _startTick;
+        const int steps = qAbs(endBeats - startBeats);
+        if (span <= 0 || steps == 0) {
+            tempoChannel->insertEvent(
+                new TempoChangeEvent(17, 60000000 / endBeats, generalTrack),
+                _startTick, false);
+        } else {
+            int lastTick = -1;
+            for (int k = 0; k <= steps; ++k) {
+                const int beats = startBeats + ((endBeats - startBeats) * k) / steps;
+                const int tick = _startTick
+                    + static_cast<int>((static_cast<qint64>(span) * k) / steps);
+                if (tick == lastTick) {
+                    continue; // range shorter than the BPM step count
+                }
+                lastTick = tick;
+                tempoChannel->insertEvent(
+                    new TempoChangeEvent(17, 60000000 / beats, generalTrack),
+                    tick, false);
+            }
         }
-        _file->channel(17)->insertEvent(new TempoChangeEvent(17, 60000000 / endBeats, generalTrack), _endTick);
     } else {
         int beats = _endBeats->value();
-        _file->channel(17)->insertEvent(new TempoChangeEvent(17, 60000000 / beats, generalTrack), _startTick);
+        tempoChannel->insertEvent(
+            new TempoChangeEvent(17, 60000000 / beats, generalTrack),
+            _startTick, false);
     }
+    tempoChannel->protocol(snap, tempoChannel);
     hide();
 
     _file->protocol()->endAction();
