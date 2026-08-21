@@ -10,6 +10,15 @@
  *   3. The tick-0 anchor always survives.
  *   4. One protocol action; undo restores every event.
  *   5. dryRun analyses without touching the file.
+ *
+ * v2.3 review additions:
+ *   6. THIN-RERUN-001: the tolerance is a BUDGET for the document, not a fresh
+ *      allowance per run. Running the tool again - at the same tolerance or a
+ *      looser one - must not let the file walk away by a multiple of it, and
+ *      the reported drift must be the total shift from the map as loaded.
+ *      Editing the tempo map elsewhere resets that reference, honestly.
+ *   7. THIN-ZEROTOL-001: tolerance 0 ("do not move my music at all") must
+ *      still collapse a run of IDENTICAL tempo events, whatever the BPM.
  */
 
 #include <QtTest/QtTest>
@@ -86,6 +95,15 @@ private:
         return f;
     }
 
+    /** Tear a fixture down. forgetFile() drops the document's remembered
+     *  original tempo map BEFORE the MidiFile address can be handed out again
+     *  by the allocator - otherwise the next fixture could inherit a stale
+     *  reference and the tests would depend on allocation luck. */
+    static void destroy(MidiFile *f) {
+        TempoMapThinner::forgetFile(f);
+        delete f;
+    }
+
     static int tempoCount(MidiFile *f) {
         return TempoMapThinner::tempoEventCount(f);
     }
@@ -98,6 +116,16 @@ private:
             out.append(f->msOfTick(int(qint64(endTick) * i / samples)));
         }
         return out;
+    }
+
+    /** Worst |ms| distance between two msOfTick() samplings. */
+    static int worstShift(const QList<int> &a, const QList<int> &b) {
+        int worst = 0;
+        const int n = qMin(a.size(), b.size());
+        for (int i = 0; i < n; ++i) {
+            worst = qMax(worst, qAbs(a.at(i) - b.at(i)));
+        }
+        return worst;
     }
 
 private slots:
@@ -117,7 +145,7 @@ private slots:
         QCOMPARE(r.removed, 0);
         QCOMPARE(r.kept, 1);
         QCOMPARE(tempoCount(f), 1);
-        delete f;
+        destroy(f);
     }
 
     // --- 1. the trigger shape ---------------------------------------------
@@ -139,6 +167,8 @@ private slots:
         QVERIFY2(r.kept < 100,
                  qPrintable(QStringLiteral("kept %1 events").arg(r.kept)));
         QVERIFY(r.kept >= 2);
+        // Nothing had been spent before this run.
+        QCOMPARE(r.alreadyDriftedMs, 0.0);
 
         // Drift stays inside the corridor EVERYWHERE, not just at the anchors.
         QVERIFY2(r.maxDriftMs <= tol + 1e-6,
@@ -154,13 +184,10 @@ private slots:
         // tolerance plus one truncation step.
         const QList<int> after = sampleTimes(f, endTick, 400);
         QCOMPARE(after.size(), before.size());
-        int worst = 0;
-        for (int i = 0; i < after.size(); ++i) {
-            worst = qMax(worst, qAbs(after.at(i) - before.at(i)));
-        }
+        const int worst = worstShift(after, before);
         QVERIFY2(worst <= int(tol) + 1,
                  qPrintable(QStringLiteral("worst note drift %1 ms").arg(worst)));
-        delete f;
+        destroy(f);
     }
 
     // --- 2. idempotent -----------------------------------------------------
@@ -175,7 +202,7 @@ private slots:
         QCOMPARE(second.removed, 0);
         QCOMPARE(second.kept, first.kept);
         QCOMPARE(tempoCount(f), first.kept);
-        delete f;
+        destroy(f);
     }
 
     // --- 3. tick 0 always survives ----------------------------------------
@@ -195,7 +222,7 @@ private slots:
         // Surviving events keep their own BPM - the thinner never rewrites a
         // tempo value, it only drops events.
         QCOMPARE(anchor->beatsPerQuarter(), firstBpmBefore);
-        delete f;
+        destroy(f);
     }
 
     // --- 4. ONE undo step restores every event -----------------------------
@@ -219,7 +246,7 @@ private slots:
         // ... and redo takes the thinned map back.
         f->protocol()->redo(false);
         QCOMPARE(tempoCount(f), r.kept);
-        delete f;
+        destroy(f);
     }
 
     // --- 5. dryRun touches nothing ----------------------------------------
@@ -236,11 +263,14 @@ private slots:
         QCOMPARE(f->protocol()->stepsBack(), stepsBefore);
         QCOMPARE(f->msOfTick(f->endTick()), endMsBefore);
 
-        // The dry run predicts what the real run does.
+        // The dry run predicts what the real run does. It also established the
+        // remembered original, so the run that follows measures against the
+        // same map the preview did.
         TempoMapThinner::Result applied = TempoMapThinner::thin(f, 2.0);
         QCOMPARE(applied.removed, r.removed);
         QCOMPARE(applied.kept, r.kept);
-        delete f;
+        QCOMPARE(applied.maxDriftMs, r.maxDriftMs);
+        destroy(f);
     }
 
     // --- redundant runs collapse for free ----------------------------------
@@ -262,7 +292,43 @@ private slots:
         QCOMPARE(r.removed, 499);
         QCOMPARE(r.maxDriftMs, 0.0);
         QCOMPARE(f->msOfTick(f->endTick()), endMsBefore);
-        delete f;
+        destroy(f);
+    }
+
+    // --- THIN-ZEROTOL-001: the same, for BPMs that are not binary fractions -
+    void zeroToleranceCollapsesIdenticalTemposAtAnyBpm() {
+        // 128 BPM above is the easy case: 60000/(192*128) happens to be a
+        // binary fraction, so the reference sum is arithmetically exact and a
+        // strict `drift > 0.0` test survives it. Most tempos are not - 120 BPM
+        // at 192 ticks per quarter is 60000/23040 - and the accumulated
+        // rounding then breaks a zero-width corridor at the SECOND event,
+        // leaving a map of identical tempo events essentially untouched.
+        // Relaxing the corridor by 1e-9 ms (inaudible by nine orders of
+        // magnitude) is what makes "no drift at all" still do the lossless
+        // work it can do.
+        const QList<int> bpms = { 100, 120, 137, 143, 165 };
+        for (int bpm : bpms) {
+            MidiFile *f = new MidiFile();
+            f->channel(17)->eventMap()->clear();
+            f->setEndTick(800 * 7);
+            for (int i = 0; i < 800; ++i) {
+                addTempo(f, i * 7, bpm);
+            }
+            f->calcMaxTime();
+            const int endMsBefore = f->msOfTick(f->endTick());
+
+            TempoMapThinner::Result r = TempoMapThinner::thin(f, 0.0);
+            QVERIFY2(r.ok, qPrintable(r.error));
+            QVERIFY2(r.kept == 1,
+                     qPrintable(QStringLiteral("%1 BPM: kept %2 of 800 events")
+                                    .arg(bpm).arg(r.kept)));
+            QCOMPARE(r.removed, 799);
+            QVERIFY2(r.maxDriftMs < 1e-6,
+                     qPrintable(QStringLiteral("%1 BPM: maxDrift %2")
+                                    .arg(bpm).arg(r.maxDriftMs)));
+            QVERIFY(qAbs(f->msOfTick(f->endTick()) - endMsBefore) <= 1);
+            destroy(f);
+        }
     }
 
     // --- a genuine tempo change is never dropped at tolerance 0 -------------
@@ -279,7 +345,7 @@ private slots:
         QVERIFY(r.ok);
         QCOMPARE(r.removed, 0);
         QCOMPARE(r.kept, 3);
-        delete f;
+        destroy(f);
     }
 
     // --- a tighter tolerance keeps more events -----------------------------
@@ -299,8 +365,137 @@ private slots:
         // buys sub-millisecond end time at the price of more surviving events.
         QVERIFY2(std::fabs(rTight.endDriftMs) < 1.0,
                  qPrintable(QStringLiteral("endDrift %1").arg(rTight.endDriftMs)));
-        delete tight;
-        delete loose;
+        destroy(tight);
+        destroy(loose);
+    }
+
+    // --- THIN-RERUN-001: the corridor is a budget for the document ---------
+    void repeatedRunsAtTheSameToleranceAreAFixedPoint() {
+        const double tol = 3.0;
+        MidiFile *f = makeRamp(6000, 10, 96, 168);
+        const int endTick = f->endTick();
+        const QList<int> asLoaded = sampleTimes(f, endTick, 300);
+
+        const TempoMapThinner::Result first = TempoMapThinner::thin(f, tol);
+        QVERIFY2(first.ok, qPrintable(first.error));
+        QVERIFY(first.removed > 0);
+
+        for (int run = 0; run < 3; ++run) {
+            const TempoMapThinner::Result again = TempoMapThinner::thin(f, tol);
+            QVERIFY2(again.ok, qPrintable(again.error));
+            QCOMPARE(again.removed, 0);
+            QCOMPARE(again.kept, first.kept);
+            // Nothing moved, so what the map already carries IS the report -
+            // and neither of them resets to "no drift" just because the map on
+            // disk now looks like the reference the old pass measured against.
+            QVERIFY(std::fabs(again.alreadyDriftedMs - again.maxDriftMs) < 1e-9);
+            QVERIFY2(again.maxDriftMs <= tol + 1e-6,
+                     qPrintable(QStringLiteral("run %1 maxDrift %2")
+                                    .arg(run).arg(again.maxDriftMs)));
+        }
+
+        const int worst = worstShift(sampleTimes(f, endTick, 300), asLoaded);
+        QVERIFY2(worst <= int(tol) + 1,
+                 qPrintable(QStringLiteral("worst %1 ms after four runs").arg(worst)));
+        destroy(f);
+    }
+
+    void aLooserSecondRunDoesNotSpendTheCorridorTwice() {
+        const double firstTol = 2.0;
+        const double secondTol = 8.0;
+        MidiFile *f = makeRamp(8000, 8, 100, 170);
+        const int endTick = f->endTick();
+        const QList<int> asLoaded = sampleTimes(f, endTick, 500);
+        const int endMsAsLoaded = f->msOfTick(endTick);
+
+        const TempoMapThinner::Result first = TempoMapThinner::thin(f, firstTol);
+        QVERIFY2(first.ok, qPrintable(first.error));
+        QVERIFY(first.removed > 0);
+        QCOMPARE(first.alreadyDriftedMs, 0.0);
+        QVERIFY(first.maxDriftMs <= firstTol + 1e-6);
+
+        // Same session, same document: the user opens the tool again and tries
+        // a looser setting. "8 ms" is what the music may move from the file as
+        // it was LOADED - not a fresh 8 ms on top of the 2 ms already spent.
+        const TempoMapThinner::Result second = TempoMapThinner::thin(f, secondTol);
+        QVERIFY2(second.ok, qPrintable(second.error));
+        QVERIFY(second.removed > 0);
+        QVERIFY2(second.alreadyDriftedMs > 0.0,
+                 "the second run must know what the first one spent");
+        QVERIFY(second.alreadyDriftedMs <= firstTol + 1e-6);
+        QVERIFY2(second.maxDriftMs <= secondTol + 1e-6,
+                 qPrintable(QStringLiteral("maxDrift %1").arg(second.maxDriftMs)));
+
+        // ... and the file agrees with the report, both in the worst case and
+        // at the end. A report measured against the already-thinned map would
+        // under-state the real shift by whatever the first run used up.
+        const int worst = worstShift(sampleTimes(f, endTick, 500), asLoaded);
+        QVERIFY2(worst <= int(secondTol) + 1,
+                 qPrintable(QStringLiteral("worst %1 ms").arg(worst)));
+        const int realEndShift = qAbs(f->msOfTick(endTick) - endMsAsLoaded);
+        QVERIFY2(qAbs(double(realEndShift) - std::fabs(second.endDriftMs)) <= 1.5,
+                 qPrintable(QStringLiteral("reported end drift %1, real %2")
+                                .arg(second.endDriftMs).arg(realEndShift)));
+        destroy(f);
+    }
+
+    void aTighterSecondRunReportsWhatIsAlreadySpent() {
+        MidiFile *f = makeRamp(6000, 10, 100, 170);
+        const TempoMapThinner::Result loose = TempoMapThinner::thin(f, 10.0);
+        QVERIFY2(loose.ok, qPrintable(loose.error));
+        QVERIFY(loose.removed > 0);
+        QVERIFY(loose.maxDriftMs > 1.0); // the loose run really did spend some
+
+        // Asking for 1 ms afterwards cannot buy the spent milliseconds back.
+        // The honest answer is to remove nothing more AND to keep reporting the
+        // shift the document actually carries, so the dialog can say that the
+        // request cannot be met instead of printing a reassuring "1.00 ms".
+        const TempoMapThinner::Result tight = TempoMapThinner::thin(f, 1.0);
+        QVERIFY2(tight.ok, qPrintable(tight.error));
+        QCOMPARE(tight.removed, 0);
+        QVERIFY2(tight.maxDriftMs > 1.0,
+                 qPrintable(QStringLiteral("maxDrift %1").arg(tight.maxDriftMs)));
+        QVERIFY(std::fabs(tight.maxDriftMs - loose.maxDriftMs) < 1e-9);
+        destroy(f);
+    }
+
+    void editingTheTempoMapResetsTheReference() {
+        MidiFile *f = makeRamp(3000, 12, 100, 150);
+        const TempoMapThinner::Result first = TempoMapThinner::thin(f, 2.0);
+        QVERIFY2(first.ok, qPrintable(first.error));
+        QVERIFY(first.removed > 0);
+
+        // The user adds a tempo event by hand. The remembered map no longer
+        // describes this document (the current map is not a thinned version of
+        // it any more), so the corridor starts over from the map as it now is -
+        // the only reference that is still honest.
+        addTempo(f, 5, 96);
+        f->calcMaxTime();
+
+        const TempoMapThinner::Result after = TempoMapThinner::thin(f, 2.0);
+        QVERIFY2(after.ok, qPrintable(after.error));
+        QCOMPARE(after.alreadyDriftedMs, 0.0);
+        QVERIFY(after.maxDriftMs <= 2.0 + 1e-6);
+        destroy(f);
+    }
+
+    void undoRestoresTheMapAndTheCorridorWithIt() {
+        MidiFile *f = makeRamp(4000, 10, 100, 160);
+        const TempoMapThinner::Result first = TempoMapThinner::thin(f, 2.0);
+        QVERIFY(first.ok);
+        QVERIFY(first.removed > 0);
+
+        f->protocol()->undo(false);
+        QCOMPARE(tempoCount(f), 4000);
+
+        // The restored map IS the remembered original again, so a run after an
+        // undo is a first run in every respect - same result, nothing spent.
+        const TempoMapThinner::Result again = TempoMapThinner::thin(f, 2.0);
+        QVERIFY2(again.ok, qPrintable(again.error));
+        QCOMPARE(again.alreadyDriftedMs, 0.0);
+        QCOMPARE(again.kept, first.kept);
+        QCOMPARE(again.removed, first.removed);
+        destroy(f);
     }
 };
 

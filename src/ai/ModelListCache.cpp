@@ -78,6 +78,24 @@ void ModelListCache::store(const QString &provider, const QJsonArray &models)
     writeFile(root);
 }
 
+void ModelListCache::forget(const QString &scope)
+{
+    if (scope.isEmpty())
+        return;
+
+    QJsonObject root = readFile();
+    if (root.isEmpty())
+        return;  // no cache (or a foreign version): nothing to forget
+
+    QJsonObject providers = root.value(QStringLiteral("providers")).toObject();
+    if (!providers.contains(scope))
+        return;  // leave the file untouched rather than rewrite it verbatim
+
+    providers.remove(scope);
+    root.insert(QStringLiteral("providers"), providers);
+    writeFile(root);
+}
+
 int ModelListCache::contextWindowFor(const QString &modelId)
 {
     if (modelId.isEmpty())

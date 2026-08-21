@@ -20,6 +20,7 @@
 
 #include <QDataStream>
 #include <QFile>
+#include <QMutexLocker>
 
 #include "../MidiEvent/ControlChangeEvent.h"
 #include "../MidiEvent/KeySignatureEvent.h"
@@ -504,13 +505,21 @@ void MidiFile::calcMaxTime() {
     // cached anchors matters because the loader calls calcMaxTime() once per
     // event that extends the file, so on a dense tempo ramp the old walk was
     // quadratic in the number of tempo events all by itself.
-    ensureTempoCache();
     double time = 0;
-    if (!_tempoCache.empty()) {
-        const TempoAnchor &last = _tempoCache.back();
-        time = last.msAtTick + last.msPerTick * (midiTicks - last.tick);
+    {
+        QMutexLocker locker(&_tempoCacheMutex);
+        ensureTempoCacheLocked();
+        if (!_tempoCache.empty()) {
+            // COPY, not a reference: nothing that outlives the lock may point
+            // into the vector.
+            const TempoAnchor last = _tempoCache.back();
+            time = last.msAtTick + last.msPerTick * (midiTicks - last.tick);
+        }
     }
     maxTimeMS = (int) time;
+    // Outside the lock on purpose: recalcWidgetSize() is connected to widgets
+    // that repaint, and a repaint asks msOfTick() again - which would deadlock
+    // on the non-recursive mutex.
     emit recalcWidgetSize();
 }
 
@@ -536,10 +545,13 @@ int MidiFile::timeMS(int midiTime) {
 }
 
 void MidiFile::invalidateTempoCache() {
+    QMutexLocker locker(&_tempoCacheMutex);
     _tempoCacheValid = false;
 }
 
-void MidiFile::ensureTempoCache() {
+void MidiFile::ensureTempoCacheLocked() {
+    // Caller holds _tempoCacheMutex. Must not call a public method of this
+    // class - the mutex is not recursive.
     MidiChannel *tempoChannel = channels[17];
     if (!tempoChannel) {
         // Protocol snapshots (MidiFile(int, Protocol*)) have no channels.
@@ -590,8 +602,8 @@ void MidiFile::ensureTempoCache() {
     _tempoCacheEventCount = eventCount;
 }
 
-int MidiFile::tempoAnchorIndexForTick(int tick) {
-    ensureTempoCache();
+int MidiFile::tempoAnchorIndexForTickLocked(int tick) const {
+    // Caller holds _tempoCacheMutex and has already ensured the cache.
     if (_tempoCache.empty()) {
         return -1;
     }
@@ -603,8 +615,8 @@ int MidiFile::tempoAnchorIndexForTick(int tick) {
     return (int) (it - _tempoCache.begin()) - 1;
 }
 
-int MidiFile::tempoAnchorIndexForMs(double ms) {
-    ensureTempoCache();
+int MidiFile::tempoAnchorIndexForMsLocked(double ms) const {
+    // Caller holds _tempoCacheMutex and has already ensured the cache.
     if (_tempoCache.empty()) {
         return -1;
     }
@@ -617,11 +629,17 @@ int MidiFile::tempoAnchorIndexForMs(double ms) {
 }
 
 double MidiFile::msOfTickCached(int tick) {
-    const int i = tempoAnchorIndexForTick(tick);
+    // The lock covers the WHOLE query - ensure, search and read. Releasing it
+    // after the search and reading the anchor afterwards would be exactly the
+    // torn read this guards against: the GUI thread may clear() and refill the
+    // vector between the two steps.
+    QMutexLocker locker(&_tempoCacheMutex);
+    ensureTempoCacheLocked();
+    const int i = tempoAnchorIndexForTickLocked(tick);
     if (i < 0) {
         return 0.0;
     }
-    const TempoAnchor &a = _tempoCache[(size_t) i];
+    const TempoAnchor a = _tempoCache[(size_t) i];   // copy, 24 bytes, no alloc
     return a.msAtTick + a.msPerTick * (tick - a.tick);
 }
 
@@ -629,11 +647,15 @@ int MidiFile::tick(int ms) {
     // O(log n) inverse of msOfTick(): msAtTick grows monotonically with the
     // anchor index (msPerTick is always positive), so the same sorted vector
     // is binary-searchable from either side.
-    const int i = tempoAnchorIndexForMs((double) ms);
+    //
+    // Called from PlayerThread::timeout() every 15 ms, hence the lock.
+    QMutexLocker locker(&_tempoCacheMutex);
+    ensureTempoCacheLocked();
+    const int i = tempoAnchorIndexForMsLocked((double) ms);
     if (i < 0) {
         return 0;
     }
-    const TempoAnchor &a = _tempoCache[(size_t) i];
+    const TempoAnchor a = _tempoCache[(size_t) i];   // copy
     return (int) ((ms - a.msAtTick) / a.msPerTick + a.tick);
 }
 
@@ -645,8 +667,15 @@ int MidiFile::msOfTick(int tick, QList<MidiEvent *> *events, int
         // file on every Play press, so it must not walk the map - a file with
         // a DAW-exported tempo ramp (>12k tempo events) froze the editor and
         // needed ~10 s to start playback when this was a linear scan.
+        //
+        // Thread-safe: msOfTickCached() takes the cache mutex. PlayerThread
+        // asks this for its start position while the GUI thread edits.
         return (int) msOfTickCached(tick);
     }
+
+    // The list form below is the caller's own window into the tempo map and
+    // touches no shared state of this object - no lock, no thread-safety
+    // promise beyond the caller's own list.
 
     // timeMs holds the time of the current tick
     double timeMs = 0;
@@ -694,7 +723,12 @@ int MidiFile::tick(int startms, int endms, QList<MidiEvent *> **eventList,
     // which is why scrolling a dense tempo ramp crawled. The cached anchors
     // give the start in O(log n); the walk that follows only covers the tempo
     // events INSIDE the window, and the arithmetic is the same as before.
-    ensureTempoCache();
+    //
+    // The lock spans the whole walk below: it indexes into _tempoCache many
+    // times and would otherwise be reading a vector the GUI thread is free to
+    // reallocate underneath it.
+    QMutexLocker locker(&_tempoCacheMutex);
+    ensureTempoCacheLocked();
     const int n = (int) _tempoCache.size();
     // Guard before the deref: if the tempo track (channel 17) carried no usable
     // TempoChangeEvent there is nothing to anchor on. Normal files always have
@@ -704,7 +738,7 @@ int MidiFile::tick(int startms, int endms, QList<MidiEvent *> **eventList,
         return 0;
     }
 
-    int i = tempoAnchorIndexForMs((double) startms);
+    int i = tempoAnchorIndexForMsLocked((double) startms);
     if (i < 0) {
         return 0;
     }

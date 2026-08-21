@@ -86,7 +86,12 @@ private:
 
     QNetworkAccessManager *_manager;
     QNetworkReply *_reply;
+    /** Strips the API key and any key=/token= query value out of text
+     *  that is about to be shown to the user. */
+    QString redactSecrets(const QString &text) const;
+
     QString _provider;   ///< decides the endpoint + the normaliser
+    QString _apiKey;     ///< kept only to redact it out of error text
     QString _scope;      ///< decides where the caller files the result
 };
 

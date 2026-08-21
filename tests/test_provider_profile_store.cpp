@@ -10,14 +10,30 @@
  *   4. A file preset referencing a missing profile falls back cleanly
  *      (tested at the store level: load() with ok=false).
  *
+ * v2.3 review additions:
+ *   5. remove() takes the profile's ENDPOINT-scoped state with it (favourites
+ *      + cached model list), and never touches the provider-wide scope that
+ *      non-custom profiles share.
+ *   6. A name whose encoding would overrun the settings backend's key-name
+ *      limit still saves, lists and loads - and save() reports the truth.
+ *   7. nameMatchingEndpoint() lets a live selection outrank the stored hint
+ *      when two profiles describe one endpoint.
+ *
  * Uses the AppPaths test seam - the developer's real settings scope must
- * never be touched (TESTWIPE class).
+ * never be touched (TESTWIPE class). The model-list cache is a file under
+ * QStandardPaths, so the cases below run with test mode enabled.
  */
 
 #include <QtTest/QtTest>
+#include <QFile>
+#include <QJsonArray>
+#include <QJsonObject>
 #include <QObject>
 #include <QSettings>
+#include <QStandardPaths>
 
+#include "../src/ai/ModelFavorites.h"
+#include "../src/ai/ModelListCache.h"
 #include "../src/ai/ProviderProfileStore.h"
 #include "../src/AppPaths.h"
 
@@ -50,6 +66,17 @@ void simulateProviderSwitch(const QString &oldProvider, const QString &newProvid
                 s->value(QStringLiteral("AI/api_key/%1").arg(newProvider)).toString());
 }
 
+// One cached model entry in the shape ModelListCache stores.
+QJsonArray oneModel(const QString &id)
+{
+    QJsonObject m;
+    m.insert(QStringLiteral("id"), id);
+    m.insert(QStringLiteral("contextWindow"), 8192);
+    QJsonArray arr;
+    arr.append(m);
+    return arr;
+}
+
 } // namespace
 
 class TestProviderProfileStore : public QObject {
@@ -59,16 +86,22 @@ private slots:
     void initTestCase() {
         AppPaths::setSettingsScopeForTests(QStringLiteral("MidiEditorTest"),
                                            QStringLiteral("ProviderProfileStoreTest"));
+        // ModelListCache is a file under QStandardPaths, not a settings key:
+        // test mode keeps it out of the developer's application data.
+        QStandardPaths::setTestModeEnabled(true);
     }
 
     void init() {
         // Every case starts on an empty store - the cases below assert on
         // exact list contents.
         AppPaths::settings()->clear();
+        QFile::remove(ModelListCache::cacheFilePath());
     }
 
     void cleanupTestCase() {
         AppPaths::settings()->clear();
+        QFile::remove(ModelListCache::cacheFilePath());
+        QStandardPaths::setTestModeEnabled(false);
         AppPaths::setSettingsScopeForTests(QString(), QString());
     }
 
@@ -684,6 +717,193 @@ private slots:
         QVERIFY(ProviderProfileStore::activeProfileName().isEmpty());
         QCOMPARE(ProviderProfileStore::activeModelScopeId(),
                  QStringLiteral("custom"));
+    }
+
+    // --- 8. deleting a profile is a COMPLETE deletion ----------------------
+
+    void deletingAProfileTakesItsScopedStateWithIt() {
+        QVERIFY(ProviderProfileStore::save(
+            makeProfile(QStringLiteral("HF"), QStringLiteral("custom"),
+                        QStringLiteral("https://router.example/v1"),
+                        QStringLiteral("a/model")),
+            QStringLiteral("hf-token")));
+        const QString scope =
+            ProviderProfileStore::modelScopeIdForProfile(QStringLiteral("HF"));
+        QCOMPARE(scope, QStringLiteral("custom:profile:HF"));
+
+        ModelFavorites::setFavorites(scope, {QStringLiteral("a/model")});
+        ModelListCache::store(scope, oneModel(QStringLiteral("a/model")));
+        QVERIFY(ModelFavorites::hasFavorites(scope));
+        QCOMPARE(ModelListCache::models(scope).size(), 1);
+
+        QVERIFY(ProviderProfileStore::remove(QStringLiteral("HF")));
+
+        // The scope is derived from the NAME. Leaving its state behind means a
+        // profile created later under the same name silently inherits another
+        // server's model list and favourites.
+        QVERIFY(!ModelFavorites::hasFavorites(scope));
+        QVERIFY(ModelListCache::models(scope).isEmpty());
+        QVERIFY(ModelListCache::isStale(scope));
+
+        // The same name, a different server: nothing carried over.
+        QVERIFY(ProviderProfileStore::save(
+            makeProfile(QStringLiteral("HF"), QStringLiteral("custom"),
+                        QStringLiteral("https://elsewhere.example/v1"),
+                        QString()),
+            QStringLiteral("other-token")));
+        QCOMPARE(ProviderProfileStore::modelScopeIdForProfile(QStringLiteral("HF")),
+                 scope);
+        QVERIFY(ModelFavorites::favorites(scope).isEmpty());
+        QVERIFY(ModelListCache::models(scope).isEmpty());
+    }
+
+    void deletingAProfileLeavesTheSharedProviderScopeAlone() {
+        // A non-custom profile shares "openai" with every other OpenAI
+        // configuration - deleting it must not wipe favourites that were never
+        // its own. Same for the ad-hoc "custom" bucket.
+        QVERIFY(ProviderProfileStore::save(
+            makeProfile(QStringLiteral("Work"), QStringLiteral("openai"),
+                        QStringLiteral("https://api.openai.com/v1"),
+                        QStringLiteral("gpt-4o")),
+            QStringLiteral("openai-key")));
+        QCOMPARE(ProviderProfileStore::modelScopeIdForProfile(QStringLiteral("Work")),
+                 QStringLiteral("openai"));
+
+        ModelFavorites::setFavorites(QStringLiteral("openai"),
+                                     {QStringLiteral("gpt-4o")});
+        ModelListCache::store(QStringLiteral("openai"),
+                              oneModel(QStringLiteral("gpt-4o")));
+        ModelFavorites::setFavorites(QStringLiteral("custom"),
+                                     {QStringLiteral("ad-hoc/model")});
+
+        QVERIFY(ProviderProfileStore::remove(QStringLiteral("Work")));
+
+        QVERIFY(ModelFavorites::hasFavorites(QStringLiteral("openai")));
+        QCOMPARE(ModelListCache::models(QStringLiteral("openai")).size(), 1);
+        QVERIFY(ModelFavorites::hasFavorites(QStringLiteral("custom")));
+    }
+
+    void forgettingAnUncachedScopeIsANoOp() {
+        ModelListCache::store(QStringLiteral("openai"),
+                              oneModel(QStringLiteral("gpt-4o")));
+        ModelListCache::forget(QStringLiteral("custom:profile:never cached"));
+        ModelListCache::forget(QString());
+        // Only the named scope disappears - the file keeps everything else.
+        QCOMPARE(ModelListCache::models(QStringLiteral("openai")).size(), 1);
+        ModelListCache::forget(QStringLiteral("openai"));
+        QVERIFY(ModelListCache::models(QStringLiteral("openai")).isEmpty());
+    }
+
+    // --- 9. ids the settings backend actually accepts ----------------------
+
+    void aNonAsciiNameStaysReachableAndSaveReportsTheTruth() {
+        // A full-length non-Latin name percent-encodes to several hundred
+        // characters - past what a Windows registry key name takes. save() used
+        // to report success for a profile that was never written, leaving its
+        // API key behind as an orphan.
+        const QString name(ProviderProfileStore::maxNameLength(), QChar(0x4E2D));
+        const QString id = ProviderProfileStore::encodeName(name);
+        QVERIFY(!id.isEmpty());
+        QVERIFY(id.size() <= ProviderProfileStore::maxEncodedIdLength());
+        // Deterministic, and a shortened id can never look like a plain one.
+        QCOMPARE(ProviderProfileStore::encodeName(name), id);
+        QVERIFY(id.contains(QLatin1Char('~')));
+
+        QVERIFY(ProviderProfileStore::save(
+            makeProfile(name, QStringLiteral("custom"),
+                        QStringLiteral("https://router.example/v1"),
+                        QStringLiteral("a/model")),
+            QStringLiteral("hf-token")));
+
+        // Reachable under the display name, which is kept verbatim.
+        QVERIFY(ProviderProfileStore::exists(name));
+        QCOMPARE(ProviderProfileStore::profileNames(), (QStringList{name}));
+        bool ok = false;
+        const Profile p = ProviderProfileStore::load(name, &ok);
+        QVERIFY(ok);
+        QCOMPARE(p.name, name);
+        QCOMPARE(p.baseUrl, QStringLiteral("https://router.example/v1"));
+        QCOMPARE(ProviderProfileStore::apiKeyFor(name),
+                 QStringLiteral("hf-token"));
+        QVERIFY(ProviderProfileStore::apply(name));
+        QCOMPARE(ProviderProfileStore::activeProfileName(), name);
+
+        // ... and it can be deleted again, key included.
+        QVERIFY(ProviderProfileStore::remove(name));
+        QVERIFY(ProviderProfileStore::profileNames().isEmpty());
+        QVERIFY(ProviderProfileStore::apiKeyFor(name).isEmpty());
+    }
+
+    void twoLongNamesGetDifferentIds() {
+        const QString a = QString(ProviderProfileStore::maxNameLength() - 1,
+                                  QChar(0x4E2D)) + QStringLiteral("A");
+        const QString b = QString(ProviderProfileStore::maxNameLength() - 1,
+                                  QChar(0x4E2D)) + QStringLiteral("B");
+        QVERIFY(ProviderProfileStore::encodeName(a)
+                != ProviderProfileStore::encodeName(b));
+
+        QVERIFY(ProviderProfileStore::save(
+            makeProfile(a, QStringLiteral("custom"),
+                        QStringLiteral("http://host-a/v1"), QString()),
+            QStringLiteral("k-a")));
+        QVERIFY(ProviderProfileStore::save(
+            makeProfile(b, QStringLiteral("custom"),
+                        QStringLiteral("http://host-b/v1"), QString()),
+            QStringLiteral("k-b")));
+        QCOMPARE(ProviderProfileStore::profileNames().size(), 2);
+        QCOMPARE(ProviderProfileStore::apiKeyFor(a), QStringLiteral("k-a"));
+        QCOMPARE(ProviderProfileStore::apiKeyFor(b), QStringLiteral("k-b"));
+        QVERIFY(ProviderProfileStore::modelScopeIdForProfile(a)
+                != ProviderProfileStore::modelScopeIdForProfile(b));
+    }
+
+    // --- 10. two profiles, one endpoint: both pickers must agree -----------
+
+    void theLiveSelectionOutranksTheStoredHint() {
+        QVERIFY(ProviderProfileStore::save(
+            makeProfile(QStringLiteral("AAA"), QStringLiteral("custom"),
+                        QStringLiteral("https://router.example/v1"),
+                        QStringLiteral("a/model")),
+            QStringLiteral("hf-token")));
+        QVERIFY(ProviderProfileStore::save(
+            makeProfile(QStringLiteral("BBB"), QStringLiteral("custom"),
+                        QStringLiteral("https://router.example/v1"),
+                        QStringLiteral("b/model")),
+            QStringLiteral("hf-token")));
+
+        QVERIFY(ProviderProfileStore::apply(QStringLiteral("AAA")));
+        auto s = AppPaths::settings();
+        s->setValue(QStringLiteral("AI/model"), QStringLiteral("b/model"));
+
+        // The exact match is BBB now - that is what the profile picker shows.
+        QCOMPARE(ProviderProfileStore::activeProfileName(),
+                 QStringLiteral("BBB"));
+        // The endpoint lookup alone still answers with the stored hint, which
+        // is exactly how the two pickers ended up naming different profiles.
+        QCOMPARE(ProviderProfileStore::nameMatchingEndpoint(
+                     QStringLiteral("custom"),
+                     QStringLiteral("https://router.example/v1"),
+                     QStringLiteral("hf-token")),
+                 QStringLiteral("AAA"));
+        // Told what the caller currently shows, it agrees.
+        QCOMPARE(ProviderProfileStore::nameMatchingEndpoint(
+                     QStringLiteral("custom"),
+                     QStringLiteral("https://router.example/v1"),
+                     QStringLiteral("hf-token"), QStringLiteral("BBB")),
+                 QStringLiteral("BBB"));
+        // A preference that does not describe this endpoint is ignored, not
+        // echoed back: the picker must never name a profile you are not on.
+        QCOMPARE(ProviderProfileStore::nameMatchingEndpoint(
+                     QStringLiteral("custom"),
+                     QStringLiteral("https://router.example/v1"),
+                     QStringLiteral("hf-token"),
+                     QStringLiteral("Not on this machine")),
+                 QStringLiteral("AAA"));
+        QVERIFY(ProviderProfileStore::nameMatchingEndpoint(
+                    QStringLiteral("custom"),
+                    QStringLiteral("https://elsewhere.example/v1"),
+                    QStringLiteral("hf-token"), QStringLiteral("BBB"))
+                    .isEmpty());
     }
 };
 

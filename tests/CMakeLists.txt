@@ -1930,6 +1930,10 @@ add_executable(test_provider_profile_store
     test_provider_profile_store.cpp
     ../src/ai/ProviderProfileStore.cpp
     ../src/AppPaths.cpp # v2.2 review: PromptProfileStore routes through the seam
+    # v2.3 review (F13/F16): removing a profile also clears its endpoint scope,
+    # so the store now calls into the favourites and the model-list cache.
+    ../src/ai/ModelFavorites.cpp
+    ../src/ai/ModelListCache.cpp
 )
 target_include_directories(test_provider_profile_store PRIVATE ../src/ai)
 target_link_libraries(test_provider_profile_store PRIVATE

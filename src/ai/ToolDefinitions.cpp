@@ -2122,6 +2122,11 @@ QJsonObject ToolDefinitions::execThinTempoMap(const QJsonObject &args,
     result["removed"] = r.removed;
     result["maxDriftMs"] = qRound(r.maxDriftMs * 1000.0) / 1000.0;
     result["endDriftMs"] = qRound(r.endDriftMs * 1000.0) / 1000.0;
+    // The tolerance is a per-document budget measured against the map as it
+    // was loaded, so a re-run reports a CUMULATIVE figure. Without this the
+    // model would read "largest shift 2.00 ms" and think it still had 2 ms of
+    // room after an earlier pass already spent it.
+    result["alreadyDriftedMs"] = qRound(r.alreadyDriftedMs * 1000.0) / 1000.0;
 
     QString summary;
     if (r.removed == 0) {
@@ -2145,6 +2150,16 @@ QJsonObject ToolDefinitions::execThinTempoMap(const QJsonObject &args,
                                       "dryRun=false.");
         else
             summary += QStringLiteral(" One undo step restores everything.");
+    }
+    if (r.alreadyDriftedMs > 0.005) {
+        summary += QStringLiteral(" This map was already thinned in this session "
+                                  "and sits %1 ms from the file as opened; the "
+                                  "figures above are the total from there.")
+                       .arg(r.alreadyDriftedMs, 0, 'f', 2);
+    }
+    if (r.maxDriftMs > toleranceMs + 0.005) {
+        summary += QStringLiteral(" The requested tolerance can no longer be met - "
+                                  "the earlier thinning would have to be undone first.");
     }
     result["summary"] = summary;
     return result;

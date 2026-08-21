@@ -64,6 +64,62 @@ private slots:
         QVERIFY(client.isConfigured());
         client.setApiBaseUrl(QStringLiteral("https://router.example/v1"));
         QVERIFY(!client.isConfigured());
+        // A base URL typed without a scheme is the normal way people fill that
+        // field; it must reach the same verdict as the spelled-out one.
+        client.setApiBaseUrl(QStringLiteral("localhost:8080/v1"));
+        QVERIFY(client.isConfigured());
+        // ... and a public host that merely LOOKS local must not be exempted.
+        client.setApiBaseUrl(QStringLiteral("http://127.0.0.1.evil.com/v1"));
+        QVERIFY(!client.isConfigured());
+    }
+
+    // v2.3 review (F23): the keyless exemption is decided on the PARSED HOST,
+    // never on a string prefix. "127.0.0.1.evil.com" is a public name that
+    // merely starts with "127.", and a URL without a scheme used to parse with
+    // an empty host, which silently dropped the exemption.
+    void keylessExemption_onlyForRealLoopbackHosts()
+    {
+        auto needsKey = [](const QString &url) {
+            return AiClient::providerRequiresKey(QStringLiteral("custom"), url);
+        };
+
+        // Loopback, in every spelling the Base URL field accepts.
+        QVERIFY(!needsKey(QStringLiteral("http://localhost:8080/v1")));
+        QVERIFY(!needsKey(QStringLiteral("localhost:8080/v1")));
+        QVERIFY(!needsKey(QStringLiteral("  http://localhost:8080/v1  ")));
+        QVERIFY(!needsKey(QStringLiteral("http://LOCALHOST:8080/v1")));
+        QVERIFY(!needsKey(QStringLiteral("http://localhost./v1")));
+        QVERIFY(!needsKey(QStringLiteral("http://llama.localhost:1234/v1")));
+        QVERIFY(!needsKey(QStringLiteral("http://127.0.0.1:1234/v1")));
+        QVERIFY(!needsKey(QStringLiteral("127.0.0.1:1234/v1")));
+        QVERIFY(!needsKey(QStringLiteral("http://127.5.6.7:1234/v1")));
+        QVERIFY(!needsKey(QStringLiteral("http://[::1]:8080/v1")));
+        QVERIFY(!needsKey(QStringLiteral("https://localhost:8443/v1")));
+
+        // Public hosts that only look local.
+        QVERIFY(needsKey(QStringLiteral("http://127.0.0.1.evil.com/v1")));
+        QVERIFY(needsKey(QStringLiteral("http://127.example.com/v1")));
+        QVERIFY(needsKey(QStringLiteral("http://localhost.evil.com/v1")));
+        QVERIFY(needsKey(QStringLiteral("http://notlocalhost/v1")));
+        QVERIFY(needsKey(QStringLiteral("https://api.openai.com/v1")));
+        // Another machine on the LAN is not this machine.
+        QVERIFY(needsKey(QStringLiteral("http://10.0.0.5:8080/v1")));
+        // Nothing to judge.
+        QVERIFY(needsKey(QString()));
+
+        // The provider decides first: Ollama is keyless wherever it runs, and
+        // a cloud provider is never exempted by a local-looking URL.
+        QVERIFY(!AiClient::providerRequiresKey(QStringLiteral("ollama"),
+                                               QStringLiteral("http://nas.example:11434/v1")));
+        QVERIFY(AiClient::providerRequiresKey(QStringLiteral("openai"),
+                                              QStringLiteral("http://localhost:8080/v1")));
+        QVERIFY(AiClient::providerRequiresKey(QStringLiteral("openrouter"),
+                                              QStringLiteral("http://127.0.0.1/v1")));
+        // Provider ids arrive from settings and combos - case must not matter.
+        QVERIFY(!AiClient::providerRequiresKey(QStringLiteral("Custom"),
+                                               QStringLiteral("http://localhost:8080/v1")));
+        QVERIFY(!AiClient::providerRequiresKey(QStringLiteral(" ollama "),
+                                               QStringLiteral("https://example.com/v1")));
     }
 
     void initTestCase()

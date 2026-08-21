@@ -41,6 +41,14 @@
  *      starting exactly on the downbeat of the first KEPT bar survive and shift
  *      left, notes starting inside the range go away with their off event, and
  *      notes spanning into the range are shortened to the splice point.
+ *  13. The tempo cache survives being used from two threads at once.
+ *      PlayerThread calls msOfTick()/tick(ms) while the GUI thread edits, and
+ *      the cache turned those into calls that may REBUILD a std::vector. Three
+ *      angles: a worker hammering the conversions while the GUI thread forces
+ *      rebuild after rebuild, a worker reading the answers a GUI-thread
+ *      channel-17 edit produced, and calcMaxTime() emitting recalcWidgetSize()
+ *      with the cache lock released (a repaint asks the file for timings, and
+ *      the lock is not recursive).
  *
  * NOT testable here: measure() dereferences BOTH out-params unconditionally,
  * so passing nullptr is an access violation, not a soft failure. That is now
@@ -53,8 +61,12 @@
 
 #include <QtTest/QtTest>
 #include <QObject>
+#include <QAtomicInt>
 #include <QColor>
 #include <QElapsedTimer>
+#include <QSemaphore>
+#include <QThread>
+#include <QVector>
 
 #include "../src/midi/MidiFile.h"
 #include "../src/midi/MidiChannel.h"
@@ -84,6 +96,133 @@ QColor *Appearance::trackColor(int) {
 void EventWidget::setEvents(QList<MidiEvent *>) {}
 void EventWidget::reload() {}
 QList<MidiEvent *> EventWidget::events() { return {}; }
+
+// ==========================================================================
+// Phase 48 thread-safety workers.
+//
+// The timing conversions are the one part of MidiFile that runs outside the
+// GUI thread: PlayerThread::run() asks msOfTick() for its start position and
+// PlayerThread::timeout() asks tick(ms) every 15 ms, while the user keeps
+// editing. The tempo cache turned those reads into calls that may REBUILD a
+// std::vector, so two threads could clear and refill it under each other.
+// These workers put a real second thread on them.
+//
+// What is deliberately NOT overlapped: the WRITE into channel 17's QMultiMap.
+// That map has never been guarded by anything, before or after the cache, so a
+// test that let a GUI-thread insertEvent() overlap a worker's query would be
+// testing a separate, pre-existing hazard - and would be flaky by
+// construction. The mutation tests below therefore hand the two threads a
+// semaphore, so what overlaps is the CACHE access, which is what the mutex is
+// responsible for.
+// ==========================================================================
+
+/** One pre-computed question and its single-threaded answer. Anything a torn
+ *  read of the anchor vector produces differs from these numbers. */
+struct TimingProbe {
+    int tick;
+    int expectedMs;
+    int ms;
+    int expectedTick;
+    int rangeStartMs;
+    int rangeEndMs;
+    int expectedRangeStartTick;
+    int expectedRangeEndTick;
+};
+
+/** Hammers all three cached conversions and counts every answer that differs
+ *  from the pre-computed one. Fields are written by the worker only and read
+ *  after wait(), which is a happens-before edge. */
+class TimingHammerThread : public QThread {
+public:
+    TimingHammerThread(MidiFile *f, const QVector<TimingProbe> *probes, int rounds)
+        : _file(f), _probes(probes), _rounds(rounds) {}
+
+    int mismatches = 0;
+    int queries = 0;
+    QAtomicInt running{1};
+
+protected:
+    void run() override {
+        QList<MidiEvent *> *list = nullptr;
+        for (int r = 0; r < _rounds; ++r) {
+            for (const TimingProbe &p : *_probes) {
+                if (_file->msOfTick(p.tick) != p.expectedMs) {
+                    ++mismatches;
+                }
+                if (_file->tick(p.ms) != p.expectedTick) {
+                    ++mismatches;
+                }
+                int endTick = -1, msOfFirst = -1;
+                const int startTick =
+                    _file->tick(p.rangeStartMs, p.rangeEndMs, &list, &endTick, &msOfFirst);
+                if (startTick != p.expectedRangeStartTick
+                    || endTick != p.expectedRangeEndTick) {
+                    ++mismatches;
+                }
+                queries += 3;
+            }
+        }
+        delete list;
+        running.storeRelease(0);
+    }
+
+private:
+    MidiFile *_file;
+    const QVector<TimingProbe> *_probes;
+    int _rounds;
+};
+
+/** Reads one tick's time once per "epoch". The main thread performs a
+ *  channel-17 edit, publishes the expected answer and releases `go`; the
+ *  worker then queries a cache the edit invalidated and releases `done`. */
+class EpochReaderThread : public QThread {
+public:
+    EpochReaderThread(MidiFile *f, int probeTick, int epochs,
+                      QSemaphore *go, QSemaphore *done)
+        : _file(f), _probeTick(probeTick), _epochs(epochs), _go(go), _done(done) {}
+
+    QVector<int> observed;
+    int unstable = 0;
+
+protected:
+    void run() override {
+        for (int e = 0; e < _epochs; ++e) {
+            _go->acquire();
+            // The first query rebuilds the cache the GUI-thread edit just
+            // invalidated - on THIS thread, which is the whole point.
+            const int first = _file->msOfTick(_probeTick);
+            for (int k = 0; k < 64; ++k) {
+                if (_file->msOfTick(_probeTick) != first) {
+                    ++unstable;
+                }
+            }
+            observed.append(first);
+            _done->release();
+        }
+    }
+
+private:
+    MidiFile *_file;
+    int _probeTick;
+    int _epochs;
+    QSemaphore *_go;
+    QSemaphore *_done;
+};
+
+/** A single cached query on another thread - the stand-in for the repaint that
+ *  a recalcWidgetSize() slot really triggers. */
+class SingleQueryThread : public QThread {
+public:
+    SingleQueryThread(MidiFile *f, int tick) : _file(f), _tick(tick) {}
+    int result = -1;
+
+protected:
+    void run() override { result = _file->msOfTick(_tick); }
+
+private:
+    MidiFile *_file;
+    int _tick;
+};
 
 // ==========================================================================
 
@@ -927,6 +1066,150 @@ private slots:
         const int after = f.msOfTick(probe);
         QVERIFY2(after != before, "a direct eventMap() write was not noticed");
         QCOMPARE(after, (int) refMsOfTick(&f, probe));
+    }
+
+    // ======================================================================
+    // Phase 48 thread safety. The cache made msOfTick()/tick()/calcMaxTime()
+    // calls that may REBUILD a std::vector, and PlayerThread runs two of them
+    // off the GUI thread while the user edits. See the worker classes above
+    // for what these tests deliberately do and do not overlap.
+    // ======================================================================
+
+    // --- 13a. two threads inside the cache at the same time -----------------
+    // The worker asks all three cached conversions; the GUI thread invalidates
+    // and re-reads as fast as it can, so both threads are constantly inside the
+    // rebuild. Every answer is compared against a value computed
+    // single-threaded before either thread started - the tempo map itself never
+    // changes here, so a wrong number can only come from reading the anchor
+    // vector while the other thread is refilling it.
+    void concurrentTimingQueriesSurviveRebuildsFromTheOtherThread() {
+        MidiFile f;
+        growFile(&f, 320000);
+        buildTempoRamp(&f, 256, 240);
+
+        QVector<TimingProbe> probes;
+        quint32 state = 987654321u;
+        for (int i = 0; i < 128; ++i) {
+            TimingProbe p;
+            p.tick = nextProbe(state, 61440);
+            p.expectedMs = f.msOfTick(p.tick);
+            p.ms = nextProbe(state, 120000);
+            p.expectedTick = f.tick(p.ms);
+            p.rangeStartMs = nextProbe(state, 60000);
+            p.rangeEndMs = p.rangeStartMs + 2000;
+            QList<MidiEvent *> *list = nullptr;
+            int endTick = -1, msOfFirst = -1;
+            p.expectedRangeStartTick =
+                f.tick(p.rangeStartMs, p.rangeEndMs, &list, &endTick, &msOfFirst);
+            p.expectedRangeEndTick = endTick;
+            delete list;
+            probes.append(p);
+        }
+
+        TimingHammerThread worker(&f, &probes, 20);
+        worker.start();
+
+        int guiMismatches = 0;
+        int guiIterations = 0;
+        const TimingProbe &guiProbe = probes.first();
+        while (worker.running.loadAcquire()) {
+            f.invalidateTempoCache();
+            if (f.msOfTick(guiProbe.tick) != guiProbe.expectedMs) {
+                ++guiMismatches;
+            }
+            f.calcMaxTime();
+            ++guiIterations;
+            if (guiIterations > 2000000) {
+                break;   // safety valve; the worker is bounded, so never hit
+            }
+        }
+        QVERIFY2(worker.wait(60000), "the timing worker did not finish");
+
+        QVERIFY2(worker.queries > 0, "the worker never ran a query");
+        QVERIFY2(guiIterations > 0, "the two threads never overlapped");
+        QCOMPARE(worker.mismatches, 0);
+        QCOMPARE(guiMismatches, 0);
+    }
+
+    // --- 13b. a GUI-thread tempo edit, read back on the other thread --------
+    // This is the PlayerThread situation: the user edits the tempo map while
+    // playback keeps asking for timings. The semaphores keep the unguarded
+    // QMultiMap write off the worker's back (see the note above the workers) -
+    // what overlaps is the cache, including the process-wide revision counter
+    // that makes the worker rebuild on ITS thread.
+    void aChannel17EditIsSeenByAQueryOnAnotherThread() {
+        MidiFile f;
+        growFile(&f, 320000);
+        buildTempoRamp(&f, 64, 240);
+
+        const int probeTick = 30000;
+        const int epochs = 24;
+
+        QSemaphore go, done;
+        EpochReaderThread reader(&f, probeTick, epochs, &go, &done);
+        reader.start();
+
+        QVector<int> expected;
+        for (int e = 0; e < epochs; ++e) {
+            // One user action = one protocol action.
+            f.protocol()->startNewAction("tempo edit");
+            const int bpm = 70 + (e * 13) % 100;
+            TempoChangeEvent *ev =
+                new TempoChangeEvent(17, 60000000 / bpm, f.track(0));
+            f.channel(17)->insertEvent(ev, 16000 + e * 7);
+            f.protocol()->endAction();
+
+            expected.append((int) refMsOfTick(&f, probeTick));
+            go.release();
+            done.acquire();
+        }
+        QVERIFY2(reader.wait(60000), "the epoch reader did not finish");
+
+        QCOMPARE(reader.observed.size(), expected.size());
+        for (int e = 0; e < epochs; ++e) {
+            QCOMPARE(reader.observed.at(e), expected.at(e));
+        }
+        QVERIFY2(reader.unstable == 0,
+                 "repeated msOfTick() calls on the worker thread disagreed");
+    }
+
+    // --- 13c. the lock is released before the signal goes out ---------------
+    // calcMaxTime() reads the cache and then emits recalcWidgetSize(). The
+    // widgets on that signal repaint, and a repaint asks the file for timings -
+    // so emitting while still holding the (non-recursive) cache mutex would
+    // deadlock the editor on every file-length change. The query runs on
+    // another thread with a deadline, which turns that regression into a failed
+    // test rather than a hung one.
+    void calcMaxTimeEmitsWithTheCacheLockReleased() {
+        MidiFile f;
+        growFile(&f, 320000);
+        buildTempoRamp(&f, 64, 240);
+
+        const int probeTick = 12000;
+        const int expected = f.msOfTick(probeTick);
+
+        bool finished = false;
+        int seen = -1;
+        // Connected only now: growFile()/buildTempoRamp() call calcMaxTime()
+        // themselves.
+        QObject::connect(&f, &MidiFile::recalcWidgetSize, &f, [&]() {
+            SingleQueryThread *q = new SingleQueryThread(&f, probeTick);
+            q->start();
+            finished = q->wait(5000);
+            if (finished) {
+                seen = q->result;
+                delete q;
+            }
+            // Otherwise it is still blocked on the mutex: leak it rather than
+            // destroy a running QThread. The test has already failed.
+        }, Qt::DirectConnection);
+
+        f.calcMaxTime();
+
+        QVERIFY2(finished,
+                 "calcMaxTime() emitted recalcWidgetSize() while still holding "
+                 "the tempo cache lock - a repainting slot would deadlock");
+        QCOMPARE(seen, expected);
     }
 
     // --- the reason all of the above exists ---------------------------------

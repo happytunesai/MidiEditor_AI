@@ -2332,8 +2332,17 @@ void MidiPilotWidget::syncProviderComboSelection() {
     // Endpoint identity, not the exact saved configuration: hand-picking
     // another model keeps you on the same server, so the provider entry stays -
     // only the profile picker next door falls back to "(No profile)".
+    //
+    // The live selection is passed in so both pickers name the SAME profile
+    // when two of them describe one endpoint: without it the store falls back
+    // to the stored "last applied" hint, which may still name the other one.
+    QString preferred = _providerProfileCombo
+                            ? _providerProfileCombo->currentData().toString()
+                            : QString();
+    if (preferred.isEmpty())
+        preferred = ProviderProfileStore::activeProfileName();
     const QString name = ProviderProfileStore::nameMatchingEndpoint(
-        provider, _client->apiBaseUrl(), _client->apiKey());
+        provider, _client->apiBaseUrl(), _client->apiKey(), preferred);
 
     int idx = -1;
     if (!name.isEmpty())
@@ -2365,6 +2374,16 @@ void MidiPilotWidget::applyProviderProfileByName(const QString &name) {
     // Same path the settings dialog uses when it changes the connection -
     // reload the client and re-sync the whole footer from the settings.
     onSettingsChanged();
+    // Applying a profile can leave the chat unusable: a keyless profile for a
+    // remote endpoint is stored and applied, but the client is not configured
+    // and the input stays disabled. Reporting green there sends the user
+    // looking for the wrong problem, so say what is missing instead.
+    if (_client && !_client->isConfigured()) {
+        setStatus(tr("Provider profile: %1 - this endpoint needs an API key")
+                      .arg(name),
+                  "red");
+        return;
+    }
     setStatus(tr("Provider profile: %1").arg(name), "green");
 }
 

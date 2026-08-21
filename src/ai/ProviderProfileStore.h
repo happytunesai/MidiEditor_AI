@@ -31,7 +31,9 @@
  * QSettings group separator, so a raw name would silently fan out into
  * nested groups ("HF / local" -> three levels) and could never be found
  * again. Everything outside [A-Za-z0-9 ._-] is encoded, which also keeps
- * the id safe for the portable-mode INI backend.
+ * the id safe for the portable-mode INI backend. An encoding that would
+ * overrun the backend's key-name limit is shortened (see \ref encodeName);
+ * the display name itself is always kept verbatim in the /name value.
  */
 
 #include <QString>
@@ -54,8 +56,21 @@ public:
     static Profile load(const QString &name, bool *ok = nullptr);
     /// The API key stored with a profile (empty for local endpoints).
     static QString apiKeyFor(const QString &name);
-    /// Create or overwrite a profile (the key is stored separately).
+    /** Create or overwrite a profile (the key is stored separately).
+     *
+     *  Returns false when the profile is unusable (no name, no provider) AND
+     *  when the settings backend refused the write: the values are read back
+     *  through a fresh handle, so a caller never gets a "saved" answer for a
+     *  profile that is not there. A half-written new profile is rolled back so
+     *  no orphan API key stays behind. */
     static bool save(const Profile &profile, const QString &apiKey);
+
+    /** Delete a profile: its group, its API key, the active hint if it points
+     *  here - and the state that hangs off its endpoint scope (favourites and
+     *  the cached model list), because the scope is derived from the name and
+     *  a later profile of the same name would inherit it. Only a profile's OWN
+     *  "custom:profile:<id>" scope is cleared; the provider-wide scope that
+     *  non-custom profiles share is never touched. */
     static bool remove(const QString &name);
 
     /** Apply a stored profile to the active settings keys.
@@ -96,9 +111,16 @@ public:
                                 const QString &baseUrl, const QString &apiKey);
 
     /// \ref nameMatching for the endpoint alone (model ignored).
+    ///
+    /// \a preferredName is the caller's LIVE selection (the profile its picker
+    /// currently shows). When that profile still describes this endpoint it
+    /// wins over the stored active hint - two profiles may share one endpoint,
+    /// and without this the provider picker would name the other one while the
+    /// profile picker next to it names the selected one.
     static QString nameMatchingEndpoint(const QString &provider,
                                         const QString &baseUrl,
-                                        const QString &apiKey);
+                                        const QString &apiKey,
+                                        const QString &preferredName = QString());
 
     // --- model-list / favourites scope -----------------------------------
     //
@@ -136,12 +158,20 @@ public:
     /// "not a usable profile name".
     static QString normalizeName(const QString &raw);
     /// Display name -> settings-group id (percent encoding, see file comment).
+    /// Ids longer than \ref maxEncodedIdLength() are shortened to a readable
+    /// head plus a digest ("head~<hex>"), because a Windows registry key name
+    /// has a hard length limit and a 64-character non-Latin name encodes to
+    /// several hundred characters. The mapping stays deterministic and the
+    /// display name is kept verbatim in the group's "name" value. '~' cannot
+    /// appear in a plain encoding, so a shortened id never collides with one.
     static QString encodeName(const QString &name);
-    /// Inverse of \ref encodeName.
+    /// Inverse of \ref encodeName - for plain (unshortened) ids only.
     static QString decodeName(const QString &id);
 
     /// Longest accepted display name.
     static int maxNameLength();
+    /// Longest id \ref encodeName may produce.
+    static int maxEncodedIdLength();
 };
 
 #endif // PROVIDERPROFILESTORE_H

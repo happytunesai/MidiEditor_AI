@@ -60,6 +60,19 @@ private:
     /** Model id of the current selection (item data, falling back to the
      *  typed text) - the value \ref accept writes to AI/model. */
     QString currentModelId() const;
+    /** The API key to show for \a provider.
+     *
+     *  On the INITIAL load - the page opening on the provider the active
+     *  settings already describe - AI/api_key is authoritative. Applying a
+     *  keyless provider profile sets AI/api_key = "" but deliberately keeps
+     *  the remembered AI/api_key/<provider> (a cloud token), so preferring
+     *  the per-provider memory here would put that token back into a local
+     *  endpoint's field and, on Close, into its Authorization header. A real
+     *  provider switch inside the page uses the per-provider memory. */
+    QString storedKeyForProvider(const QString &provider, bool initialLoad) const;
+    /** Placeholder of the key field for the endpoint currently in the fields
+     *  ("not required" for Ollama and for a local Custom endpoint). */
+    void updateKeyFieldHint();
     /** Favourites / model-cache scope for \a provider given the endpoint
      *  currently typed into the fields (which may not be saved yet). For the
      *  Custom provider this is the active profile's scope, so every custom

@@ -2390,6 +2390,7 @@ void MainWindow::closeDocumentFile(MidiFile *oldFile) {
 
     FfxivVoiceAnalyzer::instance()->forgetFile(oldFile);
     Selection::forgetFile(oldFile);
+    TempoMapThinner::forgetFile(oldFile);
     ChannelVisibilityManager::instance().forgetFile(oldFile);
     if (_mcpServer) _mcpServer->forgetFile(oldFile);
     _connectedFiles.remove(oldFile);
@@ -12586,6 +12587,76 @@ void MainWindow::convertTempoForChannel(int channel) {
     dialog.exec();
 }
 
+namespace {
+
+/**
+ * THIN-SELECTION-001: the events TempoMapThinner drops stay in the document's
+ * Selection, and EventTool puts every selected event back into its channel the
+ * moment one of them is dragged - MidiEvent::setMidiTime() ends in
+ * channelEvents()->insert(), unconditionally. A single note drag after a thin
+ * would therefore re-insert the whole dropped tempo map. Tempo events really
+ * can be selected: MiscWidget's Tempo editor selects them on click.
+ *
+ * Only the removed events leave the selection - a note selection the user built
+ * up before thinning survives untouched.
+ */
+void dropThinnedTempoEventsFromSelection(MidiFile *thinnedFile,
+                                         const QVector<MidiEvent *> &removed) {
+    if (!thinnedFile || removed.isEmpty()) {
+        return;
+    }
+    // forFile(), not instance(): the AI/MCP tool may thin a document that is
+    // not the active tab, and that document's own selection is the one holding
+    // the stale pointers.
+    Selection *selection = Selection::forFile(thinnedFile);
+    if (!selection) {
+        return; // this document never had a selection
+    }
+    const QList<MidiEvent *> before = selection->selectedEvents();
+    if (before.isEmpty()) {
+        return;
+    }
+    QSet<MidiEvent *> gone;
+    gone.reserve(removed.size());
+    for (MidiEvent *ev : removed) {
+        gone.insert(ev);
+    }
+    QList<MidiEvent *> kept;
+    kept.reserve(before.size());
+    for (MidiEvent *ev : before) {
+        if (!gone.contains(ev)) {
+            kept.append(ev);
+        }
+    }
+    if (kept.size() == before.size()) {
+        return; // nothing removed was selected
+    }
+    // The hook runs INSIDE the thinner's protocol action, so this selection
+    // change joins the same single undo step: undoing the thin brings the
+    // tempo events back AND re-selects them.
+    selection->setSelection(kept);
+    // The "selection changed" signal drives action enablement for the ACTIVE
+    // document, so only raise it when the thinned document is that one.
+    if (Selection::_eventWidget && selection == Selection::instance()) {
+        Selection::_eventWidget->reportSelectionChangedByTool();
+    }
+}
+
+/** Registers the hook above once, before main() runs, so it covers every
+ *  caller of TempoMapThinner::thin() - the Tools menu, the ruler context menu,
+ *  the FFXIV playability workbench and the AI/MCP thin_tempo_map tool - without
+ *  each of them having to remember. TempoMapThinner itself stays GUI-free (its
+ *  test target links without Selection), and a headless build that never gets
+ *  here simply keeps the old behaviour. */
+struct ThinTempoMapSelectionHookInstaller {
+    ThinTempoMapSelectionHookInstaller() {
+        TempoMapThinner::setRemovedEventsHook(&dropThinnedTempoEventsFromSelection);
+    }
+};
+const ThinTempoMapSelectionHookInstaller g_thinTempoMapSelectionHookInstaller;
+
+} // namespace
+
 void MainWindow::thinTempoMap() {
     if (!file) {
         return;
@@ -12610,7 +12681,8 @@ void MainWindow::thinTempoMap() {
         tr("This file's tempo map holds <b>%1</b> tempo events. Thinning keeps "
            "the events that carry the timing and drops the rest, so the music "
            "stays where it is while the editor and the game have far less to "
-           "read.")
+           "read. The timing shift is counted from the file as it was opened, "
+           "so running this tool a second time cannot move the music twice.")
             .arg(QLocale().toString(before)),
         &dialog);
     intro->setWordWrap(true);
@@ -12624,8 +12696,9 @@ void MainWindow::thinTempoMap() {
     toleranceBox->setValue(TempoMapThinner::kDefaultToleranceMs);
     toleranceBox->setSuffix(tr(" ms"));
     toleranceBox->setToolTip(tr("How far any point of the piece may end up "
-                                "from where it is now. Smaller keeps more "
-                                "tempo events, larger keeps fewer."));
+                                "from where it was when the file was opened. "
+                                "Smaller keeps more tempo events, larger keeps "
+                                "fewer."));
     form->addRow(tr("Allowed timing shift:"), toleranceBox);
     layout->addLayout(form);
 
@@ -12635,26 +12708,51 @@ void MainWindow::thinTempoMap() {
 
     MidiFile *targetFile = file;
     auto updatePreview = [preview, targetFile, toleranceBox]() {
-        const TempoMapThinner::Result r = TempoMapThinner::thin(
-            targetFile, toleranceBox->value(), true);
+        const double tolerance = toleranceBox->value();
+        const TempoMapThinner::Result r =
+            TempoMapThinner::thin(targetFile, tolerance, true);
         if (!r.ok) {
             preview->setText(r.error);
             return;
         }
+        QString text;
         if (r.removed == 0) {
-            preview->setText(MainWindow::tr(
+            text = MainWindow::tr(
                 "Nothing to remove at this setting - every tempo event is "
-                "carrying part of the timing."));
-            return;
+                "carrying part of the timing.");
+        } else {
+            text = MainWindow::tr(
+                       "Would keep <b>%1</b> of %2 events (removing %3). "
+                       "Largest timing shift anywhere in the piece: %4 ms, end "
+                       "of the file: %5 ms.")
+                       .arg(QLocale().toString(r.kept))
+                       .arg(QLocale().toString(r.before))
+                       .arg(QLocale().toString(r.removed))
+                       .arg(r.maxDriftMs, 0, 'f', 2)
+                       .arg(r.endDriftMs, 0, 'f', 2);
         }
-        preview->setText(MainWindow::tr(
-            "Would keep <b>%1</b> of %2 events (removing %3). Largest timing "
-            "shift anywhere in the piece: %4 ms, end of the file: %5 ms.")
-                             .arg(QLocale().toString(r.kept))
-                             .arg(QLocale().toString(r.before))
-                             .arg(QLocale().toString(r.removed))
-                             .arg(r.maxDriftMs, 0, 'f', 2)
-                             .arg(r.endDriftMs, 0, 'f', 2));
+        // THIN-RERUN-001: the figures are the TOTAL shift from the file as it
+        // was opened, not a fresh allowance for this run. Say so whenever the
+        // map has already been thinned, and say plainly when the setting can
+        // no longer be met.
+        if (r.alreadyDriftedMs > 0.005) {
+            text += QStringLiteral("<br>")
+                + MainWindow::tr(
+                      "This tempo map has already been thinned in this "
+                      "session and sits %1 ms away from the file as opened - "
+                      "the figures above count from there, not from now.")
+                      .arg(r.alreadyDriftedMs, 0, 'f', 2);
+        }
+        if (r.maxDriftMs > tolerance + 0.005) {
+            text += QStringLiteral("<br><b>")
+                + MainWindow::tr(
+                      "The piece is already further away than %1 ms and the "
+                      "earlier thinning cannot be taken back from here - undo "
+                      "it first if the timing has to stay closer than that.")
+                      .arg(tolerance, 0, 'f', 1)
+                + QStringLiteral("</b>");
+        }
+        preview->setText(text);
     };
     connect(toleranceBox, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
             &dialog, updatePreview);
@@ -12685,7 +12783,8 @@ void MainWindow::thinTempoMap() {
         return;
     }
     statusBar()->showMessage(
-        tr("Tempo map thinned: %1 -> %2 events, largest timing shift %3 ms.")
+        tr("Tempo map thinned: %1 -> %2 events, largest timing shift %3 ms "
+           "from the file as opened.")
             .arg(QLocale().toString(r.before))
             .arg(QLocale().toString(r.kept))
             .arg(r.maxDriftMs, 0, 'f', 2),

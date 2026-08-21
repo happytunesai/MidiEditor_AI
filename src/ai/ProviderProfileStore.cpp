@@ -1,8 +1,11 @@
 #include "ProviderProfileStore.h"
 
 #include "../AppPaths.h"
+#include "ModelFavorites.h"
+#include "ModelListCache.h"
 
 #include <QByteArray>
+#include <QCryptographicHash>
 #include <QSettings>
 #include <QStringList>
 
@@ -19,6 +22,22 @@ constexpr const char *kActiveApiKey   = "AI/api_key";
 constexpr const char *kActiveModel    = "AI/model";
 
 constexpr int kMaxNameLength = 64;
+
+// Longest id encodeName() may hand to the settings backend. A Windows registry
+// key NAME is capped (the documented limit counts the whole path from the root
+// key), and a 64-character CJK name percent-encodes to 576 characters - the
+// write then fails while the profile's API key, a plain value name with a far
+// higher limit, survives. 120 leaves room for the "Software\<org>\<app>\
+// AI\providerProfiles\" prefix even under the long test scope.
+constexpr int kMaxEncodedIdLength = 120;
+// How much of the display name a shortened id keeps for readability, and how
+// many hex digits of the digest make it unique.
+constexpr int kShortIdHeadChars = 8;
+constexpr int kShortIdDigestChars = 16;
+// Separator inside a shortened id. Deliberately OUTSIDE the safe set below, so
+// a literal name containing it encodes to "%7E" and no plain id can ever look
+// like a shortened one.
+constexpr char kShortIdSeparator = '~';
 
 // The only provider whose endpoint (and therefore model list) is user-defined.
 constexpr const char *kCustomProvider = "custom";
@@ -41,6 +60,28 @@ QString groupOf(const QString &id, const QString &leaf)
 QString keyKeyOf(const QString &id)
 {
     return QString::fromLatin1(kKeyPrefix) + id;
+}
+
+// Everything outside [A-Za-z0-9 ._-] becomes "%XX" over the UTF-8 bytes.
+QString percentEncode(const QString &text)
+{
+    const QByteArray utf8 = text.toUtf8();
+    QString out;
+    out.reserve(utf8.size());
+    for (int i = 0; i < utf8.size(); ++i) {
+        const unsigned char u = static_cast<unsigned char>(utf8.at(i));
+        const bool safe = (u >= 'A' && u <= 'Z') || (u >= 'a' && u <= 'z')
+                          || (u >= '0' && u <= '9')
+                          || u == '.' || u == '_' || u == '-' || u == ' ';
+        if (safe) {
+            out += QLatin1Char(static_cast<char>(u));
+        } else {
+            out += QLatin1Char('%');
+            out += QString::number(u, 16).toUpper().rightJustified(
+                2, QLatin1Char('0'));
+        }
+    }
+    return out;
 }
 
 bool sameUrl(const QString &a, const QString &b)
@@ -67,23 +108,27 @@ QString ProviderProfileStore::normalizeName(const QString &raw)
 
 QString ProviderProfileStore::encodeName(const QString &name)
 {
-    const QByteArray utf8 = normalizeName(name).toUtf8();
-    QString out;
-    out.reserve(utf8.size());
-    for (int i = 0; i < utf8.size(); ++i) {
-        const unsigned char u = static_cast<unsigned char>(utf8.at(i));
-        const bool safe = (u >= 'A' && u <= 'Z') || (u >= 'a' && u <= 'z')
-                          || (u >= '0' && u <= '9')
-                          || u == '.' || u == '_' || u == '-' || u == ' ';
-        if (safe) {
-            out += QLatin1Char(static_cast<char>(u));
-        } else {
-            out += QLatin1Char('%');
-            out += QString::number(u, 16).toUpper().rightJustified(
-                2, QLatin1Char('0'));
-        }
-    }
-    return out;
+    const QString normalized = normalizeName(name);
+    const QString full = percentEncode(normalized);
+    if (full.size() <= kMaxEncodedIdLength)
+        return full;
+
+    // Too long for the settings backend (see kMaxEncodedIdLength). Keep a
+    // readable head - encoded from whole CHARACTERS, so it can never end in a
+    // half-written "%E4" escape - and make the id unique with a digest of the
+    // full encoding. Deterministic: the same display name always maps to the
+    // same id, so the profile stays findable and its model-list scope stable.
+    const QString head = percentEncode(normalized.left(kShortIdHeadChars));
+    const QString digest = QString::fromLatin1(
+        QCryptographicHash::hash(full.toUtf8(), QCryptographicHash::Sha1)
+            .toHex()
+            .left(kShortIdDigestChars));
+    return head + QLatin1Char(kShortIdSeparator) + digest;
+}
+
+int ProviderProfileStore::maxEncodedIdLength()
+{
+    return kMaxEncodedIdLength;
 }
 
 QString ProviderProfileStore::decodeName(const QString &id)
@@ -156,17 +201,38 @@ bool ProviderProfileStore::save(const Profile &profile, const QString &apiKey)
     if (name.isEmpty() || id.isEmpty() || profile.provider.trimmed().isEmpty())
         return false;
 
+    const QString provider = profile.provider.trimmed();
     auto s = settings();
+    const bool existedBefore = s->contains(groupOf(id, QStringLiteral("provider")));
+
     s->setValue(groupOf(id, QStringLiteral("name")), name);
-    s->setValue(groupOf(id, QStringLiteral("provider")),
-                profile.provider.trimmed());
+    s->setValue(groupOf(id, QStringLiteral("provider")), provider);
     s->setValue(groupOf(id, QStringLiteral("base_url")),
                 profile.baseUrl.trimmed());
     s->setValue(groupOf(id, QStringLiteral("model")), profile.model.trimmed());
     // The key lives beside today's per-provider keys, never in the profile
     // group that a future export/import feature might treat as shareable.
     s->setValue(keyKeyOf(id), apiKey);
-    return true;
+    s->sync();
+
+    // Honest reporting: setValue() cannot fail, but the BACKEND can refuse the
+    // write (a registry key name has a hard length limit). Read the group back
+    // through a fresh handle instead of trusting the call, so no caller ever
+    // shows "profile saved" for a profile that is not there.
+    if (settings()->value(groupOf(id, QStringLiteral("provider"))).toString()
+        == provider) {
+        return true;
+    }
+    // A brand-new profile that did not land must not leave its API key behind.
+    // An overwrite is left alone: the previous values are still the truth.
+    if (!existedBefore) {
+        s->beginGroup(QString::fromLatin1(kRoot) + QLatin1Char('/') + id);
+        s->remove(QString());
+        s->endGroup();
+        s->remove(keyKeyOf(id));
+        s->sync();
+    }
+    return false;
 }
 
 bool ProviderProfileStore::remove(const QString &name)
@@ -178,6 +244,10 @@ bool ProviderProfileStore::remove(const QString &name)
     if (!s->contains(groupOf(id, QStringLiteral("provider"))))
         return false;
 
+    // Resolve the endpoint scope BEFORE the group is gone - it is derived from
+    // the stored profile.
+    const QString scope = modelScopeIdForProfile(name);
+
     s->beginGroup(QString::fromLatin1(kRoot) + QLatin1Char('/') + id);
     s->remove(QString());
     s->endGroup();
@@ -186,6 +256,16 @@ bool ProviderProfileStore::remove(const QString &name)
     if (normalizeName(s->value(QString::fromLatin1(kActiveHint)).toString())
         == normalizeName(name))
         s->remove(QString::fromLatin1(kActiveHint));
+
+    // The scope is derived from the NAME, so a profile created later under the
+    // same name would inherit this one's favourites and cached model list -
+    // a foreign server's models offered as if they were its own. Only a
+    // profile's own "custom:profile:<id>" scope is cleared; the provider-wide
+    // scope that non-custom profiles share belongs to everyone.
+    if (scope.startsWith(QString::fromLatin1(kCustomScopePrefix))) {
+        ModelFavorites::setFavorites(scope, QStringList());
+        ModelListCache::forget(scope);
+    }
     return true;
 }
 
@@ -268,10 +348,19 @@ QString ProviderProfileStore::nameMatching(const QString &provider,
 
 QString ProviderProfileStore::nameMatchingEndpoint(const QString &provider,
                                                    const QString &baseUrl,
-                                                   const QString &apiKey)
+                                                   const QString &apiKey,
+                                                   const QString &preferredName)
 {
     if (provider.trimmed().isEmpty())
         return QString();
+
+    // The caller's live selection outranks the stored hint: when two profiles
+    // describe one endpoint, the hint may still name the other one, and the
+    // two pickers would then show different names for the same connection.
+    if (!preferredName.isEmpty()
+        && matchesEndpoint(preferredName, provider, baseUrl, apiKey)) {
+        return normalizeName(preferredName);
+    }
 
     // Same order as nameMatching(): the hint first, so two profiles sharing an
     // endpoint resolve to the one that was actually applied.

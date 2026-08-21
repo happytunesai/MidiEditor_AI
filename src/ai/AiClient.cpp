@@ -7,6 +7,7 @@
 #include <QDir>
 #include <QFile>
 #include <QHash>
+#include <QHostAddress>
 #include <QJsonDocument>
 #include <QNetworkRequest>
 #include <QRandomGenerator>
@@ -194,23 +195,67 @@ bool AiClient::isConfigured() const
     return !apiKey().isEmpty() || !providerRequiresKey();
 }
 
-bool AiClient::providerRequiresKey() const
+// True when the base URL names this machine. Two traps this avoids:
+//   * "127.0.0.1.evil.com" is a PUBLIC name that merely STARTS with "127." -
+//     a string prefix would hand a keyless exemption to a remote server;
+//   * a URL typed without a scheme ("localhost:8080/v1") parses as scheme
+//     "localhost" with an EMPTY host, so the exemption would never apply.
+static bool endpointIsLoopback(const QString &baseUrl)
 {
-    if (_provider == QStringLiteral("ollama"))
+    QString text = baseUrl.trimmed();
+    if (text.isEmpty())
+        return false;
+
+    // Only a real "<scheme>://" counts; anything else gets http:// prepended
+    // before parsing.
+    const int schemeEnd = text.indexOf(QStringLiteral("://"));
+    bool hasScheme = schemeEnd > 0 && text.at(0).isLetter();
+    for (int i = 0; hasScheme && i < schemeEnd; ++i) {
+        const QChar c = text.at(i);
+        if (!(c.isLetterOrNumber() || c == QLatin1Char('+') || c == QLatin1Char('-')
+              || c == QLatin1Char('.')))
+            hasScheme = false;
+    }
+    if (!hasScheme)
+        text.prepend(QStringLiteral("http://"));
+
+    QString host = QUrl::fromUserInput(text).host().trimmed().toLower();
+    // A trailing dot is the DNS root: "localhost." IS "localhost".
+    while (host.endsWith(QLatin1Char('.')))
+        host.chop(1);
+    // Literal IPv6 hosts may arrive bracketed depending on the caller.
+    if (host.size() > 1 && host.startsWith(QLatin1Char('['))
+        && host.endsWith(QLatin1Char(']')))
+        host = host.mid(1, host.size() - 2);
+    if (host.isEmpty())
+        return false;
+
+    if (host == QStringLiteral("localhost")
+        || host.endsWith(QStringLiteral(".localhost")))
+        return true;
+
+    // Numeric comparison, never a string prefix.
+    const QHostAddress addr(host);
+    return !addr.isNull() && addr.isLoopback();
+}
+
+bool AiClient::providerRequiresKey(const QString &provider, const QString &baseUrl)
+{
+    const QString p = provider.trimmed().toLower();
+    if (p == QStringLiteral("ollama"))
         return false;
     // A custom endpoint on this machine (llama.cpp, LM Studio, a keyless
     // provider profile) authenticates by locality, not by key - treating it
     // like a cloud provider would flip MidiPilot to "Not configured" the
     // moment such a profile is applied.
-    if (_provider == QStringLiteral("custom")) {
-        const QString host = QUrl(apiBaseUrl()).host().toLower();
-        if (host == QStringLiteral("localhost")
-            || host.startsWith(QStringLiteral("127."))
-            || host == QStringLiteral("::1")) {
-            return false;
-        }
-    }
+    if (p == QStringLiteral("custom"))
+        return !endpointIsLoopback(baseUrl);
     return true;
+}
+
+bool AiClient::providerRequiresKey() const
+{
+    return providerRequiresKey(_provider, apiBaseUrl());
 }
 
 void AiClient::applyAuthHeader(QNetworkRequest &request) const

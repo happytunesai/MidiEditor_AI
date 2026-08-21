@@ -15,12 +15,30 @@ ModelListFetcher::ModelListFetcher(QObject *parent)
 {
 }
 
+QString ModelListFetcher::redactSecrets(const QString &text) const
+{
+    // Gemini carries the key as a URL query item, and Qt's errorString() (plus
+    // some HTTP error bodies) quote the full URL - which put the key straight
+    // into the settings page's status label. Redact the key itself and any
+    // key=/api_key=/access_token= query value before the text leaves here.
+    QString out = text;
+    if (!_apiKey.isEmpty()) {
+        out.replace(_apiKey, QStringLiteral("***"));
+    }
+    static const QRegularExpression secretParam(
+        QStringLiteral("\\b(key|api_key|apikey|access_token|token)=[^&\\s\"']+"),
+        QRegularExpression::CaseInsensitiveOption);
+    out.replace(secretParam, QStringLiteral("\\1=***"));
+    return out;
+}
+
 void ModelListFetcher::fetch(const QString &provider,
                              const QString &apiKey,
                              const QString &baseUrl,
                              const QString &scope)
 {
     _provider = provider;
+    _apiKey = apiKey;
     // Default scope = the provider, i.e. exactly the pre-profile behaviour.
     _scope = scope.isEmpty() ? provider : scope;
 
@@ -93,12 +111,13 @@ void ModelListFetcher::onReplyFinished()
     _reply = nullptr;
 
     if (netErr != QNetworkReply::NoError) {
-        emit failed(_scope, tr("Network error: %1").arg(netErrStr));
+        emit failed(_scope, tr("Network error: %1").arg(redactSecrets(netErrStr)));
         deleteLater();
         return;
     }
     if (httpStatus >= 400) {
-        emit failed(_scope, tr("HTTP %1: %2").arg(httpStatus).arg(QString::fromUtf8(body.left(200))));
+        emit failed(_scope, tr("HTTP %1: %2").arg(httpStatus)
+                                .arg(redactSecrets(QString::fromUtf8(body.left(200)))));
         deleteLater();
         return;
     }

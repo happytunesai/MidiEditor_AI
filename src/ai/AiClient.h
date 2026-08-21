@@ -254,6 +254,20 @@ public:
                                               const QString &model);
 
         /**
+        * \brief True when \a provider needs an API key to talk to \a baseUrl.
+        *
+        *        The single definition of "is this endpoint keyless": Ollama
+        *        never needs a key, and a Custom endpoint served from THIS
+        *        machine (llama.cpp, LM Studio, a keyless provider profile)
+        *        authenticates by locality. Everything else does need one.
+        *        Exposed as a static so the settings page and the chat footer
+        *        judge an endpoint exactly like the client does instead of
+        *        re-implementing "only ollama is keyless".
+        */
+        static bool providerRequiresKey(const QString &provider,
+                                        const QString &baseUrl);
+
+        /**
         * \brief True when a provider/model was marked as streaming-broken in
         *        this application session (any mode). Kept for UI/legacy use.
         */
@@ -636,7 +650,8 @@ private:
     QString _nextReasoningEffortOverride;
 
     /// True when the current provider needs an API key. Local providers
-    /// (Ollama) accept requests without one, so the key is optional there.
+    /// (Ollama, a loopback Custom endpoint) accept requests without one, so
+    /// the key is optional there. Thin wrapper around the static overload.
     bool providerRequiresKey() const;
     /// Set the Bearer Authorization header, but only when a key is present -
     /// avoids sending an empty "Bearer " to keyless local servers (Ollama).

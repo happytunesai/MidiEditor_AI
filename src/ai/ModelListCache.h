@@ -78,6 +78,18 @@ public:
     static void store(const QString &provider, const QJsonArray &models);
 
     /**
+     * \brief Drops the cached entry for one scope.
+     *
+     * Used when the endpoint a scope stands for stops existing - deleting a
+     * provider profile takes its \c "custom:profile:<id>" entry with it, so a
+     * later profile of the same name does not inherit a foreign server's model
+     * list. A no-op when the scope has no entry (the file is not rewritten),
+     * and the on-disk format is unchanged - only one key of the \c "providers"
+     * object disappears.
+     */
+    static void forget(const QString &scope);
+
+    /**
      * \brief Returns the context window declared in the cache for the given
      *        model id, or 0 if unknown.
      */
