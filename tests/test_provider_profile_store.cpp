@@ -623,6 +623,47 @@ private slots:
                  QStringLiteral("custom:profile:ZZZ just saved"));
     }
 
+    void aKeylessLocalProfileKeepsItsOwnScope() {
+        // A keyless local endpoint (llama.cpp, LM Studio) is a first-class
+        // Custom profile, so it must own its favourites and model list exactly
+        // like a keyed one. The match survives the empty key because
+        // matchesEndpoint() compares apiKeyFor(name) with the ACTIVE key and
+        // apply() always writes AI/api_key - including the empty value. Only
+        // the per-provider memory refresh is skipped for a keyless profile.
+        auto s = AppPaths::settings();
+        s->setValue(QStringLiteral("AI/api_key/custom"), QStringLiteral("hf-token"));
+
+        QVERIFY(ProviderProfileStore::save(
+            makeProfile(QStringLiteral("Local llama"), QStringLiteral("custom"),
+                        QStringLiteral("http://localhost:8080/v1"),
+                        QStringLiteral("b-model")),
+            QString()));
+        QVERIFY(ProviderProfileStore::save(
+            makeProfile(QStringLiteral("HF"), QStringLiteral("custom"),
+                        QStringLiteral("https://router.example/v1"),
+                        QStringLiteral("a/model")),
+            QStringLiteral("hf-token")));
+
+        QVERIFY(ProviderProfileStore::apply(QStringLiteral("Local llama")));
+        QVERIFY(s->value(QStringLiteral("AI/api_key")).toString().isEmpty());
+        QCOMPARE(ProviderProfileStore::activeProfileName(),
+                 QStringLiteral("Local llama"));
+        QCOMPARE(ProviderProfileStore::activeModelScopeId(),
+                 QStringLiteral("custom:profile:Local llama"));
+        // The remembered cloud key is still there - a local profile must not
+        // erase it - and it does NOT drag the match to the keyed profile.
+        QCOMPARE(s->value(QStringLiteral("AI/api_key/custom")).toString(),
+                 QStringLiteral("hf-token"));
+
+        // Away to the keyed endpoint and back: both keep their own scope.
+        QVERIFY(ProviderProfileStore::apply(QStringLiteral("HF")));
+        QCOMPARE(ProviderProfileStore::activeModelScopeId(),
+                 QStringLiteral("custom:profile:HF"));
+        QVERIFY(ProviderProfileStore::apply(QStringLiteral("Local llama")));
+        QCOMPARE(ProviderProfileStore::activeModelScopeId(),
+                 QStringLiteral("custom:profile:Local llama"));
+    }
+
     void deletingTheActiveProfileFallsBackToTheAdHocScope() {
         // The mirror image: the endpoint keeps working, it just stops being a
         // named one, so its model list and favourites return to "custom".
