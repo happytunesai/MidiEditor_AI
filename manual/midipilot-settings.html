@@ -194,22 +194,30 @@ set of fields.
 <table>
 <tr><th>Where</th><th>What it does</th></tr>
 <tr><td><b>Settings &rarr; MidiPilot AI</b></td><td>The <b>Provider profile</b> row above the connection fields. Selecting a profile fills the fields below; they are stored when you confirm the settings dialog. <b>Save as&hellip;</b> writes the current fields to a profile (an existing name asks before it is overwritten), <b>Delete</b> removes the selected one and leaves the fields as they are.</td></tr>
-<tr><td><b>MidiPilot footer</b></td><td>The profile picker left of the provider dropdown switches the whole connection in one step and reports the applied profile in the status line. <b>Save connection as provider profile&hellip;</b> in the &#x2699; gear menu stores the current connection without opening the settings dialog.</td></tr>
+<tr><td><b>MidiPilot footer</b></td><td>The <b>Provider</b> dropdown lists the saved custom profiles below its built-in providers; picking one switches the whole connection in one step and reports the applied profile in the status line. <b>Save connection as provider profile&hellip;</b> in the &#x2699; gear menu stores the current connection without opening the settings dialog and selects it there.</td></tr>
 <tr><td><b>Per-file preset</b></td><td>A <a href="#presets">per-file AI preset</a> also records the <i>name</i> of the active profile - never a URL or a key. Opening that file on a machine that has a profile of the same name reconnects to the right endpoint; on any other machine the preset falls back to its stored provider and model.</td></tr>
 </table>
 
 <p>
-Saved <b>Custom</b> profiles also appear in the <b>Provider</b> dropdown itself - in the settings
-page and in the footer - listed below a separator after the built-in providers, so switching to a
-saved endpoint is the same gesture as switching provider. Picking one there does exactly what the
-profile picker does, and the two stay in step.
+Saved <b>Custom</b> profiles appear in the <b>Provider</b> dropdown itself - in the settings page and
+in the footer - listed below a separator after the built-in providers, so switching to a saved
+endpoint is the same gesture as switching provider.
 </p>
 
 <p>
-Both pickers show a profile name only while the connection still matches it. Change the provider,
-the URL, the key or the model afterwards and the picker returns to <b>(No profile)</b> - the
-settings then behave exactly as they always did, unsaved and ad-hoc, and the profile keeps the
-values it was saved with. Use <b>Save as&hellip;</b> with the same name to update it.
+In the footer the plain <b>Custom</b> entry - the unsaved, ad-hoc endpoint - is listed only when
+there is one: when a custom base URL is configured, or while the connection in use is that ad-hoc
+endpoint. Whatever MidiPilot is talking to is always on the list. The settings page always offers
+<b>Custom</b>, because that is where a custom endpoint is entered in the first place.
+</p>
+
+<p>
+A profile name is shown only while the connection still matches it. Change the provider, the URL or
+the key afterwards and the settings page returns to <b>(No profile)</b> while the footer dropdown
+falls back to the plain provider entry - the settings then behave exactly as they always did,
+unsaved and ad-hoc, and the profile keeps the values it was saved with. Use <b>Save as&hellip;</b>
+with the same name to update it. Picking another model in the footer keeps you on the same endpoint,
+so the profile entry there stays selected.
 </p>
 
 <p>

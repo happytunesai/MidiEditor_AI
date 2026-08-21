@@ -201,10 +201,6 @@ private slots:
     void onAgentStepLimitReached(int currentStep, int maxSteps);
     void onModelComboChanged(int index);
     void onProviderComboChanged(int index);
-    /** Phase 50: the footer's provider-profile picker. Applies a stored
-     *  endpoint (provider, base URL, key, model) in one step. NOT the prompt
-     *  profiles from the gear menu. */
-    void onProviderProfileComboChanged(int index);
     void onEffortComboChanged(int index);
     void onStreamDelta(const QString &text);
     void onStreamFinished(const QString &fullContent, const QJsonObject &fullResponse);
@@ -238,32 +234,38 @@ private:
     void setupUi();
     void setupSetupPrompt();
     void populateFooterModels();
-    /** Phase 50: refill the footer's provider-profile picker AND the provider
-     *  combo's profile entries from the store. */
+    // --- Phase 50 (+ follow-up): the footer's Provider dropdown is the single
+    // connection picker. Stored CUSTOM profiles are first-class entries below a
+    // separator, so switching to a saved endpoint feels like switching provider.
+    // A profile entry is NOT a new provider id: it carries the provider id
+    // ("custom") in Qt::UserRole exactly like the built-in entries - every
+    // existing currentData() reader keeps working - and the profile NAME in a
+    // second role, translated at this boundary only.
+
+    /** Rebuild the whole provider combo (built-in providers, the conditional
+     *  ad-hoc "Custom" entry, separator, stored custom profiles) from the store
+     *  and re-derive its selection. Call after a profile save/delete and
+     *  whenever the connection settings may have changed. */
     void populateProviderProfiles();
-    /** Phase 50: show the profile the live settings still match, else
-     *  "(No profile)". Derived state - a manual provider/model switch falls
-     *  back on its own, nothing has to track edits. */
-    void refreshProviderProfileSelection();
-
-    // --- Phase 50 follow-up: stored CUSTOM profiles as first-class entries in
-    // the footer's Provider dropdown, so switching to a saved endpoint feels
-    // like switching provider. A profile entry is NOT a new provider id: it
-    // carries the provider id ("custom") in Qt::UserRole exactly like the five
-    // fixed entries - every existing currentData() reader keeps working - and
-    // the profile NAME in a second role, translated at this boundary only.
-
-    /** Rebuild the provider combo's profile entries below the fixed five. */
-    void populateProviderComboProfiles();
+    /** FOOTER rule: is the plain ad-hoc "Custom" entry worth listing? True when
+     *  a custom endpoint is really configured (a base URL that is not just a
+     *  built-in provider's default) or when the app is currently ON an ad-hoc
+     *  custom endpoint - the active configuration must always be selectable.
+     *  The settings page is deliberately not subject to this: that is where a
+     *  custom endpoint is configured in the first place. */
+    bool hasAdHocCustomEndpoint() const;
+    /** Index of a BUILT-IN provider entry, skipping the stored-profile entries
+     *  (which carry "custom" in Qt::UserRole too). -1 when not listed. */
+    int indexOfFixedProvider(const QString &providerId) const;
     /** Profile name carried by the current provider-combo entry; empty for the
-     *  five fixed providers (and for the separator). */
+     *  built-in providers (and for the separator). */
     QString currentProviderComboProfile() const;
     /** Point the provider combo at the entry the LIVE connection describes: the
      *  stored custom profile matching provider+URL+key, else the plain
      *  provider. Signal-blocked - it selects, it never applies. */
     void syncProviderComboSelection();
     /** Apply a stored profile and re-sync the footer - the single code path
-     *  behind the profile picker and the provider combo's profile entries. */
+     *  behind the provider combo's profile entries and the file presets. */
     void applyProviderProfileByName(const QString &name);
     // Select a model id in the (read-only) footer combo, adding it as an item
     // first if it isn't in the list (e.g. a custom or per-file model). Also
@@ -391,10 +393,9 @@ private:
     QTimer *_statusTimer;
     int _dotPhase;
     int _msgPhase;
-    QComboBox *_providerProfileCombo = nullptr;
-    /// Null-initialised: populateProviderProfiles() refills the profile entries
-    /// of this combo too and already runs once while the footer is still being
-    /// built, i.e. before this exists. The helpers guard on null.
+    /// Null-initialised: populateProviderProfiles() builds this combo's entries
+    /// and runs while the footer is still being assembled. The helpers guard on
+    /// null so nothing depends on the order of the footer widgets.
     QComboBox *_providerCombo = nullptr;
     QComboBox *_modelCombo = nullptr;
     QPushButton *_refreshModelsButton = nullptr;
