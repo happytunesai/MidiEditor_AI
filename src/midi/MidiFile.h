@@ -27,6 +27,9 @@
 #include <QMultiMap>
 #include <QObject>
 
+// Standard includes
+#include <vector>
+
 // Forward declarations
 class MidiEvent;
 class TimeSignatureEvent;
@@ -232,11 +235,27 @@ public:
     /**
      * \brief Converts MIDI ticks to milliseconds with event context.
      * \param tick Time in MIDI ticks
-     * \param events Optional list of events for timing context
+     * \param events Optional list of events for timing context. When null
+     *        (the normal case - grid lines, notes, cursor, playback prep)
+     *        the answer comes out of the O(log n) tempo cache; when a list
+     *        is given the original linear walk over THAT list is used
+     *        unchanged, because the list is the caller's own window into
+     *        the tempo map and carries its own time origin.
      * \param msOfFirstEventInList Timing reference for first event
      * \return Time in milliseconds
      */
     int msOfTick(int tick, QList<MidiEvent *> *events = 0, int msOfFirstEventInList = 0);
+
+    /**
+     * \brief Drops the cached tempo map, forcing a rebuild on the next
+     *        timing query.
+     *
+     *  Normal mutations do not need this: every channel-17 mutation path
+     *  bumps MidiChannel::tempoRevision(), and the cache also re-checks the
+     *  size of the tempo map on every query. It exists for the wholesale
+     *  state swaps MidiFile itself performs (undo/redo, loading).
+     */
+    void invalidateTempoCache();
 
     /**
      * \brief Gets all events between two tick positions.
@@ -597,7 +616,64 @@ private:
      */
     int ticksPerMeasureOfMeter(int num, int denumPow);
 
+    // === Tempo map cache (Phase 48) ===
+
+    /**
+     * \brief One entry of the cached tempo map: a tempo change, the time in
+     *        milliseconds at which it takes effect, and the ms-per-tick that
+     *        is valid from there until the next anchor.
+     *
+     *  The vector is sorted by \a tick (the tempo map is an ordered
+     *  QMultiMap) and, because msPerTick is always positive, by \a msAtTick
+     *  as well - so both directions of the conversion are a binary search.
+     */
+    struct TempoAnchor {
+        int tick;
+        double msAtTick;
+        double msPerTick;
+        TempoChangeEvent *event;
+    };
+
+    /**
+     * \brief Rebuilds the tempo cache if it can no longer be trusted.
+     *
+     *  Two independent triggers, both cheap:
+     *   - MidiChannel::tempoRevision() differs from the value the cache was
+     *     built at (every channel-17 mutation bumps it), and
+     *   - the size of the tempo map differs from the size recorded at build
+     *     time. This is the safety net for mutation sites that bypass
+     *     MidiChannel entirely and write into eventMap() directly. It cannot
+     *     replace the revision counter - same-size mutations exist (a BPM
+     *     edit, a moved tempo event) - but it catches drift for free.
+     *
+     *  A rebuild is ONE linear walk, i.e. exactly the work the old
+     *  msOfTick() did on every single query.
+     */
+    void ensureTempoCache();
+
+    /**
+     * \brief Index of the anchor that governs \a tick, or -1 when the file
+     *        has no tempo events at all. Ticks before the first anchor are
+     *        governed by that first anchor (extrapolated backwards), which
+     *        is what the original linear walk did.
+     */
+    int tempoAnchorIndexForTick(int tick);
+
+    /** \brief Index of the anchor that governs \a ms, or -1 if there is none. */
+    int tempoAnchorIndexForMs(double ms);
+
+    /** \brief Cached msOfTick() in full double precision. */
+    double msOfTickCached(int tick);
+
     // === Private Member Variables ===
+
+    /** \brief Phase 48: sorted tempo anchors; see ensureTempoCache().
+     *  Deliberately NOT part of copy()/reloadState(): protocol snapshots must
+     *  stay cheap, and reloadState() invalidates instead. */
+    std::vector<TempoAnchor> _tempoCache;
+    bool _tempoCacheValid = false;
+    quint64 _tempoCacheRevision = 0;
+    int _tempoCacheEventCount = -1;
 
     /** \brief Ticks per quarter note resolution */
     int timePerQuarter;

@@ -38,6 +38,8 @@
 #include "InstrumentDefinitions.h"
 #include "math.h"
 
+#include <algorithm>
+
 int MidiFile::defaultTimePerQuarter = 192;
 
 MidiFile::MidiFile() {
@@ -78,6 +80,7 @@ MidiFile::MidiFile() {
     TempoChangeEvent *tempoEv = new TempoChangeEvent(17, 500000, tempoTrack);
     tempoEv->setFile(this);
     channel(17)->eventMap()->insert(0, tempoEv);
+    invalidateTempoCache();
 
     playerMap = new QMultiMap<int, MidiEvent *>;
 
@@ -137,6 +140,9 @@ MidiFile::MidiFile(QString path, bool *ok, QStringList *log) {
 
     *ok = true;
     playerMap = new QMultiMap<int, MidiEvent *>;
+    // Phase 48: the loader writes into channel 17 directly - make sure the
+    // very first timing query builds the cache from the finished map.
+    invalidateTempoCache();
     calcMaxTime();
 
     _lyricManager = new LyricManager(this, this);
@@ -428,6 +434,7 @@ bool MidiFile::readTrack(QDataStream *content, int num, QStringList *log) {
         tempoEv->setFile(this);
         tempoEv->setTrack(track, false);
         channel(17)->eventMap()->insert(0, tempoEv);
+        invalidateTempoCache();
     }
 
     // assign channel
@@ -491,22 +498,19 @@ QMultiMap<int, MidiEvent *> *MidiFile::tempoEvents() {
 }
 
 void MidiFile::calcMaxTime() {
+    // The file's length in ms is the last tempo anchor's time plus the tail
+    // that runs from it to endTick() at that anchor's tempo - which is exactly
+    // what the accumulating walk this replaces computed. Reading it off the
+    // cached anchors matters because the loader calls calcMaxTime() once per
+    // event that extends the file, so on a dense tempo ramp the old walk was
+    // quadratic in the number of tempo events all by itself.
+    ensureTempoCache();
     double time = 0;
-    QList<MidiEvent *> events = channels[17]->eventMap()->values();
-    for (int i = 0; i < events.length(); i++) {
-        TempoChangeEvent *ev = dynamic_cast<TempoChangeEvent *>(events.at(i));
-        if (!ev) {
-            continue;
-        }
-        int ticks = 0;
-        if (i < events.length() - 1) {
-            ticks = events.at(i + 1)->midiTime() - ev->midiTime();
-        } else {
-            ticks = midiTicks - ev->midiTime();
-        }
-        time += ticks * ev->msPerTick();
+    if (!_tempoCache.empty()) {
+        const TempoAnchor &last = _tempoCache.back();
+        time = last.msAtTick + last.msPerTick * (midiTicks - last.tick);
     }
-    maxTimeMS = time;
+    maxTimeMS = (int) time;
     emit recalcWidgetSize();
 }
 
@@ -531,75 +535,117 @@ int MidiFile::timeMS(int midiTime) {
     return msOfTick(midiTime);
 }
 
-int MidiFile::tick(int ms) {
-    double time = 0;
+void MidiFile::invalidateTempoCache() {
+    _tempoCacheValid = false;
+}
 
-    // Walk the ordered tempo map directly (no QList copy - this runs on every
-    // playback/cursor position update and must stay cheap for dense maps).
-    QMultiMap<int, MidiEvent *> *map = channels[17]->eventMap();
-    TempoChangeEvent *event = 0;
+void MidiFile::ensureTempoCache() {
+    MidiChannel *tempoChannel = channels[17];
+    if (!tempoChannel) {
+        // Protocol snapshots (MidiFile(int, Protocol*)) have no channels.
+        _tempoCache.clear();
+        _tempoCacheValid = true;
+        _tempoCacheRevision = MidiChannel::tempoRevision();
+        _tempoCacheEventCount = 0;
+        return;
+    }
 
-    double timeMsNextEvent = 0;
+    QMultiMap<int, MidiEvent *> *map = tempoChannel->eventMap();
+    const quint64 revision = MidiChannel::tempoRevision();
+    const int eventCount = (int) map->size();
+    if (_tempoCacheValid && _tempoCacheRevision == revision
+        && _tempoCacheEventCount == eventCount) {
+        return;
+    }
 
+    // ONE linear walk - the work the old msOfTick() did per query.
+    _tempoCache.clear();
+    _tempoCache.reserve((size_t) (eventCount > 0 ? eventCount : 0));
     for (auto it = map->constBegin(); it != map->constEnd(); ++it) {
         TempoChangeEvent *ev = dynamic_cast<TempoChangeEvent *>(it.value());
         if (!ev) {
-            qWarning("unknown eventtype in the List [3]");
             continue;
         }
-        event = ev;
-        time = timeMsNextEvent;
-
-        auto next = it;
-        ++next;
-        if (next == map->constEnd()) {
-            break;
+        TempoAnchor anchor;
+        anchor.tick = ev->midiTime();
+        // The FIRST anchor always starts at 0 ms even when it does not sit on
+        // tick 0 - that is what the linear walk this replaces did, and the
+        // whole timeline is anchored on it.
+        anchor.msAtTick = 0.0;
+        if (!_tempoCache.empty()) {
+            const TempoAnchor &last = _tempoCache.back();
+            anchor.msAtTick = last.msAtTick + last.msPerTick * (anchor.tick - last.tick);
         }
-        int ticks = next.value()->midiTime() - ev->midiTime();
-
-        timeMsNextEvent += ticks * ev->msPerTick();
-        if (timeMsNextEvent > ms) {
-            break;
+        double msPerTick = ev->msPerTick();
+        if (!(msPerTick > 0.0)) {
+            msPerTick = 1.0; // never divide by zero in tickOfMs
         }
+        anchor.msPerTick = msPerTick;
+        anchor.event = ev;
+        _tempoCache.push_back(anchor);
     }
 
-    if (!event) {
+    _tempoCacheValid = true;
+    _tempoCacheRevision = revision;
+    _tempoCacheEventCount = eventCount;
+}
+
+int MidiFile::tempoAnchorIndexForTick(int tick) {
+    ensureTempoCache();
+    if (_tempoCache.empty()) {
+        return -1;
+    }
+    auto it = std::upper_bound(_tempoCache.begin(), _tempoCache.end(), tick,
+                               [](int t, const TempoAnchor &a) { return t < a.tick; });
+    if (it == _tempoCache.begin()) {
         return 0;
     }
+    return (int) (it - _tempoCache.begin()) - 1;
+}
 
-    int startTick = (ms - time) / event->msPerTick() + event->midiTime();
-    return startTick;
+int MidiFile::tempoAnchorIndexForMs(double ms) {
+    ensureTempoCache();
+    if (_tempoCache.empty()) {
+        return -1;
+    }
+    auto it = std::upper_bound(_tempoCache.begin(), _tempoCache.end(), ms,
+                               [](double m, const TempoAnchor &a) { return m < a.msAtTick; });
+    if (it == _tempoCache.begin()) {
+        return 0;
+    }
+    return (int) (it - _tempoCache.begin()) - 1;
+}
+
+double MidiFile::msOfTickCached(int tick) {
+    const int i = tempoAnchorIndexForTick(tick);
+    if (i < 0) {
+        return 0.0;
+    }
+    const TempoAnchor &a = _tempoCache[(size_t) i];
+    return a.msAtTick + a.msPerTick * (tick - a.tick);
+}
+
+int MidiFile::tick(int ms) {
+    // O(log n) inverse of msOfTick(): msAtTick grows monotonically with the
+    // anchor index (msPerTick is always positive), so the same sorted vector
+    // is binary-searchable from either side.
+    const int i = tempoAnchorIndexForMs((double) ms);
+    if (i < 0) {
+        return 0;
+    }
+    const TempoAnchor &a = _tempoCache[(size_t) i];
+    return (int) ((ms - a.msAtTick) / a.msPerTick + a.tick);
 }
 
 int MidiFile::msOfTick(int tick, QList<MidiEvent *> *events, int
                        msOfFirstEventInList) {
     if (!events) {
-        // Fast path: walk the ordered tempo map directly. This runs per grid
-        // line, note and cursor on every paint, so it must stay allocation
-        // free - copying the map into a QList here made dense tempo maps
-        // (e.g. imported ramps) freeze the whole editor.
-        double timeMs = 0;
-        TempoChangeEvent *event = 0;
-        QMultiMap<int, MidiEvent *> *map = channels[17]->eventMap();
-        for (auto it = map->constBegin(); it != map->constEnd(); ++it) {
-            TempoChangeEvent *ev = dynamic_cast<TempoChangeEvent *>(it.value());
-            if (!ev) {
-                continue;
-            }
-            if (!event || ev->midiTime() <= tick) {
-                if (event) {
-                    timeMs += event->msPerTick() * (ev->midiTime() - event->midiTime());
-                }
-                event = ev;
-            } else {
-                break; // ordered map: everything further is past the tick
-            }
-        }
-        if (!event) {
-            return 0;
-        }
-        timeMs += event->msPerTick() * (tick - event->midiTime());
-        return (int) timeMs;
+        // Fast path: O(log n) lookup in the cached tempo map. This runs per
+        // grid line, note and cursor on every paint and once per event of the
+        // file on every Play press, so it must not walk the map - a file with
+        // a DAW-exported tempo ramp (>12k tempo events) froze the editor and
+        // needed ~10 s to start playback when this was a linear scan.
+        return (int) msOfTickCached(tick);
     }
 
     // timeMs holds the time of the current tick
@@ -637,92 +683,66 @@ int MidiFile::msOfTick(int tick, QList<MidiEvent *> *events, int
 
 int MidiFile::tick(int startms, int endms, QList<MidiEvent *> **eventList,
                    int *endTick, int *msOfFirstEvent) {
-    // holds the time of the current event
-    double time = 0;
-
     // delete old eventList, create a new
     if ((*eventList)) {
         delete (*eventList);
     }
     *eventList = new QList<MidiEvent *>;
 
-    // TempoChangeEvents
-    QList<MidiEvent *> events = channels[17]->eventMap()->values();
-
-    // event is the previous Event in events, ev the current
-    TempoChangeEvent *event = 0;
-
-    // necessary for the end condition
-    double timeMsNextEvent = 0;
-
-    // find the startEvent and the firstTick
-    int i = 0;
-    for (; i < events.length(); i++) {
-        TempoChangeEvent *ev = dynamic_cast<TempoChangeEvent *>(events.at(i));
-        if (!ev) {
-            qWarning("unknown eventtype in the List [1]");
-            continue;
-        }
-        event = ev;
-        time = timeMsNextEvent;
-
-        int ticks = 0;
-        if (i < events.length() - 1) {
-            ticks = events.at(i + 1)->midiTime() - ev->midiTime();
-        } else {
-            break;
-        }
-
-        timeMsNextEvent += ticks * ev->msPerTick();
-        if (timeMsNextEvent > startms) {
-            break;
-        }
-    }
+    // MatrixWidget asks this once per paint for the visible time window. It
+    // used to copy the whole tempo map into a QList and walk it from the top,
+    // which is why scrolling a dense tempo ramp crawled. The cached anchors
+    // give the start in O(log n); the walk that follows only covers the tempo
+    // events INSIDE the window, and the arithmetic is the same as before.
+    ensureTempoCache();
+    const int n = (int) _tempoCache.size();
     // Guard before the deref: if the tempo track (channel 17) carried no usable
-    // TempoChangeEvent, `event` is still null here. Normal files always have a
-    // tick-0 tempo so this isn't hit in practice, but the existing guard before
-    // *endTick (below) is too late to stop this deref (BUG-CORE-012).
-    if (!event) {
+    // TempoChangeEvent there is nothing to anchor on. Normal files always have
+    // a tick-0 tempo so this isn't hit in practice, but the guard before
+    // *endTick (below) used to be too late to stop the deref (BUG-CORE-012).
+    if (n == 0) {
         return 0;
     }
-    int startTick = (startms - time) / event->msPerTick() + event->midiTime();
-    *msOfFirstEvent = time;
-    (*eventList)->append(event);
 
+    int i = tempoAnchorIndexForMs((double) startms);
+    if (i < 0) {
+        return 0;
+    }
+
+    // holds the time of the current event, and the time of the one after it
+    double time = _tempoCache[(size_t) i].msAtTick;
+    double timeMsNextEvent = (i + 1 < n) ? _tempoCache[(size_t) (i + 1)].msAtTick : time;
+
+    const int startTick = (int) ((startms - time) / _tempoCache[(size_t) i].msPerTick
+                                 + _tempoCache[(size_t) i].tick);
+    *msOfFirstEvent = (int) time;
+    (*eventList)->append(_tempoCache[(size_t) i].event);
+
+    // index of the anchor the end tick is measured from
+    int last = i;
     i++;
 
-    // find the endEvent, save all events between start and end in the list and
-    // get the endTick
-    for (; i < events.length() && timeMsNextEvent < endms; i++) {
-        TempoChangeEvent *ev = dynamic_cast<TempoChangeEvent *>(events.at(i));
-        if (!ev) {
-            continue;
-        }
-        event = ev;
-        if (!(*eventList)->contains(event)) {
-            (*eventList)->append(event);
+    // collect the tempo events between start and end and get the endTick
+    for (; i < n && timeMsNextEvent < endms; i++) {
+        last = i;
+        MidiEvent *ev = _tempoCache[(size_t) i].event;
+        if (!(*eventList)->contains(ev)) {
+            (*eventList)->append(ev);
         }
 
         time = timeMsNextEvent;
 
-        int ticks = 0;
-        if (i < events.length() - 1) {
-            ticks = events.at(i + 1)->midiTime() - ev->midiTime();
-        } else {
+        if (i >= n - 1) {
             break;
         }
-
-        timeMsNextEvent += ticks * ev->msPerTick();
+        timeMsNextEvent = _tempoCache[(size_t) (i + 1)].msAtTick;
         if (timeMsNextEvent > endms) {
             break;
         }
     }
 
-    if (!event) {
-        return 0;
-    }
-
-    *endTick = (endms - time) / event->msPerTick() + event->midiTime();
+    *endTick = (int) ((endms - time) / _tempoCache[(size_t) last].msPerTick
+                      + _tempoCache[(size_t) last].tick);
     return startTick;
 }
 
@@ -1853,6 +1873,10 @@ ProtocolEntry *MidiFile::copy() {
 }
 
 void MidiFile::reloadState(ProtocolEntry *entry) {
+    // Phase 48: undo/redo restores channels wholesale, so nothing about the
+    // cached tempo map can be trusted afterwards. The cache is deliberately
+    // not part of copy() - snapshots stay cheap and we simply rebuild here.
+    invalidateTempoCache();
     MidiFile *file = dynamic_cast<MidiFile *>(entry);
     if (file) {
         midiTicks = file->midiTicks;

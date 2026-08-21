@@ -54,6 +54,7 @@
 #include <QtTest/QtTest>
 #include <QObject>
 #include <QColor>
+#include <QElapsedTimer>
 
 #include "../src/midi/MidiFile.h"
 #include "../src/midi/MidiChannel.h"
@@ -131,6 +132,165 @@ private:
     // exactly what a caller that bypasses MidiChannel would do.
     static void stripAllTimeSignatures(MidiFile *f) {
         f->channel(18)->eventMap()->clear();
+    }
+
+    // ====================================================================
+    // Phase 48 helpers: a REFERENCE implementation of the timing lookups.
+    //
+    // These are literal transcriptions of the linear walks MidiFile used
+    // before the tempo cache existed. They are kept here on purpose: the
+    // cache is only allowed to be faster, never different, and a reference
+    // that lives in the test cannot silently follow a change in production.
+    // ====================================================================
+
+    static QList<MidiEvent *> tempoMap(MidiFile *f) {
+        return f->channel(17)->eventMap()->values();
+    }
+
+    // Old MidiFile::msOfTick(tick) - anchor on the last tempo event at or
+    // before `tick`, or on the FIRST one when `tick` precedes it.
+    static double refMsOfTick(MidiFile *f, int tick) {
+        double timeMs = 0;
+        TempoChangeEvent *event = nullptr;
+        const QList<MidiEvent *> events = tempoMap(f);
+        for (MidiEvent *raw : events) {
+            TempoChangeEvent *ev = dynamic_cast<TempoChangeEvent *>(raw);
+            if (!ev) {
+                continue;
+            }
+            if (!event || ev->midiTime() <= tick) {
+                if (event) {
+                    timeMs += event->msPerTick() * (ev->midiTime() - event->midiTime());
+                }
+                event = ev;
+            } else {
+                break;
+            }
+        }
+        if (!event) {
+            return 0;
+        }
+        return timeMs + event->msPerTick() * (tick - event->midiTime());
+    }
+
+    // Old MidiFile::tick(ms).
+    static int refTickOfMs(MidiFile *f, int ms) {
+        double time = 0;
+        double timeMsNextEvent = 0;
+        TempoChangeEvent *event = nullptr;
+        const QList<MidiEvent *> events = tempoMap(f);
+        for (int i = 0; i < events.length(); ++i) {
+            TempoChangeEvent *ev = dynamic_cast<TempoChangeEvent *>(events.at(i));
+            if (!ev) {
+                continue;
+            }
+            event = ev;
+            time = timeMsNextEvent;
+            if (i >= events.length() - 1) {
+                break;
+            }
+            timeMsNextEvent += (events.at(i + 1)->midiTime() - ev->midiTime()) * ev->msPerTick();
+            if (timeMsNextEvent > ms) {
+                break;
+            }
+        }
+        if (!event) {
+            return 0;
+        }
+        return (int) ((ms - time) / event->msPerTick() + event->midiTime());
+    }
+
+    // Old MidiFile::tick(startms, endms, ...) - the overload MatrixWidget
+    // calls once per paint to get the visible window plus the tempo events
+    // inside it.
+    static int refTickRange(MidiFile *f, int startms, int endms,
+                            QList<MidiEvent *> *out, int *endTick, int *msOfFirstEvent) {
+        double time = 0;
+        double timeMsNextEvent = 0;
+        TempoChangeEvent *event = nullptr;
+        const QList<MidiEvent *> events = tempoMap(f);
+
+        int i = 0;
+        for (; i < events.length(); ++i) {
+            TempoChangeEvent *ev = dynamic_cast<TempoChangeEvent *>(events.at(i));
+            if (!ev) {
+                continue;
+            }
+            event = ev;
+            time = timeMsNextEvent;
+            if (i >= events.length() - 1) {
+                break;
+            }
+            timeMsNextEvent += (events.at(i + 1)->midiTime() - ev->midiTime()) * ev->msPerTick();
+            if (timeMsNextEvent > startms) {
+                break;
+            }
+        }
+        if (!event) {
+            return 0;
+        }
+        const int startTick =
+            (int) ((startms - time) / event->msPerTick() + event->midiTime());
+        *msOfFirstEvent = (int) time;
+        out->append(event);
+        ++i;
+
+        for (; i < events.length() && timeMsNextEvent < endms; ++i) {
+            TempoChangeEvent *ev = dynamic_cast<TempoChangeEvent *>(events.at(i));
+            if (!ev) {
+                continue;
+            }
+            event = ev;
+            if (!out->contains(event)) {
+                out->append(event);
+            }
+            time = timeMsNextEvent;
+            if (i >= events.length() - 1) {
+                break;
+            }
+            timeMsNextEvent += (events.at(i + 1)->midiTime() - ev->midiTime()) * ev->msPerTick();
+            if (timeMsNextEvent > endms) {
+                break;
+            }
+        }
+        *endTick = (int) ((endms - time) / event->msPerTick() + event->midiTime());
+        return startTick;
+    }
+
+    // Deterministic pseudo-random probes (no dependency on a seeded RNG's
+    // implementation, so the same ticks are checked on every platform).
+    static int nextProbe(quint32 &state, int modulo) {
+        state = state * 1103515245u + 12345u;
+        return int((state >> 8) % quint32(modulo));
+    }
+
+    // Makes room so inserting tempo events far out does not drag the
+    // file-length recompute into the middle of the build.
+    static void growFile(MidiFile *f, int endTick) {
+        f->protocol()->startNewAction("length");
+        f->setEndTick(endTick);
+        f->protocol()->endAction();
+    }
+
+    // A dense DAW-style tempo ramp: `count` tempo events every `step` ticks,
+    // each with a different BPM. Written with the documented bulk idiom - ONE
+    // channel snapshot, then toProtocol=false inserts - because a protocolled
+    // insert per event would clone the whole event map `count` times.
+    static QList<TempoChangeEvent *> buildTempoRamp(MidiFile *f, int count, int step) {
+        QList<TempoChangeEvent *> made;
+        MidiChannel *ch = f->channel(17);
+        f->protocol()->startNewAction("tempo ramp");
+        ProtocolEntry *snapshot = ch->copy();
+        for (int i = 1; i <= count; ++i) {
+            const int bpm = 60 + (i * 7) % 120;          // 60..179, never 0
+            TempoChangeEvent *ev =
+                new TempoChangeEvent(17, 60000000 / bpm, f->track(0));
+            ch->insertEvent(ev, i * step, false);
+            made.append(ev);
+        }
+        ch->protocol(snapshot, ch);
+        f->protocol()->endAction();
+        return made;
     }
 
     static QList<TimeSignatureEvent *> timeSigs(MidiFile *f) {
@@ -531,6 +691,307 @@ private slots:
         QVERIFY(ch->eventMap()->contains(bar / 2, acrossRange));
         QCOMPARE(acrossRange->offEvent()->midiTime(), bar + 240); // shifted by -bar
         QCOMPARE(int(ch->eventMap()->size()), 4);           // nothing was deleted
+    }
+
+    // ======================================================================
+    // Phase 48: the tempo-map cache
+    //
+    // msOfTick()/tick() used to walk the whole channel-17 map (with a
+    // dynamic_cast per entry) on every call - per note, per grid line, per
+    // cursor position on every paint, and once per event of the file on every
+    // Play press. On a file carrying a DAW-exported tempo ramp that is
+    // quadratic, and it showed: Play started after about ten seconds and
+    // scrolling crawled.
+    //
+    // The replacement is a sorted anchor vector with a binary search. Speed is
+    // the easy half; the dangerous half is invalidation, because a stale cache
+    // means notes drawn in the wrong place and playback at the wrong time -
+    // worse than slow. So every mutation FAMILY gets a case here, and every
+    // result is checked against the linear reference above rather than against
+    // a hard-coded number.
+    // ======================================================================
+
+    void cachedMsOfTickMatchesTheLinearReference() {
+        MidiFile f;
+        growFile(&f, 40000);
+        buildTempoRamp(&f, 400, 24);
+
+        quint32 state = 0x51ED0048u;
+        for (int i = 0; i < 500; ++i) {
+            const int tick = nextProbe(state, 12000);
+            const int cached = f.msOfTick(tick);
+            const int reference = (int) refMsOfTick(&f, tick);
+            QVERIFY2(qAbs(cached - reference) <= 1,
+                     qPrintable(QString("msOfTick(%1): cached %2 ms, linear %3 ms")
+                                    .arg(tick).arg(cached).arg(reference)));
+        }
+
+        // The anchors themselves, and the region before / after the ramp.
+        const int edges[] = {0, 1, 23, 24, 25, 9599, 9600, 9601, 40000};
+        for (int tick : edges) {
+            QVERIFY2(qAbs(f.msOfTick(tick) - (int) refMsOfTick(&f, tick)) <= 1,
+                     qPrintable(QString("msOfTick(%1) disagrees at an edge").arg(tick)));
+        }
+    }
+
+    void cachedTickOfMsMatchesTheLinearReference() {
+        MidiFile f;
+        growFile(&f, 40000);
+        buildTempoRamp(&f, 400, 24);
+
+        const int songMs = f.msOfTick(9600);
+        QVERIFY(songMs > 0);
+
+        quint32 state = 0x0048BEEFu;
+        for (int i = 0; i < 500; ++i) {
+            const int ms = nextProbe(state, songMs + 5000);
+            const int cached = f.tick(ms);
+            const int reference = refTickOfMs(&f, ms);
+            QVERIFY2(qAbs(cached - reference) <= 2,
+                     qPrintable(QString("tick(%1 ms): cached %2, linear %3")
+                                    .arg(ms).arg(cached).arg(reference)));
+        }
+    }
+
+    // Round-trip: a tick converted to ms and back lands on itself (within the
+    // integer truncation both directions do).
+    void msOfTickAndTickOfMsRoundTrip() {
+        MidiFile f;
+        growFile(&f, 40000);
+        buildTempoRamp(&f, 400, 24);
+
+        quint32 state = 0xC0FFEE48u;
+        for (int i = 0; i < 300; ++i) {
+            const int tick = nextProbe(state, 9600);
+            const int back = f.tick(f.msOfTick(tick));
+            QVERIFY2(qAbs(back - tick) <= 2,
+                     qPrintable(QString("round-trip of tick %1 came back as %2")
+                                    .arg(tick).arg(back)));
+        }
+    }
+
+    // The overload MatrixWidget calls per paint: same start tick, same end
+    // tick, same tempo events in the same order as the linear original.
+    void cachedRangeLookupMatchesTheLinearReference() {
+        MidiFile f;
+        growFile(&f, 40000);
+        buildTempoRamp(&f, 400, 24);
+
+        const int songMs = f.msOfTick(9600);
+        const int windows[][2] = {{0, 500}, {0, songMs}, {200, 1200},
+                                  {songMs / 2, songMs / 2 + 800},
+                                  {songMs - 100, songMs + 4000},
+                                  {songMs + 1000, songMs + 2000}};
+        for (const auto &w : windows) {
+            QList<MidiEvent *> *cachedList = nullptr;
+            int cachedEnd = -1, cachedFirstMs = -1;
+            const int cachedStart = f.tick(w[0], w[1], &cachedList, &cachedEnd, &cachedFirstMs);
+
+            QList<MidiEvent *> refList;
+            int refEnd = -1, refFirstMs = -1;
+            const int refStart = refTickRange(&f, w[0], w[1], &refList, &refEnd, &refFirstMs);
+
+            QVERIFY(cachedList);
+            const QString where = QString("window [%1,%2] ms").arg(w[0]).arg(w[1]);
+            QVERIFY2(qAbs(cachedStart - refStart) <= 2, qPrintable("startTick: " + where));
+            QVERIFY2(qAbs(cachedEnd - refEnd) <= 2, qPrintable("endTick: " + where));
+            QVERIFY2(qAbs(cachedFirstMs - refFirstMs) <= 1, qPrintable("msOfFirstEvent: " + where));
+            QVERIFY2(*cachedList == refList, qPrintable("tempo event list: " + where));
+            delete cachedList;
+        }
+    }
+
+    // --- invalidation: a BPM edit changes no map entry, only a value --------
+    void setBeatsInvalidatesTheCache() {
+        MidiFile f;
+        growFile(&f, 40000);
+        QList<TempoChangeEvent *> ramp = buildTempoRamp(&f, 200, 24);
+
+        const int probe = 4800;
+        const int before = f.msOfTick(probe);
+        QCOMPARE(before, (int) refMsOfTick(&f, probe));
+
+        f.protocol()->startNewAction("tempo");
+        ramp.at(0)->setBeats(30);          // drastically slower from tick 24 on
+        f.protocol()->endAction();
+
+        const int after = f.msOfTick(probe);
+        QVERIFY2(after != before, "setBeats() left a stale cached time behind");
+        QCOMPARE(after, (int) refMsOfTick(&f, probe));
+    }
+
+    // --- invalidation: removing and re-inserting tempo events ---------------
+    void removeAndInsertEventInvalidateTheCache() {
+        MidiFile f;
+        growFile(&f, 40000);
+        QList<TempoChangeEvent *> ramp = buildTempoRamp(&f, 200, 24);
+
+        const int probe = 4800;
+        const int withRamp = f.msOfTick(probe);
+        QCOMPARE(withRamp, (int) refMsOfTick(&f, probe));
+
+        // Strip the ramp down to its first event. Bulk idiom: ONE snapshot.
+        f.protocol()->startNewAction("thin");
+        MidiChannel *ch = f.channel(17);
+        ProtocolEntry *snapshot = ch->copy();
+        for (int i = 1; i < ramp.size(); ++i) {
+            QVERIFY(ch->removeEvent(ramp.at(i), false));
+        }
+        ch->protocol(snapshot, ch);
+        f.protocol()->endAction();
+
+        const int thinned = f.msOfTick(probe);
+        QVERIFY2(thinned != withRamp, "removeEvent() left a stale cached time behind");
+        QCOMPARE(thinned, (int) refMsOfTick(&f, probe));
+
+        // ... and an insert is seen just as immediately.
+        f.protocol()->startNewAction("insert tempo");
+        TempoChangeEvent *slow = new TempoChangeEvent(17, 60000000 / 30, f.track(0));
+        ch->insertEvent(slow, 480);
+        f.protocol()->endAction();
+
+        const int reinserted = f.msOfTick(probe);
+        QVERIFY2(reinserted != thinned, "insertEvent() left a stale cached time behind");
+        QCOMPARE(reinserted, (int) refMsOfTick(&f, probe));
+    }
+
+    // --- invalidation: moving a tempo event in time -------------------------
+    void movingATempoEventInvalidatesTheCache() {
+        MidiFile f;
+        growFile(&f, 40000);
+        QList<TempoChangeEvent *> ramp = buildTempoRamp(&f, 20, 240);
+
+        const int probe = 4800;
+        const int before = f.msOfTick(probe);
+        QCOMPARE(before, (int) refMsOfTick(&f, probe));
+
+        f.protocol()->startNewAction("move tempo");
+        ramp.at(0)->setMidiTime(3600, false);
+        f.protocol()->endAction();
+
+        // Same number of events, different timing - the size safety net alone
+        // could never have caught this.
+        QCOMPARE(f.msOfTick(probe), (int) refMsOfTick(&f, probe));
+        QVERIFY2(f.msOfTick(probe) != before,
+                 "setMidiTime() on a tempo event left a stale cached time behind");
+    }
+
+    // --- invalidation: undo/redo -------------------------------------------
+    void undoAndRedoOfATempoEditRevalidate() {
+        MidiFile f;
+        growFile(&f, 40000);
+        QList<TempoChangeEvent *> ramp = buildTempoRamp(&f, 200, 24);
+
+        const int probe = 4800;
+        const int original = f.msOfTick(probe);
+
+        f.protocol()->startNewAction("tempo");
+        ramp.at(0)->setBeats(30);
+        f.protocol()->endAction();
+        const int edited = f.msOfTick(probe);
+        QVERIFY(edited != original);
+
+        f.protocol()->undo(false);
+        QCOMPARE(f.msOfTick(probe), original);
+        QCOMPARE(f.msOfTick(probe), (int) refMsOfTick(&f, probe));
+
+        f.protocol()->redo(false);
+        QCOMPARE(f.msOfTick(probe), edited);
+        QCOMPARE(f.msOfTick(probe), (int) refMsOfTick(&f, probe));
+
+        // Undoing the whole ramp restores the file's single tick-0 tempo.
+        f.protocol()->undo(false);   // the edit
+        f.protocol()->undo(false);   // the ramp
+        QCOMPARE(int(f.channel(17)->eventMap()->size()), 1);
+        QCOMPARE(f.msOfTick(probe), (int) refMsOfTick(&f, probe));
+    }
+
+    // --- the safety net: a writer that bypasses MidiChannel entirely --------
+    // MainWindow has paths that erase straight out of eventMap(). Those never
+    // bump the revision counter, so the cache also compares the size of the
+    // tempo map with the size it was built from.
+    void aDirectMapWriteIsCaughtByTheSizeCheck() {
+        MidiFile f;
+        growFile(&f, 40000);
+        QList<TempoChangeEvent *> ramp = buildTempoRamp(&f, 200, 24);
+
+        const int probe = 4800;
+        const int before = f.msOfTick(probe);
+        QCOMPARE(before, (int) refMsOfTick(&f, probe));
+
+        QMultiMap<int, MidiEvent *> *map = f.channel(17)->eventMap();
+        for (int i = 1; i < ramp.size(); ++i) {
+            map->remove(ramp.at(i)->midiTime(), ramp.at(i));
+        }
+
+        const int after = f.msOfTick(probe);
+        QVERIFY2(after != before, "a direct eventMap() write was not noticed");
+        QCOMPARE(after, (int) refMsOfTick(&f, probe));
+    }
+
+    // --- the reason all of the above exists ---------------------------------
+    // A synthetic stand-in for the file that triggered this phase: ~12k tempo
+    // events (a ramp every 24 ticks) next to ~5k notes. preparePlayerData()
+    // asks msOfTick() once per event of the file, so with a linear msOfTick()
+    // this is ~200 million dynamic_casts - about ten seconds before playback
+    // starts. The budget below is deliberately generous (CI machines are slow
+    // and shared); the point is that the old path missed it by two orders of
+    // magnitude, so it can neither flake nor quietly stop testing anything.
+    void densTempoMapKeepsPlaybackPrepAndTimingQueriesFast() {
+        MidiFile f;
+        growFile(&f, 320000);
+
+        QElapsedTimer build;
+        build.start();
+        buildTempoRamp(&f, 12000, 24);
+        QCOMPARE(int(f.channel(17)->eventMap()->size()), 12001);
+
+        // No channel snapshot needed: this case never undoes anything, and
+        // 5000 protocolled inserts would clone the event map 5000 times.
+        MidiChannel *ch = f.channel(0);
+        for (int i = 0; i < 5000; ++i) {
+            ch->insertNote(36 + (i % 60), i * 57, i * 57 + 40, 100, f.track(1), false);
+        }
+        const qint64 buildMs = build.elapsed();
+
+        QElapsedTimer t;
+        t.start();
+        f.preparePlayerData(0);
+        const qint64 prepMs = t.elapsed();
+        QVERIFY(f.playerData()->size() > 0);
+
+        const int kSweep = 50000;
+        t.restart();
+        qint64 checksum = 0;
+        for (int i = 0; i < kSweep; ++i) {
+            checksum += f.msOfTick((i * 1439) % 288000);
+        }
+        const qint64 sweepMs = t.elapsed();
+
+        t.restart();
+        for (int i = 0; i < kSweep; ++i) {
+            checksum += f.tick((i * 1439) % 600000);
+        }
+        const qint64 inverseMs = t.elapsed();
+
+        qInfo().noquote()
+            << QString("[tempo] 12k tempo events + 5k notes: build %1 ms, "
+                       "preparePlayerData %2 ms, %3 x msOfTick %4 ms, "
+                       "%3 x tickOfMs %5 ms (checksum %6)")
+                   .arg(buildMs).arg(prepMs).arg(kSweep)
+                   .arg(sweepMs).arg(inverseMs).arg(checksum);
+
+        // Measured on the reference machine: one OLD linear msOfTick() on this
+        // map costs ~135 us, so the old code needed ~3 s for the playback prep
+        // alone and ~7 s per sweep - about 17 s in total against this budget.
+        // The cached path comes in around 10 ms, i.e. two orders of magnitude
+        // of headroom in both directions: it cannot flake on a slow shared CI
+        // box, and it cannot silently stop testing anything either.
+        QVERIFY2(prepMs + sweepMs + inverseMs < 2000,
+                 qPrintable(QString("dense tempo map is slow again: "
+                                    "preparePlayerData %1 ms + %2 x msOfTick %3 ms "
+                                    "+ %2 x tickOfMs %4 ms")
+                                .arg(prepMs).arg(kSweep).arg(sweepMs).arg(inverseMs)));
     }
 };
 

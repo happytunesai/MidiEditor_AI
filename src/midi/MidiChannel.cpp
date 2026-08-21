@@ -89,6 +89,14 @@ void MidiChannel::reloadState(ProtocolEntry *entry) {
     _events = other->_events;
     _num = other->_num;
 
+    // Phase 48: undo/redo swaps the whole event map in. If either side of the
+    // swap is the tempo channel, MidiFile's tempo cache no longer describes
+    // this map - and the swap can restore a map of the SAME size, so the size
+    // safety net alone would not catch it.
+    if (_num == 17 || other->_num == 17) {
+        bumpTempoRevision();
+    }
+
     // The tempo channel decides the file's total length in ms. Undo/redo of a
     // channel-level tempo action restores only THIS snapshot - without the
     // recompute the timeline keeps the stale length until the file is
@@ -203,6 +211,12 @@ bool MidiChannel::removeEvent(MidiEvent *event, bool toProtocol) {
     if (on && on->offEvent()) {
         _events->remove(on->offEvent()->midiTime(), on->offEvent());
     }
+    // Phase 48: every removal from the tempo map invalidates MidiFile's tempo
+    // cache. Sits here, below the protocol branch, so the bulk paths that pass
+    // toProtocol=false are covered too.
+    if (_num == 17) {
+        bumpTempoRevision();
+    }
     if (toProtocol) {
         protocol(toCopy, this);
     }
@@ -221,6 +235,13 @@ void MidiChannel::insertEvent(MidiEvent *event, int tick, bool toProtocol) {
     event->setFile(file());
     event->setMidiTime(tick, false);
 
+    // Phase 48: MidiEvent::setMidiTime() already bumps for an event whose own
+    // channel number is 17; this catches the case where the event carries a
+    // different channel number but lands in the tempo channel's map.
+    if (_num == 17) {
+        bumpTempoRevision();
+    }
+
     if (toProtocol) {
         protocol(toCopy, this);
     }
@@ -229,6 +250,9 @@ void MidiChannel::insertEvent(MidiEvent *event, int tick, bool toProtocol) {
 void MidiChannel::deleteAllEvents() {
     ProtocolEntry *toCopy = copy();
     _events->clear();
+    if (_num == 17) {
+        bumpTempoRevision();
+    }
     protocol(toCopy, this);
 }
 

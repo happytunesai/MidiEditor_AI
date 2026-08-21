@@ -468,7 +468,18 @@ void MidiEvent::setMidiTime(int t, bool toProtocol) {
         toCopy = copy();
     }
 
+    // Phase 48: this is the single place where an event actually moves inside
+    // a channel's event map, so a tempo event moving in time is invalidated
+    // here. The map is mutated twice (remove, then insert) and the length
+    // recompute in between queries MidiFile::msOfTick(), so both mutations get
+    // their own bump - a single bump before the msOfTick() call would let that
+    // call re-validate the cache against a half-updated map.
+    const bool onTempoChannel = (numChannel == 17);
+
     file()->channelEvents(numChannel)->remove(timePos, this);
+    if (onTempoChannel) {
+        MidiChannel::bumpTempoRevision();
+    }
     timePos = t;
     if (timePos > file()->endTick()) {
         file()->setMaxLengthMs(file()->msOfTick(timePos) + 100);
@@ -478,6 +489,9 @@ void MidiEvent::setMidiTime(int t, bool toProtocol) {
     }
 
     file()->channelEvents(numChannel)->insert(timePos, this);
+    if (onTempoChannel) {
+        MidiChannel::bumpTempoRevision();
+    }
 }
 
 int MidiEvent::midiTime() {
