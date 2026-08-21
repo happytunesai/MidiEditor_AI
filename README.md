@@ -112,7 +112,7 @@ MidiEditor AI
 │   ├── AiClient         → OpenAI-compatible API client (SSE streaming)
 │   ├── ConversationStore → Persistent history (JSON save/load/resume)
 │   ├── EditorContext     → Musical context extraction for AI
-│   ├── ToolDefinitions   → 27 MIDI manipulation tools (22 core + 5 FFXIV)
+│   ├── ToolDefinitions   → 27 MIDI manipulation tools (23 core + 5 FFXIV)
 │   └── SystemPrompts     → Customizable per-mode AI instructions
 ├── Collaboration        → Live multi-peer co-editing + async PR workflow
 │   ├── LanLiveSession    → LAN host/joiner state machine + heartbeat + ghost-peer dedup
@@ -466,7 +466,7 @@ MidiEditor AI checks for new versions on GitHub at every startup. When an update
 
 ## 🛠️ MidiPilot Tools
 
-The AI has access to **22 core tools**, plus **5 more when FFXIV mode is on** (27 total), for inspecting and modifying MIDI files:
+The AI has access to **23 core tools**, plus **5 more when FFXIV mode is on** (27 total), for inspecting and modifying MIDI files:
 
 | Tool | Description |
 |------|-------------|
@@ -503,7 +503,7 @@ MidiEditor AI includes a built-in **MCP server** that exposes all MidiPilot tool
 
 1. Enable the MCP server in **Settings → MidiPilot AI → MCP Server**
 2. Copy the MCP config JSON to your AI client's configuration
-3. The client discovers the tools automatically and can compose, edit, and analyze MIDI - 24 by default (the 22 core tools plus `list_documents` / `switch_document` for driving the open tabs), 29 with FFXIV mode on
+3. The client discovers the tools automatically and can compose, edit, and analyze MIDI - 24 by default (the 23 core tools plus `list_documents` / `switch_document` for driving the open tabs), 29 with FFXIV mode on
 
 ### Quick Setup
 
