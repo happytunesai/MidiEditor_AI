@@ -5,6 +5,32 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 
 ---
 
+## [2.3.0] - Unreleased
+
+> In progress on the feature/v2.3 branch (Phases 48-50: tempo-map cache, Thin
+> Tempo Map, provider profiles). On release day: set the real date and a title,
+> write the Summary from the shipped content per the entry template, then run
+> scripts/build_changelog.py - the website generator skips entries whose date
+> starts with "Unreleased".
+
+### Summary
+(written at release - bold statement + one sentence per headline, IDs in parentheses)
+
+<details>
+<summary>Full Changelog - (title at release)</summary>
+
+### New Features
+
+### Changed
+
+### Bug Fixes
+
+### Files Modified
+
+</details>
+
+---
+
 ## [2.2.0] - 2026-08-17 - FFXIV Playability, Portable Mode, Manual Bot
 
 ### Summary
