@@ -50,6 +50,22 @@ private:
     }
 
 private slots:
+
+    // O1 (v2.3 provider profiles): a keyless CUSTOM endpoint on this machine
+    // must count as configured - locality is its auth. Cloud custom still
+    // requires a key.
+    void keylessLocalCustomEndpointIsConfigured() {
+        AiClient client;
+        client.setProvider(QStringLiteral("custom"));
+        client.setApiKey(QString());
+        client.setApiBaseUrl(QStringLiteral("http://localhost:8080/v1"));
+        QVERIFY(client.isConfigured());
+        client.setApiBaseUrl(QStringLiteral("http://127.0.0.1:1234/v1"));
+        QVERIFY(client.isConfigured());
+        client.setApiBaseUrl(QStringLiteral("https://router.example/v1"));
+        QVERIFY(!client.isConfigured());
+    }
+
     void initTestCase()
     {
         // FIRST statement, before any AiClient exists: AiClient captures

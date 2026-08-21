@@ -196,7 +196,21 @@ bool AiClient::isConfigured() const
 
 bool AiClient::providerRequiresKey() const
 {
-    return _provider != QStringLiteral("ollama");
+    if (_provider == QStringLiteral("ollama"))
+        return false;
+    // A custom endpoint on this machine (llama.cpp, LM Studio, a keyless
+    // provider profile) authenticates by locality, not by key - treating it
+    // like a cloud provider would flip MidiPilot to "Not configured" the
+    // moment such a profile is applied.
+    if (_provider == QStringLiteral("custom")) {
+        const QString host = QUrl(apiBaseUrl()).host().toLower();
+        if (host == QStringLiteral("localhost")
+            || host.startsWith(QStringLiteral("127."))
+            || host == QStringLiteral("::1")) {
+            return false;
+        }
+    }
+    return true;
 }
 
 void AiClient::applyAuthHeader(QNetworkRequest &request) const

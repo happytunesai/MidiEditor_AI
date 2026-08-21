@@ -120,7 +120,7 @@ Configure your AI connection from <b>Settings &rarr; MidiPilot AI</b>. Select a 
 <table>
 <tr><th>Setting</th><th>Description</th></tr>
 <tr><td><b>Provider profile</b></td><td>Fills provider, base URL, API key and model from a <a href="#provider-profiles">saved endpoint</a>. <b>Save as&hellip;</b> stores the current four fields under a name, <b>Delete</b> removes the selected profile.</td></tr>
-<tr><td><b>Provider</b></td><td>OpenAI, OpenRouter, Google Gemini, Ollama (local), or Custom</td></tr>
+<tr><td><b>Provider</b></td><td>OpenAI, OpenRouter, Google Gemini, Ollama (local), or Custom - and below a separator, every saved <a href="#provider-profiles">custom provider profile</a> as its own entry</td></tr>
 <tr><td><b>Base URL</b></td><td>Auto-filled per provider, or enter your own endpoint</td></tr>
 <tr><td><b>API Key</b></td><td>Your provider API key - get one from <a href="https://platform.openai.com/settings/organization/api-keys" target="_blank" rel="noopener noreferrer">OpenAI</a>, <a href="https://openrouter.ai/settings/keys" target="_blank" rel="noopener noreferrer">OpenRouter</a>, or <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Google Gemini</a>. Not needed for <a href="#ollama">Ollama (local)</a>.</td></tr>
 <tr><td><b>Model</b></td><td>Editable dropdown populated from the active provider's cached model list. If no cache exists, MidiPilot falls back to a small built-in starter list.</td></tr>
@@ -197,6 +197,13 @@ set of fields.
 <tr><td><b>MidiPilot footer</b></td><td>The profile picker left of the provider dropdown switches the whole connection in one step and reports the applied profile in the status line. <b>Save connection as provider profile&hellip;</b> in the &#x2699; gear menu stores the current connection without opening the settings dialog.</td></tr>
 <tr><td><b>Per-file preset</b></td><td>A <a href="#presets">per-file AI preset</a> also records the <i>name</i> of the active profile - never a URL or a key. Opening that file on a machine that has a profile of the same name reconnects to the right endpoint; on any other machine the preset falls back to its stored provider and model.</td></tr>
 </table>
+
+<p>
+Saved <b>Custom</b> profiles also appear in the <b>Provider</b> dropdown itself - in the settings
+page and in the footer - listed below a separator after the built-in providers, so switching to a
+saved endpoint is the same gesture as switching provider. Picking one there does exactly what the
+profile picker does, and the two stay in step.
+</p>
 
 <p>
 Both pickers show a profile name only while the connection still matches it. Change the provider,

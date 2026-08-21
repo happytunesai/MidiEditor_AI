@@ -65,12 +65,42 @@ private:
      *  Custom provider this is the active profile's scope, so every custom
      *  endpoint keeps its own model list. */
     QString modelScopeFor(const QString &provider) const;
-    /** Refill the provider-profile combo; selects \a selectName when given. */
+    /** Refill the provider-profile combo AND the provider combo's profile
+     *  entries; selects \a selectName when given. */
     void populateProviderProfiles(const QString &selectName = QString());
     /** Show the profile whose stored settings the visible fields still match,
      *  else "(No profile)". Derived on every field change, so an edit after
      *  applying a profile honestly falls back to ad-hoc. */
     void updateProviderProfileSelection();
+
+    // --- Phase 50 follow-up: stored CUSTOM profiles as first-class entries in
+    // the Provider dropdown, so switching to a saved endpoint feels like
+    // switching provider. A profile entry is NOT a new provider id: it carries
+    // the provider id ("custom") in Qt::UserRole exactly like the five fixed
+    // entries - every existing currentData() reader keeps working - and the
+    // profile NAME in a second role that is translated at this boundary only.
+
+    /** Rebuild the provider combo's profile entries below the fixed five. */
+    void populateProviderComboProfiles();
+    /** Profile name carried by the current provider-combo entry; empty for the
+     *  five fixed providers (and for the separator). */
+    QString currentProviderComboProfile() const;
+    /** Select the entry for \a profileName, falling back to the fixed entry of
+     *  \a provider. Signal-blocked: selects, never applies. */
+    void selectProviderComboEntry(const QString &provider,
+                                  const QString &profileName);
+    /** Point the provider combo at the entry the VISIBLE fields describe: the
+     *  stored custom profile matching provider+URL+key, else the plain
+     *  provider. Endpoint-based on purpose - picking another model keeps the
+     *  endpoint, only the profile combo falls back to "(No profile)". */
+    void updateProviderComboSelection();
+    /** The provider-switch body (key memory, default URL, model list), with the
+     *  provider passed explicitly so the profile path can run the exact same
+     *  steps without a nested currentIndexChanged. */
+    void applyProviderSwitch(const QString &provider);
+    /** Pour a stored profile into the visible fields - the single code path
+     *  behind the profile combo and the provider combo's profile entries. */
+    void applyProviderProfileToFields(const QString &name);
 
     QSettings *_settings;
     QComboBox *_providerProfileCombo = nullptr;
@@ -79,11 +109,14 @@ private:
     /// True while a profile is being poured into the fields (suppresses the
     /// field-change handler that would otherwise flip the combo to ad-hoc).
     bool _applyingProviderProfile = false;
-    QComboBox *_providerCombo;
-    QLineEdit *_baseUrlEdit;
+    // Null-initialised because the provider-switch / profile-sync helpers run
+    // from inside the constructor, before all of these exist, and guard on the
+    // pointer being null.
+    QComboBox *_providerCombo = nullptr;
+    QLineEdit *_baseUrlEdit = nullptr;
     QLabel *_apiKeyLabel;
-    QLineEdit *_apiKeyEdit;
-    QComboBox *_modelCombo;
+    QLineEdit *_apiKeyEdit = nullptr;
+    QComboBox *_modelCombo = nullptr;
     QPushButton *_refreshModelsButton;
     QPushButton *_forceStreamingButton = nullptr;
     QLabel *_modelsStatusLabel;
@@ -94,7 +127,9 @@ private:
     QLabel *_effortLabel;
     QCheckBox *_streamingCheck;
     QPushButton *_testButton;
-    QLabel *_statusLabel;
+    /// Built late in the constructor - the provider-switch path runs before
+    /// that and clears it, so the null guard must actually hold.
+    QLabel *_statusLabel = nullptr;
     QPushButton *_toggleKeyButton;
     QSpinBox *_contextMeasuresSpin;
     QLabel *_contextEstimateLabel;

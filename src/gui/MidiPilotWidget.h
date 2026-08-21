@@ -238,12 +238,33 @@ private:
     void setupUi();
     void setupSetupPrompt();
     void populateFooterModels();
-    /** Phase 50: refill the footer's provider-profile picker from the store. */
+    /** Phase 50: refill the footer's provider-profile picker AND the provider
+     *  combo's profile entries from the store. */
     void populateProviderProfiles();
     /** Phase 50: show the profile the live settings still match, else
      *  "(No profile)". Derived state - a manual provider/model switch falls
      *  back on its own, nothing has to track edits. */
     void refreshProviderProfileSelection();
+
+    // --- Phase 50 follow-up: stored CUSTOM profiles as first-class entries in
+    // the footer's Provider dropdown, so switching to a saved endpoint feels
+    // like switching provider. A profile entry is NOT a new provider id: it
+    // carries the provider id ("custom") in Qt::UserRole exactly like the five
+    // fixed entries - every existing currentData() reader keeps working - and
+    // the profile NAME in a second role, translated at this boundary only.
+
+    /** Rebuild the provider combo's profile entries below the fixed five. */
+    void populateProviderComboProfiles();
+    /** Profile name carried by the current provider-combo entry; empty for the
+     *  five fixed providers (and for the separator). */
+    QString currentProviderComboProfile() const;
+    /** Point the provider combo at the entry the LIVE connection describes: the
+     *  stored custom profile matching provider+URL+key, else the plain
+     *  provider. Signal-blocked - it selects, it never applies. */
+    void syncProviderComboSelection();
+    /** Apply a stored profile and re-sync the footer - the single code path
+     *  behind the profile picker and the provider combo's profile entries. */
+    void applyProviderProfileByName(const QString &name);
     // Select a model id in the (read-only) footer combo, adding it as an item
     // first if it isn't in the list (e.g. a custom or per-file model). Also
     // refreshes the tooltip so the full name is reachable when the label elides.
@@ -371,8 +392,11 @@ private:
     int _dotPhase;
     int _msgPhase;
     QComboBox *_providerProfileCombo = nullptr;
-    QComboBox *_providerCombo;
-    QComboBox *_modelCombo;
+    /// Null-initialised: populateProviderProfiles() refills the profile entries
+    /// of this combo too and already runs once while the footer is still being
+    /// built, i.e. before this exists. The helpers guard on null.
+    QComboBox *_providerCombo = nullptr;
+    QComboBox *_modelCombo = nullptr;
     QPushButton *_refreshModelsButton = nullptr;
     QComboBox *_effortCombo;
     QCheckBox *_ffxivCheck;

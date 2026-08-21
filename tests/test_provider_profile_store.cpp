@@ -508,6 +508,142 @@ private slots:
                     QStringLiteral("a/model"), QStringLiteral("hf-token"))
                     .isEmpty());
     }
+
+    // --- 7. what the provider DROPDOWNS rely on ---------------------------
+    //
+    // Both wiring sites (MidiPilotWidget footer, AiSettingsWidget page) list
+    // stored CUSTOM profiles as first-class entries in the provider combo. The
+    // rules below are the store-level half of that contract; the widgets only
+    // add item data and blockSignals on top.
+
+    void onlyCustomProfilesBecomeProviderComboEntries() {
+        QVERIFY(ProviderProfileStore::save(
+            makeProfile(QStringLiteral("HF"), QStringLiteral("custom"),
+                        QStringLiteral("https://router.example/v1"),
+                        QStringLiteral("a/model")),
+            QStringLiteral("hf-token")));
+        QVERIFY(ProviderProfileStore::save(
+            makeProfile(QStringLiteral("Work"), QStringLiteral("openai"),
+                        QStringLiteral("https://api.openai.com/v1"),
+                        QStringLiteral("gpt-4o")),
+            QStringLiteral("openai-key")));
+
+        // The combos filter on the stored provider: a built-in provider's
+        // profile would be a second "OpenAI" line for the same endpoint.
+        QStringList entries;
+        for (const QString &n : ProviderProfileStore::profileNames()) {
+            bool ok = false;
+            const Profile p = ProviderProfileStore::load(n, &ok);
+            if (ok && p.provider == QStringLiteral("custom"))
+                entries.append(p.name);
+        }
+        QCOMPARE(entries, (QStringList{QStringLiteral("HF")}));
+    }
+
+    void aProfileEntryResolvesToTheCustomProviderNeverToItsName() {
+        // The combo item carries the NAME, but everything downstream must see
+        // provider "custom" - a display name in AI/provider would reach the
+        // client and the request builder.
+        QVERIFY(ProviderProfileStore::save(
+            makeProfile(QStringLiteral("HF"), QStringLiteral("custom"),
+                        QStringLiteral("https://router.example/v1"),
+                        QStringLiteral("a/model")),
+            QStringLiteral("hf-token")));
+        QVERIFY(ProviderProfileStore::apply(QStringLiteral("HF")));
+
+        auto s = AppPaths::settings();
+        QCOMPARE(s->value(QStringLiteral("AI/provider")).toString(),
+                 QStringLiteral("custom"));
+        QCOMPARE(s->value(QStringLiteral("AI/api_base_url")).toString(),
+                 QStringLiteral("https://router.example/v1"));
+        QCOMPARE(s->value(QStringLiteral("AI/model")).toString(),
+                 QStringLiteral("a/model"));
+    }
+
+    void theProviderComboKeepsTheProfileAfterAModelChange() {
+        // Display rule: the provider combo is ENDPOINT-based, so picking
+        // another model keeps showing "HF" while the profile picker next to it
+        // honestly falls back to "(No profile)".
+        QVERIFY(ProviderProfileStore::save(
+            makeProfile(QStringLiteral("HF"), QStringLiteral("custom"),
+                        QStringLiteral("https://router.example/v1"),
+                        QStringLiteral("a/model")),
+            QStringLiteral("hf-token")));
+        QVERIFY(ProviderProfileStore::apply(QStringLiteral("HF")));
+
+        auto s = AppPaths::settings();
+        s->setValue(QStringLiteral("AI/model"), QStringLiteral("another/model"));
+
+        QVERIFY(ProviderProfileStore::activeProfileName().isEmpty());
+        QCOMPARE(ProviderProfileStore::nameMatchingEndpoint(
+                     s->value(QStringLiteral("AI/provider")).toString(),
+                     s->value(QStringLiteral("AI/api_base_url")).toString(),
+                     s->value(QStringLiteral("AI/api_key")).toString()),
+                 QStringLiteral("HF"));
+
+        // A different endpoint is a different entry - not "HF" with a caveat.
+        QVERIFY(ProviderProfileStore::nameMatchingEndpoint(
+                    QStringLiteral("custom"),
+                    QStringLiteral("https://elsewhere.example/v1"),
+                    QStringLiteral("hf-token")).isEmpty());
+    }
+
+    void savingTheLiveEndpointAsAProfileMakesItTheActiveOne() {
+        // "Save as..." must mark the new profile active, so the scoped
+        // favourites and model list take effect without re-applying it. Two
+        // profiles describing the SAME endpoint make the difference visible:
+        // without the hint the alphabetically first one would win.
+        auto s = AppPaths::settings();
+        s->setValue(QStringLiteral("AI/provider"), QStringLiteral("custom"));
+        s->setValue(QStringLiteral("AI/api_base_url"),
+                    QStringLiteral("https://router.example/v1"));
+        s->setValue(QStringLiteral("AI/api_key"), QStringLiteral("hf-token"));
+        s->setValue(QStringLiteral("AI/model"), QStringLiteral("a/model"));
+
+        // Ad-hoc so far: no profile, shared "custom" scope.
+        QVERIFY(ProviderProfileStore::activeProfileName().isEmpty());
+        QCOMPARE(ProviderProfileStore::activeModelScopeId(),
+                 QStringLiteral("custom"));
+
+        QVERIFY(ProviderProfileStore::save(
+            makeProfile(QStringLiteral("AAA earlier"), QStringLiteral("custom"),
+                        QStringLiteral("https://router.example/v1"),
+                        QStringLiteral("a/model")),
+            QStringLiteral("hf-token")));
+        QVERIFY(ProviderProfileStore::save(
+            makeProfile(QStringLiteral("ZZZ just saved"), QStringLiteral("custom"),
+                        QStringLiteral("https://router.example/v1"),
+                        QStringLiteral("a/model")),
+            QStringLiteral("hf-token")));
+        ProviderProfileStore::setActiveProfileHint(QStringLiteral("ZZZ just saved"));
+
+        QCOMPARE(ProviderProfileStore::activeProfileName(),
+                 QStringLiteral("ZZZ just saved"));
+        QCOMPARE(ProviderProfileStore::activeModelScopeId(),
+                 QStringLiteral("custom:profile:ZZZ just saved"));
+    }
+
+    void deletingTheActiveProfileFallsBackToTheAdHocScope() {
+        // The mirror image: the endpoint keeps working, it just stops being a
+        // named one, so its model list and favourites return to "custom".
+        QVERIFY(ProviderProfileStore::save(
+            makeProfile(QStringLiteral("HF"), QStringLiteral("custom"),
+                        QStringLiteral("https://router.example/v1"),
+                        QStringLiteral("a/model")),
+            QStringLiteral("hf-token")));
+        QVERIFY(ProviderProfileStore::apply(QStringLiteral("HF")));
+        QCOMPARE(ProviderProfileStore::activeModelScopeId(),
+                 QStringLiteral("custom:profile:HF"));
+
+        QVERIFY(ProviderProfileStore::remove(QStringLiteral("HF")));
+
+        auto s = AppPaths::settings();
+        QCOMPARE(s->value(QStringLiteral("AI/api_base_url")).toString(),
+                 QStringLiteral("https://router.example/v1"));
+        QVERIFY(ProviderProfileStore::activeProfileName().isEmpty());
+        QCOMPARE(ProviderProfileStore::activeModelScopeId(),
+                 QStringLiteral("custom"));
+    }
 };
 
 QTEST_APPLESS_MAIN(TestProviderProfileStore)
