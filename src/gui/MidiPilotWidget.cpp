@@ -51,6 +51,7 @@
 #include "../ai/ModelListCache.h"
 #include "../ai/ModelListFetcher.h"
 #include "../ai/PromptProfileStore.h"
+#include "../ai/ProviderProfileStore.h"
 #include "PromptProfilesDialog.h"
 #include "../tool/Selection.h"
 #include "../tool/NewNoteTool.h"
@@ -758,6 +759,25 @@ void MidiPilotWidget::setupUi() {
 
     footerLayout->addStretch();
 
+    // Phase 50: provider profiles - saved endpoints (provider + base URL +
+    // key + model) switchable in one click. Sits left of the provider combo
+    // because it OVERWRITES that combo when used. Prompt Profiles (gear menu)
+    // are a different thing entirely: they bind system prompts to models.
+    _providerProfileCombo = new QComboBox(this);
+    _providerProfileCombo->setFixedHeight(20);
+    _providerProfileCombo->setStyleSheet("font-size: 11px;");
+    _providerProfileCombo->setSizeAdjustPolicy(
+        QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    _providerProfileCombo->setMinimumContentsLength(8);
+    _providerProfileCombo->setToolTip(
+        tr("Provider profile: a saved endpoint (provider, base URL, API key and model).\n"
+           "Pick one to switch the connection in a single step. Create and edit them\n"
+           "in MidiPilot Settings. Not the same as Prompt Profiles."));
+    populateProviderProfiles();
+    connect(_providerProfileCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &MidiPilotWidget::onProviderProfileComboChanged);
+    footerLayout->addWidget(_providerProfileCombo);
+
     _providerCombo = new QComboBox(this);
     _providerCombo->addItem("OpenAI", "openai");
     _providerCombo->addItem("OpenRouter", "openrouter");
@@ -825,6 +845,45 @@ void MidiPilotWidget::setupUi() {
         PromptProfilesDialog dlg(_profileStore, this);
         dlg.exec();
     });
+    // Phase 50: the counterpart of the footer's provider-profile picker -
+    // store the CONNECTION (provider, base URL, key, model) under a name
+    // without opening the settings dialog. Different thing from the entry
+    // above, hence the explicit wording.
+    settingsMenu->addAction(tr("Save connection as provider profile\u2026"), this, [this]() {
+        const QString suggestion = ProviderProfileStore::activeProfileName().isEmpty()
+                                       ? _client->provider()
+                                       : ProviderProfileStore::activeProfileName();
+        bool ok = false;
+        QString name = QInputDialog::getText(
+            this, tr("Save provider profile"),
+            tr("Name for this endpoint (provider, base URL, API key and model):"),
+            QLineEdit::Normal, suggestion, &ok);
+        if (!ok)
+            return;
+        name = ProviderProfileStore::normalizeName(name);
+        if (name.isEmpty())
+            return;
+        if (ProviderProfileStore::exists(name)
+            && QMessageBox::question(
+                   this, tr("Save provider profile"),
+                   tr("A provider profile named \"%1\" already exists. Overwrite it?").arg(name))
+                   != QMessageBox::Yes) {
+            return;
+        }
+        ProviderProfileStore::Profile p;
+        p.name = name;
+        p.provider = _client->provider();
+        p.baseUrl = _client->apiBaseUrl();
+        p.model = _client->model();
+        if (!ProviderProfileStore::save(
+                p, AppPaths::settings()->value(QStringLiteral("AI/api_key")).toString())) {
+            setStatus(tr("Could not store the provider profile."), "red");
+            return;
+        }
+        ProviderProfileStore::setActiveProfileHint(name);
+        populateProviderProfiles();
+        setStatus(tr("Provider profile saved: %1").arg(name), "green");
+    });
     settingsMenu->addSeparator();
     // TOOLS-INCAPABLE-EXPIRY: manual escape hatch from the Agent-mode
     // pre-flight refusal in sendCurrentPrompt(). The flag also expires on its
@@ -891,6 +950,10 @@ void MidiPilotWidget::setupSetupPrompt() {
     } else {
         setStatus("Not configured", "orange");
     }
+
+    // Phase 50: profiles may have been created, edited or deleted in the
+    // settings dialog that just closed - refill and re-derive the picker.
+    populateProviderProfiles();
 }
 
 void MidiPilotWidget::populateFooterModels() {
@@ -2063,6 +2126,8 @@ void MidiPilotWidget::onModelComboChanged(int index) {
     }
     // Keep the tooltip in sync so the full label is reachable when it elides.
     _modelCombo->setToolTip(_modelCombo->currentText());
+    // Phase 50: a hand-picked model may leave the active provider profile.
+    refreshProviderProfileSelection();
 }
 
 void MidiPilotWidget::selectFooterModel(const QString &modelId) {
@@ -2136,6 +2201,63 @@ void MidiPilotWidget::onProviderComboChanged(int index) {
 
     // Update setup prompt (checks if API key is present)
     setupSetupPrompt();
+}
+
+void MidiPilotWidget::populateProviderProfiles() {
+    if (!_providerProfileCombo)
+        return;
+    const bool blocked = _providerProfileCombo->blockSignals(true);
+    _providerProfileCombo->clear();
+    _providerProfileCombo->addItem(tr("(No profile)"), QString());
+    const QStringList names = ProviderProfileStore::profileNames();
+    for (const QString &n : names)
+        _providerProfileCombo->addItem(n, n);
+    _providerProfileCombo->blockSignals(blocked);
+    refreshProviderProfileSelection();
+}
+
+void MidiPilotWidget::refreshProviderProfileSelection() {
+    if (!_providerProfileCombo)
+        return;
+    // Derived from the live settings: switching provider or model by hand
+    // makes the configuration ad-hoc again without anything tracking edits.
+    const QString active = ProviderProfileStore::activeProfileName();
+    int idx = active.isEmpty() ? 0 : _providerProfileCombo->findData(active);
+    if (idx < 0)
+        idx = 0;
+    const bool blocked = _providerProfileCombo->blockSignals(true);
+    _providerProfileCombo->setCurrentIndex(idx);
+    _providerProfileCombo->blockSignals(blocked);
+    _providerProfileCombo->setToolTip(
+        idx > 0
+            ? tr("Provider profile \"%1\" is active (provider, base URL, API key and model).\n"
+                 "Edit profiles in MidiPilot Settings. Not the same as Prompt Profiles.")
+                  .arg(_providerProfileCombo->currentData().toString())
+            : tr("Provider profile: a saved endpoint (provider, base URL, API key and model).\n"
+                 "Pick one to switch the connection in a single step. Create and edit them\n"
+                 "in MidiPilot Settings. Not the same as Prompt Profiles."));
+}
+
+void MidiPilotWidget::onProviderProfileComboChanged(int index) {
+    Q_UNUSED(index);
+    const QString name = _providerProfileCombo->currentData().toString();
+    if (name.isEmpty()) {
+        // "(No profile)" is a statement, not a command: the current endpoint
+        // stays exactly as it is.
+        refreshProviderProfileSelection();
+        return;
+    }
+
+    QString error;
+    if (!ProviderProfileStore::apply(name, &error)) {
+        setStatus(error, "red");
+        populateProviderProfiles();
+        return;
+    }
+    // Same path the settings dialog uses when it changes the connection -
+    // reload the client and re-sync the whole footer from the settings.
+    onSettingsChanged();
+    setStatus(tr("Provider profile: %1").arg(name), "green");
 }
 
 void MidiPilotWidget::onEffortComboChanged(int index) {
@@ -3866,15 +3988,38 @@ void MidiPilotWidget::loadPresetForFile(const QString &midiPath) {
 
     QJsonObject obj = doc.object();
 
+    // Phase 50: a preset may NAME a provider profile (never a URL or key -
+    // presets travel with the MIDI file). When that profile exists on this
+    // machine it wins, because it also carries base URL and key; when it does
+    // not, we fall back to the preset's own provider/model without erroring.
+    bool profileApplied = false;
+    const QString profileName =
+        obj.value(QStringLiteral("provider_profile")).toString().trimmed();
+    if (!profileName.isEmpty()) {
+        QString error;
+        if (ProviderProfileStore::apply(profileName, &error)) {
+            onSettingsChanged();  // reload client + re-sync the whole footer
+            profileApplied = true;
+            addChatBubble("system",
+                tr("\xF0\x9F\x93\x8B Provider profile \"%1\" applied from this file's preset.")
+                    .arg(profileName));
+        } else {
+            addChatBubble("system",
+                tr("\xF0\x9F\x93\x8B This file's preset asks for provider profile \"%1\", "
+                   "which does not exist here - using the preset's provider and model instead.")
+                    .arg(profileName));
+        }
+    }
+
     // Apply provider (before model, so model list is populated correctly)
-    if (obj.contains(QStringLiteral("provider"))) {
+    if (!profileApplied && obj.contains(QStringLiteral("provider"))) {
         int idx = _providerCombo->findData(obj[QStringLiteral("provider")].toString());
         if (idx >= 0)
             _providerCombo->setCurrentIndex(idx);
     }
 
     // Apply model
-    if (obj.contains(QStringLiteral("model"))) {
+    if (!profileApplied && obj.contains(QStringLiteral("model"))) {
         QString model = obj[QStringLiteral("model")].toString();
         selectFooterModel(model);
     }
@@ -3936,6 +4081,12 @@ void MidiPilotWidget::savePresetForFile() {
     QString modelId = _modelCombo->currentData().toString();
     if (modelId.isEmpty()) modelId = _client->model();
     obj[QStringLiteral("model")] = modelId;
+    // Phase 50: the NAME of the active provider profile, if any. Harmless to
+    // share (no URL, no key) and it lets the same preset find the right
+    // endpoint on another machine of the same user.
+    const QString profileName = ProviderProfileStore::activeProfileName();
+    if (!profileName.isEmpty())
+        obj[QStringLiteral("provider_profile")] = profileName;
     obj[QStringLiteral("mode")] = _modeCombo->currentData().toString();
     obj[QStringLiteral("ffxiv")] = _ffxivCheck->isChecked();
     obj[QStringLiteral("effort")] = _effortCombo->currentData().toString();

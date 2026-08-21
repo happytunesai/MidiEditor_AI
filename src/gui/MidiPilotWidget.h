@@ -201,6 +201,10 @@ private slots:
     void onAgentStepLimitReached(int currentStep, int maxSteps);
     void onModelComboChanged(int index);
     void onProviderComboChanged(int index);
+    /** Phase 50: the footer's provider-profile picker. Applies a stored
+     *  endpoint (provider, base URL, key, model) in one step. NOT the prompt
+     *  profiles from the gear menu. */
+    void onProviderProfileComboChanged(int index);
     void onEffortComboChanged(int index);
     void onStreamDelta(const QString &text);
     void onStreamFinished(const QString &fullContent, const QJsonObject &fullResponse);
@@ -234,6 +238,12 @@ private:
     void setupUi();
     void setupSetupPrompt();
     void populateFooterModels();
+    /** Phase 50: refill the footer's provider-profile picker from the store. */
+    void populateProviderProfiles();
+    /** Phase 50: show the profile the live settings still match, else
+     *  "(No profile)". Derived state - a manual provider/model switch falls
+     *  back on its own, nothing has to track edits. */
+    void refreshProviderProfileSelection();
     // Select a model id in the (read-only) footer combo, adding it as an item
     // first if it isn't in the list (e.g. a custom or per-file model). Also
     // refreshes the tooltip so the full name is reachable when the label elides.
@@ -360,6 +370,7 @@ private:
     QTimer *_statusTimer;
     int _dotPhase;
     int _msgPhase;
+    QComboBox *_providerProfileCombo = nullptr;
     QComboBox *_providerCombo;
     QComboBox *_modelCombo;
     QPushButton *_refreshModelsButton = nullptr;

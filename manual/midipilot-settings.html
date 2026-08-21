@@ -8,7 +8,7 @@
 <link rel="icon" type="image/x-icon" href="favicon.ico" sizes="any">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <meta name="theme-color" content="#0B1020">
-<meta name="description" content="Configuring MidiPilot: provider and model setup, supported providers including local Ollama, prompt profiles, custom system prompts, per-file presets, auto-save, token tracking, and the API log.">
+<meta name="description" content="Configuring MidiPilot: provider and model setup, supported providers including local Ollama, provider profiles, prompt profiles, custom system prompts, per-file presets, auto-save, token tracking, and the API log.">
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="site.css">
   <link rel="stylesheet" href="audio.css">
@@ -119,6 +119,7 @@ Configure your AI connection from <b>Settings &rarr; MidiPilot AI</b>. Select a 
 
 <table>
 <tr><th>Setting</th><th>Description</th></tr>
+<tr><td><b>Provider profile</b></td><td>Fills provider, base URL, API key and model from a <a href="#provider-profiles">saved endpoint</a>. <b>Save as&hellip;</b> stores the current four fields under a name, <b>Delete</b> removes the selected profile.</td></tr>
 <tr><td><b>Provider</b></td><td>OpenAI, OpenRouter, Google Gemini, Ollama (local), or Custom</td></tr>
 <tr><td><b>Base URL</b></td><td>Auto-filled per provider, or enter your own endpoint</td></tr>
 <tr><td><b>API Key</b></td><td>Your provider API key - get one from <a href="https://platform.openai.com/settings/organization/api-keys" target="_blank" rel="noopener noreferrer">OpenAI</a>, <a href="https://openrouter.ai/settings/keys" target="_blank" rel="noopener noreferrer">OpenRouter</a>, or <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Google Gemini</a>. Not needed for <a href="#ollama">Ollama (local)</a>.</td></tr>
@@ -180,6 +181,41 @@ If a model fails live streaming but still works without streaming, MidiPilot ret
 <tr><td><b>Custom</b></td><td>User-specified</td><td>User-specified</td><td>Varies</td></tr>
 </table>
 
+<h3 id="provider-profiles">Provider profiles (saved endpoints)</h3>
+
+<p>
+A provider profile is a named connection: <b>provider</b>, <b>base URL</b>, <b>API key</b> and
+<b>model</b> stored together under a name you choose. Picking a profile sets all four at once, so
+several endpoints can live side by side - a Hugging Face router token and a local OpenAI-compatible
+server, for example, both of which use the <b>Custom</b> provider and would otherwise share a single
+set of fields.
+</p>
+
+<table>
+<tr><th>Where</th><th>What it does</th></tr>
+<tr><td><b>Settings &rarr; MidiPilot AI</b></td><td>The <b>Provider profile</b> row above the connection fields. Selecting a profile fills the fields below; they are stored when you confirm the settings dialog. <b>Save as&hellip;</b> writes the current fields to a profile (an existing name asks before it is overwritten), <b>Delete</b> removes the selected one and leaves the fields as they are.</td></tr>
+<tr><td><b>MidiPilot footer</b></td><td>The profile picker left of the provider dropdown switches the whole connection in one step and reports the applied profile in the status line. <b>Save connection as provider profile&hellip;</b> in the &#x2699; gear menu stores the current connection without opening the settings dialog.</td></tr>
+<tr><td><b>Per-file preset</b></td><td>A <a href="#presets">per-file AI preset</a> also records the <i>name</i> of the active profile - never a URL or a key. Opening that file on a machine that has a profile of the same name reconnects to the right endpoint; on any other machine the preset falls back to its stored provider and model.</td></tr>
+</table>
+
+<p>
+Both pickers show a profile name only while the connection still matches it. Change the provider,
+the URL, the key or the model afterwards and the picker returns to <b>(No profile)</b> - the
+settings then behave exactly as they always did, unsaved and ad-hoc, and the profile keeps the
+values it was saved with. Use <b>Save as&hellip;</b> with the same name to update it.
+</p>
+
+<p>
+API keys stay in the same place as the rest of MidiPilot's settings and are never written into the
+preset file next to a MIDI file.
+</p>
+
+<p>
+<b>Not the same as <a href="#prompt-profiles">Prompt Profiles</a>:</b> a <i>provider</i> profile
+decides <i>where</i> a request goes; a <i>prompt</i> profile decides <i>what instructions</i> a
+model gets. They can be used together and never overwrite each other.
+</p>
+
 <h3 id="ollama">Local AI with Ollama (free, private, no API key)</h3>
 
 <p>
@@ -230,6 +266,9 @@ partners.
     the token as the API key.</li>
 <li><b>Refresh the model list</b> and pick a model. Streaming works like with any other
     OpenAI-compatible endpoint, and models that support tool calling can be used in Agent mode.</li>
+<li><b>Save it as a <a href="#provider-profiles">provider profile</a></b> if you also use another
+    custom endpoint - that keeps the router URL and token next to the local one instead of
+    replacing it.</li>
 </ol>
 
 <hr>
@@ -238,6 +277,12 @@ partners.
 
 <p>
 Open <b>Settings &rarr; MidiPilot AI &rarr; Prompt Profiles&hellip;</b>, or <b>Prompt Profiles&hellip;</b> from the &#x2699; gear menu in the MidiPilot footer, to manage profiles. A profile binds a custom system prompt to one or more model patterns and decides whether the profile <i>replaces</i> or <i>appends to</i> the default mode prompt.
+</p>
+
+<p>
+These are the <i>prompt</i> profiles - the instructions a model receives. The named connections
+(provider, base URL, key and model) are <a href="#provider-profiles">provider profiles</a> and are
+managed separately.
 </p>
 
 <table>
@@ -327,6 +372,7 @@ Different MIDI files may need different AI settings. A 16-track orchestral arran
 <ul>
 <li><b>Provider</b> - OpenAI, OpenRouter, Gemini, Ollama (local), or Custom</li>
 <li><b>Model</b> - e.g., gpt-5.4, gemini-2.5-flash</li>
+<li><b>Provider profile name</b> - the name of the active <a href="#provider-profiles">provider profile</a>, if one is in use. Only the name is stored, never a URL or an API key; a machine that has a profile of that name reconnects to the same endpoint, and every other machine uses the provider and model above.</li>
 <li><b>Mode</b> - Simple or Agent</li>
 <li><b>FFXIV mode</b> - On or off</li>
 <li><b>Reasoning effort</b> - None / Low / Medium / High / Extra High</li>

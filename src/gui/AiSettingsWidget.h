@@ -46,12 +46,34 @@ private slots:
     void onForceStreamingForCurrentModel();
     void updateMcpStatus();
 
+    // Phase 50: provider profiles (named endpoint configurations). NOT the
+    // per-model system prompts - those are "Prompt Profiles".
+    void onProviderProfileSelected(int index);
+    void onSaveProviderProfile();
+    void onDeleteProviderProfile();
+
 private:
     void populateModelsForProvider(const QString &provider);
     void updateModelsStatusLabel(const QString &provider);
     void updateStreamingBlockStatus();
 
+    /** Model id of the current selection (item data, falling back to the
+     *  typed text) - the value \ref accept writes to AI/model. */
+    QString currentModelId() const;
+    /** Refill the provider-profile combo; selects \a selectName when given. */
+    void populateProviderProfiles(const QString &selectName = QString());
+    /** Show the profile whose stored settings the visible fields still match,
+     *  else "(No profile)". Derived on every field change, so an edit after
+     *  applying a profile honestly falls back to ad-hoc. */
+    void updateProviderProfileSelection();
+
     QSettings *_settings;
+    QComboBox *_providerProfileCombo = nullptr;
+    QPushButton *_saveProfileButton = nullptr;
+    QPushButton *_deleteProfileButton = nullptr;
+    /// True while a profile is being poured into the fields (suppresses the
+    /// field-change handler that would otherwise flip the combo to ad-hoc).
+    bool _applyingProviderProfile = false;
     QComboBox *_providerCombo;
     QLineEdit *_baseUrlEdit;
     QLabel *_apiKeyLabel;

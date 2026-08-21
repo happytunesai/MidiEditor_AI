@@ -3,7 +3,11 @@
 #include "ModelFavoritesDialog.h"
 #include "PromptProfilesDialog.h"
 #include "../ai/PromptProfileStore.h"
+#include "../ai/ProviderProfileStore.h"
 #include <QGridLayout>
+#include <QHBoxLayout>
+#include <QInputDialog>
+#include <QScopedValueRollback>
 #include <QLabel>
 #include <QLineEdit>
 #include <QComboBox>
@@ -39,6 +43,47 @@ AiSettingsWidget::AiSettingsWidget(QSettings *settings, QWidget *parent)
                       row++, 0, 1, 3);
 
     layout->addWidget(separator(), row++, 0, 1, 3);
+
+    // Phase 50: Provider profile - a named bundle of provider + base URL +
+    // key + model. Lives directly above the fields it fills so the relation
+    // is obvious. Deliberately NOT "Prompt Profiles" (further down): those
+    // bind system prompts to models and never touch the connection.
+    layout->addWidget(new QLabel("Provider profile:"), row, 0);
+    {
+        QHBoxLayout *profileRow = new QHBoxLayout();
+        profileRow->setContentsMargins(0, 0, 0, 0);
+        profileRow->setSpacing(4);
+
+        _providerProfileCombo = new QComboBox(this);
+        _providerProfileCombo->setToolTip(
+            tr("Named endpoint configurations: provider, base URL, API key and model.\n"
+               "Selecting one fills the fields below - nothing is stored until you\n"
+               "press OK. Editing a field afterwards switches back to (No profile).\n"
+               "Not to be confused with Prompt Profiles, which bind system prompts\n"
+               "to models."));
+        _providerProfileCombo->setSizeAdjustPolicy(
+            QComboBox::AdjustToMinimumContentsLengthWithIcon);
+        _providerProfileCombo->setMinimumContentsLength(14);
+        profileRow->addWidget(_providerProfileCombo, 1);
+
+        _saveProfileButton = new QPushButton(tr("Save as…"), this);
+        _saveProfileButton->setToolTip(
+            tr("Store the current provider, base URL, API key and model under a name."));
+        connect(_saveProfileButton, &QPushButton::clicked,
+                this, &AiSettingsWidget::onSaveProviderProfile);
+        profileRow->addWidget(_saveProfileButton);
+
+        _deleteProfileButton = new QPushButton(tr("Delete"), this);
+        _deleteProfileButton->setToolTip(
+            tr("Delete the selected provider profile. The fields keep their values."));
+        _deleteProfileButton->setEnabled(false);
+        connect(_deleteProfileButton, &QPushButton::clicked,
+                this, &AiSettingsWidget::onDeleteProviderProfile);
+        profileRow->addWidget(_deleteProfileButton);
+
+        layout->addLayout(profileRow, row, 1, 1, 2);
+    }
+    row++;
 
     // Provider selection
     layout->addWidget(new QLabel("Provider:"), row, 0);
@@ -178,7 +223,33 @@ AiSettingsWidget::AiSettingsWidget(QSettings *settings, QWidget *parent)
             this, &AiSettingsWidget::updateStreamingBlockStatus);
     // Apply current provider state (hides API key for local, sets URL)
     onProviderChanged(_providerCombo->currentIndex());
+    // ... and put the model from the settings back: the call above repopulates
+    // the list and lands on entry 0, which would show (and on OK save) a model
+    // the user never picked - and would make every stored provider profile
+    // look edited the moment the page opens.
+    {
+        int savedIdx = _modelCombo->findData(currentModel);
+        if (savedIdx >= 0)
+            _modelCombo->setCurrentIndex(savedIdx);
+        else if (!currentModel.isEmpty())
+            _modelCombo->setEditText(currentModel);
+    }
         updateStreamingBlockStatus();
+
+    // Phase 50: keep the provider-profile combo in sync with the fields. The
+    // selection is DERIVED (see updateProviderProfileSelection), so any edit
+    // after applying a profile honestly falls back to "(No profile)".
+    connect(_providerProfileCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &AiSettingsWidget::onProviderProfileSelected);
+    connect(_providerCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &AiSettingsWidget::updateProviderProfileSelection);
+    connect(_baseUrlEdit, &QLineEdit::textChanged,
+            this, &AiSettingsWidget::updateProviderProfileSelection);
+    connect(_apiKeyEdit, &QLineEdit::textChanged,
+            this, &AiSettingsWidget::updateProviderProfileSelection);
+    connect(_modelCombo, &QComboBox::currentTextChanged,
+            this, &AiSettingsWidget::updateProviderProfileSelection);
+    populateProviderProfiles();
 
     // Thinking / Reasoning toggle
     layout->addWidget(new QLabel("Thinking:"), row, 0);
@@ -450,9 +521,14 @@ bool AiSettingsWidget::accept() {
     QString key = _apiKeyEdit->text().trimmed();
     _settings->setValue(QString("AI/api_key/%1").arg(provider), key);
     _settings->setValue("AI/api_key", key);
-    QString model = _modelCombo->currentData().toString();
-    if (model.isEmpty()) model = _modelCombo->currentText().trimmed();
+    QString model = currentModelId();
     _settings->setValue("AI/model", model);
+    // Phase 50: remember which provider profile these four values came from
+    // (empty when the user edited them - the hint is only a hint, every reader
+    // re-checks the values themselves).
+    ProviderProfileStore::setActiveProfileHint(
+        ProviderProfileStore::nameMatching(provider, _baseUrlEdit->text().trimmed(),
+                                           model, key));
     _settings->setValue("AI/thinking_enabled", _thinkingCheck->isChecked());
     _settings->setValue("AI/reasoning_effort", _effortCombo->currentData().toString());
     _settings->setValue("AI/streaming_mode",
@@ -576,6 +652,10 @@ void AiSettingsWidget::onProviderChanged(int /*index*/) {
 }
 
 void AiSettingsWidget::populateModelsForProvider(const QString &provider) {
+    // Phase 50: the combo emits currentTextChanged for every entry added, and
+    // each one would re-derive the provider-profile selection from the stored
+    // settings. Suppress that here; the caller settles the selection once.
+    QScopedValueRollback<bool> noProfileChurn(_applyingProviderProfile, true);
     _modelCombo->clear();
 
     auto addModel = [this, &provider](const QString &label, const QString &id) {
@@ -761,6 +841,174 @@ void AiSettingsWidget::onModelsFetchFailed(const QString &provider, const QStrin
     Q_UNUSED(provider);
     _refreshModelsButton->setEnabled(true);
     _modelsStatusLabel->setText(tr("Refresh failed: %1").arg(error));
+}
+
+QString AiSettingsWidget::currentModelId() const
+{
+    QString model = _modelCombo->currentData().toString();
+    if (model.isEmpty())
+        model = _modelCombo->currentText().trimmed();
+    return model;
+}
+
+void AiSettingsWidget::populateProviderProfiles(const QString &selectName)
+{
+    if (!_providerProfileCombo)
+        return;
+    const bool blocked = _providerProfileCombo->blockSignals(true);
+    _providerProfileCombo->clear();
+    _providerProfileCombo->addItem(tr("(No profile)"), QString());
+    const QStringList names = ProviderProfileStore::profileNames();
+    for (const QString &n : names)
+        _providerProfileCombo->addItem(n, n);
+    _providerProfileCombo->blockSignals(blocked);
+
+    if (!selectName.isEmpty()) {
+        int idx = _providerProfileCombo->findData(selectName);
+        if (idx >= 0) {
+            const bool b = _providerProfileCombo->blockSignals(true);
+            _providerProfileCombo->setCurrentIndex(idx);
+            _providerProfileCombo->blockSignals(b);
+        }
+        if (_deleteProfileButton)
+            _deleteProfileButton->setEnabled(idx > 0);
+        return;
+    }
+    updateProviderProfileSelection();
+}
+
+void AiSettingsWidget::updateProviderProfileSelection()
+{
+    if (!_providerProfileCombo || _applyingProviderProfile)
+        return;
+
+    const QString provider = _providerCombo->currentData().toString();
+    const QString url = _baseUrlEdit->text().trimmed();
+    const QString key = _apiKeyEdit->text().trimmed();
+    const QString model = currentModelId();
+
+    // Keep the current selection when it still describes the fields (two
+    // profiles may hold identical settings); otherwise ask the store.
+    QString match = _providerProfileCombo->currentData().toString();
+    if (match.isEmpty() || !ProviderProfileStore::matches(match, provider, url, model, key))
+        match = ProviderProfileStore::nameMatching(provider, url, model, key);
+
+    int idx = match.isEmpty() ? 0 : _providerProfileCombo->findData(match);
+    if (idx < 0)
+        idx = 0;
+    const bool blocked = _providerProfileCombo->blockSignals(true);
+    _providerProfileCombo->setCurrentIndex(idx);
+    _providerProfileCombo->blockSignals(blocked);
+    if (_deleteProfileButton)
+        _deleteProfileButton->setEnabled(idx > 0);
+}
+
+void AiSettingsWidget::onProviderProfileSelected(int /*index*/)
+{
+    const QString name = _providerProfileCombo->currentData().toString();
+    if (name.isEmpty()) {
+        // "(No profile)" keeps whatever is in the fields - picking it is not
+        // a command to change anything, it just says "these are ad-hoc".
+        if (_deleteProfileButton)
+            _deleteProfileButton->setEnabled(false);
+        return;
+    }
+
+    bool ok = false;
+    const ProviderProfileStore::Profile p = ProviderProfileStore::load(name, &ok);
+    if (!ok) {
+        // Vanished behind our back (portable copy, hand-edited settings).
+        populateProviderProfiles();
+        return;
+    }
+
+    // Pour the profile into the visible fields. Nothing is persisted here -
+    // accept() writes the four active keys as it always did, so Cancel keeps
+    // the previous configuration.
+    _applyingProviderProfile = true;
+    int provIdx = _providerCombo->findData(p.provider);
+    if (provIdx >= 0)
+        _providerCombo->setCurrentIndex(provIdx);   // resets URL/key/model list
+    _baseUrlEdit->setText(p.baseUrl);
+    _apiKeyEdit->setText(ProviderProfileStore::apiKeyFor(name));
+    if (!p.model.isEmpty()) {
+        int mIdx = _modelCombo->findData(p.model);
+        if (mIdx >= 0)
+            _modelCombo->setCurrentIndex(mIdx);
+        else
+            _modelCombo->setEditText(p.model);
+    }
+    _applyingProviderProfile = false;
+
+    updateStreamingBlockStatus();
+    updateModelsStatusLabel(p.provider);
+    updateProviderProfileSelection();
+    _statusLabel->setStyleSheet("color: gray;");
+    _statusLabel->setText(tr("Provider profile \"%1\" loaded into the fields.").arg(p.name));
+}
+
+void AiSettingsWidget::onSaveProviderProfile()
+{
+    const QString provider = _providerCombo->currentData().toString();
+    if (provider.isEmpty())
+        return;
+
+    bool ok = false;
+    QString suggestion = _providerProfileCombo->currentData().toString();
+    if (suggestion.isEmpty())
+        suggestion = _providerCombo->currentText();
+    QString name = QInputDialog::getText(
+        this, tr("Save provider profile"),
+        tr("Name for this endpoint (provider, base URL, API key and model):"),
+        QLineEdit::Normal, suggestion, &ok);
+    if (!ok)
+        return;
+
+    name = ProviderProfileStore::normalizeName(name);
+    if (name.isEmpty()) {
+        QMessageBox::warning(this, tr("Save provider profile"),
+                             tr("Please enter a name for the profile."));
+        return;
+    }
+    if (ProviderProfileStore::exists(name)
+        && QMessageBox::question(
+               this, tr("Save provider profile"),
+               tr("A provider profile named \"%1\" already exists. Overwrite it?").arg(name))
+               != QMessageBox::Yes) {
+        return;
+    }
+
+    ProviderProfileStore::Profile p;
+    p.name = name;
+    p.provider = provider;
+    p.baseUrl = _baseUrlEdit->text().trimmed();
+    p.model = currentModelId();
+    if (!ProviderProfileStore::save(p, _apiKeyEdit->text().trimmed())) {
+        QMessageBox::warning(this, tr("Save provider profile"),
+                             tr("Could not store the profile."));
+        return;
+    }
+    populateProviderProfiles(name);
+    _statusLabel->setStyleSheet("color: green;");
+    _statusLabel->setText(tr("Provider profile \"%1\" saved.").arg(name));
+}
+
+void AiSettingsWidget::onDeleteProviderProfile()
+{
+    const QString name = _providerProfileCombo->currentData().toString();
+    if (name.isEmpty())
+        return;
+    if (QMessageBox::question(
+            this, tr("Delete provider profile"),
+            tr("Delete the provider profile \"%1\"? The fields keep their current values.")
+                .arg(name))
+        != QMessageBox::Yes) {
+        return;
+    }
+    ProviderProfileStore::remove(name);
+    populateProviderProfiles();
+    _statusLabel->setStyleSheet("color: gray;");
+    _statusLabel->setText(tr("Provider profile \"%1\" deleted.").arg(name));
 }
 
 void AiSettingsWidget::onEditSystemPrompts()
