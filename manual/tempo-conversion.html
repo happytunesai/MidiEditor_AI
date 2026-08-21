@@ -332,6 +332,69 @@ yes.
 
 <hr>
 
+<h2 id="thin-tempo-map">Thin Tempo Map</h2>
+
+<p>
+The second tool in <b>Tempo Tools</b> answers a different question: not "which tempo is this at",
+but "how many tempo events does it take to say so". A tempo ramp drawn in a DAW is exported as a
+long chain of tiny tempo steps - one every few ticks, tens of thousands over a song. Every one of
+them has to be read whenever the editor works out where a note sits in time, and a player such as
+MidiBard pays for them too. <b>Thin Tempo Map</b> keeps the events that carry the timing and drops
+the rest.
+</p>
+
+<div class="highlight-box">
+<p>&#x1F4A1; <b>Find it in:</b> <b>Tools &rarr; Tempo Tools &rarr; Thin Tempo Map&hellip;</b>,
+by right-clicking the measure ruler above the piano roll, or as the repair button on the
+<i>Tempo map</i> finding in the <a href="ffxiv-playability.html">playability check</a>.</p>
+</div>
+
+<h3>What "keeping the timing" means</h3>
+
+<p>
+The tempo map is what turns a tick position into a point in time. Thinning replaces it with a
+shorter one that has to stay inside a corridor around the original: you choose how many
+milliseconds any point of the piece may move, and the tool keeps exactly the events it needs to
+honour that - measured at every original tempo event and at the end of the file, so the error
+cannot creep up over the length of the song. The default corridor is 2&nbsp;ms, far below anything
+you can hear. Notes, lyrics and markers are never touched; only tempo events are removed, and the
+ones that survive keep their own tempo value.
+</p>
+
+<h3>The dialog</h3>
+
+<table class="info-table">
+<thead><tr><th>Field</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td><b>Tempo events</b></td><td>How many the file carries right now. This is the number worth
+comparing against the preview.</td></tr>
+<tr><td><b>Allowed timing shift</b></td><td>The corridor, in milliseconds. Smaller keeps more
+tempo events and moves the music less; larger keeps fewer.</td></tr>
+<tr><td><b>Preview</b></td><td>Updates as you turn the dial: how many events would survive, how
+many would go, the largest timing shift anywhere in the piece and the shift at the end of the
+file. Nothing has changed at this point.</td></tr>
+<tr><td><b>Thin</b></td><td>Applies it as a single undoable step named after the before and after
+counts, so one Ctrl+Z brings the full map back.</td></tr>
+</tbody>
+</table>
+
+<p>
+The tempo event on tick&nbsp;0 always survives - it is the file's anchor. Running the tool a
+second time on an already thinned map removes nothing, so it is safe to reach for whenever a file
+feels heavy.
+</p>
+
+<h3>Letting the AI do it</h3>
+
+<p>
+MidiPilot has the same tool as <code>thin_tempo_map</code>, with the corridor as its only real
+setting. It follows the dry-run rule: the agent reports how many events it would remove and how
+far the timing would move, waits for your confirmation, and only then applies it as one undoable
+step. "This file drags, can you clean up the tempo map" is enough to start it.
+</p>
+
+<hr>
+
 <h2 id="related">Related</h2>
 
 <ul>

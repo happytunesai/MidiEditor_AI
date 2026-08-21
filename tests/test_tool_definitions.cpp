@@ -177,6 +177,7 @@ const QStringList kCoreToolNames = {
     QStringLiteral("set_time_signature"),
     QStringLiteral("move_events_to_track"),
     QStringLiteral("convert_tempo_preserve_duration"), // v2.2 #2: CORE, not FFXIV
+    QStringLiteral("thin_tempo_map"),          // v2.3 Phase 49: CORE, not FFXIV
     QStringLiteral("set_ffxiv_mode"), // Phase 46: CORE - reaches the gated bundle
     QStringLiteral("transpose_events"),        // Phase 46 pt 3 (octet #2)
     QStringLiteral("split_chords_to_tracks"),  // Phase 46 pt 3 (octet #2)
@@ -598,6 +599,78 @@ private slots:
         // Anything that is not an MCP source is the built-in panel.
         QCOMPARE(ToolDefinitions::protocolActorPrefix(QStringLiteral("agent")),
                  QStringLiteral("MidiPilot"));
+    }
+
+    // -----------------------------------------------------------------
+    // v2.3 Phase 49 — thin_tempo_map. A CORE tool (no FFXIV gate: a
+    // DAW-exported tempo ramp is a MIDI problem, not a bard one) whose two
+    // parameters are BOTH optional, which in strict mode means both are listed
+    // in `required` and both carry a null branch. The generic strict-mode test
+    // above covers the shape for every tool; this one pins the tool's own
+    // contract so a later edit cannot quietly drop the null branches and make
+    // "call it with defaults" impossible for the model.
+    void thinTempoMap_schemaIsStrictWithBothArgsOptional() {
+        const QJsonArray tools = ToolDefinitions::toolSchemas();
+        QJsonObject fn;
+        for (const QJsonValue &v : tools) {
+            const QJsonObject candidate =
+                v.toObject().value(QStringLiteral("function")).toObject();
+            if (candidate.value(QStringLiteral("name")).toString()
+                == QStringLiteral("thin_tempo_map")) {
+                fn = candidate;
+                break;
+            }
+        }
+        QVERIFY2(!fn.isEmpty(), "thin_tempo_map is not in the CORE tool list");
+
+        // The description has to tell the model WHEN to reach for it.
+        const QString description =
+            fn.value(QStringLiteral("description")).toString().toLower();
+        QVERIFY2(description.contains(QStringLiteral("tempo")), qPrintable(description));
+        QVERIFY2(description.contains(QStringLiteral("dryrun=true")),
+                 qPrintable(description));
+
+        const QJsonObject params =
+            fn.value(QStringLiteral("parameters")).toObject();
+        const QJsonObject props =
+            params.value(QStringLiteral("properties")).toObject();
+        QStringList required;
+        for (const QJsonValue &rv : params.value(QStringLiteral("required")).toArray())
+            required << rv.toString();
+        for (const QString &key : {QStringLiteral("toleranceMs"),
+                                   QStringLiteral("dryRun")}) {
+            QVERIFY2(props.contains(key), qPrintable(key));
+            QVERIFY2(required.contains(key), qPrintable(key));
+            bool nullBranch = false;
+            for (const QJsonValue &b :
+                 props.value(key).toObject().value(QStringLiteral("anyOf")).toArray()) {
+                if (b.toObject().value(QStringLiteral("type")).toString()
+                    == QStringLiteral("null"))
+                    nullBranch = true;
+            }
+            QVERIFY2(nullBranch,
+                     qPrintable(QStringLiteral("%1 has no null branch, so the "
+                                               "model cannot omit it").arg(key)));
+        }
+        QCOMPARE(required.size(), props.size());
+    }
+
+    // Both arguments are optional in substance, so neither an explicit null
+    // nor a missing key may be rejected as a missing required parameter.
+    // (This build stubs the handler out - MidiFile is not linked - so the
+    // ERROR TEXT is what proves the call got past argument validation.)
+    void thinTempoMap_acceptsNullAndOmittedArgs() {
+        QJsonObject nulls;
+        nulls[QStringLiteral("toleranceMs")] = QJsonValue::Null;
+        nulls[QStringLiteral("dryRun")] = QJsonValue::Null;
+        for (const QJsonObject &args : {nulls, QJsonObject{}}) {
+            const QJsonObject r = ToolDefinitions::executeTool(
+                QStringLiteral("thin_tempo_map"), args, nullptr, nullptr);
+            const QString err = r.value(QStringLiteral("error")).toString();
+            QVERIFY2(!err.contains(QStringLiteral("missing required")),
+                     qPrintable(err));
+            QVERIFY2(!err.contains(QStringLiteral("Unknown tool")), qPrintable(err));
+        }
     }
 
     // -----------------------------------------------------------------

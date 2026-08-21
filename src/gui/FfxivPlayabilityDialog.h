@@ -106,7 +106,7 @@ signals:
     void focusTrackRequested(int track);
 
     /** Run a repair tool. actionId is a MainWindow action-map id:
-     *  "fix_ffxiv_channels", "auto_fit_voice_load". */
+     *  "fix_ffxiv_channels", "auto_fit_voice_load", "thin_tempo_map". */
     void fixRequested(const QString &actionId);
 
     /** Delete exactly these events as ONE undo step ("Delete colliding
@@ -167,6 +167,7 @@ private:
     QCheckBox *_checkNames = nullptr;
     QCheckBox *_checkChannels = nullptr;
     QCheckBox *_checkEmpty = nullptr;
+    QCheckBox *_checkTempoMap = nullptr;
     QCheckBox *_checkVoiceLoad = nullptr;
 
     QLabel *_summaryLabel = nullptr;
@@ -176,6 +177,7 @@ private:
     QPushButton *_fixOverlapsButton = nullptr;
     QPushButton *_fixChannelsButton = nullptr;
     QPushButton *_fixVoiceButton = nullptr;
+    QPushButton *_fixTempoMapButton = nullptr;
     QPushButton *_analyzeButton = nullptr;
 
     QTextBrowser *_analysisView = nullptr;

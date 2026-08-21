@@ -56,6 +56,9 @@ struct FfxivPlayabilityIssue {
                           ///< EDITOR playback only (in game the name rules);
                           ///< the channel fixer is the repair
         EmptyTrack,       ///< instrument-named track without any notes (info)
+        TempoMap,         ///< tempo map dense enough to weigh the file down
+                          ///< (DAW ramp exported as one event every few ticks);
+                          ///< file-level, repaired by Thin Tempo Map
         VoiceCeiling,     ///< raw voice peak over 16 - synthesized by the
                           ///< DIALOG from an Auto-Fit dry run, never emitted
                           ///< by the validator itself (keeps it dependency-free)
@@ -84,7 +87,24 @@ struct FfxivPlayabilityChecks {
     bool trackNames = true;    ///< FFXIV instrument names
     bool channelSpread = true; ///< editor-playback channel consistency
     bool emptyTracks = true;   ///< instrument-named tracks without notes
+    bool tempoMap = true;      ///< dense tempo maps (DAW ramps)
 };
+
+/** Threshold for the tempo-map check, kept next to the enum so the rule is
+ *  quotable in the manual and testable without a widget.
+ *
+ *  A finding is raised when the map is dense enough that the density is a
+ *  PROPERTY OF THE EXPORT rather than of the music:
+ *    - more than kTempoMapAbsoluteLimit events, whatever the length, or
+ *    - at least kTempoMapDenseFloor events AND more than
+ *      kTempoMapEventsPerBar of them per bar on average.
+ *  A hand-built accelerando has a handful of events per section and stays
+ *  quiet; the DAW ramp that triggered this check has dozens per bar. */
+namespace FfxivTempoMapRule {
+constexpr int kTempoMapAbsoluteLimit = 500;
+constexpr int kTempoMapDenseFloor = 64;
+constexpr double kTempoMapEventsPerBar = 4.0;
+} // namespace FfxivTempoMapRule
 
 struct FfxivPlayabilityReport {
     bool ok = false;      ///< false only when no file was given

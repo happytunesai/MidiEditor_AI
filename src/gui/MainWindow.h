@@ -932,6 +932,17 @@ public slots:
     void convertTempoForChannel(int channel);
 
     /**
+     * \brief Opens the Thin Tempo Map dialog (Phase 49).
+     *
+     * Shows how many tempo events the file carries, lets the user pick the
+     * ms corridor and previews the result before anything is changed. The
+     * thinning itself is one undoable step (TempoMapThinner). Reachable from
+     * Tools > Tempo Tools, from the timeline's right-click menu and from the
+     * playability workbench's tempo-map finding.
+     */
+    void thinTempoMap();
+
+    /**
      * \brief Opens the N-tole quantization dialog.
      */
     void quantizeNtoleDialog();

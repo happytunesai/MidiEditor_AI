@@ -226,6 +226,13 @@ Q_LOGGING_CATEGORY(memLog, "midieditor.memory")
 #include "../midi/MidiTrack.h"
 #include "../midi/PlayerThread.h"
 #include "../midi/InstrumentDefinitions.h"
+#include "../midi/TempoMapThinner.h"
+
+#include <QDialog>
+#include <QDialogButtonBox>
+#include <QDoubleSpinBox>
+#include <QFormLayout>
+#include <QPushButton>
 
 #ifdef FLUIDSYNTH_SUPPORT
 #include "../midi/FluidSynthEngine.h"
@@ -9983,8 +9990,17 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
     QAction *convertTempoAction = new QAction(tr("Convert Tempo, Preserve Duration..."), this);
     connect(convertTempoAction, SIGNAL(triggered()), this, SLOT(convertTempoPreserveDuration()));
     tempoToolsMenu->addAction(convertTempoAction);
-    toolsMB->addMenu(tempoToolsMenu);
     _actionMap["convert_tempo_preserve_duration"] = convertTempoAction;
+
+    // Phase 49 — the repair for DAW tempo ramps exported as thousands of
+    // events. Next to Convert Tempo: both live in the tempo map, and a user
+    // who came here for one of them is in the right place for the other.
+    QAction *thinTempoMapAction = new QAction(tr("Thin Tempo Map..."), this);
+    connect(thinTempoMapAction, &QAction::triggered, this, &MainWindow::thinTempoMap);
+    tempoToolsMenu->addAction(thinTempoMapAction);
+    _actionMap["thin_tempo_map"] = thinTempoMapAction;
+
+    toolsMB->addMenu(tempoToolsMenu);
 
     toolsMB->addSeparator();
 
@@ -12568,6 +12584,113 @@ void MainWindow::convertTempoForChannel(int channel) {
     hint.channelIds.insert(channel);
     TempoConversionDialog dialog(file, hint, this);
     dialog.exec();
+}
+
+void MainWindow::thinTempoMap() {
+    if (!file) {
+        return;
+    }
+    const int before = TempoMapThinner::tempoEventCount(file);
+    if (before < 2) {
+        QMessageBox::information(
+            this, tr("Thin Tempo Map"),
+            tr("This file's tempo map already holds a single event - there is "
+               "nothing to thin."));
+        return;
+    }
+
+    // Deliberately assembled here instead of in its own dialog file: the
+    // decision is one number, and the preview line is what makes it a
+    // decision at all ("2 ms costs me 12,871 -> 47 events").
+    QDialog dialog(this);
+    dialog.setWindowTitle(tr("Thin Tempo Map"));
+    auto *layout = new QVBoxLayout(&dialog);
+
+    auto *intro = new QLabel(
+        tr("This file's tempo map holds <b>%1</b> tempo events. Thinning keeps "
+           "the events that carry the timing and drops the rest, so the music "
+           "stays where it is while the editor and the game have far less to "
+           "read.")
+            .arg(QLocale().toString(before)),
+        &dialog);
+    intro->setWordWrap(true);
+    layout->addWidget(intro);
+
+    auto *form = new QFormLayout();
+    auto *toleranceBox = new QDoubleSpinBox(&dialog);
+    toleranceBox->setRange(0.0, 50.0);
+    toleranceBox->setDecimals(1);
+    toleranceBox->setSingleStep(0.5);
+    toleranceBox->setValue(TempoMapThinner::kDefaultToleranceMs);
+    toleranceBox->setSuffix(tr(" ms"));
+    toleranceBox->setToolTip(tr("How far any point of the piece may end up "
+                                "from where it is now. Smaller keeps more "
+                                "tempo events, larger keeps fewer."));
+    form->addRow(tr("Allowed timing shift:"), toleranceBox);
+    layout->addLayout(form);
+
+    auto *preview = new QLabel(&dialog);
+    preview->setWordWrap(true);
+    layout->addWidget(preview);
+
+    MidiFile *targetFile = file;
+    auto updatePreview = [preview, targetFile, toleranceBox]() {
+        const TempoMapThinner::Result r = TempoMapThinner::thin(
+            targetFile, toleranceBox->value(), true);
+        if (!r.ok) {
+            preview->setText(r.error);
+            return;
+        }
+        if (r.removed == 0) {
+            preview->setText(MainWindow::tr(
+                "Nothing to remove at this setting - every tempo event is "
+                "carrying part of the timing."));
+            return;
+        }
+        preview->setText(MainWindow::tr(
+            "Would keep <b>%1</b> of %2 events (removing %3). Largest timing "
+            "shift anywhere in the piece: %4 ms, end of the file: %5 ms.")
+                             .arg(QLocale().toString(r.kept))
+                             .arg(QLocale().toString(r.before))
+                             .arg(QLocale().toString(r.removed))
+                             .arg(r.maxDriftMs, 0, 'f', 2)
+                             .arg(r.endDriftMs, 0, 'f', 2));
+    };
+    connect(toleranceBox, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+            &dialog, updatePreview);
+    updatePreview();
+
+    auto *buttons = new QDialogButtonBox(
+        QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    buttons->button(QDialogButtonBox::Ok)->setText(tr("Thin"));
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    layout->addWidget(buttons);
+
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+    // The document may have been swapped underneath a modal dialog by an
+    // agent/MCP run; thin the file the dialog was talking about.
+    const TempoMapThinner::Result r =
+        TempoMapThinner::thin(targetFile, toleranceBox->value(), false);
+    if (!r.ok) {
+        QMessageBox::warning(this, tr("Thin Tempo Map"), r.error);
+        return;
+    }
+    if (r.removed == 0) {
+        statusBar()->showMessage(
+            tr("Tempo map unchanged - every event carries part of the timing."),
+            6000);
+        return;
+    }
+    statusBar()->showMessage(
+        tr("Tempo map thinned: %1 -> %2 events, largest timing shift %3 ms.")
+            .arg(QLocale().toString(r.before))
+            .arg(QLocale().toString(r.kept))
+            .arg(r.maxDriftMs, 0, 'f', 2),
+        8000);
+    updateAll();
 }
 
 void MainWindow::quantizeSelection() {

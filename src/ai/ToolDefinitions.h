@@ -125,6 +125,12 @@ private:
     static QJsonObject execConvertTempoPreserveDuration(const QJsonObject &args,
                                                         MidiFile *file,
                                                         const QString &source);
+    // v2.3 (Phase 49): thin a dense tempo map. CORE for the same reason as
+    // the conversion above - a DAW tempo ramp is not an FFXIV problem, it is
+    // a MIDI one. Dry-run first, user-confirmed.
+    static QJsonObject execThinTempoMap(const QJsonObject &args,
+                                        MidiFile *file,
+                                        const QString &source);
     // Phase 46: FFXIV-mode switch - CORE (an agent needs it to REACH the
     // gated FFXIV bundle). Drives the MidiPilot checkbox so persistence and
     // the MCP tools/list_changed broadcast take the one existing path.

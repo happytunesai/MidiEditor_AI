@@ -42,6 +42,10 @@
  *      and a removed track comes back as the very same object - which is why
  *      the workbench clears the overlay through the list of tracks it dimmed
  *      instead of walking the file's current tracks at close time.
+ *  13. The tempo-map check (Phase 49) stays quiet on a hand-written tempo
+ *      curve and fires only on maps whose density is a property of the
+ *      EXPORT; the finding is file-level, names count and shape, and is
+ *      switchable like every other check.
  *
  * Harness: same ODR-shim approach as test_ffxiv_fixer_resync - real
  * MidiFile/MidiChannel/MidiTrack/Protocol/MidiEvent stack, GUI periphery
@@ -60,6 +64,7 @@
 #include "../src/MidiEvent/MidiEvent.h"
 #include "../src/MidiEvent/NoteOnEvent.h"
 #include "../src/MidiEvent/ProgChangeEvent.h"
+#include "../src/MidiEvent/TempoChangeEvent.h"
 
 // ---- ODR shims: Appearance colors (statics used by midi core / events) ---
 #include "../src/gui/Appearance.h"
@@ -102,6 +107,13 @@ private:
             f->channel(ch)->insertNote(note, startTick, endTick, 100, track);
         f->protocol()->endAction();
         return on;
+    }
+
+    /** A tempo event on channel 17. insertEvent() (not a raw eventMap()
+     *  insert) is what gives the event its own midiTime. */
+    static void addTempo(MidiFile *f, int tick, int bpm) {
+        auto *ev = new TempoChangeEvent(17, 60000000 / bpm, f->track(0));
+        f->channel(17)->insertEvent(ev, tick, false);
     }
 
     static void addProgChange(MidiFile *f, int ch, MidiTrack *track,
@@ -536,6 +548,87 @@ private slots:
         victim->setFocusHidden(false);
         QVERIFY(!victim->hidden());
 
+        delete f;
+    }
+
+    // --- 13. tempo map (Phase 49) ------------------------------------------
+    // The check has to stay QUIET on normal files - a report that flags every
+    // file teaches the user to ignore it. It fires on maps whose density is a
+    // property of the EXPORT: a DAW ramp expanded to one event every few
+    // ticks, which the editor and the game both pay for event by event.
+    void tempoMapCheckIsQuietOnANormalFile() {
+        MidiFile *f = makeFile("Trumpet", 0);
+        addNote(f, 0, f->track(1), 60, 0, 100);
+        // A hand-written accelerando: a handful of tempo events.
+        addTempo(f, 480, 130);
+        addTempo(f, 960, 140);
+        addTempo(f, 1440, 150);
+
+        const FfxivPlayabilityReport r = FfxivPlayabilityValidator::validate(f);
+        QCOMPARE(r.countOf(Type::TempoMap), 0);
+        delete f;
+    }
+
+    void tempoMapCheckFiresOnADenseRamp() {
+        MidiFile *f = makeFile("Trumpet", 0);
+        addNote(f, 0, f->track(1), 60, 0, 100);
+        // 1,200 events over 50 bars = 24 per bar: past the per-bar rule and
+        // past the absolute limit.
+        f->setEndTick(f->ticksPerQuarter() * 4 * 50);
+        for (int i = 0; i < 1200; ++i) {
+            addTempo(f, (i + 1) * 32, 100 + i / 40);
+        }
+
+        const FfxivPlayabilityReport r = FfxivPlayabilityValidator::validate(f);
+        QCOMPARE(r.countOf(Type::TempoMap), 1);
+        FfxivPlayabilityIssue issue;
+        for (const FfxivPlayabilityIssue &i : r.issues) {
+            if (i.type == Type::TempoMap) issue = i;
+        }
+        // File-level finding: no track, no note pointers to select.
+        QCOMPARE(issue.track, -1);
+        QVERIFY(issue.events.isEmpty());
+        // The text names the count and the shape - that is what tells the user
+        // this came out of a DAW rather than out of their arrangement.
+        QVERIFY2(issue.details.contains(QStringLiteral("1,201")),
+                 qPrintable(issue.details));
+        QVERIFY2(issue.details.contains(QStringLiteral("ramp up")),
+                 qPrintable(issue.details));
+        delete f;
+    }
+
+    // Density alone is not enough: a short file with a few dozen tempo events
+    // is somebody's tempo curve, not an export artefact. The floor keeps it
+    // quiet, and the absolute limit catches long files whose per-bar average
+    // hides the mass.
+    void tempoMapThresholdRespectsTheDenseFloor() {
+        MidiFile *f = makeFile("Trumpet", 0);
+        addNote(f, 0, f->track(1), 60, 0, 100);
+        f->setEndTick(80 * 32); // ~3.3 bars, covering every event below
+        for (int i = 0; i < 20; ++i) { // 6 per bar, but only 20 events
+            addTempo(f, (i + 1) * 32, 120 + i);
+        }
+        QCOMPARE(FfxivPlayabilityValidator::validate(f).countOf(Type::TempoMap), 0);
+
+        // Same density, now past the floor.
+        for (int i = 20; i < 80; ++i) {
+            addTempo(f, (i + 1) * 32, 120 + i);
+        }
+        QCOMPARE(FfxivPlayabilityValidator::validate(f).countOf(Type::TempoMap), 1);
+        delete f;
+    }
+
+    void tempoMapCheckCanBeSwitchedOff() {
+        MidiFile *f = makeFile("Trumpet", 0);
+        addNote(f, 0, f->track(1), 60, 0, 100);
+        f->setEndTick(600 * 16);
+        for (int i = 0; i < 600; ++i) {
+            addTempo(f, (i + 1) * 16, 120);
+        }
+        FfxivPlayabilityChecks checks;
+        QCOMPARE(FfxivPlayabilityValidator::validate(f, checks).countOf(Type::TempoMap), 1);
+        checks.tempoMap = false;
+        QCOMPARE(FfxivPlayabilityValidator::validate(f, checks).countOf(Type::TempoMap), 0);
         delete f;
     }
 };

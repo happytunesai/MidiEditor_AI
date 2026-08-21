@@ -40,6 +40,8 @@ QString groupTitle(FfxivPlayabilityIssue::Type t, int count) {
         return FfxivPlayabilityDialog::tr("Track names (%1)").arg(count);
     case FfxivPlayabilityIssue::Type::EmptyTrack:
         return FfxivPlayabilityDialog::tr("Empty instrument tracks (%1)").arg(count);
+    case FfxivPlayabilityIssue::Type::TempoMap:
+        return FfxivPlayabilityDialog::tr("Tempo map (%1)").arg(count);
     }
     return QString();
 }
@@ -76,12 +78,18 @@ FfxivPlayabilityDialog::FfxivPlayabilityDialog(QWidget *parent)
                                   "channels - affects editor playback only"));
     _checkEmpty = new QCheckBox(tr("Empty tracks"), this);
     _checkEmpty->setToolTip(tr("Instrument-named tracks without any notes"));
+    _checkTempoMap = new QCheckBox(tr("Tempo map"), this);
+    _checkTempoMap->setToolTip(tr("Tempo maps dense enough to weigh the file "
+                                  "down - a tempo ramp exported by a DAW can "
+                                  "carry one event every few ticks, and both "
+                                  "the editor and the game pay for every one "
+                                  "of them."));
     _checkVoiceLoad = new QCheckBox(tr("Voice limit"), this);
     _checkVoiceLoad->setToolTip(tr("Raw voice peak vs the 16-voice ceiling and "
                                    "notes/sec hotspots"));
     for (QCheckBox *cb : {_checkSimultaneous, _checkDuplicates, _checkRange,
                           _checkNames, _checkChannels, _checkEmpty,
-                          _checkVoiceLoad}) {
+                          _checkTempoMap, _checkVoiceLoad}) {
         cb->setChecked(true);
         checksRow->addWidget(cb);
     }
@@ -174,6 +182,19 @@ FfxivPlayabilityDialog::FfxivPlayabilityDialog(QWidget *parent)
     });
     buttons->addWidget(_fixVoiceButton);
 
+    // Phase 49: the repair for a dense tempo map. Opens the Thin Tempo Map
+    // dialog rather than thinning straight away - the tolerance is a real
+    // decision and the preview shows what the file would end up with. The
+    // check re-runs by itself once the repair's protocol action finishes.
+    _fixTempoMapButton = new QPushButton(tr("Thin Tempo Map..."), this);
+    _fixTempoMapButton->setToolTip(tr("Reduces the tempo map to the events "
+                                      "that carry the timing, leaving the "
+                                      "music where it is"));
+    connect(_fixTempoMapButton, &QPushButton::clicked, this, [this]() {
+        emit fixRequested(QStringLiteral("thin_tempo_map"));
+    });
+    buttons->addWidget(_fixTempoMapButton);
+
     buttons->addStretch();
 
     _analyzeButton = new QPushButton(tr("Analyze with MidiPilot"), this);
@@ -200,6 +221,7 @@ FfxivPlayabilityChecks FfxivPlayabilityDialog::selectedChecks() const {
     c.trackNames = _checkNames->isChecked();
     c.channelSpread = _checkChannels->isChecked();
     c.emptyTracks = _checkEmpty->isChecked();
+    c.tempoMap = _checkTempoMap->isChecked();
     return c;
 }
 
@@ -252,6 +274,7 @@ void FfxivPlayabilityDialog::rebuildTree() {
         FfxivPlayabilityIssue::Type::DuplicateNote,
         FfxivPlayabilityIssue::Type::VoiceCeiling,
         FfxivPlayabilityIssue::Type::NoteRate,
+        FfxivPlayabilityIssue::Type::TempoMap,
         FfxivPlayabilityIssue::Type::OutOfRange,
         FfxivPlayabilityIssue::Type::TrackName,
         FfxivPlayabilityIssue::Type::ChannelSpread,
@@ -303,9 +326,13 @@ void FfxivPlayabilityDialog::rebuildFixRow() {
         _report.countOf(FfxivPlayabilityIssue::Type::VoiceCeiling) > 0
         || _report.countOf(FfxivPlayabilityIssue::Type::NoteRate) > 0;
 
+    const bool hasTempoMapIssue =
+        _report.countOf(FfxivPlayabilityIssue::Type::TempoMap) > 0;
+
     _fixOverlapsButton->setVisible(hasCollisions);
     _fixChannelsButton->setVisible(hasChannelIssues);
     _fixVoiceButton->setVisible(hasVoiceIssues);
+    _fixTempoMapButton->setVisible(hasTempoMapIssue);
     _selectAllButton->setEnabled(!_report.offendingNotes().isEmpty());
     updateCollisionButton();
 }

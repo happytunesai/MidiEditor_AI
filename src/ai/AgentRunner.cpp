@@ -306,6 +306,9 @@ void AgentRunner::updateWorkingStateFromToolResult(AgentWorkingState &state,
         // still knows what it is confirming.
         appendFact(state, result.value(QStringLiteral("summary")).toString(
                               QStringLiteral("Tempo conversion completed")));
+    } else if (toolName == QStringLiteral("thin_tempo_map")) {
+        appendFact(state, result.value(QStringLiteral("summary")).toString(
+                              QStringLiteral("Tempo map thinning completed")));
     }
 }
 
@@ -1144,6 +1147,11 @@ QString AgentRunner::buildStepLabel(const QString &toolName, const QJsonObject &
         else
             label = QStringLiteral("Convert tempo");
         if (dry) label += QStringLiteral(" (dry run)");
+        return label;
+    }
+    if (toolName == "thin_tempo_map") {
+        QString label = QStringLiteral("Thin tempo map");
+        if (args["dryRun"].toBool(true)) label += QStringLiteral(" (dry run)");
         return label;
     }
     if (toolName == "query_events") {

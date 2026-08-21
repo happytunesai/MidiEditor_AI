@@ -6,7 +6,9 @@
 #include "../midi/MidiChannel.h"
 #include "../MidiEvent/MidiEvent.h"
 #include "../MidiEvent/NoteOnEvent.h"
+#include "../MidiEvent/TempoChangeEvent.h"
 
+#include <QLocale>
 #include <QMap>
 #include <QPair>
 #include <QSet>
@@ -19,6 +21,47 @@ QString noteName(int note) {
                                   "F#", "G", "G#", "A", "A#", "B"};
     return QStringLiteral("%1%2").arg(QLatin1String(names[note % 12]))
                                  .arg(note / 12 - 1);
+}
+
+/** Thousands separators for a headless string: QLocale::c() omits the group
+ *  separator by default, and "12871 events" reads like a serial number. */
+QString groupedNumber(int n) {
+    QLocale locale = QLocale::c();
+    locale.setNumberOptions(locale.numberOptions() & ~QLocale::OmitGroupSeparator);
+    return locale.toString(n);
+}
+
+/** What the tempo map LOOKS like, in the words the finding uses. Two facts,
+ *  because together they say where the events came from: the DIRECTION (a
+ *  one-way ramp is a DAW export artefact, anything else is automation) and
+ *  how many DISTINCT tempos there actually are - a ramp exported as thousands
+ *  of events usually holds a few dozen values, and seeing "1,201 events, 30
+ *  distinct tempos" is what makes the redundancy obvious. */
+QString tempoMapShape(const QList<int> &bpmInOrder) {
+    int ups = 0;
+    int downs = 0;
+    QSet<int> distinct;
+    for (int i = 0; i < bpmInOrder.size(); ++i) {
+        distinct.insert(bpmInOrder.at(i));
+        if (i == 0) continue;
+        const int delta = bpmInOrder.at(i) - bpmInOrder.at(i - 1);
+        if (delta > 0) ++ups;
+        else if (delta < 0) ++downs;
+    }
+    const int moves = ups + downs;
+    if (moves == 0) {
+        return QStringLiteral("one tempo, repeated over and over");
+    }
+    QString direction;
+    const int dominant = qMax(ups, downs);
+    if (dominant * 5 >= moves * 4) {
+        direction = ups >= downs ? QStringLiteral("continuous ramp up")
+                                 : QStringLiteral("continuous ramp down");
+    } else {
+        direction = QStringLiteral("dense automation");
+    }
+    return QStringLiteral("%1, %2 distinct tempos")
+        .arg(direction).arg(distinct.size());
 }
 
 } // namespace
@@ -262,6 +305,51 @@ FfxivPlayabilityReport FfxivPlayabilityValidator::validate(
                         .arg(pitchNames.join(QStringLiteral(", ")));
                 report.issues.append(issue);
             }
+        }
+    }
+
+    // Tempo map (Phase 49) - a FILE-level finding, so it carries track -1.
+    // MidiBard pays for every event in the file just like the editor does, so
+    // a DAW ramp exported as one tempo event every few ticks is an FFXIV
+    // problem and not only an editor performance one. Everything about the
+    // rule lives in FfxivTempoMapRule so a normal file stays quiet: a
+    // hand-written accelerando has a handful of events, this fires on maps
+    // whose density is a property of the EXPORT.
+    if (checks.tempoMap) {
+        QList<int> bpmInOrder;
+        MidiChannel *tempoChannel = file->channel(17);
+        if (tempoChannel) {
+            QMultiMap<int, MidiEvent *> *map = tempoChannel->eventMap();
+            for (auto it = map->constBegin(); it != map->constEnd(); ++it) {
+                if (auto *tempo = dynamic_cast<TempoChangeEvent *>(it.value())) {
+                    bpmInOrder.append(tempo->beatsPerQuarter());
+                }
+            }
+        }
+        const int count = bpmInOrder.size();
+        // A nominal 4/4 bar: the meter map is irrelevant here (the question is
+        // "how crowded is this map", not "which bar are we in"), and reading it
+        // would drag the validator into the time-signature walk for nothing.
+        const int barTicks = qMax(1, file->ticksPerQuarter() * 4);
+        const double bars = qMax(1.0, double(file->endTick()) / barTicks);
+        const double perBar = count / bars;
+        const bool dense =
+            count > FfxivTempoMapRule::kTempoMapAbsoluteLimit
+            || (count >= FfxivTempoMapRule::kTempoMapDenseFloor
+                && perBar > FfxivTempoMapRule::kTempoMapEventsPerBar);
+        if (dense) {
+            FfxivPlayabilityIssue issue;
+            issue.type = FfxivPlayabilityIssue::Type::TempoMap;
+            issue.track = -1;
+            issue.tick = 0;
+            issue.details = QStringLiteral(
+                "Tempo map: %1 events (%2), about %3 per bar - every one of "
+                "them costs time in the editor and in game; Thin Tempo Map "
+                "reduces the map while keeping the timing")
+                    .arg(groupedNumber(count))
+                    .arg(tempoMapShape(bpmInOrder))
+                    .arg(perBar, 0, 'f', perBar < 10 ? 1 : 0);
+            report.issues.append(issue);
         }
     }
 

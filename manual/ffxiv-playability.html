@@ -181,6 +181,17 @@ opposite things.
       from experimenting that still occupies one of the eight performer slots.</td>
 </tr>
 <tr>
+  <td><b>Tempo map</b></td>
+  <td>Tempo map</td>
+  <td>A tempo map dense enough that its size is a property of the export rather than of the music
+      - a tempo ramp drawn in a DAW arrives as one tempo event every few ticks. The finding names
+      the event count, the shape (a one-way ramp, or automation going both ways) and how many
+      events there are per bar. Both the editor and the game read every one of them, so a heavy
+      map costs time on every playback start and every edit.
+      <a href="tempo-conversion.html#thin-tempo-map">Thin Tempo Map</a> is the repair. A
+      hand-written accelerando has a handful of events and stays quiet.</td>
+</tr>
+<tr>
   <td><b>Voice limit</b></td>
   <td>Voice limit &middot; Note-rate hotspots</td>
   <td>The raw voice peak against the 16-voice ceiling together with the number of overflow ranges,
@@ -261,6 +272,13 @@ stays a set of tools rather than a console of dead buttons:
   <td>Voice-limit or note-rate findings exist</td>
   <td>Opens <a href="auto-fit-voice-load.html">Auto-Fit Voice Load</a> to thin the overloaded
       passages.</td>
+</tr>
+<tr>
+  <td><b>Thin Tempo Map&hellip;</b></td>
+  <td>A tempo-map finding exists</td>
+  <td>Opens <a href="tempo-conversion.html#thin-tempo-map">Thin Tempo Map</a>, where you pick how
+      far the timing may move and see how many tempo events would survive before anything is
+      changed.</td>
 </tr>
 </table>
 
