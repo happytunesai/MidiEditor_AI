@@ -14,7 +14,13 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 > starts with "Unreleased".
 
 ### Summary
-(written at release - bold statement + one sentence per headline, IDs in parentheses)
+* **Files with a dense tempo map no longer freeze the editor** - a song carrying thousands of tempo changes took about ten seconds to start playing and dragged while scrolling; timing lookups no longer scale with the size of the tempo map (TEMPOMAP-PERF-001, Phase 48).
+* **Thin Tempo Map** - a new tool reduces a DAW-exported tempo ramp to the events that actually carry the timing, with a preview, a timing budget counted from the file as opened, and one undo step (Phase 49).
+* **Check FFXIV Playability spots heavy tempo maps** - a new check names the event count and the shape of the map and offers the thinning as its repair.
+* **Provider profiles** - save several AI endpoints under a name and switch with one click, from the profile picker or the Provider dropdown itself, in both places the connection is configured (Phase 50).
+* **Every endpoint keeps its own model list and favourites** - each custom profile gets its own tab in Manage favourites and its own remembered models, and per-file presets can name a profile without ever carrying a URL or a key.
+* **A local server needs no API key** - a profile for llama.cpp or LM Studio on your own machine counts as configured, and locality is decided on the real address rather than on how it is spelled.
+* **An API key could appear in the settings page** - a failed model refresh showed the error verbatim, and for Google Gemini that text can contain the key; error messages are now stripped of keys and tokens.
 
 <details>
 <summary>Full Changelog - (title at release)</summary>
