@@ -13282,3 +13282,141 @@ safety default, wants a conscious decision). Review at 2.2 release. Plus
 beyond the plan: the playability workbench (the GUI check the roadmap
 called the single most actionable outcome, grown through three QA
 iterations into a check-and-repair tool).
+
+---
+
+# v2.3 PLAN (scoped 2026-08-20)
+
+Two items, one root cause: a user file ("Rock_Lied der Schluempfe.mid", 3:34 min) carries
+12,871 tempo events next to 5,329 notes - a DAW-exported tempo ramp expanded to one event
+every ~24 ticks. Diagnosis is in 03_bugs.md TEMPOMAP-PERF-001: MidiFile::msOfTick() walks
+the whole channel-17 map linearly (dynamic_cast per entry) and is called at 141 sites -
+per note/grid line/cursor on every paint, and once per event of the file in
+preparePlayerData() on every Play press (~155 M iterations = the observed ~10 s Play delay
+and the drag-in lag). Phase 48 makes the editor immune to such files; Phase 49 lets the
+user heal the file itself. Either alone justifies a 2.3.0; together they close the class.
+
+Added at scoping round 2 (2026-08-21): Phase 50 provider profiles - the Hugging Face
+via-Custom discovery (issue #16) made the single custom slot a real limitation.
+
+## Phase 48: Tempo-map cache - msOfTick()/tickOfMs() in O(log n) (2.3)
+
+**Design.** MidiFile gets a lazily built cache over channel 17:
+`struct TempoAnchor { int tick; double msAtTick; double msPerTick; }` in a sorted
+`std::vector`, plus `_tempoCacheDirty`. Rebuild = ONE linear walk of channel 17 (fine:
+it happens once per mutation, not per query). `msOfTick(tick)` = upper_bound on tick;
+`tickOfMs(ms)` = upper_bound on msAtTick (both monotone). The existing slow path with the
+`events` list parameter stays untouched; only the fast path (no list) uses the cache.
+
+**The hard part is invalidation, not lookup.** Every channel-17 mutation must set dirty:
+* MidiChannel::insertEvent/removeEvent when number()==17 (grep ALL mutation sites incl.
+  toProtocol=false bulk paths - deleteMeasures/insertMeasures/paste/TempoConversionService
+  write there)
+* TempoChangeEvent::setBeats() - mutates BPM without touching the map
+* MidiEvent::setMidiTime() on a channel-17 event (a moved tempo event)
+* MidiFile::reloadState() (undo/redo restores channels wholesale) and the loader
+* Safety net: the rebuild stores channel(17)->eventMap()->size(); a size mismatch on
+  query forces a rebuild even if a site was missed (cheap, catches drift - but do NOT
+  rely on it alone: same-size mutations exist, e.g. setBeats)
+
+**Acceptance.** test_event_perf gains a pinned case: synthetic file with 12k tempo events
++ 5k notes; preparePlayerData() plus a 10k-call msOfTick sweep must run in well under a
+second (generous bound so CI never flakes, but the O(n^2) path would fail it by 100x).
+Correctness: a case comparing cached msOfTick()/tickOfMs() against the old linear result
+over random ticks on a dense ramp file, plus undo/redo of a tempo edit re-validating.
+Manual smoke with the real user file: Play starts instantly, drag-in smooth.
+
+**Risks.** A stale cache means wrong note positions and playback timing - worse than
+slow. That is why the plan pins invalidation with tests around every mutation family and
+keeps the size safety-net. Keep the cache out of copies/snapshots (ProtocolEntry must not
+carry it - rebuild after reloadState instead).
+
+## Phase 49: Thin Tempo Map - the repair for tempo-ramp files (2.3)
+
+**Core.** A small service (own file, converter/ or midi/): reduce the channel-17 map so
+the TIMING stays true rather than the BPM list: walk the ramp and keep an event only when
+dropping it would push the accumulated ms-drift at any later kept anchor beyond a
+tolerance (default ~2 ms; a pure BPM-delta greedy accumulates drift and is NOT enough).
+Optionally merge runs into their time-weighted mean. Expected result on the trigger file:
+12,871 -> well under 100 events, audibly identical, end time preserved to <1 ms. One
+protocol action ("Thin tempo map: 12,871 -> N events"), the tick-0 anchor always kept
+(MidiChannel::removeEvent guard already protects it).
+
+**Surfaces** (per the wiring rules: BOTH tool registries, context menu at the spatial
+target, manual):
+1. Playability workbench: new check row "Tempo map" - finding "Tempo map: 12,871 events
+   (continuous ramp)" with the thin button as its repair; re-check after apply (the
+   finding/repair/re-check mechanic exists). MidiBard pays for every event too, so the
+   FFXIV framing is honest.
+2. Tools menu entry + the timeline/measure-ruler context menu if one exists (D2 rule:
+   reachable by right-click at the spatial target - tempo lives in the timeline).
+3. AI/MCP tool `thin_tempo_map` (agent + MCP parity, strict schema - every property in
+   required, optional via anyOf[type,null] - source-attributed protocol label via
+   protocolActorPrefix; NO FFXIV policy gate: it is a general tool).
+4. Import: no auto-thinning (never silently rewrite a loaded file); at most a status-bar
+   hint when a file loads with a tempo map above a threshold, pointing at the tool.
+
+**Acceptance.** Unit tests: ramp file thins under tolerance with end time preserved and
+note ms-positions within tolerance; idempotent (second run removes nothing); tick-0 kept;
+undo restores all events. Manual page (tempo-conversion.html section or the playability
+repair table) + help_db regen + CHANGELOG per the template (incl. Files Modified).
+
+## Phase 50: Provider profiles - named AI endpoint configurations (2.3)
+
+**Problem.** API keys are remembered per provider (`AI/api_key/<provider>`, switch logic
+in AiSettingsWidget.cpp:529-535 and the MidiPilotWidget footer), but "custom" is ONE slot:
+a single `AI/api_base_url` + `AI/api_key/custom`. Two custom endpoints (HF router + a
+local llama.cpp server) cannot coexist; every switch means retyping URL and key. File
+presets (.midipilot.json) deliberately store no URL/key, so they cannot express WHICH
+custom endpoint they meant.
+
+**Design.** Mirror the established PromptProfileStore pattern: a small non-UI
+`ProviderProfileStore` (src/ai/) managing named profiles
+`AI/providerProfiles/<name>/{provider, base_url, model}`; the API key stays in the
+settings scope alongside today's keys (`AI/api_key/profile:<name>` or equivalent - NEVER
+in file presets; portable-mode plaintext INI is the documented existing trade-off).
+Applying a profile is a macro over the existing four active keys (provider, base_url,
+api_key, model) - AiClient stays untouched, backward compatible: no profile selected =
+today's ad-hoc behaviour, and the current settings can be saved as a profile at any time.
+
+**UI - BOTH wiring sites per the parity rule:** AiSettingsWidget gets a profile combo +
+Save / Save as / Delete next to the provider row; the MidiPilotWidget footer gets a
+compact profile picker. Wording must clearly say "Provider profile" - the app already has
+"Prompt Profiles" (per-model system prompts), and the two must not be confusable in
+either UI or manual.
+
+**File presets:** a preset MAY additionally store the profile NAME (harmless, no secret);
+on load, a matching local profile is applied, otherwise the preset falls back to today's
+provider/model behaviour. Closes the "custom preset does not know its endpoint" gap for
+users who share presets between their own machines.
+
+**Acceptance.** New test target mirroring test_prompt_profiles: store round-trip
+(create/rename/delete/list), apply semantics against the active keys, interplay with the
+per-provider key memory (switching provider then back must not clobber a profile),
+preset-name fallback when the profile is missing. Manual: providers section of
+midipilot-settings.html (+ help_db regen), CHANGELOG per the template.
+
+## Further 2.3 candidates (carry-over, all LOW, decide at scoping)
+* startTickOfMeasure(): ceil() on integer division miscounts when a meter change is off
+  the bar grid (03_bugs.md, deferred - any fix changes bar numbering, wants its own pass)
+* Octet ledger leftovers: #7 analyze_voice_load tick args optional like auto_fit,
+  #8 create_track program, #9 save tool (conscious decision pending)
+* GL runtime smoke with hardware acceleration ON is still owner-side pending from the
+  2.2 GPU bug run (wheel over velocity lane, close during playback)
+* "MidiCreator" (working title, NO commitment, playground-first if ever): a separate
+  generator tab next to MidiPilot driven by MIDI-generation models (issue #16 -
+  HF Spaces midi-composer / Orpheus Music Transformer). Suno-like flow: genre/behaviour
+  prompt, voice/instrument count, generate N variants, import as tracks. Fundamentally
+  different from MidiPilot (models compose MIDI directly, low steerability) - keep it a
+  separate surface. Prerequisite fact, already verified: the HF router works TODAY as an
+  OpenAI-compatible provider via the Custom provider (base URL
+  https://router.huggingface.co/v1, token with Inference permission; chat, streaming and
+  tool calling all pass) - document in the manual, independent of any generator work.
+  Update from the issue thread: the Orpheus collection also covers EDITING, INPAINTING,
+  morphing and humanizing (not only from-scratch generation), so the more editor-shaped
+  entry point would be "regenerate selection with model" on top of our Selection - still
+  playground. All Gradio Spaces are callable remotely without auth (free tier: cold
+  starts, shared GPU queues - fine for a spike, not for a stable feature). His fork
+  github.com/asigalov61/midi-gen (standalone "MIDI Generator Piano Roll", PySide) shows
+  the intended UX; UI reference only.
+
