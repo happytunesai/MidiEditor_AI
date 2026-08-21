@@ -15,30 +15,32 @@ std::unique_ptr<QSettings> settings()
     return AppPaths::settings();
 }
 
-QString settingsKey(const QString &provider)
+// The scope is an opaque string here (see the class comment): a provider id,
+// or "custom:profile:<id>" for a stored custom endpoint.
+QString settingsKey(const QString &scope)
 {
-    return QStringLiteral("AI/favorites/") + provider;
+    return QStringLiteral("AI/favorites/") + scope;
 }
 } // namespace
 
-QSet<QString> ModelFavorites::favorites(const QString &provider)
+QSet<QString> ModelFavorites::favorites(const QString &scope)
 {
     const QStringList list =
-        settings()->value(settingsKey(provider)).toStringList();
+        settings()->value(settingsKey(scope)).toStringList();
     return QSet<QString>(list.cbegin(), list.cend());
 }
 
-void ModelFavorites::setFavorites(const QString &provider, const QStringList &ids)
+void ModelFavorites::setFavorites(const QString &scope, const QStringList &ids)
 {
     if (ids.isEmpty())
-        settings()->remove(settingsKey(provider));
+        settings()->remove(settingsKey(scope));
     else
-        settings()->setValue(settingsKey(provider), ids);
+        settings()->setValue(settingsKey(scope), ids);
 }
 
-bool ModelFavorites::hasFavorites(const QString &provider)
+bool ModelFavorites::hasFavorites(const QString &scope)
 {
-    return !favorites(provider).isEmpty();
+    return !favorites(scope).isEmpty();
 }
 
 bool ModelFavorites::isLikelyChatModel(const QString &modelId)
@@ -65,10 +67,10 @@ bool ModelFavorites::isLikelyChatModel(const QString &modelId)
     return true;
 }
 
-QJsonArray ModelFavorites::visibleModels(const QString &provider,
+QJsonArray ModelFavorites::visibleModels(const QString &scope,
                                          const QJsonArray &cached)
 {
-    const QSet<QString> favs = favorites(provider);
+    const QSet<QString> favs = favorites(scope);
     const bool useFavs = !favs.isEmpty();
 
     QJsonArray out;

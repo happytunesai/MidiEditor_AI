@@ -125,7 +125,7 @@ Configure your AI connection from <b>Settings &rarr; MidiPilot AI</b>. Select a 
 <tr><td><b>API Key</b></td><td>Your provider API key - get one from <a href="https://platform.openai.com/settings/organization/api-keys" target="_blank" rel="noopener noreferrer">OpenAI</a>, <a href="https://openrouter.ai/settings/keys" target="_blank" rel="noopener noreferrer">OpenRouter</a>, or <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Google Gemini</a>. Not needed for <a href="#ollama">Ollama (local)</a>.</td></tr>
 <tr><td><b>Model</b></td><td>Editable dropdown populated from the active provider's cached model list. If no cache exists, MidiPilot falls back to a small built-in starter list.</td></tr>
 <tr><td><b>Refresh Models</b></td><td>Fetches the live provider model list from <code>/models</code>, normalizes provider-specific fields, filters obvious non-chat models, and stores the result in <code>&lt;userdata&gt;/midipilot_models.json</code>.</td></tr>
-<tr><td><b>Manage favourites&hellip;</b></td><td>Pick the models that should stay visible per provider. If no favourites are selected, all cached chat-capable models are shown.</td></tr>
+<tr><td><b>Manage favourites&hellip;</b></td><td>Pick the models that should stay visible per provider, and per <a href="#provider-profiles">custom provider profile</a>. If no favourites are selected, all cached chat-capable models are shown.</td></tr>
 <tr><td><b>Force Streaming for This Model</b></td><td>Appears when the selected provider/model failed streaming during the current app session. Clears the temporary warning so the next request tries live streaming again.</td></tr>
 <tr><td><b>Token Limit</b></td><td>Optional cap on output tokens to control costs</td></tr>
 <tr><td><b>Thinking</b></td><td>Enable reasoning for o-series and GPT-5.x models</td></tr>
@@ -203,6 +203,14 @@ Both pickers show a profile name only while the connection still matches it. Cha
 the URL, the key or the model afterwards and the picker returns to <b>(No profile)</b> - the
 settings then behave exactly as they always did, unsaved and ad-hoc, and the profile keeps the
 values it was saved with. Use <b>Save as&hellip;</b> with the same name to update it.
+</p>
+
+<p>
+Each <b>Custom</b> profile keeps its own model list and its own favourites: <b>Manage
+favourites&hellip;</b> shows one tab per custom profile next to the provider tabs, and its
+<b>Refresh from endpoint</b> button fetches that profile's model list without changing the
+connection MidiPilot is currently using. Profiles of a built-in provider share that provider's tab,
+because they talk to the same catalogue.
 </p>
 
 <p>

@@ -41,8 +41,8 @@ private slots:
     void onProviderChanged(int index);
     void onEditSystemPrompts();
     void onRefreshModels();
-    void onModelsFetched(const QString &provider, const QJsonArray &models);
-    void onModelsFetchFailed(const QString &provider, const QString &error);
+    void onModelsFetched(const QString &scope, const QJsonArray &models);
+    void onModelsFetchFailed(const QString &scope, const QString &error);
     void onForceStreamingForCurrentModel();
     void updateMcpStatus();
 
@@ -60,6 +60,11 @@ private:
     /** Model id of the current selection (item data, falling back to the
      *  typed text) - the value \ref accept writes to AI/model. */
     QString currentModelId() const;
+    /** Favourites / model-cache scope for \a provider given the endpoint
+     *  currently typed into the fields (which may not be saved yet). For the
+     *  Custom provider this is the active profile's scope, so every custom
+     *  endpoint keeps its own model list. */
+    QString modelScopeFor(const QString &provider) const;
     /** Refill the provider-profile combo; selects \a selectName when given. */
     void populateProviderProfiles(const QString &selectName = QString());
     /** Show the profile whose stored settings the visible fields still match,

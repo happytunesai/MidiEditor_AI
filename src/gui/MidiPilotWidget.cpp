@@ -988,8 +988,12 @@ void MidiPilotWidget::populateFooterModels() {
     // Phase 26: prefer cached entries from <userdata>/midipilot_models.json
     // Phase 26.1: ModelFavorites filters non-LLM models out and, if the user
     // has selected favourites, restricts the visible set to those.
-    QJsonArray cached = ModelListCache::models(provider);
-    QJsonArray visible = ModelFavorites::visibleModels(provider, cached);
+    // Phase 50 follow-up: keyed by endpoint scope, so the footer follows the
+    // active custom provider profile instead of one shared "custom" bucket.
+    const QString scope = ProviderProfileStore::modelScopeId(
+        provider, _client->apiBaseUrl(), _client->apiKey());
+    QJsonArray cached = ModelListCache::models(scope);
+    QJsonArray visible = ModelFavorites::visibleModels(scope, cached);
     if (!visible.isEmpty()) {
         for (const QJsonValue &v : visible) {
             QJsonObject m = v.toObject();
@@ -1051,16 +1055,20 @@ void MidiPilotWidget::onRefreshModels()
             this, &MidiPilotWidget::onModelsFetched);
     connect(fetcher, &ModelListFetcher::failed,
             this, &MidiPilotWidget::onModelsFetchFailed);
-    fetcher->fetch(provider, apiKey, baseUrl);
+    // File the result under the active endpoint's scope, not the bare provider.
+    fetcher->fetch(provider, apiKey, baseUrl,
+                   ProviderProfileStore::modelScopeId(provider, baseUrl, apiKey));
 }
 
-void MidiPilotWidget::onModelsFetched(const QString &provider, const QJsonArray &models)
+void MidiPilotWidget::onModelsFetched(const QString &scope, const QJsonArray &models)
 {
-    ModelListCache::store(provider, models);
+    ModelListCache::store(scope, models);
     if (_refreshModelsButton)
         _refreshModelsButton->setEnabled(true);
 
-    if (_client->provider() == provider) {
+    const QString activeScope = ProviderProfileStore::modelScopeId(
+        _client->provider(), _client->apiBaseUrl(), _client->apiKey());
+    if (activeScope == scope) {
         // Preserve the selected model id (currentData), not the label text —
         // the label now carries a size badge, so matching on text would fail.
         QString currentId = _modelCombo->currentData().toString();
@@ -1071,9 +1079,9 @@ void MidiPilotWidget::onModelsFetched(const QString &provider, const QJsonArray 
     setStatus(tr("Models updated (%1 entries)").arg(models.size()), "green");
 }
 
-void MidiPilotWidget::onModelsFetchFailed(const QString &provider, const QString &error)
+void MidiPilotWidget::onModelsFetchFailed(const QString &scope, const QString &error)
 {
-    Q_UNUSED(provider);
+    Q_UNUSED(scope);
     if (_refreshModelsButton)
         _refreshModelsButton->setEnabled(true);
     setStatus(tr("Model refresh failed: %1").arg(error), "red");

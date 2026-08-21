@@ -358,6 +358,127 @@ private slots:
                  QStringLiteral("openai-key"));
     }
 
+    // --- 6. model-list / favourites scope ---------------------------------
+    //
+    // Favourites (AI/favorites/<scope>) and the cached model list hang off the
+    // ENDPOINT, so two custom profiles never share a model list. Only "custom"
+    // is split - the built-in providers keep one scope each.
+
+    void modelScopeIsThePlainProviderForBuiltInProviders() {
+        QCOMPARE(ProviderProfileStore::modelScopeId(
+                     QStringLiteral("openai"),
+                     QStringLiteral("https://api.openai.com/v1"),
+                     QStringLiteral("openai-key")),
+                 QStringLiteral("openai"));
+
+        // A stored OpenAI profile shares the provider scope on purpose: same
+        // provider, same catalogue.
+        QVERIFY(ProviderProfileStore::save(
+            makeProfile(QStringLiteral("Work"), QStringLiteral("openai"),
+                        QStringLiteral("https://api.openai.com/v1"),
+                        QStringLiteral("gpt-4o")),
+            QStringLiteral("openai-key")));
+        QCOMPARE(ProviderProfileStore::modelScopeId(
+                     QStringLiteral("openai"),
+                     QStringLiteral("https://api.openai.com/v1"),
+                     QStringLiteral("openai-key")),
+                 QStringLiteral("openai"));
+        QCOMPARE(ProviderProfileStore::modelScopeIdForProfile(QStringLiteral("Work")),
+                 QStringLiteral("openai"));
+    }
+
+    void modelScopeStaysAdHocCustomWithoutAMatchingProfile() {
+        // Nothing stored at all - the pre-profile scope, so existing
+        // AI/favorites/custom entries keep working untouched.
+        QCOMPARE(ProviderProfileStore::modelScopeId(
+                     QStringLiteral("custom"),
+                     QStringLiteral("https://router.example/v1"),
+                     QStringLiteral("hf-token")),
+                 QStringLiteral("custom"));
+
+        QVERIFY(ProviderProfileStore::save(
+            makeProfile(QStringLiteral("HF Router"), QStringLiteral("custom"),
+                        QStringLiteral("https://router.example/v1"),
+                        QStringLiteral("a/model")),
+            QStringLiteral("hf-token")));
+
+        // A different key or a different URL is a different endpoint.
+        QCOMPARE(ProviderProfileStore::modelScopeId(
+                     QStringLiteral("custom"),
+                     QStringLiteral("https://router.example/v1"),
+                     QStringLiteral("other-token")),
+                 QStringLiteral("custom"));
+        QCOMPARE(ProviderProfileStore::modelScopeId(
+                     QStringLiteral("custom"),
+                     QStringLiteral("https://elsewhere.example/v1"),
+                     QStringLiteral("hf-token")),
+                 QStringLiteral("custom"));
+        // An unknown profile has no scope.
+        QVERIFY(ProviderProfileStore::modelScopeIdForProfile(
+                    QStringLiteral("Not here")).isEmpty());
+    }
+
+    void modelScopeFollowsTheActiveCustomProfile() {
+        QVERIFY(ProviderProfileStore::save(
+            makeProfile(QStringLiteral("HF"), QStringLiteral("custom"),
+                        QStringLiteral("https://router.example/v1"),
+                        QStringLiteral("a/model")),
+            QStringLiteral("hf-token")));
+        QVERIFY(ProviderProfileStore::save(
+            makeProfile(QStringLiteral("Local llama"), QStringLiteral("custom"),
+                        QStringLiteral("http://localhost:8080/v1"),
+                        QStringLiteral("b-model")),
+            QStringLiteral("local-token")));
+
+        const QString hfScope =
+            ProviderProfileStore::modelScopeIdForProfile(QStringLiteral("HF"));
+        const QString localScope =
+            ProviderProfileStore::modelScopeIdForProfile(QStringLiteral("Local llama"));
+        QCOMPARE(hfScope, QStringLiteral("custom:profile:HF"));
+        QCOMPARE(localScope, QStringLiteral("custom:profile:Local llama"));
+        QVERIFY(hfScope != localScope);
+
+        QVERIFY(ProviderProfileStore::apply(QStringLiteral("HF")));
+        QCOMPARE(ProviderProfileStore::activeModelScopeId(), hfScope);
+        QVERIFY(ProviderProfileStore::apply(QStringLiteral("Local llama")));
+        QCOMPARE(ProviderProfileStore::activeModelScopeId(), localScope);
+
+        // Back to a built-in provider: the provider alone decides the scope.
+        simulateProviderSwitch(QStringLiteral("custom"), QStringLiteral("openai"));
+        QCOMPARE(ProviderProfileStore::activeModelScopeId(),
+                 QStringLiteral("openai"));
+    }
+
+    void modelScopeIgnoresTheSelectedModel() {
+        // The scope is the endpoint. Picking another model must not move the
+        // user to a different favourites bucket mid-edit, even though the
+        // profile *name* honestly falls back to ad-hoc.
+        QVERIFY(ProviderProfileStore::save(
+            makeProfile(QStringLiteral("HF"), QStringLiteral("custom"),
+                        QStringLiteral("https://router.example/v1"),
+                        QStringLiteral("a/model")),
+            QStringLiteral("hf-token")));
+        QVERIFY(ProviderProfileStore::apply(QStringLiteral("HF")));
+
+        AppPaths::settings()->setValue(QStringLiteral("AI/model"),
+                                       QStringLiteral("another/model"));
+        QVERIFY(ProviderProfileStore::activeProfileName().isEmpty());
+        QCOMPARE(ProviderProfileStore::activeModelScopeId(),
+                 QStringLiteral("custom:profile:HF"));
+    }
+
+    void modelScopeOfAnEncodedNameCarriesNoGroupSeparator() {
+        // '/' would fan the favourites key out into nested settings groups.
+        QVERIFY(ProviderProfileStore::save(
+            makeProfile(QStringLiteral("HF / local"), QStringLiteral("custom"),
+                        QStringLiteral("http://host/v1"), QString()),
+            QStringLiteral("k")));
+        const QString scope =
+            ProviderProfileStore::modelScopeIdForProfile(QStringLiteral("HF / local"));
+        QCOMPARE(scope, QStringLiteral("custom:profile:HF %2F local"));
+        QVERIFY(!scope.contains(QLatin1Char('/')));
+    }
+
     void nameMatchingReportsAdHocConfigurations() {
         QVERIFY(ProviderProfileStore::save(
             makeProfile(QStringLiteral("HF Router"), QStringLiteral("custom"),

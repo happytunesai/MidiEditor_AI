@@ -25,8 +25,10 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 * **Provider profiles** - save several AI endpoints (provider, base URL, API key and model) under a name and switch between them with one click. Two custom endpoints such as a Hugging Face router and a local OpenAI-compatible server can finally coexist instead of overwriting the single custom slot.
 * Provider profiles are reachable from both places the connection is configured: a **Provider profile** row with **Save as...** and **Delete** in Settings -> MidiPilot AI, and a compact picker in the MidiPilot footer next to the provider dropdown (plus **Save connection as provider profile...** in the footer gear menu).
 * Per-file AI presets can name a provider profile. Only the name travels in the `.midipilot.json` sidecar - never a URL or an API key - so the same preset reconnects to the right endpoint on a machine that has that profile and falls back to its stored provider and model everywhere else.
+* **Per-endpoint model favourites** - every custom provider profile gets its own tab in **Manage favourites**, its own remembered model list and its own favourites, so two custom endpoints no longer share one list. A **Refresh from endpoint** button fetches a profile's models without switching the active connection. Profiles of a built-in provider keep sharing that provider's tab.
 
 ### Changed
+* Saving Manage favourites while a provider's model list was not loaded no longer wipes that provider's stored favourites.
 * Opening Settings -> MidiPilot AI no longer replaces the selected model with the first entry of the provider's model list; the configured model stays selected.
 * **Timing lookups no longer scale with the size of the tempo map** - note positions, the grid, the measure display, the time cursor and the preparation before playback all resolve their tick/millisecond conversions instantly, so opening and editing a file with a very long tempo map feels the same as any other file.
 

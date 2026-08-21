@@ -23,6 +23,10 @@
  *   AI/provider_profile_active            last applied profile name (a hint,
  *                                         see activeProfileName())
  *
+ * Model-list scope (\ref modelScopeId): favourites (AI/favorites/<scope>) and
+ * the cached model list are keyed per endpoint, not per provider, so two
+ * Custom profiles pointing at different servers keep their own lists.
+ *
  * <id> is the display name percent-encoded (\ref encodeName): '/' is the
  * QSettings group separator, so a raw name would silently fan out into
  * nested groups ("HF / local" -> three levels) and could never be found
@@ -83,6 +87,47 @@ public:
     static bool matches(const QString &name, const QString &provider,
                         const QString &baseUrl, const QString &model,
                         const QString &apiKey);
+
+    /// True when the stored profile \a name describes this ENDPOINT - provider,
+    /// base URL and key - whatever model it was saved with. This is the
+    /// identity that model lists and favourites hang off: picking another model
+    /// does not move you to a different server.
+    static bool matchesEndpoint(const QString &name, const QString &provider,
+                                const QString &baseUrl, const QString &apiKey);
+
+    /// \ref nameMatching for the endpoint alone (model ignored).
+    static QString nameMatchingEndpoint(const QString &provider,
+                                        const QString &baseUrl,
+                                        const QString &apiKey);
+
+    // --- model-list / favourites scope -----------------------------------
+    //
+    // Favourites live at AI/favorites/<scope> and the cached model list at the
+    // same key inside midipilot_models.json. The scope is:
+    //
+    //   "<provider>"                 for openai / openrouter / gemini / ollama
+    //                                and for ad-hoc Custom settings
+    //   "custom:profile:<id>"        while a stored CUSTOM profile describes
+    //                                the endpoint (<id> = \ref encodeName)
+    //
+    // Only Custom is split per profile, because only Custom changes which
+    // server answers /models. An OpenAI or Gemini profile talks to the same
+    // catalogue as every other profile of that provider and therefore shares
+    // the plain provider scope on purpose. Ad-hoc Custom settings keep the
+    // plain "custom" scope, so favourites saved before profiles existed stay
+    // exactly where they were.
+
+    /// Scope for an explicit endpoint (the settings page passes its unsaved
+    /// fields, the chat footer the live client values).
+    static QString modelScopeId(const QString &provider, const QString &baseUrl,
+                                const QString &apiKey);
+
+    /// \ref modelScopeId for the currently stored connection settings.
+    static QString activeModelScopeId();
+
+    /// The scope a stored profile owns. Empty when no such profile exists;
+    /// the provider itself for non-custom profiles (they share it).
+    static QString modelScopeIdForProfile(const QString &name);
 
     /// Remember/forget the last applied profile (a hint for activeProfileName()).
     static void setActiveProfileHint(const QString &name);

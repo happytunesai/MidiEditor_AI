@@ -9,12 +9,21 @@
 /**
  * \class ModelFavorites
  *
- * \brief Per-provider favourite-model selection + non-LLM model filter.
+ * \brief Per-scope favourite-model selection + non-LLM model filter.
  *
- * Favourites are stored in QSettings under \c "AI/favorites/<provider>" as a
- * QStringList of model ids. If a provider has at least one favourite, only
+ * Favourites are stored in QSettings under \c "AI/favorites/<scope>" as a
+ * QStringList of model ids. If a scope has at least one favourite, only
  * those are surfaced in the model dropdowns. If none are set, all models from
  * the cache that survive \ref isLikelyChatModel() are shown.
+ *
+ * A \e scope is a provider id ("openai", "gemini", ...) for the built-in
+ * providers and for ad-hoc Custom settings, or \c "custom:profile:<id>" while
+ * a stored Custom provider profile describes the endpoint. Callers resolve it
+ * with ProviderProfileStore::modelScopeId(); this class only ever sees the
+ * resulting string, which is why it carries no dependency on the profile
+ * store. Two Custom endpoints therefore never share favourites, and
+ * favourites written before profiles existed stay under the plain "custom"
+ * scope.
  *
  * \ref isLikelyChatModel() is a defensive heuristic that drops obvious
  * non-text-generation models (image, video, audio, embedding, moderation,
@@ -24,14 +33,14 @@
  */
 class ModelFavorites {
 public:
-    /** Returns the set of favourite model ids for the given provider. */
-    static QSet<QString> favorites(const QString &provider);
+    /** Returns the set of favourite model ids for the given scope. */
+    static QSet<QString> favorites(const QString &scope);
 
-    /** Replaces the favourite set for the given provider. */
-    static void setFavorites(const QString &provider, const QStringList &ids);
+    /** Replaces the favourite set for the given scope. */
+    static void setFavorites(const QString &scope, const QStringList &ids);
 
-    /** True if the provider has any favourites set. */
-    static bool hasFavorites(const QString &provider);
+    /** True if the scope has any favourites set. */
+    static bool hasFavorites(const QString &scope);
 
     /**
      * \brief Heuristic: returns true if the entry looks like a text/chat LLM.
@@ -47,7 +56,7 @@ public:
      * \brief Filters the cache array down to chat models, optionally further
      *        restricted to favourites if any are set.
      */
-    static QJsonArray visibleModels(const QString &provider,
+    static QJsonArray visibleModels(const QString &scope,
                                     const QJsonArray &cached);
 };
 

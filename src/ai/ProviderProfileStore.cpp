@@ -20,6 +20,11 @@ constexpr const char *kActiveModel    = "AI/model";
 
 constexpr int kMaxNameLength = 64;
 
+// The only provider whose endpoint (and therefore model list) is user-defined.
+constexpr const char *kCustomProvider = "custom";
+// Scope prefix for a custom profile's favourites / cached model list.
+constexpr const char *kCustomScopePrefix = "custom:profile:";
+
 // Phase 45 / PORTABLE-SPLIT-001: everything through AppPaths, so portable
 // installs and tests see one store instead of one per backend.
 std::unique_ptr<QSettings> settings()
@@ -210,9 +215,10 @@ bool ProviderProfileStore::apply(const QString &name, QString *error)
     return true;
 }
 
-bool ProviderProfileStore::matches(const QString &name, const QString &provider,
-                                   const QString &baseUrl, const QString &model,
-                                   const QString &apiKey)
+bool ProviderProfileStore::matchesEndpoint(const QString &name,
+                                           const QString &provider,
+                                           const QString &baseUrl,
+                                           const QString &apiKey)
 {
     bool ok = false;
     const Profile p = load(name, &ok);
@@ -222,10 +228,19 @@ bool ProviderProfileStore::matches(const QString &name, const QString &provider,
         return false;
     if (!sameUrl(p.baseUrl, baseUrl))
         return false;
-    // A profile without a model pins only the endpoint.
-    if (!p.model.isEmpty() && p.model != model.trimmed())
-        return false;
     return apiKeyFor(name) == apiKey;
+}
+
+bool ProviderProfileStore::matches(const QString &name, const QString &provider,
+                                   const QString &baseUrl, const QString &model,
+                                   const QString &apiKey)
+{
+    if (!matchesEndpoint(name, provider, baseUrl, apiKey))
+        return false;
+    bool ok = false;
+    const Profile p = load(name, &ok);
+    // A profile without a model pins only the endpoint.
+    return ok && (p.model.isEmpty() || p.model == model.trimmed());
 }
 
 QString ProviderProfileStore::nameMatching(const QString &provider,
@@ -249,6 +264,68 @@ QString ProviderProfileStore::nameMatching(const QString &provider,
             return n;
     }
     return QString();
+}
+
+QString ProviderProfileStore::nameMatchingEndpoint(const QString &provider,
+                                                   const QString &baseUrl,
+                                                   const QString &apiKey)
+{
+    if (provider.trimmed().isEmpty())
+        return QString();
+
+    // Same order as nameMatching(): the hint first, so two profiles sharing an
+    // endpoint resolve to the one that was actually applied.
+    const QString hint = settings()
+                             ->value(QString::fromLatin1(kActiveHint))
+                             .toString();
+    if (!hint.isEmpty() && matchesEndpoint(hint, provider, baseUrl, apiKey))
+        return normalizeName(hint);
+
+    const QStringList all = profileNames();
+    for (const QString &n : all) {
+        if (matchesEndpoint(n, provider, baseUrl, apiKey))
+            return n;
+    }
+    return QString();
+}
+
+QString ProviderProfileStore::modelScopeId(const QString &provider,
+                                           const QString &baseUrl,
+                                           const QString &apiKey)
+{
+    const QString prov = provider.trimmed();
+    if (prov.compare(QLatin1String(kCustomProvider), Qt::CaseInsensitive) != 0)
+        return prov;
+
+    const QString name = nameMatchingEndpoint(prov, baseUrl, apiKey);
+    if (name.isEmpty())
+        return QString::fromLatin1(kCustomProvider);  // ad-hoc: pre-profile scope
+    const QString id = encodeName(name);
+    if (id.isEmpty())
+        return QString::fromLatin1(kCustomProvider);
+    return QString::fromLatin1(kCustomScopePrefix) + id;
+}
+
+QString ProviderProfileStore::activeModelScopeId()
+{
+    auto s = settings();
+    return modelScopeId(s->value(QString::fromLatin1(kActiveProvider)).toString(),
+                        s->value(QString::fromLatin1(kActiveBaseUrl)).toString(),
+                        s->value(QString::fromLatin1(kActiveApiKey)).toString());
+}
+
+QString ProviderProfileStore::modelScopeIdForProfile(const QString &name)
+{
+    bool ok = false;
+    const Profile p = load(name, &ok);
+    if (!ok)
+        return QString();
+    if (p.provider.compare(QLatin1String(kCustomProvider), Qt::CaseInsensitive) != 0)
+        return p.provider;  // shares the provider-wide scope by design
+    const QString id = encodeName(p.name);
+    if (id.isEmpty())
+        return QString();
+    return QString::fromLatin1(kCustomScopePrefix) + id;
 }
 
 QString ProviderProfileStore::activeProfileName()

@@ -17,9 +17,12 @@ ModelListFetcher::ModelListFetcher(QObject *parent)
 
 void ModelListFetcher::fetch(const QString &provider,
                              const QString &apiKey,
-                             const QString &baseUrl)
+                             const QString &baseUrl,
+                             const QString &scope)
 {
     _provider = provider;
+    // Default scope = the provider, i.e. exactly the pre-profile behaviour.
+    _scope = scope.isEmpty() ? provider : scope;
 
     QUrl url;
     QNetworkRequest req;
@@ -57,7 +60,7 @@ void ModelListFetcher::fetch(const QString &provider,
     } else { // custom
         QString b = baseUrl.trimmed();
         if (b.isEmpty()) {
-            emit failed(provider, tr("No base URL configured for Custom provider"));
+            emit failed(_scope, tr("No base URL configured for Custom provider"));
             deleteLater();
             return;
         }
@@ -90,19 +93,19 @@ void ModelListFetcher::onReplyFinished()
     _reply = nullptr;
 
     if (netErr != QNetworkReply::NoError) {
-        emit failed(_provider, tr("Network error: %1").arg(netErrStr));
+        emit failed(_scope, tr("Network error: %1").arg(netErrStr));
         deleteLater();
         return;
     }
     if (httpStatus >= 400) {
-        emit failed(_provider, tr("HTTP %1: %2").arg(httpStatus).arg(QString::fromUtf8(body.left(200))));
+        emit failed(_scope, tr("HTTP %1: %2").arg(httpStatus).arg(QString::fromUtf8(body.left(200))));
         deleteLater();
         return;
     }
 
     QJsonDocument doc = QJsonDocument::fromJson(body);
     if (!doc.isObject()) {
-        emit failed(_provider, tr("Invalid JSON response"));
+        emit failed(_scope, tr("Invalid JSON response"));
         deleteLater();
         return;
     }
@@ -129,12 +132,12 @@ void ModelListFetcher::onReplyFinished()
         normalised = normaliseCustom(rawArr);
 
     if (normalised.isEmpty()) {
-        emit failed(_provider, tr("No usable chat models in response"));
+        emit failed(_scope, tr("No usable chat models in response"));
         deleteLater();
         return;
     }
 
-    emit finished(_provider, normalised);
+    emit finished(_scope, normalised);
     deleteLater();
 }
 

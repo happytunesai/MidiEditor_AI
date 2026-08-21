@@ -209,8 +209,8 @@ private slots:
     void onStreamDelta(const QString &text);
     void onStreamFinished(const QString &fullContent, const QJsonObject &fullResponse);
     void onRefreshModels();
-    void onModelsFetched(const QString &provider, const QJsonArray &models);
-    void onModelsFetchFailed(const QString &provider, const QString &error);
+    void onModelsFetched(const QString &scope, const QJsonArray &models);
+    void onModelsFetchFailed(const QString &scope, const QString &error);
 
 private:
     struct ConversationEntry {

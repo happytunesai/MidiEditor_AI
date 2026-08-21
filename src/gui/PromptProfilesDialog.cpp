@@ -270,6 +270,11 @@ void PromptProfilesDialog::populateModelTree()
         star->setData(0, kModelIdRole, starPattern);
         star->setData(0, kIsWildcardRole, true);
 
+        // Deliberately the plain provider scope, not the endpoint scope used
+        // for favourites: a prompt-profile binding is a "provider:model"
+        // pattern and applies to that model wherever it is served from. This
+        // tree only offers candidate ids, so listing the provider's cache is
+        // the right source even when a custom profile is active.
         const QJsonArray cached = ModelListCache::models(provider);
         QStringList added;
         for (const QJsonValue &v : cached) {

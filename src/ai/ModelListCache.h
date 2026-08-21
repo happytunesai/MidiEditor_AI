@@ -11,11 +11,17 @@
  *
  * \brief On-disk cache of provider model lists.
  *
- * Stores per-provider model lists (id, display name, context window, capability
+ * Stores per-scope model lists (id, display name, context window, capability
  * flags) in a single JSON file under the application data directory
  * (\c "<userdata>/midipilot_models.json"). Used by AiSettingsWidget,
  * MidiPilotWidget and AiClient::contextWindowForModel to avoid hardcoded
  * model lists.
+ *
+ * The \c provider argument below is really a \e scope key: a provider id for
+ * the built-in providers, or \c "custom:profile:<id>" for a stored Custom
+ * provider profile, so two custom endpoints keep separate model lists. Callers
+ * resolve it with ProviderProfileStore::modelScopeId(); the cache itself
+ * treats the key as opaque. \ref contextWindowFor searches every scope.
  *
  * Schema per entry (each object inside the \c "models" array):
  * \code

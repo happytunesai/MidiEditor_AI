@@ -686,8 +686,11 @@ void AiSettingsWidget::populateModelsForProvider(const QString &provider) {
     // Phase 26: prefer cached entries from <userdata>/midipilot_models.json
     // Phase 26.1: filter via ModelFavorites (drops non-LLM models, restricts
     // to favourites if any are set).
-    QJsonArray cached = ModelListCache::models(provider);
-    QJsonArray visible = ModelFavorites::visibleModels(provider, cached);
+    // Phase 50 follow-up: both are keyed by scope, so a custom profile shows
+    // its own endpoint's models and its own favourites.
+    const QString scope = modelScopeFor(provider);
+    QJsonArray cached = ModelListCache::models(scope);
+    QJsonArray visible = ModelFavorites::visibleModels(scope, cached);
     if (!visible.isEmpty()) {
         for (const QJsonValue &v : visible) {
             QJsonObject m = v.toObject();
@@ -787,7 +790,8 @@ void AiSettingsWidget::updateModelsStatusLabel(const QString &provider)
 {
     if (!_modelsStatusLabel)
         return;
-    QDateTime ts = ModelListCache::lastFetched(provider);
+    const QString scope = modelScopeFor(provider);
+    QDateTime ts = ModelListCache::lastFetched(scope);
     if (!ts.isValid()) {
         _modelsStatusLabel->setText(tr("Models: built-in list (click \xF0\x9F\x94\x84 to fetch from provider)"));
         return;
@@ -797,7 +801,7 @@ void AiSettingsWidget::updateModelsStatusLabel(const QString &provider)
     if (days <= 0) rel = tr("today");
     else if (days == 1) rel = tr("yesterday");
     else rel = tr("%1 days ago").arg(days);
-    QString staleHint = ModelListCache::isStale(provider) ? tr(" — refresh recommended") : QString();
+    QString staleHint = ModelListCache::isStale(scope) ? tr(" — refresh recommended") : QString();
     _modelsStatusLabel->setText(tr("Models updated %1%2").arg(rel, staleHint));
 }
 
@@ -815,16 +819,20 @@ void AiSettingsWidget::onRefreshModels()
             this, &AiSettingsWidget::onModelsFetched);
     connect(fetcher, &ModelListFetcher::failed,
             this, &AiSettingsWidget::onModelsFetchFailed);
-    fetcher->fetch(provider, apiKey, baseUrl);
+    // The result is filed under the scope of the endpoint in the fields, not
+    // under the bare provider - two custom endpoints must not overwrite each
+    // other's cached list.
+    fetcher->fetch(provider, apiKey, baseUrl, modelScopeFor(provider));
 }
 
-void AiSettingsWidget::onModelsFetched(const QString &provider, const QJsonArray &models)
+void AiSettingsWidget::onModelsFetched(const QString &scope, const QJsonArray &models)
 {
-    ModelListCache::store(provider, models);
+    ModelListCache::store(scope, models);
     _refreshModelsButton->setEnabled(true);
 
-    QString activeProvider = _providerCombo->currentData().toString();
-    if (activeProvider == provider) {
+    const QString provider = _providerCombo->currentData().toString();
+    // Only refill when the fields still describe the endpoint we fetched for.
+    if (modelScopeFor(provider) == scope) {
         QString currentText = _modelCombo->currentText();
         populateModelsForProvider(provider);
         int idx = _modelCombo->findData(currentText);
@@ -836,9 +844,9 @@ void AiSettingsWidget::onModelsFetched(const QString &provider, const QJsonArray
     }
 }
 
-void AiSettingsWidget::onModelsFetchFailed(const QString &provider, const QString &error)
+void AiSettingsWidget::onModelsFetchFailed(const QString &scope, const QString &error)
 {
-    Q_UNUSED(provider);
+    Q_UNUSED(scope);
     _refreshModelsButton->setEnabled(true);
     _modelsStatusLabel->setText(tr("Refresh failed: %1").arg(error));
 }
@@ -849,6 +857,16 @@ QString AiSettingsWidget::currentModelId() const
     if (model.isEmpty())
         model = _modelCombo->currentText().trimmed();
     return model;
+}
+
+QString AiSettingsWidget::modelScopeFor(const QString &provider) const
+{
+    // Deliberately endpoint-based (provider + base URL + key) and independent
+    // of the selected model: picking another model in the combo must not move
+    // the user to a different favourites/cache scope mid-edit.
+    return ProviderProfileStore::modelScopeId(provider,
+                                              _baseUrlEdit->text().trimmed(),
+                                              _apiKeyEdit->text().trimmed());
 }
 
 void AiSettingsWidget::populateProviderProfiles(const QString &selectName)
@@ -931,12 +949,19 @@ void AiSettingsWidget::onProviderProfileSelected(int /*index*/)
         _providerCombo->setCurrentIndex(provIdx);   // resets URL/key/model list
     _baseUrlEdit->setText(p.baseUrl);
     _apiKeyEdit->setText(ProviderProfileStore::apiKeyFor(name));
+    // The provider switch above filled the model list from the OLD endpoint -
+    // the URL and key only became this profile's a line ago. Refill now that
+    // all three fields agree, so the combo shows this endpoint's cached models
+    // and this endpoint's favourites.
+    populateModelsForProvider(p.provider);
     if (!p.model.isEmpty()) {
         int mIdx = _modelCombo->findData(p.model);
         if (mIdx >= 0)
             _modelCombo->setCurrentIndex(mIdx);
         else
             _modelCombo->setEditText(p.model);
+    } else if (_modelCombo->count() > 0) {
+        _modelCombo->setCurrentIndex(0);
     }
     _applyingProviderProfile = false;
 
