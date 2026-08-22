@@ -100,7 +100,7 @@ documents closes it.</p>
 </div>
 
 <div class="screenshot-single">
-<a href="screenshots/ffxiv-playability_workbench.png" class="lightbox-link"><img src="screenshots/ffxiv-playability_workbench.png" class="lightbox-thumb" alt="The Check FFXIV Playability window over the piano roll: the row of seven checks, the summary line, and the findings tree grouped by type" loading="lazy"></a>
+<a href="screenshots/ffxiv-playability_workbench.png" class="lightbox-link"><img src="screenshots/ffxiv-playability_workbench.png" class="lightbox-thumb" alt="The Check FFXIV Playability window over the piano roll: the row of checks, the summary line, and the findings tree grouped by type" loading="lazy"></a>
 <p class="caption">The workbench on a real arrangement - checks across the top, findings grouped below, the matching repairs offered underneath.</p>
 </div>
 
@@ -184,12 +184,16 @@ opposite things.
   <td><b>Tempo map</b></td>
   <td>Tempo map</td>
   <td>A tempo map dense enough that its size is a property of the export rather than of the music
-      - a tempo ramp drawn in a DAW arrives as one tempo event every few ticks. The finding names
-      the event count, the shape (a one-way ramp, or automation going both ways) and how many
-      events there are per bar. Both the editor and the game read every one of them, so a heavy
-      map costs time on every playback start and every edit.
-      <a href="tempo-conversion.html#thin-tempo-map">Thin Tempo Map</a> is the repair. A
-      hand-written accelerando has a handful of events and stays quiet.</td>
+      - a tempo ramp drawn in a DAW arrives as one tempo event every few ticks. The check speaks up
+      when the file carries more than 500 tempo events whatever its length, or at least 64 of them
+      averaging more than four per bar, so a hand-written accelerando of a handful of events stays
+      quiet. The finding names the event count, the shape behind it - either one tempo repeated
+      over and over, or a continuous ramp up or down or dense automation together with the number
+      of distinct tempo values in the map - and how many events there are per bar. Both the
+      editor and the game read every one of them, so a heavy map costs time on every playback start
+      and every edit. It is a finding about the whole file rather than about one track, so clicking
+      it moves the cursor and selects nothing.
+      <a href="tempo-conversion.html#thin-tempo-map">Thin Tempo Map</a> is the repair.</td>
 </tr>
 <tr>
   <td><b>Voice limit</b></td>
@@ -278,9 +282,16 @@ stays a set of tools rather than a console of dead buttons:
   <td>A tempo-map finding exists</td>
   <td>Opens <a href="tempo-conversion.html#thin-tempo-map">Thin Tempo Map</a>, where you pick how
       far the timing may move and see how many tempo events would survive before anything is
-      changed.</td>
+      changed. The button opens that dialog rather than thinning straight away, because the
+      millisecond setting is a real decision; once you thin, the checks re-run by themselves and
+      the finding goes.</td>
 </tr>
 </table>
+
+<div class="media-todo" data-media="screenshot" data-file="ffxiv-playability_tempo-map-finding.png">
+What to capture: the FFXIV Playability Check window on a DAW-exported file, with the <i>Tempo map</i> checkbox in the top row, the <i>Tempo map</i> group in the findings tree expanded to show its one line with the event count and per-bar figure, and the <i>Thin Tempo Map...</i> button visible in the button row below.
+<span class="media-file">Save as <span class="media-dir">manual/screenshots/</span><code class="media-name">ffxiv-playability_tempo-map-finding.png</code></span>
+</div>
 
 <p>
 The delete button follows your selection in the tree. With nothing selected it reads <b>Delete

@@ -102,7 +102,7 @@ can plug into MidiEditor AI and control it.
 
 <p>
 MidiEditor AI&rsquo;s MCP server exposes the <b>23 core tools</b> that the built-in MidiPilot AI uses, plus two document
-tools of its own (and extra FFXIV tools when FFXIV mode is enabled).
+tools of its own - and the five FFXIV tools whenever FFXIV mode is enabled.
 The difference is that with MCP, <i>you choose</i> which AI client and model to use.
 </p>
 
@@ -313,8 +313,9 @@ everywhere. Without a token the <code>headers</code> block is simply absent.
 
 <p>
 All 23 core tools from MidiEditor AI&rsquo;s built-in MidiPilot are exposed via MCP, plus two MCP-only
-document tools (and the FFXIV tools below when FFXIV mode is on). The AI client discovers them
-automatically via <code>tools/list</code>.
+document tools - <code>list_documents</code> and <code>switch_document</code> - and the five FFXIV
+tools below when FFXIV mode is on. The AI client discovers them automatically via
+<code>tools/list</code>.
 </p>
 
 <p>
@@ -362,7 +363,7 @@ session at whichever document is currently active, or use <code>list_documents</
     <tr><td><code>set_time_signature</code></td><td><code>numerator</code>, <code>denominator</code>, <code>tick</code></td><td>Set time signature at a tick position</td></tr>
     <tr><td><code>move_events_to_track</code></td><td><code>sourceTrackIndex</code>, <code>targetTrackIndex</code>, <code>startTick</code>, <code>endTick</code></td><td>Move events between tracks</td></tr>
     <tr><td><code>convert_tempo_preserve_duration</code></td><td><code>targetBpm</code>, <code>scope</code>, <code>dryRun</code>, opt. <code>sourceBpm</code>, <code>trackIds</code>, <code>channelIds</code>, <code>tempoMode</code></td><td>Re-tempo material while keeping its real-time duration: scales event ticks and updates the tempo map so e.g. a 90&nbsp;BPM vocal fits a 180&nbsp;BPM project. Defaults to a dry run; the live pass converts as one undo step</td></tr>
-    <tr><td><code>thin_tempo_map</code></td><td>opt. <code>toleranceMs</code> (default 2), opt. <code>dryRun</code></td><td>Thins a dense tempo ramp down to the events that carry the timing; dry run by default, one undo step</td></tr>
+    <tr><td><code>thin_tempo_map</code></td><td>opt. <code>toleranceMs</code> (default 2), opt. <code>dryRun</code></td><td>Thins a dense tempo ramp down to the events that carry the timing; dry run by default, one undo step. The tolerance is a budget per open document measured against the tempo map the file was opened with, so <code>maxDriftMs</code> and <code>endDriftMs</code> are the total distance from that map and <code>alreadyDriftedMs</code> reports what an earlier run already spent</td></tr>
     <tr><td><code>set_ffxiv_mode</code></td><td><code>enabled</code></td><td>Turn FFXIV Bard Performance mode on or off. The FFXIV tools below appear/disappear with it and the server sends <code>notifications/tools/list_changed</code>; <code>get_editor_state</code> reports the current state as <code>ffxivMode</code></td></tr>
     <tr><td><code>transpose_events</code></td><td><code>semitones</code>, opt. <code>trackIndex</code>, <code>startTick</code>, <code>endTick</code>, <code>foldToRange</code></td><td>Transpose notes by semitones as one undo step; <code>foldToRange</code> folds the result octave-wise into the bard range C3-C6</td></tr>
     <tr><td><code>split_chords_to_tracks</code></td><td><code>trackIndex</code>, opt. <code>minNotes</code>, <code>keepOriginal</code></td><td>Split a track's chords voice-wise onto new tracks (voice 1 = highest note) - chords become monophonic performers</td></tr>
