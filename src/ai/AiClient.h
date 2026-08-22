@@ -268,6 +268,23 @@ public:
                                         const QString &baseUrl);
 
         /**
+        * \brief The base URL in the form every request builder can safely
+        *        concatenate onto: trimmed, and carrying an explicit scheme.
+        *
+        *        A base URL typed without a scheme ("localhost:8080/v1") is
+        *        parsed by QUrl as scheme "localhost" with an empty host, so
+        *        every request died with ProtocolUnknownError while the UI
+        *        reported the endpoint as configured. This is the single
+        *        normalisation used by BOTH the keyless-loopback check and the
+        *        request URLs: it is applied where the base URL ENTERS the
+        *        client (setApiBaseUrl and the two settings reads), so
+        *        \ref apiBaseUrl and the internal `_apiBaseUrl` that the
+        *        builders concatenate always hold the normalised form.
+        *        Empty in, empty out.
+        */
+        static QString normalizedBaseUrl(const QString &baseUrl);
+
+        /**
         * \brief True when a provider/model was marked as streaming-broken in
         *        this application session (any mode). Kept for UI/legacy use.
         */
@@ -656,6 +673,13 @@ private:
     /// Set the Bearer Authorization header, but only when a key is present -
     /// avoids sending an empty "Bearer " to keyless local servers (Ollama).
     void applyAuthHeader(QNetworkRequest &request) const;
+
+    /// v2.3 review H1: strip the API key (and any key=/token= query value)
+    /// out of text on its way to the plaintext API log or to a chat error
+    /// bubble. Gemini's native streaming URL carries the key in its query, so
+    /// QNetworkReply::errorString() and several provider error bodies quote it
+    /// verbatim. Output filter only - never applied to request payloads.
+    QString redactForOutput(const QString &text) const;
 
     // Internal helpers for the streaming-fallback path.
     QString streamingBlocklistKey(const QString &provider, const QString &model) const;

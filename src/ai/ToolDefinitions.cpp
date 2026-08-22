@@ -2129,11 +2129,31 @@ QJsonObject ToolDefinitions::execThinTempoMap(const QJsonObject &args,
     result["alreadyDriftedMs"] = qRound(r.alreadyDriftedMs * 1000.0) / 1000.0;
 
     QString summary;
+    // Did the branch below print drift FIGURES? The "already drifted" sentence
+    // may only claim to be their baseline when there are figures to relate to.
+    bool printedDriftFigures = false;
     if (r.removed == 0) {
-        summary = QStringLiteral("Nothing to thin: all %1 tempo event(s) carry "
-                                 "part of the timing at a %2 ms tolerance.")
-                      .arg(r.before)
-                      .arg(toleranceMs, 0, 'f', 2);
+        if (r.alreadyDriftedMs > 0.005) {
+            // A re-run against a corridor an earlier pass already spent part
+            // of. The events that are left are not "all carrying part of the
+            // timing" - the budget is measured from the file as opened, and
+            // what is already spent is what stops the next event from going.
+            summary = QStringLiteral("Nothing to thin: this map was already "
+                                     "thinned in this session and sits %1 ms "
+                                     "from the file as opened. The %2 ms "
+                                     "tolerance is measured against that same "
+                                     "starting point, so all %3 remaining "
+                                     "tempo event(s) stay.")
+                          .arg(r.alreadyDriftedMs, 0, 'f', 2)
+                          .arg(toleranceMs, 0, 'f', 2)
+                          .arg(r.before);
+        } else {
+            summary = QStringLiteral("Nothing to thin: all %1 tempo event(s) "
+                                     "carry part of the timing at a %2 ms "
+                                     "tolerance.")
+                          .arg(r.before)
+                          .arg(toleranceMs, 0, 'f', 2);
+        }
     } else {
         summary = QStringLiteral("%1 %2 of %3 tempo events (%4 left). Largest "
                                  "timing shift %5 ms, end of file %6 ms.")
@@ -2144,6 +2164,7 @@ QJsonObject ToolDefinitions::execThinTempoMap(const QJsonObject &args,
                       .arg(r.kept)
                       .arg(r.maxDriftMs, 0, 'f', 2)
                       .arg(r.endDriftMs, 0, 'f', 2);
+        printedDriftFigures = true;
         if (r.dryRun)
             summary += QStringLiteral(" Present this to the user and ask for "
                                       "confirmation before calling again with "
@@ -2151,7 +2172,10 @@ QJsonObject ToolDefinitions::execThinTempoMap(const QJsonObject &args,
         else
             summary += QStringLiteral(" One undo step restores everything.");
     }
-    if (r.alreadyDriftedMs > 0.005) {
+    // Only where drift figures were actually printed can they be called a total
+    // from the earlier pass - the removed==0 branch above states the spent
+    // corridor itself and has no figures to relate to.
+    if (r.alreadyDriftedMs > 0.005 && printedDriftFigures) {
         summary += QStringLiteral(" This map was already thinned in this session "
                                   "and sits %1 ms from the file as opened; the "
                                   "figures above are the total from there.")

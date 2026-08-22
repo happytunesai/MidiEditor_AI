@@ -65,6 +65,7 @@
 #include <QColor>
 #include <QElapsedTimer>
 #include <QSemaphore>
+#include <QSet>
 #include <QThread>
 #include <QVector>
 
@@ -98,22 +99,35 @@ void EventWidget::reload() {}
 QList<MidiEvent *> EventWidget::events() { return {}; }
 
 // ==========================================================================
-// Phase 48 thread-safety workers.
+// Phase 48 / v2.3 thread-safety workers.
 //
 // The timing conversions are the one part of MidiFile that runs outside the
 // GUI thread: PlayerThread::run() asks msOfTick() for its start position and
 // PlayerThread::timeout() asks tick(ms) every 15 ms, while the user keeps
-// editing. The tempo cache turned those reads into calls that may REBUILD a
-// std::vector, so two threads could clear and refill it under each other.
-// These workers put a real second thread on them.
+// editing.
+//
+// v2.3 changed WHAT those off-thread calls are allowed to do. They used to
+// rebuild the tempo cache on whatever thread asked first, which meant the
+// player thread walked channel 17's live QMultiMap while the GUI thread was
+// free to delete it (undo swaps the whole map out) - a use-after-free that no
+// mutex around the cache could fix. The rule now is:
+//
+//   only the DOCUMENT thread rebuilds; every other thread reads an immutable
+//   published snapshot and is allowed to be one edit stale.
+//
+// The tests below assert exactly that pair of invariants:
+//   - an off-thread reader never disagrees with the published snapshot, and
+//   - a document-thread rebuild swaps in a new snapshot that off-thread
+//     readers then see.
+// They do NOT try to prove the absence of a race by hammering (that can only
+// ever fail to reproduce one); the hammer test that exists checks that
+// overlapping access stays self-consistent and terminates.
 //
 // What is deliberately NOT overlapped: the WRITE into channel 17's QMultiMap.
-// That map has never been guarded by anything, before or after the cache, so a
-// test that let a GUI-thread insertEvent() overlap a worker's query would be
-// testing a separate, pre-existing hazard - and would be flaky by
-// construction. The mutation tests below therefore hand the two threads a
-// semaphore, so what overlaps is the CACHE access, which is what the mutex is
-// responsible for.
+// That map has never been guarded by anything, so a test that let a GUI-thread
+// insertEvent() overlap a worker's query would be testing a separate,
+// pre-existing hazard - and would be flaky by construction. The mutation tests
+// below therefore hand the two threads a semaphore.
 // ==========================================================================
 
 /** One pre-computed question and its single-threaded answer. Anything a torn
@@ -129,9 +143,14 @@ struct TimingProbe {
     int expectedRangeEndTick;
 };
 
-/** Hammers all three cached conversions and counts every answer that differs
- *  from the pre-computed one. Fields are written by the worker only and read
- *  after wait(), which is a happens-before edge. */
+/** Hammers the two conversions MidiFile documents as callable from any thread
+ *  and counts every answer that differs from the pre-computed one. Fields are
+ *  written by the worker only and read after wait(), which is a happens-before
+ *  edge.
+ *
+ *  The tick(startms, endms, ...) overload is deliberately NOT hammered from
+ *  here: it hands out pointers to live tempo events and is document-thread
+ *  only, so the GUI side of the test drives it instead. */
 class TimingHammerThread : public QThread {
 public:
     TimingHammerThread(MidiFile *f, const QVector<TimingProbe> *probes, int rounds)
@@ -143,7 +162,6 @@ public:
 
 protected:
     void run() override {
-        QList<MidiEvent *> *list = nullptr;
         for (int r = 0; r < _rounds; ++r) {
             for (const TimingProbe &p : *_probes) {
                 if (_file->msOfTick(p.tick) != p.expectedMs) {
@@ -152,17 +170,9 @@ protected:
                 if (_file->tick(p.ms) != p.expectedTick) {
                     ++mismatches;
                 }
-                int endTick = -1, msOfFirst = -1;
-                const int startTick =
-                    _file->tick(p.rangeStartMs, p.rangeEndMs, &list, &endTick, &msOfFirst);
-                if (startTick != p.expectedRangeStartTick
-                    || endTick != p.expectedRangeEndTick) {
-                    ++mismatches;
-                }
-                queries += 3;
+                queries += 2;
             }
         }
-        delete list;
         running.storeRelease(0);
     }
 
@@ -173,8 +183,9 @@ private:
 };
 
 /** Reads one tick's time once per "epoch". The main thread performs a
- *  channel-17 edit, publishes the expected answer and releases `go`; the
- *  worker then queries a cache the edit invalidated and releases `done`. */
+ *  channel-17 edit, re-queries the file once (which is what republishes the
+ *  snapshot) and releases `go`; the worker then reads that new snapshot and
+ *  releases `done`. */
 class EpochReaderThread : public QThread {
 public:
     EpochReaderThread(MidiFile *f, int probeTick, int epochs,
@@ -188,8 +199,9 @@ protected:
     void run() override {
         for (int e = 0; e < _epochs; ++e) {
             _go->acquire();
-            // The first query rebuilds the cache the GUI-thread edit just
-            // invalidated - on THIS thread, which is the whole point.
+            // Reads the snapshot the document thread published after its edit.
+            // This thread rebuilds nothing - that is the whole point - so the
+            // repeats below must all agree with the first read.
             const int first = _file->msOfTick(_probeTick);
             for (int k = 0; k < 64; ++k) {
                 if (_file->msOfTick(_probeTick) != first) {
@@ -936,6 +948,17 @@ private slots:
             QVERIFY2(qAbs(cachedEnd - refEnd) <= 2, qPrintable("endTick: " + where));
             QVERIFY2(qAbs(cachedFirstMs - refFirstMs) <= 1, qPrintable("msOfFirstEvent: " + where));
             QVERIFY2(*cachedList == refList, qPrintable("tempo event list: " + where));
+
+            // v2.3: the production walk dropped its per-append
+            // QList::contains() (an O(k^2) scan per repaint). It could only
+            // ever have fired if two anchors carried the same event pointer,
+            // which cannot happen - each anchor comes from a distinct node of
+            // channel 17's map and an event lives at exactly one position in
+            // it. Asserted here rather than argued: a duplicate would show up
+            // as a list longer than its set of distinct pointers.
+            QSet<MidiEvent *> distinct(cachedList->begin(), cachedList->end());
+            QVERIFY2(distinct.size() == cachedList->size(),
+                     qPrintable("duplicate tempo event in the range list: " + where));
             delete cachedList;
         }
     }
@@ -1076,12 +1099,18 @@ private slots:
     // ======================================================================
 
     // --- 13a. two threads inside the cache at the same time -----------------
-    // The worker asks all three cached conversions; the GUI thread invalidates
-    // and re-reads as fast as it can, so both threads are constantly inside the
-    // rebuild. Every answer is compared against a value computed
-    // single-threaded before either thread started - the tempo map itself never
-    // changes here, so a wrong number can only come from reading the anchor
-    // vector while the other thread is refilling it.
+    // The worker asks the two conversions that are safe from any thread; the
+    // GUI thread invalidates and re-reads as fast as it can, so the worker is
+    // reading published snapshots while the document thread keeps replacing
+    // them. Every answer is compared against a value computed single-threaded
+    // before either thread started - the tempo map itself never changes here,
+    // so a wrong number can only come from a reader seeing an anchor array in
+    // some state it was never published in.
+    //
+    // This is a smoke test, not a proof: a passing run does not demonstrate
+    // the absence of a race (the invariant tests below do that structurally),
+    // it demonstrates that overlapping access stays self-consistent and does
+    // not hang or crash.
     void concurrentTimingQueriesSurviveRebuildsFromTheOtherThread() {
         MidiFile f;
         growFile(&f, 320000);
@@ -1112,9 +1141,20 @@ private slots:
         int guiMismatches = 0;
         int guiIterations = 0;
         const TimingProbe &guiProbe = probes.first();
+        QList<MidiEvent *> *guiList = nullptr;
         while (worker.running.loadAcquire()) {
+            // Every iteration forces a real rebuild, so the worker is reading
+            // snapshots that are constantly being replaced underneath it.
             f.invalidateTempoCache();
             if (f.msOfTick(guiProbe.tick) != guiProbe.expectedMs) {
+                ++guiMismatches;
+            }
+            // The document-thread-only overload runs here, where it belongs.
+            int endTick = -1, msOfFirst = -1;
+            const int startTick = f.tick(guiProbe.rangeStartMs, guiProbe.rangeEndMs,
+                                         &guiList, &endTick, &msOfFirst);
+            if (startTick != guiProbe.expectedRangeStartTick
+                || endTick != guiProbe.expectedRangeEndTick) {
                 ++guiMismatches;
             }
             f.calcMaxTime();
@@ -1123,6 +1163,7 @@ private slots:
                 break;   // safety valve; the worker is bounded, so never hit
             }
         }
+        delete guiList;
         QVERIFY2(worker.wait(60000), "the timing worker did not finish");
 
         QVERIFY2(worker.queries > 0, "the worker never ran a query");
@@ -1134,9 +1175,12 @@ private slots:
     // --- 13b. a GUI-thread tempo edit, read back on the other thread --------
     // This is the PlayerThread situation: the user edits the tempo map while
     // playback keeps asking for timings. The semaphores keep the unguarded
-    // QMultiMap write off the worker's back (see the note above the workers) -
-    // what overlaps is the cache, including the process-wide revision counter
-    // that makes the worker rebuild on ITS thread.
+    // QMultiMap write off the worker's back (see the note above the workers).
+    //
+    // The edit alone is NOT what the worker sees - a rebuild only ever happens
+    // on the document thread, so the msOfTick() below is what republishes the
+    // snapshot. That single document-thread query stands in for the repaint
+    // that follows every real edit.
     void aChannel17EditIsSeenByAQueryOnAnotherThread() {
         MidiFile f;
         growFile(&f, 320000);
@@ -1159,7 +1203,11 @@ private slots:
             f.channel(17)->insertEvent(ev, 16000 + e * 7);
             f.protocol()->endAction();
 
-            expected.append((int) refMsOfTick(&f, probeTick));
+            // Document-thread query: rebuilds and republishes the snapshot,
+            // and must itself agree with the linear reference.
+            const int published = f.msOfTick(probeTick);
+            QCOMPARE(published, (int) refMsOfTick(&f, probeTick));
+            expected.append(published);
             go.release();
             done.acquire();
         }
@@ -1171,6 +1219,90 @@ private slots:
         }
         QVERIFY2(reader.unstable == 0,
                  "repeated msOfTick() calls on the worker thread disagreed");
+    }
+
+    // --- 13b-2. a rebuild publishes a NEW snapshot --------------------------
+    // The document-thread half of the v2.3 contract: a revision bump makes the
+    // next document-thread query rebuild, and that rebuild's values are what
+    // everything (this thread and any other) reads from then on. Single
+    // threaded on purpose - it pins the mechanism, not a race.
+    void aTempoEditRebuildsAndRepublishesTheSnapshot() {
+        MidiFile f;
+        growFile(&f, 320000);
+        QList<TempoChangeEvent *> ramp = buildTempoRamp(&f, 32, 240);
+
+        const int probeTick = 30000;
+        const int before = f.msOfTick(probeTick);
+        QCOMPARE(before, (int) refMsOfTick(&f, probeTick));
+
+        const quint64 revBefore = MidiChannel::tempoRevision();
+        f.protocol()->startNewAction("tempo");
+        ramp.at(0)->setBeats(30);          // same map size, different timing
+        f.protocol()->endAction();
+        QVERIFY2(MidiChannel::tempoRevision() != revBefore,
+                 "the tempo edit did not bump the revision counter");
+
+        const int after = f.msOfTick(probeTick);
+        QVERIFY2(after != before, "the rebuild did not replace the old anchors");
+        QCOMPARE(after, (int) refMsOfTick(&f, probeTick));
+
+        // Stable afterwards: the new snapshot is published, not rebuilt per
+        // query, so repeated reads cannot drift.
+        for (int i = 0; i < 32; ++i) {
+            QCOMPARE(f.msOfTick(probeTick), after);
+        }
+
+        // And another thread now reads exactly the republished value.
+        SingleQueryThread reader(&f, probeTick);
+        reader.start();
+        QVERIFY2(reader.wait(5000), "the reader thread did not finish");
+        QCOMPARE(reader.result, after);
+    }
+
+    // --- 13b-3. the invariant: no other thread ever rebuilds ----------------
+    // This is the fix for the use-after-free, stated as a testable fact rather
+    // than as a comment: after a channel-17 edit that the document thread has
+    // NOT yet queried, a worker thread must still answer from the previous
+    // snapshot. If it answered with the new timing it would have had to walk
+    // the live QMultiMap itself - which is exactly what must never happen,
+    // because that map can be deleted out from under it (undo, Thin Tempo
+    // Map). The one-edit staleness this pins down is the documented,
+    // self-correcting trade: the very next document-thread query fixes it.
+    void anotherThreadNeverRebuildsTheTempoSnapshot() {
+        MidiFile f;
+        growFile(&f, 320000);
+        buildTempoRamp(&f, 32, 240);
+
+        const int probeTick = 30000;
+        const int published = f.msOfTick(probeTick);     // publishes
+
+        SingleQueryThread first(&f, probeTick);
+        first.start();
+        QVERIFY2(first.wait(5000), "the first reader thread did not finish");
+        QCOMPARE(first.result, published);
+
+        // Edit channel 17 and deliberately ask the file NOTHING afterwards.
+        // (Insert well inside the existing length so the insert itself cannot
+        // trigger a length recompute - that would query the file for us.)
+        f.protocol()->startNewAction("tempo edit");
+        f.channel(17)->insertEvent(new TempoChangeEvent(17, 60000000 / 30, f.track(0)), 12000);
+        f.protocol()->endAction();
+
+        const int edited = (int) refMsOfTick(&f, probeTick);
+        QVERIFY2(edited != published,
+                 "the edit changed nothing - this test would prove nothing");
+
+        SingleQueryThread stale(&f, probeTick);
+        stale.start();
+        QVERIFY2(stale.wait(5000), "the stale reader thread did not finish");
+        QCOMPARE(stale.result, published);   // the OLD snapshot, by design
+
+        // One document-thread query later, the worker sees the edit.
+        QCOMPARE(f.msOfTick(probeTick), edited);
+        SingleQueryThread fresh(&f, probeTick);
+        fresh.start();
+        QVERIFY2(fresh.wait(5000), "the fresh reader thread did not finish");
+        QCOMPARE(fresh.result, edited);
     }
 
     // --- 13c. the lock is released before the signal goes out ---------------

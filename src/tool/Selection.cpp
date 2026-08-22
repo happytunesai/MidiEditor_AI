@@ -111,7 +111,14 @@ void Selection::setSelection(QList<MidiEvent *> selections) {
         _selectedEvents = selections;
     }
 
-    if (_eventWidget) {
+    // THIN-SELECTION-002: there is ONE EventWidget and it always shows the
+    // ACTIVE document. A tool may change a background document's selection
+    // (the AI/MCP tempo thinner drops its removed events from the selection of
+    // whatever file it was pointed at), and pushing those events into the
+    // shared sidebar would list another tab's events - and let the user edit
+    // them there. Only the active document's selection owns the widget; for
+    // the active one this is exactly the previous behaviour.
+    if (_eventWidget && this == instance()) {
         _eventWidget->setEvents(_selectedEvents);
         // Note: reload() is commented out for performance - it's called elsewhere when needed
         //_eventWidget->reload();
@@ -120,7 +127,7 @@ void Selection::setSelection(QList<MidiEvent *> selections) {
 
 void Selection::clearSelection() {
     setSelection(QList<MidiEvent *>());
-    if (_eventWidget) {
+    if (_eventWidget && this == instance()) {
         _eventWidget->setEvents(_selectedEvents);
         //_eventWidget->reload();
     }

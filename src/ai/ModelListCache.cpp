@@ -27,13 +27,15 @@ QJsonObject ModelListCache::readFile()
     return obj;
 }
 
-void ModelListCache::writeFile(const QJsonObject &obj)
+bool ModelListCache::writeFile(const QJsonObject &obj)
 {
     QFile f(cacheFilePath());
     if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
-        return;
-    f.write(QJsonDocument(obj).toJson(QJsonDocument::Indented));
+        return false;
+    const QByteArray json = QJsonDocument(obj).toJson(QJsonDocument::Indented);
+    const bool ok = f.write(json) == json.size();
     f.close();
+    return ok;
 }
 
 QJsonArray ModelListCache::models(const QString &provider)
@@ -78,22 +80,24 @@ void ModelListCache::store(const QString &provider, const QJsonArray &models)
     writeFile(root);
 }
 
-void ModelListCache::forget(const QString &scope)
+bool ModelListCache::forget(const QString &scope)
 {
     if (scope.isEmpty())
-        return;
+        return false;  // addresses nothing - a caller bug, never a deletion
 
     QJsonObject root = readFile();
     if (root.isEmpty())
-        return;  // no cache (or a foreign version): nothing to forget
+        return true;  // no cache (or a foreign version): nothing to forget
 
     QJsonObject providers = root.value(QStringLiteral("providers")).toObject();
     if (!providers.contains(scope))
-        return;  // leave the file untouched rather than rewrite it verbatim
+        return true;  // leave the file untouched rather than rewrite it verbatim
 
     providers.remove(scope);
     root.insert(QStringLiteral("providers"), providers);
-    writeFile(root);
+    // Honest reporting: when the rewrite fails the entry is still on disk, and
+    // the caller (deleting a provider profile) must not claim it is gone.
+    return writeFile(root);
 }
 
 int ModelListCache::contextWindowFor(const QString &modelId)

@@ -94,14 +94,10 @@ const QMap<QString, QString> &builtInBaseUrls() {
     };
     return urls;
 }
-
-// Endpoint URLs differing only in a trailing slash are the same endpoint.
-QString trimmedEndpoint(const QString &url) {
-    QString u = url.trimmed();
-    while (u.endsWith(QLatin1Char('/')))
-        u.chop(1);
-    return u;
-}
+// Endpoint URLs differing only in a trailing slash are the same endpoint. The
+// comparison itself lives in ProviderProfileStore (sameUrl /
+// shouldOfferAdHocCustomEntry), so the store and this footer cannot disagree
+// about which stored profile a live URL is.
 } // namespace
 
 static QJsonObject buildMusicalSummary(const QList<MidiEvent *> &events) {
@@ -2219,14 +2215,18 @@ void MidiPilotWidget::onProviderComboChanged(int index) {
         return;
     }
 
-    // Save current API key for the old provider
+    // Save current API key for the old provider. The footer has no key field to
+    // clear, so "the user emptied this on purpose" cannot happen here - an empty
+    // active key always leaves the memory alone (KeyMemoryAction::Keep).
     QString oldProvider = _client->provider();
     if (!oldProvider.isEmpty() && oldProvider != provider) {
         auto settingsPtr = AppPaths::settings();
         QSettings &settings = *settingsPtr;
         QString currentKey = settings.value("AI/api_key").toString();
-        if (!currentKey.isEmpty())
+        if (ProviderProfileStore::keyMemoryActionOnLeave(currentKey, false)
+            == ProviderProfileStore::KeyMemoryAction::Store) {
             settings.setValue(QString("AI/api_key/%1").arg(oldProvider), currentKey);
+        }
     }
 
     // Set new provider and its default base URL
@@ -2249,10 +2249,18 @@ void MidiPilotWidget::onProviderComboChanged(int index) {
         _client->setApiBaseUrl(defaultUrls.value(provider, "https://api.openai.com/v1"));
     }
 
-    // Load API key for the new provider
+    // Load API key for the new provider. The base URL above is already the one
+    // that will be in force, so a remembered CUSTOM key is only re-attached when
+    // the endpoint is not a server on this machine - otherwise switching away
+    // from an ad-hoc local endpoint and back would put a remembered cloud token
+    // into that local server's Authorization header.
     auto settingsPtr = AppPaths::settings();
     QSettings &settings = *settingsPtr;
-    QString newKey = settings.value(QString("AI/api_key/%1").arg(provider)).toString();
+    const QString rememberedKey =
+        settings.value(QString("AI/api_key/%1").arg(provider)).toString();
+    const QString newKey = ProviderProfileStore::keyMemoryOnEnter(
+        provider, rememberedKey,
+        AiClient::providerRequiresKey(provider, _client->apiBaseUrl()));
     settings.setValue("AI/api_key", newKey);
 
     // Repopulate model list and select first model
@@ -2273,53 +2281,27 @@ void MidiPilotWidget::onProviderComboChanged(int index) {
 bool MidiPilotWidget::hasAdHocCustomEndpoint() const {
     if (!_client)
         return false;
-    const QString provider = _client->provider().trimmed();
-    const QString baseUrl = trimmedEndpoint(_client->apiBaseUrl());
 
     // Resolve the live endpoint against the stored profiles ONCE, so this rule
     // and syncProviderComboSelection() can never disagree about what the app is
-    // connected to.
+    // connected to. The decision itself is a pure function of provider, URL and
+    // that match - it lives in the store, where its state table is pinned by
+    // test_provider_profile_store instead of only by hand.
     const QString match = ProviderProfileStore::nameMatchingEndpoint(
-        provider, _client->apiBaseUrl(), _client->apiKey(),
+        _client->provider(), _client->apiBaseUrl(), _client->apiKey(),
         ProviderProfileStore::activeProfileName());
-
-    // Mandatory half of the rule: whatever the app is actually doing must be on
-    // the list. While the connection is ad-hoc custom - provider "custom" and no
-    // stored profile describing this endpoint - "Custom" IS the active entry,
-    // and hiding it would leave the combo naming a connection the app is not
-    // using.
-    if (provider.compare(QStringLiteral("custom"), Qt::CaseInsensitive) == 0)
-        return match.isEmpty();
-
-    // A live endpoint that IS a saved profile is represented by that profile's
-    // own entry. Offering "Custom" beside it would be a decoy: picking it keeps
-    // the very same URL and key, so the selection snaps back to the profile
-    // while the model list is rebuilt underneath - the dropdown would look like
-    // it ignored the click and quietly change the model.
-    if (!match.isEmpty())
-        return false;
-
-    // Otherwise list it only when a custom endpoint is really configured: a base
-    // URL that is merely a built-in provider's default is what switching
-    // provider writes, not something anyone typed. A non-default URL left behind
-    // by a built-in provider (Ollama on another host, say) does count - picking
-    // "Custom" would talk to exactly that URL, so offering it is honest.
-    if (baseUrl.isEmpty())
-        return false;
-    const QMap<QString, QString> &defaults = builtInBaseUrls();
-    for (auto it = defaults.constBegin(); it != defaults.constEnd(); ++it) {
-        if (baseUrl.compare(trimmedEndpoint(it.value()), Qt::CaseInsensitive) == 0)
-            return false;
-    }
-    return true;
+    return ProviderProfileStore::shouldOfferAdHocCustomEntry(
+        _client->provider(), _client->apiBaseUrl(), match,
+        builtInBaseUrls().values());
 }
 
 int MidiPilotWidget::indexOfFixedProvider(const QString &providerId) const {
     if (!_providerCombo || providerId.isEmpty())
         return -1;
     for (int i = 0; i < _providerCombo->count(); ++i) {
-        // Profile entries carry "custom" in Qt::UserRole as well, so a plain
-        // findData(provider) would hit one of them once "Custom" is hidden.
+        // Profile entries carry a provider id in Qt::UserRole as well, so a
+        // plain findData(provider) would hit one of them - always, now that
+        // profiles of the built-in providers are listed too.
         if (!_providerCombo->itemData(i, kProviderProfileRole).toString().isEmpty())
             continue;
         if (_providerCombo->itemData(i).toString() == providerId)
@@ -2355,16 +2337,23 @@ void MidiPilotWidget::populateProviderProfiles() {
     for (const QString &n : names) {
         bool ok = false;
         const ProviderProfileStore::Profile p = ProviderProfileStore::load(n, &ok);
-        // Only CUSTOM profiles get an entry: they are the ones that change which
-        // server answers. A profile of a built-in provider would be a second
-        // "OpenAI" line pointing at the same endpoint.
-        if (!ok || p.provider.compare(QStringLiteral("custom"), Qt::CaseInsensitive) != 0)
+        // EVERY saved profile gets an entry, whichever provider it was saved
+        // with. A profile is not just "another server": it pins the API key and
+        // the model too (two OpenAI accounts, one endpoint), and an Ollama
+        // profile pins a different host. This is also the only control the
+        // footer has - filtering the built-in providers out left the gear
+        // menu's "Provider profile saved: X" pointing at an entry that never
+        // appeared.
+        if (!ok)
             continue;
         if (!separatorAdded) {
             _providerCombo->insertSeparator(_providerCombo->count());
             separatorAdded = true;
         }
-        _providerCombo->addItem(p.name, QStringLiteral("custom"));
+        // Qt::UserRole carries the profile's OWN provider id, so every
+        // currentData() reader (the preset writer, the fallback in the restore
+        // below) sees the provider this entry really connects with.
+        _providerCombo->addItem(p.name, p.provider);
         _providerCombo->setItemData(_providerCombo->count() - 1, p.name,
                                     kProviderProfileRole);
     }
@@ -2397,15 +2386,15 @@ void MidiPilotWidget::syncProviderComboSelection() {
     // Endpoint identity, not the exact saved configuration: hand-picking
     // another model keeps you on the same server, so the entry stays put.
     //
-    // The preferred name used to be the second picker's live selection, so the
-    // two controls could not name two different profiles that share one
-    // endpoint. With a single control that ambiguity is gone, but the argument
-    // stays: the answer must remain pinned to the profile that was actually
-    // APPLIED, which is the stored hint - and activeProfileName() is exactly
-    // that hint whenever the live settings still match it. When a hand-picked
-    // model has left the profile, activeProfileName() is empty and the store
-    // falls back to the raw hint itself, which gives the same name; a different
-    // profile of the pair is never reached while the hint is valid.
+    // activeProfileName() is passed as the preference, and it is NOT simply
+    // "the profile that was applied": it is the profile the four live values
+    // match, hint first. In the normal case that IS the applied one. Where two
+    // profiles share an endpoint and differ only in their model, picking the
+    // other one's model makes activeProfileName() name that other profile, and
+    // this combo follows it - the entry then describes the connection that is
+    // actually configured, which is the honest answer for an endpoint picker.
+    // The applied-profile name itself is reported by the status line at apply
+    // time (\ref applyProviderProfileByName), which never re-derives it.
     const QString name = ProviderProfileStore::nameMatchingEndpoint(
         provider, _client->apiBaseUrl(), _client->apiKey(),
         ProviderProfileStore::activeProfileName());
@@ -2426,8 +2415,8 @@ void MidiPilotWidget::syncProviderComboSelection() {
             ? tr("Saved endpoint \"%1\" (provider, base URL, API key and model).\n"
                  "Pick another entry to switch the connection in one step.")
                   .arg(_providerCombo->itemData(idx, kProviderProfileRole).toString())
-            : tr("Where requests go. Below the separator, every saved Custom\n"
-                 "provider profile appears as its own entry."));
+            : tr("Where requests go. Below the separator, every saved provider\n"
+                 "profile appears as its own entry."));
 }
 
 void MidiPilotWidget::applyProviderProfileByName(const QString &name) {
@@ -2440,6 +2429,18 @@ void MidiPilotWidget::applyProviderProfileByName(const QString &name) {
     // Same path the settings dialog uses when it changes the connection -
     // reload the client and re-sync the whole footer from the settings.
     onSettingsChanged();
+    // The re-sync above derives the entry from the live values. Two profiles
+    // that describe the very same endpoint are indistinguishable to it, so it
+    // may land on the twin; the entry on screen must be the one that was
+    // applied, exactly like the status line below.
+    if (_providerCombo) {
+        const int appliedIdx = _providerCombo->findData(name, kProviderProfileRole);
+        if (appliedIdx >= 0 && appliedIdx != _providerCombo->currentIndex()) {
+            const bool comboBlocked = _providerCombo->blockSignals(true);
+            _providerCombo->setCurrentIndex(appliedIdx);
+            _providerCombo->blockSignals(comboBlocked);
+        }
+    }
     // Applying a profile can leave the chat unusable: a keyless profile for a
     // remote endpoint is stored and applied, but the client is not configured
     // and the input stays disabled. Reporting green there sends the user

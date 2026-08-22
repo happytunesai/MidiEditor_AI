@@ -6,6 +6,7 @@
 
 #include <QByteArray>
 #include <QCryptographicHash>
+#include <QDebug>
 #include <QSettings>
 #include <QStringList>
 
@@ -84,9 +85,22 @@ QString percentEncode(const QString &text)
     return out;
 }
 
+// Endpoint URLs differing only in trailing slashes are the same endpoint - the
+// same normalisation both connection pickers apply before they compare. Without
+// it a profile stored as "https://host/v1/" could never match the live
+// "https://host/v1" and would be unreachable from every endpoint lookup.
+QString normalizedEndpoint(const QString &url)
+{
+    QString u = url.trimmed();
+    while (u.endsWith(QLatin1Char('/')))
+        u.chop(1);
+    return u;
+}
+
 bool sameUrl(const QString &a, const QString &b)
 {
-    return a.trimmed().compare(b.trimmed(), Qt::CaseInsensitive) == 0;
+    return normalizedEndpoint(a).compare(normalizedEndpoint(b),
+                                         Qt::CaseInsensitive) == 0;
 }
 
 } // namespace
@@ -94,6 +108,64 @@ bool sameUrl(const QString &a, const QString &b)
 int ProviderProfileStore::maxNameLength()
 {
     return kMaxNameLength;
+}
+
+ProviderProfileStore::KeyMemoryAction
+ProviderProfileStore::keyMemoryActionOnLeave(const QString &fieldKey,
+                                             bool userEditedKeyField)
+{
+    if (!fieldKey.trimmed().isEmpty())
+        return KeyMemoryAction::Store;
+    // An empty field is only a deliberate clear when the user typed it away
+    // here; poured in by a keyless profile it must leave the memory alone.
+    return userEditedKeyField ? KeyMemoryAction::Erase : KeyMemoryAction::Keep;
+}
+
+QString ProviderProfileStore::keyMemoryOnEnter(const QString &provider,
+                                               const QString &rememberedKey,
+                                               bool endpointNeedsKey)
+{
+    if (provider.trimmed().compare(QLatin1String(kCustomProvider),
+                                   Qt::CaseInsensitive) == 0
+        && !endpointNeedsKey) {
+        return QString();
+    }
+    return rememberedKey;
+}
+
+bool ProviderProfileStore::shouldOfferAdHocCustomEntry(
+    const QString &provider, const QString &baseUrl,
+    const QString &matchedProfileName, const QStringList &builtInBaseUrls)
+{
+    // Mandatory half of the rule: whatever the app is actually doing must be on
+    // the list. While the connection is ad-hoc custom - provider "custom" and no
+    // stored profile describing this endpoint - "Custom" IS the active entry,
+    // and hiding it would leave the picker naming a connection nobody is using.
+    if (provider.trimmed().compare(QLatin1String(kCustomProvider),
+                                   Qt::CaseInsensitive) == 0) {
+        return matchedProfileName.isEmpty();
+    }
+
+    // A live endpoint that IS a saved profile is represented by that profile's
+    // own entry. Offering "Custom" beside it would be a decoy: picking it keeps
+    // the very same URL and key, so the selection snaps back to the profile
+    // while the model list is rebuilt underneath.
+    if (!matchedProfileName.isEmpty())
+        return false;
+
+    // Otherwise offer it only when a custom endpoint is really configured: a
+    // base URL that is merely a built-in provider's default is what switching
+    // provider writes, not something anyone typed. A non-default URL left
+    // behind by a built-in provider (Ollama on another host, say) does count -
+    // picking "Custom" would talk to exactly that URL.
+    const QString url = normalizedEndpoint(baseUrl);
+    if (url.isEmpty())
+        return false;
+    for (const QString &d : builtInBaseUrls) {
+        if (url.compare(normalizedEndpoint(d), Qt::CaseInsensitive) == 0)
+            return false;
+    }
+    return true;
 }
 
 QString ProviderProfileStore::normalizeName(const QString &raw)
@@ -264,7 +336,14 @@ bool ProviderProfileStore::remove(const QString &name)
     // scope that non-custom profiles share belongs to everyone.
     if (scope.startsWith(QString::fromLatin1(kCustomScopePrefix))) {
         ModelFavorites::setFavorites(scope, QStringList());
-        ModelListCache::forget(scope);
+        // The profile IS gone - a cache file that could not be rewritten does
+        // not make the deletion fail, but it must not pass unnoticed either:
+        // the stale entry would be handed to the next profile of that name.
+        if (!ModelListCache::forget(scope)) {
+            qWarning() << "ProviderProfileStore: deleted profile" << name
+                       << "- its cached model list could not be dropped from"
+                       << ModelListCache::cacheFilePath();
+        }
     }
     return true;
 }

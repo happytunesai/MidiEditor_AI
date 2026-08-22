@@ -12635,8 +12635,10 @@ void dropThinnedTempoEventsFromSelection(MidiFile *thinnedFile,
     // change joins the same single undo step: undoing the thin brings the
     // tempo events back AND re-selects them.
     selection->setSelection(kept);
-    // The "selection changed" signal drives action enablement for the ACTIVE
-    // document, so only raise it when the thinned document is that one.
+    // EventWidget::selectionChangedByTool() currently has no receivers, so this
+    // call is a notification nobody listens to yet. It is kept - and kept behind
+    // the active-document check - so that whoever connects it later gets it only
+    // for the document the sidebar and the actions actually describe.
     if (Selection::_eventWidget && selection == Selection::instance()) {
         Selection::_eventWidget->reportSelectionChangedByTool();
     }

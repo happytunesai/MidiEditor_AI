@@ -1,5 +1,7 @@
 #include "ModelListFetcher.h"
 
+#include "SecretRedactor.h"
+
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonValue>
@@ -19,17 +21,10 @@ QString ModelListFetcher::redactSecrets(const QString &text) const
 {
     // Gemini carries the key as a URL query item, and Qt's errorString() (plus
     // some HTTP error bodies) quote the full URL - which put the key straight
-    // into the settings page's status label. Redact the key itself and any
-    // key=/api_key=/access_token= query value before the text leaves here.
-    QString out = text;
-    if (!_apiKey.isEmpty()) {
-        out.replace(_apiKey, QStringLiteral("***"));
-    }
-    static const QRegularExpression secretParam(
-        QStringLiteral("\\b(key|api_key|apikey|access_token|token)=[^&\\s\"']+"),
-        QRegularExpression::CaseInsensitiveOption);
-    out.replace(secretParam, QStringLiteral("\\1=***"));
-    return out;
+    // into the settings page's status label. The rule itself now lives in
+    // SecretRedactor.h so AiClient's log and chat-bubble paths apply exactly
+    // the same filter (v2.3 review H1).
+    return AiSecrets::redactSecrets(text, _apiKey);
 }
 
 void ModelListFetcher::fetch(const QString &provider,

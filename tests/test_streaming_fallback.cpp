@@ -24,9 +24,11 @@
 #include <QSettings>
 #include <QSignalSpy>
 #include <QTest>
+#include <QUrl>
 
 #include "../src/AppPaths.h"
 #include "../src/ai/AiClient.h"
+#include "../src/ai/SecretRedactor.h"
 
 class TestStreamingFallback : public QObject {
     Q_OBJECT
@@ -89,7 +91,6 @@ private slots:
         QVERIFY(!needsKey(QStringLiteral("  http://localhost:8080/v1  ")));
         QVERIFY(!needsKey(QStringLiteral("http://LOCALHOST:8080/v1")));
         QVERIFY(!needsKey(QStringLiteral("http://localhost./v1")));
-        QVERIFY(!needsKey(QStringLiteral("http://llama.localhost:1234/v1")));
         QVERIFY(!needsKey(QStringLiteral("http://127.0.0.1:1234/v1")));
         QVERIFY(!needsKey(QStringLiteral("127.0.0.1:1234/v1")));
         QVERIFY(!needsKey(QStringLiteral("http://127.5.6.7:1234/v1")));
@@ -101,6 +102,12 @@ private slots:
         QVERIFY(needsKey(QStringLiteral("http://127.example.com/v1")));
         QVERIFY(needsKey(QStringLiteral("http://localhost.evil.com/v1")));
         QVERIFY(needsKey(QStringLiteral("http://notlocalhost/v1")));
+        // v2.3 review L1: "*.localhost" is reserved by RFC 6761 but Windows
+        // does not resolve it locally - it goes to the configured DNS server
+        // like any other name, so it can answer from off-box. Only the exact
+        // name "localhost" and loopback literals earn the keyless exemption.
+        QVERIFY(needsKey(QStringLiteral("http://llama.localhost:1234/v1")));
+        QVERIFY(needsKey(QStringLiteral("http://a.b.localhost/v1")));
         QVERIFY(needsKey(QStringLiteral("https://api.openai.com/v1")));
         // Another machine on the LAN is not this machine.
         QVERIFY(needsKey(QStringLiteral("http://10.0.0.5:8080/v1")));
@@ -120,6 +127,156 @@ private slots:
                                                QStringLiteral("http://localhost:8080/v1")));
         QVERIFY(!AiClient::providerRequiresKey(QStringLiteral(" ollama "),
                                                QStringLiteral("https://example.com/v1")));
+    }
+
+    // v2.3 review M5: a base URL typed without a scheme ("localhost:8080/v1")
+    // used to pass the keyless-loopback check (which prepended http:// only
+    // for the check) while the request builders concatenated the raw text -
+    // QUrl then read "localhost" as the SCHEME and every request died with
+    // ProtocolUnknownError while the UI reported the endpoint as ready. The
+    // normalisation now happens where the value enters the client, so the
+    // check and the builders see the same string.
+    void schemelessBaseUrl_isNormalisedForRequests()
+    {
+        // The trap, spelled out: without a scheme QUrl parses the host away.
+        QCOMPARE(QUrl(QStringLiteral("localhost:8080/v1")).scheme(),
+                 QStringLiteral("localhost"));
+        QVERIFY(QUrl(QStringLiteral("localhost:8080/v1")).host().isEmpty());
+
+        AiClient client;
+        client.setProvider(QStringLiteral("custom"));
+        client.setApiBaseUrl(QStringLiteral("  localhost:8080/v1  "));
+
+        // Every request builder is "_apiBaseUrl + <endpoint path>", and
+        // _apiBaseUrl is exactly what apiBaseUrl() returns.
+        const QString builderUrl = client.apiBaseUrl()
+                                   + QStringLiteral("/chat/completions");
+        QVERIFY2(builderUrl.startsWith(QStringLiteral("http://localhost:8080")),
+                 qPrintable(builderUrl));
+        const QUrl parsed(builderUrl);
+        QCOMPARE(parsed.scheme(), QStringLiteral("http"));
+        QCOMPARE(parsed.host(), QStringLiteral("localhost"));
+        QCOMPARE(parsed.port(), 8080);
+        QCOMPARE(parsed.path(), QStringLiteral("/v1/chat/completions"));
+
+        // ... and the same endpoint is still judged keyless, so the two
+        // verdicts can no longer disagree.
+        QVERIFY(client.isConfigured());
+
+        // A spelled-out URL must survive untouched.
+        client.setApiBaseUrl(QStringLiteral("https://api.openai.com/v1"));
+        QCOMPARE(client.apiBaseUrl(), QStringLiteral("https://api.openai.com/v1"));
+
+        // A value stored by an older build (or hand-edited) is normalised on
+        // the way in as well.
+        auto s = AppPaths::settings();
+        s->setValue(QStringLiteral("AI/api_base_url"),
+                    QStringLiteral("localhost:9999/v1"));
+        s->sync();
+        AiClient fresh;
+        QVERIFY2(fresh.apiBaseUrl().startsWith(QStringLiteral("http://localhost:9999")),
+                 qPrintable(fresh.apiBaseUrl()));
+        fresh.reloadSettings();
+        QVERIFY(fresh.apiBaseUrl().startsWith(QStringLiteral("http://localhost:9999")));
+    }
+
+    void normalizedBaseUrl_keepsRealSchemesAndEmpty()
+    {
+        auto norm = [](const QString &u) { return AiClient::normalizedBaseUrl(u); };
+
+        QCOMPARE(norm(QStringLiteral("localhost:8080/v1")),
+                 QStringLiteral("http://localhost:8080/v1"));
+        QCOMPARE(norm(QStringLiteral("  127.0.0.1:1234/v1  ")),
+                 QStringLiteral("http://127.0.0.1:1234/v1"));
+        QCOMPARE(norm(QStringLiteral("example.com/v1")),
+                 QStringLiteral("http://example.com/v1"));
+        // Scheme-relative input must not end up with four slashes.
+        QCOMPARE(norm(QStringLiteral("//example.com/v1")),
+                 QStringLiteral("http://example.com/v1"));
+        // Real schemes are left alone.
+        QCOMPARE(norm(QStringLiteral("https://api.openai.com/v1")),
+                 QStringLiteral("https://api.openai.com/v1"));
+        QCOMPARE(norm(QStringLiteral("http://localhost:11434/v1")),
+                 QStringLiteral("http://localhost:11434/v1"));
+        // Nothing in, nothing out - an empty base URL stays empty so callers
+        // can still tell "not configured" from "configured".
+        QCOMPARE(norm(QString()), QString());
+        QCOMPARE(norm(QStringLiteral("   ")), QString());
+    }
+
+    // ------------------------------------------------------------------
+    // v2.3 review H1/L12: the shared secret redactor. Gemini's native
+    // streaming endpoint carries the API key in the URL query, so
+    // QNetworkReply::errorString() (which quotes the URL) reached both the
+    // plaintext API log and the chat bubble with the key in it. Every log /
+    // errorOccurred site in AiClient now runs through this helper.
+    // ------------------------------------------------------------------
+    void redactSecrets_stripsKeyFromGeminiStyleUrl()
+    {
+        const QString key = QStringLiteral("AIzaSyD-1234567890abcdefghijklmnopqrs");
+        const QString errorString = QStringLiteral(
+            "Error transferring https://generativelanguage.googleapis.com/v1beta/"
+            "models/gemini-3-pro:streamGenerateContent?alt=sse&key=%1 - "
+            "server replied: Bad Request").arg(key);
+
+        const QString out = AiSecrets::redactSecrets(errorString, key);
+        QVERIFY2(!out.contains(key), qPrintable(out));
+        QVERIFY(out.contains(QStringLiteral("key=***")));
+        // Everything that makes the message useful must survive.
+        QVERIFY(out.contains(QStringLiteral("streamGenerateContent")));
+        QVERIFY(out.contains(QStringLiteral("alt=sse")));
+        QVERIFY(out.contains(QStringLiteral("server replied: Bad Request")));
+
+        // The key is stripped even when the caller does not know it (a stale
+        // request, a profile key that is not the active one).
+        const QString blind = AiSecrets::redactSecrets(errorString);
+        QVERIFY2(!blind.contains(key), qPrintable(blind));
+        QVERIFY(blind.contains(QStringLiteral("key=***")));
+    }
+
+    void redactSecrets_coversTheUsualParamNames()
+    {
+        auto red = [](const QString &t) { return AiSecrets::redactSecrets(t); };
+
+        QCOMPARE(red(QStringLiteral("?api_key=sk-abcdef123456")),
+                 QStringLiteral("?api_key=***"));
+        QCOMPARE(red(QStringLiteral("?apikey=sk-abcdef123456")),
+                 QStringLiteral("?apikey=***"));
+        QCOMPARE(red(QStringLiteral("?access_token=abc.def.ghi")),
+                 QStringLiteral("?access_token=***"));
+        QCOMPARE(red(QStringLiteral("?token=abc123")), QStringLiteral("?token=***"));
+        // Case-insensitive, and only the secret value is cut out.
+        QCOMPARE(red(QStringLiteral("?alt=sse&KEY=SECRETVALUE&foo=bar")),
+                 QStringLiteral("?alt=sse&KEY=***&foo=bar"));
+        // A word that merely ENDS in "key" is not a secret parameter.
+        QCOMPARE(red(QStringLiteral("donkey=7")), QStringLiteral("donkey=7"));
+        QCOMPARE(red(QString()), QString());
+    }
+
+    // L12: the literal-key replacement must not fire for a 1-2 character
+    // "key" (a placeholder, or a field caught half-typed) - it would turn
+    // ordinary words into "***" and make the log unreadable. Real provider
+    // keys are far longer than the 8-character floor.
+    void redactSecrets_shortKeyDoesNotOverRedact()
+    {
+        QCOMPARE(AiSecrets::redactSecrets(QStringLiteral("a monkey ate a banana"),
+                                          QStringLiteral("a")),
+                 QStringLiteral("a monkey ate a banana"));
+        QCOMPARE(AiSecrets::redactSecrets(QStringLiteral("HTTP 500 from the server"),
+                                          QStringLiteral("er")),
+                 QStringLiteral("HTTP 500 from the server"));
+        // Seven characters: still too short to be a real credential.
+        QCOMPARE(AiSecrets::redactSecrets(QStringLiteral("prefix 1234567 suffix"),
+                                          QStringLiteral("1234567")),
+                 QStringLiteral("prefix 1234567 suffix"));
+        // Eight and up: replaced wherever it appears, query item or not.
+        QCOMPARE(AiSecrets::redactSecrets(QStringLiteral("prefix 12345678 suffix"),
+                                          QStringLiteral("12345678")),
+                 QStringLiteral("prefix *** suffix"));
+        QCOMPARE(AiSecrets::redactSecrets(
+                     QStringLiteral("Bearer sk-proj-0123456789 rejected"),
+                     QStringLiteral("sk-proj-0123456789")),
+                 QStringLiteral("Bearer *** rejected"));
     }
 
     void initTestCase()

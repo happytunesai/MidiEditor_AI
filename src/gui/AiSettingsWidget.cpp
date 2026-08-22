@@ -134,6 +134,19 @@ AiSettingsWidget::AiSettingsWidget(QSettings *settings, QWidget *parent)
     // per-provider memory is only consulted once the page really switches
     // provider.
     _apiKeyEdit->setText(storedKeyForProvider(currentProvider, /*initialLoad*/ true));
+    // Dirty tracking for the per-provider key memory: textEdited() fires ONLY
+    // on a user edit, so clearing the field by hand is distinguishable from the
+    // setText() that a provider switch or a keyless profile performs. Without
+    // that distinction an emptied key cannot be represented in the memory at
+    // all - every writer skips the empty value - and it silently returns on the
+    // next provider round-trip.
+    connect(_apiKeyEdit, &QLineEdit::textEdited, this, [this](const QString &) {
+        const QString shown = _lastProvider.isEmpty() && _providerCombo
+                                  ? _providerCombo->currentData().toString()
+                                  : _lastProvider;
+        if (!shown.isEmpty())
+            _keyFieldEditedFor.insert(shown);
+    });
     layout->addWidget(_apiKeyEdit, row, 1);
 
     _toggleKeyButton = new QPushButton("Show", this);
@@ -544,14 +557,14 @@ bool AiSettingsWidget::accept() {
     _settings->setValue("AI/provider", provider);
     _settings->setValue("AI/api_base_url", _baseUrlEdit->text().trimmed());
     // Save API key per-provider and as active key. The ACTIVE key follows the
-    // field exactly (an empty field really does mean "send no key"), but the
-    // per-provider MEMORY is never wiped by an empty field - same rule as the
-    // provider switch and ProviderProfileStore::apply(), so closing this page
-    // while a keyless local profile is applied cannot destroy the remembered
-    // key of that provider.
+    // field exactly (an empty field really does mean "send no key"); the
+    // per-provider MEMORY follows it only where the user was really on this
+    // provider - same rule as the provider switch (\ref rememberKeyFieldFor),
+    // so closing this page while a keyless local profile is applied cannot
+    // destroy the remembered key of that provider, while a key the user cleared
+    // here stays cleared instead of coming back on the next switch.
     QString key = _apiKeyEdit->text().trimmed();
-    if (!key.isEmpty())
-        _settings->setValue(QString("AI/api_key/%1").arg(provider), key);
+    rememberKeyFieldFor(provider);
     _settings->setValue("AI/api_key", key);
     QString model = currentModelId();
     _settings->setValue("AI/model", model);
@@ -664,15 +677,13 @@ void AiSettingsWidget::applyProviderSwitch(const QString &provider) {
     // AI/api_key outrank the per-provider memory.
     const bool initialLoad = _lastProvider.isEmpty();
 
-    // Save current key for the previous provider before switching - but never
-    // overwrite a remembered key with an empty field. A keyless profile leaves
-    // AI/api_key/<provider> alone on purpose (ProviderProfileStore::apply);
-    // wiping it here would lose the key the store just protected.
-    if (!_lastProvider.isEmpty() && _lastProvider != provider) {
-        const QString leavingKey = _apiKeyEdit->text().trimmed();
-        if (!leavingKey.isEmpty())
-            _settings->setValue(QString("AI/api_key/%1").arg(_lastProvider), leavingKey);
-    }
+    // Save current key for the previous provider before switching. A keyless
+    // profile leaves AI/api_key/<provider> alone on purpose
+    // (ProviderProfileStore::apply); wiping it here would lose the key the
+    // store just protected - but a key the USER cleared has to disappear, or it
+    // resurrects the moment the provider is selected again.
+    if (!_lastProvider.isEmpty() && _lastProvider != provider)
+        rememberKeyFieldFor(_lastProvider);
     _lastProvider = provider;
 
     // Load key for the new provider
@@ -957,7 +968,32 @@ QString AiSettingsWidget::storedKeyForProvider(const QString &provider,
         // ("this endpoint is keyless"), never a reason to fall back.
         return _settings->value(QStringLiteral("AI/api_key")).toString();
     }
-    return _settings->value(QStringLiteral("AI/api_key/%1").arg(provider)).toString();
+    const QString remembered =
+        _settings->value(QStringLiteral("AI/api_key/%1").arg(provider)).toString();
+    // The URL that will be in force for the provider being entered: for Custom
+    // the field is left exactly as it is, so what stands here IS that endpoint.
+    const QString url = _baseUrlEdit ? _baseUrlEdit->text().trimmed() : QString();
+    return ProviderProfileStore::keyMemoryOnEnter(
+        provider, remembered, AiClient::providerRequiresKey(provider, url));
+}
+
+void AiSettingsWidget::rememberKeyFieldFor(const QString &provider)
+{
+    if (provider.isEmpty() || !_apiKeyEdit)
+        return;
+    const QString memoryKey = QStringLiteral("AI/api_key/%1").arg(provider);
+    const QString fieldKey = _apiKeyEdit->text().trimmed();
+    switch (ProviderProfileStore::keyMemoryActionOnLeave(
+        fieldKey, _keyFieldEditedFor.contains(provider))) {
+    case ProviderProfileStore::KeyMemoryAction::Store:
+        _settings->setValue(memoryKey, fieldKey);
+        break;
+    case ProviderProfileStore::KeyMemoryAction::Erase:
+        _settings->remove(memoryKey);
+        break;
+    case ProviderProfileStore::KeyMemoryAction::Keep:
+        break;
+    }
 }
 
 void AiSettingsWidget::updateKeyFieldHint()

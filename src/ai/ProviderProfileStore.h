@@ -154,6 +154,66 @@ public:
     /// Remember/forget the last applied profile (a hint for activeProfileName()).
     static void setActiveProfileHint(const QString &name);
 
+    // --- pure decision helpers -------------------------------------------
+    //
+    // No settings access, no widgets: the rules the two connection pickers
+    // (AiSettingsWidget page, MidiPilotWidget footer) have to agree on, in one
+    // place where the store test can pin their state tables.
+
+    /// What a provider switch must do with AI/api_key/<provider> for the
+    /// provider being LEFT. \ref keyMemoryActionOnLeave decides it.
+    enum class KeyMemoryAction {
+        Keep,   ///< leave the remembered key alone
+        Store,  ///< write the field's key
+        Erase   ///< the user cleared the key on purpose - drop the memory
+    };
+
+    /** The per-provider key memory follows the FIELD, but only for a user who
+     *  was really on that provider and really emptied its key.
+     *
+     *  An empty field alone must not erase the memory: applying a keyless local
+     *  profile POURS an empty key into the field, and wiping the remembered
+     *  cloud token there would destroy the key the store deliberately protects
+     *  (see \ref apply). An empty field the user typed away is the opposite -
+     *  without an Erase the cleared key silently returns on the next provider
+     *  round-trip and is sent again.
+     *
+     *  \a userEditedKeyField is the caller's dirty flag: true only when the key
+     *  field was edited BY THE USER while this provider was showing (a
+     *  setText() from a switch or a profile does not count). */
+    static KeyMemoryAction keyMemoryActionOnLeave(const QString &fieldKey,
+                                                  bool userEditedKeyField);
+
+    /** The key a provider switch may re-attach when ENTERING \a provider.
+     *
+     *  \a rememberedKey is AI/api_key/<provider>, \a endpointNeedsKey the
+     *  caller's verdict for the endpoint that is about to be in force
+     *  (AiClient::providerRequiresKey - kept out of this header so the store
+     *  stays free of the client).
+     *
+     *  Only Custom is filtered, and only by locality: its endpoint is
+     *  user-defined, so the same provider id can mean a cloud router one minute
+     *  and a server on this machine the next. Re-attaching a remembered cloud
+     *  token to a loopback endpoint would put that token into a local server's
+     *  Authorization header. Every other provider keeps its memory verbatim -
+     *  an Ollama behind an auth proxy still gets its key back. */
+    static QString keyMemoryOnEnter(const QString &provider,
+                                    const QString &rememberedKey,
+                                    bool endpointNeedsKey);
+
+    /** Should a connection picker offer the plain ad-hoc "Custom" entry?
+     *
+     *  \a matchedProfileName is the stored profile the LIVE endpoint resolves
+     *  to (\ref nameMatchingEndpoint), resolved once by the caller so this rule
+     *  and the picker's selection can never disagree. \a builtInBaseUrls are
+     *  the default endpoints of the built-in providers - a base URL equal to
+     *  one of them is what switching provider writes, not something a user
+     *  typed. Trailing slashes are normalised on both sides. */
+    static bool shouldOfferAdHocCustomEntry(const QString &provider,
+                                            const QString &baseUrl,
+                                            const QString &matchedProfileName,
+                                            const QStringList &builtInBaseUrls);
+
     /// Trimmed, whitespace-collapsed, length-capped display name. Empty means
     /// "not a usable profile name".
     static QString normalizeName(const QString &raw);

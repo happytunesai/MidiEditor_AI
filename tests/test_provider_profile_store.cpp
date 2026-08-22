@@ -19,6 +19,15 @@
  *   7. nameMatchingEndpoint() lets a live selection outrank the stored hint
  *      when two profiles describe one endpoint.
  *
+ * v2.3 final review additions:
+ *   8. Endpoints differing only in trailing slashes are one endpoint (L3).
+ *   9. The per-provider key memory: an empty key the user cleared on purpose
+ *      is representable and erases the memory, while a keyless profile leaves
+ *      it alone; a remembered cloud token never re-attaches to a Custom
+ *      endpoint on this machine (H4).
+ *  10. The state table behind the footer's ad-hoc "Custom" entry (L11).
+ *  11. ModelListCache::forget() reports whether the scope is really gone (L4).
+ *
  * Uses the AppPaths test seam - the developer's real settings scope must
  * never be touched (TESTWIPE class). The model-list cache is a file under
  * QStandardPaths, so the cases below run with test mode enabled.
@@ -549,7 +558,12 @@ private slots:
     // rules below are the store-level half of that contract; the widgets only
     // add item data and blockSignals on top.
 
-    void onlyCustomProfilesBecomeProviderComboEntries() {
+    void everySavedProfileBecomesAFooterProviderComboEntry() {
+        // v2.3 review (M3): the FOOTER lists every saved profile, whichever
+        // provider it was saved with - a profile pins the key and the model
+        // too, and the gear menu already reports "Provider profile saved: X".
+        // The entry's own provider id is what the combo must carry, so the
+        // preset writer and the fallback lookup see the real provider.
         QVERIFY(ProviderProfileStore::save(
             makeProfile(QStringLiteral("HF"), QStringLiteral("custom"),
                         QStringLiteral("https://router.example/v1"),
@@ -561,8 +575,59 @@ private slots:
                         QStringLiteral("gpt-4o")),
             QStringLiteral("openai-key")));
 
-        // The combos filter on the stored provider: a built-in provider's
-        // profile would be a second "OpenAI" line for the same endpoint.
+        QStringList entries;
+        QStringList providerIds;
+        for (const QString &n : ProviderProfileStore::profileNames()) {
+            bool ok = false;
+            const Profile p = ProviderProfileStore::load(n, &ok);
+            if (!ok)
+                continue;
+            entries.append(p.name);
+            providerIds.append(p.provider);
+        }
+        QCOMPARE(entries,
+                 (QStringList{QStringLiteral("HF"), QStringLiteral("Work")}));
+        QCOMPARE(providerIds,
+                 (QStringList{QStringLiteral("custom"),
+                              QStringLiteral("openai")}));
+
+        // Applying the non-custom one behaves exactly like applying it from
+        // the settings page: the same four keys, the same hint.
+        QVERIFY(ProviderProfileStore::apply(QStringLiteral("Work")));
+        auto s = AppPaths::settings();
+        QCOMPARE(s->value(QStringLiteral("AI/provider")).toString(),
+                 QStringLiteral("openai"));
+        QCOMPARE(s->value(QStringLiteral("AI/api_key")).toString(),
+                 QStringLiteral("openai-key"));
+        QCOMPARE(s->value(QStringLiteral("AI/model")).toString(),
+                 QStringLiteral("gpt-4o"));
+        QCOMPARE(ProviderProfileStore::activeProfileName(),
+                 QStringLiteral("Work"));
+        // ... and it is findable as an endpoint, so the footer can select it.
+        QCOMPARE(ProviderProfileStore::nameMatchingEndpoint(
+                     QStringLiteral("openai"),
+                     QStringLiteral("https://api.openai.com/v1"),
+                     QStringLiteral("openai-key")),
+                 QStringLiteral("Work"));
+    }
+
+    void onlyCustomProfilesBecomeSettingsPageProviderComboEntries() {
+        QVERIFY(ProviderProfileStore::save(
+            makeProfile(QStringLiteral("HF"), QStringLiteral("custom"),
+                        QStringLiteral("https://router.example/v1"),
+                        QStringLiteral("a/model")),
+            QStringLiteral("hf-token")));
+        QVERIFY(ProviderProfileStore::save(
+            makeProfile(QStringLiteral("Work"), QStringLiteral("openai"),
+                        QStringLiteral("https://api.openai.com/v1"),
+                        QStringLiteral("gpt-4o")),
+            QStringLiteral("openai-key")));
+
+        // The SETTINGS PAGE's provider combo filters on the stored provider:
+        // a built-in provider's profile would be a second "OpenAI" line for
+        // the same endpoint, and the page's own "Provider profile" row above
+        // the fields already lists every profile. (The footer, which has no
+        // second picker, lists them all - see the case above.)
         QStringList entries;
         for (const QString &n : ProviderProfileStore::profileNames()) {
             bool ok = false;
@@ -904,6 +969,159 @@ private slots:
                     QStringLiteral("https://elsewhere.example/v1"),
                     QStringLiteral("hf-token"), QStringLiteral("BBB"))
                     .isEmpty());
+    }
+
+    // --- 11. trailing slashes are not a different server (v2.3 review L3) ---
+
+    void aTrailingSlashDoesNotHideAProfile() {
+        // The pickers normalise the endpoint before they compare; a profile
+        // stored with the slash still typed could never be matched again.
+        QVERIFY(ProviderProfileStore::save(
+            makeProfile(QStringLiteral("Slashed"), QStringLiteral("custom"),
+                        QStringLiteral("https://router.example/v1/"),
+                        QStringLiteral("a/model")),
+            QStringLiteral("hf-token")));
+
+        QVERIFY(ProviderProfileStore::matchesEndpoint(
+            QStringLiteral("Slashed"), QStringLiteral("custom"),
+            QStringLiteral("https://router.example/v1"),
+            QStringLiteral("hf-token")));
+        QCOMPARE(ProviderProfileStore::nameMatchingEndpoint(
+                     QStringLiteral("custom"),
+                     QStringLiteral("https://router.example/v1"),
+                     QStringLiteral("hf-token")),
+                 QStringLiteral("Slashed"));
+        // ... and therefore its own model-list scope, not the ad-hoc bucket.
+        QCOMPARE(ProviderProfileStore::modelScopeId(
+                     QStringLiteral("custom"),
+                     QStringLiteral("https://router.example/v1"),
+                     QStringLiteral("hf-token")),
+                 QStringLiteral("custom:profile:Slashed"));
+        // A genuinely different path is still a different endpoint.
+        QVERIFY(!ProviderProfileStore::matchesEndpoint(
+            QStringLiteral("Slashed"), QStringLiteral("custom"),
+            QStringLiteral("https://router.example/v2"),
+            QStringLiteral("hf-token")));
+    }
+
+    // --- 12. the per-provider key memory (v2.3 review H4) ------------------
+    //
+    // The empty key used to be unrepresentable: every writer skipped it, so a
+    // key the user cleared came back on the next provider round-trip and was
+    // sent again. The two halves of the rule are pure functions, pinned here.
+
+    void clearingAKeyOnPurposeErasesTheMemory() {
+        using Action = ProviderProfileStore::KeyMemoryAction;
+
+        // A key in the field is always remembered.
+        QCOMPARE(ProviderProfileStore::keyMemoryActionOnLeave(
+                     QStringLiteral("sk-live"), false), Action::Store);
+        QCOMPARE(ProviderProfileStore::keyMemoryActionOnLeave(
+                     QStringLiteral("sk-live"), true), Action::Store);
+        // Scenario A: the user emptied the field here - the memory must go, or
+        // the deleted key resurrects on the next switch back to this provider.
+        QCOMPARE(ProviderProfileStore::keyMemoryActionOnLeave(QString(), true),
+                 Action::Erase);
+        QCOMPARE(ProviderProfileStore::keyMemoryActionOnLeave(
+                     QStringLiteral("   "), true), Action::Erase);
+        // F1: an empty field the user never touched (a keyless local profile
+        // was poured into it) leaves the remembered cloud key alone.
+        QCOMPARE(ProviderProfileStore::keyMemoryActionOnLeave(QString(), false),
+                 Action::Keep);
+    }
+
+    void aLocalCustomEndpointNeverGetsTheRememberedCloudKey() {
+        // Scenario B: AI/api_key/custom holds a cloud token, the live Custom
+        // endpoint is a server on this machine with an empty key. Custom ->
+        // Ollama -> Custom must not re-attach the token to the local endpoint.
+        QCOMPARE(ProviderProfileStore::keyMemoryOnEnter(
+                     QStringLiteral("custom"), QStringLiteral("cloud-token"),
+                     /*endpointNeedsKey*/ false),
+                 QString());
+        // The same provider pointing at a remote endpoint keeps its memory.
+        QCOMPARE(ProviderProfileStore::keyMemoryOnEnter(
+                     QStringLiteral("custom"), QStringLiteral("cloud-token"),
+                     /*endpointNeedsKey*/ true),
+                 QStringLiteral("cloud-token"));
+        // Only Custom is filtered: its endpoint is the user-defined one. An
+        // Ollama behind an auth proxy still gets its remembered key back, even
+        // though the provider never REQUIRES one.
+        QCOMPARE(ProviderProfileStore::keyMemoryOnEnter(
+                     QStringLiteral("ollama"), QStringLiteral("proxy-key"),
+                     /*endpointNeedsKey*/ false),
+                 QStringLiteral("proxy-key"));
+        QCOMPARE(ProviderProfileStore::keyMemoryOnEnter(
+                     QStringLiteral("openai"), QStringLiteral("sk-live"), true),
+                 QStringLiteral("sk-live"));
+        // Case-insensitive on the provider id, and an absent memory stays
+        // absent rather than becoming a stray empty value.
+        QCOMPARE(ProviderProfileStore::keyMemoryOnEnter(
+                     QStringLiteral("Custom"), QStringLiteral("cloud-token"),
+                     false),
+                 QString());
+        QCOMPARE(ProviderProfileStore::keyMemoryOnEnter(
+                     QStringLiteral("openai"), QString(), true), QString());
+    }
+
+    // --- 13. when the footer offers the ad-hoc "Custom" entry (L11) --------
+
+    void theAdHocCustomEntryIsOfferedExactlyWhenItIsReal() {
+        const QStringList builtIns{
+            QStringLiteral("https://api.openai.com/v1"),
+            QStringLiteral("https://openrouter.ai/api/v1"),
+            QStringLiteral("https://generativelanguage.googleapis.com/v1beta/openai"),
+            QStringLiteral("http://localhost:11434/v1")};
+        auto offer = [&builtIns](const QString &provider, const QString &url,
+                                 const QString &match) {
+            return ProviderProfileStore::shouldOfferAdHocCustomEntry(
+                provider, url, match, builtIns);
+        };
+
+        // On an ad-hoc custom connection the entry IS the active one.
+        QVERIFY(offer(QStringLiteral("custom"),
+                      QStringLiteral("https://router.example/v1"), QString()));
+        // ... unless a stored profile describes exactly this endpoint: that
+        // profile's own entry represents it, a second one would be a decoy.
+        QVERIFY(!offer(QStringLiteral("custom"),
+                       QStringLiteral("https://router.example/v1"),
+                       QStringLiteral("HF")));
+        // A built-in provider on a profile endpoint: no ad-hoc entry either.
+        QVERIFY(!offer(QStringLiteral("openai"),
+                       QStringLiteral("https://api.openai.com/v1"),
+                       QStringLiteral("Work")));
+        // A built-in provider sitting on its own default URL configured
+        // nothing - that URL is what switching provider writes.
+        QVERIFY(!offer(QStringLiteral("openai"),
+                       QStringLiteral("https://api.openai.com/v1"), QString()));
+        QVERIFY(!offer(QStringLiteral("ollama"),
+                       QStringLiteral("http://localhost:11434/v1"), QString()));
+        // ... and a trailing slash does not make it a different URL.
+        QVERIFY(!offer(QStringLiteral("ollama"),
+                       QStringLiteral("http://localhost:11434/v1/"), QString()));
+        // A non-default URL left behind by a built-in provider does count:
+        // picking "Custom" would talk to exactly that server.
+        QVERIFY(offer(QStringLiteral("ollama"),
+                      QStringLiteral("http://otherhost:11434/v1"), QString()));
+        // Nothing configured at all: no dead entry.
+        QVERIFY(!offer(QStringLiteral("openai"), QString(), QString()));
+        QVERIFY(!offer(QStringLiteral("openai"), QStringLiteral("   "),
+                       QString()));
+    }
+
+    // --- 14. forget() reports the truth (v2.3 review L4) -------------------
+
+    void forgettingReportsWhetherTheScopeIsGone() {
+        // Nothing cached at all - the scope IS gone, so this is a success.
+        QVERIFY(ModelListCache::forget(QStringLiteral("custom:profile:never")));
+        // An empty scope addresses nothing: a caller bug, never a deletion.
+        QVERIFY(!ModelListCache::forget(QString()));
+
+        ModelListCache::store(QStringLiteral("openai"),
+                              oneModel(QStringLiteral("gpt-4o")));
+        QVERIFY(ModelListCache::forget(QStringLiteral("custom:profile:never")));
+        QCOMPARE(ModelListCache::models(QStringLiteral("openai")).size(), 1);
+        QVERIFY(ModelListCache::forget(QStringLiteral("openai")));
+        QVERIFY(ModelListCache::models(QStringLiteral("openai")).isEmpty());
     }
 };
 

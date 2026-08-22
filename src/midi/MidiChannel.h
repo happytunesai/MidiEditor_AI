@@ -25,6 +25,9 @@
 // Qt includes
 #include <QMultiMap>
 
+// Standard includes
+#include <atomic>
+
 // Forward declarations
 class MidiFile;
 class MidiEvent;
@@ -145,14 +148,20 @@ public:
      *
      *  Both accessors are inline on purpose: they must not create a link
      *  dependency on MidiChannel.cpp for the event TUs above.
+     *
+     *  ATOMIC because it is written on the document thread and read by the
+     *  cache-rebuild check, and a plain quint64 read/written from two threads
+     *  is a data race even where the hardware would have made it look benign.
+     *  Acquire/release, not relaxed: the reader must see the map mutation that
+     *  came BEFORE the bump, not just the new counter value.
      */
-    static quint64 tempoRevision() { return _tempoRevision; }
+    static quint64 tempoRevision() { return _tempoRevision.load(std::memory_order_acquire); }
 
     /**
      * \brief Marks the tempo map as changed. Call after ANY mutation of a
      *  channel-17 event map or of a tempo event's BPM/position.
      */
-    static void bumpTempoRevision() { ++_tempoRevision; }
+    static void bumpTempoRevision() { _tempoRevision.fetch_add(1, std::memory_order_release); }
 
     /**
      * \brief Inserts a new note into this channel.
@@ -289,7 +298,7 @@ protected:
 
     /** \brief Phase 48: see tempoRevision(). Inline static so no TU needs a
      *  link dependency on MidiChannel.cpp just to bump it. */
-    inline static quint64 _tempoRevision = 0;
+    inline static std::atomic<quint64> _tempoRevision{0};
 };
 
 #endif // MIDICHANNEL_H_

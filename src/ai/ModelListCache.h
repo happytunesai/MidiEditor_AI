@@ -86,8 +86,15 @@ public:
      * list. A no-op when the scope has no entry (the file is not rewritten),
      * and the on-disk format is unchanged - only one key of the \c "providers"
      * object disappears.
+     *
+     * \return \c true when nothing is cached under \a scope any more - including
+     *         the case where nothing ever was. \c false when the entry is still
+     *         there: an empty scope addresses nothing, and a rewrite of the
+     *         cache file can fail (read-only directory, the file open
+     *         elsewhere). Callers cannot repair that, but they must not report
+     *         a clean deletion when a foreign server's model list survived.
      */
-    static void forget(const QString &scope);
+    static bool forget(const QString &scope);
 
     /**
      * \brief Returns the context window declared in the cache for the given
@@ -97,7 +104,8 @@ public:
 
 private:
     static QJsonObject readFile();
-    static void writeFile(const QJsonObject &obj);
+    /// \return false when the cache file could not be (re)written.
+    static bool writeFile(const QJsonObject &obj);
 };
 
 #endif // MODELLISTCACHE_H

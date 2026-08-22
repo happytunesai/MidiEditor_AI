@@ -2,7 +2,9 @@
 #define AISETTINGSWIDGET_H
 
 #include "SettingsWidget.h"
+#include <QSet>
 #include <QSettings>
+#include <QString>
 
 class QLineEdit;
 class QComboBox;
@@ -68,8 +70,16 @@ private:
      *  the remembered AI/api_key/<provider> (a cloud token), so preferring
      *  the per-provider memory here would put that token back into a local
      *  endpoint's field and, on Close, into its Authorization header. A real
-     *  provider switch inside the page uses the per-provider memory. */
+     *  provider switch inside the page uses the per-provider memory - filtered
+     *  through ProviderProfileStore::keyMemoryOnEnter(), so a remembered cloud
+     *  token never re-attaches to a Custom endpoint on this machine. */
     QString storedKeyForProvider(const QString &provider, bool initialLoad) const;
+    /** Write the per-provider key memory for \a provider from the key field,
+     *  following ProviderProfileStore::keyMemoryActionOnLeave(): a key the user
+     *  cleared HERE is erased (otherwise it comes back on the next provider
+     *  round-trip and is sent again), a field emptied by a keyless profile
+     *  leaves the memory untouched. */
+    void rememberKeyFieldFor(const QString &provider);
     /** Placeholder of the key field for the endpoint currently in the fields
      *  ("not required" for Ollama and for a local Custom endpoint). */
     void updateKeyFieldHint();
@@ -152,6 +162,11 @@ private:
     QLabel *_promptsStatusLabel;
     bool _keyVisible;
     QString _lastProvider;
+    /// Providers whose API-key field the USER edited while this page was open.
+    /// Only for those does an empty field mean "cleared on purpose"; a field
+    /// emptied by a provider switch or by a keyless profile never lands here,
+    /// because QLineEdit::setText() does not emit textEdited().
+    QSet<QString> _keyFieldEditedFor;
 
     // MCP Server settings
     McpServer *_mcpServer = nullptr;
