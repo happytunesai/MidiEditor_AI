@@ -53,6 +53,17 @@
  *      describing the live custom endpoint used to hide the entry the picker
  *      was on, leaving it displaying "OpenAI".
  *
+ * v2.3 owner smoke round 4 additions:
+ *  18. No endpoint, nothing: ad-hoc Custom without a base URL offers neither a
+ *      remembered key nor a cached model list. A key and a catalogue belong to
+ *      a SERVER, and the ones left over from the last hand-typed endpoint used
+ *      to attach themselves to whatever URL was typed next. Display only -
+ *      nothing is deleted.
+ *  19. Naming an ad-hoc endpoint MIGRATES its leftovers into the profile (the
+ *      remembered URL, AI/api_key/custom when it is this profile's key, the
+ *      shared "custom" model list and favourites) instead of leaving a second,
+ *      stale copy of that server behind.
+ *
  * Uses the AppPaths test seam - the developer's real settings scope must
  * never be touched (TESTWIPE class). The model-list cache is a file under
  * QStandardPaths, so the cases below run with test mode enabled.
@@ -1112,31 +1123,37 @@ private slots:
         // Ollama -> Custom must not re-attach the token to the local endpoint.
         QCOMPARE(ProviderProfileStore::keyMemoryOnEnter(
                      QStringLiteral("custom"), QStringLiteral("cloud-token"),
-                     /*endpointNeedsKey*/ false),
+                     /*endpointNeedsKey*/ false,
+                     QStringLiteral("http://localhost:8080/v1")),
                  QString());
         // The same provider pointing at a remote endpoint keeps its memory.
         QCOMPARE(ProviderProfileStore::keyMemoryOnEnter(
                      QStringLiteral("custom"), QStringLiteral("cloud-token"),
-                     /*endpointNeedsKey*/ true),
+                     /*endpointNeedsKey*/ true,
+                     QStringLiteral("https://router.example/v1")),
                  QStringLiteral("cloud-token"));
         // Only Custom is filtered: its endpoint is the user-defined one. An
         // Ollama behind an auth proxy still gets its remembered key back, even
         // though the provider never REQUIRES one.
         QCOMPARE(ProviderProfileStore::keyMemoryOnEnter(
                      QStringLiteral("ollama"), QStringLiteral("proxy-key"),
-                     /*endpointNeedsKey*/ false),
+                     /*endpointNeedsKey*/ false,
+                     QStringLiteral("http://otherhost:11434/v1")),
                  QStringLiteral("proxy-key"));
         QCOMPARE(ProviderProfileStore::keyMemoryOnEnter(
-                     QStringLiteral("openai"), QStringLiteral("sk-live"), true),
+                     QStringLiteral("openai"), QStringLiteral("sk-live"), true,
+                     QStringLiteral("https://api.openai.com/v1")),
                  QStringLiteral("sk-live"));
         // Case-insensitive on the provider id, and an absent memory stays
         // absent rather than becoming a stray empty value.
         QCOMPARE(ProviderProfileStore::keyMemoryOnEnter(
                      QStringLiteral("Custom"), QStringLiteral("cloud-token"),
-                     false),
+                     false, QStringLiteral("http://127.0.0.1:8080/v1")),
                  QString());
         QCOMPARE(ProviderProfileStore::keyMemoryOnEnter(
-                     QStringLiteral("openai"), QString(), true), QString());
+                     QStringLiteral("openai"), QString(), true,
+                     QStringLiteral("https://api.openai.com/v1")),
+                 QString());
     }
 
     // --- 13. when the footer offers the ad-hoc "Custom" entry (L11) --------
@@ -1587,6 +1604,259 @@ private slots:
         // Case and padding of the provider id do not change the answer.
         QVERIFY(ProviderProfileStore::selectionNeedsFixedCustomEntry(
             QStringLiteral(" Custom "), QString()));
+    }
+
+    // --- 18. no endpoint, nothing ------------------------------------------
+    //
+    // The owner's third report: picking the fixed "Custom" entry with nothing
+    // remembered shows a blank URL - but the key field filled itself from
+    // AI/api_key/custom (a token from a cloud endpoint he had typed weeks
+    // earlier) and the model dropdown offered that endpoint's cached models.
+    // Both halves are one rule: an ad-hoc Custom entry without a base URL is a
+    // blank sheet, because a key and a model catalogue belong to a SERVER.
+
+    void aBlankAdHocCustomEndpointOffersNoKeyAndNoModels() {
+        auto s = AppPaths::settings();
+        // His live state: no remembered ad-hoc URL, a token still in the
+        // per-provider slot, that endpoint's models under the shared scope.
+        s->setValue(QStringLiteral("AI/api_key/custom"),
+                    QStringLiteral("hf-token"));
+        ModelListCache::store(QStringLiteral("custom"),
+                              oneModel(QStringLiteral("a/model")));
+        ModelFavorites::setFavorites(QStringLiteral("custom"),
+                                     {QStringLiteral("a/model")});
+
+        // The key half: no endpoint, no key - whatever the endpoint check says
+        // (an empty URL is not loopback, so it "requires" a key).
+        QVERIFY(ProviderProfileStore::keyMemoryOnEnter(
+                    QStringLiteral("custom"), QStringLiteral("hf-token"),
+                    /*endpointNeedsKey*/ true, QString()).isEmpty());
+        QVERIFY(ProviderProfileStore::keyMemoryOnEnter(
+                    QStringLiteral("custom"), QStringLiteral("hf-token"), true,
+                    QStringLiteral("   ")).isEmpty());
+        // The models half: no endpoint, no scope - so every cache and
+        // favourites lookup the pickers make answers empty.
+        QVERIFY(ProviderProfileStore::modelScopeId(
+                    QStringLiteral("custom"), QString(), QString()).isEmpty());
+        QVERIFY(ProviderProfileStore::modelScopeId(
+                    QStringLiteral("custom"), QStringLiteral("  "),
+                    QStringLiteral("hf-token")).isEmpty());
+        QVERIFY(ModelListCache::models(QString()).isEmpty());
+        QVERIFY(!ModelListCache::lastFetched(QString()).isValid());
+
+        // ... and that is what the LIVE settings say too, so both pickers get
+        // the same answer without a rule of their own.
+        s->setValue(QStringLiteral("AI/provider"), QStringLiteral("custom"));
+        s->remove(QStringLiteral("AI/api_base_url"));
+        QVERIFY(ProviderProfileStore::activeModelScopeId().isEmpty());
+
+        // A remembered ad-hoc endpoint WITH a URL is untouched by all of this.
+        QCOMPARE(ProviderProfileStore::keyMemoryOnEnter(
+                     QStringLiteral("custom"), QStringLiteral("hf-token"), true,
+                     QStringLiteral("https://router.example/v1")),
+                 QStringLiteral("hf-token"));
+        QCOMPARE(ProviderProfileStore::modelScopeId(
+                     QStringLiteral("custom"),
+                     QStringLiteral("https://router.example/v1"),
+                     QStringLiteral("hf-token")),
+                 QStringLiteral("custom"));
+        // A loopback endpoint still follows the locality rule alone.
+        QVERIFY(ProviderProfileStore::keyMemoryOnEnter(
+                    QStringLiteral("custom"), QStringLiteral("hf-token"),
+                    /*endpointNeedsKey*/ false,
+                    QStringLiteral("http://localhost:8080/v1")).isEmpty());
+        // A built-in provider is NOT blanked by an empty URL: its endpoint is
+        // implied by the provider, never typed, so an empty field says nothing.
+        QCOMPARE(ProviderProfileStore::keyMemoryOnEnter(
+                     QStringLiteral("openai"), QStringLiteral("sk-live"), true,
+                     QString()),
+                 QStringLiteral("sk-live"));
+        QCOMPARE(ProviderProfileStore::modelScopeId(
+                     QStringLiteral("openai"), QString(),
+                     QStringLiteral("sk-live")),
+                 QStringLiteral("openai"));
+
+        // Display only. Nothing was deleted - the token and the cached list are
+        // still there for the endpoint they belong to (cleaning them up is what
+        // naming that endpoint does, see below).
+        QCOMPARE(s->value(QStringLiteral("AI/api_key/custom")).toString(),
+                 QStringLiteral("hf-token"));
+        QCOMPARE(ModelListCache::models(QStringLiteral("custom")).size(), 1);
+        QVERIFY(ModelFavorites::hasFavorites(QStringLiteral("custom")));
+    }
+
+    // --- 19. naming an ad-hoc endpoint takes its leftovers with it ----------
+    //
+    // "Save as..." used to create the profile beside the ad-hoc traces of the
+    // very same endpoint: the remembered URL, AI/api_key/custom and the shared
+    // "custom" model list. Those traces are the ghost - they outlive the
+    // endpoint's ad-hoc life and get offered to the NEXT custom URL.
+
+    void namingTheAdHocEndpointHandsItsLeftoversToTheProfile() {
+        auto s = AppPaths::settings();
+        const QString url = QStringLiteral("https://router.example/v1");
+        s->setValue(ProviderProfileStore::adHocCustomBaseUrlKey(), url);
+        s->setValue(QStringLiteral("AI/api_key/custom"),
+                    QStringLiteral("hf-token"));
+        ModelListCache::store(QStringLiteral("custom"),
+                              oneModel(QStringLiteral("a/model")));
+        ModelFavorites::setFavorites(QStringLiteral("custom"),
+                                     {QStringLiteral("a/model")});
+
+        QVERIFY(ProviderProfileStore::save(
+            makeProfile(QStringLiteral("HF"), QStringLiteral("custom"), url,
+                        QStringLiteral("a/model")),
+            QStringLiteral("hf-token")));
+        QVERIFY(ProviderProfileStore::migrateAdHocStateIntoProfile(
+            QStringLiteral("HF"), url));
+
+        const QString scope =
+            ProviderProfileStore::modelScopeIdForProfile(QStringLiteral("HF"));
+        QCOMPARE(scope, QStringLiteral("custom:profile:HF"));
+        // (a) the endpoint is not ad-hoc any more - it has an entry of its own.
+        QVERIFY(s->value(ProviderProfileStore::adHocCustomBaseUrlKey())
+                    .toString().isEmpty());
+        // (b) its key lives in the profile now.
+        QVERIFY(s->value(QStringLiteral("AI/api_key/custom")).toString().isEmpty());
+        QCOMPARE(ProviderProfileStore::apiKeyFor(QStringLiteral("HF")),
+                 QStringLiteral("hf-token"));
+        // (c) so do its models and favourites - the profile's tab starts with
+        // what was already fetched instead of empty.
+        QCOMPARE(ModelListCache::models(scope).size(), 1);
+        QVERIFY(ModelFavorites::favorites(scope)
+                    .contains(QStringLiteral("a/model")));
+        QVERIFY(ModelListCache::models(QStringLiteral("custom")).isEmpty());
+        QVERIFY(!ModelFavorites::hasFavorites(QStringLiteral("custom")));
+
+        // What the user sees next: the fixed "Custom" entry is genuinely blank,
+        // and the endpoint itself is reachable through its profile.
+        QVERIFY(ProviderProfileStore::modelScopeId(
+                    QStringLiteral("custom"), QString(), QString()).isEmpty());
+        QVERIFY(ProviderProfileStore::keyMemoryOnEnter(
+                    QStringLiteral("custom"),
+                    s->value(QStringLiteral("AI/api_key/custom")).toString(),
+                    true, QString()).isEmpty());
+        QCOMPARE(ProviderProfileStore::modelScopeId(
+                     QStringLiteral("custom"), url, QStringLiteral("hf-token")),
+                 scope);
+    }
+
+    void namingAnEndpointNeverWipesAnotherEndpointsRememberedKey() {
+        auto s = AppPaths::settings();
+        const QString url = QStringLiteral("https://router.example/v1");
+        s->setValue(ProviderProfileStore::adHocCustomBaseUrlKey(), url);
+        // The remembered key is somebody else's - another custom endpoint the
+        // user still switches to by hand.
+        s->setValue(QStringLiteral("AI/api_key/custom"),
+                    QStringLiteral("other-token"));
+
+        QVERIFY(ProviderProfileStore::save(
+            makeProfile(QStringLiteral("HF"), QStringLiteral("custom"), url,
+                        QString()),
+            QStringLiteral("hf-token")));
+        QVERIFY(ProviderProfileStore::migrateAdHocStateIntoProfile(
+            QStringLiteral("HF"), url));
+
+        QCOMPARE(s->value(QStringLiteral("AI/api_key/custom")).toString(),
+                 QStringLiteral("other-token"));
+        // The URL half still happens: that endpoint IS the profile now.
+        QVERIFY(s->value(ProviderProfileStore::adHocCustomBaseUrlKey())
+                    .toString().isEmpty());
+    }
+
+    void reSavingAProfileKeepsItsOwnModelList() {
+        auto s = AppPaths::settings();
+        const QString url = QStringLiteral("https://router.example/v1");
+        QVERIFY(ProviderProfileStore::save(
+            makeProfile(QStringLiteral("HF"), QStringLiteral("custom"), url,
+                        QStringLiteral("profile/model")),
+            QStringLiteral("hf-token")));
+        const QString scope =
+            ProviderProfileStore::modelScopeIdForProfile(QStringLiteral("HF"));
+        ModelListCache::store(scope, oneModel(QStringLiteral("profile/model")));
+        ModelFavorites::setFavorites(scope, {QStringLiteral("profile/model")});
+        // A stale ad-hoc trace of the same endpoint, left over from before it
+        // was named.
+        s->setValue(ProviderProfileStore::adHocCustomBaseUrlKey(), url);
+        ModelListCache::store(QStringLiteral("custom"),
+                              oneModel(QStringLiteral("stale/model")));
+        ModelFavorites::setFavorites(QStringLiteral("custom"),
+                                     {QStringLiteral("stale/model")});
+
+        // An overwrite-save of the very same profile.
+        QVERIFY(ProviderProfileStore::save(
+            makeProfile(QStringLiteral("HF"), QStringLiteral("custom"), url,
+                        QStringLiteral("profile/model")),
+            QStringLiteral("hf-token")));
+        QVERIFY(ProviderProfileStore::migrateAdHocStateIntoProfile(
+            QStringLiteral("HF"), url));
+
+        // The profile keeps what it fetched itself - the shared bucket is not
+        // poured over it.
+        QCOMPARE(ModelListCache::models(scope).size(), 1);
+        QCOMPARE(ModelListCache::models(scope).at(0).toObject()
+                     .value(QStringLiteral("id")).toString(),
+                 QStringLiteral("profile/model"));
+        QVERIFY(ModelFavorites::favorites(scope)
+                    .contains(QStringLiteral("profile/model")));
+        QVERIFY(!ModelFavorites::favorites(scope)
+                     .contains(QStringLiteral("stale/model")));
+        // The trace itself is gone either way: it described THIS endpoint, and
+        // no ad-hoc configuration can address it any more.
+        QVERIFY(ModelListCache::models(QStringLiteral("custom")).isEmpty());
+        QVERIFY(!ModelFavorites::hasFavorites(QStringLiteral("custom")));
+        QVERIFY(s->value(ProviderProfileStore::adHocCustomBaseUrlKey())
+                    .toString().isEmpty());
+    }
+
+    void savingAnUnrelatedProfileMigratesNothing() {
+        auto s = AppPaths::settings();
+        const QString adHoc = QStringLiteral("https://router.example/v1");
+        s->setValue(ProviderProfileStore::adHocCustomBaseUrlKey(), adHoc);
+        s->setValue(QStringLiteral("AI/api_key/custom"),
+                    QStringLiteral("hf-token"));
+        ModelListCache::store(QStringLiteral("custom"),
+                              oneModel(QStringLiteral("a/model")));
+
+        // Another server.
+        QVERIFY(ProviderProfileStore::save(
+            makeProfile(QStringLiteral("Local"), QStringLiteral("custom"),
+                        QStringLiteral("http://localhost:8080/v1"), QString()),
+            QString()));
+        QVERIFY(!ProviderProfileStore::migrateAdHocStateIntoProfile(
+            QStringLiteral("Local"), adHoc));
+        // A built-in provider - it has no ad-hoc endpoint to inherit.
+        QVERIFY(ProviderProfileStore::save(
+            makeProfile(QStringLiteral("Work"), QStringLiteral("openai"),
+                        QStringLiteral("https://api.openai.com/v1"),
+                        QStringLiteral("gpt-4o")),
+            QStringLiteral("sk-live")));
+        QVERIFY(!ProviderProfileStore::migrateAdHocStateIntoProfile(
+            QStringLiteral("Work"), adHoc));
+        // A profile that does not exist.
+        QVERIFY(!ProviderProfileStore::migrateAdHocStateIntoProfile(
+            QStringLiteral("Nope"), adHoc));
+        // The matching endpoint, but nothing was remembered as ad-hoc.
+        QVERIFY(ProviderProfileStore::save(
+            makeProfile(QStringLiteral("HF"), QStringLiteral("custom"), adHoc,
+                        QString()),
+            QStringLiteral("hf-token")));
+        QVERIFY(!ProviderProfileStore::migrateAdHocStateIntoProfile(
+            QStringLiteral("HF"), QString()));
+
+        // Everything is exactly where it was.
+        QCOMPARE(s->value(ProviderProfileStore::adHocCustomBaseUrlKey()).toString(),
+                 adHoc);
+        QCOMPARE(s->value(QStringLiteral("AI/api_key/custom")).toString(),
+                 QStringLiteral("hf-token"));
+        QCOMPARE(ModelListCache::models(QStringLiteral("custom")).size(), 1);
+
+        // ... and the endpoint identity is the same one every other rule uses,
+        // so a trailing slash does not hide it.
+        QVERIFY(ProviderProfileStore::migrateAdHocStateIntoProfile(
+            QStringLiteral("HF"), adHoc + QLatin1Char('/')));
+        QVERIFY(s->value(ProviderProfileStore::adHocCustomBaseUrlKey())
+                    .toString().isEmpty());
     }
 };
 

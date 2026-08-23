@@ -37,10 +37,6 @@ constexpr int kProviderProfileRole = Qt::UserRole + 1;
 // The five fixed entries at the top of the provider combo; everything after
 // them is the separator plus the stored profiles.
 constexpr int kFixedProviderCount = 5;
-// The remembered ad-hoc Custom endpoint - the URL the plain "Custom" entry
-// loads. Sibling of the per-provider key memory AI/api_key/custom, and written
-// under the same rule: only while the endpoint really is ad-hoc.
-constexpr const char *kAdHocCustomBaseUrl = "AI/custom_adhoc_base_url";
 constexpr const char *kCustomProvider = "custom";
 } // namespace
 
@@ -826,6 +822,12 @@ void AiSettingsWidget::applyProviderSwitch(const QString &provider,
     // early would judge it against the endpoint we just left - re-attaching a
     // remembered cloud token to an ad-hoc endpoint on this machine.
     _apiKeyEdit->setText(storedKeyForProvider(provider, initialLoad));
+    // This setText() is a pour, not a user edit - keyMemoryActionOnLeave()'s
+    // contract counts only edits made while THIS provider is showing. Without
+    // the reset, a flag left from an earlier visit turns the blank field a
+    // key-less Custom state pours here into a deliberate clear, and the next
+    // switch away erases the remembered AI/api_key/custom.
+    _keyFieldEditedFor.remove(provider);
 
     // Ollama - and a Custom endpoint on this machine - needs no API key; make
     // that obvious in the field.
@@ -988,6 +990,15 @@ void AiSettingsWidget::updateModelsStatusLabel(const QString &provider)
     if (!_modelsStatusLabel)
         return;
     const QString scope = modelScopeFor(provider);
+    if (scope.isEmpty()) {
+        // Ad-hoc Custom with no base URL: no endpoint, so no model list of its
+        // own and nothing that could have been "updated". Reporting the shared
+        // custom scope's fetch time here is what made a stale foreign catalogue
+        // look like this connection's.
+        _modelsStatusLabel->setText(
+            tr("Models: enter a base URL, then click \xF0\x9F\x94\x84 to fetch them"));
+        return;
+    }
     QDateTime ts = ModelListCache::lastFetched(scope);
     if (!ts.isValid()) {
         _modelsStatusLabel->setText(tr("Models: built-in list (click \xF0\x9F\x94\x84 to fetch from provider)"));
@@ -1008,6 +1019,16 @@ void AiSettingsWidget::onRefreshModels()
     QString apiKey = _apiKeyEdit->text().trimmed();
     QString baseUrl = _baseUrlEdit->text().trimmed();
 
+    // No endpoint, nothing to ask: the scope is empty for ad-hoc Custom without
+    // a URL, and a fetch would either fail obscurely or file its result under
+    // the shared "custom" scope this state deliberately does not read.
+    const QString scope = modelScopeFor(provider);
+    if (scope.isEmpty()) {
+        _modelsStatusLabel->setText(
+            tr("Enter the endpoint's base URL first."));
+        return;
+    }
+
     _refreshModelsButton->setEnabled(false);
     _modelsStatusLabel->setText(tr("Fetching models from %1\xE2\x80\xA6").arg(provider));
 
@@ -1019,7 +1040,7 @@ void AiSettingsWidget::onRefreshModels()
     // The result is filed under the scope of the endpoint in the fields, not
     // under the bare provider - two custom endpoints must not overwrite each
     // other's cached list.
-    fetcher->fetch(provider, apiKey, baseUrl, modelScopeFor(provider));
+    fetcher->fetch(provider, apiKey, baseUrl, scope);
 }
 
 void AiSettingsWidget::onModelsFetched(const QString &scope, const QJsonArray &models)
@@ -1062,6 +1083,10 @@ QString AiSettingsWidget::currentModelId() const
         const QString id = _modelCombo->itemData(idx).toString();
         if (!id.isEmpty())
             return id;  // display name != id (favourites carry both)
+        // An id-less entry is a placeholder ("(enter model name)") - an
+        // instruction, not a model. Returning its text would commit the
+        // literal placeholder to AI/model and store it into saved profiles.
+        return QString();
     }
     return typed;
 }
@@ -1086,10 +1111,12 @@ QString AiSettingsWidget::storedKeyForProvider(const QString &provider,
     // The URL that will be in force for the provider being entered. Every
     // caller sets the field FIRST (applyProviderSwitch loads the remembered
     // ad-hoc endpoint for Custom before this line), so what stands here IS the
-    // endpoint the remembered key would be attached to.
+    // endpoint the remembered key would be attached to - including the case
+    // where there is none: an empty Custom URL is the blank ad-hoc state, and
+    // the store answers it with an empty key instead of the last endpoint's.
     const QString url = _baseUrlEdit ? _baseUrlEdit->text().trimmed() : QString();
     return ProviderProfileStore::keyMemoryOnEnter(
-        provider, remembered, AiClient::providerRequiresKey(provider, url));
+        provider, remembered, AiClient::providerRequiresKey(provider, url), url);
 }
 
 bool AiSettingsWidget::keyFieldHoldsProfileKey(const QString &profileName) const
@@ -1127,7 +1154,7 @@ void AiSettingsWidget::rememberKeyFieldFor(const QString &provider,
 
 QString AiSettingsWidget::rememberedAdHocCustomBaseUrl() const
 {
-    return _settings->value(QString::fromLatin1(kAdHocCustomBaseUrl))
+    return _settings->value(ProviderProfileStore::adHocCustomBaseUrlKey())
         .toString()
         .trimmed();
 }
@@ -1149,7 +1176,7 @@ void AiSettingsWidget::rememberAdHocCustomBaseUrl(const QString &provider,
     // reading accept() applies before committing the active URL. The memory
     // is replaced by typing a different URL, never by leaving the field blank.
     if (!baseUrl.isEmpty())
-        _settings->setValue(QString::fromLatin1(kAdHocCustomBaseUrl), baseUrl);
+        _settings->setValue(ProviderProfileStore::adHocCustomBaseUrlKey(), baseUrl);
 }
 
 void AiSettingsWidget::updateKeyFieldHint()
@@ -1513,20 +1540,40 @@ void AiSettingsWidget::onSaveProviderProfile()
     // The scope the VISIBLE fields belong to right now - the model list and
     // the favourites the user is looking at while pressing Save.
     const QString scopeBefore = modelScopeFor(provider);
+    // ... and their CONTENT, read here rather than further down: the migration
+    // below empties the ad-hoc scope, so a later read would hand the transfer
+    // an empty set and file it over the profile - deleting the very list the
+    // migration had just moved in.
+    const QJsonArray fieldsModels = ModelListCache::models(scopeBefore);
+    const QSet<QString> fieldsFavorites = ModelFavorites::favorites(scopeBefore);
+    // Read before the save, because saving is what stops this endpoint from
+    // being ad-hoc: afterwards it belongs to the profile.
+    const QString adHocBefore = rememberedAdHocCustomBaseUrl();
     if (!ProviderProfileStore::save(p, apiKey)) {
         QMessageBox::warning(this, tr("Save provider profile"),
                              tr("Could not store the profile."));
         return;
     }
+    // Naming the ad-hoc endpoint moves its leftovers into the profile: the
+    // remembered ad-hoc URL, the key remembered under AI/api_key/custom, and
+    // the shared "custom" scope's model list and favourites. Left behind, they
+    // are what a later blank "Custom" pick used to serve up - a key and a
+    // catalogue belonging to a server that now has a name of its own.
+    ProviderProfileStore::migrateAdHocStateIntoProfile(name, adHocBefore);
     // Hand the endpoint's model list and favourites over to the scope that is
     // in force from here on. Without this, re-pointing a profile at another
-    // server keeps the OLD server's list and favourites, and naming a
-    // previously ad-hoc Custom endpoint starts from an empty scope, collapsing
-    // the model dropdown to the placeholder. A profile whose endpoint did NOT
-    // change keeps whatever it already had.
+    // server keeps the OLD server's list and favourites. A profile whose
+    // endpoint did NOT change keeps whatever it already had.
+    //
+    // Naming a FRESH endpoint is already done by migrateAdHocStateIntoProfile()
+    // above, which also clears what it moved; this block then finds the target
+    // scope filled and its condition does nothing. It carries the two cases the
+    // migration does not: a profile re-pointed at another server (no ad-hoc
+    // memory to go by), and an overwrite that hands an EXISTING profile the
+    // ad-hoc endpoint - there the migration leaves the profile's own, now stale,
+    // list in place and this block replaces it with what the fields showed.
     const QString scopeAfter = ProviderProfileStore::modelScopeIdForProfile(name);
     if (!scopeAfter.isEmpty() && scopeAfter != scopeBefore) {
-        const QJsonArray fieldsModels = ModelListCache::models(scopeBefore);
         const bool targetHasCache = !ModelListCache::models(scopeAfter).isEmpty();
         // Take over when the target list is stale (endpoint moved) or absent -
         // and only write at all when that actually changes something, so an
@@ -1535,11 +1582,11 @@ void AiSettingsWidget::onSaveProviderProfile()
             && (!fieldsModels.isEmpty() || targetHasCache))
             ModelListCache::store(scopeAfter, fieldsModels);
         if (endpointChanged || !ModelFavorites::hasFavorites(scopeAfter)) {
-            const QSet<QString> favs = ModelFavorites::favorites(scopeBefore);
             // An empty list REMOVES the entry - exactly right for a stale
             // favourite set of the endpoint this name used to point at.
-            ModelFavorites::setFavorites(scopeAfter,
-                                         QStringList(favs.cbegin(), favs.cend()));
+            ModelFavorites::setFavorites(
+                scopeAfter,
+                QStringList(fieldsFavorites.cbegin(), fieldsFavorites.cend()));
         }
     }
     // Parity with the footer's "Save connection as provider profile...": the

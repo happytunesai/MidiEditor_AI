@@ -22,6 +22,9 @@
  *                                         today's AI/api_key/<provider>)
  *   AI/provider_profile_active            last applied profile name (a hint,
  *                                         see activeProfileName())
+ *   AI/custom_adhoc_base_url              the ad-hoc Custom endpoint, i.e. the
+ *                                         one no profile describes (see
+ *                                         adHocCustomBaseUrlKey())
  *
  * Model-list scope (\ref modelScopeId): favourites (AI/favorites/<scope>) and
  * the cached model list are keyed per endpoint, not per provider, so two
@@ -134,6 +137,10 @@ public:
     //   "custom:profile:<id>"        while a stored CUSTOM profile describes
     //                                the endpoint (<id> = \ref encodeName)
     //
+    //   ""                           for ad-hoc Custom with NO base URL: there
+    //                                is no endpoint, so there is nothing whose
+    //                                model list this could be
+    //
     // Only Custom is split per profile, because only Custom changes which
     // server answers /models. An OpenAI or Gemini profile talks to the same
     // catalogue as every other profile of that provider and therefore shares
@@ -141,8 +148,18 @@ public:
     // plain "custom" scope, so favourites saved before profiles existed stay
     // exactly where they were.
 
-    /// Scope for an explicit endpoint (the settings page passes its unsaved
-    /// fields, the chat footer the live client values).
+    /** Scope for an explicit endpoint (the settings page passes its unsaved
+     *  fields, the chat footer the live client values).
+     *
+     *  EMPTY when the endpoint is ad-hoc Custom without a base URL. That state
+     *  is a blank sheet, not "the last custom server": offering the models
+     *  cached under the plain "custom" scope there hands the user a catalogue
+     *  fetched from an endpoint that is no longer configured, and a model
+     *  picked from it would be sent to whatever URL is typed next. Every cache
+     *  and favourites lookup answers empty for an empty scope, so ONE rule here
+     *  blanks the model dropdown, the favourites filter and the "Models
+     *  updated" hint in both connection pickers. Nothing is deleted - the
+     *  "custom" scope is still there for the next real ad-hoc endpoint. */
     static QString modelScopeId(const QString &provider, const QString &baseUrl,
                                 const QString &apiKey);
 
@@ -155,6 +172,40 @@ public:
 
     /// Remember/forget the last applied profile (a hint for activeProfileName()).
     static void setActiveProfileHint(const QString &name);
+
+    // --- naming an ad-hoc endpoint ----------------------------------------
+
+    /// Settings key holding the remembered ad-hoc Custom endpoint - the URL the
+    /// fixed "Custom" entry loads. One spelling for the two pickers that write
+    /// it and for \ref migrateAdHocStateIntoProfile, which clears it.
+    static QString adHocCustomBaseUrlKey();
+
+    /** Hand the ad-hoc Custom leftovers to the profile that just took the
+     *  endpoint over, and clear them. Call after a successful \ref save.
+     *
+     *  \a rememberedAdHocBaseUrl is the value at \ref adHocCustomBaseUrlKey as
+     *  the caller read it (the store does not go looking for the picker's
+     *  state). Nothing happens unless the saved profile is a CUSTOM one whose
+     *  base URL IS that endpoint - saving an unrelated profile must not touch
+     *  another endpoint's remembered state.
+     *
+     *  Then, because the endpoint stopped being ad-hoc the moment it got a name:
+     *   - the remembered ad-hoc URL is dropped (it now belongs to the profile's
+     *     own entry; leaving it would list a second, identical "Custom" entry);
+     *   - AI/api_key/custom is dropped ONLY if it holds exactly this profile's
+     *     key. A remembered key for some other custom endpoint is untouched;
+     *   - the plain "custom" scope's cached model list and favourites move into
+     *     the profile's own scope, so its favourites tab starts with what was
+     *     already fetched instead of empty - but only into a profile scope that
+     *     has none of its own, so re-saving an existing profile keeps its list.
+     *     The plain scope is dropped either way: it described THIS endpoint,
+     *     which is now reachable only through the profile, and leaving it there
+     *     is what made a freshly typed Custom URL offer another server's models.
+     *
+     *  \return true when the profile owned the ad-hoc endpoint and the state
+     *          was migrated. */
+    static bool migrateAdHocStateIntoProfile(const QString &name,
+                                             const QString &rememberedAdHocBaseUrl);
 
     // --- selection intent ------------------------------------------------
     //
@@ -235,17 +286,29 @@ public:
      *  \a rememberedKey is AI/api_key/<provider>, \a endpointNeedsKey the
      *  caller's verdict for the endpoint that is about to be in force
      *  (AiClient::providerRequiresKey - kept out of this header so the store
-     *  stays free of the client).
+     *  stays free of the client), \a baseUrl that endpoint itself.
      *
-     *  Only Custom is filtered, and only by locality: its endpoint is
-     *  user-defined, so the same provider id can mean a cloud router one minute
-     *  and a server on this machine the next. Re-attaching a remembered cloud
-     *  token to a loopback endpoint would put that token into a local server's
-     *  Authorization header. Every other provider keeps its memory verbatim -
-     *  an Ollama behind an auth proxy still gets its key back. */
+     *  Only Custom is filtered, and by two things:
+     *
+     *  - locality. Its endpoint is user-defined, so the same provider id can
+     *    mean a cloud router one minute and a server on this machine the next.
+     *    Re-attaching a remembered cloud token to a loopback endpoint would put
+     *    that token into a local server's Authorization header;
+     *  - emptiness. NO endpoint means no key: a key belongs to a server, and
+     *    the ad-hoc Custom entry with nothing remembered is a blank sheet. The
+     *    remembered key of the last hand-typed endpoint shown there invites
+     *    sending a stale cloud token to whatever URL is typed next - which is
+     *    precisely what a user filling in a new server would not notice.
+     *    Nothing is deleted: AI/api_key/custom stays, and the moment the
+     *    remembered ad-hoc endpoint is back the key comes with it.
+     *
+     *  Every other provider keeps its memory verbatim - an Ollama behind an
+     *  auth proxy still gets its key back, and its endpoint is implied by the
+     *  provider rather than typed, so an empty URL says nothing there. */
     static QString keyMemoryOnEnter(const QString &provider,
                                     const QString &rememberedKey,
-                                    bool endpointNeedsKey);
+                                    bool endpointNeedsKey,
+                                    const QString &baseUrl);
 
     /** Should a connection picker offer the plain ad-hoc "Custom" entry?
      *

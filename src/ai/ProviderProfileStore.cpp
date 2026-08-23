@@ -7,6 +7,8 @@
 #include <QByteArray>
 #include <QCryptographicHash>
 #include <QDebug>
+#include <QJsonArray>
+#include <QSet>
 #include <QSettings>
 #include <QStringList>
 
@@ -44,6 +46,10 @@ constexpr char kShortIdSeparator = '~';
 constexpr const char *kCustomProvider = "custom";
 // Scope prefix for a custom profile's favourites / cached model list.
 constexpr const char *kCustomScopePrefix = "custom:profile:";
+// The remembered ad-hoc Custom endpoint - the URL the fixed "Custom" entry
+// loads. Sibling of the per-provider key memory AI/api_key/custom, and written
+// under the same rule: only while the endpoint really is ad-hoc.
+constexpr const char *kAdHocCustomBaseUrl = "AI/custom_adhoc_base_url";
 
 // Phase 45 / PORTABLE-SPLIT-001: everything through AppPaths, so portable
 // installs and tests see one store instead of one per backend.
@@ -131,13 +137,23 @@ ProviderProfileStore::keyMemoryActionOnLeave(const QString &fieldKey,
 
 QString ProviderProfileStore::keyMemoryOnEnter(const QString &provider,
                                                const QString &rememberedKey,
-                                               bool endpointNeedsKey)
+                                               bool endpointNeedsKey,
+                                               const QString &baseUrl)
 {
     if (provider.trimmed().compare(QLatin1String(kCustomProvider),
-                                   Qt::CaseInsensitive) == 0
-        && !endpointNeedsKey) {
-        return QString();
+                                   Qt::CaseInsensitive) != 0) {
+        return rememberedKey;
     }
+    // A server on this machine authenticates by locality - a remembered cloud
+    // token must not end up in its Authorization header.
+    if (!endpointNeedsKey)
+        return QString();
+    // No endpoint at all: the ad-hoc Custom entry with nothing remembered is a
+    // blank sheet, and a key without a server to send it to is meaningless.
+    // Showing the last hand-typed endpoint's token here is how it silently
+    // attaches itself to the NEXT URL the user types. The memory itself stays.
+    if (normalizedEndpoint(baseUrl).isEmpty())
+        return QString();
     return rememberedKey;
 }
 
@@ -491,8 +507,17 @@ QString ProviderProfileStore::modelScopeId(const QString &provider,
         return prov;
 
     const QString name = nameMatchingEndpoint(prov, baseUrl, apiKey);
-    if (name.isEmpty())
+    if (name.isEmpty()) {
+        // No endpoint, no scope. The models cached under the shared "custom"
+        // key were fetched from the last hand-typed server; offering them for a
+        // Custom entry that currently points nowhere makes them look like this
+        // endpoint's catalogue, and the first model picked from it is sent to
+        // whatever URL is typed afterwards. Nothing is deleted - the scope is
+        // back the moment a URL is.
+        if (normalizedEndpoint(baseUrl).isEmpty())
+            return QString();
         return QString::fromLatin1(kCustomProvider);  // ad-hoc: pre-profile scope
+    }
     const QString id = encodeName(name);
     if (id.isEmpty())
         return QString::fromLatin1(kCustomProvider);
@@ -563,4 +588,77 @@ void ProviderProfileStore::setActiveProfileHint(const QString &name)
         s->remove(QString::fromLatin1(kActiveHint));
     else
         s->setValue(QString::fromLatin1(kActiveHint), n);
+}
+
+QString ProviderProfileStore::adHocCustomBaseUrlKey()
+{
+    return QString::fromLatin1(kAdHocCustomBaseUrl);
+}
+
+bool ProviderProfileStore::migrateAdHocStateIntoProfile(
+    const QString &name, const QString &rememberedAdHocBaseUrl)
+{
+    const QString adHoc = normalizedEndpoint(rememberedAdHocBaseUrl);
+    if (adHoc.isEmpty())
+        return false;  // nothing was ad-hoc - nothing to hand over
+
+    bool ok = false;
+    const Profile p = load(name, &ok);
+    if (!ok)
+        return false;
+    if (p.provider.compare(QLatin1String(kCustomProvider), Qt::CaseInsensitive) != 0)
+        return false;
+    // The profile must BE that endpoint. Saving an unrelated one (another
+    // server, or a built-in provider) must not clear the state of the ad-hoc
+    // endpoint the user still has.
+    if (!sameUrl(p.baseUrl, adHoc))
+        return false;
+
+    const QString scope = modelScopeIdForProfile(name);
+    if (!scope.startsWith(QString::fromLatin1(kCustomScopePrefix)))
+        return false;
+
+    const QString plainScope = QString::fromLatin1(kCustomProvider);
+    auto s = settings();
+
+    // (a) The endpoint has a name now: it is reachable through the profile's
+    // own entry, and a remembered ad-hoc URL equal to it would offer a second,
+    // identical "Custom" entry - the decoy the ad-hoc memory exists to avoid.
+    s->remove(QString::fromLatin1(kAdHocCustomBaseUrl));
+
+    // (b) The key travelled into the profile's own slot. The per-provider
+    // memory holding exactly that key is the same leftover - but only then:
+    // a key remembered for some OTHER custom endpoint is the user's and stays.
+    const QString memorySlot =
+        QStringLiteral("AI/api_key/%1").arg(plainScope);
+    if (s->value(memorySlot).toString() == apiKeyFor(name))
+        s->remove(memorySlot);
+
+    // (c) The model list and favourites the user was looking at while saving
+    // were fetched from THIS endpoint - they are the profile's now. Only into
+    // an empty profile scope: re-saving an existing profile keeps its own list
+    // instead of having the shared ad-hoc bucket poured over it.
+    if (ModelListCache::models(scope).isEmpty()) {
+        const QJsonArray adHocModels = ModelListCache::models(plainScope);
+        if (!adHocModels.isEmpty())
+            ModelListCache::store(scope, adHocModels);
+    }
+    if (!ModelFavorites::hasFavorites(scope)) {
+        const QSet<QString> favs = ModelFavorites::favorites(plainScope);
+        if (!favs.isEmpty()) {
+            ModelFavorites::setFavorites(
+                scope, QStringList(favs.cbegin(), favs.cend()));
+        }
+    }
+    // ... and the shared bucket loses them either way. It described this one
+    // endpoint, which no ad-hoc configuration can address any more (typing the
+    // same URL again resolves to the profile). Left behind, it is the ghost
+    // that offered a stale server's models to the next Custom URL.
+    ModelFavorites::setFavorites(plainScope, QStringList());
+    if (!ModelListCache::forget(plainScope)) {
+        qWarning() << "ProviderProfileStore: named the ad-hoc Custom endpoint"
+                   << name << "- its shared cached model list could not be"
+                   << "dropped from" << ModelListCache::cacheFilePath();
+    }
+    return true;
 }

@@ -225,8 +225,10 @@ because picking a profile is what puts that profile on screen. Whatever MidiPilo
 always on the list. The settings page always offers
 <b>Custom</b>, because that is where a custom endpoint is entered in the first place. Picking it
 there loads the ad-hoc endpoint itself: the last custom base URL you worked with outside any
-profile, or an empty field when there is none, together with the API key remembered for custom
-endpoints and a fresh model box. It does not keep the URL and key of the entry you came from.
+profile, together with the API key remembered for custom endpoints and that endpoint's model list.
+It does not keep the URL and key of the entry you came from. When there is no such endpoint the
+entry starts completely blank - no URL, no key and no models - because a key and a model list
+belong to a particular server. Type the base URL of the endpoint you want, then its key and model.
 </p>
 
 <div class="screenshot-single">
@@ -263,6 +265,13 @@ favourites&hellip;</b> shows one tab per custom profile next to the provider tab
 connection MidiPilot is currently using. Profiles of a built-in provider share that provider's tab,
 because they talk to the same catalogue. Deleting a profile takes its own model list and favourites
 with it; the shared provider lists are left alone.
+</p>
+
+<p>
+Saving a custom endpoint you had been using ad-hoc hands it over completely: the models and
+favourites it had collected while it was unsaved move into the new profile's own tab, and its
+remembered URL and key move into the profile as well. The endpoint is reachable through its profile
+entry from then on, and the plain <b>Custom</b> entry is free for the next one you want to try.
 </p>
 
 <div class="screenshot-single">

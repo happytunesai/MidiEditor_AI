@@ -907,12 +907,23 @@ void MidiPilotWidget::setupUi() {
         p.provider = _client->provider();
         p.baseUrl = _client->apiBaseUrl();
         p.model = _client->model();
+        // Read before the save: saving is what stops this endpoint from being
+        // the ad-hoc one.
+        const QString adHocBefore =
+            AppPaths::settings()
+                ->value(ProviderProfileStore::adHocCustomBaseUrlKey())
+                .toString();
         if (!ProviderProfileStore::save(
                 p, AppPaths::settings()->value(QStringLiteral("AI/api_key")).toString())) {
             setStatus(tr("Could not store the provider profile."), "red");
             return;
         }
         ProviderProfileStore::setActiveProfileHint(name);
+        // Same migration the settings page performs: the endpoint has a name
+        // now, so its ad-hoc leftovers (remembered URL, AI/api_key/custom, the
+        // shared "custom" model list and favourites) move into the profile
+        // instead of staying behind as a second, stale copy of this server.
+        ProviderProfileStore::migrateAdHocStateIntoProfile(name, adHocBefore);
         // Naming the live connection selects it: the footer is on that profile
         // from here on, and so is the settings page when it opens next.
         _selectedProviderProfile = name;
@@ -1110,6 +1121,17 @@ void MidiPilotWidget::onRefreshModels()
     QString apiKey = _client->apiKey();
     QString baseUrl = _client->apiBaseUrl();
 
+    // No endpoint, nothing to ask. The scope is empty for ad-hoc Custom without
+    // a base URL; fetching there would file another server's answer under a
+    // scope this state does not read anyway.
+    const QString scope =
+        ProviderProfileStore::modelScopeId(provider, baseUrl, apiKey);
+    if (scope.isEmpty()) {
+        setStatus(tr("Set the endpoint's base URL in MidiPilot Settings first."),
+                  "orange");
+        return;
+    }
+
     if (_refreshModelsButton)
         _refreshModelsButton->setEnabled(false);
     setStatus(tr("Fetching models from %1\xE2\x80\xA6").arg(provider), "gray");
@@ -1120,8 +1142,7 @@ void MidiPilotWidget::onRefreshModels()
     connect(fetcher, &ModelListFetcher::failed,
             this, &MidiPilotWidget::onModelsFetchFailed);
     // File the result under the active endpoint's scope, not the bare provider.
-    fetcher->fetch(provider, apiKey, baseUrl,
-                   ProviderProfileStore::modelScopeId(provider, baseUrl, apiKey));
+    fetcher->fetch(provider, apiKey, baseUrl, scope);
 }
 
 void MidiPilotWidget::onModelsFetched(const QString &scope, const QJsonArray &models)
@@ -2314,7 +2335,8 @@ void MidiPilotWidget::onProviderComboChanged(int index) {
         settings.value(QString("AI/api_key/%1").arg(provider)).toString();
     const QString newKey = ProviderProfileStore::keyMemoryOnEnter(
         provider, rememberedKey,
-        AiClient::providerRequiresKey(provider, _client->apiBaseUrl()));
+        AiClient::providerRequiresKey(provider, _client->apiBaseUrl()),
+        _client->apiBaseUrl());
     settings.setValue("AI/api_key", newKey);
 
     // Repopulate model list and select first model

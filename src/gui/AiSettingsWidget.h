@@ -72,7 +72,9 @@ private:
      *  endpoint's field and, on Close, into its Authorization header. A real
      *  provider switch inside the page uses the per-provider memory - filtered
      *  through ProviderProfileStore::keyMemoryOnEnter(), so a remembered cloud
-     *  token never re-attaches to a Custom endpoint on this machine. */
+     *  token never re-attaches to a Custom endpoint on this machine - nor to a
+     *  Custom entry with no endpoint at all, where it would silently attach
+     *  itself to whatever URL is typed into the blank field next. */
     QString storedKeyForProvider(const QString &provider, bool initialLoad) const;
     /** Write the per-provider key memory for \a provider from the key field,
      *  following ProviderProfileStore::keyMemoryActionOnLeave(): a key the user
@@ -96,7 +98,9 @@ private:
     /** Favourites / model-cache scope for \a provider given the endpoint
      *  currently typed into the fields (which may not be saved yet). For the
      *  Custom provider this is the active profile's scope, so every custom
-     *  endpoint keeps its own model list. */
+     *  endpoint keeps its own model list - and EMPTY while no base URL is
+     *  entered, which blanks the model dropdown, the favourites filter and the
+     *  "Models updated" hint instead of showing the last endpoint's. */
     QString modelScopeFor(const QString &provider) const;
     /** Refill the provider-profile combo AND the provider combo's profile
      *  entries; selects \a selectName when given. */
