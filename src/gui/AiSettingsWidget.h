@@ -78,8 +78,18 @@ private:
      *  following ProviderProfileStore::keyMemoryActionOnLeave(): a key the user
      *  cleared HERE is erased (otherwise it comes back on the next provider
      *  round-trip and is sent again), a field emptied by a keyless profile
-     *  leaves the memory untouched. */
-    void rememberKeyFieldFor(const QString &provider);
+     *  leaves the memory untouched.
+     *
+     *  \a fromProfile is the selection state that was in force while this key
+     *  was on screen (empty for a fixed provider entry). A key poured from that
+     *  profile and not typed over belongs to the PROFILE, so it is not written
+     *  into the provider's memory - it would replace the user's own key for the
+     *  plain provider entry, and on Custom it would be re-attached to the next
+     *  ad-hoc endpoint. Capture the state BEFORE the handlers clear it. */
+    void rememberKeyFieldFor(const QString &provider, const QString &fromProfile);
+    /** True when the key field still shows exactly the key stored with
+     *  \a profileName (empty name: false). */
+    bool keyFieldHoldsProfileKey(const QString &profileName) const;
     /** Placeholder of the key field for the endpoint currently in the fields
      *  ("not required" for Ollama and for a local Custom endpoint). */
     void updateKeyFieldHint();
@@ -91,10 +101,33 @@ private:
     /** Refill the provider-profile combo AND the provider combo's profile
      *  entries; selects \a selectName when given. */
     void populateProviderProfiles(const QString &selectName = QString());
-    /** Show the profile whose stored settings the visible fields still match,
-     *  else "(No profile)". Derived on every field change, so an edit after
-     *  applying a profile honestly falls back to ad-hoc. */
+    /** Show the SELECTED profile while the visible fields still match it
+     *  completely, else "(No profile)". Model-sensitive on purpose - and it
+     *  validates \ref _selectedProviderProfile only, it never looks for another
+     *  profile that happens to describe the same values. */
     void updateProviderProfileSelection();
+
+    // --- selection state: INTENT, not inference ---------------------------
+    //
+    // The page's connection selection is either Provider(X) - a fixed entry in
+    // the Provider dropdown - or Profile(name). Only a user action moves it:
+    // picking an entry sets it, and editing the endpoint DEGRADES a profile
+    // selection to Provider(the fields' provider). It is derived from scratch
+    // exactly once, when the page opens, and then only from the validated
+    // global hint (\ref ProviderProfileStore::validatedActiveProfileName).
+    //
+    // The previous rule - re-derive by scanning all profiles for one that
+    // describes the fields - could not represent "I picked OpenAI": a stored
+    // profile on OpenAI's default endpoint always won the scan, so the
+    // dropdown snapped back to it on every field change and on every reopen.
+
+    /** The profile this page is selected on; empty means a fixed provider
+     *  entry. Never written from a scan. */
+    QString _selectedProviderProfile;
+    /** \ref _selectedProviderProfile after dropping it when the visible fields
+     *  no longer describe its ENDPOINT (provider, base URL or key edited).
+     *  A model change keeps it: same server, same profile entry. */
+    QString validatedProfileIntent();
 
     // --- Phase 50 follow-up: stored profiles as first-class entries in the
     // Provider dropdown, so switching to a saved endpoint feels like switching
@@ -121,16 +154,21 @@ private:
      *  \a provider. Signal-blocked: selects, never applies. */
     void selectProviderComboEntry(const QString &provider,
                                   const QString &profileName);
-    /** Point the provider combo at the entry the VISIBLE fields describe: the
-     *  stored profile matching provider+URL+key (of ANY provider - they are all
-     *  listed), else the plain provider. Endpoint-based on purpose - picking
-     *  another model keeps the endpoint, only the profile combo falls back to
+    /** Point the provider combo at the entry the page's selection STATE names:
+     *  the selected profile while the fields still describe its endpoint, else
+     *  the plain provider. Endpoint-based on purpose - picking another model
+     *  keeps the endpoint, so only the profile row falls back to
      *  "(No profile)". */
     void updateProviderComboSelection();
     /** The provider-switch body (key memory, default URL, model list), with the
      *  provider passed explicitly so the profile path can run the exact same
-     *  steps without a nested currentIndexChanged. */
-    void applyProviderSwitch(const QString &provider);
+     *  steps without a nested currentIndexChanged.
+     *
+     *  \a leavingProfile is the selection state being left, passed in because
+     *  both callers have already moved it by the time this runs; the key memory
+     *  needs it (\ref rememberKeyFieldFor). */
+    void applyProviderSwitch(const QString &provider,
+                             const QString &leavingProfile);
     /** Pour a stored profile into the visible fields - the single code path
      *  behind the profile combo and the provider combo's profile entries. */
     void applyProviderProfileToFields(const QString &name);
@@ -150,7 +188,8 @@ private:
      *  \a provider is "custom" and no stored profile describes this endpoint
      *  (one that does is reachable through its own entry, and remembering it
      *  here would make "Custom" a duplicate that snaps away again). An empty
-     *  URL drops the memory: the user cleared the endpoint on purpose. */
+     *  URL leaves the memory untouched - "not entered" is never a deletion,
+     *  matching accept()'s reading of the empty Custom URL field. */
     void rememberAdHocCustomBaseUrl(const QString &provider,
                                     const QString &baseUrl,
                                     const QString &apiKey);
@@ -195,7 +234,10 @@ private:
     /// Providers whose API-key field the USER edited while this page was open.
     /// Only for those does an empty field mean "cleared on purpose"; a field
     /// emptied by a provider switch or by a keyless profile never lands here,
-    /// because QLineEdit::setText() does not emit textEdited().
+    /// because QLineEdit::setText() does not emit textEdited(). Pouring a
+    /// profile REMOVES its provider from the set: what is on screen from then
+    /// on is the profile's key, not anything the user typed, and the memory
+    /// rule needs "not edited SINCE the pour".
     QSet<QString> _keyFieldEditedFor;
 
     // MCP Server settings

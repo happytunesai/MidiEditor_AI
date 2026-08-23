@@ -36,6 +36,23 @@
  *      describes, so it resolves to no profile name and the picker's
  *      endpoint-derived selection cannot snap off "Custom".
  *
+ * v2.3 owner smoke round 2 additions:
+ *  15. Selection INTENT: a connection picker's selection is state
+ *      (Provider(X) or Profile(name)), and the stored hint is the ONLY thing
+ *      it may be derived from - validatedActiveProfileName() on the way in,
+ *      hintForSelection() on the way out. Neither scans the profiles, so a
+ *      profile that describes the same endpoint as a built-in provider can no
+ *      longer capture an explicit provider pick.
+ *
+ * v2.3 owner smoke round 3 additions:
+ *  16. A key POURED from a profile is that profile's: leaving the profile must
+ *      not write it into the provider's key memory (which silently replaced the
+ *      key kept for the plain provider entry). A key the user typed still is.
+ *  17. The plain "Custom" entry is listed whenever the SELECTION names it, not
+ *      only when the endpoint scan calls it ad-hoc - a stored profile
+ *      describing the live custom endpoint used to hide the entry the picker
+ *      was on, leaving it displaying "OpenAI".
+ *
  * Uses the AppPaths test seam - the developer's real settings scope must
  * never be touched (TESTWIPE class). The model-list cache is a file under
  * QStandardPaths, so the cases below run with test mode enabled.
@@ -282,7 +299,9 @@ private slots:
                  QStringLiteral("hf-token"));
         QCOMPARE(s->value(QStringLiteral("AI/model")).toString(),
                  QStringLiteral("some/model"));
-        // Per-provider memory follows, so a later switch to "custom" finds it.
+        // The EMPTY per-provider slot is filled, so a later switch to
+        // "custom" finds a key (a remembered one would not be overwritten -
+        // see applyNeverOverwritesARememberedProviderKey).
         QCOMPARE(s->value(QStringLiteral("AI/api_key/custom")).toString(),
                  QStringLiteral("hf-token"));
         // The other provider's remembered key is untouched.
@@ -290,6 +309,29 @@ private slots:
                  QStringLiteral("openai-key"));
         QCOMPARE(ProviderProfileStore::activeProfileName(),
                  QStringLiteral("HF Router"));
+    }
+
+    void applyNeverOverwritesARememberedProviderKey() {
+        auto s = AppPaths::settings();
+        // The user's own key, remembered for the provider before any profile
+        // comes into play.
+        s->setValue(QStringLiteral("AI/api_key/openai"),
+                    QStringLiteral("personal-key"));
+
+        QVERIFY(ProviderProfileStore::save(
+            makeProfile(QStringLiteral("work"), QStringLiteral("openai"),
+                        QStringLiteral("https://api.openai.com/v1"),
+                        QStringLiteral("gpt-4o")),
+            QStringLiteral("work-key")));
+        QVERIFY(ProviderProfileStore::apply(QStringLiteral("work")));
+
+        // The profile's key becomes the ACTIVE key...
+        QCOMPARE(s->value(QStringLiteral("AI/api_key")).toString(),
+                 QStringLiteral("work-key"));
+        // ...but the provider's remembered key survives: leaving the profile
+        // for the plain provider must find personal-key again, not work-key.
+        QCOMPARE(s->value(QStringLiteral("AI/api_key/openai")).toString(),
+                 QStringLiteral("personal-key"));
     }
 
     void applyOfAKeylessProfileKeepsTheRememberedKey() {
@@ -1214,6 +1256,337 @@ private slots:
         QCOMPARE(ModelListCache::models(QStringLiteral("openai")).size(), 1);
         QVERIFY(ModelListCache::forget(QStringLiteral("openai")));
         QVERIFY(ModelListCache::models(QStringLiteral("openai")).isEmpty());
+    }
+
+    // --- 15. selection intent: the hint is the ONLY derivation source ------
+    //
+    // The owner's second report: a profile named "test" on OpenAI's default
+    // endpoint with the remembered OpenAI key. Picking the FIXED "OpenAI"
+    // entry kept snapping back to "test", because both pickers re-derived
+    // their selection by scanning every profile for one that describes the
+    // live settings - and "test" always won that scan. The selection is now
+    // state (Provider(X) or Profile(name)); these two functions are the only
+    // bridge between that state and the stored hint, and neither scans.
+
+    void ownersProfileSharesTheProvidersEndpoint() {
+        // The exact shape of the report: same provider, same (default) URL,
+        // same key as the plain OpenAI configuration.
+        QVERIFY(ProviderProfileStore::save(
+            makeProfile(QStringLiteral("test"), QStringLiteral("openai"),
+                        QStringLiteral("https://api.openai.com/v1"),
+                        QStringLiteral("gpt-5.4")),
+            QStringLiteral("sk-owner")));
+
+        // A scan still finds it - that is what the scan is for, and the two
+        // remaining users of it (the ad-hoc Custom rules) depend on it.
+        QCOMPARE(ProviderProfileStore::nameMatchingEndpoint(
+                     QStringLiteral("openai"),
+                     QStringLiteral("https://api.openai.com/v1"),
+                     QStringLiteral("sk-owner")),
+                 QStringLiteral("test"));
+
+        // The picker's derivation does NOT: with no hint, this connection is
+        // the plain provider, whatever profiles describe the same endpoint.
+        ProviderProfileStore::setActiveProfileHint(QString());
+        QVERIFY(ProviderProfileStore::validatedActiveProfileName(
+                    QStringLiteral("openai"),
+                    QStringLiteral("https://api.openai.com/v1"),
+                    QStringLiteral("sk-owner")).isEmpty());
+    }
+
+    void pickingAFixedProviderWritesNoHintAndReopensOnIt() {
+        QVERIFY(ProviderProfileStore::save(
+            makeProfile(QStringLiteral("test"), QStringLiteral("openai"),
+                        QStringLiteral("https://api.openai.com/v1"),
+                        QStringLiteral("gpt-5.4")),
+            QStringLiteral("sk-owner")));
+        // The state before: the profile was applied, so the hint names it.
+        QVERIFY(ProviderProfileStore::apply(QStringLiteral("test")));
+        QCOMPARE(ProviderProfileStore::validatedActiveProfileName(
+                     QStringLiteral("openai"),
+                     QStringLiteral("https://api.openai.com/v1"),
+                     QStringLiteral("sk-owner")),
+                 QStringLiteral("test"));
+
+        // The user picks the FIXED "OpenAI" entry: the selection state is
+        // Provider(openai), so the page's accept() writes NO hint...
+        ProviderProfileStore::setActiveProfileHint(
+            ProviderProfileStore::hintForSelection(
+                QString(), QStringLiteral("openai"),
+                QStringLiteral("https://api.openai.com/v1"),
+                QStringLiteral("sk-owner")));
+        // ... and reopening derives no profile either. This is S1.
+        QVERIFY(ProviderProfileStore::validatedActiveProfileName(
+                    QStringLiteral("openai"),
+                    QStringLiteral("https://api.openai.com/v1"),
+                    QStringLiteral("sk-owner")).isEmpty());
+    }
+
+    void pickingAProfileSurvivesTheRoundTrip() {
+        QVERIFY(ProviderProfileStore::save(
+            makeProfile(QStringLiteral("test"), QStringLiteral("openai"),
+                        QStringLiteral("https://api.openai.com/v1"),
+                        QStringLiteral("gpt-5.4")),
+            QStringLiteral("sk-owner")));
+        // S2: the state is Profile("test") and the endpoint is still its own,
+        // so the hint is written and read back unchanged.
+        ProviderProfileStore::setActiveProfileHint(
+            ProviderProfileStore::hintForSelection(
+                QStringLiteral("test"), QStringLiteral("openai"),
+                QStringLiteral("https://api.openai.com/v1"),
+                QStringLiteral("sk-owner")));
+        QCOMPARE(ProviderProfileStore::validatedActiveProfileName(
+                     QStringLiteral("openai"),
+                     QStringLiteral("https://api.openai.com/v1"),
+                     QStringLiteral("sk-owner")),
+                 QStringLiteral("test"));
+    }
+
+    void aModelChangeKeepsTheProfileButAnEndpointEditDoesNot() {
+        QVERIFY(ProviderProfileStore::save(
+            makeProfile(QStringLiteral("Local"), QStringLiteral("custom"),
+                        QStringLiteral("http://localhost:8080/v1"),
+                        QStringLiteral("local-model")),
+            QString()));
+
+        // S3, first half: the model is not part of endpoint identity, so the
+        // selection - and the hint - survive picking another model. (The
+        // model-sensitive "Provider profile" row is what falls back there.)
+        QCOMPARE(ProviderProfileStore::hintForSelection(
+                     QStringLiteral("Local"), QStringLiteral("custom"),
+                     QStringLiteral("http://localhost:8080/v1"), QString()),
+                 QStringLiteral("Local"));
+        // Trailing slashes are the same endpoint, here too.
+        QCOMPARE(ProviderProfileStore::hintForSelection(
+                     QStringLiteral("Local"), QStringLiteral("custom"),
+                     QStringLiteral("http://localhost:8080/v1/"), QString()),
+                 QStringLiteral("Local"));
+
+        // S3, second half: a URL, key or provider edit leaves the profile.
+        QVERIFY(ProviderProfileStore::hintForSelection(
+                    QStringLiteral("Local"), QStringLiteral("custom"),
+                    QStringLiteral("http://localhost:9999/v1"), QString())
+                    .isEmpty());
+        QVERIFY(ProviderProfileStore::hintForSelection(
+                    QStringLiteral("Local"), QStringLiteral("custom"),
+                    QStringLiteral("http://localhost:8080/v1"),
+                    QStringLiteral("sk-typed")).isEmpty());
+        QVERIFY(ProviderProfileStore::hintForSelection(
+                    QStringLiteral("Local"), QStringLiteral("openai"),
+                    QStringLiteral("http://localhost:8080/v1"), QString())
+                    .isEmpty());
+        // The same rule on the reading side.
+        ProviderProfileStore::setActiveProfileHint(QStringLiteral("Local"));
+        QVERIFY(ProviderProfileStore::validatedActiveProfileName(
+                    QStringLiteral("custom"),
+                    QStringLiteral("http://localhost:9999/v1"), QString())
+                    .isEmpty());
+    }
+
+    void aDeletedProfileDegradesToTheProviderNotToItsTwin() {
+        // S7: two profiles on ONE endpoint. Deleting the selected one must not
+        // hand the selection to its sibling - which is exactly what a scan
+        // would do, in name order.
+        QVERIFY(ProviderProfileStore::save(
+            makeProfile(QStringLiteral("A twin"), QStringLiteral("custom"),
+                        QStringLiteral("http://localhost:8080/v1"),
+                        QStringLiteral("m")),
+            QStringLiteral("k")));
+        QVERIFY(ProviderProfileStore::save(
+            makeProfile(QStringLiteral("B twin"), QStringLiteral("custom"),
+                        QStringLiteral("http://localhost:8080/v1"),
+                        QStringLiteral("m")),
+            QStringLiteral("k")));
+
+        // The hint decides between twins - no name-order accident.
+        ProviderProfileStore::setActiveProfileHint(QStringLiteral("B twin"));
+        QCOMPARE(ProviderProfileStore::validatedActiveProfileName(
+                     QStringLiteral("custom"),
+                     QStringLiteral("http://localhost:8080/v1"),
+                     QStringLiteral("k")),
+                 QStringLiteral("B twin"));
+
+        QVERIFY(ProviderProfileStore::remove(QStringLiteral("B twin")));
+        // remove() drops the hint that named it, and nothing derives the twin.
+        QVERIFY(ProviderProfileStore::validatedActiveProfileName(
+                    QStringLiteral("custom"),
+                    QStringLiteral("http://localhost:8080/v1"),
+                    QStringLiteral("k")).isEmpty());
+        // Even a stale hint naming the deleted profile stays harmless.
+        ProviderProfileStore::setActiveProfileHint(QStringLiteral("B twin"));
+        QVERIFY(ProviderProfileStore::validatedActiveProfileName(
+                    QStringLiteral("custom"),
+                    QStringLiteral("http://localhost:8080/v1"),
+                    QStringLiteral("k")).isEmpty());
+        QVERIFY(ProviderProfileStore::hintForSelection(
+                    QStringLiteral("B twin"), QStringLiteral("custom"),
+                    QStringLiteral("http://localhost:8080/v1"),
+                    QStringLiteral("k")).isEmpty());
+    }
+
+    void applyingAProfileIsWhatTheOtherPickerDerivesFrom() {
+        // S6: the footer applies a profile while the settings dialog is shut;
+        // apply() writes the hint, and that is what the dialog starts from.
+        QVERIFY(ProviderProfileStore::save(
+            makeProfile(QStringLiteral("HF"), QStringLiteral("custom"),
+                        QStringLiteral("https://router.example/v1"),
+                        QStringLiteral("some/model")),
+            QStringLiteral("hf-token")));
+        QVERIFY(ProviderProfileStore::apply(QStringLiteral("HF")));
+
+        auto s = AppPaths::settings();
+        QCOMPARE(ProviderProfileStore::validatedActiveProfileName(
+                     s->value(QStringLiteral("AI/provider")).toString(),
+                     s->value(QStringLiteral("AI/api_base_url")).toString(),
+                     s->value(QStringLiteral("AI/api_key")).toString()),
+                 QStringLiteral("HF"));
+
+        // S5: an explicit fixed-provider pick in the footer clears the hint,
+        // so the dialog opened afterwards shows that provider, not "HF".
+        ProviderProfileStore::setActiveProfileHint(QString());
+        QVERIFY(ProviderProfileStore::validatedActiveProfileName(
+                    s->value(QStringLiteral("AI/provider")).toString(),
+                    s->value(QStringLiteral("AI/api_base_url")).toString(),
+                    s->value(QStringLiteral("AI/api_key")).toString())
+                    .isEmpty());
+    }
+
+    void anEmptySelectionNeverProducesAHint() {
+        QVERIFY(ProviderProfileStore::save(
+            makeProfile(QStringLiteral("test"), QStringLiteral("openai"),
+                        QStringLiteral("https://api.openai.com/v1"),
+                        QStringLiteral("gpt-5.4")),
+            QStringLiteral("sk-owner")));
+        // Whitespace-only is not a selection either, and an unknown name is
+        // not one that could be persisted.
+        QVERIFY(ProviderProfileStore::hintForSelection(
+                    QString(), QStringLiteral("openai"),
+                    QStringLiteral("https://api.openai.com/v1"),
+                    QStringLiteral("sk-owner")).isEmpty());
+        QVERIFY(ProviderProfileStore::hintForSelection(
+                    QStringLiteral("   "), QStringLiteral("openai"),
+                    QStringLiteral("https://api.openai.com/v1"),
+                    QStringLiteral("sk-owner")).isEmpty());
+        QVERIFY(ProviderProfileStore::hintForSelection(
+                    QStringLiteral("never saved"), QStringLiteral("openai"),
+                    QStringLiteral("https://api.openai.com/v1"),
+                    QStringLiteral("sk-owner")).isEmpty());
+    }
+
+    // --- 16. a profile's key is the PROFILE's, not the provider's ----------
+    //
+    // Selection intent made this reachable in one click: leaving a profile for
+    // the fixed entry of the SAME provider is a leave with the profile's key
+    // still in the field. The old rule stored any non-empty field, so the
+    // profile's key replaced the key the user keeps for the plain provider
+    // entry - gone, with no way back - and on Custom it became the token the
+    // next ad-hoc endpoint got attached.
+
+    void aProfileKeyPouredIntoTheFieldIsNeverRemembered() {
+        using Action = ProviderProfileStore::KeyMemoryAction;
+
+        // The poured key, untouched: it travels with the profile.
+        QCOMPARE(ProviderProfileStore::keyMemoryActionOnLeave(
+                     QStringLiteral("K_work"), /*userEdited*/ false,
+                     /*fieldKeyCameFromProfile*/ true),
+                 Action::Keep);
+        // A keyless profile's empty field was already Keep and stays Keep.
+        QCOMPARE(ProviderProfileStore::keyMemoryActionOnLeave(
+                     QString(), false, true),
+                 Action::Keep);
+        // F1, the other direction: a non-empty key that did NOT come from a
+        // profile is the user's (even without a dirty flag - it may predate
+        // this dialog session). This is the ad-hoc custom key that must
+        // survive a custom -> custom-profile switch.
+        QCOMPARE(ProviderProfileStore::keyMemoryActionOnLeave(
+                     QStringLiteral("K_typed"), /*userEdited*/ false,
+                     /*fieldKeyCameFromProfile*/ false),
+                 Action::Store);
+        // Typing over a poured key makes it the user's again - Store, and an
+        // erase stays reachable.
+        QCOMPARE(ProviderProfileStore::keyMemoryActionOnLeave(
+                     QStringLiteral("K_edited"), /*userEdited*/ true, true),
+                 Action::Store);
+        QCOMPARE(ProviderProfileStore::keyMemoryActionOnLeave(
+                     QString(), /*userEdited*/ true, true),
+                 Action::Erase);
+        // The default keeps every pre-existing caller on the old rule.
+        QCOMPARE(ProviderProfileStore::keyMemoryActionOnLeave(
+                     QStringLiteral("K_typed"), false),
+                 Action::Store);
+    }
+
+    void leavingAProfileKeepsTheProvidersOwnKey() {
+        // The reported shape, at the seam both pickers use: profile "work" on
+        // OpenAI with its own key, while AI/api_key/openai is the user's
+        // personal one. Picking the fixed OpenAI entry is a leave.
+        QVERIFY(ProviderProfileStore::save(
+            makeProfile(QStringLiteral("work"), QStringLiteral("openai"),
+                        QStringLiteral("https://api.openai.com/v1"),
+                        QStringLiteral("gpt-5.4")),
+            QStringLiteral("K_work")));
+        auto s = AppPaths::settings();
+        s->setValue(QStringLiteral("AI/api_key/openai"),
+                    QStringLiteral("K_personal"));
+
+        // What the widgets compute: the field key IS the profile's key.
+        const QString fieldKey = ProviderProfileStore::apiKeyFor(
+            QStringLiteral("work"));
+        QCOMPARE(fieldKey, QStringLiteral("K_work"));
+        QCOMPARE(ProviderProfileStore::keyMemoryActionOnLeave(
+                     fieldKey, false, /*cameFromProfile*/ true),
+                 ProviderProfileStore::KeyMemoryAction::Keep);
+        // ... so nothing is written and the personal key is still there.
+        QCOMPARE(s->value(QStringLiteral("AI/api_key/openai")).toString(),
+                 QStringLiteral("K_personal"));
+        // The profile keeps its own key regardless.
+        QCOMPARE(ProviderProfileStore::apiKeyFor(QStringLiteral("work")),
+                 QStringLiteral("K_work"));
+    }
+
+    // --- 17. the fixed "Custom" entry the selection needs ------------------
+
+    void theFixedCustomEntryIsListedWhenTheSelectionNamesIt() {
+        // A stored profile describing the LIVE custom endpoint used to hide the
+        // plain "Custom" entry unconditionally. With selection intent that is a
+        // reachable state - the user picked the fixed entry, so no profile is
+        // selected - and the footer then sat on entry 0 ("OpenAI") while every
+        // request went to the custom server.
+        QVERIFY(ProviderProfileStore::save(
+            makeProfile(QStringLiteral("Local"), QStringLiteral("custom"),
+                        QStringLiteral("http://localhost:8080/v1"), QString()),
+            QString()));
+
+        const QStringList builtIns{
+            QStringLiteral("https://api.openai.com/v1"),
+            QStringLiteral("https://openrouter.ai/api/v1"),
+            QStringLiteral("https://generativelanguage.googleapis.com/v1beta/openai"),
+            QStringLiteral("http://localhost:11434/v1")};
+        const QString liveUrl = QStringLiteral("http://localhost:8080/v1");
+        const QString match = ProviderProfileStore::nameMatchingEndpoint(
+            QStringLiteral("custom"), liveUrl, QString());
+        QCOMPARE(match, QStringLiteral("Local"));
+        // The endpoint half still says "no" - that is what it is for.
+        QVERIFY(!ProviderProfileStore::shouldOfferAdHocCustomEntry(
+            QStringLiteral("custom"), liveUrl, match, builtIns));
+        // The selection half says "yes" while no profile is selected, and the
+        // picker ORs the two: the entry is listed.
+        QVERIFY(ProviderProfileStore::selectionNeedsFixedCustomEntry(
+            QStringLiteral("custom"), QString()));
+        QVERIFY(ProviderProfileStore::selectionNeedsFixedCustomEntry(
+            QStringLiteral("custom"), QStringLiteral("   ")));
+        // While the profile IS selected, its own entry represents the
+        // connection and "Custom" stays out - no decoy.
+        QVERIFY(!ProviderProfileStore::selectionNeedsFixedCustomEntry(
+            QStringLiteral("custom"), QStringLiteral("Local")));
+        // Only Custom is conditional; the other providers are always listed.
+        QVERIFY(!ProviderProfileStore::selectionNeedsFixedCustomEntry(
+            QStringLiteral("openai"), QString()));
+        QVERIFY(!ProviderProfileStore::selectionNeedsFixedCustomEntry(
+            QString(), QString()));
+        // Case and padding of the provider id do not change the answer.
+        QVERIFY(ProviderProfileStore::selectionNeedsFixedCustomEntry(
+            QStringLiteral(" Custom "), QString()));
     }
 };
 

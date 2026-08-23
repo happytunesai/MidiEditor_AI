@@ -112,8 +112,16 @@ int ProviderProfileStore::maxNameLength()
 
 ProviderProfileStore::KeyMemoryAction
 ProviderProfileStore::keyMemoryActionOnLeave(const QString &fieldKey,
-                                             bool userEditedKeyField)
+                                             bool userEditedKeyField,
+                                             bool fieldKeyCameFromProfile)
 {
+    // The key on screen is the PROFILE's, untouched since it was poured in: it
+    // travels with that profile (AI/api_key/profile:<id>) and must not be
+    // written into the provider's own memory. Doing so replaced the key the
+    // user keeps for the plain provider entry with a profile's - and on Custom
+    // it handed a profile's cloud token to the next ad-hoc endpoint.
+    if (fieldKeyCameFromProfile && !userEditedKeyField)
+        return KeyMemoryAction::Keep;
     if (!fieldKey.trimmed().isEmpty())
         return KeyMemoryAction::Store;
     // An empty field is only a deliberate clear when the user typed it away
@@ -166,6 +174,19 @@ bool ProviderProfileStore::shouldOfferAdHocCustomEntry(
             return false;
     }
     return true;
+}
+
+bool ProviderProfileStore::selectionNeedsFixedCustomEntry(
+    const QString &provider, const QString &selectedProfile)
+{
+    if (provider.trimmed().compare(QLatin1String(kCustomProvider),
+                                   Qt::CaseInsensitive) != 0) {
+        return false;  // the other four entries are unconditional everywhere
+    }
+    // Provider(custom): the fixed entry IS the selection. Deliberately no
+    // endpoint lookup - whether a stored profile happens to describe this URL
+    // says nothing about what the user picked.
+    return normalizeName(selectedProfile).isEmpty();
 }
 
 QString ProviderProfileStore::normalizeName(const QString &raw)
@@ -366,10 +387,14 @@ bool ProviderProfileStore::apply(const QString &name, QString *error)
     s->setValue(QString::fromLatin1(kActiveApiKey), key);
     if (!p.model.isEmpty())
         s->setValue(QString::fromLatin1(kActiveModel), p.model);
-    // Keep the per-provider memory consistent, but never wipe a remembered
-    // key with the empty key of a local (Ollama / llama.cpp) profile.
-    if (!key.isEmpty())
-        s->setValue(QStringLiteral("AI/api_key/%1").arg(p.provider), key);
+    // Fill an EMPTY per-provider memory slot so a first-time setup that only
+    // ever applied a profile still finds a key on a later provider switch.
+    // A remembered key is never overwritten: it is the user's own (typed or
+    // committed on the settings page), and the profile's key belongs to the
+    // profile - the same rule keyMemoryActionOnLeave() enforces on leave.
+    const QString memorySlot = QStringLiteral("AI/api_key/%1").arg(p.provider);
+    if (!key.isEmpty() && s->value(memorySlot).toString().isEmpty())
+        s->setValue(memorySlot, key);
     s->setValue(QString::fromLatin1(kActiveHint), p.name);
     return true;
 }
@@ -503,6 +528,31 @@ QString ProviderProfileStore::activeProfileName()
                         s->value(QString::fromLatin1(kActiveBaseUrl)).toString(),
                         s->value(QString::fromLatin1(kActiveModel)).toString(),
                         s->value(QString::fromLatin1(kActiveApiKey)).toString());
+}
+
+QString ProviderProfileStore::validatedActiveProfileName(const QString &provider,
+                                                         const QString &baseUrl,
+                                                         const QString &apiKey)
+{
+    const QString hint = normalizeName(
+        settings()->value(QString::fromLatin1(kActiveHint)).toString());
+    // Deliberately no fallback scan: a hint that no longer fits means "no
+    // profile", which is the honest answer for a connection nobody selected.
+    return hintForSelection(hint, provider, baseUrl, apiKey);
+}
+
+QString ProviderProfileStore::hintForSelection(const QString &selectedProfile,
+                                               const QString &provider,
+                                               const QString &baseUrl,
+                                               const QString &apiKey)
+{
+    const QString name = normalizeName(selectedProfile);
+    if (name.isEmpty())
+        return QString();
+    // ENDPOINT identity, not the full quadruple: picking another model keeps
+    // you on the same server, so the profile selection survives it (only the
+    // model-sensitive "Provider profile" row falls back to "(No profile)").
+    return matchesEndpoint(name, provider, baseUrl, apiKey) ? name : QString();
 }
 
 void ProviderProfileStore::setActiveProfileHint(const QString &name)

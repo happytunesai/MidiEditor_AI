@@ -247,23 +247,55 @@ private:
      *  and re-derive its selection. Call after a profile save/delete and
      *  whenever the connection settings may have changed. */
     void populateProviderProfiles();
-    /** FOOTER rule: is the plain ad-hoc "Custom" entry worth listing? True when
-     *  a custom endpoint is really configured (a base URL that is not just a
-     *  built-in provider's default) or when the app is currently ON an ad-hoc
-     *  custom endpoint - the active configuration must always be selectable.
-     *  The settings page is deliberately not subject to this: that is where a
-     *  custom endpoint is configured in the first place. */
+    /** FOOTER rule, the OPTIONAL half: is a custom endpoint configured that
+     *  nobody is currently on? True for a base URL that is not just a built-in
+     *  provider's default and that no stored profile owns. It only ever ADDS
+     *  the plain "Custom" entry; whether the entry is REQUIRED is a question
+     *  about the selection, answered by
+     *  \ref ProviderProfileStore::selectionNeedsFixedCustomEntry - this scan
+     *  must never be the only gate, or a stored profile describing the live
+     *  custom endpoint hides the very entry the selection names.
+     *  The settings page is deliberately not subject to either rule: that is
+     *  where a custom endpoint is configured in the first place. */
     bool hasAdHocCustomEndpoint() const;
     /** Index of a BUILT-IN provider entry, skipping the stored-profile entries
      *  (which carry "custom" in Qt::UserRole too). -1 when not listed. */
     int indexOfFixedProvider(const QString &providerId) const;
+    /** Add the fixed entry for \a providerId in front of the separator and
+     *  return its index. The safety net for \ref syncProviderComboSelection:
+     *  the picker must never display a provider the app is not using, so an
+     *  entry the listing rule left out is added rather than skipped. */
+    int insertFixedProviderEntry(const QString &providerId);
     /** Profile name carried by the current provider-combo entry; empty for the
      *  built-in providers (and for the separator). */
     QString currentProviderComboProfile() const;
-    /** Point the provider combo at the entry the LIVE connection describes: the
-     *  stored custom profile matching provider+URL+key, else the plain
-     *  provider. Signal-blocked - it selects, it never applies. */
+    /** Point the provider combo at the entry the footer's selection STATE
+     *  names: the selected profile while the live endpoint still is that
+     *  profile's, else the plain provider. Signal-blocked - it selects, it
+     *  never applies. */
     void syncProviderComboSelection();
+
+    // --- selection state: INTENT, not inference ---------------------------
+    //
+    // Like the settings page (\ref AiSettingsWidget), the footer's connection
+    // selection is either Provider(X) or Profile(name), moved only by a user
+    // action here. It is derived from scratch at startup and on an external
+    // settings change, and then only from the validated global hint
+    // (\ref ProviderProfileStore::validatedActiveProfileName) - never by
+    // scanning the stored profiles for one that describes the live endpoint,
+    // which made an explicit provider pick snap onto a profile sharing it.
+
+    /** The profile the footer is selected on; empty means a fixed provider
+     *  entry. */
+    QString _selectedProviderProfile;
+    /** \ref _selectedProviderProfile after dropping it when the live
+     *  connection is no longer that profile's ENDPOINT (or the profile is
+     *  gone). Model changes keep it: same server. */
+    QString validatedProfileIntent();
+    /** Re-derive the selection state from the validated hint. ONLY for the
+     *  moments where no local intent can exist: footer startup and an external
+     *  settings change (\ref onSettingsChanged). */
+    void deriveProfileIntentFromHint();
     /** Apply a stored profile and re-sync the footer - the single code path
      *  behind the provider combo's profile entries and the file presets. */
     void applyProviderProfileByName(const QString &name);

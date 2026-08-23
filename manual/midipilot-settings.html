@@ -218,9 +218,11 @@ with, and picking one has exactly the same effect as picking it in the <b>Provid
 </p>
 
 <p>
-In the footer the plain <b>Custom</b> entry - the unsaved, ad-hoc endpoint - is listed only when
-there is one: when a custom base URL is configured, or while the connection in use is that ad-hoc
-endpoint. Whatever MidiPilot is talking to is always on the list. The settings page always offers
+In the footer the plain <b>Custom</b> entry - the unsaved, ad-hoc endpoint - is listed when there is
+one to pick: when a custom base URL is configured, and whenever the connection in use is a custom
+endpoint you have not selected a profile for - including one a saved profile happens to describe,
+because picking a profile is what puts that profile on screen. Whatever MidiPilot is talking to is
+always on the list. The settings page always offers
 <b>Custom</b>, because that is where a custom endpoint is entered in the first place. Picking it
 there loads the ad-hoc endpoint itself: the last custom base URL you worked with outside any
 profile, or an empty field when there is none, together with the API key remembered for custom
@@ -229,12 +231,12 @@ endpoints and a fresh model box. It does not keep the URL and key of the entry y
 
 <div class="screenshot-single">
 <a href="screenshots/midipilot_provider-dropdown-footer.png" class="lightbox-link"><img src="screenshots/midipilot_provider-dropdown-footer.png" class="lightbox-thumb" style="max-width:380px; width:auto;" alt="The MidiPilot footer with the provider dropdown open: the four built-in providers, a separator, and two saved profiles below it" loading="lazy"></a>
-<p class="caption">One picker for everything: built-in providers on top, saved profiles below the separator. The plain Custom entry only appears while an unsaved custom endpoint exists.</p>
+<p class="caption">One picker for everything: built-in providers on top, saved profiles below the separator. The plain Custom entry appears while a custom endpoint is configured, and while the connection in use is a custom one you have not picked a profile for.</p>
 </div>
 
 <p>
-A profile name is shown only while the connection still matches it. Change the provider, the URL,
-the key or the model afterwards and the <b>Provider profile</b> row returns to <b>(No profile)</b> -
+The name of the profile you picked is shown only while the connection still matches it. Change the
+provider, the URL, the key or the model afterwards and the <b>Provider profile</b> row returns to <b>(No profile)</b> -
 the settings then behave exactly as they always did, unsaved and ad-hoc, and the profile keeps the
 values it was saved with. Use <b>Save as&hellip;</b> and keep the offered name to update it.
 </p>
@@ -244,6 +246,14 @@ The <b>Provider</b> dropdowns follow the endpoint rather than the exact saved co
 picking another model keeps you on the same server: the profile entry stays selected in the footer
 and on the settings page, and only a different provider, URL or key drops the selection back to the
 plain provider entry.
+</p>
+
+<p>
+Both dropdowns show what you picked. Choosing a built-in provider is a choice in its own right: the
+entry stays on that provider even when a saved profile describes the very same endpoint, on the
+settings page and in the footer, and it is still that provider when you open the settings again.
+Choosing a profile is what puts its name on screen - in the dropdown, and in the <b>Provider
+profile</b> row as long as the model matches too.
 </p>
 
 <p>

@@ -283,9 +283,10 @@ AiSettingsWidget::AiSettingsWidget(QSettings *settings, QWidget *parent)
     }
         updateStreamingBlockStatus();
 
-    // Phase 50: keep the provider-profile combo in sync with the fields. The
-    // selection is DERIVED (see updateProviderProfileSelection), so any edit
-    // after applying a profile honestly falls back to "(No profile)".
+    // Phase 50: keep both pickers in sync with the fields. They show the
+    // page's SELECTION STATE (see _selectedProviderProfile): an edit that
+    // leaves the selected profile's endpoint drops it, and the profile row
+    // additionally falls back to "(No profile)" on a model change.
     connect(_providerProfileCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &AiSettingsWidget::onProviderProfileSelected);
     connect(_providerCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
@@ -300,6 +301,16 @@ AiSettingsWidget::AiSettingsWidget(QSettings *settings, QWidget *parent)
             this, &AiSettingsWidget::updateProviderProfileSelection);
     connect(_modelCombo, &QComboBox::currentTextChanged,
             this, &AiSettingsWidget::updateProviderProfileSelection);
+    // The page is opening, so there is no local selection state yet - this is
+    // one of the moments where it may be derived at all, and it is derived from
+    // the VALIDATED global hint alone. Never by scanning the stored profiles
+    // for one that fits: that scan is what made picking "OpenAI" come back as
+    // a profile which merely shares OpenAI's endpoint. Judged against the
+    // fields, which are final here (provider pass and model restore above), so
+    // the state agrees with what the page actually shows from the first frame.
+    _selectedProviderProfile = ProviderProfileStore::validatedActiveProfileName(
+        _providerCombo->currentData().toString(), _baseUrlEdit->text().trimmed(),
+        _apiKeyEdit->text().trimmed());
     populateProviderProfiles();
 
     // Thinking / Reasoning toggle
@@ -571,8 +582,18 @@ bool AiSettingsWidget::accept() {
     // clicking the Custom entry out of curiosity and closing the dialog must
     // not stage an empty base URL over a working configuration.
     const QString baseUrlField = _baseUrlEdit->text().trimmed();
-    if (provider != QLatin1String("custom") || !baseUrlField.isEmpty())
+    const bool commitBaseUrl =
+        provider != QLatin1String("custom") || !baseUrlField.isEmpty();
+    if (commitBaseUrl)
         _settings->setValue("AI/api_base_url", baseUrlField);
+    // The endpoint that is REALLY in force from here on: the field when it is
+    // committed, otherwise the stored URL that stays active. Every judgement
+    // below has to use this one - validating the profile hint against an empty
+    // field we just refused to write would clear (or keep) the hint for an
+    // endpoint the app is not on.
+    const QString effectiveBaseUrl =
+        commitBaseUrl ? baseUrlField
+                      : _settings->value("AI/api_base_url").toString().trimmed();
     // Save API key per-provider and as active key. The ACTIVE key follows the
     // field exactly (an empty field really does mean "send no key"); the
     // per-provider MEMORY follows it only where the user was really on this
@@ -581,20 +602,29 @@ bool AiSettingsWidget::accept() {
     // destroy the remembered key of that provider, while a key the user cleared
     // here stays cleared instead of coming back on the next switch.
     QString key = _apiKeyEdit->text().trimmed();
-    rememberKeyFieldFor(provider);
+    // ... and a key POURED from the selected profile is that profile's, never
+    // the provider's: closing the page on a profile must not overwrite the key
+    // the user keeps for the plain provider entry.
+    rememberKeyFieldFor(provider, _selectedProviderProfile);
     // Same for the ad-hoc Custom endpoint: confirming the dialog on an unsaved
     // custom URL is what makes it THE ad-hoc endpoint the "Custom" entry offers
     // next time. A URL that belongs to a stored profile is skipped inside.
-    rememberAdHocCustomBaseUrl(provider, _baseUrlEdit->text().trimmed(), key);
+    // The EFFECTIVE URL, for the same reason as the hint: an empty field we
+    // refused to commit must not drop the memory of the endpoint that stays
+    // in force either.
+    rememberAdHocCustomBaseUrl(provider, effectiveBaseUrl, key);
     _settings->setValue("AI/api_key", key);
     QString model = currentModelId();
     _settings->setValue("AI/model", model);
-    // Phase 50: remember which provider profile these four values came from
-    // (empty when the user edited them - the hint is only a hint, every reader
-    // re-checks the values themselves).
+    // Phase 50: remember which provider profile this connection came from - the
+    // page's own selection state, NOT a scan over the stored profiles. Picking
+    // the fixed "OpenAI" entry while a profile happens to describe OpenAI's
+    // default endpoint writes NO hint, so reopening the dialog shows OpenAI
+    // again instead of that profile. A profile selection whose endpoint the
+    // user then edited degrades to no hint the same way.
     ProviderProfileStore::setActiveProfileHint(
-        ProviderProfileStore::nameMatching(provider, _baseUrlEdit->text().trimmed(),
-                                           model, key));
+        ProviderProfileStore::hintForSelection(_selectedProviderProfile, provider,
+                                               effectiveBaseUrl, key));
     _settings->setValue("AI/thinking_enabled", _thinkingCheck->isChecked());
     _settings->setValue("AI/reasoning_effort", _effortCombo->currentData().toString());
     _settings->setValue("AI/streaming_mode",
@@ -675,7 +705,8 @@ void AiSettingsWidget::onProviderChanged(int /*index*/) {
 
     // A stored-profile entry is not a new provider id - resolve it to the
     // profile's OWN provider plus that profile's URL, key and model, through
-    // the very same code path the profile combo uses.
+    // the very same code path the profile combo uses. It sets the selection
+    // state to Profile(name).
     const QString profileName = currentProviderComboProfile();
     if (!profileName.isEmpty()) {
         applyProviderProfileToFields(profileName);
@@ -686,17 +717,27 @@ void AiSettingsWidget::onProviderChanged(int /*index*/) {
     if (provider.isEmpty()) {
         // The separator between the fixed providers and the profiles. It is not
         // a selectable configuration; put the selection back where it was.
-        selectProviderComboEntry(_lastProvider, QString());
+        selectProviderComboEntry(_lastProvider, _selectedProviderProfile);
         return;
     }
-    applyProviderSwitch(provider);
+    // A FIXED entry is an explicit statement: this connection is "OpenAI", not
+    // "the profile that also points at OpenAI". The selection state says so
+    // from here on, and every sync below follows the state instead of guessing
+    // from the endpoint - which is what used to snap the dropdown back.
+    // The state we are LEAVING is captured first: the key currently in the
+    // field may be that profile's, and the switch must not store it as the
+    // provider's (\ref rememberKeyFieldFor).
+    const QString leavingProfile = _selectedProviderProfile;
+    _selectedProviderProfile.clear();
+    applyProviderSwitch(provider, leavingProfile);
     // Settle both pickers once, from the finished field state. The switch above
     // ran signal-blocked on purpose, and the constructor calls this slot
     // directly (no signal follows it), so the settle has to happen here.
     updateProviderProfileSelection();
 }
 
-void AiSettingsWidget::applyProviderSwitch(const QString &provider) {
+void AiSettingsWidget::applyProviderSwitch(const QString &provider,
+                                           const QString &leavingProfile) {
     // The very first call comes from the constructor and does NOT switch
     // provider - it just paints the configured one. Only then may the active
     // AI/api_key outrank the per-provider memory.
@@ -712,9 +753,11 @@ void AiSettingsWidget::applyProviderSwitch(const QString &provider) {
     // ad-hoc key would otherwise be the one thing the switch forgot while its
     // URL sibling below is remembered. keyMemoryActionOnLeave() already keeps
     // this safe for every case the guard used to protect (a keyless profile's
-    // empty, untouched field is Keep, never Erase).
+    // empty, untouched field is Keep, never Erase) - and a key poured from the
+    // profile being left is Keep too: it is that profile's, and storing it here
+    // is what silently replaced the provider's own remembered key.
     if (!_lastProvider.isEmpty())
-        rememberKeyFieldFor(_lastProvider);
+        rememberKeyFieldFor(_lastProvider, leavingProfile);
     // The endpoint we are LEAVING is the ad-hoc Custom one whenever the fields
     // still describe it - read them before anything below overwrites them.
     rememberAdHocCustomBaseUrl(_lastProvider, _baseUrlEdit->text().trimmed(),
@@ -1049,14 +1092,28 @@ QString AiSettingsWidget::storedKeyForProvider(const QString &provider,
         provider, remembered, AiClient::providerRequiresKey(provider, url));
 }
 
-void AiSettingsWidget::rememberKeyFieldFor(const QString &provider)
+bool AiSettingsWidget::keyFieldHoldsProfileKey(const QString &profileName) const
+{
+    if (profileName.isEmpty() || !_apiKeyEdit)
+        return false;
+    // Identity by VALUE: the pour is the only thing that puts a profile's key
+    // into this field, and the store's rule additionally requires that the user
+    // has not typed since (the dirty flag, cleared on every pour). A user who
+    // types exactly the profile's key is therefore not caught here either way.
+    return _apiKeyEdit->text().trimmed()
+           == ProviderProfileStore::apiKeyFor(profileName).trimmed();
+}
+
+void AiSettingsWidget::rememberKeyFieldFor(const QString &provider,
+                                           const QString &fromProfile)
 {
     if (provider.isEmpty() || !_apiKeyEdit)
         return;
     const QString memoryKey = QStringLiteral("AI/api_key/%1").arg(provider);
     const QString fieldKey = _apiKeyEdit->text().trimmed();
     switch (ProviderProfileStore::keyMemoryActionOnLeave(
-        fieldKey, _keyFieldEditedFor.contains(provider))) {
+        fieldKey, _keyFieldEditedFor.contains(provider),
+        keyFieldHoldsProfileKey(fromProfile))) {
     case ProviderProfileStore::KeyMemoryAction::Store:
         _settings->setValue(memoryKey, fieldKey);
         break;
@@ -1088,9 +1145,10 @@ void AiSettingsWidget::rememberAdHocCustomBaseUrl(const QString &provider,
     if (!ProviderProfileStore::nameMatchingEndpoint(provider, baseUrl, apiKey)
              .isEmpty())
         return;
-    if (baseUrl.isEmpty())
-        _settings->remove(QString::fromLatin1(kAdHocCustomBaseUrl));
-    else
+    // An empty URL means "not entered", never "forget my endpoint" - the same
+    // reading accept() applies before committing the active URL. The memory
+    // is replaced by typing a different URL, never by leaving the field blank.
+    if (!baseUrl.isEmpty())
         _settings->setValue(QString::fromLatin1(kAdHocCustomBaseUrl), baseUrl);
 }
 
@@ -1127,8 +1185,11 @@ void AiSettingsWidget::populateProviderComboProfiles()
         return;
 
     // Remember what is selected: removeItem() below shifts the current index.
+    // The PROFILE half comes from the selection state, not from the entry that
+    // happens to be current - the two must never diverge, and after a delete
+    // the current entry may be the one that just disappeared.
     const QString keepProvider = _providerCombo->currentData().toString();
-    const QString keepProfile = currentProviderComboProfile();
+    const QString keepProfile = _selectedProviderProfile;
 
     const bool blocked = _providerCombo->blockSignals(true);
     while (_providerCombo->count() > kFixedProviderCount)
@@ -1204,26 +1265,39 @@ void AiSettingsWidget::selectProviderComboEntry(const QString &provider,
     _providerCombo->blockSignals(blocked);
 }
 
+QString AiSettingsWidget::validatedProfileIntent()
+{
+    if (_selectedProviderProfile.isEmpty())
+        return QString();
+    const QString provider = _providerCombo ? _providerCombo->currentData().toString()
+                                            : QString();
+    // Endpoint identity: provider, base URL and key. Editing any of them means
+    // the fields no longer describe this profile, so the selection degrades to
+    // the plain provider - honestly and once, instead of being re-guessed. A
+    // profile that vanished (deleted here or elsewhere) fails this too, so the
+    // pickers cannot keep naming it and cannot slide onto a sibling that shares
+    // its endpoint either.
+    if (!ProviderProfileStore::matchesEndpoint(
+            _selectedProviderProfile, provider,
+            _baseUrlEdit ? _baseUrlEdit->text().trimmed() : QString(),
+            _apiKeyEdit ? _apiKeyEdit->text().trimmed() : QString())) {
+        _selectedProviderProfile.clear();
+    }
+    return _selectedProviderProfile;
+}
+
 void AiSettingsWidget::updateProviderComboSelection()
 {
     if (!_providerCombo || !_baseUrlEdit || !_apiKeyEdit)
         return;
     const QString provider = _providerCombo->currentData().toString();
     if (provider.isEmpty())
-        return;
-    // Endpoint identity, not the exact saved configuration: picking another
-    // model keeps you on the same server, so the provider entry stays - only
-    // the profile combo below falls back to "(No profile)".
-    // The profile combo's live selection outranks the stored hint: with two
-    // profiles on one endpoint the hint may name the other one, and then the
-    // two pickers would show different names for the same connection.
-    const QString preferred = _providerProfileCombo
-                                  ? _providerProfileCombo->currentData().toString()
-                                  : QString();
-    const QString name = ProviderProfileStore::nameMatchingEndpoint(
-        provider, _baseUrlEdit->text().trimmed(), _apiKeyEdit->text().trimmed(),
-        preferred);
-    selectProviderComboEntry(provider, name);
+        return;  // the separator - nothing to settle
+    // The selection FOLLOWS the state; it is not re-derived from the endpoint.
+    // While the state is a profile the entry stays put through model changes
+    // (same server) and falls back to the fixed provider entry the moment the
+    // endpoint itself is edited.
+    selectProviderComboEntry(provider, validatedProfileIntent());
 }
 
 void AiSettingsWidget::populateProviderProfiles(const QString &selectName)
@@ -1242,6 +1316,9 @@ void AiSettingsWidget::populateProviderProfiles(const QString &selectName)
     _providerProfileCombo->blockSignals(blocked);
 
     if (!selectName.isEmpty()) {
+        // An explicit selection IS the new intent (the save path passes the
+        // profile it just wrote), so both pickers stay on it afterwards.
+        _selectedProviderProfile = selectName;
         int idx = _providerProfileCombo->findData(selectName);
         if (idx >= 0) {
             const bool b = _providerProfileCombo->blockSignals(true);
@@ -1265,11 +1342,16 @@ void AiSettingsWidget::updateProviderProfileSelection()
     const QString key = _apiKeyEdit->text().trimmed();
     const QString model = currentModelId();
 
-    // Keep the current selection when it still describes the fields (two
-    // profiles may hold identical settings); otherwise ask the store.
-    QString match = _providerProfileCombo->currentData().toString();
-    if (match.isEmpty() || !ProviderProfileStore::matches(match, provider, url, model, key))
-        match = ProviderProfileStore::nameMatching(provider, url, model, key);
+    // This row is the model-sensitive view of the SAME selection state: it
+    // names the selected profile only while the full quadruple still matches,
+    // and "(No profile)" otherwise. It never scans - a profile nobody picked
+    // must not appear here just because the fields happen to equal it.
+    const QString intent = validatedProfileIntent();
+    const QString match =
+        (!intent.isEmpty()
+         && ProviderProfileStore::matches(intent, provider, url, model, key))
+            ? intent
+            : QString();
 
     int idx = match.isEmpty() ? 0 : _providerProfileCombo->findData(match);
     if (idx < 0)
@@ -1290,9 +1372,13 @@ void AiSettingsWidget::onProviderProfileSelected(int /*index*/)
     const QString name = _providerProfileCombo->currentData().toString();
     if (name.isEmpty()) {
         // "(No profile)" keeps whatever is in the fields - picking it is not
-        // a command to change anything, it just says "these are ad-hoc".
+        // a command to change anything, it just says "these are ad-hoc". It IS
+        // a selection though: the state becomes the plain provider, so the
+        // dropdown above stops naming a profile the user just deselected.
+        _selectedProviderProfile.clear();
         if (_deleteProfileButton)
             _deleteProfileButton->setEnabled(false);
+        updateProviderComboSelection();
         return;
     }
     applyProviderProfileToFields(name);
@@ -1308,9 +1394,17 @@ void AiSettingsWidget::applyProviderProfileToFields(const QString &name)
         return;
     }
 
+    // Picking a profile - in either picker - IS the selection state. The name
+    // is kept in the store's canonical spelling so every later comparison and
+    // the hint accept() writes agree with it. The state being LEFT is captured
+    // first: the key still in the field may belong to it.
+    const QString leavingProfile = _selectedProviderProfile;
+    _selectedProviderProfile = p.name;
+
     // Pour the profile into the visible fields. Nothing is persisted here -
-    // accept() writes the four active keys as it always did, so Cancel keeps
-    // the previous configuration.
+    // accept() writes the four active keys as it always did (the settings pages
+    // commit when the dialog closes; there is no Cancel that could roll this
+    // back, which is why nothing below writes a setting).
     {
         QScopedValueRollback<bool> applying(_applyingProviderProfile, true);
         // Show the profile's own entry while we work, so every currentData()
@@ -1319,9 +1413,14 @@ void AiSettingsWidget::applyProviderProfileToFields(const QString &name)
         // Exactly the steps a fixed provider entry runs (remember the old key,
         // load the new provider's key, default URL, placeholder, model list) -
         // called directly instead of through the combo, so nothing re-enters.
-        applyProviderSwitch(p.provider);
+        applyProviderSwitch(p.provider, leavingProfile);
         _baseUrlEdit->setText(p.baseUrl);
         _apiKeyEdit->setText(ProviderProfileStore::apiKeyFor(name));
+        // The field now holds THIS profile's key, so any earlier user edit for
+        // this provider is no longer on screen: the dirty flag has to go with
+        // it, or the poured key would count as typed and be written into the
+        // provider's key memory on the way out.
+        _keyFieldEditedFor.remove(p.provider);
         // The provider switch above filled the model list from the OLD endpoint -
         // the URL and key only became this profile's a line ago. Refill now that
         // all three fields agree, so the combo shows this endpoint's cached models
@@ -1355,16 +1454,14 @@ void AiSettingsWidget::onSaveProviderProfile()
         return;
 
     // "Save as..." IS the edit function - there is no separate one - so it must
-    // offer the profile that is on screen, not the provider's display name. In
-    // order: the profile row's selection, the provider dropdown's entry, the
-    // profile the visible endpoint resolves to, and only then the provider.
+    // offer the profile that is SELECTED, not the provider's display name. The
+    // selection state is that profile (both pickers are views of it); it is
+    // deliberately not resolved by scanning for a profile the fields happen to
+    // equal, because on a fixed provider entry the user is explicitly not on
+    // that profile and would be offered to overwrite it.
     const QString url = _baseUrlEdit->text().trimmed();
     const QString key = _apiKeyEdit->text().trimmed();
-    QString suggestion = _providerProfileCombo->currentData().toString();
-    if (suggestion.isEmpty())
-        suggestion = currentProviderComboProfile();
-    if (suggestion.isEmpty())
-        suggestion = ProviderProfileStore::nameMatchingEndpoint(provider, url, key);
+    QString suggestion = _selectedProviderProfile;
     // The profile this save is an EDIT of, as far as the page can tell.
     const QString editing = suggestion;
     if (suggestion.isEmpty())
@@ -1507,6 +1604,13 @@ void AiSettingsWidget::onDeleteProviderProfile()
         return;
     }
     ProviderProfileStore::remove(name);
+    // The selection cannot point at a profile that is gone. It degrades to the
+    // plain provider - never to a sibling profile that shares the endpoint,
+    // which is exactly what a re-scan would have picked.
+    if (ProviderProfileStore::normalizeName(_selectedProviderProfile)
+        == ProviderProfileStore::normalizeName(name)) {
+        _selectedProviderProfile.clear();
+    }
     populateProviderProfiles();
     // Mirror of the save path: the endpoint just fell back to the shared ad-hoc
     // "custom" scope, so its model list and favourites changed under us.
