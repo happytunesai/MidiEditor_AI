@@ -96,26 +96,36 @@ private:
      *  applying a profile honestly falls back to ad-hoc. */
     void updateProviderProfileSelection();
 
-    // --- Phase 50 follow-up: stored CUSTOM profiles as first-class entries in
-    // the Provider dropdown, so switching to a saved endpoint feels like
-    // switching provider. A profile entry is NOT a new provider id: it carries
-    // the provider id ("custom") in Qt::UserRole exactly like the five fixed
-    // entries - every existing currentData() reader keeps working - and the
-    // profile NAME in a second role that is translated at this boundary only.
+    // --- Phase 50 follow-up: stored profiles as first-class entries in the
+    // Provider dropdown, so switching to a saved endpoint feels like switching
+    // provider. A profile entry is NOT a new provider id: it carries its OWN
+    // provider id in Qt::UserRole exactly like the five fixed entries - every
+    // existing currentData() reader keeps working - and the profile NAME in a
+    // second role that is translated at this boundary only.
+    //
+    // v2.3 owner smoke: EVERY saved profile is listed here, not only the Custom
+    // ones - same rule as the footer. Hiding an OpenAI profile while the
+    // "Provider profile" row right above still jumped to OpenAI when it was
+    // picked made the two rows contradict each other.
 
     /** Rebuild the provider combo's profile entries below the fixed five. */
     void populateProviderComboProfiles();
     /** Profile name carried by the current provider-combo entry; empty for the
      *  five fixed providers (and for the separator). */
     QString currentProviderComboProfile() const;
+    /** Index of the FIXED entry for \a providerId, skipping profile entries.
+     *  A plain findData() would hit a profile entry as soon as a profile of a
+     *  built-in provider is stored (the footer's indexOfFixedProvider twin). */
+    int indexOfFixedProvider(const QString &providerId) const;
     /** Select the entry for \a profileName, falling back to the fixed entry of
      *  \a provider. Signal-blocked: selects, never applies. */
     void selectProviderComboEntry(const QString &provider,
                                   const QString &profileName);
     /** Point the provider combo at the entry the VISIBLE fields describe: the
-     *  stored custom profile matching provider+URL+key, else the plain
-     *  provider. Endpoint-based on purpose - picking another model keeps the
-     *  endpoint, only the profile combo falls back to "(No profile)". */
+     *  stored profile matching provider+URL+key (of ANY provider - they are all
+     *  listed), else the plain provider. Endpoint-based on purpose - picking
+     *  another model keeps the endpoint, only the profile combo falls back to
+     *  "(No profile)". */
     void updateProviderComboSelection();
     /** The provider-switch body (key memory, default URL, model list), with the
      *  provider passed explicitly so the profile path can run the exact same
@@ -124,6 +134,26 @@ private:
     /** Pour a stored profile into the visible fields - the single code path
      *  behind the profile combo and the provider combo's profile entries. */
     void applyProviderProfileToFields(const QString &name);
+
+    // --- v2.3 owner smoke: "Custom" is a DEFINED ad-hoc state ---------------
+    //
+    // Picking "Custom" used to leave the previous endpoint's URL and key in the
+    // fields. The endpoint then still matched the profile that had been active,
+    // so the selection snapped straight back to that profile's entry and
+    // "Custom" was unreachable. The ad-hoc endpoint therefore gets a memory of
+    // its own (AI/custom_adhoc_base_url) next to the key memory
+    // AI/api_key/custom that already exists under the H4 rules.
+
+    /** The remembered ad-hoc Custom endpoint (empty when there is none). */
+    QString rememberedAdHocCustomBaseUrl() const;
+    /** Remember \a baseUrl as THE ad-hoc Custom endpoint - but only while
+     *  \a provider is "custom" and no stored profile describes this endpoint
+     *  (one that does is reachable through its own entry, and remembering it
+     *  here would make "Custom" a duplicate that snaps away again). An empty
+     *  URL drops the memory: the user cleared the endpoint on purpose. */
+    void rememberAdHocCustomBaseUrl(const QString &provider,
+                                    const QString &baseUrl,
+                                    const QString &apiKey);
 
     QSettings *_settings;
     QComboBox *_providerProfileCombo = nullptr;

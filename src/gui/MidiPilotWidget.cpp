@@ -2242,9 +2242,12 @@ void MidiPilotWidget::onProviderComboChanged(int index) {
             || cur == defaultUrls.value("gemini"));
         _client->setApiBaseUrl(isCloudDefault ? defaultUrls.value("ollama") : cur);
     } else if (provider == "custom") {
-        // Fully user-defined - keep the configured endpoint. The settings page
-        // leaves the URL alone for Custom too; the footer used to fall back to
-        // the OpenAI default here and silently threw the custom URL away.
+        // Fully user-defined - keep the configured endpoint. Correct HERE
+        // because the footer only offers this entry while the live URL already
+        // IS the ad-hoc one (hasAdHocCustomEndpoint gates it); the settings
+        // page, whose Custom entry is always offered, instead loads the
+        // remembered ad-hoc endpoint. The footer used to fall back to the
+        // OpenAI default here and silently threw the custom URL away.
     } else {
         _client->setApiBaseUrl(defaultUrls.value(provider, "https://api.openai.com/v1"));
     }

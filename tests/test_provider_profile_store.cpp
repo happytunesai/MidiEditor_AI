@@ -28,6 +28,14 @@
  *  10. The state table behind the footer's ad-hoc "Custom" entry (L11).
  *  11. ModelListCache::forget() reports whether the scope is really gone (L4).
  *
+ * v2.3 owner smoke additions:
+ *  12. BOTH connection pickers list every saved profile - the settings page's
+ *      provider dropdown no longer filters to the Custom ones while the
+ *      profile row above it offers them all.
+ *  13. The ad-hoc "Custom" endpoint is by definition the one no stored profile
+ *      describes, so it resolves to no profile name and the picker's
+ *      endpoint-derived selection cannot snap off "Custom".
+ *
  * Uses the AppPaths test seam - the developer's real settings scope must
  * never be touched (TESTWIPE class). The model-list cache is a file under
  * QStandardPaths, so the cases below run with test mode enabled.
@@ -611,31 +619,57 @@ private slots:
                  QStringLiteral("Work"));
     }
 
-    void onlyCustomProfilesBecomeSettingsPageProviderComboEntries() {
+    void theSettingsPageProviderComboListsEveryProfileToo() {
+        // v2.3 owner smoke (parity bug): the SETTINGS PAGE used to filter this
+        // list to the Custom profiles. An OpenAI profile was therefore absent
+        // from the Provider dropdown while the "Provider profile" row directly
+        // above it offered the very same profile and correctly jumped to
+        // OpenAI when it was picked - two rows on one page disagreeing about
+        // what exists. Both pickers now build from the SAME unfiltered list,
+        // and every entry carries the profile's OWN provider id.
         QVERIFY(ProviderProfileStore::save(
             makeProfile(QStringLiteral("HF"), QStringLiteral("custom"),
                         QStringLiteral("https://router.example/v1"),
                         QStringLiteral("a/model")),
             QStringLiteral("hf-token")));
         QVERIFY(ProviderProfileStore::save(
-            makeProfile(QStringLiteral("Work"), QStringLiteral("openai"),
+            makeProfile(QStringLiteral("test"), QStringLiteral("openai"),
                         QStringLiteral("https://api.openai.com/v1"),
                         QStringLiteral("gpt-4o")),
             QStringLiteral("openai-key")));
 
-        // The SETTINGS PAGE's provider combo filters on the stored provider:
-        // a built-in provider's profile would be a second "OpenAI" line for
-        // the same endpoint, and the page's own "Provider profile" row above
-        // the fields already lists every profile. (The footer, which has no
-        // second picker, lists them all - see the case above.)
         QStringList entries;
+        QStringList providerIds;
         for (const QString &n : ProviderProfileStore::profileNames()) {
             bool ok = false;
             const Profile p = ProviderProfileStore::load(n, &ok);
-            if (ok && p.provider == QStringLiteral("custom"))
-                entries.append(p.name);
+            if (!ok)
+                continue;
+            entries.append(p.name);
+            providerIds.append(p.provider);
         }
-        QCOMPARE(entries, (QStringList{QStringLiteral("HF")}));
+        QCOMPARE(entries,
+                 (QStringList{QStringLiteral("HF"), QStringLiteral("test")}));
+        QCOMPARE(providerIds,
+                 (QStringList{QStringLiteral("custom"),
+                              QStringLiteral("openai")}));
+
+        // Picking the OpenAI profile's entry goes through the same apply path
+        // as picking it in the profile row, so both land on the same four
+        // values - the page stages them instead of writing them, but the
+        // profile they come from is this one either way.
+        bool ok = false;
+        const Profile picked = ProviderProfileStore::load(QStringLiteral("test"),
+                                                          &ok);
+        QVERIFY(ok);
+        QCOMPARE(picked.provider, QStringLiteral("openai"));
+        QCOMPARE(ProviderProfileStore::apiKeyFor(QStringLiteral("test")),
+                 QStringLiteral("openai-key"));
+        // ... and it is findable as an endpoint, so the dropdown can select it.
+        QCOMPARE(ProviderProfileStore::nameMatchingEndpoint(
+                     picked.provider, picked.baseUrl,
+                     ProviderProfileStore::apiKeyFor(QStringLiteral("test"))),
+                 QStringLiteral("test"));
     }
 
     void aProfileEntryResolvesToTheCustomProviderNeverToItsName() {
@@ -1106,6 +1140,64 @@ private slots:
         QVERIFY(!offer(QStringLiteral("openai"), QString(), QString()));
         QVERIFY(!offer(QStringLiteral("openai"), QStringLiteral("   "),
                        QString()));
+    }
+
+    void theAdHocCustomEndpointIsTheOneNoProfileDescribes() {
+        // v2.3 owner smoke: picking "Custom" in the settings page used to leave
+        // the previous profile's URL and key in the fields. The endpoint then
+        // still resolved to that profile, and the endpoint-derived selection
+        // snapped straight back to it - "Custom" was unreachable.
+        //
+        // The page now loads a REMEMBERED ad-hoc endpoint instead, and this is
+        // the store-level rule that makes the selection stay put: only an
+        // endpoint that no stored profile describes may be remembered as the
+        // ad-hoc one, and such an endpoint resolves to no profile - so
+        // nameMatchingEndpoint() hands the picker an empty name and the fixed
+        // "Custom" entry wins.
+        QVERIFY(ProviderProfileStore::save(
+            makeProfile(QStringLiteral("huggingface.co"), QStringLiteral("custom"),
+                        QStringLiteral("https://router.huggingface.co/v1"),
+                        QStringLiteral("a/model")),
+            QStringLiteral("hf-token")));
+        QVERIFY(ProviderProfileStore::apply(QStringLiteral("huggingface.co")));
+
+        // The state the bug produced: the profile's own values still in the
+        // fields. That IS the profile, and the picker is right to say so.
+        QCOMPARE(ProviderProfileStore::nameMatchingEndpoint(
+                     QStringLiteral("custom"),
+                     QStringLiteral("https://router.huggingface.co/v1"),
+                     QStringLiteral("hf-token")),
+                 QStringLiteral("huggingface.co"));
+
+        // The defined ad-hoc state: no endpoint at all (nothing remembered
+        // yet), or a remembered endpoint no profile owns. Both resolve to no
+        // profile even though the stored hint still names one, so nothing can
+        // pull the selection off "Custom".
+        QVERIFY(ProviderProfileStore::nameMatchingEndpoint(
+                    QStringLiteral("custom"), QString(),
+                    QStringLiteral("hf-token")).isEmpty());
+        QVERIFY(ProviderProfileStore::nameMatchingEndpoint(
+                    QStringLiteral("custom"),
+                    QStringLiteral("http://localhost:8080/v1"),
+                    QString()).isEmpty());
+        // ... and the ad-hoc endpoint keeps the shared, pre-profile model-list
+        // scope, so the Custom entry shows the ad-hoc model list.
+        QCOMPARE(ProviderProfileStore::modelScopeId(
+                     QStringLiteral("custom"),
+                     QStringLiteral("http://localhost:8080/v1"), QString()),
+                 QStringLiteral("custom"));
+
+        // A remembered URL that a profile is LATER saved for stops being
+        // ad-hoc: it then belongs to that profile's entry, and the picker
+        // naming it is the honest answer, not a snap-back.
+        QVERIFY(ProviderProfileStore::save(
+            makeProfile(QStringLiteral("Local"), QStringLiteral("custom"),
+                        QStringLiteral("http://localhost:8080/v1"), QString()),
+            QString()));
+        QCOMPARE(ProviderProfileStore::nameMatchingEndpoint(
+                     QStringLiteral("custom"),
+                     QStringLiteral("http://localhost:8080/v1"), QString()),
+                 QStringLiteral("Local"));
     }
 
     // --- 14. forget() reports the truth (v2.3 review L4) -------------------

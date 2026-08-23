@@ -119,8 +119,8 @@ Configure your AI connection from <b>Settings &rarr; MidiPilot AI</b>. Select a 
 
 <table>
 <tr><th>Setting</th><th>Description</th></tr>
-<tr><td><b>Provider profile</b></td><td>Fills provider, base URL, API key and model from a <a href="#provider-profiles">saved endpoint</a>. <b>Save as&hellip;</b> stores the current four fields under a name, <b>Delete</b> removes the selected profile.</td></tr>
-<tr><td><b>Provider</b></td><td>OpenAI, OpenRouter, Google Gemini, Ollama (local), or Custom - and below a separator, every saved <a href="#provider-profiles">custom provider profile</a> as its own entry</td></tr>
+<tr><td><b>Provider profile</b></td><td>Fills provider, base URL, API key and model from a <a href="#provider-profiles">saved endpoint</a>. <b>Save as&hellip;</b> stores the current four fields under a name - it is also how a profile is edited, since it offers the name of the profile on screen. <b>Delete</b> removes the selected profile and is available only while one is selected.</td></tr>
+<tr><td><b>Provider</b></td><td>OpenAI, OpenRouter, Google Gemini, Ollama (local), or Custom - and below a separator, every saved <a href="#provider-profiles">provider profile</a> as its own entry, whichever provider it was saved with. <b>Custom</b> is the unsaved, ad-hoc endpoint: picking it loads the custom base URL you last worked with (empty if there is none) rather than keeping the previous entry's URL and key.</td></tr>
 <tr><td><b>Base URL</b></td><td>Filled in for you by the provider entry. <b>Ollama (local)</b> and <b>Custom</b> keep it editable so you can point at another host, port or OpenAI-compatible server.</td></tr>
 <tr><td><b>API Key</b></td><td>Your provider API key - get one from <a href="https://platform.openai.com/settings/organization/api-keys" target="_blank" rel="noopener noreferrer">OpenAI</a>, <a href="https://openrouter.ai/settings/keys" target="_blank" rel="noopener noreferrer">OpenRouter</a>, or <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Google Gemini</a>. Not needed for <a href="#ollama">Ollama (local)</a>, and not needed for a <b>Custom</b> base URL that points at this machine: the field then says so instead of showing the <code>sk-&hellip;</code> hint, and the connection counts as configured with the key left empty.</td></tr>
 <tr><td><b>Model</b></td><td>Editable dropdown populated from the active provider's cached model list. If no cache exists, MidiPilot falls back to a small built-in starter list.</td></tr>
@@ -205,23 +205,26 @@ set of fields.
 
 <table>
 <tr><th>Where</th><th>What it does</th></tr>
-<tr><td><b>Settings &rarr; MidiPilot AI</b></td><td>The <b>Provider profile</b> row directly above the connection fields. It starts at <b>(No profile)</b> and lists every saved profile, whichever provider it was saved with. Selecting one fills the fields below; they are stored when you confirm the settings dialog. <b>Save as&hellip;</b> writes the current provider, base URL, API key and model to a profile (an existing name asks before it is overwritten), <b>Delete</b> removes the selected one and leaves the fields as they are.</td></tr>
+<tr><td><b>Settings &rarr; MidiPilot AI</b></td><td>The <b>Provider profile</b> row directly above the connection fields. It starts at <b>(No profile)</b> and lists every saved profile, whichever provider it was saved with. Selecting one fills the fields below; they are stored when you confirm the settings dialog. <b>Save as&hellip;</b> writes the current provider, base URL, API key and model to a profile. It pre-fills the name of the profile currently on screen, so keeping that name updates it - you are asked to confirm the update first - and typing a new name saves a copy; if the profile you started from still describes the same endpoint, you are then offered to delete it, which turns the copy into a rename. <b>Delete</b> removes the selected one and leaves the fields as they are.</td></tr>
 <tr><td><b>MidiPilot footer</b></td><td>The <b>Provider</b> dropdown is the footer's single connection picker: built-in providers first, then a separator, then every saved profile, whichever provider it was saved with. Picking one switches the whole connection in one step and reports the applied profile in the status line - and if that endpoint still needs a key, it says that instead. <b>Save connection as provider profile&hellip;</b> in the &#x2699; gear menu stores the connection MidiPilot is using right now under a name, without opening the settings dialog, and selects the new entry in the dropdown.</td></tr>
 <tr><td><b>Per-file preset</b></td><td>A <a href="#presets">per-file AI preset</a> also records the <i>name</i> of the active profile - never a URL or a key. Opening that file on a machine that has a profile of the same name reconnects to the right endpoint and MidiPilot says which profile it applied; where that name is unknown it says so too and uses the preset's own provider and model instead.</td></tr>
 </table>
 
 <p>
 Saved profiles appear in the <b>Provider</b> dropdown itself, listed below a separator after the
-built-in providers, so switching to a saved endpoint is the same gesture as switching provider. The
-footer lists every saved profile there; the settings page lists the saved <b>Custom</b> ones, since
-its <b>Provider profile</b> row above already offers all of them.
+built-in providers, so switching to a saved endpoint is the same gesture as switching provider. Both
+the footer and the settings page list every saved profile there, whichever provider it was saved
+with, and picking one has exactly the same effect as picking it in the <b>Provider profile</b> row.
 </p>
 
 <p>
 In the footer the plain <b>Custom</b> entry - the unsaved, ad-hoc endpoint - is listed only when
 there is one: when a custom base URL is configured, or while the connection in use is that ad-hoc
 endpoint. Whatever MidiPilot is talking to is always on the list. The settings page always offers
-<b>Custom</b>, because that is where a custom endpoint is entered in the first place.
+<b>Custom</b>, because that is where a custom endpoint is entered in the first place. Picking it
+there loads the ad-hoc endpoint itself: the last custom base URL you worked with outside any
+profile, or an empty field when there is none, together with the API key remembered for custom
+endpoints and a fresh model box. It does not keep the URL and key of the entry you came from.
 </p>
 
 <div class="screenshot-single">
@@ -233,7 +236,7 @@ endpoint. Whatever MidiPilot is talking to is always on the list. The settings p
 A profile name is shown only while the connection still matches it. Change the provider, the URL,
 the key or the model afterwards and the <b>Provider profile</b> row returns to <b>(No profile)</b> -
 the settings then behave exactly as they always did, unsaved and ad-hoc, and the profile keeps the
-values it was saved with. Use <b>Save as&hellip;</b> with the same name to update it.
+values it was saved with. Use <b>Save as&hellip;</b> and keep the offered name to update it.
 </p>
 
 <p>
