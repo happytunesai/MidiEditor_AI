@@ -88,10 +88,12 @@ MidiPilot is the AI brain embedded directly in MidiEditor AI. Open the sidebar, 
 | 🔎 **Check FFXIV Playability** | Workbench that examines a file the way the game plays it - chords and stacked duplicates on monophonic performers, notes outside C3-C6, track names no FFXIV instrument matches, voice peak, channel spread, empty tracks. Click a finding to select its notes, double-click to focus the track; delete exactly the marked notes, or hand the report to MidiPilot for a prioritised assessment |
 | ⏱️ **Convert Tempo (Preserve Duration)** | Time-preserving tempo conversion - rescales every event tick by `target/source` and rewrites the tempo meta in one undoable step. Whole-file / events-only / per-channel / selected-events scopes |
 | 📈 **Tempo Transition Curves** | Edit Tempo's Smooth Transition with Linear / Ease-in / Ease-out / S-curve - one tempo event per BPM step, exact endpoint, single undo step |
+| 📉 **Thin Tempo Map** | Reduce a DAW-exported tempo ramp (often tens of thousands of events) to the few that carry the timing - choose the allowed timing shift (default 2 ms), preview kept/removed and the largest drift, apply as one undo step. Also offered as a Check FFXIV Playability repair and as a MidiPilot/MCP tool |
 | 📥 **Paste Special** | Cross-instance Ctrl+V opens a dialog: *Create new tracks per source* (default), *Preserve source mapping (1:1)*, or *Paste to current edit track* (legacy). Track creation + paste in one undo step |
 | 📋 **Copy to Track / Copy to Channel** | Duplicate the current selection 1:1 onto another track or channel; originals stay in place, the copies become the active selection |
 | 📊 **MIDI Visualizer** | Real-time 16-channel equalizer bars in the toolbar with velocity-based color and smooth decay animation |
-| 🔌 **Multi-Provider** | OpenAI, OpenRouter, Google Gemini, or any OpenAI-compatible endpoint |
+| 🔌 **Multi-Provider** | OpenAI, OpenRouter, Google Gemini, Ollama, or any OpenAI-compatible endpoint |
+| 🗃️ **Provider Profiles** | Save several AI endpoints (provider, base URL, API key, model) under a name and switch with one click from the Provider dropdown - in Settings and in the MidiPilot footer. Every custom endpoint keeps its own model list and favourites; a local server (llama.cpp, LM Studio) needs no API key |
 | 🧠 **Reasoning Support** | Configurable thinking/reasoning effort (None → Extra High) |
 | 📊 **Token Tracking** | Real-time token & context window usage display with multi-provider normalization |
 | ✏️ **Custom System Prompts** | Edit AI behavior via JSON - no recompiling needed |
@@ -463,6 +465,8 @@ MidiEditor AI checks for new versions on GitHub at every startup. When an update
 | **Ollama** (local) | `localhost:11434/v1` | No | Unlimited |
 | **LM Studio** (local) | `localhost:1234/v1` | No | Unlimited |
 | **Custom** | User-specified | User-specified | Varies |
+
+> **Provider profiles:** save several endpoints under a name - two custom endpoints (say a Hugging Face router and a local llama.cpp) coexist instead of overwriting the single Custom slot, and you switch between them from the Provider dropdown. A profile's API key is stored with the profile and never travels in per-file presets.
 
 ## 🛠️ MidiPilot Tools
 

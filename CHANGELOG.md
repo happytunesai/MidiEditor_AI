@@ -5,13 +5,7 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 
 ---
 
-## [2.3.0] - Unreleased
-
-> In progress on the feature/v2.3 branch (Phases 48-50: tempo-map cache, Thin
-> Tempo Map, provider profiles). On release day: set the real date and a title,
-> write the Summary from the shipped content per the entry template, then run
-> scripts/build_changelog.py - the website generator skips entries whose date
-> starts with "Unreleased".
+## [2.3.0] - 2026-08-26 - Thin Tempo Map, Tempo Performance, Provider Profiles
 
 ### Summary
 * **Files with a dense tempo map no longer freeze the editor** - a song carrying thousands of tempo changes took about ten seconds to start playing and dragged while scrolling; timing lookups no longer scale with the size of the tempo map (TEMPOMAP-PERF-001, Phase 48).
@@ -21,9 +15,10 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 * **Every endpoint keeps its own model list and favourites** - each custom profile gets its own tab in Manage favourites and its own remembered models, and per-file presets can name a profile without ever carrying a URL or a key.
 * **A local server needs no API key** - a profile for llama.cpp or LM Studio on your own machine counts as configured, and locality is decided on the real address rather than on how it is spelled.
 * **An API key could appear in the settings page** - a failed model refresh showed the error verbatim, and for Google Gemini that text can contain the key; error messages are now stripped of keys and tokens.
+* **Sync Lyrics is readable in dark themes again** - the current-phrase box and the Upcoming list drew a white surface under every dark theme while the text stayed light; both now follow the active theme.
 
 <details>
-<summary>Full Changelog - (title at release)</summary>
+<summary>Full Changelog - Thin Tempo Map, Tempo Performance, Provider Profiles</summary>
 
 ### New Features
 * **Thin Tempo Map (Tools > Tempo Tools)** - a tempo ramp drawn in a DAW is exported as one tempo event every few ticks, tens of thousands over a song, and every one of them has to be read whenever the editor works out where a note sits in time; a player such as MidiBard pays for them too. The new tool keeps the events that carry the timing and drops the rest. You choose how far the music may move - the default 2 ms is far below anything you can hear - and the preview shows how many tempo events would survive, how many would go and the largest timing shift anywhere in the piece before anything changes. The corridor is honoured at every original tempo event and at the end of the file, so the error cannot creep up over the length of the song; notes, lyrics and markers are never touched, the surviving tempo events keep their own values, and the tempo event on tick 0 always stays. A dense ramp of 12,000 events comes out as 61 with under 2 ms of shift anywhere. The whole thinning is a single undo step, and running it again on an already thinned map removes nothing. Also reachable by right-clicking the measure ruler above the piano roll - the timeline is where the tempo lives. The allowed timing shift is counted from the file as it was opened, so running the tool again never moves the music twice, and it can be taken down to 0 ms - repeated identical tempo events still go, because dropping them changes nothing.
@@ -34,10 +29,10 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 * **Per-endpoint model favourites** - every custom provider profile gets its own tab in **Manage favourites**, its own remembered model list and its own favourites, so two custom endpoints no longer share one list. A **Refresh from endpoint** button fetches a profile's models without switching the active connection. Profiles of a built-in provider keep sharing that provider's tab.
 * Saved custom provider profiles now appear in the **Provider** dropdown itself - in Settings -> MidiPilot AI and in the MidiPilot footer - listed below a separator after the built-in providers. Picking one switches the whole connection exactly as the profile picker does, and the two controls stay in step. A profile entry stays a Custom endpoint internally: only the connection it stands for is applied. The footer has a single connection picker: the separate profile combo next to it showed the same name a second time and is gone. There the plain **Custom** entry is listed only when an ad-hoc custom endpoint exists or is in use - saved profiles have their own entries, and Settings still always offers Custom, since that is where a custom endpoint is entered.
 * **Save as...** in Settings now marks the newly saved profile as the active one, so its own model list and favourites take effect immediately instead of after the next switch; saving or deleting a profile refreshes the model dropdown and the "Models updated" line for the scope that is in force. A keyless profile for a local server (llama.cpp, LM Studio) counts as configured - locality is its authentication.
-* Settings polish from the owner smoke: the Provider dropdown on the settings page lists **every** saved profile (a profile saved for OpenAI was missing there), choosing **Custom** loads the remembered ad-hoc endpoint instead of keeping the previous entry's URL - so the selection no longer jumps straight back to the saved profile - and **Save as...** pre-fills the name of the profile on screen, asks before updating an existing one and offers to delete the old name after a rename. An empty Custom URL is never committed over a working endpoint, and never forgets the remembered ad-hoc endpoint either.
+* **Profiles have an honest edit flow.** Choosing **Custom** loads the remembered ad-hoc endpoint, and **Save as...** pre-fills the name of the profile on screen, asks before updating an existing one and offers to delete the old name after a rename - saving under a new name is a copy, the rename offer makes it a move. An empty Custom URL is never committed over a working endpoint and never forgets the remembered ad-hoc endpoint.
 * **The connection pickers show what you picked.** Choosing a built-in provider stays on that provider - even when a saved profile describes exactly the same endpoint - in Settings, in the footer, and still after closing and reopening the dialog. Choosing a profile keeps its entry while you switch models and steps back to the plain provider as soon as the endpoint itself is edited. The two pickers can never disagree about the connection in use.
-* **A profile's API key never replaces your own.** The key remembered for a plain provider stays yours: leaving a profile for the provider's own entry, or applying a profile from the footer, no longer writes the profile's key over it - a profile's key only fills the provider's key memory while that memory is empty.
-* **A blank Custom is truly blank.** Picking Custom without a saved profile and without a remembered endpoint shows no inherited API key and no cached model list - a key and a model list belong to an endpoint, so the last hand-typed endpoint's leftovers no longer sit in the fields waiting to attach themselves to whatever URL is typed next. The "(enter model name)" placeholder is an instruction, not a model, and is no longer committed or saved into profiles.
+* **A profile's API key never replaces your own.** The key remembered for a plain provider stays yours: leaving a profile for the provider's own entry, or applying a profile from the footer, leaves it untouched - a profile's key only fills the provider's key memory while that memory is empty.
+* **A blank Custom is truly blank.** Picking Custom without a saved profile and without a remembered endpoint shows no inherited API key and no cached model list - a key and a model list belong to an endpoint, so nothing of the last hand-typed endpoint sits in the fields waiting to attach itself to whatever URL is typed next. The "(enter model name)" placeholder is an instruction, not a model, and is never committed or saved into profiles.
 * **Saving an unsaved custom endpoint as a profile takes its state along.** The remembered ad-hoc endpoint and the models and favourites already fetched for it move into the new profile - its favourites tab starts with what was fetched instead of empty, and the plain Custom entry no longer keeps a ghost of an endpoint that now lives in a profile.
 
 ### Changed
@@ -50,6 +45,7 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 * **An API key could appear in the settings page** - when refreshing the model list failed, the error line was shown verbatim, and for Google Gemini that text can contain the request URL with the key in it. Error messages are now stripped of keys and tokens before they are displayed.
 * **Returning from Manage favourites reset the selected model** - closing the favourites dialog re-filled the model box and jumped to its first entry whenever a provider shows display names rather than model ids. The model you had chosen stays chosen.
 * **Files with a dense tempo map froze the editor** - songs carrying thousands of tempo changes (typical of a tempo ramp exported from a DAW) took about ten seconds to start playing and dragged badly while scrolling or zooming. Playback now starts immediately and the view stays smooth no matter how many tempo changes a file contains.
+* **Sync Lyrics was unreadable in dark themes** - the tap-to-sync window's current-phrase box and its Upcoming list kept a white background under every dark theme (including the MidiEditor AI brand theme) while the text used the theme's light color - white on white. Both surfaces now take their colors from the active theme, in all seven themes. The same background-without-text-color pattern was fixed in the Keybinds duplicate-shortcut highlight and in the channel-fixer report's table header.
 
 ### Files Modified
 * `src/ai/ProviderProfileStore.h/.cpp` (new) - named endpoint configurations (list/load/save/remove/apply), endpoint-scope resolution, name encoding with a registry-safe id cap, scope cleanup on delete, key-memory rules on enter/leave, intent-selection helpers (validated hint, hint-from-selection), ad-hoc-state migration into a saved profile, endpoint-less blank-Custom rules
@@ -77,6 +73,8 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 * `src/MidiEvent/TempoChangeEvent.cpp` - changing a tempo value, and undoing that change, mark the tempo map as changed
 * `tests/test_midi_measure.cpp` - correctness of the cached tick/millisecond conversions against a linear reference, one case per mutation family, and a timing pin on a file with 12,000 tempo changes
 * `tests/test_event_perf.cpp` - pins that bulk tempo-channel edits stay cheap
+* `src/gui/LyricSyncDialog.cpp` - theme-following colors for the current-phrase box and the Upcoming list (the global themes never touch QPalette, so palette() in a local stylesheet resolved the system palette)
+* `src/gui/KeybindsSettingsWidget.cpp`, `src/gui/MainWindow.cpp` - background colors paired with an explicit text color in the duplicate-shortcut highlight and the channel-fixer report table
 
 </details>
 
