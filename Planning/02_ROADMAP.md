@@ -13403,7 +13403,7 @@ per-provider key memory (switching provider then back must not clobber a profile
 preset-name fallback when the profile is missing. Manual: providers section of
 midipilot-settings.html (+ help_db regen), CHANGELOG per the template.
 
-## Post-2.3 candidates (owner idea 2026-08-26, docs QoL - "kleine Aufraeum-Aktion")
+## Post-2.3 candidates (docs QoL, scoped 2026-08-26)
 * **Changelog -> manual anchor links:** feature bullets on the website changelog should
   link straight to the manual passage that explains the feature (a reader who finds an
   interesting tool in the changelog should not have to search the manual for it).
