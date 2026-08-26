@@ -5241,7 +5241,7 @@ void MainWindow::fixFFXIVChannels() {
         // Channel mapping table
         html += QStringLiteral(
             "<table cellpadding='3' cellspacing='0' style='border-collapse:collapse; font-size:11px; margin-bottom:8px;'>"
-            "<tr style='background:#e0e0e0;'>"
+            "<tr style='background:#e0e0e0; color:#111111;'>"
             "<th align='left' style='padding:3px 8px;'>Track</th>"
             "<th align='left' style='padding:3px 8px;'>Instrument</th>"
             "<th align='center' style='padding:3px 8px;'>Channel</th>"

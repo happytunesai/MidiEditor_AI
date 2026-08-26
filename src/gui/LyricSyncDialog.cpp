@@ -43,6 +43,26 @@
 #include <QPushButton>
 #include <QVBoxLayout>
 
+namespace {
+
+// The themes style widgets through a global stylesheet WITHOUT touching
+// QPalette, so palette(base)/palette(mid) in a local stylesheet resolve the
+// SYSTEM palette - a white box under every dark theme, with the theme's light
+// text on top. Boxed surfaces this dialog draws itself therefore take their
+// colors from Appearance, which follows the active theme.
+QString phraseBoxStyle()
+{
+    return QStringLiteral(
+               "QLabel { font-size: 18px; font-weight: bold; padding: 12px; "
+               "border: 2px solid %1; border-radius: 6px; "
+               "background: %2; color: %3; }")
+        .arg(Appearance::grayColor().name(),
+             Appearance::backgroundShade().name(),
+             Appearance::foregroundColor().name());
+}
+
+} // namespace
+
 // === SyncTimelineWidget implementation ===
 
 SyncTimelineWidget::SyncTimelineWidget(QWidget *parent)
@@ -198,10 +218,7 @@ LyricSyncDialog::LyricSyncDialog(MidiFile *file, QWidget *parent)
     _currentPhraseLabel->setAlignment(Qt::AlignCenter);
     _currentPhraseLabel->setWordWrap(true);
     _currentPhraseLabel->setMinimumHeight(60);
-    _currentPhraseLabel->setStyleSheet(
-        "QLabel { font-size: 18px; font-weight: bold; padding: 12px; "
-        "border: 2px solid palette(mid); border-radius: 6px; "
-        "background: palette(base); }");
+    _currentPhraseLabel->setStyleSheet(phraseBoxStyle());
     mainLayout->addWidget(_currentPhraseLabel);
 
     // Next phrases (teleprompter view)
@@ -214,9 +231,11 @@ LyricSyncDialog::LyricSyncDialog(MidiFile *file, QWidget *parent)
     _teleprompterList->setSelectionMode(QAbstractItemView::NoSelection);
     _teleprompterList->setMinimumHeight(120);
     _teleprompterList->setMaximumHeight(180);
+    // No background/border here: the active theme's QListWidget rule paints
+    // the surface AND the matching text color - overriding only the surface
+    // splits the pair (see phraseBoxStyle()).
     _teleprompterList->setStyleSheet(
-        "QListWidget { font-size: 13px; border: 1px solid palette(mid); "
-        "border-radius: 4px; background: palette(base); }"
+        "QListWidget { font-size: 13px; }"
         "QListWidget::item { padding: 3px 6px; }");
     mainLayout->addWidget(_teleprompterList);
 
@@ -350,10 +369,7 @@ void LyricSyncDialog::keyReleaseEvent(QKeyEvent *event) {
         _recordedTimings.append(qMakePair(_phraseStartMs, phraseEndMs));
 
         // Reset visual
-        _currentPhraseLabel->setStyleSheet(
-            "QLabel { font-size: 18px; font-weight: bold; padding: 12px; "
-            "border: 2px solid palette(mid); border-radius: 6px; "
-            "background: palette(base); }");
+        _currentPhraseLabel->setStyleSheet(phraseBoxStyle());
 
         advanceToNextPhrase();
         return;
@@ -386,10 +402,7 @@ void LyricSyncDialog::onPlaybackStopped() {
         if (phraseEndMs - _phraseStartMs < 100)
             phraseEndMs = _phraseStartMs + 100;
         _recordedTimings.append(qMakePair(_phraseStartMs, phraseEndMs));
-        _currentPhraseLabel->setStyleSheet(
-            "QLabel { font-size: 18px; font-weight: bold; padding: 12px; "
-            "border: 2px solid palette(mid); border-radius: 6px; "
-            "background: palette(base); }");
+        _currentPhraseLabel->setStyleSheet(phraseBoxStyle());
         advanceToNextPhrase();
     }
 }
