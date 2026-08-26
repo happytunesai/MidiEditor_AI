@@ -179,7 +179,7 @@
     "description": "AI-powered MIDI editor with intelligent copilot, Guitar Pro import, FFXIV bard mode, and FluidSynth playback.",
     "url": "https://midieditor-ai.de",
     "downloadUrl": "https://github.com/happytunesai/MidiEditor_AI/releases/latest",
-    "softwareVersion": "2.2.0",
+    "softwareVersion": "2.3.0",
     "license": "https://github.com/happytunesai/MidiEditor_AI/blob/main/LICENSE",
     "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
 }
@@ -243,7 +243,7 @@
              onerror="this.parentElement.style.display='none';">
     </div>
 
-    <span class="hero-badge">v2.2.0 &middot; Open Source &middot; Windows</span>
+    <span class="hero-badge">v2.3.0 &middot; Open Source &middot; Windows</span>
 
     <h1 class="hero-title">
         The <span class="text-gradient">AI-Powered</span> MIDI Editor
@@ -255,7 +255,7 @@
 
     <div class="hero-actions">
         <a href="download.html" class="btn btn-primary">
-            &#x2B07; Download v2.2.0
+            &#x2B07; Download v2.3.0
         </a>
         <a href="docs-index.html" class="btn btn-secondary" target="_blank" rel="noopener noreferrer">
             &#x1F4D6; Documentation
@@ -651,14 +651,13 @@
     </div>
     <div class="whats-new reveal">
         <span class="latest-badge">Latest</span>
-        <h3>v2.2.0 - August 2026</h3>
-        <p class="whats-new-subtitle">FFXIV Playability, Portable Mode, and a MidiPilot that knows the manual</p>
+        <h3>v2.3.0 - August 2026</h3>
+        <p class="whats-new-subtitle">A tempo map that behaves, and AI endpoints you can save by name</p>
         <ul>
-            <li><strong>Check FFXIV Playability</strong> - a workbench that examines the file the way the game plays it: chords and stacked duplicates on monophonic performers, notes outside C3-C6, track names no instrument matches, voice peak, channel spread, empty tracks. Click a finding to select its notes, double-click to focus the track, delete exactly the marked notes in one undo step, or hand the report to MidiPilot for a prioritised assessment.</li>
-            <li><strong>Portable Mode</strong> - drop a <code>portable.txt</code> next to the exe (or start with <code>--portable</code>) and every setting lives in a <code>config/</code> folder beside it - nothing touches the registry. Every data file now has a platform-aware home, which also unblocks the macOS build.</li>
-            <li><strong>MidiPilot answers editor questions from the manual</strong> - "How do I split drums?" no longer gets a guess: two new tools search the built-in manual and quote the page. Right-click selected notes and <strong>Ask MidiPilot about the selection</strong> sends them straight to the AI.</li>
-            <li><strong>The AI arranges for FFXIV, not just legally</strong> - new tools <code>transpose_events</code>, <code>split_chords_to_tracks</code>, <code>copy_events_to_track</code>, <code>convert_tempo_preserve_duration</code> and <code>set_ffxiv_mode</code>, an arrangement guide in the FFXIV context, and the two voice-load tools finally agree.</li>
-            <li><strong>Small things that add up</strong> - Auto-Fit Voice Load can select instead of remove, prompt profiles can hide pitch bends from a single model, an undo-memory readout in the status bar, and the tempo, bar-numbering and export-range fixes.</li>
+            <li><strong>Dense tempo maps no longer freeze the editor</strong> - a song carrying thousands of tempo changes (a tempo ramp exported from a DAW) took about ten seconds to start playing and dragged while scrolling. Timing lookups no longer scale with the size of the tempo map: playback starts instantly and the view stays smooth.</li>
+            <li><strong>Thin Tempo Map</strong> - reduce that exported ramp to the events that actually carry the timing. You choose how far the music may move (the default 2 ms is far below anything you can hear), the preview shows kept, removed and the largest shift before anything changes, and the whole thinning is one undo step. Under <em>Tools &rarr; Tempo Tools</em>, on the measure ruler's right-click menu, as a <strong>Check FFXIV Playability</strong> repair - its new Tempo map check names the count and shape - and as the <code>thin_tempo_map</code> tool for MidiPilot and MCP.</li>
+            <li><strong>Provider profiles</strong> - save several AI endpoints (provider, base URL, API key, model) under a name and switch with one click from the Provider dropdown, in Settings and in the MidiPilot footer. A Hugging Face router and a local llama.cpp finally coexist; every custom endpoint keeps its own model list and favourites; a server on your own machine needs no API key; per-file presets can name a profile without ever carrying a URL or a key.</li>
+            <li><strong>Small things that add up</strong> - error messages are stripped of API keys and tokens before they are shown, closing Manage favourites keeps the model you had chosen, and Sync Lyrics is readable in dark themes again.</li>
         </ul>
         <a href="changelog.html" class="changelog-link">View Full Changelog &rarr;</a>
     </div>
@@ -717,7 +716,7 @@
     </div>
     <div class="hero-actions reveal" style="margin-bottom: 1.5rem;">
         <a href="download.html" class="btn btn-primary" style="font-size: 1.15rem; padding: 1rem 2.5rem;">
-            &#x2B07; Download MidiEditor AI v2.2.0
+            &#x2B07; Download MidiEditor AI v2.3.0
         </a>
     </div>
     <p class="reveal" style="color: var(--text-muted); font-size: .9rem;">

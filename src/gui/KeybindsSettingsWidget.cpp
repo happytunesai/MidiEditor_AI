@@ -280,7 +280,9 @@ void KeybindsSettingsWidget::checkDuplicates() {
             QString seqStr = seq.toString(QKeySequence::PortableText);
             
             if (!seq.isEmpty() && counts.value(seqStr) > 1) {
-                e->setStyleSheet("background-color: #ffcccc;");
+                // Background and text color always as a PAIR: the dark themes
+                // give the field light text, unreadable on this light red.
+                e->setStyleSheet("background-color: #ffcccc; color: black;");
                 e->setToolTip(tr("Duplicate shortcut"));
             } else {
                 e->setStyleSheet("");

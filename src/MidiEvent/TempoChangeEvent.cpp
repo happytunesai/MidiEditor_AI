@@ -17,6 +17,7 @@
  */
 
 #include "TempoChangeEvent.h"
+#include "../midi/MidiChannel.h"
 #include "../midi/MidiFile.h"
 
 TempoChangeEvent::TempoChangeEvent(int channel, int value, MidiTrack *track)
@@ -55,6 +56,10 @@ void TempoChangeEvent::reloadState(ProtocolEntry *entry) {
     }
     MidiEvent::reloadState(entry);
     _beats = other->_beats;
+    // Phase 48: undo/redo of a BPM edit restores _beats without changing the
+    // size of the tempo map, so nothing else would tell MidiFile's tempo cache
+    // that its ms-per-tick values are stale.
+    MidiChannel::bumpTempoRevision();
 }
 
 int TempoChangeEvent::line() {
@@ -79,6 +84,10 @@ QByteArray TempoChangeEvent::save() {
 void TempoChangeEvent::setBeats(int beats) {
     ProtocolEntry *toCopy = copy();
     _beats = beats;
+    // Phase 48: a BPM change rewrites the timing of the whole map behind this
+    // event while leaving the map itself the same size - bump BEFORE the
+    // length recompute, which reads the tempo cache back.
+    MidiChannel::bumpTempoRevision();
     file()->calcMaxTime();
     protocol(toCopy, this);
 }

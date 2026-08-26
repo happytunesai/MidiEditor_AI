@@ -8,7 +8,7 @@
 <link rel="icon" type="image/x-icon" href="favicon.ico" sizes="any">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
 <meta name="theme-color" content="#0B1020">
-<meta name="description" content="Configuring MidiPilot: provider and model setup, supported providers including local Ollama, prompt profiles, custom system prompts, per-file presets, auto-save, token tracking, and the API log.">
+<meta name="description" content="Configuring MidiPilot: provider and model setup, supported providers including local Ollama, provider profiles, prompt profiles, custom system prompts, per-file presets, auto-save, token tracking, and the API log.">
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="site.css">
   <link rel="stylesheet" href="audio.css">
@@ -119,13 +119,14 @@ Configure your AI connection from <b>Settings &rarr; MidiPilot AI</b>. Select a 
 
 <table>
 <tr><th>Setting</th><th>Description</th></tr>
-<tr><td><b>Provider</b></td><td>OpenAI, OpenRouter, Google Gemini, Ollama (local), or Custom</td></tr>
-<tr><td><b>Base URL</b></td><td>Auto-filled per provider, or enter your own endpoint</td></tr>
-<tr><td><b>API Key</b></td><td>Your provider API key - get one from <a href="https://platform.openai.com/settings/organization/api-keys" target="_blank" rel="noopener noreferrer">OpenAI</a>, <a href="https://openrouter.ai/settings/keys" target="_blank" rel="noopener noreferrer">OpenRouter</a>, or <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Google Gemini</a>. Not needed for <a href="#ollama">Ollama (local)</a>.</td></tr>
+<tr><td><b>Provider profile</b></td><td>Fills provider, base URL, API key and model from a <a href="#provider-profiles">saved endpoint</a>. <b>Save as&hellip;</b> stores the current four fields under a name - it is also how a profile is edited, since it offers the name of the profile on screen. <b>Delete</b> removes the selected profile and is available only while one is selected.</td></tr>
+<tr><td><b>Provider</b></td><td>OpenAI, OpenRouter, Google Gemini, Ollama (local), or Custom - and below a separator, every saved <a href="#provider-profiles">provider profile</a> as its own entry, whichever provider it was saved with. <b>Custom</b> is the unsaved, ad-hoc endpoint: picking it loads the custom base URL you last worked with (empty if there is none) rather than keeping the previous entry's URL and key.</td></tr>
+<tr><td><b>Base URL</b></td><td>Filled in for you by the provider entry. <b>Ollama (local)</b> and <b>Custom</b> keep it editable so you can point at another host, port or OpenAI-compatible server.</td></tr>
+<tr><td><b>API Key</b></td><td>Your provider API key - get one from <a href="https://platform.openai.com/settings/organization/api-keys" target="_blank" rel="noopener noreferrer">OpenAI</a>, <a href="https://openrouter.ai/settings/keys" target="_blank" rel="noopener noreferrer">OpenRouter</a>, or <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Google Gemini</a>. Not needed for <a href="#ollama">Ollama (local)</a>, and not needed for a <b>Custom</b> base URL that points at this machine: the field then says so instead of showing the <code>sk-&hellip;</code> hint, and the connection counts as configured with the key left empty.</td></tr>
 <tr><td><b>Model</b></td><td>Editable dropdown populated from the active provider's cached model list. If no cache exists, MidiPilot falls back to a small built-in starter list.</td></tr>
 <tr><td><b>Refresh Models</b></td><td>Fetches the live provider model list from <code>/models</code>, normalizes provider-specific fields, filters obvious non-chat models, and stores the result in <code>&lt;userdata&gt;/midipilot_models.json</code>.</td></tr>
-<tr><td><b>Manage favourites&hellip;</b></td><td>Pick the models that should stay visible per provider. If no favourites are selected, all cached chat-capable models are shown.</td></tr>
-<tr><td><b>Force Streaming for This Model</b></td><td>Appears when the selected provider/model failed streaming during the current app session. Clears the temporary warning so the next request tries live streaming again.</td></tr>
+<tr><td><b>Manage favourites&hellip;</b></td><td>Pick the models that should stay visible per provider, and per <a href="#provider-profiles">custom provider profile</a>. If no favourites are selected, all cached chat-capable models are shown.</td></tr>
+<tr><td><b>Streaming OK</b> / <b>Force Streaming</b></td><td>The button below the model row. It reads <b>Streaming OK</b> and stays greyed out while nothing is blocked; once the selected provider/model has failed live streaming during this app session it becomes clickable and names the blocked path - <b>Force Streaming (Simple Mode blocked)</b>, <b>(Agent Mode blocked)</b> or <b>(Simple + Agent blocked)</b>. Clicking it clears the mark so the next request tries live streaming again.</td></tr>
 <tr><td><b>Token Limit</b></td><td>Optional cap on output tokens to control costs</td></tr>
 <tr><td><b>Thinking</b></td><td>Enable reasoning for o-series and GPT-5.x models</td></tr>
 <tr><td><b>Reasoning Effort</b></td><td>None / Low / Medium / High / Extra High</td></tr>
@@ -159,11 +160,11 @@ When the footer refresh completes, MidiPilot reports the result in the chat/stat
 </div>
 
 <p>
-If a model fails live streaming but still works without streaming, MidiPilot retries automatically and marks that model with a warning icon for the current app session. The mark is <b>scoped per mode</b> - Simple Mode (no tools) and Agent Mode (with tools) are tracked independently, because some models support live streaming in only one of the two paths. The dropdown shows which mode is blocked: <code>&#x26A0; &lt;model&gt; (Simple)</code>, <code>(Agent)</code>, or <code>(Simple+Agent)</code>. Use <b>Force Streaming for This Model</b> to clear the temporary mark after switching providers, updating the model, or testing a fixed endpoint.
+If a model fails live streaming but still works without streaming, MidiPilot retries automatically and marks that model with a warning icon for the current app session. The mark is <b>scoped per mode</b> - Simple Mode (no tools) and Agent Mode (with tools) are tracked independently, because some models support live streaming in only one of the two paths. The dropdown shows which mode is blocked: <code>&#x26A0; &lt;model&gt; (Simple)</code>, <code>(Agent)</code>, or <code>(Simple+Agent)</code>. Use the <b>Force Streaming</b> button to clear the temporary mark after switching providers, updating the model, or testing a fixed endpoint.
 </p>
 
 <p>
-<b>Capability-aware error handling</b> - if the active provider returns HTTP&nbsp;404 with <i>&ldquo;No endpoints found that support tool use&rdquo;</i> (or any equivalent &ldquo;tools not supported&rdquo; error), MidiPilot stops retrying immediately, posts a clear <i>&ldquo;Model does not support tool calling - pick a different model in Settings &rarr; AI, or switch to Simple mode for this request&rdquo;</i> bubble, and remembers the flag per <code>provider:model</code> for the rest of the session. Picking a different model re-enables Agent Mode automatically.
+<b>Capability-aware error handling</b> - if the active provider returns HTTP&nbsp;404 with <i>&ldquo;No endpoints found that support tool use&rdquo;</i> (or any equivalent &ldquo;tools not supported&rdquo; error), MidiPilot stops retrying immediately, posts a clear <i>&ldquo;Model does not support tool calling - pick a different model in Settings &rarr; AI, or switch to Simple mode for this request&rdquo;</i> bubble, and remembers the flag per <code>provider:model</code>. Picking a different model re-enables Agent Mode straight away. The flag is remembered between sessions and clears itself again in three ways: it expires a week after it was set, an Agent request that does come back with tool calls clears it at once, and <b>Retry tool support for this model</b> in the &#x2699; gear menu of the MidiPilot footer clears it on the spot for the model currently selected.
 </p>
 
 <hr>
@@ -174,11 +175,121 @@ If a model fails live streaming but still works without streaming, MidiPilot ret
 <tr><th>Provider</th><th>Base URL</th><th>API Key</th><th>Free Tier</th></tr>
 <tr><td><b>OpenAI</b></td><td>api.openai.com/v1</td><td><a href="https://platform.openai.com/settings/organization/api-keys" target="_blank" rel="noopener noreferrer">Get API Key &rarr;</a></td><td>Limited</td></tr>
 <tr><td><b>OpenRouter</b></td><td>openrouter.ai/api/v1</td><td><a href="https://openrouter.ai/settings/keys" target="_blank" rel="noopener noreferrer">Get API Key &rarr;</a></td><td>Free models available</td></tr>
-<tr><td><b>Google Gemini</b></td><td>generativelanguage.googleapis.com</td><td><a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Get API Key &rarr;</a></td><td>15 RPM, 1M TPM</td></tr>
+<tr><td><b>Google Gemini</b></td><td>generativelanguage.googleapis.com/v1beta/openai</td><td><a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Get API Key &rarr;</a></td><td>15 RPM, 1M TPM</td></tr>
 <tr><td><b>Ollama (local)</b></td><td>localhost:11434/v1</td><td>None - runs on your PC</td><td>Free &amp; unlimited</td></tr>
 <tr><td><b>Hugging Face</b> (via Custom)</td><td>router.huggingface.co/v1</td><td><a href="https://huggingface.co/settings/tokens" target="_blank" rel="noopener noreferrer">HF token</a> (Inference permission)</td><td>Free monthly credits</td></tr>
-<tr><td><b>Custom</b></td><td>User-specified</td><td>User-specified</td><td>Varies</td></tr>
+<tr><td><b>Custom</b></td><td>User-specified</td><td>User-specified - none when the URL points at this machine</td><td>Varies</td></tr>
 </table>
+
+<p>
+The base URLs above are what the provider entries fill in for you. <b>Ollama (local)</b> and
+<b>Custom</b> leave the field open for editing, so a local server on another host or port and any
+OpenAI-compatible endpoint can be typed in. Each provider remembers its own API key, so switching
+back and forth between two cloud providers does not make you paste a key again.
+</p>
+
+<h3 id="provider-profiles">Provider profiles (saved endpoints)</h3>
+
+<p>
+A provider profile is a named connection: <b>provider</b>, <b>base URL</b>, <b>API key</b> and
+<b>model</b> stored together under a name you choose. Picking a profile sets all four at once, so
+several endpoints can live side by side - a Hugging Face router token and a local OpenAI-compatible
+server, for example, both of which use the <b>Custom</b> provider and would otherwise share a single
+set of fields.
+</p>
+
+<div class="screenshot-single">
+<a href="screenshots/midipilot_provider-profile-row.png" class="lightbox-link"><img src="screenshots/midipilot_provider-profile-row.png" class="lightbox-thumb" alt="Settings - MidiPilot AI with the Provider profile row above the provider, base URL, key and model fields, with Save as... and Delete beside it" loading="lazy"></a>
+<p class="caption">The Provider profile row sits above the connection fields; Save as... captures what the fields show. The row honestly reads (No profile) here because the chosen model differs from the saved one, while the provider entry still names the endpoint.</p>
+</div>
+
+<table>
+<tr><th>Where</th><th>What it does</th></tr>
+<tr><td><b>Settings &rarr; MidiPilot AI</b></td><td>The <b>Provider profile</b> row directly above the connection fields. It starts at <b>(No profile)</b> and lists every saved profile, whichever provider it was saved with. Selecting one fills the fields below; they are stored when you confirm the settings dialog. <b>Save as&hellip;</b> writes the current provider, base URL, API key and model to a profile. It pre-fills the name of the profile currently on screen, so keeping that name updates it - you are asked to confirm the update first - and typing a new name saves a copy; if the profile you started from still describes the same endpoint, you are then offered to delete it, which turns the copy into a rename. <b>Delete</b> removes the selected one and leaves the fields as they are.</td></tr>
+<tr><td><b>MidiPilot footer</b></td><td>The <b>Provider</b> dropdown is the footer's single connection picker: built-in providers first, then a separator, then every saved profile, whichever provider it was saved with. Picking one switches the whole connection in one step and reports the applied profile in the status line - and if that endpoint still needs a key, it says that instead. <b>Save connection as provider profile&hellip;</b> in the &#x2699; gear menu stores the connection MidiPilot is using right now under a name, without opening the settings dialog, and selects the new entry in the dropdown.</td></tr>
+<tr><td><b>Per-file preset</b></td><td>A <a href="#presets">per-file AI preset</a> also records the <i>name</i> of the active profile - never a URL or a key. Opening that file on a machine that has a profile of the same name reconnects to the right endpoint and MidiPilot says which profile it applied; where that name is unknown it says so too and uses the preset's own provider and model instead.</td></tr>
+</table>
+
+<p>
+Saved profiles appear in the <b>Provider</b> dropdown itself, listed below a separator after the
+built-in providers, so switching to a saved endpoint is the same gesture as switching provider. Both
+the footer and the settings page list every saved profile there, whichever provider it was saved
+with, and picking one has exactly the same effect as picking it in the <b>Provider profile</b> row.
+</p>
+
+<p>
+In the footer the plain <b>Custom</b> entry - the unsaved, ad-hoc endpoint - is listed when there is
+one to pick: when a custom base URL is configured, and whenever the connection in use is a custom
+endpoint you have not selected a profile for - including one a saved profile happens to describe,
+because picking a profile is what puts that profile on screen. Whatever MidiPilot is talking to is
+always on the list. The settings page always offers
+<b>Custom</b>, because that is where a custom endpoint is entered in the first place. Picking it
+there loads the ad-hoc endpoint itself: the last custom base URL you worked with outside any
+profile, together with the API key remembered for custom endpoints - a server on your own machine
+authenticates by being yours, so its key field stays empty - and that endpoint's model list.
+It does not keep the URL and key of the entry you came from. When there is no such endpoint the
+entry starts completely blank - no URL, no key and no models - because a key and a model list
+belong to a particular server. Type the base URL of the endpoint you want, then its key and model.
+</p>
+
+<div class="screenshot-single">
+<a href="screenshots/midipilot_provider-dropdown-footer.png" class="lightbox-link"><img src="screenshots/midipilot_provider-dropdown-footer.png" class="lightbox-thumb" style="max-width:380px; width:auto;" alt="The MidiPilot footer with the provider dropdown open: the four built-in providers, a separator, and two saved profiles below it" loading="lazy"></a>
+<p class="caption">One picker for everything: built-in providers on top, saved profiles below the separator. The plain Custom entry appears while a custom endpoint is configured, and while the connection in use is a custom one you have not picked a profile for.</p>
+</div>
+
+<p>
+The name of the profile you picked is shown only while the connection still matches it. Change the
+provider, the URL, the key or the model afterwards and the <b>Provider profile</b> row returns to <b>(No profile)</b> -
+the settings then behave exactly as they always did, unsaved and ad-hoc, and the profile keeps the
+values it was saved with. Use <b>Save as&hellip;</b> and keep the offered name to update it.
+</p>
+
+<p>
+The <b>Provider</b> dropdowns follow the endpoint rather than the exact saved configuration, because
+picking another model keeps you on the same server: the profile entry stays selected in the footer
+and on the settings page, and only a different provider, URL or key drops the selection back to the
+plain provider entry.
+</p>
+
+<p>
+Both dropdowns show what you picked. Choosing a built-in provider is a choice in its own right: the
+entry stays on that provider even when a saved profile describes the very same endpoint, on the
+settings page and in the footer, and it is still that provider when you open the settings again.
+Choosing a profile is what puts its name on screen - in the dropdown, and in the <b>Provider
+profile</b> row as long as the model matches too.
+</p>
+
+<p>
+Each <b>Custom</b> profile keeps its own model list and its own favourites: <b>Manage
+favourites&hellip;</b> shows one tab per custom profile next to the provider tabs, and its
+<b>Refresh from endpoint</b> button fetches that profile's model list without changing the
+connection MidiPilot is currently using. Profiles of a built-in provider share that provider's tab,
+because they talk to the same catalogue. Deleting a profile takes its own model list and favourites
+with it; the shared provider lists are left alone.
+</p>
+
+<p>
+Saving a custom endpoint you had been using ad-hoc hands it over completely: the models and
+favourites it had collected while it was unsaved move into the new profile's own tab, and its
+remembered URL and key move into the profile as well. The endpoint is reachable through its profile
+entry from then on, and the plain <b>Custom</b> entry is free for the next one you want to try.
+</p>
+
+<div class="screenshot-single">
+<a href="screenshots/midipilot_favourites-profile-tab.png" class="lightbox-link"><img src="screenshots/midipilot_favourites-profile-tab.png" class="lightbox-thumb" style="max-width:580px; width:auto;" alt="The Model Favorites dialog with a saved profile's own tab active, some models ticked and the Refresh from endpoint button below the list" loading="lazy"></a>
+<p class="caption">Every saved custom profile gets its own favourites tab with its own remembered model list; Refresh from endpoint fetches over the profile's URL without touching the active connection.</p>
+</div>
+
+<p>
+API keys stay in the same place as the rest of MidiPilot's settings and are never written into the
+preset file next to a MIDI file.
+</p>
+
+<p>
+<b>Not the same as <a href="#prompt-profiles">Prompt Profiles</a>:</b> a <i>provider</i> profile
+decides <i>where</i> a request goes; a <i>prompt</i> profile decides <i>what instructions</i> a
+model gets. They can be used together and never overwrite each other.
+</p>
 
 <h3 id="ollama">Local AI with Ollama (free, private, no API key)</h3>
 
@@ -230,6 +341,11 @@ partners.
     the token as the API key.</li>
 <li><b>Refresh the model list</b> and pick a model. Streaming works like with any other
     OpenAI-compatible endpoint, and models that support tool calling can be used in Agent mode.</li>
+<li><b>Save it as a <a href="#provider-profiles">provider profile</a></b> if you also use another
+    custom endpoint - <b>Save as&hellip;</b> in the <b>Provider profile</b> row keeps the router URL
+    and token next to the local one instead of replacing it. The profile then has its own entry in
+    the <b>Provider</b> dropdown, its own model list and its own favourites, so switching between
+    the router and a local server is one click in the MidiPilot footer.</li>
 </ol>
 
 <hr>
@@ -238,6 +354,12 @@ partners.
 
 <p>
 Open <b>Settings &rarr; MidiPilot AI &rarr; Prompt Profiles&hellip;</b>, or <b>Prompt Profiles&hellip;</b> from the &#x2699; gear menu in the MidiPilot footer, to manage profiles. A profile binds a custom system prompt to one or more model patterns and decides whether the profile <i>replaces</i> or <i>appends to</i> the default mode prompt.
+</p>
+
+<p>
+These are the <i>prompt</i> profiles - the instructions a model receives. The named connections
+(provider, base URL, key and model) are <a href="#provider-profiles">provider profiles</a> and are
+managed separately.
 </p>
 
 <table>
@@ -327,6 +449,7 @@ Different MIDI files may need different AI settings. A 16-track orchestral arran
 <ul>
 <li><b>Provider</b> - OpenAI, OpenRouter, Gemini, Ollama (local), or Custom</li>
 <li><b>Model</b> - e.g., gpt-5.4, gemini-2.5-flash</li>
+<li><b>Provider profile name</b> - the name of the active <a href="#provider-profiles">provider profile</a>, if one is in use. Only the name is stored, never a URL or an API key; a machine that has a profile of that name reconnects to the same endpoint, and every other machine uses the provider and model above.</li>
 <li><b>Mode</b> - Simple or Agent</li>
 <li><b>FFXIV mode</b> - On or off</li>
 <li><b>Reasoning effort</b> - None / Low / Medium / High / Extra High</li>

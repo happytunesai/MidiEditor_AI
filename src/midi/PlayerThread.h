@@ -54,6 +54,16 @@ class MidiEvent;
  *
  * The thread processes MIDI events in chronological order and sends
  * them to the MIDI output system at the correct times.
+ *
+ * \par What this thread may ask MidiFile
+ * The file it plays keeps being edited on the GUI thread while this runs, and
+ * MidiFile is not a thread-safe class. Exactly two of its calls are safe from
+ * here - msOfTick(tick) and tick(ms) - because they answer from an immutable
+ * tempo snapshot that only the document thread ever rebuilds; the trade is
+ * that they can be one edit stale for a frame. Everything else, measure()
+ * included, reads channel maps unsynchronised. measure() is called here for
+ * historical reasons and is a known hazard; do not add to it. See MidiFile's
+ * class-level "Thread safety" note before moving any work onto this thread.
  */
 class PlayerThread : public QThread {
     Q_OBJECT

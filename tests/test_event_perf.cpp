@@ -160,6 +160,7 @@ MidiTrack *MidiEvent::track() { return _track; }
 #include "../src/MidiEvent/NoteOnEvent.h"
 #include "../src/MidiEvent/OffEvent.h"
 #include "../src/MidiEvent/OnEvent.h"
+#include "../src/MidiEvent/ProgChangeEvent.h"
 // Real MidiChannel (its .cpp is already in this target); forward-declares
 // MidiFile, so it composes with the shim above.
 #include "../src/midi/MidiChannel.h"
@@ -341,6 +342,68 @@ private slots:
         delete snap2;
         delete snap3;
         delete snap1;
+    }
+
+    // -----------------------------------------------------------------
+    // Phase 48 (tempo-map cache): MidiFile keeps a binary-searchable cache of
+    // channel 17 and can only trust it because every channel-17 mutation bumps
+    // MidiChannel::tempoRevision(). Two things have to hold for that to work on
+    // the files this phase exists for (a DAW tempo ramp, >12k tempo events):
+    //
+    //   1. The hook fires on the toProtocol=false BULK path - the path a tempo
+    //      edit over the whole map necessarily uses, since the protocolled path
+    //      would clone the entire event map per event.
+    //   2. Bumping is O(1), so guarding correctness does not re-introduce a
+    //      per-mutation cost on exactly the maps that are already large.
+    //
+    // The full end-to-end perf pin (preparePlayerData + an msOfTick sweep on a
+    // 12k-tempo-event file) lives in test_midi_measure, which links the real
+    // MidiFile; this harness ODR-shims MidiFile away on purpose.
+    void tempoChannelBulkMutationsBumpRevisionAtConstantCost() {
+        MidiFile shimFile;
+        MidiChannel tempoCh(&shimFile, 17);
+
+        const int n = 12000;
+        QVector<MidiEvent *> events;
+        events.reserve(n);
+
+        const quint64 revBefore = MidiChannel::tempoRevision();
+
+        QElapsedTimer t;
+        t.start();
+        for (int i = 0; i < n; ++i) {
+            // Tick 1 upwards: channel 17 refuses to give up its last event at
+            // tick 0, and this case is about the bulk path, not that guard.
+            const int tick = i * 24 + 1;
+            ProgChangeEvent *ev = new ProgChangeEvent(17, i % 128, nullptr);
+            ev->setMidiTime(tick, false);
+            tempoCh.eventMap()->insert(tick, ev);
+            events.append(ev);
+        }
+        const qint64 insertMs = t.elapsed();
+
+        t.restart();
+        for (MidiEvent *ev : events) {
+            QVERIFY2(tempoCh.removeEvent(ev, false),
+                     "bulk removal from the tempo channel was refused");
+        }
+        const qint64 removeMs = t.elapsed();
+
+        QCOMPARE(int(tempoCh.eventMap()->size()), 0);
+        // Exactly one bump per removal - no more (a rebuild per event would be
+        // quadratic), no fewer (a missed bump means a stale cache, i.e. wrong
+        // note positions and wrong playback timing).
+        QCOMPARE(MidiChannel::tempoRevision() - revBefore, quint64(n));
+
+        qInfo().noquote()
+            << QString("[tempo] %1 channel-17 events: bulk insert %2 ms, "
+                       "bulk removeEvent(toProtocol=false) %3 ms")
+                   .arg(n).arg(insertMs).arg(removeMs);
+
+        QVERIFY2(insertMs < 5000 && removeMs < 5000,
+                 "bulk tempo-map churn took absurdly long (>5s)");
+
+        for (MidiEvent *ev : events) delete ev;
     }
 };
 

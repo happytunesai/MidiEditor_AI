@@ -11,11 +11,17 @@
  *
  * \brief On-disk cache of provider model lists.
  *
- * Stores per-provider model lists (id, display name, context window, capability
+ * Stores per-scope model lists (id, display name, context window, capability
  * flags) in a single JSON file under the application data directory
  * (\c "<userdata>/midipilot_models.json"). Used by AiSettingsWidget,
  * MidiPilotWidget and AiClient::contextWindowForModel to avoid hardcoded
  * model lists.
+ *
+ * The \c provider argument below is really a \e scope key: a provider id for
+ * the built-in providers, or \c "custom:profile:<id>" for a stored Custom
+ * provider profile, so two custom endpoints keep separate model lists. Callers
+ * resolve it with ProviderProfileStore::modelScopeId(); the cache itself
+ * treats the key as opaque. \ref contextWindowFor searches every scope.
  *
  * Schema per entry (each object inside the \c "models" array):
  * \code
@@ -72,6 +78,25 @@ public:
     static void store(const QString &provider, const QJsonArray &models);
 
     /**
+     * \brief Drops the cached entry for one scope.
+     *
+     * Used when the endpoint a scope stands for stops existing - deleting a
+     * provider profile takes its \c "custom:profile:<id>" entry with it, so a
+     * later profile of the same name does not inherit a foreign server's model
+     * list. A no-op when the scope has no entry (the file is not rewritten),
+     * and the on-disk format is unchanged - only one key of the \c "providers"
+     * object disappears.
+     *
+     * \return \c true when nothing is cached under \a scope any more - including
+     *         the case where nothing ever was. \c false when the entry is still
+     *         there: an empty scope addresses nothing, and a rewrite of the
+     *         cache file can fail (read-only directory, the file open
+     *         elsewhere). Callers cannot repair that, but they must not report
+     *         a clean deletion when a foreign server's model list survived.
+     */
+    static bool forget(const QString &scope);
+
+    /**
      * \brief Returns the context window declared in the cache for the given
      *        model id, or 0 if unknown.
      */
@@ -79,7 +104,8 @@ public:
 
 private:
     static QJsonObject readFile();
-    static void writeFile(const QJsonObject &obj);
+    /// \return false when the cache file could not be (re)written.
+    static bool writeFile(const QJsonObject &obj);
 };
 
 #endif // MODELLISTCACHE_H

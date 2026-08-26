@@ -25,6 +25,9 @@
 // Qt includes
 #include <QMultiMap>
 
+// Standard includes
+#include <atomic>
+
 // Forward declarations
 class MidiFile;
 class MidiEvent;
@@ -119,6 +122,46 @@ public:
      *  charged in full (they detach on the next repaint or save anyway).
      */
     qint64 snapshotNodeSum() const { return _snapshotNodeSum; }
+
+    // === Tempo-map cache invalidation (Phase 48) ===
+
+    /**
+     * \brief Revision counter of the TEMPO map (channel 17).
+     *
+     *  MidiFile keeps a binary-searchable cache of the channel-17 tempo map
+     *  (see MidiFile::msOfTick()). That cache is only correct as long as it
+     *  can tell that channel 17 changed, and EVERY channel-17 mutation must
+     *  be visible to it - including the bulk paths that pass
+     *  toProtocol=false, which is why the hook lives on the mutating methods
+     *  here and not in the protocol layer.
+     *
+     *  The counter is deliberately PROCESS-WIDE rather than per document:
+     *  the mutation sites that have to bump it live in TUs
+     *  (MidiEvent.cpp, TempoChangeEvent.cpp) that several test harnesses
+     *  link against an ODR-shimmed MidiFile, so they can neither call a new
+     *  MidiFile method nor reach the owning MidiChannel through
+     *  MidiFile::channel(). A shared counter over-invalidates - a tempo edit
+     *  in one open document costs every other document one cache rebuild -
+     *  which is a linear walk of a map that is normally a handful of events,
+     *  and is always the SAFE direction to err in: a stale cache would mean
+     *  wrong note positions and wrong playback timing.
+     *
+     *  Both accessors are inline on purpose: they must not create a link
+     *  dependency on MidiChannel.cpp for the event TUs above.
+     *
+     *  ATOMIC because it is written on the document thread and read by the
+     *  cache-rebuild check, and a plain quint64 read/written from two threads
+     *  is a data race even where the hardware would have made it look benign.
+     *  Acquire/release, not relaxed: the reader must see the map mutation that
+     *  came BEFORE the bump, not just the new counter value.
+     */
+    static quint64 tempoRevision() { return _tempoRevision.load(std::memory_order_acquire); }
+
+    /**
+     * \brief Marks the tempo map as changed. Call after ANY mutation of a
+     *  channel-17 event map or of a tempo event's BPM/position.
+     */
+    static void bumpTempoRevision() { _tempoRevision.fetch_add(1, std::memory_order_release); }
 
     /**
      * \brief Inserts a new note into this channel.
@@ -252,6 +295,10 @@ protected:
      *  by reloadState(). */
     qint64 _snapshotCount = 0;
     qint64 _snapshotNodeSum = 0;
+
+    /** \brief Phase 48: see tempoRevision(). Inline static so no TU needs a
+     *  link dependency on MidiChannel.cpp just to bump it. */
+    inline static std::atomic<quint64> _tempoRevision{0};
 };
 
 #endif // MIDICHANNEL_H_

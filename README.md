@@ -13,7 +13,7 @@
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-0078D6?logo=windows)](https://github.com/happytunesai/MidiEditor_AI/releases)
 
-**Version:** 2.2.0
+**Version:** 2.3.0
 **Status:** Release
 
 📥 **[Download Latest Release](https://github.com/happytunesai/MidiEditor_AI/releases/latest)**
@@ -88,10 +88,12 @@ MidiPilot is the AI brain embedded directly in MidiEditor AI. Open the sidebar, 
 | 🔎 **Check FFXIV Playability** | Workbench that examines a file the way the game plays it - chords and stacked duplicates on monophonic performers, notes outside C3-C6, track names no FFXIV instrument matches, voice peak, channel spread, empty tracks. Click a finding to select its notes, double-click to focus the track; delete exactly the marked notes, or hand the report to MidiPilot for a prioritised assessment |
 | ⏱️ **Convert Tempo (Preserve Duration)** | Time-preserving tempo conversion - rescales every event tick by `target/source` and rewrites the tempo meta in one undoable step. Whole-file / events-only / per-channel / selected-events scopes |
 | 📈 **Tempo Transition Curves** | Edit Tempo's Smooth Transition with Linear / Ease-in / Ease-out / S-curve - one tempo event per BPM step, exact endpoint, single undo step |
+| 📉 **Thin Tempo Map** | Reduce a DAW-exported tempo ramp (often tens of thousands of events) to the few that carry the timing - choose the allowed timing shift (default 2 ms), preview kept/removed and the largest drift, apply as one undo step. Also offered as a Check FFXIV Playability repair and as a MidiPilot/MCP tool |
 | 📥 **Paste Special** | Cross-instance Ctrl+V opens a dialog: *Create new tracks per source* (default), *Preserve source mapping (1:1)*, or *Paste to current edit track* (legacy). Track creation + paste in one undo step |
 | 📋 **Copy to Track / Copy to Channel** | Duplicate the current selection 1:1 onto another track or channel; originals stay in place, the copies become the active selection |
 | 📊 **MIDI Visualizer** | Real-time 16-channel equalizer bars in the toolbar with velocity-based color and smooth decay animation |
-| 🔌 **Multi-Provider** | OpenAI, OpenRouter, Google Gemini, or any OpenAI-compatible endpoint |
+| 🔌 **Multi-Provider** | OpenAI, OpenRouter, Google Gemini, Ollama, or any OpenAI-compatible endpoint |
+| 🗃️ **Provider Profiles** | Save several AI endpoints (provider, base URL, API key, model) under a name and switch with one click from the Provider dropdown - in Settings and in the MidiPilot footer. Every custom endpoint keeps its own model list and favourites; a local server (llama.cpp, LM Studio) needs no API key |
 | 🧠 **Reasoning Support** | Configurable thinking/reasoning effort (None → Extra High) |
 | 📊 **Token Tracking** | Real-time token & context window usage display with multi-provider normalization |
 | ✏️ **Custom System Prompts** | Edit AI behavior via JSON - no recompiling needed |
@@ -112,7 +114,7 @@ MidiEditor AI
 │   ├── AiClient         → OpenAI-compatible API client (SSE streaming)
 │   ├── ConversationStore → Persistent history (JSON save/load/resume)
 │   ├── EditorContext     → Musical context extraction for AI
-│   ├── ToolDefinitions   → 27 MIDI manipulation tools (22 core + 5 FFXIV)
+│   ├── ToolDefinitions   → 28 MIDI manipulation tools (23 core + 5 FFXIV)
 │   └── SystemPrompts     → Customizable per-mode AI instructions
 ├── Collaboration        → Live multi-peer co-editing + async PR workflow
 │   ├── LanLiveSession    → LAN host/joiner state machine + heartbeat + ghost-peer dedup
@@ -464,9 +466,11 @@ MidiEditor AI checks for new versions on GitHub at every startup. When an update
 | **LM Studio** (local) | `localhost:1234/v1` | No | Unlimited |
 | **Custom** | User-specified | User-specified | Varies |
 
+> **Provider profiles:** save several endpoints under a name - two custom endpoints (say a Hugging Face router and a local llama.cpp) coexist instead of overwriting the single Custom slot, and you switch between them from the Provider dropdown. A profile's API key is stored with the profile and never travels in per-file presets.
+
 ## 🛠️ MidiPilot Tools
 
-The AI has access to **22 core tools**, plus **5 more when FFXIV mode is on** (27 total), for inspecting and modifying MIDI files:
+The AI has access to **23 core tools**, plus **5 more when FFXIV mode is on** (28 total), for inspecting and modifying MIDI files:
 
 | Tool | Description |
 |------|-------------|
@@ -484,6 +488,7 @@ The AI has access to **22 core tools**, plus **5 more when FFXIV mode is on** (2
 | `search_help` / `get_help_section` | Ask about the editor itself - the AI searches the built-in manual and answers from it, citing the page |
 | `set_tempo` / `set_time_signature` | Change tempo and meter |
 | `convert_tempo_preserve_duration` | Re-tempo material while keeping its real-time duration (e.g. fit a 90 BPM vocal into a 180 BPM project) - dry run first, your confirmation required |
+| `thin_tempo_map` | Reduce a dense DAW-exported tempo ramp to the events that carry the timing - you set how far the music may move (default 2 ms) and every note keeps its place within that corridor. Dry run by default, one undo step |
 | `set_ffxiv_mode` | Turn FFXIV mode on/off - the FFXIV tool bundle appears/disappears with it (MCP clients are notified) |
 | `setup_channel_pattern` | Auto-configure MidiBard2 channel mapping *(FFXIV)* |
 | `validate_ffxiv` | Check FFXIV rule compliance *(FFXIV)* |
@@ -503,7 +508,7 @@ MidiEditor AI includes a built-in **MCP server** that exposes all MidiPilot tool
 
 1. Enable the MCP server in **Settings → MidiPilot AI → MCP Server**
 2. Copy the MCP config JSON to your AI client's configuration
-3. The client discovers the tools automatically and can compose, edit, and analyze MIDI - 24 by default (the 22 core tools plus `list_documents` / `switch_document` for driving the open tabs), 29 with FFXIV mode on
+3. The client discovers the tools automatically and can compose, edit, and analyze MIDI - 25 by default (the 23 core tools plus `list_documents` / `switch_document` for driving the open tabs), 29 with FFXIV mode on
 
 ### Quick Setup
 

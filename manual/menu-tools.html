@@ -394,6 +394,22 @@
 	</tr>
 
 	<tr>
+		<td valign="top"><img src="tools/tempo.png" width="20px" height="20px"/></td>
+		<td>
+			<i>Tempo Tools &rarr; Thin Tempo Map&hellip;</i><br>
+			Reduces a dense tempo map to the events that carry the timing. A tempo ramp drawn in a DAW is
+			exported as one tempo event every few ticks, and the editor and the game read every one of them.
+			Pick how many milliseconds the music may move - the default 2&nbsp;ms is inaudible - and the
+			preview shows how many events would survive before anything changes. That millisecond figure is
+			counted from the file as it was opened, so running the tool again cannot move the music a second
+			time. Notes are never touched, the file's first tempo event always stays, and the whole thinning
+			is a single undo step. Also available by right-clicking the measure ruler above the piano roll and
+			as the repair button on the playability check's tempo-map finding. -
+			<a href="tempo-conversion.html#thin-tempo-map">dedicated reference section</a>.
+		</td>
+	</tr>
+
+	<tr>
 		<td valign="top"><img src="screenshots/VoiceLimiter-Gadget.png" width="40px"/></td>
 		<td>
 			<i>FFXIV Voice Limiter / Analyze Voice Load</i><br>

@@ -5,6 +5,81 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 
 ---
 
+## [2.3.0] - 2026-08-26 - Thin Tempo Map, Tempo Performance, Provider Profiles
+
+### Summary
+* **Files with a dense tempo map no longer freeze the editor** - a song carrying thousands of tempo changes took about ten seconds to start playing and dragged while scrolling; timing lookups no longer scale with the size of the tempo map (TEMPOMAP-PERF-001, Phase 48).
+* **Thin Tempo Map** - a new tool reduces a DAW-exported tempo ramp to the events that actually carry the timing, with a preview, a timing budget counted from the file as opened, and one undo step (Phase 49).
+* **Check FFXIV Playability spots heavy tempo maps** - a new check names the event count and the shape of the map and offers the thinning as its repair.
+* **Provider profiles** - save several AI endpoints under a name and switch with one click from the Provider dropdown, in both places the connection is configured (Phase 50).
+* **Every endpoint keeps its own model list and favourites** - each custom profile gets its own tab in Manage favourites and its own remembered models, and per-file presets can name a profile without ever carrying a URL or a key.
+* **A local server needs no API key** - a profile for llama.cpp or LM Studio on your own machine counts as configured, and locality is decided on the real address rather than on how it is spelled.
+* **An API key could appear in the settings page** - a failed model refresh showed the error verbatim, and for Google Gemini that text can contain the key; error messages are now stripped of keys and tokens.
+* **Sync Lyrics is readable in dark themes again** - the current-phrase box and the Upcoming list drew a white surface under every dark theme while the text stayed light; both now follow the active theme.
+
+<details>
+<summary>Full Changelog - Thin Tempo Map, Tempo Performance, Provider Profiles</summary>
+
+### New Features
+* **Thin Tempo Map (Tools > Tempo Tools)** - a tempo ramp drawn in a DAW is exported as one tempo event every few ticks, tens of thousands over a song, and every one of them has to be read whenever the editor works out where a note sits in time; a player such as MidiBard pays for them too. The new tool keeps the events that carry the timing and drops the rest. You choose how far the music may move - the default 2 ms is far below anything you can hear - and the preview shows how many tempo events would survive, how many would go and the largest timing shift anywhere in the piece before anything changes. The corridor is honoured at every original tempo event and at the end of the file, so the error cannot creep up over the length of the song; notes, lyrics and markers are never touched, the surviving tempo events keep their own values, and the tempo event on tick 0 always stays. A dense ramp of 12,000 events comes out as 61 with under 2 ms of shift anywhere. The whole thinning is a single undo step, and running it again on an already thinned map removes nothing. Also reachable by right-clicking the measure ruler above the piano roll - the timeline is where the tempo lives. The allowed timing shift is counted from the file as it was opened, so running the tool again never moves the music twice, and it can be taken down to 0 ms - repeated identical tempo events still go, because dropping them changes nothing.
+* **Check FFXIV Playability spots heavy tempo maps** - a new **Tempo map** check reports a map whose size is a property of the export rather than of the music, naming the event count, the shape (a one-way ramp, or automation going both ways), how many distinct tempos there really are and how many events there are per bar. **Thin Tempo Map...** appears as its repair button, and the check re-runs by itself once the repair is applied, so the finding disappears in front of you. A hand-written accelerando has a handful of events and stays quiet. MidiPilot gets the same repair as the `thin_tempo_map` tool (a general MIDI tool, no FFXIV mode needed): it reports how many events it would remove and how far the timing would move, waits for your confirmation and only then applies it as one undo step - and `validate_ffxiv` now also reports the file's tempo event count. MCP clients get the tool as well.
+* **Provider profiles** - save several AI endpoints (provider, base URL, API key and model) under a name and switch between them with one click. Two custom endpoints such as a Hugging Face router and a local OpenAI-compatible server can finally coexist instead of overwriting the single custom slot. A profile for a server on your own machine (llama.cpp, LM Studio) needs no API key: MidiPilot treats a genuinely local address as configured, and Test Connection works there too.
+* Provider profiles are reachable from both places the connection is configured: a **Provider profile** row with **Save as...** and **Delete** in Settings -> MidiPilot AI, and the provider dropdown in the MidiPilot footer itself (plus **Save connection as provider profile...** in the footer gear menu).
+* Per-file AI presets can name a provider profile. Only the name travels in the `.midipilot.json` sidecar - never a URL or an API key - so the same preset reconnects to the right endpoint on a machine that has that profile and falls back to its stored provider and model everywhere else.
+* **Per-endpoint model favourites** - every custom provider profile gets its own tab in **Manage favourites**, its own remembered model list and its own favourites, so two custom endpoints no longer share one list. A **Refresh from endpoint** button fetches a profile's models without switching the active connection. Profiles of a built-in provider keep sharing that provider's tab.
+* Saved custom provider profiles now appear in the **Provider** dropdown itself - in Settings -> MidiPilot AI and in the MidiPilot footer - listed below a separator after the built-in providers. Picking one switches the whole connection exactly as the profile picker does, and the two controls stay in step. A profile entry stays a Custom endpoint internally: only the connection it stands for is applied. The footer has a single connection picker: the separate profile combo next to it showed the same name a second time and is gone. There the plain **Custom** entry is listed only when an ad-hoc custom endpoint exists or is in use - saved profiles have their own entries, and Settings still always offers Custom, since that is where a custom endpoint is entered.
+* **Save as...** in Settings now marks the newly saved profile as the active one, so its own model list and favourites take effect immediately instead of after the next switch; saving or deleting a profile refreshes the model dropdown and the "Models updated" line for the scope that is in force. A keyless profile for a local server (llama.cpp, LM Studio) counts as configured - locality is its authentication.
+* **Profiles have an honest edit flow.** Choosing **Custom** loads the remembered ad-hoc endpoint, and **Save as...** pre-fills the name of the profile on screen, asks before updating an existing one and offers to delete the old name after a rename - saving under a new name is a copy, the rename offer makes it a move. An empty Custom URL is never committed over a working endpoint and never forgets the remembered ad-hoc endpoint.
+* **The connection pickers show what you picked.** Choosing a built-in provider stays on that provider - even when a saved profile describes exactly the same endpoint - in Settings, in the footer, and still after closing and reopening the dialog. Choosing a profile keeps its entry while you switch models and steps back to the plain provider as soon as the endpoint itself is edited. The two pickers can never disagree about the connection in use.
+* **A profile's API key never replaces your own.** The key remembered for a plain provider stays yours: leaving a profile for the provider's own entry, or applying a profile from the footer, leaves it untouched - a profile's key only fills the provider's key memory while that memory is empty.
+* **A blank Custom is truly blank.** Picking Custom without a saved profile and without a remembered endpoint shows no inherited API key and no cached model list - a key and a model list belong to an endpoint, so nothing of the last hand-typed endpoint sits in the fields waiting to attach itself to whatever URL is typed next. The "(enter model name)" placeholder is an instruction, not a model, and is never committed or saved into profiles.
+* **Saving an unsaved custom endpoint as a profile takes its state along.** The remembered ad-hoc endpoint and the models and favourites already fetched for it move into the new profile - its favourites tab starts with what was fetched instead of empty, and the plain Custom entry no longer keeps a ghost of an endpoint that now lives in a profile.
+
+### Changed
+* Switching the footer's provider to **Custom** no longer replaces the configured endpoint with the OpenAI default URL, and the footer's model dropdown no longer offers OpenAI's model ids for a custom endpoint. Switching provider also clears a connection-test result left over from the previous endpoint.
+* Saving Manage favourites while a provider's model list was not loaded no longer wipes that provider's stored favourites.
+* Opening Settings -> MidiPilot AI no longer replaces the selected model with the first entry of the provider's model list; the configured model stays selected.
+* **Timing lookups no longer scale with the size of the tempo map** - note positions, the grid, the measure display, the time cursor and the preparation before playback all resolve their tick/millisecond conversions instantly, so opening and editing a file with a very long tempo map feels the same as any other file.
+
+### Bug Fixes
+* **An API key could appear in the settings page** - when refreshing the model list failed, the error line was shown verbatim, and for Google Gemini that text can contain the request URL with the key in it. Error messages are now stripped of keys and tokens before they are displayed.
+* **Returning from Manage favourites reset the selected model** - closing the favourites dialog re-filled the model box and jumped to its first entry whenever a provider shows display names rather than model ids. The model you had chosen stays chosen.
+* **Files with a dense tempo map froze the editor** - songs carrying thousands of tempo changes (typical of a tempo ramp exported from a DAW) took about ten seconds to start playing and dragged badly while scrolling or zooming. Playback now starts immediately and the view stays smooth no matter how many tempo changes a file contains.
+* **Sync Lyrics was unreadable in dark themes** - the tap-to-sync window's current-phrase box and its Upcoming list kept a white background under every dark theme (including the MidiEditor AI brand theme) while the text used the theme's light color - white on white. Both surfaces now take their colors from the active theme, in all seven themes. The same background-without-text-color pattern was fixed in the Keybinds duplicate-shortcut highlight and in the channel-fixer report's table header.
+
+### Files Modified
+* `src/ai/ProviderProfileStore.h/.cpp` (new) - named endpoint configurations (list/load/save/remove/apply), endpoint-scope resolution, name encoding with a registry-safe id cap, scope cleanup on delete, key-memory rules on enter/leave, intent-selection helpers (validated hint, hint-from-selection), ad-hoc-state migration into a saved profile, endpoint-less blank-Custom rules
+* `src/ai/ModelListCache.h/.cpp` - `forget(scope)` so a deleted profile takes its cached model list with it
+* `src/ai/ModelListFetcher.h/.cpp` - per-scope fetches and redaction of keys/tokens out of error text
+* `src/gui/ModelFavoritesDialog.h/.cpp` - one tab per custom provider profile, per-profile refresh, no longer wipes favourites when a list is unloaded
+* `src/midi/TempoMapThinner.h/.cpp` (new) - the thinning engine: drift-bounded walk over channel 17 measured at every original tempo tick and the end tick, removal-only (surviving events keep their BPM), one Protocol action with the bulk channel-snapshot idiom, `tempoEventCount()`
+* `src/ai/FfxivPlayabilityValidator.h/.cpp` - new `TempoMap` finding type and `tempoMap` check, threshold constants in `FfxivTempoMapRule` (500 absolute / 64 floor / 4 events per bar), shape classification with the distinct-tempo count
+* `src/gui/FfxivPlayabilityDialog.h/.cpp` - "Tempo map" check row, group and presentation order, contextual "Thin Tempo Map..." repair button
+* `src/gui/MainWindow.h/.cpp` - Tools > Tempo Tools > "Thin Tempo Map...", the confirm dialog with tolerance spinbox and live dry-run preview, status-bar result, workbench repair id `thin_tempo_map`
+* `src/gui/MatrixWidget.cpp` - measure-ruler right-click menu with Convert Tempo and Thin Tempo Map, available with nothing selected
+* `src/ai/ToolDefinitions.h/.cpp` - new CORE tool `thin_tempo_map` (strict schema, both arguments optional, source-attributed Protocol label); `validate_ffxiv` reports `tempoEventCount` without folding it into its playability verdict
+* `tests/test_tempo_map_thinner.cpp` (new) - ramp thinning under tolerance with end time and note positions inside the corridor, idempotence, tick-0 anchor, one undo step, dry run, zero-drift collapse, tolerance knob
+* `tests/test_ffxiv_playability.cpp`, `tests/test_tool_definitions.cpp` - tempo-map threshold cases and the tool's strict-schema / null-argument contract
+* `manual/tempo-conversion.html`, `manual/ffxiv-playability.html`, `manual/menu-tools.html` - Thin Tempo Map section, the new check and its repair button, the Tools-menu entry
+* `src/gui/AiSettingsWidget.{h,cpp}` - Provider profile row (combo + Save as... + Delete) above the connection fields, intent-based selection state, active-profile hint written from the selection on accept, ad-hoc Custom endpoint memory, profile-key/provider-key separation on leave
+* `src/gui/MidiPilotWidget.{h,cpp}` - profile entries in the footer provider dropdown, gear-menu save entry, profile name in per-file presets, intent-based selection state with a fixed-entry fallback so the picker can never display a provider the app is not using
+* `tests/test_provider_profile_store.cpp` - new test target: store round-trip, name sanitization, apply semantics, per-provider key interplay, preset fallback
+* `manual/midipilot-settings.html` - "Provider profiles (saved endpoints)" section, settings and preset entries, delimitation from Prompt Profiles
+* `src/midi/MidiFile.h` - declares the tempo-map cache (sorted anchor vector, validity/revision/size state), its lookup helpers and `invalidateTempoCache()`
+* `src/midi/MidiFile.cpp` - `msOfTick()`, `tick(ms)`, the range/tempo-event overload of `tick()` and `calcMaxTime()` answer from the cached anchors by binary search instead of walking the tempo channel; cache built lazily and dropped on undo/redo and on load
+* `src/midi/MidiChannel.h` - process-wide tempo revision counter that tells the cache when the tempo channel changed
+* `src/midi/MidiChannel.cpp` - every tempo-channel mutation (insert, remove, delete-all, undo/redo restore) marks the tempo map as changed, including the bulk paths
+* `src/MidiEvent/MidiEvent.cpp` - moving a tempo event in time marks the tempo map as changed
+* `src/MidiEvent/TempoChangeEvent.cpp` - changing a tempo value, and undoing that change, mark the tempo map as changed
+* `tests/test_midi_measure.cpp` - correctness of the cached tick/millisecond conversions against a linear reference, one case per mutation family, and a timing pin on a file with 12,000 tempo changes
+* `tests/test_event_perf.cpp` - pins that bulk tempo-channel edits stay cheap
+* `src/gui/LyricSyncDialog.cpp` - theme-following colors for the current-phrase box and the Upcoming list (the global themes never touch QPalette, so palette() in a local stylesheet resolved the system palette)
+* `src/gui/KeybindsSettingsWidget.cpp`, `src/gui/MainWindow.cpp` - background colors paired with an explicit text color in the duplicate-shortcut highlight and the channel-fixer report table
+
+</details>
+
+---
+
 ## [2.2.0] - 2026-08-17 - FFXIV Playability, Portable Mode, Manual Bot
 
 ### Summary

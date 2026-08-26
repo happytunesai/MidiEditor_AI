@@ -2158,6 +2158,27 @@ void MatrixWidget::contextMenuEvent(QContextMenuEvent *event) {
         return;
     }
 
+    // D2 rule (Phase 49): the tempo map lives in the TIMELINE, so the two
+    // tools that rewrite it are reachable by right-clicking the measure ruler
+    // - the spatial target - and not only through the Tools menu. This branch
+    // sits before the selection guard below on purpose: the ruler menu is
+    // about the whole file and must work with nothing selected.
+    if (file && event->pos().y() < timeHeight) {
+        if (MainWindow *host = qobject_cast<MainWindow *>(window())) {
+            QMenu rulerMenu(this);
+            QAction *convertAct = rulerMenu.addAction(
+                tr("Convert Tempo, Preserve Duration..."));
+            connect(convertAct, &QAction::triggered, host,
+                    &MainWindow::convertTempoPreserveDuration);
+            QAction *thinAct = rulerMenu.addAction(tr("Thin Tempo Map..."));
+            connect(thinAct, &QAction::triggered, host,
+                    &MainWindow::thinTempoMap);
+            rulerMenu.exec(event->globalPos());
+        }
+        event->accept();
+        return;
+    }
+
     // No menu to show (nothing selected, or no host window). Accept the event
     // rather than ignoring it: when this widget is rendered through
     // OpenGLMatrixWidget it is a hidden child of the GL wrapper, and an ignored

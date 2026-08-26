@@ -3,6 +3,7 @@
 #ifndef TOOLDEFINITIONS_TEST_STUB_FFXIV
 #include "../converter/AutoFitVoiceLoadService.h"
 #include "../converter/TempoConversionService.h"
+#include "../midi/TempoMapThinner.h"
 #include "../MidiEvent/TempoChangeEvent.h"
 #include "FfxivPlayabilityValidator.h"
 #endif
@@ -506,6 +507,37 @@ QJsonArray ToolDefinitions::toolSchemas(const ToolSchemaOptions &options) {
                                "channelIds", "tempoMode", "dryRun"})));
     }
 
+    // thin_tempo_map (v2.3, Phase 49) - CORE like the conversion above: a
+    // DAW-exported tempo ramp is a MIDI problem, not an FFXIV one.
+    {
+        QJsonObject props;
+        props["toleranceMs"] = QJsonObject{
+            {"anyOf", QJsonArray{QJsonObject{{"type", "number"}}, QJsonObject{{"type", "null"}}}},
+            {"description", "How far any point of the piece may end up from where it is "
+                            "now, in milliseconds. null = the default 2 ms, which is "
+                            "inaudible. Smaller keeps more tempo events, larger keeps "
+                            "fewer."}};
+        props["dryRun"] = QJsonObject{
+            {"anyOf", QJsonArray{QJsonObject{{"type", "boolean"}}, QJsonObject{{"type", "null"}}}},
+            {"description", "true = report what would change WITHOUT modifying the file. "
+                            "ALWAYS run with dryRun=true first, show the user the summary "
+                            "and ask for confirmation before running with dryRun=false. "
+                            "null = true."}};
+        tools.append(makeTool(
+            "thin_tempo_map",
+            "Reduce a dense tempo map to the events that actually carry the timing. Use "
+            "this when a file drags: DAW-exported tempo ramps arrive as one tempo event "
+            "every few ticks (thousands of them), which makes every playback start, every "
+            "scroll and every edit slow, and the game pays for them too. The music is not "
+            "moved - the thinning keeps every point of the piece within the given "
+            "millisecond corridor and the file's end time with it. Call it with dryRun=true "
+            "to learn how many tempo events the file has and what thinning would cost, show "
+            "the user those numbers, and only then apply. One undoable step.",
+            // STRICT-SCHEMA-001: every property listed in `required`;
+            // optionality via anyOf[<type>, null].
+            makeParams(props, {"toleranceMs", "dryRun"})));
+    }
+
     // set_ffxiv_mode (Phase 46) - CORE, deliberately OUTSIDE the FFXIV gate
     // below: the whole point is that an agent can turn the mode ON to reach
     // the gated bundle. Octet finding #1: a client saw 17 tools, had no hint
@@ -1004,6 +1036,9 @@ QJsonObject ToolDefinitions::executeTool(const QString &toolName,
     if (toolName == "convert_tempo_preserve_duration") {
         return execConvertTempoPreserveDuration(args, file, source);
     }
+    if (toolName == "thin_tempo_map") {
+        return execThinTempoMap(args, file, source);
+    }
     if (toolName == "set_ffxiv_mode") {
         return execSetFfxivMode(args, widget);
     }
@@ -1212,6 +1247,11 @@ QJsonObject ToolDefinitions::execValidateFFXIV(MidiFile *file) {
     FfxivPlayabilityChecks toolChecks;
     toolChecks.channelSpread = false;
     toolChecks.emptyTracks = false;
+    // Phase 49: the tempo-map finding is workbench-only for the same reason.
+    // It is not a NOTE problem, so folding it into `valid` would report a
+    // perfectly playable file as invalid and send the agent hunting for
+    // chords. The count travels as its own field below instead.
+    toolChecks.tempoMap = false;
     const FfxivPlayabilityReport report =
         FfxivPlayabilityValidator::validate(file, toolChecks);
     if (!report.ok) {
@@ -1257,6 +1297,11 @@ QJsonObject ToolDefinitions::execValidateFFXIV(MidiFile *file) {
     result["success"] = true;
     result["valid"] = report.issues.isEmpty();
     result["issues"] = issues;
+    // Phase 49: not a playability verdict, a fact the agent cannot get
+    // anywhere else - a DAW tempo ramp exported as thousands of events makes
+    // the file heavy for the editor and for the game. thin_tempo_map is the
+    // repair; the number is here so the agent knows when to reach for it.
+    result["tempoEventCount"] = TempoMapThinner::tempoEventCount(file);
     if (report.issues.size() > cap)
         result["issuesTruncated"] = report.issues.size() - cap;
     // Octet finding #6: a rejected track name used to leave the agent
@@ -2012,6 +2057,133 @@ QJsonObject ToolDefinitions::execConvertTempoPreserveDuration(const QJsonObject 
                                       "before calling again with dryRun=false.");
         else
             summary += QStringLiteral(" One undo step restores everything.");
+    }
+    result["summary"] = summary;
+    return result;
+#endif // TOOLDEFINITIONS_TEST_STUB_FFXIV
+}
+
+QJsonObject ToolDefinitions::execThinTempoMap(const QJsonObject &args,
+                                              MidiFile *file,
+                                              const QString &source) {
+#ifdef TOOLDEFINITIONS_TEST_STUB_FFXIV
+    Q_UNUSED(args);
+    Q_UNUSED(file);
+    Q_UNUSED(source);
+    QJsonObject result;
+    result["success"] = false;
+    result["error"] = QStringLiteral("Stub build: thin_tempo_map is unavailable.");
+    return result;
+#else
+    QJsonObject result;
+    if (!file) {
+        result["success"] = false;
+        result["error"] = QStringLiteral("No MIDI file is open.");
+        return result;
+    }
+
+    // Strict schemas send every optional as an explicit null - .isNull() is
+    // the check, never .contains().
+    double toleranceMs = TempoMapThinner::kDefaultToleranceMs;
+    if (args.contains("toleranceMs") && !args.value("toleranceMs").isNull()) {
+        toleranceMs = args.value("toleranceMs").toDouble(toleranceMs);
+    }
+    if (toleranceMs < 0.0) {
+        result["success"] = false;
+        result["error"] = QStringLiteral("toleranceMs must not be negative.");
+        return result;
+    }
+    bool dryRun = true; // safe default: dry run
+    if (args.contains("dryRun") && !args.value("dryRun").isNull()) {
+        dryRun = args.value("dryRun").toBool(true);
+    }
+
+    // Protocol-panel attribution, built here (not in the service) so the
+    // action reads like every other agent/MCP action. Prefix concatenated,
+    // not .arg()-substituted - see execTransposeEvents.
+    const QString label =
+        dryRun ? QString()
+               : protocolActorPrefix(source)
+                     + QStringLiteral(": Agent thin tempo map");
+
+    const TempoMapThinner::Result r =
+        TempoMapThinner::thin(file, toleranceMs, dryRun, label);
+    if (!r.ok) {
+        result["success"] = false;
+        result["error"] = r.error;
+        return result;
+    }
+
+    result["success"] = true;
+    result["dryRun"] = r.dryRun;
+    result["toleranceMs"] = toleranceMs;
+    result["tempoEventsBefore"] = r.before;
+    result["tempoEventsAfter"] = r.kept;
+    result["removed"] = r.removed;
+    result["maxDriftMs"] = qRound(r.maxDriftMs * 1000.0) / 1000.0;
+    result["endDriftMs"] = qRound(r.endDriftMs * 1000.0) / 1000.0;
+    // The tolerance is a per-document budget measured against the map as it
+    // was loaded, so a re-run reports a CUMULATIVE figure. Without this the
+    // model would read "largest shift 2.00 ms" and think it still had 2 ms of
+    // room after an earlier pass already spent it.
+    result["alreadyDriftedMs"] = qRound(r.alreadyDriftedMs * 1000.0) / 1000.0;
+
+    QString summary;
+    // Did the branch below print drift FIGURES? The "already drifted" sentence
+    // may only claim to be their baseline when there are figures to relate to.
+    bool printedDriftFigures = false;
+    if (r.removed == 0) {
+        if (r.alreadyDriftedMs > 0.005) {
+            // A re-run against a corridor an earlier pass already spent part
+            // of. The events that are left are not "all carrying part of the
+            // timing" - the budget is measured from the file as opened, and
+            // what is already spent is what stops the next event from going.
+            summary = QStringLiteral("Nothing to thin: this map was already "
+                                     "thinned in this session and sits %1 ms "
+                                     "from the file as opened. The %2 ms "
+                                     "tolerance is measured against that same "
+                                     "starting point, so all %3 remaining "
+                                     "tempo event(s) stay.")
+                          .arg(r.alreadyDriftedMs, 0, 'f', 2)
+                          .arg(toleranceMs, 0, 'f', 2)
+                          .arg(r.before);
+        } else {
+            summary = QStringLiteral("Nothing to thin: all %1 tempo event(s) "
+                                     "carry part of the timing at a %2 ms "
+                                     "tolerance.")
+                          .arg(r.before)
+                          .arg(toleranceMs, 0, 'f', 2);
+        }
+    } else {
+        summary = QStringLiteral("%1 %2 of %3 tempo events (%4 left). Largest "
+                                 "timing shift %5 ms, end of file %6 ms.")
+                      .arg(r.dryRun ? QStringLiteral("Would remove")
+                                    : QStringLiteral("Removed"))
+                      .arg(r.removed)
+                      .arg(r.before)
+                      .arg(r.kept)
+                      .arg(r.maxDriftMs, 0, 'f', 2)
+                      .arg(r.endDriftMs, 0, 'f', 2);
+        printedDriftFigures = true;
+        if (r.dryRun)
+            summary += QStringLiteral(" Present this to the user and ask for "
+                                      "confirmation before calling again with "
+                                      "dryRun=false.");
+        else
+            summary += QStringLiteral(" One undo step restores everything.");
+    }
+    // Only where drift figures were actually printed can they be called a total
+    // from the earlier pass - the removed==0 branch above states the spent
+    // corridor itself and has no figures to relate to.
+    if (r.alreadyDriftedMs > 0.005 && printedDriftFigures) {
+        summary += QStringLiteral(" This map was already thinned in this session "
+                                  "and sits %1 ms from the file as opened; the "
+                                  "figures above are the total from there.")
+                       .arg(r.alreadyDriftedMs, 0, 'f', 2);
+    }
+    if (r.maxDriftMs > toleranceMs + 0.005) {
+        summary += QStringLiteral(" The requested tolerance can no longer be met - "
+                                  "the earlier thinning would have to be undone first.");
     }
     result["summary"] = summary;
     return result;

@@ -1,5 +1,7 @@
 #include "ModelListFetcher.h"
 
+#include "SecretRedactor.h"
+
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonValue>
@@ -15,11 +17,25 @@ ModelListFetcher::ModelListFetcher(QObject *parent)
 {
 }
 
+QString ModelListFetcher::redactSecrets(const QString &text) const
+{
+    // Gemini carries the key as a URL query item, and Qt's errorString() (plus
+    // some HTTP error bodies) quote the full URL - which put the key straight
+    // into the settings page's status label. The rule itself now lives in
+    // SecretRedactor.h so AiClient's log and chat-bubble paths apply exactly
+    // the same filter (v2.3 review H1).
+    return AiSecrets::redactSecrets(text, _apiKey);
+}
+
 void ModelListFetcher::fetch(const QString &provider,
                              const QString &apiKey,
-                             const QString &baseUrl)
+                             const QString &baseUrl,
+                             const QString &scope)
 {
     _provider = provider;
+    _apiKey = apiKey;
+    // Default scope = the provider, i.e. exactly the pre-profile behaviour.
+    _scope = scope.isEmpty() ? provider : scope;
 
     QUrl url;
     QNetworkRequest req;
@@ -57,7 +73,7 @@ void ModelListFetcher::fetch(const QString &provider,
     } else { // custom
         QString b = baseUrl.trimmed();
         if (b.isEmpty()) {
-            emit failed(provider, tr("No base URL configured for Custom provider"));
+            emit failed(_scope, tr("No base URL configured for Custom provider"));
             deleteLater();
             return;
         }
@@ -90,19 +106,20 @@ void ModelListFetcher::onReplyFinished()
     _reply = nullptr;
 
     if (netErr != QNetworkReply::NoError) {
-        emit failed(_provider, tr("Network error: %1").arg(netErrStr));
+        emit failed(_scope, tr("Network error: %1").arg(redactSecrets(netErrStr)));
         deleteLater();
         return;
     }
     if (httpStatus >= 400) {
-        emit failed(_provider, tr("HTTP %1: %2").arg(httpStatus).arg(QString::fromUtf8(body.left(200))));
+        emit failed(_scope, tr("HTTP %1: %2").arg(httpStatus)
+                                .arg(redactSecrets(QString::fromUtf8(body.left(200)))));
         deleteLater();
         return;
     }
 
     QJsonDocument doc = QJsonDocument::fromJson(body);
     if (!doc.isObject()) {
-        emit failed(_provider, tr("Invalid JSON response"));
+        emit failed(_scope, tr("Invalid JSON response"));
         deleteLater();
         return;
     }
@@ -129,12 +146,12 @@ void ModelListFetcher::onReplyFinished()
         normalised = normaliseCustom(rawArr);
 
     if (normalised.isEmpty()) {
-        emit failed(_provider, tr("No usable chat models in response"));
+        emit failed(_scope, tr("No usable chat models in response"));
         deleteLater();
         return;
     }
 
-    emit finished(_provider, normalised);
+    emit finished(_scope, normalised);
     deleteLater();
 }
 

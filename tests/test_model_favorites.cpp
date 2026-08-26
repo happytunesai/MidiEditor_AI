@@ -84,6 +84,72 @@ private slots:
         QVERIFY(!ModelFavorites::hasFavorites(p));
     }
 
+    // Favourites are keyed by SCOPE, not by provider: the plain "custom" scope
+    // is the ad-hoc endpoint, "custom:profile:<id>" belongs to one stored
+    // provider profile. ModelFavorites treats the scope as an opaque string
+    // (ProviderProfileStore::modelScopeId builds it), so this pins the storage
+    // contract the favourites dialog's per-profile tabs rely on.
+    void favorites_areScopedPerCustomEndpoint()
+    {
+        const QString adHoc = providerName(QStringLiteral("custom"));
+        const QString hf    = QStringLiteral("custom:profile:HF")
+                              + QStringLiteral("__test");
+        const QString local = QStringLiteral("custom:profile:Local llama")
+                              + QStringLiteral("__test");
+
+        ModelFavorites::setFavorites(adHoc, {QStringLiteral("ad-hoc/model")});
+        ModelFavorites::setFavorites(hf, {QStringLiteral("hf/model-a"),
+                                          QStringLiteral("hf/model-b")});
+        ModelFavorites::setFavorites(local, {QStringLiteral("local-model")});
+
+        QCOMPARE(ModelFavorites::favorites(adHoc).size(), 1);
+        QCOMPARE(ModelFavorites::favorites(hf).size(), 2);
+        QCOMPARE(ModelFavorites::favorites(local).size(), 1);
+        QVERIFY(ModelFavorites::favorites(hf).contains(QStringLiteral("hf/model-a")));
+        // No bleed in either direction.
+        QVERIFY(!ModelFavorites::favorites(hf).contains(QStringLiteral("ad-hoc/model")));
+        QVERIFY(!ModelFavorites::favorites(adHoc).contains(QStringLiteral("hf/model-a")));
+
+        // visibleModels() follows the same scope.
+        QJsonArray cached;
+        for (const QString &id : {QStringLiteral("hf/model-a"),
+                                  QStringLiteral("hf/model-b"),
+                                  QStringLiteral("ad-hoc/model")}) {
+            QJsonObject m;
+            m.insert(QStringLiteral("id"), id);
+            cached.append(m);
+        }
+        QCOMPARE(ModelFavorites::visibleModels(hf, cached).size(), 2);
+        QCOMPARE(ModelFavorites::visibleModels(adHoc, cached).size(), 1);
+
+        // Clearing one profile scope leaves the ad-hoc scope (the migration
+        // promise: pre-profile favourites never move) and the other profile.
+        ModelFavorites::setFavorites(hf, {});
+        QVERIFY(!ModelFavorites::hasFavorites(hf));
+        QVERIFY(ModelFavorites::hasFavorites(adHoc));
+        QVERIFY(ModelFavorites::hasFavorites(local));
+
+        ModelFavorites::setFavorites(adHoc, {});
+        ModelFavorites::setFavorites(local, {});
+    }
+
+    // ProviderProfileStore::encodeName percent-escapes everything outside
+    // [A-Za-z0-9 ._-], so a scope id can carry '%', ':' and spaces. That has to
+    // survive the settings backend as ONE key.
+    void favorites_scopeKeySurvivesEncodedProfileNames()
+    {
+        const QString scope = QStringLiteral("custom:profile:HF %2F local server")
+                              + QStringLiteral("__test");
+        ModelFavorites::setFavorites(scope, {QStringLiteral("m1"),
+                                             QStringLiteral("m2")});
+        QCOMPARE(ModelFavorites::favorites(scope).size(), 2);
+        QVERIFY(ModelFavorites::favorites(scope).contains(QStringLiteral("m2")));
+        // Not visible under a truncated or differently escaped scope.
+        QVERIFY(!ModelFavorites::hasFavorites(QStringLiteral("custom:profile:HF")));
+        ModelFavorites::setFavorites(scope, {});
+        QVERIFY(!ModelFavorites::hasFavorites(scope));
+    }
+
     void visibleModels_filtersAndRespectsFavorites()
     {
         QJsonArray cached;

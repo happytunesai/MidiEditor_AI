@@ -1,5 +1,6 @@
 #include "AiClient.h"
 #include "ModelListCache.h"
+#include "SecretRedactor.h"
 #include "../AppPaths.h"
 
 #include <QCoreApplication>
@@ -7,6 +8,7 @@
 #include <QDir>
 #include <QFile>
 #include <QHash>
+#include <QHostAddress>
 #include <QJsonDocument>
 #include <QNetworkRequest>
 #include <QRandomGenerator>
@@ -110,7 +112,10 @@ AiClient::AiClient(QObject *parent)
     _model = _settings->value(SETTINGS_KEY_MODEL, DEFAULT_MODEL).toString();
     _thinkingEnabled = _settings->value(SETTINGS_KEY_THINKING, true).toBool();
     _reasoningEffort = _settings->value(SETTINGS_KEY_REASONING_EFFORT, QStringLiteral("medium")).toString();
-    _apiBaseUrl = _settings->value(SETTINGS_KEY_API_BASE_URL, DEFAULT_API_BASE_URL).toString();
+    // M5: a value stored by an older build (or edited by hand) may lack a
+    // scheme; normalise on the way in, not at each of the four URL builders.
+    _apiBaseUrl = normalizedBaseUrl(
+        _settings->value(SETTINGS_KEY_API_BASE_URL, DEFAULT_API_BASE_URL).toString());
     _provider = _settings->value(SETTINGS_KEY_PROVIDER, QStringLiteral("openai")).toString();
     _maxTokensEnabled = _settings->value(QStringLiteral("AI/max_token_enabled"), false).toBool();
     _maxTokensLimit = _settings->value(QStringLiteral("AI/max_token_limit"), 16384).toInt();
@@ -194,9 +199,94 @@ bool AiClient::isConfigured() const
     return !apiKey().isEmpty() || !providerRequiresKey();
 }
 
+// v2.3 review M5: the ONE place a base URL is brought into the shape both the
+// loopback check and the request builders need. See the header for why a
+// scheme-less base URL was fatal.
+QString AiClient::normalizedBaseUrl(const QString &baseUrl)
+{
+    QString text = baseUrl.trimmed();
+    if (text.isEmpty())
+        return text;
+
+    // Only a real "<scheme>://" counts; anything else gets http:// prepended.
+    const int schemeEnd = text.indexOf(QStringLiteral("://"));
+    bool hasScheme = schemeEnd > 0 && text.at(0).isLetter();
+    for (int i = 0; hasScheme && i < schemeEnd; ++i) {
+        const QChar c = text.at(i);
+        if (!(c.isLetterOrNumber() || c == QLatin1Char('+') || c == QLatin1Char('-')
+              || c == QLatin1Char('.')))
+            hasScheme = false;
+    }
+    if (hasScheme)
+        return text;
+
+    // A scheme-relative "//host/v1" only lacks the scheme itself; prepending
+    // the full "http://" would produce "http:////host/v1".
+    text.prepend(text.startsWith(QStringLiteral("//"))
+                     ? QStringLiteral("http:")
+                     : QStringLiteral("http://"));
+    return text;
+}
+
+QString AiClient::redactForOutput(const QString &text) const
+{
+    return AiSecrets::redactSecrets(text, apiKey());
+}
+
+// True when the base URL names this machine. Two traps this avoids:
+//   * "127.0.0.1.evil.com" is a PUBLIC name that merely STARTS with "127." -
+//     a string prefix would hand a keyless exemption to a remote server;
+//   * a URL typed without a scheme ("localhost:8080/v1") parses as scheme
+//     "localhost" with an EMPTY host, so the exemption would never apply
+//     (normalizedBaseUrl fixes that for the check AND for the request).
+static bool endpointIsLoopback(const QString &baseUrl)
+{
+    const QString text = AiClient::normalizedBaseUrl(baseUrl);
+    if (text.isEmpty())
+        return false;
+
+    QString host = QUrl::fromUserInput(text).host().trimmed().toLower();
+    // A trailing dot is the DNS root: "localhost." IS "localhost".
+    while (host.endsWith(QLatin1Char('.')))
+        host.chop(1);
+    // Literal IPv6 hosts may arrive bracketed depending on the caller.
+    if (host.size() > 1 && host.startsWith(QLatin1Char('['))
+        && host.endsWith(QLatin1Char(']')))
+        host = host.mid(1, host.size() - 2);
+    if (host.isEmpty())
+        return false;
+
+    // Exactly "localhost" only. v2.3 review L1: "*.localhost" is reserved by
+    // RFC 6761 but NOT resolved locally by Windows - "a.b.localhost" goes to
+    // the configured DNS server like any other name and can answer from
+    // off-box, so granting it the keyless exemption without resolving it was
+    // a guess. A local server is reachable as "localhost" or as a loopback
+    // literal; both still qualify below.
+    if (host == QStringLiteral("localhost"))
+        return true;
+
+    // Numeric comparison, never a string prefix.
+    const QHostAddress addr(host);
+    return !addr.isNull() && addr.isLoopback();
+}
+
+bool AiClient::providerRequiresKey(const QString &provider, const QString &baseUrl)
+{
+    const QString p = provider.trimmed().toLower();
+    if (p == QStringLiteral("ollama"))
+        return false;
+    // A custom endpoint on this machine (llama.cpp, LM Studio, a keyless
+    // provider profile) authenticates by locality, not by key - treating it
+    // like a cloud provider would flip MidiPilot to "Not configured" the
+    // moment such a profile is applied.
+    if (p == QStringLiteral("custom"))
+        return !endpointIsLoopback(baseUrl);
+    return true;
+}
+
 bool AiClient::providerRequiresKey() const
 {
-    return _provider != QStringLiteral("ollama");
+    return providerRequiresKey(_provider, apiBaseUrl());
 }
 
 void AiClient::applyAuthHeader(QNetworkRequest &request) const
@@ -234,8 +324,12 @@ QString AiClient::apiBaseUrl() const
 
 void AiClient::setApiBaseUrl(const QString &url)
 {
-    _apiBaseUrl = url;
-    _settings->setValue(SETTINGS_KEY_API_BASE_URL, url);
+    // M5: normalise where the value ENTERS the client, so the loopback check,
+    // apiBaseUrl() and every "_apiBaseUrl + /endpoint" builder agree. Storing
+    // the normalised form too means the Settings field shows the URL that is
+    // actually used instead of one that silently fails.
+    _apiBaseUrl = normalizedBaseUrl(url);
+    _settings->setValue(SETTINGS_KEY_API_BASE_URL, _apiBaseUrl);
 }
 
 QString AiClient::provider() const
@@ -283,7 +377,9 @@ void AiClient::reloadSettings()
     _model = _settings->value(SETTINGS_KEY_MODEL, DEFAULT_MODEL).toString();
     _thinkingEnabled = _settings->value(SETTINGS_KEY_THINKING, true).toBool();
     _reasoningEffort = _settings->value(SETTINGS_KEY_REASONING_EFFORT, QStringLiteral("medium")).toString();
-    _apiBaseUrl = _settings->value(SETTINGS_KEY_API_BASE_URL, DEFAULT_API_BASE_URL).toString();
+    // M5: normalise on the way in - see setApiBaseUrl().
+    _apiBaseUrl = normalizedBaseUrl(
+        _settings->value(SETTINGS_KEY_API_BASE_URL, DEFAULT_API_BASE_URL).toString());
     _provider = _settings->value(SETTINGS_KEY_PROVIDER, QStringLiteral("openai")).toString();
     _maxTokensEnabled = _settings->value(QStringLiteral("AI/max_token_enabled"), false).toBool();
     _maxTokensLimit = _settings->value(QStringLiteral("AI/max_token_limit"), 16384).toInt();
@@ -659,7 +755,8 @@ void AiClient::sendMessagesWithRequestSnapshot(const QJsonArray &messages,
 
     _provider = provider;
     _model = model;
-    _apiBaseUrl = apiBaseUrl;
+    // M5: the snapshot is another way a base URL enters the client.
+    _apiBaseUrl = normalizedBaseUrl(apiBaseUrl);
     sendMessagesInternal(messages, tools, allowGeminiNativeToolsPath);
 
     _provider = currentProvider;
@@ -1048,7 +1145,8 @@ void AiClient::onReplyFinished(QNetworkReply *reply)
     QByteArray responseData = reply->readAll();
     int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
 
-    logApi(QStringLiteral("[RESPONSE] HTTP %1 body=%2").arg(statusCode).arg(QString::fromUtf8(responseData.left(8000))));
+    logApi(QStringLiteral("[RESPONSE] HTTP %1 body=%2").arg(statusCode)
+               .arg(redactForOutput(QString::fromUtf8(responseData.left(8000)))));
 
     if (reply->error() != QNetworkReply::NoError) {
         QString errorMsg;
@@ -1067,7 +1165,11 @@ void AiClient::onReplyFinished(QNetworkReply *reply)
             const QJsonDocument errDoc = QJsonDocument::fromJson(responseData);
             if (errDoc.isObject()) {
                 const QJsonObject e = errDoc.object().value(QStringLiteral("error")).toObject();
-                apiErrorMessage = e.value(QStringLiteral("message")).toString().trimmed();
+                // H1: this message is echoed into the chat bubble below, and a
+                // provider that quotes the failing request URL would carry the
+                // key with it.
+                apiErrorMessage = redactForOutput(
+                    e.value(QStringLiteral("message")).toString().trimmed());
                 insufficientQuota =
                     e.value(QStringLiteral("code")).toString() == QStringLiteral("insufficient_quota")
                     || e.value(QStringLiteral("type")).toString() == QStringLiteral("insufficient_quota");
@@ -1126,7 +1228,7 @@ void AiClient::onReplyFinished(QNetworkReply *reply)
                 errorMsg = tr("Can't reach the Ollama server at %1. Is Ollama installed and "
                               "running? Start it (run \"ollama serve\" or launch the Ollama app), "
                               "then try again. See the manual for local-AI setup.")
-                               .arg(_apiBaseUrl);
+                               .arg(redactForOutput(_apiBaseUrl));
             } else {
                 errorMsg = tr("Unable to connect to the API. Please check your internet connection.");
             }
@@ -1140,7 +1242,10 @@ void AiClient::onReplyFinished(QNetworkReply *reply)
             retriable = true;
             baseDelayMs = 1000;
         } else {
-            errorMsg = tr("API error (HTTP %1): %2").arg(statusCode).arg(reply->errorString());
+            // H1: errorString() quotes the full request URL, which carries the
+            // key for Gemini and for any key-in-query custom endpoint.
+            errorMsg = tr("API error (HTTP %1): %2").arg(statusCode)
+                           .arg(redactForOutput(reply->errorString()));
         }
 
         // Retry transient errors with backoff. Honor the provider's Retry-After
@@ -1836,7 +1941,7 @@ void AiClient::sendStreamingMessages(const QJsonArray &messages, const QJsonArra
         }
         if (reply->error() != QNetworkReply::NoError) {
             int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-            QString detail = QString::fromUtf8(reply->readAll().left(500));
+            QString detail = redactForOutput(QString::fromUtf8(reply->readAll().left(500)));
             // Streaming-fallback safety net: try once more without `stream:true`.
             if (shouldFallbackToNonStreaming(statusCode, reply->error(), false, false)) {
                 _streamHasTools = false;
@@ -1846,7 +1951,7 @@ void AiClient::sendStreamingMessages(const QJsonArray &messages, const QJsonArra
                 return;
             }
             emit errorOccurred(tr("Streaming error (HTTP %1): %2 %3")
-                .arg(statusCode).arg(reply->errorString(), detail));
+                .arg(statusCode).arg(redactForOutput(reply->errorString()), detail));
             _streamHasTools = false;
             _streamToolCalls.clear();
             clearStreamingRetryContext();
@@ -2066,7 +2171,8 @@ void AiClient::sendStreamingRequest(const QString &systemPrompt,
                 tryStreamingFallback(QStringLiteral("HTTP %1").arg(statusCode), isTransientHttpStatus(statusCode));
                 return;
             }
-            emit errorOccurred(tr("Streaming error (HTTP %1): %2").arg(statusCode).arg(reply->errorString()));
+            emit errorOccurred(tr("Streaming error (HTTP %1): %2").arg(statusCode)
+                                   .arg(redactForOutput(reply->errorString())));
             clearStreamingRetryContext();
             reply->deleteLater();
             return;
@@ -2671,7 +2777,7 @@ void AiClient::sendStreamingMessagesResponses(const QJsonArray &messages,
         }
         if (reply->error() != QNetworkReply::NoError) {
             int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-            QString detail = QString::fromUtf8(reply->readAll().left(500));
+            QString detail = redactForOutput(QString::fromUtf8(reply->readAll().left(500)));
             if (shouldFallbackToNonStreaming(statusCode, reply->error(), false, false)) {
                 _streamHasTools = false;
                 _streamToolCalls.clear();
@@ -2682,7 +2788,7 @@ void AiClient::sendStreamingMessagesResponses(const QJsonArray &messages,
                 return;
             }
             emit errorOccurred(tr("Streaming error (HTTP %1): %2 %3")
-                .arg(statusCode).arg(reply->errorString(), detail));
+                .arg(statusCode).arg(redactForOutput(reply->errorString()), detail));
             _streamHasTools = false;
             _streamToolCalls.clear();
             _responsesStreamItems.clear();
@@ -2883,7 +2989,7 @@ void AiClient::onResponsesStreamDataAvailable()
             if (errMsg.isEmpty())
                 errMsg = obj.value(QStringLiteral("error")).toObject()
                             .value(QStringLiteral("message")).toString();
-            logApi(QStringLiteral("[STREAM-RESPONSES-ERR] %1").arg(errMsg));
+            logApi(QStringLiteral("[STREAM-RESPONSES-ERR] %1").arg(redactForOutput(errMsg)));
         }
     }
 }
@@ -3007,7 +3113,7 @@ void AiClient::sendStreamingMessagesGemini(const QJsonArray &messages,
             _streamBuffer += _currentReply->readAll();
         logApi(QStringLiteral("[STREAM-GEMINI-RAW] bufferBytes=%1 head=%2")
             .arg(_streamBuffer.size())
-            .arg(QString::fromUtf8(_streamBuffer.left(2000))));
+            .arg(redactForOutput(QString::fromUtf8(_streamBuffer.left(2000)))));
         if (!_streamBuffer.isEmpty())
             onGeminiStreamDataAvailable();
         QNetworkReply *reply = _currentReply;
@@ -3039,8 +3145,13 @@ void AiClient::sendStreamingMessagesGemini(const QJsonArray &messages,
             // Strip leading "data: " if Gemini wrapped the error as SSE
             if (detail.startsWith(QStringLiteral("data: ")))
                 detail = detail.mid(6).trimmed();
+            // H1: this endpoint carries the API key in the query string, so
+            // errorString() - which quotes the URL - and the error body must
+            // be redacted before they reach the plaintext log or the chat.
+            detail = redactForOutput(detail);
+            const QString replyError = redactForOutput(reply->errorString());
             logApi(QStringLiteral("[STREAM-GEMINI-ERR] http=%1 reply=%2 body=%3")
-                .arg(statusCode).arg(reply->errorString(), detail));
+                .arg(statusCode).arg(replyError, detail));
             // Streaming-fallback safety net for misbehaving Gemini-compat
             // endpoints. Note: when Gemini returns a real semantic error (e.g.
             // SAFETY/MAX_TOKENS) it does so over HTTP 200, so HTTP 4xx/5xx
@@ -3054,7 +3165,7 @@ void AiClient::sendStreamingMessagesGemini(const QJsonArray &messages,
                 return;
             }
             emit errorOccurred(tr("Gemini streaming error (HTTP %1): %2\n%3")
-                .arg(statusCode).arg(reply->errorString(), detail));
+                .arg(statusCode).arg(replyError, detail));
             _streamBuffer.clear();
             _streamHasTools = false;
             _streamToolCalls.clear();
@@ -3238,7 +3349,7 @@ void AiClient::onGeminiStreamDataAvailable()
         // Diagnostic: log raw chunk so we can see promptFeedback / blockReason
         // on otherwise-empty STOP responses.
         logApi(QStringLiteral("[STREAM-GEMINI-CHUNK] %1")
-            .arg(QString::fromUtf8(payload.left(2000))));
+            .arg(redactForOutput(QString::fromUtf8(payload.left(2000)))));
 
         QJsonArray cands = obj.value(QStringLiteral("candidates")).toArray();
         if (cands.isEmpty()) continue;

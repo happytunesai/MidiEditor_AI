@@ -332,6 +332,117 @@ yes.
 
 <hr>
 
+<h2 id="thin-tempo-map">Thin Tempo Map</h2>
+
+<p>
+The second tool in <b>Tempo Tools</b> answers a different question: not "which tempo is this at",
+but "how many tempo events does it take to say so". A tempo ramp drawn in a DAW is exported as a
+long chain of tiny tempo steps - one every few ticks, thousands of them over a song. Every one of
+them has to be read whenever the editor works out where a note sits in time, and anything else
+that plays the file back reads them too. <b>Thin Tempo Map</b> keeps the events that carry the timing and drops the rest.
+</p>
+
+<div class="highlight-box">
+<p>&#x1F4A1; <b>Find it in:</b> <b>Tools &rarr; Tempo Tools &rarr; Thin Tempo Map&hellip;</b>,
+by right-clicking the measure ruler above the piano roll, or as the repair button on the
+<i>Tempo map</i> finding in the <a href="ffxiv-playability.html">playability check</a>.</p>
+</div>
+
+<div class="screenshot-single">
+<a href="screenshots/tempo-thin_tool.png" class="lightbox-link"><img src="screenshots/tempo-thin_tool.png" class="lightbox-thumb" style="max-width:620px; width:auto;" alt="The Tools menu with Tempo Tools open, showing Convert Tempo, Preserve Duration and Thin Tempo Map" loading="lazy"></a>
+<p class="caption">Thin Tempo Map lives next to Convert Tempo under Tools - Tempo Tools; the tempo ruler offers both on right-click too.</p>
+</div>
+
+<div class="screenshot-single">
+<a href="screenshots/tempo-thin_dialog.png" class="lightbox-link"><img src="screenshots/tempo-thin_dialog.png" class="lightbox-thumb" style="max-width:300px; width:auto;" alt="The Thin Tempo Map dialog on a file with 12,871 tempo events: the allowed timing shift at 2.0 ms and the preview reporting that 31 events would be kept" loading="lazy"></a>
+<p class="caption">The dialog on a real DAW export: 12,871 tempo events, and at the default 2 ms the preview keeps just 31 of them - the music moves by two milliseconds at most.</p>
+</div>
+
+<h3 id="thin-corridor">What "keeping the timing" means</h3>
+
+<p>
+The tempo map is what turns a tick position into a point in time. Thinning replaces it with a
+shorter map that has to stay inside a corridor around the original: you choose how many
+milliseconds any point of the piece may end up away from where it was, and the tool keeps exactly
+the events it needs to honour that - checked at every original tempo event and at the end of the
+file, so the error cannot creep up over the length of the song. The default corridor is
+2&nbsp;ms, far below anything you can hear. Notes, lyrics and markers are never touched; only
+tempo events are removed, and every event that survives keeps the tempo value it already had, so
+no number in the file is ever a computed average.
+</p>
+
+<p>
+The first tempo event of the file always survives - it is the anchor everything else is measured
+from. At the other end of the dial, a corridor of <b>0&nbsp;ms</b> still has work to do: a run of
+tempo events that all say the same thing can be collapsed without moving anything at all, so
+setting the box to zero removes exactly the events whose removal changes no timing whatsoever.
+</p>
+
+<h3 id="thin-budget">The shift is counted from the file as you opened it</h3>
+
+<p>
+The millisecond figure is a budget for the whole document, not a fresh allowance for each run. The
+tool remembers the tempo map it was first asked about in this session and always measures against
+that one, so "the music moves at most 2&nbsp;ms" stays true however often you run it:
+</p>
+
+<ul>
+  <li>Running it again at the <b>same</b> setting reproduces the same decision and removes
+    nothing, so reaching for it whenever a file feels heavy costs nothing.</li>
+  <li>Running it again at a <b>larger</b> setting thins further, still inside the new corridor
+    counted from the file as opened - not on top of what the first run spent.</li>
+  <li>Running it at a <b>smaller</b> setting than a previous run reports the distance the piece
+    has actually travelled and says plainly that the earlier thinning would have to be undone to
+    get back inside the tighter corridor.</li>
+</ul>
+
+<p>
+When the tempo map is changed by something else - a tempo event added or edited, a tempo
+conversion - the remembered map no longer describes the document, so the tool starts counting from
+the map as it stands now. Saving and reopening the file does the same, because the saved file is
+the original from that point on.
+</p>
+
+<h3 id="thin-dialog">The dialog</h3>
+
+<p>
+The dialog opens with a sentence naming how many tempo events the file carries right now - the
+number the preview is worth comparing against - and one setting underneath it.
+</p>
+
+<table class="info-table">
+<thead><tr><th>Element</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td><b>Allowed timing shift</b></td><td>The corridor, in milliseconds, adjusted in half-millisecond
+steps. Smaller keeps more tempo events and moves the music less; larger keeps fewer.</td></tr>
+<tr><td><b>Preview line</b></td><td>Rewrites itself as you turn the dial: how many of the events
+would be kept, how many removed, the largest timing shift anywhere in the piece and the shift at
+the end of the file. Nothing has changed at this point. When the setting keeps everything it says
+so instead - every tempo event is carrying part of the timing.</td></tr>
+<tr><td><b>Thin</b></td><td>Applies it as a single undoable step named after the before and after
+counts, so one Ctrl+Z brings the full map back. The status bar then repeats what happened.</td></tr>
+</tbody>
+</table>
+
+<p>
+Two extra lines appear under the preview when they apply: one whenever the map has already been
+thinned in this session, naming how far from the file as opened it already sits and reminding you
+that the figures count from there; and one in bold when the piece is already further away than the
+setting asks for.
+</p>
+
+<h3 id="thin-ai">Letting the AI do it</h3>
+
+<p>
+MidiPilot has the same tool as <code>thin_tempo_map</code>, with the corridor as its only real
+setting. It follows the dry-run rule: the agent reports how many events it would remove and how
+far the timing would move, waits for your confirmation, and only then applies it as one undoable
+step. The figures it quotes are the same cumulative ones the dialog shows, counted from the file
+as opened. "This file drags, can you clean up the tempo map" is enough to start it.
+</p>
+
+<hr>
+
 <h2 id="related">Related</h2>
 
 <ul>

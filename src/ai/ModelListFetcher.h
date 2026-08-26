@@ -34,10 +34,17 @@ public:
      * \param provider one of "openai" / "openrouter" / "gemini" / "ollama" / "custom"
      * \param apiKey Bearer key (Gemini uses ?key=, others use Authorization header)
      * \param baseUrl Used for the "custom" provider; ignored otherwise.
+     * \param scope Cache/favourites scope the result belongs to
+     *        (ProviderProfileStore::modelScopeId). Empty means "the provider
+     *        itself". Pass a profile scope together with that profile's base
+     *        URL and key to refresh a stored endpoint without switching the
+     *        application's active connection. The signals below report this
+     *        scope, so the receiver can store the result straight away.
      */
     void fetch(const QString &provider,
                const QString &apiKey,
-               const QString &baseUrl);
+               const QString &baseUrl,
+               const QString &scope = QString());
 
     /**
      * \brief Normalise Ollama's /api/tags `models` array into the cache schema
@@ -50,18 +57,19 @@ public:
 signals:
     /**
      * \brief Emitted on success.
-     * \param provider The provider this fetch was for.
+     * \param scope The cache scope this fetch was for (the provider, unless
+     *              the caller passed an explicit scope).
      * \param models Normalised array (id, displayName, contextWindow,
      *               supportsTools, supportsReasoning).
      */
-    void finished(const QString &provider, const QJsonArray &models);
+    void finished(const QString &scope, const QJsonArray &models);
 
     /**
      * \brief Emitted on failure.
-     * \param provider The provider this fetch was for.
+     * \param scope The cache scope this fetch was for.
      * \param error A short, user-presentable error message.
      */
-    void failed(const QString &provider, const QString &error);
+    void failed(const QString &scope, const QString &error);
 
 private slots:
     void onReplyFinished();
@@ -78,7 +86,13 @@ private:
 
     QNetworkAccessManager *_manager;
     QNetworkReply *_reply;
-    QString _provider;
+    /** Strips the API key and any key=/token= query value out of text
+     *  that is about to be shown to the user. */
+    QString redactSecrets(const QString &text) const;
+
+    QString _provider;   ///< decides the endpoint + the normaliser
+    QString _apiKey;     ///< kept only to redact it out of error text
+    QString _scope;      ///< decides where the caller files the result
 };
 
 #endif // MODELLISTFETCHER_H

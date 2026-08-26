@@ -25,7 +25,12 @@
 // Qt includes
 #include <QHash>
 #include <QMultiMap>
+#include <QMutex>
 #include <QObject>
+
+// Standard includes
+#include <memory>
+#include <vector>
 
 // Forward declarations
 class MidiEvent;
@@ -63,6 +68,56 @@ class LyricManager;
  *
  * The class serves as both a data container and a controller, managing
  * the relationships between tracks, channels, events, and timing information.
+ *
+ * \par Thread safety
+ * MidiFile is a document-thread object (the thread it was constructed on -
+ * the GUI thread for every document the editor opens) with ONE documented
+ * exception: two timing conversions are also called from the playback thread.
+ * PlayerThread::run() asks msOfTick() for its start position and
+ * PlayerThread::timeout() asks tick(ms) every 15 ms while the user keeps
+ * editing on the GUI thread.
+ *
+ * The rule that makes those two safe is a single invariant:
+ *
+ *   NO THREAD BUT THE DOCUMENT THREAD EVER READS OR WRITES A CHANNEL MAP.
+ *
+ * The tempo map is therefore published to other threads as an IMMUTABLE
+ * SNAPSHOT: a std::shared_ptr to a const, sorted array of tempo anchors.
+ * Rebuilding it (the only step that iterates channel 17) happens exclusively
+ * on the document thread and produces a NEW array whose pointer is swapped in
+ * under the cache mutex; the old array is never modified, so a player-thread
+ * reader that already holds it keeps a valid, self-consistent tempo map for as
+ * long as it needs one. Off-thread queries take a reference-counted copy of
+ * that pointer under the mutex and then do a pure binary search on it - no
+ * rebuild, no allocation, no map access.
+ *
+ * The following are therefore safe to call from ANY thread:
+ *
+ *   - msOfTick(tick) (the events == nullptr form)
+ *   - tick(ms)
+ *   - invalidateTempoCache()
+ *
+ * Their off-thread contract is "correct, possibly one edit stale": a query
+ * made from another thread after an edit but before the document thread has
+ * asked for a timing again still answers from the previous snapshot. That is
+ * deliberate and harmless - it is at most a frame of stale tempo during an
+ * active edit, and it self-corrects on the document thread's next query
+ * (every repaint and every file-length recompute is one). Trading it away
+ * would mean letting the player thread walk a map the GUI thread is editing,
+ * which is a use-after-free.
+ *
+ * DOCUMENT-THREAD ONLY, despite touching the same cache:
+ *
+ *   - tick(startms, endms, ...) - it hands out pointers to live tempo events
+ *   - calcMaxTime()             - it writes maxTimeMS and emits
+ *                                 recalcWidgetSize() into repainting widgets
+ *
+ * Nothing else on this class is thread-safe: every other event/channel
+ * accessor reads the channel maps without synchronisation, and no thread but
+ * the document thread may MUTATE the file. PlayerThread also calls measure(),
+ * which walks channel 18 unguarded - that predates the tempo cache and is NOT
+ * covered by any of the above; it is a known, pre-existing hazard, and the
+ * reason to keep new work off the player thread.
  */
 class MidiFile : public QObject, public ProtocolEntry {
     Q_OBJECT
@@ -196,6 +251,12 @@ public:
 
     /**
      * \brief Recalculates the maximum time of all events in the file.
+     *
+     *  DOCUMENT THREAD ONLY. It writes maxTimeMS (an unsynchronised int that
+     *  maxTime() hands out) and then emits recalcWidgetSize(), whose directly
+     *  connected slots repaint widgets - neither is a thing to do off the GUI
+     *  thread. It takes the tempo-snapshot pointer and releases the cache lock
+     *  before emitting, because a repainting slot asks msOfTick() again.
      */
     void calcMaxTime();
 
@@ -203,6 +264,11 @@ public:
 
     /**
      * \brief Converts milliseconds to MIDI ticks.
+     *
+     *  Thread-safe (see the class-level "Thread safety" note): PlayerThread
+     *  calls this every 15 ms while the GUI thread edits. Off the document
+     *  thread it answers from the published tempo snapshot and never rebuilds
+     *  it, so it may be one edit stale - see that note.
      * \param ms Time in milliseconds
      * \return Time in MIDI ticks
      */
@@ -210,6 +276,12 @@ public:
 
     /**
      * \brief Gets events and timing information for a time range.
+     *
+     *  DOCUMENT THREAD ONLY - unlike the other conversions. The returned list
+     *  holds pointers to the file's own live tempo events, so it is only valid
+     *  as long as the caller does not let the document thread delete them (the
+     *  same lifetime rule as before the cache), and there is no safe way to
+     *  hand those pointers to another thread at all.
      * \param startms Start time in milliseconds
      * \param endms End time in milliseconds
      * \param events Pointer to receive list of events in range
@@ -232,11 +304,39 @@ public:
     /**
      * \brief Converts MIDI ticks to milliseconds with event context.
      * \param tick Time in MIDI ticks
-     * \param events Optional list of events for timing context
+     * \param events Optional list of events for timing context. When null
+     *        (the normal case - grid lines, notes, cursor, playback prep)
+     *        the answer comes out of the O(log n) tempo cache; when a list
+     *        is given the original linear walk over THAT list is used
+     *        unchanged, because the list is the caller's own window into
+     *        the tempo map and carries its own time origin.
+     *
+     *        The cached form is thread-safe (PlayerThread::run() calls it for
+     *        its start position); off the document thread it reads the
+     *        published snapshot and never rebuilds it, so it may be one edit
+     *        stale. The \a events form is NOT thread-safe: it walks a list the
+     *        caller owns, so the caller keeps that list alive itself.
      * \param msOfFirstEventInList Timing reference for first event
      * \return Time in milliseconds
      */
     int msOfTick(int tick, QList<MidiEvent *> *events = 0, int msOfFirstEventInList = 0);
+
+    /**
+     * \brief Marks the cached tempo map stale, forcing a rebuild on the next
+     *        DOCUMENT-THREAD timing query (the only kind that rebuilds).
+     *
+     *  Normal mutations do not need this: every channel-17 mutation path
+     *  bumps MidiChannel::tempoRevision(), and the cache also re-checks the
+     *  size of the tempo map on every document-thread query. It exists for the
+     *  wholesale state swaps MidiFile itself performs (undo/redo, loading).
+     *
+     *  Thread-safe, but note what it does NOT promise: it only marks the cache
+     *  stale, it does not unpublish the current snapshot. Queries from other
+     *  threads keep answering from that snapshot until the document thread
+     *  rebuilds - deliberately, because the alternative (answering 0 ms) would
+     *  jump the playback cursor, while a frame of stale tempo is inaudible.
+     */
+    void invalidateTempoCache();
 
     /**
      * \brief Gets all events between two tick positions.
@@ -597,7 +697,161 @@ private:
      */
     int ticksPerMeasureOfMeter(int num, int denumPow);
 
+    // === Tempo map cache (Phase 48) ===
+
+    /**
+     * \brief One entry of the cached tempo map: a tempo change, the time in
+     *        milliseconds at which it takes effect, and the ms-per-tick that
+     *        is valid from there until the next anchor.
+     *
+     *  The vector is sorted by \a tick (the tempo map is an ordered
+     *  QMultiMap) and, because msPerTick is always positive, by \a msAtTick
+     *  as well - so both directions of the conversion are a binary search.
+     */
+    struct TempoAnchor {
+        int tick;
+        double msAtTick;
+        double msPerTick;
+        /** \brief The live event this anchor came from. DOCUMENT THREAD ONLY -
+         *  the snapshot keeps the anchor arithmetic alive across threads, it
+         *  does NOT keep this pointer alive. Only tick(startms, endms, ...)
+         *  reads it, and that overload is document-thread only. */
+        TempoChangeEvent *event;
+    };
+
+    /**
+     * \brief The published form of the tempo map: a sorted array of anchors
+     *        that is IMMUTABLE once published. A rebuild never edits it in
+     *        place, it builds a new one and swaps the pointer.
+     */
+    typedef std::vector<TempoAnchor> TempoSnapshot;
+
+    /** \brief A counted reference to one published TempoSnapshot. Holding one
+     *  is what makes an off-thread lookup safe: the array it points at cannot
+     *  change or be freed while the reference lives. */
+    typedef std::shared_ptr<const TempoSnapshot> TempoSnapshotPtr;
+
+    /**
+     * \brief True when the caller runs on the thread this document belongs to
+     *        (QObject affinity - the thread it was created on, or whatever
+     *        moveToThread() last handed it to). Only that thread may touch the
+     *        channel maps, so only that thread may rebuild the tempo snapshot.
+     *
+     *  Returns true when the object has no thread affinity at all, so a
+     *  document deliberately detached from every thread degrades to the old
+     *  single-threaded behaviour instead of freezing its cache forever.
+     */
+    bool onOwnerThread() const;
+
+    /**
+     * \brief The current tempo anchors as a reference the caller owns.
+     *
+     *  This is the ONE door to the cache. On the document thread it rebuilds
+     *  first when the map has moved on; on any other thread it rebuilds
+     *  NOTHING and simply hands out whatever is published - see the
+     *  class-level "Thread safety" note for why that is the correct trade.
+     *
+     *  The mutex is held only for the pointer copy (and, on the document
+     *  thread, the rebuild). The returned array is const and kept alive by the
+     *  returned pointer, so the actual binary search runs lock-free.
+     *
+     *  Never returns null: before anything has ever been published it returns
+     *  a shared empty array, which converts every tick to 0 ms - the same
+     *  answer the old code gave for a file without tempo events. In practice
+     *  no player-thread query can be the first one: loading a file, and every
+     *  repaint after it, goes through calcMaxTime() / msOfTick() on the
+     *  document thread long before playback can start.
+     */
+    TempoSnapshotPtr tempoSnapshot();
+
+    /**
+     * \brief Rebuilds and republishes the tempo snapshot if it can no longer
+     *        be trusted.
+     *
+     *  PRECONDITIONS: the caller holds \a _tempoCacheMutex - hence the name -
+     *  AND runs on the document thread, because this is the only code in the
+     *  cache that touches channel 17's live QMultiMap. tempoSnapshot() is the
+     *  only caller and enforces both.
+     *
+     *  It must never call a public (locking) method of this class, or a query
+     *  would deadlock on the non-recursive mutex; the only outward call it
+     *  makes is TempoChangeEvent::msPerTick(), which reads ticksPerQuarter()
+     *  and takes no lock.
+     *
+     *  Two independent triggers, both cheap:
+     *   - MidiChannel::tempoRevision() differs from the value the cache was
+     *     built at (every channel-17 mutation bumps it), and
+     *   - the size of the tempo map differs from the size recorded at build
+     *     time. This is the safety net for mutation sites that bypass
+     *     MidiChannel entirely and write into eventMap() directly. It cannot
+     *     replace the revision counter - same-size mutations exist (a BPM
+     *     edit, a moved tempo event) - but it catches drift for free.
+     *
+     *  The revision counter is process-wide, so an edit in ANY open document
+     *  can force a rebuild here. That only ever costs a wasted walk: the walk
+     *  reads THIS file's own tempo map, which only this file's document thread
+     *  writes.
+     *
+     *  A rebuild is ONE linear walk plus one allocation, i.e. roughly the work
+     *  the old msOfTick() did on every single query.
+     */
+    void rebuildTempoCacheLocked();
+
+    /**
+     * \brief Index of the anchor in \a anchors that governs \a tick, or -1 when
+     *        the array is empty. Ticks before the first anchor are governed by
+     *        that first anchor (extrapolated backwards), which is what the
+     *        original linear walk did.
+     *
+     *  Static and snapshot-based on purpose: it touches no member, so it needs
+     *  no lock and cannot accidentally read a vector another thread may swap.
+     */
+    static int tempoAnchorIndexForTick(const TempoSnapshot &anchors, int tick);
+
+    /** \brief Index of the anchor that governs \a ms, or -1 if there is none.
+     *  Same rules as tempoAnchorIndexForTick(). */
+    static int tempoAnchorIndexForMs(const TempoSnapshot &anchors, double ms);
+
+    /** \brief Cached msOfTick() in full double precision. Takes a snapshot
+     *  itself (and therefore the cache mutex, briefly); do not call it with
+     *  the lock already held. */
+    double msOfTickCached(int tick);
+
     // === Private Member Variables ===
+
+    /**
+     * \brief Serialises publication of the tempo snapshot: the pointer swap in
+     *        rebuildTempoCacheLocked() and the pointer copy in
+     *        tempoSnapshot(), plus the three bookkeeping fields below.
+     *
+     *  It does NOT cover the lookups. It cannot: holding a lock across a
+     *  lookup would only ever have protected the ARRAY, and the real hazard
+     *  was never the array - it was the rebuild walking channel 17's live
+     *  QMultiMap from the player thread while the GUI thread deleted it (undo
+     *  swaps the whole map out). That is fixed by keeping the rebuild on the
+     *  document thread, not by a bigger critical section.
+     *
+     *  So the lock is held for a pointer copy and nothing else. Uncontended
+     *  that is a few nanoseconds and allocates nothing, which is what the hot
+     *  path (one call per grid line, note and cursor per paint) requires, and
+     *  the binary search that follows runs with no lock at all.
+     *
+     *  Mutable so const helpers could lock; recursive locking is NOT
+     *  supported, so no method that holds it may call a public method.
+     */
+    mutable QMutex _tempoCacheMutex;
+
+    /** \brief Phase 48 / v2.3: the published sorted tempo anchors; see
+     *  tempoSnapshot() and rebuildTempoCacheLocked(). The POINTER is guarded by
+     *  _tempoCacheMutex; the array it points at is const and never mutated
+     *  after publication, which is what lets other threads read it safely.
+     *  Null until the first publication.
+     *  Deliberately NOT part of copy()/reloadState(): protocol snapshots must
+     *  stay cheap, and reloadState() invalidates instead. */
+    TempoSnapshotPtr _tempoCache;
+    bool _tempoCacheValid = false;
+    quint64 _tempoCacheRevision = 0;
+    int _tempoCacheEventCount = -1;
 
     /** \brief Ticks per quarter note resolution */
     int timePerQuarter;

@@ -1870,3 +1870,81 @@ if(WIN32)
             ENVIRONMENT "PATH=${_qt_bin_dir};$ENV{PATH}")
     endif()
 endif()
+
+# --- v2.3 Phase 49: TempoMapThinner (skeleton target, filled by the sprint) ---
+add_executable(test_tempo_map_thinner
+    test_tempo_map_thinner.cpp
+    ../src/midi/TempoMapThinner.cpp
+    ../src/midi/MidiFile.cpp
+    ../src/midi/MidiChannel.cpp
+    ../src/midi/MidiTrack.cpp
+    ../src/midi/LyricManager.cpp
+    ../src/midi/InstrumentDefinitions.cpp
+    ../src/converter/SrtParser.cpp
+    ../src/protocol/Protocol.cpp
+    ../src/protocol/ProtocolEntry.cpp
+    ../src/protocol/ProtocolItem.cpp
+    ../src/protocol/ProtocolStep.cpp
+    ../src/gui/ChannelVisibilityManager.cpp
+    ../src/gui/GraphicObject.cpp
+    ../src/MidiEvent/MidiEvent.cpp
+    ../src/MidiEvent/NoteOnEvent.cpp
+    ../src/MidiEvent/OffEvent.cpp
+    ../src/MidiEvent/OnEvent.cpp
+    ../src/MidiEvent/ControlChangeEvent.cpp
+    ../src/MidiEvent/ProgChangeEvent.cpp
+    ../src/MidiEvent/PitchBendEvent.cpp
+    ../src/MidiEvent/ChannelPressureEvent.cpp
+    ../src/MidiEvent/KeyPressureEvent.cpp
+    ../src/MidiEvent/TempoChangeEvent.cpp
+    ../src/MidiEvent/TimeSignatureEvent.cpp
+    ../src/MidiEvent/KeySignatureEvent.cpp
+    ../src/MidiEvent/TextEvent.cpp
+    ../src/MidiEvent/SysExEvent.cpp
+    ../src/MidiEvent/UnknownEvent.cpp
+)
+target_include_directories(test_tempo_map_thinner PRIVATE
+    ../src/MidiEvent
+    ../src/midi
+    ../src/protocol
+    ../src/gui
+    ../src/converter
+)
+target_link_libraries(test_tempo_map_thinner PRIVATE
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Widgets
+    Qt6::Test
+)
+add_test(NAME TempoMapThinner COMMAND test_tempo_map_thinner)
+
+if(WIN32)
+    get_target_property(_qt_core_loc Qt6::Core LOCATION)
+    get_filename_component(_qt_bin_dir "${_qt_core_loc}" DIRECTORY)
+    set_tests_properties(TempoMapThinner PROPERTIES
+        ENVIRONMENT "PATH=${_qt_bin_dir};$ENV{PATH}")
+endif()
+
+# --- v2.3 Phase 50: ProviderProfileStore (skeleton target, filled by the sprint) ---
+add_executable(test_provider_profile_store
+    test_provider_profile_store.cpp
+    ../src/ai/ProviderProfileStore.cpp
+    ../src/AppPaths.cpp # v2.2 review: PromptProfileStore routes through the seam
+    # v2.3 review (F13/F16): removing a profile also clears its endpoint scope,
+    # so the store now calls into the favourites and the model-list cache.
+    ../src/ai/ModelFavorites.cpp
+    ../src/ai/ModelListCache.cpp
+)
+target_include_directories(test_provider_profile_store PRIVATE ../src/ai)
+target_link_libraries(test_provider_profile_store PRIVATE
+    Qt6::Core
+    Qt6::Test
+)
+add_test(NAME ProviderProfileStore COMMAND test_provider_profile_store)
+
+if(WIN32)
+    get_target_property(_qt_core_loc Qt6::Core LOCATION)
+    get_filename_component(_qt_bin_dir "${_qt_core_loc}" DIRECTORY)
+    set_tests_properties(ProviderProfileStore PROPERTIES
+        ENVIRONMENT "PATH=${_qt_bin_dir};$ENV{PATH}")
+endif()

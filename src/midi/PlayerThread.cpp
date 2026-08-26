@@ -67,6 +67,14 @@ void PlayerThread::run() {
 
     events = file->playerData();
 
+    // Everything this thread asks MidiFile for from here on is limited to the
+    // two conversions the file documents as thread-safe (msOfTick(tick) and
+    // tick(ms)). Both answer from an immutable tempo snapshot the DOCUMENT
+    // thread publishes, so nothing below ever iterates a channel map or
+    // rebuilds the cache - which is what makes editing during playback safe.
+    // The price is that a conversion made between an edit and the GUI's next
+    // timing query is one edit stale; a frame of stale tempo is inaudible and
+    // self-corrects. See MidiFile's "Thread safety" note.
     if (file->pauseTick() >= 0) {
         position = file->msOfTick(file->pauseTick());
     } else {
@@ -150,10 +158,15 @@ void PlayerThread::timeout() {
         quit();
     } else {
         int newPos = position + time->elapsed() * MidiPlayer::speedScale();
+        // Snapshot-backed and safe to call from here (see run()).
         int tick = file->tick(newPos);
         QList<TimeSignatureEvent *> *list = 0;
         int ickInMeasure = 0;
 
+        // NOT covered by that guarantee: measure() walks channel 18's live
+        // QMultiMap on this thread. It predates the tempo cache and is a known
+        // pre-existing hazard (a meter edit during playback can race it), not
+        // something the tempo snapshot fixes. Do not add more calls like it.
         int new_measure = file->measure(tick, tick, &list, &ickInMeasure);
 
         // compute current pos

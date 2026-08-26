@@ -13356,6 +13356,13 @@ target, manual):
 4. Import: no auto-thinning (never silently rewrite a loaded file); at most a status-bar
    hint when a file loads with a tempo map above a threshold, pointing at the tool.
 
+**Shipped contract (v2.3 review, F5):** the tolerance is a PER-DOCUMENT budget measured
+against the tempo map as the file was LOADED, not a per-run allowance. The thinner remembers
+the original map per open document, so a second run reports what is already spent
+(alreadyDriftedMs) and refuses to spend the corridor twice; undo restores the reference with
+the map, and editing the tempo map by hand resets it. Save-and-reopen deliberately starts a
+fresh budget - the saved file is the original from then on.
+
 **Acceptance.** Unit tests: ramp file thins under tolerance with end time preserved and
 note ms-positions within tolerance; idempotent (second run removes nothing); tick-0 kept;
 undo restores all events. Manual page (tempo-conversion.html section or the playability
