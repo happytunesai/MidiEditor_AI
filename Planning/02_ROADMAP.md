@@ -13403,6 +13403,21 @@ per-provider key memory (switching provider then back must not clobber a profile
 preset-name fallback when the profile is missing. Manual: providers section of
 midipilot-settings.html (+ help_db regen), CHANGELOG per the template.
 
+## Post-2.3 candidates (owner idea 2026-08-26, docs QoL - "kleine Aufraeum-Aktion")
+* **Changelog -> manual anchor links:** feature bullets on the website changelog should
+  link straight to the manual passage that explains the feature (a reader who finds an
+  interesting tool in the changelog should not have to search the manual for it).
+  Sketch: write the links in CHANGELOG.md itself as absolute site URLs
+  (https://midieditor-ai.de/<page>.html#<anchor>) so they work BOTH on GitHub and on the
+  generated changelog.html; build_changelog.py passes them through. The anchors already
+  exist and are machine-known: run_environment/help_db.json carries every manual section
+  id, and the HelpDatabase ctest guards them - so a small release-time check can validate
+  every changelog link against help_db.json (dead anchor = failing check, same pattern as
+  dedash). Retrofit: at least the 2.3.0 entry (Thin Tempo Map -> tempo-conversion.html
+  #thin-tempo-map, provider profiles -> midipilot-settings.html, playability tempo check
+  -> ffxiv-playability.html); older entries opportunistically. Add the link step to the
+  CHANGELOG entry template (outside the repo) and to 11_RELEASE_CHECKLIST section 2.
+
 ## Further 2.3 candidates (carry-over, all LOW, decide at scoping)
 * startTickOfMeasure(): ceil() on integer division miscounts when a meter change is off
   the bar grid (03_bugs.md, deferred - any fix changes bar numbering, wants its own pass)

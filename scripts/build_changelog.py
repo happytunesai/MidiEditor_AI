@@ -154,9 +154,22 @@ def _parse_details(block: str) -> str:
 
         items_html = _parse_section_content(content.strip())
 
+        # The badge carries its own label ("🔄 Changed"); when the section
+        # heading is that exact word, rendering both gives "Changed Changed",
+        # and a heading that merely STARTS with it ("Fixed / Changed") still
+        # reads doubled next to the label - keep only the emoji then.
+        badge_label = badge.split(" ", 1)[1] if " " in badge else badge
+        h = heading.strip()
+        if h.lower() == badge_label.lower():
+            heading_html = ""
+        elif h.lower().startswith(badge_label.lower()):
+            badge = badge.split(" ", 1)[0]
+            heading_html = " " + md_inline(heading)
+        else:
+            heading_html = " " + md_inline(heading)
         parts.append(
             f'<div class="cl-cat {cat_cls}">'
-            f'<h4><span class="cat-badge">{badge}</span> {md_inline(heading)}</h4>'
+            f'<h4><span class="cat-badge">{badge}</span>{heading_html}</h4>'
             f"{items_html}"
             f"</div>"
         )
