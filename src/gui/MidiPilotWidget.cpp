@@ -190,17 +190,36 @@ public:
                 .arg(dark ? "#BBB" : "#555"));
         connect(_headerBtn, &QPushButton::clicked, this, [this]() {
             _collapsed = !_collapsed;
-            _stepsContainer->setVisible(!_collapsed);
+            _stepsScroll->setVisible(!_collapsed);
             updateHeader();
         });
         layout->addWidget(_headerBtn);
 
-        // Steps container
-        _stepsContainer = new QWidget(this);
+        // Steps container - inside a HEIGHT-CAPPED scroll area. This widget
+        // is anchored in _agentDockArea, OUTSIDE the chat scroll, so its
+        // natural height goes straight into the panel's layout: a long agent
+        // run (90+ steps) would demand more height than the window has and
+        // shove the input bar - and half the editor - off screen. Long runs
+        // scroll in here instead; markActive() keeps the running step in view.
+        _stepsContainer = new QWidget;
         _stepsLayout = new QVBoxLayout(_stepsContainer);
         _stepsLayout->setContentsMargins(4, 2, 0, 4);
         _stepsLayout->setSpacing(1);
-        layout->addWidget(_stepsContainer);
+
+        _stepsScroll = new QScrollArea(this);
+        _stepsScroll->setWidgetResizable(true);
+        _stepsScroll->setFrameShape(QFrame::NoFrame);
+        _stepsScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        // Shrink to the content while it is small, cap it when it is not.
+        _stepsScroll->setSizeAdjustPolicy(QAbstractScrollArea::AdjustToContents);
+        _stepsScroll->setMaximumHeight(220);
+        // Keep the card's rounded background visible through the scroll area.
+        _stepsScroll->setStyleSheet(
+            "QScrollArea { background: transparent; }");
+        _stepsScroll->viewport()->setAutoFillBackground(false);
+        _stepsContainer->setAutoFillBackground(false);
+        _stepsScroll->setWidget(_stepsContainer);
+        layout->addWidget(_stepsScroll);
 
         setStyleSheet(
             QString("AgentStepsWidget { background-color: %1; "
@@ -240,6 +259,9 @@ public:
         label->setStyleSheet(
             QString("color: %1; font-weight: bold; font-size: 11px; padding: 1px 2px;")
                 .arg(dark ? "#55AAFF" : "#0066CC"));
+        // With the capped scroll area the running step can sit below the
+        // fold - follow it.
+        _stepsScroll->ensureWidgetVisible(label, 0, 12);
     }
 
     void completeStep(int step, bool success, bool recoverable = false) {
@@ -297,6 +319,7 @@ private:
 
     QPushButton *_headerBtn;
     QWidget *_stepsContainer;
+    QScrollArea *_stepsScroll;
     QVBoxLayout *_stepsLayout;
     QMap<int, QLabel*> _stepLabels;
     QMap<int, QString> _stepNames;

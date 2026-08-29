@@ -5,6 +5,33 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 
 ---
 
+## [2.3.1] - Unreleased
+
+> In progress after the 2.3.0 release. On release day: set the real date and a
+> title (here and in the <summary> line), write the Summary from the shipped
+> content, delete this note, then run scripts/build_changelog.py - the website
+> generator skips entries whose date starts with "Unreleased".
+
+### Summary
+* **A very long agent run no longer pushes MidiPilot off screen** - the pinned Steps panel now scrolls inside a capped area instead of growing past the window.
+
+<details>
+<summary>Full Changelog - (title at release)</summary>
+
+### New Features
+
+### Changed
+
+### Bug Fixes
+* **The Agent Steps panel could push MidiPilot off screen** - the Steps list is pinned between the chat and the input bar, and a long agent run (90 or more steps) grew it taller than the window: the chat input and half the editor were shoved out of view until the window was resized or the list collapsed. The list now scrolls inside a height-capped area and automatically keeps the running step in view.
+
+### Files Modified
+* `src/gui/MidiPilotWidget.cpp` - the agent Steps list lives in a height-capped scroll area that follows the active step
+
+</details>
+
+---
+
 ## [2.3.0] - 2026-08-26 - Thin Tempo Map, Tempo Performance, Provider Profiles
 
 ### Summary
