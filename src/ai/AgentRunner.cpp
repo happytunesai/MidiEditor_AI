@@ -309,6 +309,34 @@ void AgentRunner::updateWorkingStateFromToolResult(AgentWorkingState &state,
     } else if (toolName == QStringLiteral("thin_tempo_map")) {
         appendFact(state, result.value(QStringLiteral("summary")).toString(
                               QStringLiteral("Tempo map thinning completed")));
+    } else if (toolName == QStringLiteral("list_documents")) {
+        state.lastToolResult = QStringLiteral(
+            "list_documents succeeded: %1 open document(s)")
+            .arg(result.value(QStringLiteral("documents")).toArray().size());
+    } else if (toolName == QStringLiteral("get_document_overview")) {
+        state.lastToolResult = compactText(
+            result.value(QStringLiteral("summary")).toString(
+                QStringLiteral("get_document_overview succeeded")), 240);
+    } else if (toolName == QStringLiteral("import_tracks_from_document")) {
+        // Keep the dry-run numbers (collisions, tick scaling, tempo-map
+        // difference) in the working state so the confirm turn still knows
+        // what it is confirming - same idiom as convert_tempo/thin_tempo_map.
+        appendFact(state, result.value(QStringLiteral("summary")).toString(
+                              QStringLiteral("Track import completed")));
+    } else if (toolName == QStringLiteral("switch_document")) {
+        if (!result.value(QStringLiteral("alreadyBound")).toBool(false)) {
+            // Title concatenated, never .arg()-substituted (file-name input).
+            appendFact(state, QStringLiteral("Run re-bound to document '")
+                                  + result.value(QStringLiteral("title")).toString()
+                                  + QStringLiteral("' - reads, writes and undo "
+                                                   "steps now act there"));
+            state.nextStepHint = QStringLiteral(
+                "Call get_editor_state to read the newly bound document "
+                "before editing it.");
+        } else {
+            state.lastToolResult = QStringLiteral(
+                "switch_document: already bound to that document");
+        }
     }
 }
 
@@ -372,6 +400,11 @@ void AgentRunner::run(const QString &systemPrompt,
 
     _file = file;
     _widget = widget;
+    // v2.3.1 cross-tab: remember the run's home document. `_file` may be
+    // re-bound by an intercepted switch_document call; `_originFile` is what
+    // the step labels compare against ("is this step landing elsewhere?").
+    _originFile = file;
+    _boundDocTitle.clear();
     _currentStep = 0;
     _running = true;
     _cancelled = false;
@@ -486,6 +519,11 @@ void AgentRunner::rebuildToolSchemas()
     // inside toolSchemas() that gates the FFXIV bundle.
     ToolDefinitions::ToolSchemaOptions schemaOpts;
     schemaOpts.includePitchBend = _policy.allowPitchBendEvents;
+    // v2.3.1 cross-tab: only the AgentRunner opts in to the switch_document
+    // definition - it intercepts the call before dispatch and re-binds the
+    // run (no tab activation). The MCP server keeps the default options and
+    // appends its OWN switch_document with the activate-the-tab contract.
+    schemaOpts.includeDocumentSwitch = true;
     _tools = ToolDefinitions::toolSchemas(schemaOpts);
 }
 
@@ -853,7 +891,11 @@ void AgentRunner::processToolCalls(const QJsonObject &assistantMessage)
         QString name = fn["name"].toString();
         QString argsStr = fn["arguments"].toString();
         QJsonObject args = QJsonDocument::fromJson(argsStr.toUtf8()).object();
-        plannedLabels << buildStepLabel(name, args);
+        // v2.3.1: labels carry the bound document's title while the run is
+        // away from its origin. Planned labels use the suffix as of NOW - a
+        // batch that switches mid-way keeps its pre-planned labels (the step
+        // records and the chat's switch line still name the right document).
+        plannedLabels << decorateStepLabel(buildStepLabel(name, args));
     }
     emit stepsPlanned(firstStep, plannedLabels);
 
@@ -874,7 +916,7 @@ void AgentRunner::processToolCalls(const QJsonObject &assistantMessage)
         QJsonObject args = argsDoc.object();
 
         _currentStep++;
-        emit stepStarted(_currentStep, buildStepLabel(toolName, args));
+        emit stepStarted(_currentStep, decorateStepLabel(buildStepLabel(toolName, args)));
 
         QJsonObject result;
         const bool isWriteTool = toolName == QStringLiteral("insert_events")
@@ -946,6 +988,17 @@ void AgentRunner::processToolCalls(const QJsonObject &assistantMessage)
                 }
             }
         }
+
+        // v2.3.1 cross-tab: switch_document is intercepted HERE, before
+        // generic dispatch - the runner (not ToolDefinitions) owns the run
+        // bind, exactly like the MCP server owns its session bind and
+        // intercepts its own switch_document before bound-file resolution.
+        // The intercept is synchronous within this loop iteration, so the
+        // very next tool call of the SAME batch already acts on the new
+        // document. Only a tool RESULT is produced (no extra messages
+        // mid-batch - same rule as the FFXIV mode switch below).
+        if (result.isEmpty() && toolName == QStringLiteral("switch_document"))
+            result = interceptSwitchDocument(args);
 
         // Execute the tool unless the duplicate-call guard produced a
         // corrective tool result above.
@@ -1040,6 +1093,73 @@ void AgentRunner::processToolCalls(const QJsonObject &assistantMessage)
 
     // Send the next request with tool results
     sendNextRequest();
+}
+
+QJsonObject AgentRunner::interceptSwitchDocument(const QJsonObject &args)
+{
+    QJsonObject result;
+    const int index = args.value(QStringLiteral("index")).toInt(-1);
+    MidiFile *target = _widget ? _widget->documentFileByListIndex(index) : nullptr;
+    if (!target) {
+        // Guard rail: a closed/invalid index is a structured error result and
+        // the run CONTINUES on its current document - never an abort.
+        result[QStringLiteral("success")] = false;
+        result[QStringLiteral("error")] = QStringLiteral(
+            "Invalid document index %1 - the tab may have been closed or the "
+            "list may have changed. Call list_documents for the current list. "
+            "The run stays bound to its current document; nothing was switched.")
+            .arg(index);
+        return result;
+    }
+
+    // Title CONCATENATED into every string below, never .arg()-substituted -
+    // a tab title comes from a file name and could contain '%N'.
+    const QString title = _widget->documentTitleForFile(target);
+    result[QStringLiteral("index")] = index;
+    result[QStringLiteral("title")] = title;
+
+    if (target == _file) {
+        // Redundant switch: report, change nothing, announce nothing.
+        result[QStringLiteral("success")] = true;
+        result[QStringLiteral("alreadyBound")] = true;
+        result[QStringLiteral("summary")] = QStringLiteral("Already working on '")
+            + title + QStringLiteral("' - nothing changed.");
+        return result;
+    }
+
+    // ATOMIC RE-BIND, main-thread-synchronous, no stale-bind window:
+    //  (a) `_file`     - every following executeTool call (this batch
+    //                    included) reads and writes the new document;
+    //                    Selection::forFile/EditorContext follow per call.
+    //  (b) the widget  - rebindAgentRun() moves `_runOriginFile` (the
+    //                    closed-mid-run guard now aborts on the NEW target;
+    //                    closing the ORIGINAL document no longer aborts the
+    //                    run, which continues here - see the guard's docs),
+    //                    records the document for the per-step undo
+    //                    bookkeeping, and posts the unmissable chat line.
+    //  Deliberately NOT: activating the tab in the UI. MidiPilot's chat is
+    //  panel-wide and must stay visible; MCP's switch_document keeps
+    //  activating the tab - that difference is by design.
+    _file = target;
+    _widget->rebindAgentRun(target, title);
+    _boundDocTitle = (target == _originFile) ? QString() : title;
+
+    result[QStringLiteral("success")] = true;
+    result[QStringLiteral("switched")] = true;
+    result[QStringLiteral("uiTabActivated")] = false;
+    result[QStringLiteral("summary")] = QStringLiteral("Now working on '") + title
+        + QStringLiteral("' - every following read and write acts on that document "
+                         "and its undo steps land there. The visible tab did NOT "
+                         "change. Call get_editor_state to read the document's "
+                         "state before editing it.");
+    return result;
+}
+
+QString AgentRunner::decorateStepLabel(const QString &label) const
+{
+    if (_boundDocTitle.isEmpty())
+        return label;
+    return label + QStringLiteral(" [in ") + _boundDocTitle + QLatin1Char(']');
 }
 
 QString AgentRunner::buildStepLabel(const QString &toolName, const QJsonObject &args)
@@ -1164,6 +1284,31 @@ QString AgentRunner::buildStepLabel(const QString &toolName, const QJsonObject &
     if (toolName == "get_editor_state") {
         return QStringLiteral("Get editor state");
     }
+    if (toolName == "list_documents") {
+        return QStringLiteral("List open documents");
+    }
+    if (toolName == "get_document_overview") {
+        return QStringLiteral("Read document overview \u2014 #%1")
+            .arg(args["documentIndex"].toInt(-1));
+    }
+    if (toolName == "import_tracks_from_document") {
+        const int doc = args["documentIndex"].toInt(-1);
+        const int n = args["trackIndexes"].toArray().size();
+        QString label = n > 0
+            ? QStringLiteral("Import %1 track(s) \u2014 from document #%2").arg(n).arg(doc)
+            : QStringLiteral("Import tracks \u2014 from document #%1").arg(doc);
+        // dryRun defaults to true (STRICT-SCHEMA-001: null = true).
+        const QJsonValue dry = args.value(QStringLiteral("dryRun"));
+        if (!dry.isBool() || dry.toBool())
+            label += QStringLiteral(" (dry run)");
+        return label;
+    }
+    if (toolName == "switch_document") {
+        // Deliberately distinct from every other step label (guard rail):
+        // arrows + caps make the re-bind stand out in the steps dock.
+        return QStringLiteral("\u21C4 SWITCH DOCUMENT \u2192 #%1")
+            .arg(args["index"].toInt(-1));
+    }
     if (toolName == "validate_ffxiv") {
         return QStringLiteral("Validate FFXIV constraints");
     }
@@ -1188,4 +1333,7 @@ void AgentRunner::cleanup()
         _client->setNextRequestPolicyOverride(false, QString());
     _file = nullptr;
     _widget = nullptr;
+    // v2.3.1 cross-tab: drop the run's home/bind bookkeeping with the run.
+    _originFile = nullptr;
+    _boundDocTitle.clear();
 }

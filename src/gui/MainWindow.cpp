@@ -3819,6 +3819,31 @@ QJsonArray MainWindow::listOpenDocumentsJson() const {
     return arr;
 }
 
+MidiFile *MainWindow::documentFileByListIndex(int index) const {
+    // MUST mirror listOpenDocumentsJson()'s flattening exactly (including the
+    // skip of documents without a file) - the index the tools hand around is
+    // positional in that listing.
+    if (index < 0) {
+        return nullptr;
+    }
+    int listIndex = 0;
+    MidiFile *found = nullptr;
+    auto scan = [&](DocumentManager *mgr) {
+        if (!mgr || found) return;
+        for (int i = 0; i < mgr->count(); ++i) {
+            Document *doc = mgr->at(i);
+            if (!doc || !doc->file()) continue;
+            if (listIndex++ == index) {
+                found = doc->file();
+                return;
+            }
+        }
+    };
+    scan(_documentManager);
+    scan(_group1Docs);
+    return found;
+}
+
 bool MainWindow::activateDocumentByListIndex(int index) {
     if (index < 0) {
         return false;

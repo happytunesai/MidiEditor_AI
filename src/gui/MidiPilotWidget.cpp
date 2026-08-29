@@ -1562,6 +1562,15 @@ bool MidiPilotWidget::sendCurrentPrompt() {
         // edits to the wrong file (the apply path reads activeEditFile()).
         _requestGeneration++;
         _runOriginFile = _file;
+        // v2.3.1 cross-tab: seed the run's document bookkeeping. The titles
+        // feed the per-step undo records (which tab holds a step's undo) and
+        // the run-end multi-document summary; rebindAgentRun() extends them
+        // when the agent switches its bind to another tab.
+        _runOriginDocTitle = documentTitleForFile(_file);
+        _runCurrentDocTitle = _runOriginDocTitle;
+        _runDocTitles.clear();
+        if (!_runOriginDocTitle.isEmpty())
+            _runDocTitles.append(_runOriginDocTitle);
         _sendButton->setVisible(false);
         _stopButton->setVisible(true);
 
@@ -2214,8 +2223,62 @@ bool MidiPilotWidget::isAgentRunning() const {
 }
 
 bool MidiPilotWidget::isAgentRunningOn(MidiFile *f) const {
-    // True if an in-flight request (agent or simple) was started against f.
+    // True if an in-flight request (agent or simple) was started against f -
+    // or, v2.3.1, re-bound onto f by an intercepted switch_document
+    // (rebindAgentRun moves _runOriginFile with the run's current target).
     return f && _runOriginFile == f;
+}
+
+MidiFile *MidiPilotWidget::documentFileByListIndex(int index) const {
+    return _mainWindow ? _mainWindow->documentFileByListIndex(index) : nullptr;
+}
+
+QString MidiPilotWidget::documentTitleForFile(MidiFile *f) const {
+    if (!_mainWindow || !f)
+        return QString();
+    // The list JSON carries titles but no pointers; resolve each listed index
+    // back to its file via the SAME flattening and match on identity. Open
+    // documents number in the tens at most, so the quadratic scan is fine.
+    const QJsonArray docs = _mainWindow->listOpenDocumentsJson();
+    for (const QJsonValue &v : docs) {
+        const QJsonObject o = v.toObject();
+        const int idx = o.value(QStringLiteral("index")).toInt(-1);
+        if (idx >= 0 && _mainWindow->documentFileByListIndex(idx) == f)
+            return o.value(QStringLiteral("title")).toString();
+    }
+    return QString();
+}
+
+void MidiPilotWidget::rebindAgentRun(MidiFile *target, const QString &title) {
+    // Only a live agent run has a bind to move. AgentRunner's intercept is
+    // the sole caller and runs strictly inside processToolCalls, but guard
+    // anyway - a stray call outside a run must not plant a stale
+    // _runOriginFile that would misdirect closeDocumentFile's abort check.
+    if (!_isAgentRunning || !target)
+        return;
+
+    // The closed-mid-run guard now watches the NEW target: closing ITS tab
+    // aborts the run (MainWindow::closeDocumentFile -> isAgentRunningOn),
+    // while closing the ORIGINAL document no longer does - the run continues
+    // on its current target and this panel-wide chat stays where it is.
+    _runOriginFile = target;
+
+    // Per-step undo bookkeeping: every step completed from now on records
+    // this title (see onAgentStepCompleted) so the user can tell which tab's
+    // Protocol holds a step's undo entry.
+    _runCurrentDocTitle = title;
+    if (!title.isEmpty() && !_runDocTitles.contains(title))
+        _runDocTitles.append(title);
+
+    // The unmissable, chat-visible announcement (same addChatBubble("system")
+    // channel as TOOLFAIL-SILENT-001). Title CONCATENATED, never
+    // .arg()-substituted - it comes from a file name and could contain '%N'.
+    addChatBubble(QStringLiteral("system"),
+                  QStringLiteral("\u21C4 Switched to '") + title
+                      + QStringLiteral("' \u2014 the agent now reads and edits that "
+                                       "tab. The view stays here; from now on its "
+                                       "edits (and their undo steps) are in '")
+                      + title + QStringLiteral("'."));
 }
 
 QJsonObject MidiPilotWidget::executeAction(const QJsonObject &actionObj) {
@@ -2735,6 +2798,17 @@ void MidiPilotWidget::onAgentStepCompleted(int step, const QString &toolName, co
     stepEntry[QStringLiteral("tool")] = toolName;
     stepEntry[QStringLiteral("success")] = success;
     if (recoverable) stepEntry[QStringLiteral("recoverable")] = true;
+    // v2.3.1 cross-tab: the DOCUMENT dimension of the undo bookkeeping. Each
+    // tool call opens its Protocol action on the run's current bind (Protocol
+    // is per-MidiFile, so undo automatically acts on the document the step
+    // edited - via that document's tab). Record the document only while the
+    // run is bound AWAY from the document it started on, so the persisted
+    // step list says which steps' undo entries live in another tab; unmarked
+    // steps are the run's own (origin) document as before.
+    if (_isAgentRunning && !_runCurrentDocTitle.isEmpty()
+        && _runCurrentDocTitle != _runOriginDocTitle) {
+        stepEntry[QStringLiteral("document")] = _runCurrentDocTitle;
+    }
     _turnSteps.append(stepEntry);
 
     // Check off the step in the checklist
@@ -2791,6 +2865,24 @@ void MidiPilotWidget::onAgentFinished(const QString &finalMessage) {
     _sendButton->setEnabled(!_showModeLocked);
 
     addChatBubble("assistant", finalMessage);
+
+    // v2.3.1 cross-tab: when the run switched its bind, say WHERE the work
+    // went - undo lives in each edited document's own Protocol, and only the
+    // active tab reacts to Ctrl+Z, so the user needs the list. One line,
+    // only when more than one document was actually bound. Titles
+    // concatenated (file-name input, could contain '%N').
+    if (_runDocTitles.size() > 1) {
+        addChatBubble(QStringLiteral("system"),
+                      QStringLiteral("\u21C4 This run worked on %1 documents: ")
+                              .arg(_runDocTitles.size())
+                          + _runDocTitles.join(QStringLiteral(", "))
+                          + QStringLiteral(". Undo steps live in the document "
+                                           "each edit was applied to - switch "
+                                           "to that tab to undo its steps."));
+    }
+    _runDocTitles.clear();
+    _runOriginDocTitle.clear();
+    _runCurrentDocTitle.clear();
 
     // Now drop the steps widget in below the freshly added assistant bubble,
     // still before the trailing stretch so it sticks to the bottom of history.
@@ -2895,6 +2987,21 @@ void MidiPilotWidget::onAgentError(const QString &error) {
     _sendButton->setEnabled(!_showModeLocked);
 
     addChatBubble("system", "Agent error: " + error);
+    // v2.3.1 cross-tab: even an aborted multi-document run has already put
+    // undo steps into other tabs' Protocols - same disclosure as the success
+    // path so the user can find (and undo) what landed before the error.
+    if (_runDocTitles.size() > 1) {
+        addChatBubble(QStringLiteral("system"),
+                      QStringLiteral("\u21C4 This run worked on %1 documents: ")
+                              .arg(_runDocTitles.size())
+                          + _runDocTitles.join(QStringLiteral(", "))
+                          + QStringLiteral(". Undo steps live in the document "
+                                           "each edit was applied to - switch "
+                                           "to that tab to undo its steps."));
+    }
+    _runDocTitles.clear();
+    _runOriginDocTitle.clear();
+    _runCurrentDocTitle.clear();
     // ANALYZE-LATCH-001: same terminal-outcome contract as onErrorOccurred.
     emit assistantReplied(tr("MidiPilot request failed: %1").arg(error));
 
@@ -4300,8 +4407,15 @@ void MidiPilotWidget::loadConversation(const QString &id)
                     for (const QJsonValue &sv : std::as_const(steps)) {
                         QJsonObject s = sv.toObject();
                         bool ok = s.value(QStringLiteral("success")).toBool(true);
-                        parts << QString::fromUtf8(ok ? "\xe2\x9c\x93 " : "\xe2\x9c\x97 ")
+                        QString part = QString::fromUtf8(ok ? "\xe2\x9c\x93 " : "\xe2\x9c\x97 ")
                                 + s.value(QStringLiteral("tool")).toString();
+                        // v2.3.1 cross-tab: a step that landed in ANOTHER
+                        // document than the run's own carries its tab title -
+                        // keep saying so after a reload (undo lives there).
+                        const QString doc = s.value(QStringLiteral("document")).toString();
+                        if (!doc.isEmpty())
+                            part += QStringLiteral(" [in ") + doc + QLatin1Char(']');
+                        parts << part;
                     }
                     bool dark = Appearance::shouldUseDarkMode();
                     QLabel *stepsLbl = new QLabel(_chatContainer);

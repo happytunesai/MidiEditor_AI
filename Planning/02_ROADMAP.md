@@ -13405,6 +13405,17 @@ midipilot-settings.html (+ help_db regen), CHANGELOG per the template.
 
 ## Post-2.3 candidates (docs QoL, scoped 2026-08-26)
 
+* **Cross-tab follow-ups (from the 2.3.1 sprint verification):** (a) extract the
+  import engine into its own TU (src/midi/TrackImporter, TempoMapThinner-style seam
+  `(MidiFile *src, MidiFile *dst, tracks, dryRun)`) so the full import round trip
+  (undo restore, source byte-identical, tpq scaling) becomes unit-testable - today the
+  executor is private in ToolDefinitions.cpp and resolves documents via the GUI;
+  (b) MCP's own document intercept (McpServer.cpp:676) still resolves MainWindow via
+  widget->window() only and fails while the MidiPilot dock floats - the core tools got
+  a parent-chain fallback, MCP kept the old path for byte-compatibility; route it
+  through the same fallback next cycle; (c) a close notification could null
+  AgentRunner::_originFile instead of the documented dangling-comparison caveat.
+
 * **Mid-run agent steering (candidate, design-validated 2026-08-26):** today the input
   field is blocked while an agent run is active; the user cannot correct course until the
   run ends. Feasible without architecture change: the agent loop already has a natural

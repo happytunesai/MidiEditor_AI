@@ -123,8 +123,50 @@ public:
      * \brief Phase 28 (editor groups): true if an agent run is in flight AND it
      * was started against \a f. Lets MainWindow abort the run before deleting the
      * document the agent is editing (e.g. its tab is closed mid-run).
+     *
+     * v2.3.1 cross-tab: "started against" has become "currently bound to" -
+     * an intercepted switch_document moves the tracked file (see
+     * \ref rebindAgentRun), so after a switch it is the CURRENT target whose
+     * tab-close aborts the run, while closing the original document no longer
+     * does (the run continues on its target; the panel-wide chat stays put).
      */
     bool isAgentRunningOn(MidiFile *f) const;
+
+    /**
+     * \brief v2.3.1 cross-tab: resolves a flattened document list index (from
+     * list_documents / MainWindow::listOpenDocumentsJson) to its MidiFile
+     * without activating, re-binding, or otherwise touching anything.
+     * Thin delegate to MainWindow::documentFileByListIndex; null when the
+     * index is out of range. Used by AgentRunner's switch_document intercept.
+     */
+    MidiFile *documentFileByListIndex(int index) const;
+
+    /**
+     * \brief v2.3.1 cross-tab: tab title of the open document holding \a f
+     * (same title list_documents reports); empty when \a f is not listed.
+     */
+    QString documentTitleForFile(MidiFile *f) const;
+
+    /**
+     * \brief v2.3.1 cross-tab: moves the RUNNING agent run's bind to
+     * \a target in one step - called by AgentRunner's switch_document
+     * intercept right after it re-pointed its own file pointer, so the whole
+     * re-bind (runner file + closed-mid-run guard + step/undo bookkeeping +
+     * chat announcement) is one synchronous main-thread action with no
+     * stale-bind window. Concretely:
+     * \li `_runOriginFile = target` - MainWindow::closeDocumentFile aborts
+     *     the run when the NEW target's tab closes; closing the ORIGINAL
+     *     document no longer aborts it (the run continues on its target).
+     * \li records \a title as the document of every following step, so the
+     *     per-step undo bookkeeping (`_turnSteps`) says which tab holds each
+     *     step's undo entry (Protocol is per-file; Ctrl+Z acts on the ACTIVE
+     *     tab - which does not change here).
+     * \li posts the unmissable "Switched to ..." system line into the chat.
+     * Deliberately does NOT activate the tab (MCP's switch_document does -
+     * that difference is by design: the chat must stay visible).
+     * No-op unless an agent run is in flight.
+     */
+    void rebindAgentRun(MidiFile *target, const QString &title);
 
     /**
      * \brief Lock the MidiPilot panel for Show-mode viewers (Phase 9.9c
@@ -335,6 +377,15 @@ private:
      *  abort the run if that document is closed (isAgentRunningOn) and as the
      *  apply target for simple mode. nullptr when no request is in flight. */
     MidiFile *_runOriginFile = nullptr;
+    /** v2.3.1 cross-tab (agent runs only): tab title of the document the run
+     *  STARTED on. Anchor for "is a step landing outside the chat's own
+     *  document?" - titles, not pointers, so a closed origin cannot dangle. */
+    QString _runOriginDocTitle;
+    /** Tab title of the run's CURRENT bind; moves with rebindAgentRun(). */
+    QString _runCurrentDocTitle;
+    /** Ordered, de-duplicated titles of every document this run was bound to
+     *  (origin first). More than one entry = the run-end summary lists them. */
+    QStringList _runDocTitles;
     /** Phase 28: the document the CURRENTLY-dispatching apply targets. Set in a
      *  tight scope around each dispatch (executeTool's guard for agent/MCP, the
      *  simple-mode wrapper) and reset to nullptr after, so activeEditFile() only

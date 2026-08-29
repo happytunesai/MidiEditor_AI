@@ -86,7 +86,7 @@ at the MCP server that hands the same set to external AI clients.
 <h2 id="tools">AI Tools Reference</h2>
 
 <p>
-In Agent mode, the AI has access to <b>28 tools</b> (23 core + 5 FFXIV-specific) for inspecting and modifying MIDI files. The 23 core tools are the same ones exposed over the <a href="mcp-server.html">MCP server</a>, which adds two document tools of its own:
+In Agent mode, the AI has access to <b>32 tools</b> (26 core + <code>switch_document</code> + 5 FFXIV-specific) for inspecting and modifying MIDI files. The 26 core tools are the same ones exposed over the <a href="mcp-server.html">MCP server</a>; <code>switch_document</code> is the one tool each side defines for itself, because it behaves differently there (see its row below):
 </p>
 
 <table>
@@ -94,6 +94,8 @@ In Agent mode, the AI has access to <b>28 tools</b> (23 core + 5 FFXIV-specific)
 <tr><td><code>get_editor_state</code></td><td>Read file info, tracks, tempo, time signature, cursor position, and the selected-event count</td></tr>
 <tr><td><code>get_track_info</code></td><td>Get detailed info for a specific track: name, assigned channel, total event count, and how many of those are notes</td></tr>
 <tr><td><code>get_selection</code></td><td>Read the user's current selection as full events, each with a 0-based index (the index <code>delete_events_by_index</code> expects)</td></tr>
+<tr><td><code>list_documents</code></td><td>List every open document (tab) across both <a href="editor-groups.html">editor groups</a>: index, title, file path, group, and active/modified flags - the index the other document tools expect</td></tr>
+<tr><td><code>get_document_overview</code></td><td>Read a summary of another open tab without switching to it: duration, tracks with their names, note and event counts, channels in use, and the tempo and time-signature event counts</td></tr>
 <tr><td><code>create_track</code></td><td>Create a new MIDI track</td></tr>
 <tr><td><code>rename_track</code></td><td>Rename an existing track</td></tr>
 <tr><td><code>set_channel</code></td><td>Set the MIDI channel for a track</td></tr>
@@ -107,6 +109,8 @@ In Agent mode, the AI has access to <b>28 tools</b> (23 core + 5 FFXIV-specific)
 <tr><td><code>transpose_events</code></td><td>Transpose notes by semitones - a track, a tick range, or the whole file - as one undo step, optionally folded octave-wise into the bard range C3-C6</td></tr>
 <tr><td><code>split_chords_to_tracks</code></td><td>Split a track's chords voice-wise onto new tracks (voice 1 = highest note) - the standard way to turn a chordal part into monophonic FFXIV performers</td></tr>
 <tr><td><code>copy_events_to_track</code></td><td>Copy notes to another track, optionally restricted to a tick range - e.g. double a melody onto a second performer, then transpose the copy</td></tr>
+<tr><td><code>import_tracks_from_document</code></td><td>Copy whole tracks from another open tab into the document being edited - appended as new tracks with their names preserved, the source untouched. Ticks are rescaled when the two files' resolutions differ; channel collisions and differing tempo maps are reported. Defaults to a dry run and requires the user's confirmation before the real pass; one undo step restores everything</td></tr>
+<tr><td><code>switch_document</code></td><td>Point the rest of the run at another open tab: from the next tool call on, every read and write acts on that document and its undo steps land there. The chat announces the switch, the visible tab stays put, and the agent switches only when you explicitly ask it to work on another tab</td></tr>
 <tr><td><code>search_help</code></td><td>Search the built-in manual - for questions about the editor itself ("how do I split drums?"), the AI looks the answer up instead of guessing</td></tr>
 <tr><td><code>get_help_section</code></td><td>Read one manual section's full text; the answer cites the page so you can click through</td></tr>
 <tr><td><code>set_tempo</code></td><td>Change the tempo (BPM)</td></tr>
@@ -127,7 +131,8 @@ In Agent mode, the AI has access to <b>28 tools</b> (23 core + 5 FFXIV-specific)
 
 <p>
 MidiEditor AI includes a built-in <b>MCP (Model Context Protocol)</b> server that exposes the same
-<b>23 core tools</b> MidiPilot uses, plus two document tools of its own - and the five FFXIV tools
+<b>26 core tools</b> MidiPilot uses, plus its own variant of <code>switch_document</code> - one that
+also brings the chosen tab to the front - and the five FFXIV tools
 whenever FFXIV mode is on. Instead of using the built-in chat panel, you can connect <b>Claude Desktop</b>,
 <b>VS Code Copilot</b>, <b>Cursor</b>, <b>Windsurf</b>, or any other MCP-compatible client and let it edit
 your MIDI files directly.

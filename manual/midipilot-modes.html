@@ -140,7 +140,7 @@ Agent mode is the powerhouse for complex compositions and large-scale edits. Ins
 <h3>How It Works</h3>
 
 <ol>
-<li>Your prompt is sent along with the system prompt and a set of <b><a href="midipilot-tools.html#tools">23 tools</a></b> (plus 5 FFXIV tools when FFXIV mode is on) the model can call</li>
+<li>Your prompt is sent along with the system prompt and a set of <b><a href="midipilot-tools.html#tools">27 tools</a></b> (plus 5 FFXIV tools when FFXIV mode is on) the model can call</li>
 <li>The model responds with one or more <b>tool calls</b> (e.g., <code>create_track</code>, <code>insert_events</code>, <code>get_editor_state</code>)</li>
 <li>MidiEditor executes each tool call and sends the results back to the model</li>
 <li>The model reviews the results, decides the next step, and issues more tool calls</li>
@@ -199,8 +199,27 @@ The agent loop is wrapped by a lightweight <b>conductor</b> that owns a compact,
 <li>After every successful tool call, the conductor distils a one-line confirmation into the working state (e.g. <i>&ldquo;Tempo set to 82 BPM&rdquo;</i>, <i>&ldquo;8 tracks created&rdquo;</i>) so the model resumes from real progress instead of re-deriving it from raw tool output.</li>
 <li>After a rejected write (validation error, FFXIV violation, capability error&hellip;), the conductor injects a short, <b>positive</b> rejection guidance - describing what should be tried next instead of restating what failed.</li>
 <li>If two consecutive write attempts fail without making progress, the conductor performs a <b>bounded-failure stop</b> and reports the remaining problem in plain language instead of looping forever.</li>
-<li>The run remembers the document it was started on. If you switch to another <a href="editor-groups.html">tab</a> while MidiPilot is working, its edits still land on the original document and its selection.</li>
+<li>The run remembers the document it is bound to. If you switch to another <a href="editor-groups.html">tab</a> while MidiPilot is working, its edits still land on that document and its selection.</li>
 </ul>
+
+<h3 id="cross-tab">Working across tabs</h3>
+
+<p>
+By default an Agent run works on the document it was started on, even while you look at other tabs.
+When you explicitly ask about another open tab, the agent can consult it without leaving your document:
+<code>list_documents</code> shows what is open, <code>get_document_overview</code> summarizes one tab,
+and <code>import_tracks_from_document</code> copies whole tracks from it into the document being edited
+(dry run first, your confirmation required, one undo step).
+</p>
+
+<p>
+Asking the agent to <i>work on</i> another tab makes it call <code>switch_document</code>: the run
+re-binds to that document, and every following read and write acts there. The visible tab does not
+change - the chat stays in front of you and shows a &ldquo;Switched to &hellip;&rdquo; line instead,
+and each step taken in another document is labeled with that document's name in the Agent Steps panel.
+Undo steps live in the document each edit was applied to: switch to that tab to undo them. A run that
+touched more than one document ends with a summary line listing them all.
+</p>
 
 <h3>GPT-5.5 model-isolation policy</h3>
 

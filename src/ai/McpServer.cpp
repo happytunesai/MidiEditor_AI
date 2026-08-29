@@ -657,11 +657,18 @@ QJsonObject McpServer::handleToolsCall(const QJsonObject &params, Session &sessi
                          ? QStringLiteral("mcp")
                          : QStringLiteral("mcp:") + session.clientName;
 
-    // v2.0: MCP-only document/tab tools. They act on the WINDOW (which tabs
-    // exist / which one is active), not on the session's bound document, so
-    // they run BEFORE the bound-file resolution below. After switch_document
-    // the client must call get_editor_state to re-bind the session to the
-    // newly active document (the binding itself is deliberately untouched).
+    // v2.0 (naming updated v2.3.1): document/tab tools. They act on the
+    // WINDOW (which tabs exist / which one is active), not on the session's
+    // bound document, so they run BEFORE the bound-file resolution below.
+    // After switch_document the client must call get_editor_state to re-bind
+    // the session to the newly active document (the binding itself is
+    // deliberately untouched). list_documents became a CORE tool in v2.3.1;
+    // this intercept still answers it FIRST (shadowing the core executor,
+    // whose {success, documents} shape is identical) so it keeps working even
+    // while session.boundFileClosed would refuse stateful tools below.
+    // switch_document stays MCP's own (activate-the-tab contract) - the
+    // MidiPilot runner's rebind-only switch_document is gated out of the
+    // default schema and never reaches MCP.
     if (toolName == QStringLiteral("list_documents")
         || toolName == QStringLiteral("switch_document")) {
         QJsonObject toolResult;
@@ -1036,22 +1043,18 @@ QJsonArray McpServer::convertToolSchemas() {
         mcpTools.append(mcpTool);
     }
 
-    // v2.0: MCP-only document/tab tools - appended HERE (not in
-    // ToolDefinitions::toolSchemas()) so the MidiPilot agent does not get
-    // them; agent runs stay pinned to their run-origin document.
-    {
-        QJsonObject t;
-        t["name"] = QStringLiteral("list_documents");
-        t["description"] = QStringLiteral(
-            "List all documents (tabs) open in the editor across both editor "
-            "groups: index, title, file path, group (0 = left, 1 = right), "
-            "active and modified flags. Use the index with switch_document.");
-        QJsonObject schema;
-        schema["type"] = QStringLiteral("object");
-        schema["properties"] = QJsonObject();
-        t["inputSchema"] = schema;
-        mcpTools.append(t);
-    }
+    // v2.3.1: list_documents is a CORE tool now (promoted for MidiPilot's
+    // cross-tab abilities) and flows through the conversion above with the
+    // SAME description it had as an MCP-only append, so clients see one
+    // identical tool instead of two. The pre-dispatch intercept in
+    // handleToolCall (before bound-file resolution) still answers it - the
+    // core executor is byte-equivalent ({success, documents}) but the
+    // intercept keeps list_documents working even while the bound document
+    // is closed. Only switch_document stays MCP-appended: MCP's contract
+    // (activate the tab in the UI, then get_editor_state re-binds) is
+    // deliberately different from the MidiPilot runner's rebind-only
+    // switch_document, which is gated off in the default schema options so
+    // the two definitions never shadow each other here.
     {
         QJsonObject t;
         t["name"] = QStringLiteral("switch_document");

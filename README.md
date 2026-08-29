@@ -114,7 +114,7 @@ MidiEditor AI
 │   ├── AiClient         → OpenAI-compatible API client (SSE streaming)
 │   ├── ConversationStore → Persistent history (JSON save/load/resume)
 │   ├── EditorContext     → Musical context extraction for AI
-│   ├── ToolDefinitions   → 28 MIDI manipulation tools (23 core + 5 FFXIV)
+│   ├── ToolDefinitions   → 32 MIDI manipulation tools (26 core + switch_document + 5 FFXIV)
 │   └── SystemPrompts     → Customizable per-mode AI instructions
 ├── Collaboration        → Live multi-peer co-editing + async PR workflow
 │   ├── LanLiveSession    → LAN host/joiner state machine + heartbeat + ghost-peer dedup
@@ -470,7 +470,7 @@ MidiEditor AI checks for new versions on GitHub at every startup. When an update
 
 ## 🛠️ MidiPilot Tools
 
-The AI has access to **23 core tools**, plus **5 more when FFXIV mode is on** (28 total), for inspecting and modifying MIDI files:
+The AI has access to **26 core tools** plus `switch_document`, and **5 more when FFXIV mode is on** (32 total), for inspecting and modifying MIDI files:
 
 | Tool | Description |
 |------|-------------|
@@ -478,6 +478,7 @@ The AI has access to **23 core tools**, plus **5 more when FFXIV mode is on** (2
 | `get_track_info` | Get details about a specific track |
 | `query_events` | Read events in a tick range on a track |
 | `get_selection` | Read the current selection as full events, each with a 0-based index |
+| `list_documents` / `get_document_overview` | List the open tabs and read a summary of another one without switching to it |
 | `create_track` / `rename_track` / `set_channel` / `remove_track` | Manage tracks |
 | `insert_events` / `replace_events` / `delete_events` | Add, modify, remove MIDI events |
 | `delete_events_by_index` | Delete selected events by index (e.g. every second note) |
@@ -485,6 +486,8 @@ The AI has access to **23 core tools**, plus **5 more when FFXIV mode is on** (2
 | `transpose_events` | Transpose notes by semitones (track/range/file), optionally folded into the bard range C3-C6 |
 | `split_chords_to_tracks` | Split a chordal track voice-wise onto new tracks (voice 1 = highest) - chords become monophonic performers |
 | `copy_events_to_track` | Copy notes to another track (e.g. double a melody, then transpose the copy) |
+| `import_tracks_from_document` | Copy whole tracks from another open tab into the current document (names preserved, ticks rescaled, channel collisions reported) - dry run first, your confirmation required |
+| `switch_document` | Re-bind the run to another open tab when you explicitly ask for it - reads, writes, and undo steps then act on that document while the visible tab stays put |
 | `search_help` / `get_help_section` | Ask about the editor itself - the AI searches the built-in manual and answers from it, citing the page |
 | `set_tempo` / `set_time_signature` | Change tempo and meter |
 | `convert_tempo_preserve_duration` | Re-tempo material while keeping its real-time duration (e.g. fit a 90 BPM vocal into a 180 BPM project) - dry run first, your confirmation required |
@@ -508,7 +511,7 @@ MidiEditor AI includes a built-in **MCP server** that exposes all MidiPilot tool
 
 1. Enable the MCP server in **Settings → MidiPilot AI → MCP Server**
 2. Copy the MCP config JSON to your AI client's configuration
-3. The client discovers the tools automatically and can compose, edit, and analyze MIDI - 25 by default (the 23 core tools plus `list_documents` / `switch_document` for driving the open tabs), 29 with FFXIV mode on
+3. The client discovers the tools automatically and can compose, edit, and analyze MIDI - 27 by default (the 26 core tools plus MCP's own `switch_document` for driving the open tabs), 32 with FFXIV mode on
 
 ### Quick Setup
 
@@ -528,7 +531,7 @@ MidiEditor AI includes a built-in **MCP server** that exposes all MidiPilot tool
 ### Features
 
 - **Streamable HTTP** transport (MCP 2025-03-26) on a single `/mcp` endpoint
-- **All MidiPilot tools** exposed - the same ones the built-in AI uses - plus `list_documents` and `switch_document` so a client can drive the open tabs itself
+- **All MidiPilot tools** exposed - the same ones the built-in AI uses, cross-tab document tools included - plus MCP's own `switch_document` so a client can drive the open tabs itself
 - **3 MCP Resources** - `midi://state`, `midi://tracks`, `midi://config` for read-only context
 - **Client identification** - Protocol panel shows which client made each edit (e.g. "MidiPilotMCP (VS Code Copilot Claude Opus 4.6)")
 - **Security** - localhost-only, Origin validation, optional auth token, rate limiting (100 calls/min)

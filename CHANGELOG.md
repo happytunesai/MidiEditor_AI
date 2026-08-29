@@ -13,12 +13,18 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 > generator skips entries whose date starts with "Unreleased".
 
 ### Summary
+* **MidiPilot sees across tabs** - the agent can list every open document, read another tab's overview, import whole tracks from another tab as one undoable step, and - when you explicitly ask - re-point a running agent at another tab.
 * **A very long agent run no longer pushes MidiPilot off screen** - the pinned Steps panel now scrolls inside a capped area instead of growing past the window.
 
 <details>
 <summary>Full Changelog - (title at release)</summary>
 
 ### New Features
+* **MidiPilot can see across tabs** - new `list_documents` and `get_document_overview` tools let the AI inspect every open document (both editor groups) without leaving the one it is working on. Until now only external MCP clients could do this; asked to merge files from several tabs, the agent had to decline.
+* **Import tracks from another open tab** - the new `import_tracks_from_document` tool copies whole tracks from another open document into the current one as one undoable step: track names preserved, ticks rescaled automatically when the two files use different resolutions, channel collisions and tempo-map differences reported up front. Dry run first - the agent shows what would arrive and applies only after confirmation. The source document is never modified.
+* **The agent can be re-pointed at another tab** - `switch_document` re-binds a running agent to another open document when you explicitly ask for cross-tab work. The visible tab and the chat stay where they are, the switch appears as its own step and chat line, every step taken in another document is labeled with that document's name, and a run that touched several documents ends with a summary of all of them. Undo lands in the edited document's own tab. Closing a tab during a run follows the run's current target: closing the document the agent is working on stops the run; closing the tab it merely started on does not.
+* MidiPilot's document tools also work while the MidiPilot panel is floating as its own window.
+* MCP: the new tools are exposed to MCP clients automatically; MCP's own `list_documents` / `switch_document` behaviour is unchanged for existing clients (MCP's switch keeps activating the tab - an external client has no chat panel that needs to stay in view).
 
 ### Changed
 
@@ -26,7 +32,13 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 * **The Agent Steps panel could push MidiPilot off screen** - the Steps list is pinned between the chat and the input bar, and a long agent run (90 or more steps) grew it taller than the window: the chat input and half the editor were shoved out of view until the window was resized or the list collapsed. The list now scrolls inside a height-capped area and automatically keeps the running step in view.
 
 ### Files Modified
-* `src/gui/MidiPilotWidget.cpp` - the agent Steps list lives in a height-capped scroll area that follows the active step
+* `src/ai/ToolDefinitions.h/.cpp` - three new core document tools (list, overview, import with dry run/tick rescaling/collision report) and the opt-in `switch_document` definition; main-window resolution that survives a floating MidiPilot dock
+* `src/ai/AgentRunner.h/.cpp` - `switch_document` interception with atomic re-bind, per-document step labels, working-state facts for the document tools
+* `src/ai/EditorContext.cpp` - the agent's default rule: work on the current document, switch only on explicit request
+* `src/ai/McpServer.cpp` - `list_documents` served by the core definition (identical behaviour); MCP-only `switch_document` append unchanged
+* `src/gui/MainWindow.h/.cpp`, `src/gui/MidiPilotWidget.h/.cpp` - document lookup by list index, run re-bind bookkeeping, "Switched to" chat line, multi-document run summary, per-document undo labels; the agent Steps list lives in a height-capped scroll area that follows the active step
+* `tests/test_tool_definitions.cpp`, `tests/test_agent_runner_state.cpp` - contract cases for the four tools (strict schemas, opt-in gate, runtime-handled guard) and working-state cases (re-bind fact, dry-run summary survival)
+* `manual/midipilot-tools.html`, `manual/mcp-server.html`, `manual/midipilot.html`, `manual/midipilot-modes.html`, `manual/editor-groups.html`, `manual/docs-index.html`, `README.md` - the four tools documented, tool counts updated, the MidiPilot-vs-MCP switch difference explained
 
 </details>
 

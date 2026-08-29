@@ -91,7 +91,10 @@
     When <a href="midipilot.html">MidiPilot</a> edits a file, the result is applied
     to the document you started it on. You can switch to another tab while it works
     - the edit still lands on the original document, on the tracks and
-    selection it was reasoning about.
+    selection it was reasoning about. Only when you explicitly ask the agent to
+    work on another open tab does it switch documents: the chat announces the
+    switch, the visible tab stays put, and from then on its edits (and their
+    undo steps) land in that document.
 </p>
 
 <h3>The tab tools</h3>

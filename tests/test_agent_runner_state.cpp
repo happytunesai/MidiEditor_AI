@@ -11,7 +11,23 @@
 #include "../src/ai/ToolDefinitions.h"
 
 class MidiFile;
-class MidiPilotWidget;
+
+// v2.3.1 cross-tab: AgentRunner::interceptSwitchDocument references three
+// MidiPilotWidget members (this project's /OPT:REF configuration does not
+// strip them - same root cause as the ODR shims in test_tool_definitions.cpp).
+// The intercept itself needs a live widget and is not driven here; only the
+// symbols are satisfied. Public non-virtual non-static, exactly like the real
+// declarations in src/gui/MidiPilotWidget.h - MSVC mangling includes the
+// access level and cv-qualifier, so the shim must match them.
+class MidiPilotWidget {
+public:
+    MidiFile *documentFileByListIndex(int index) const;
+    QString documentTitleForFile(MidiFile *f) const;
+    void rebindAgentRun(MidiFile *target, const QString &title);
+};
+MidiFile *MidiPilotWidget::documentFileByListIndex(int) const { return nullptr; }
+QString MidiPilotWidget::documentTitleForFile(MidiFile *) const { return QString(); }
+void MidiPilotWidget::rebindAgentRun(MidiFile *, const QString &) {}
 
 AiClient::AiClient(QObject *parent) : QObject(parent) {}
 void AiClient::sendMessages(const QJsonArray &, const QJsonArray &) {}
@@ -270,6 +286,152 @@ private slots:
                            "Please try again in a moment."));
         QCOMPARE(kind, AgentRunner::RetryKind::Network);
         QVERIFY(AgentRunner::hintForRetry(kind, QString()).isEmpty());
+    }
+
+    // --- v2.3.1 cross-tab tools: working-state semantics ------------------
+    // The runner-side halves that ARE headlessly drivable: the model-facing
+    // facts updateWorkingStateFromToolResult derives from the four new tools'
+    // results. (interceptSwitchDocument / decorateStepLabel are private and
+    // need a live MidiPilotWidget - covered only by the linked symbols above.)
+
+    // An effective switch must leave two durable traces in the working state:
+    // a confirmed fact saying reads/writes/undo now act elsewhere, and a next
+    // step steering the model to re-read state before editing (the initial
+    // editor state was captured for the ORIGIN document).
+    void workingState_switchDocument_recordsRebindFactAndSteering()
+    {
+        AgentRunner::AgentWorkingState state = AgentRunner::initialWorkingState(
+            QStringLiteral("Copy the drums over from the other tab"));
+
+        // Title deliberately contains '%1': tab titles are file names, and the
+        // fact must carry it VERBATIM - concatenation, never .arg()
+        // substitution (which would swallow or replace the token).
+        AgentRunner::updateWorkingStateFromToolResult(
+            state,
+            QStringLiteral("switch_document"),
+            QJsonObject{{QStringLiteral("index"), 2}},
+            QJsonObject{{QStringLiteral("success"), true},
+                        {QStringLiteral("switched"), true},
+                        {QStringLiteral("uiTabActivated"), false},
+                        {QStringLiteral("title"), QStringLiteral("b%1.mid")}});
+
+        QCOMPARE(state.confirmedFacts.size(), 1);
+        const QString fact = state.confirmedFacts.first();
+        QVERIFY2(fact.contains(QStringLiteral("Run re-bound to document 'b%1.mid'")),
+                 qPrintable(fact));
+        QVERIFY2(fact.contains(QStringLiteral("undo")), qPrintable(fact));
+        QVERIFY2(state.nextStepHint.contains(QStringLiteral("get_editor_state")),
+                 qPrintable(state.nextStepHint));
+        // ...and both survive into the injected state layer the model reads.
+        const QString layer = AgentRunner::stateLayerContent(state);
+        QVERIFY2(layer.contains(QStringLiteral("b%1.mid")), qPrintable(layer));
+    }
+
+    // A redundant switch (already bound) must NOT pollute the fact list or
+    // re-steer the model - it only notes itself as the last tool result.
+    void workingState_switchDocument_alreadyBound_addsNoFactOrSteering()
+    {
+        AgentRunner::AgentWorkingState state = AgentRunner::initialWorkingState(
+            QStringLiteral("Edit the bassline"));
+        const QString hintBefore = state.nextStepHint;
+
+        AgentRunner::updateWorkingStateFromToolResult(
+            state,
+            QStringLiteral("switch_document"),
+            QJsonObject{{QStringLiteral("index"), 0}},
+            QJsonObject{{QStringLiteral("success"), true},
+                        {QStringLiteral("alreadyBound"), true},
+                        {QStringLiteral("title"), QStringLiteral("a.mid")}});
+
+        QVERIFY(state.confirmedFacts.isEmpty());
+        QCOMPARE(state.nextStepHint, hintBefore);
+        QVERIFY2(state.lastToolResult.contains(QStringLiteral("already bound")),
+                 qPrintable(state.lastToolResult));
+    }
+
+    void workingState_listDocuments_reportsOpenDocumentCount()
+    {
+        AgentRunner::AgentWorkingState state = AgentRunner::initialWorkingState(
+            QStringLiteral("What tabs are open?"));
+
+        QJsonArray docs;
+        docs.append(QJsonObject{{QStringLiteral("index"), 0}});
+        docs.append(QJsonObject{{QStringLiteral("index"), 1}});
+        docs.append(QJsonObject{{QStringLiteral("index"), 2}});
+        AgentRunner::updateWorkingStateFromToolResult(
+            state,
+            QStringLiteral("list_documents"),
+            QJsonObject{},
+            QJsonObject{{QStringLiteral("success"), true},
+                        {QStringLiteral("documents"), docs}});
+
+        QCOMPARE(state.lastToolResult,
+                 QStringLiteral("list_documents succeeded: 3 open document(s)"));
+        // A read never earns a confirmed fact.
+        QVERIFY(state.confirmedFacts.isEmpty());
+    }
+
+    void workingState_documentOverview_carriesTheSummary()
+    {
+        AgentRunner::AgentWorkingState state = AgentRunner::initialWorkingState(
+            QStringLiteral("What is in the other tab?"));
+
+        AgentRunner::updateWorkingStateFromToolResult(
+            state,
+            QStringLiteral("get_document_overview"),
+            QJsonObject{{QStringLiteral("documentIndex"), 1}},
+            QJsonObject{{QStringLiteral("success"), true},
+                        {QStringLiteral("summary"), QStringLiteral(
+                             "Document 1 ('b.mid'): 4 track(s), 2480 note(s), "
+                             "64 measure(s), 128000 ms.")}});
+
+        QVERIFY2(state.lastToolResult.contains(QStringLiteral("b.mid")),
+                 qPrintable(state.lastToolResult));
+        QVERIFY(state.confirmedFacts.isEmpty());
+
+        // Result without a summary still yields a usable line.
+        AgentRunner::updateWorkingStateFromToolResult(
+            state,
+            QStringLiteral("get_document_overview"),
+            QJsonObject{{QStringLiteral("documentIndex"), 1}},
+            QJsonObject{{QStringLiteral("success"), true}});
+        QCOMPARE(state.lastToolResult,
+                 QStringLiteral("get_document_overview succeeded"));
+    }
+
+    // The dry-run summary is what the user confirms; it must persist in the
+    // CONFIRMED FACTS (not just lastToolResult, which the next tool call
+    // overwrites) so the dryRun=false turn still knows the numbers - same
+    // idiom as convert_tempo_preserve_duration / thin_tempo_map.
+    void workingState_importTracks_keepsDryRunSummaryAsFact()
+    {
+        AgentRunner::AgentWorkingState state = AgentRunner::initialWorkingState(
+            QStringLiteral("Import the strings from the other file"));
+
+        AgentRunner::updateWorkingStateFromToolResult(
+            state,
+            QStringLiteral("import_tracks_from_document"),
+            QJsonObject{{QStringLiteral("documentIndex"), 1}},
+            QJsonObject{{QStringLiteral("success"), true},
+                        {QStringLiteral("dryRun"), true},
+                        {QStringLiteral("summary"), QStringLiteral(
+                             "Would import 3 track(s). Channel collision(s): 0, 1. "
+                             "Tempo maps differ.")}});
+
+        QCOMPARE(state.confirmedFacts.size(), 1);
+        const QString fact = state.confirmedFacts.first();
+        QVERIFY2(fact.contains(QStringLiteral("Would import 3 track(s)")),
+                 qPrintable(fact));
+        QVERIFY2(fact.contains(QStringLiteral("collision")), qPrintable(fact));
+
+        // Overwrite lastToolResult with a later read - the fact must survive
+        // into the state layer regardless.
+        AgentRunner::updateWorkingStateFromToolResult(
+            state, QStringLiteral("get_editor_state"), QJsonObject{},
+            QJsonObject{{QStringLiteral("success"), true}});
+        const QString layer = AgentRunner::stateLayerContent(state);
+        QVERIFY2(layer.contains(QStringLiteral("Would import 3 track(s)")),
+                 qPrintable(layer));
     }
 };
 
