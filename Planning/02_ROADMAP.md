@@ -13405,6 +13405,22 @@ midipilot-settings.html (+ help_db regen), CHANGELOG per the template.
 
 ## Post-2.3 candidates (docs QoL, scoped 2026-08-26)
 
+* **Mid-run agent steering (candidate, design-validated 2026-08-26):** today the input
+  field is blocked while an agent run is active; the user cannot correct course until the
+  run ends. Feasible without architecture change: the agent loop already has a natural
+  seam between "tool results collected" and "next model request". Design: (1) input stays
+  enabled during a run, submitted text goes into a pending queue on AgentRunner (GUI
+  thread, no locking needed - the loop is event-driven); (2) the message appears in the
+  chat immediately with a "queued - handed to the agent at its next step" marker;
+  (3) at the next seam the queue drains as user-role messages appended after the tool
+  results (all providers accept user messages between tool rounds - we build the array);
+  (4) if the run finishes with a non-empty queue, the remainder auto-submits as the next
+  prompt; (5) recorded in the conversation JSON in injection order; sliding-window
+  truncation applies as usual; Stop semantics unchanged. Placeholder text during a run
+  changes to say messages are handed to the running agent. Rough size: AgentRunner queue +
+  seam drain, MidiPilotWidget input-enable + pending marker, tests for the queue/drain
+  order, manual note.
+
 * **MidiPilot cross-tab awareness (scoped 2026-08-26, real use case: merge per-track Suno
   stem MIDIs open as tabs into one file - MCP can, MidiPilot cannot).** Today
   `list_documents` / `switch_document` are MCP-ONLY tools (handled in McpServer.cpp:662ff
