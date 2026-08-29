@@ -13404,6 +13404,41 @@ preset-name fallback when the profile is missing. Manual: providers section of
 midipilot-settings.html (+ help_db regen), CHANGELOG per the template.
 
 ## Post-2.3 candidates (docs QoL, scoped 2026-08-26)
+
+* **MidiPilot cross-tab awareness (scoped 2026-08-26, real use case: merge per-track Suno
+  stem MIDIs open as tabs into one file - MCP can, MidiPilot cannot).** Today
+  `list_documents` / `switch_document` are MCP-ONLY tools (handled in McpServer.cpp:662ff
+  BEFORE bound-file resolution, via MainWindow::listOpenDocumentsJson()); MidiPilot's
+  AgentRunner routes every tool to its bound `_file` only, so the agent truthfully reports
+  it cannot see other tabs. Plan, in the order that keeps the v1.9 binding invariant
+  ("AI edits land on the document the run started on") intact:
+  1. `list_documents` becomes a CORE read-only tool (reuse listOpenDocumentsJson; no file
+     access, so it is safe under the binding rule).
+  2. New CORE read tool `get_document_overview(documentIndex)` - tracks/channels/event
+     counts/names of ANOTHER open tab, read-only.
+  3. New CORE write tool `import_tracks_from_document(documentIndex, trackIndexes?, mode)` -
+     copies tracks from another open tab INTO the bound document as ONE Protocol action
+     (bulk-snapshot idiom); source document untouched. This alone covers the stem-merge
+     use case end to end, no binding change needed.
+  4. `switch_document` for MidiPilot too (owner decision 2026-08-26: "if MCP can use it
+     correctly, MidiPilot should be able to as well - the default rule stays, but an
+     explicit user request is an explicit act"). Same trust model as MCP, with MidiPilot's
+     runner doing what MCP asks of its client, atomically: the tool call re-binds `_file`,
+     selection context and editor state in one step (no stale-bind window, unlike MCP's
+     two-step switch + get_editor_state). Safety conditions that ship WITH it, not later:
+     (a) the chat shows an unmissable step line "Switched to <tab name>" so the user always
+     sees which document is being edited; (b) per-tool-call undo bookkeeping records the
+     DOCUMENT of each step so undo lands where the edit did; (c) the v1.9 closed-mid-run
+     handling extends to the currently-bound target; (d) the run's conversation stays with
+     the chat it started in and records every switch; (e) the system prompt keeps the
+     default "work on the active document; switch only when the user explicitly asks for
+     other tabs". The import tool (3.) stays regardless - it is the one-undo-step merge
+     path that switching alone cannot provide.
+  MCP parity: the new core tools flow to MCP automatically; MCP's own list/switch pair is
+  superseded by the core versions where identical (dedupe at integration, keep MCP
+  semantics unchanged for existing clients). Tests: tool-contract cases, an import round
+  trip, a switch + edit + undo-in-the-right-document case; manual: midipilot-tools.html +
+  mcp-server.html counts updated at build time.
 * **Changelog -> manual anchor links:** feature bullets on the website changelog should
   link straight to the manual passage that explains the feature (a reader who finds an
   interesting tool in the changelog should not have to search the manual for it).
