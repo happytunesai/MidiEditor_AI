@@ -2145,6 +2145,33 @@ QJsonObject ToolDefinitions::execSetupChannelPattern(MidiFile *file,
     // The interactive MainWindow path wraps in startNewAction/endAction, but
     // this AI-tool entry point previously did not. Wrap here so the fix runs
     // under a Protocol action regardless of caller.
+    //
+    // WHY: startNewAction() wipes the redo stack and endAction() flags the file
+    // modified even when the step stays empty, so a fixer that bails before
+    // touching anything (no file, no tracks, no FFXIV instrument names) used to
+    // cost the user Redo and a bogus save prompt. Mirror the fixer's own pure
+    // precondition checks and only open the action once it is known to mutate;
+    // on those bail-out paths fixChannels() returns before its first edit, so
+    // running it without an action is safe and its result is unchanged.
+    // ffxivProgramNumber() (this TU) strips the same [+-]N suffix and carries
+    // the same instrument table as FFXIVChannelFixer::programNumber(); it is
+    // used here instead of the fixer's helpers because test_tool_definitions
+    // ODR-stubs FFXIVChannelFixer with fixChannels() only. Keep the two tables
+    // in sync, or a name only the fixer knows would run outside an action.
+    bool fixerWillEdit = file && file->numTracks() > 0;
+    if (fixerWillEdit) {
+        fixerWillEdit = false;
+        for (int t = 0; t < file->numTracks(); ++t) {
+            MidiTrack *track = file->track(t);
+            if (track && ffxivProgramNumber(track->name()) >= 0) {
+                fixerWillEdit = true;
+                break;
+            }
+        }
+    }
+    if (!fixerWillEdit)
+        return FFXIVChannelFixer::fixChannels(file);
+
     if (file && file->protocol())
         file->protocol()->startNewAction(
             protocolActorPrefix(source)

@@ -20,6 +20,8 @@
 #include <QTimer>
 
 #include "../MidiEvent/MidiEvent.h"
+#include "../MidiEvent/OffEvent.h"
+#include "../MidiEvent/OnEvent.h"
 #include "../midi/MidiChannel.h"
 #include "../midi/MidiFile.h"
 #include "../protocol/Protocol.h"
@@ -85,6 +87,27 @@ LanLiveSession *LanLiveSession::instance() {
     return s_instance;
 }
 
+namespace {
+// Event-level change count of a hunks array (added + removed + modified);
+// used for the commit message of a live edit that originated here.
+int hunkChangeCount(const QJsonArray &hunks) {
+    int n = 0;
+    for (const QJsonValue &v : hunks) {
+        const QJsonObject h = v.toObject();
+        n += h.value(QStringLiteral("added")).toArray().size()
+           + h.value(QStringLiteral("removed")).toArray().size()
+           + h.value(QStringLiteral("modified")).toArray().size();
+    }
+    return n;
+}
+
+QString liveCommitMessage(const QString &actionLabel, int changes) {
+    return actionLabel.isEmpty()
+        ? QStringLiteral("Live: %1 change(s)").arg(changes)
+        : QStringLiteral("%1 - %2 change(s)").arg(actionLabel).arg(changes);
+}
+}  // namespace
+
 LanLiveSession::LanLiveSession(QObject *parent) : QObject(parent) {
     // If the user loads / closes a MIDI file while a session is running,
     // the MainWindow deletes our previously-bound MidiFile. Catching
@@ -120,6 +143,14 @@ LanLiveSession::LanLiveSession(QObject *parent) : QObject(parent) {
     connect(CollabService::instance(), &CollabService::currentFileStateChanged,
             this, [this]() {
                 if (_role != Role::Hosting || !_server) return;
+                // 2026-09: skip the routine live-sync commit. Every peer
+                // already receives the relayed `hunks` frame (stamped
+                // with the host's commitHash) and records the same commit
+                // under that hash itself, so re-shipping the ENTIRE
+                // history once per second adds no information - it only
+                // grew the frame (and rewrote every peer's sidecar to
+                // disk) until it hit the 32 MB link cap.
+                if (_suppressSidecarBroadcast) return;
                 QJsonObject sidecar = CollabService::instance()->currentSidecarJson();
                 if (sidecar.isEmpty()) return;
                 QString head = sidecar.value(QStringLiteral("currentHead")).toString();
@@ -294,23 +325,32 @@ void LanLiveSession::resetState() {
         _discovery->deleteLater();
         _discovery = nullptr;
     }
-    if (_server) {
-        _server->stop();
-        _server->deleteLater();
+    // Null the members BEFORE stop()/disconnect: those emit peerDisconnected
+    // (LanServer/WebRtcLiveServer::stop) or disconnected synchronously and a
+    // slot may re-enter resetState() via leaveSession(); the inner frame must
+    // find nothing left to tear down, otherwise the outer frame calls
+    // deleteLater() on an already-nulled or twice-deleted object.
+    if (ILiveServer *srv = _server) {
         _server = nullptr;
+        srv->stop();
+        srv->deleteLater();
     }
-    if (_client) {
-        _client->disconnectFromHost();
-        _client->deleteLater();
+    if (ILiveClient *cli = _client) {
         _client = nullptr;
+        cli->disconnectFromHost();
+        cli->deleteLater();
     }
 #ifdef MIDIEDITOR_WEBRTC_ENABLED
-    if (_rdv) {
-        _rdv->cancelPolling();
-        _rdv->deleteLater();
+    if (RtcRendezvousClient *rdv = _rdv) {
         _rdv = nullptr;
+        rdv->cancelPolling();
+        rdv->deleteLater();
     }
 #endif
+    // The returning-peer dialog outlives the session: drop its targets so
+    // a late Accept/Reject finds no entry instead of a torn-down peer.
+    _pendingMerges.clear();
+    _unackedLiveFrames.clear();
     _file = nullptr;
     _lastActionLabel.clear();
     rewireProtocolListener();  // disconnects since _file == nullptr
@@ -318,7 +358,10 @@ void LanLiveSession::resetState() {
     _hostDisplayName.clear();
     _lastSyncedSnapshot = QJsonArray();
     _pendingSidecar = QJsonObject();
+    _pendingTransferFrames.clear();
     _filetransferPending = false;
+    _joinInProgress = false;
+    _suppressSidecarBroadcast = false;
     _lastBroadcastSidecarHead.clear();
     _lastBroadcastEndTick = -1;
     _transport = Transport::None;
@@ -594,7 +637,12 @@ bool LanLiveSession::startHostingWan(MidiFile *file, SessionMode mode) {
                 // side gets a NEW rendezvous code on each retry — the
                 // start dialog updates automatically because it's bound
                 // to the wanCodeReady signal.
-                MidiFile *retryFile = _file;
+                // Keep the QPointer: leaveSession() below drops us to
+                // Idle, so the ctor's activeFileChanged hook no longer
+                // bumps _retryGeneration - closing the document during
+                // the 2 s backoff would otherwise leave the timer with
+                // a raw pointer to a freed MidiFile.
+                QPointer<MidiFile> retryFile = _file;
                 if (loadAutoReconnect() && retryFile
                     && _retryAttempt < loadAutoReconnectMaxAttempts()) {
                     int next = ++_retryAttempt;
@@ -620,6 +668,7 @@ bool LanLiveSession::startHostingWan(MidiFile *file, SessionMode mode) {
                     QTimer::singleShot(kRetryBackoffMs, this,
                         [this, retryFile, next, gen, retryMode]() {
                             if (gen != _retryGeneration) return;
+                            if (!retryFile) return;  // document closed meanwhile
                             startHostingWan(retryFile, retryMode);
                             _retryAttempt = next;
                         });
@@ -729,7 +778,9 @@ void LanLiveSession::joinSessionWan(MidiFile *file, const QString &code) {
                 // also reconnected, its NEW code won't match — getOffer
                 // returns 404 and the user is told to ask for a fresh
                 // code. That asymmetry is documented in §11.10h.
-                MidiFile *retryFile = _file;
+                // QPointer, not a raw pointer: see the host path above -
+                // the document can be closed during the 2 s backoff.
+                QPointer<MidiFile> retryFile = _file;
                 QString retryCode = _pairingCode;
                 if (loadAutoReconnect() && !retryCode.isEmpty()
                     && _retryAttempt < loadAutoReconnectMaxAttempts()) {
@@ -747,6 +798,7 @@ void LanLiveSession::joinSessionWan(MidiFile *file, const QString &code) {
                     QTimer::singleShot(kRetryBackoffMs, this,
                         [this, retryFile, retryCode, next, gen]() {
                             if (gen != _retryGeneration) return;
+                            if (!retryFile) return;  // document closed meanwhile
                             joinSessionWan(retryFile, retryCode);
                             _retryAttempt = next;
                         });
@@ -1182,16 +1234,25 @@ void LanLiveSession::handleIncomingChat(IPeerLink *fromPeer,
         return;
     }
 
-    // Rate limit per sender.
-    qint64 lastMs = _lastChatMsBySender.value(senderMid, 0);
+    // Rate limit per sender. Both the clock and the key are ours now:
+    // the frame's `timestamp` and `sender` fields are sender-controlled,
+    // so a peer could step the timestamp to walk past the cap, or write
+    // into another peer's slot - and a peer whose own clock jumped
+    // forwards used to lock ITSELF out until wall-clock caught up. The
+    // wire timestamp is untouched; it is what the UI displays.
+    const qint64 arrivalMs = QDateTime::currentMSecsSinceEpoch();
+    const QString rateKey = (fromPeer && !fromPeer->peerMachineId().isEmpty())
+                                ? fromPeer->peerMachineId()
+                                : senderMid;
+    qint64 lastMs = _lastChatMsBySender.value(rateKey, 0);
     if (lastMs > 0
-        && (timestampMs - lastMs) < LiveSession::kChatRateLimitMsPerSender) {
+        && (arrivalMs - lastMs) < LiveSession::kChatRateLimitMsPerSender) {
         qCDebug(lanLog) << "chat: rate-limited message from"
-                        << senderMid.left(8);
+                        << rateKey.left(8);
         emit chatMessageDropped(senderMid, tr("rate limit"));
         return;
     }
-    _lastChatMsBySender.insert(senderMid, timestampMs);
+    _lastChatMsBySender.insert(rateKey, arrivalMs);
 
     // Surface to local UI. CAVEAT (bugfix 2026-05-21): the host's own
     // sendChatMessage path also routes through handleIncomingChat —
@@ -1292,7 +1353,11 @@ void LanLiveSession::handleIncomingViewState(IPeerLink *fromPeer,
         qCWarning(lanLog) << "server: viewState received in Edit mode — dropping";
         return;
     }
-    QString senderMid = obj.value(QStringLiteral("sender")).toString();
+    // Identity comes from the link the frame arrived on, not the payload
+    // (spoofable); the payload is only used for the host's own self-routed
+    // frame (fromPeer == nullptr).
+    QString senderMid = fromPeer ? fromPeer->peerMachineId()
+                                 : obj.value(QStringLiteral("sender")).toString();
     if (senderMid != _presenterMachineId) {
         qCWarning(lanLog) << "server: viewState from non-presenter"
                           << senderMid.left(8) << "— dropping";
@@ -1357,7 +1422,9 @@ void LanLiveSession::handleIncomingPlayback(IPeerLink *fromPeer,
         qCWarning(lanLog) << "server: playback received in Edit mode — dropping";
         return;
     }
-    QString senderMid = obj.value(QStringLiteral("sender")).toString();
+    // Same as viewState: trust the link identity, not the payload field.
+    QString senderMid = fromPeer ? fromPeer->peerMachineId()
+                                 : obj.value(QStringLiteral("sender")).toString();
     if (senderMid != _presenterMachineId) {
         qCWarning(lanLog) << "server: playback from non-presenter"
                           << senderMid.left(8) << "— dropping";
@@ -1507,7 +1574,20 @@ void LanLiveSession::onSyncTick() {
                    << "fileMaxTick=" << currentEndTick
                    << "role=" << (_role == Role::Hosting ? "host" : "client")
                    << "endTickChanged=" << endTickChanged;
-    QByteArray payload = encodeHunks(hunks);  // includes fileMaxTick + actionLabel
+    // Host: assign the sidecar commit hash up front and carry it in the
+    // frame so every peer records this edit under the HOST's hash (see
+    // handleIncomingHunks); it is recorded locally only once the send
+    // succeeded, so a failed send leaves no phantom commit behind.
+    QString hostCommitHash;
+    if (_role == Role::Hosting && !hunks.isEmpty()
+        && CollabService::instance()->isEnabled()
+        && !CollabService::instance()->sessionId().isEmpty()) {
+        hostCommitHash = CollabService::liveCommitHash(
+            now, CollabIdentity::displayName(), QDateTime::currentMSecsSinceEpoch());
+    }
+    const quint64 frameId = _outboundFrameSeq;  // encodeHunks stamps + bumps it
+    const QString actionLabelSent = _lastActionLabel;
+    QByteArray payload = encodeHunks(hunks, hostCommitHash);  // includes fileMaxTick + actionLabel
 
     // BUG-COLLAB-021: don't advance baselines until the send actually
     // succeeded.  `sendMessage` returns false when the payload exceeds
@@ -1531,6 +1611,21 @@ void LanLiveSession::onSyncTick() {
     }
 
     if (sendOk) {
+        if (!hostCommitHash.isEmpty()) {
+            // Same suppression as an incoming frame: the peers record
+            // this commit from the frame, no full-sidecar re-broadcast.
+            _suppressSidecarBroadcast = true;
+            CollabService::instance()->recordRemoteLiveSync(
+                _file, CollabIdentity::displayName(), CollabIdentity::machineId(),
+                liveCommitMessage(actionLabelSent, hunkChangeCount(hunks)), hunks,
+                hostCommitHash);
+            _suppressSidecarBroadcast = false;
+        } else if (_role == Role::Joined && !hunks.isEmpty()) {
+            // Recorded once the host's ack tells us the hash it assigned.
+            _unackedLiveFrames.insert(frameId, UnackedLiveFrame{hunks, actionLabelSent});
+            while (_unackedLiveFrames.size() > kMaxUnackedLiveFrames)
+                _unackedLiveFrames.erase(_unackedLiveFrames.begin());
+        }
         _lastSyncedSnapshot = now;
         _lastBroadcastEndTick = currentEndTick;
         // Plan §11.10p: action label is consumed by the broadcast — clear
@@ -1563,6 +1658,21 @@ void LanLiveSession::onPeerFound(const QString &sessionId,
         qCDebug(lanLog) << "session: ignoring peerFound — already in role" << static_cast<int>(_role);
         return;
     }
+    // Re-entrancy guard: switchToFileBeforeConnect below runs
+    // MainWindow::openFile synchronously, and that can spin a nested
+    // event loop (auto-save-recovery prompt, error boxes). The role is
+    // still Idle while the loop runs, so without this a second
+    // announcement would build a second LanClient over _client and a
+    // second sync timer.
+    if (_joinInProgress) {
+        qCDebug(lanLog) << "session: ignoring peerFound — join already in progress";
+        return;
+    }
+    _joinInProgress = true;
+    // Stop scanning BEFORE the file switch below: the host keeps
+    // announcing every second, and a nested event loop would otherwise
+    // let every one of those announcements re-enter this slot.
+    if (_discovery) _discovery->stopListening();
     qCInfo(lanLog) << "session: peer found" << displayName << "@"
                    << hostAddress.toString() << ":" << tcpPort
                    << "sessionId=" << sessionId.left(8);
@@ -1593,7 +1703,6 @@ void LanLiveSession::onPeerFound(const QString &sessionId,
     }
 
     _hostDisplayName = displayName;
-    _discovery->stopListening();  // we found our peer; stop scanning
 
     auto *lanCli = new LanClient(this);
     _client = lanCli;
@@ -1610,6 +1719,7 @@ void LanLiveSession::onPeerFound(const QString &sessionId,
     emit statusMessage(tr("Connecting to %1 (%2:%3)…")
                             .arg(displayName, hostAddress.toString())
                             .arg(tcpPort));
+    _joinInProgress = false;
 }
 
 void LanLiveSession::onClientConnected() {
@@ -1632,6 +1742,14 @@ void LanLiveSession::onClientConnected() {
         _lastSyncedSnapshot = QJsonArray();
     }
 
+    // Drop any timer a previous connect attempt left behind - a stacked
+    // one keeps ticking and would send one extra sync frame per second
+    // that resetState() cannot stop (it only knows the newest).
+    if (_syncTimer) {
+        _syncTimer->stop();
+        _syncTimer->deleteLater();
+        _syncTimer = nullptr;
+    }
     _syncTimer = new QTimer(this);
     _syncTimer->setInterval(kSyncIntervalMs);
     connect(_syncTimer, &QTimer::timeout, this, &LanLiveSession::onSyncTick);
@@ -1763,26 +1881,22 @@ void LanLiveSession::onClientMessage(const QByteArray &payload) {
         handleClientSessionModeSwitch(obj);
         return;
     }
-    if (type == QLatin1String("hunks")) {
-        handleIncomingHunks(obj.value(QStringLiteral("author")).toString(),
-                            obj.value(QStringLiteral("machineId")).toString(),
-                            obj.value(QStringLiteral("hunks")).toArray(),
-                            obj.value(QStringLiteral("actionLabel")).toString());
-        applyFileMaxTickFromFrame(obj);
-        // Plan §11.10q: ack this frame back to the sender (host) so
-        // they see the apply result in their status bar. frameId is
-        // server-assigned monotonic; older builds without the field
-        // get frameId=0 and the sender silently ignores the ack.
-        if (_client && _client->isConnected()) {
-            // BUG-COLLAB-020: clamp negatives to 0 — qint64→quint64 of
-            // a negative value (e.g. from an older buggy build) becomes
-            // 0xFFFF…F, which would surface in the host's status bar
-            // as a nonsense ack ID.
-            qint64 raw = obj.value(QStringLiteral("frameId")).toVariant().toLongLong();
-            if (raw < 0) raw = 0;
-            quint64 frameId = quint64(raw);
-            _client->sendMessage(encodeHunksAck(frameId, _lastApplyApplied, _lastApplySkipped));
+    if (type == QLatin1String("hunks") || type == QLatin1String("snapshot")) {
+        // While the file-transfer Yes/No prompt is open (nested event
+        // loop) _file is still the user's OWN document, which the
+        // transfer is about to replace. Applying host hunks / a shrunk
+        // fileMaxTick to it would mutate a file the prompt promises to
+        // leave untouched, so buffer the frame and replay it from
+        // setActiveFile() once the swap is done (same idea as
+        // _pendingSidecar for collabsync).
+        if (_filetransferPending) {
+            _pendingTransferFrames.append(obj);
+            qCInfo(lanLog) << "client:" << type << "frame buffered while file "
+                              "transfer is pending (queued="
+                           << _pendingTransferFrames.size() << ")";
+            return;
         }
+        applyClientDataFrame(obj);
     } else if (type == QLatin1String("hunksAck")) {
         qint64 raw = obj.value(QStringLiteral("frameId")).toVariant().toLongLong();
         if (raw < 0) raw = 0;  // BUG-COLLAB-020
@@ -1790,10 +1904,8 @@ void LanLiveSession::onClientMessage(const QByteArray &payload) {
             obj.value(QStringLiteral("ackBy")).toString(),
             quint64(raw),
             obj.value(QStringLiteral("applied")).toInt(),
-            obj.value(QStringLiteral("skipped")).toInt());
-    } else if (type == QLatin1String("snapshot")) {
-        handleIncomingSnapshot(obj.value(QStringLiteral("events")).toArray());
-        applyFileMaxTickFromFrame(obj);
+            obj.value(QStringLiteral("skipped")).toInt(),
+            obj.value(QStringLiteral("commitHash")).toString());
     } else if (type == QLatin1String("collabsync")) {
         handleIncomingCollabSync(obj.value(QStringLiteral("sidecar")).toObject());
     } else if (type == QLatin1String("filetransfer")) {
@@ -1803,6 +1915,12 @@ void LanLiveSession::onClientMessage(const QByteArray &payload) {
         handleIncomingFileTransfer(filename, bytes);
     } else if (type == QLatin1String("joinrejected")) {
         handleIncomingJoinRejected(obj.value(QStringLiteral("reason")).toString());
+    } else if (type == QLatin1String("historyrequest")) {
+        // Host classified us as a returning peer with commits it lacks
+        // and asks for our slice. Without this branch the frame was
+        // silently dropped and the host waited forever.
+        handleClientHistoryRequest(obj.value(QStringLiteral("fromHash")).toString(),
+                                   obj.value(QStringLiteral("toHash")).toString());
     } else if (type == QLatin1String("historybundle")) {
         // Host shipped us its commits-since-fork (we were behind) OR
         // host is responding to our historyrequest (very rare on
@@ -1825,6 +1943,68 @@ void LanLiveSession::onClientMessage(const QByteArray &payload) {
     // hello / heartbeat ignored on the client side for now
 }
 
+void LanLiveSession::applyClientDataFrame(const QJsonObject &obj) {
+    const QString type = obj.value(QStringLiteral("type")).toString();
+    if (type == QLatin1String("hunks")) {
+        handleIncomingHunks(obj.value(QStringLiteral("author")).toString(),
+                            obj.value(QStringLiteral("machineId")).toString(),
+                            obj.value(QStringLiteral("hunks")).toArray(),
+                            obj.value(QStringLiteral("actionLabel")).toString(),
+                            obj.value(QStringLiteral("commitHash")).toString());
+        applyFileMaxTickFromFrame(obj);
+        // Plan §11.10q: ack this frame back to the sender (host) so
+        // they see the apply result in their status bar. frameId is
+        // server-assigned monotonic; older builds without the field
+        // get frameId=0 and the sender silently ignores the ack.
+        if (_client && _client->isConnected()) {
+            // BUG-COLLAB-020: clamp negatives to 0 — qint64→quint64 of
+            // a negative value (e.g. from an older buggy build) becomes
+            // 0xFFFF…F, which would surface in the host's status bar
+            // as a nonsense ack ID.
+            qint64 raw = obj.value(QStringLiteral("frameId")).toVariant().toLongLong();
+            if (raw < 0) raw = 0;
+            quint64 frameId = quint64(raw);
+            _client->sendMessage(encodeHunksAck(frameId, _lastApplyApplied, _lastApplySkipped));
+        }
+    } else if (type == QLatin1String("snapshot")) {
+        handleIncomingSnapshot(obj.value(QStringLiteral("events")).toArray());
+        applyFileMaxTickFromFrame(obj);
+    }
+}
+
+void LanLiveSession::handleClientHistoryRequest(const QString &fromHash,
+                                                 const QString &toHash) {
+    qCInfo(lanLog) << "client: host requested history slice since"
+                   << fromHash.left(8) << "up to" << toHash.left(8);
+    if (!_client || !_client->isConnected()) return;
+    QJsonObject sidecar = CollabService::instance()->currentSidecarJson();
+    QJsonArray history = sidecar.value(QStringLiteral("history")).toArray();
+    QJsonArray slice = HistoryReconciliation::commitsSinceFork(history, fromHash);
+    // In the Diverged case the host ships its own bundle BEFORE this
+    // request and handleIncomingHistoryBundle has already appended those
+    // commits to our history. toHash is the head we reported in hello, so
+    // cut the slice there and do not hand the host its own commits back.
+    if (!toHash.isEmpty()) {
+        int cut = -1;
+        for (int i = slice.size() - 1; i >= 0; --i) {
+            if (slice.at(i).toObject().value(QStringLiteral("hash")).toString() == toHash) {
+                cut = i;
+                break;
+            }
+        }
+        if (cut >= 0) {
+            QJsonArray trimmed;
+            for (int i = 0; i <= cut; ++i) trimmed.append(slice.at(i));
+            slice = trimmed;
+        }
+    }
+    qCInfo(lanLog) << "client: shipping slice of" << slice.size()
+                   << "commits to host";
+    QByteArray frame = encodeHistoryBundle(slice, fromHash);
+    _client->sendMessage(frame);
+    recordSent(frame.size(), 1);
+}
+
 // ---------------------------------------------------------------------
 // Server-side: peer connect / disconnect / message routing
 // ---------------------------------------------------------------------
@@ -1832,7 +2012,12 @@ void LanLiveSession::onServerPeerConnected(IPeerLink *peer) {
     // Don't ship snapshot/sidecar yet — the hello frame tells us whether
     // the peer already has the file. If not, we send a `filetransfer`
     // first so they can open the same .mid before any state-sync arrives.
-    Q_UNUSED(peer);
+    // BUG-COLLAB-030 backstop: stamp the peer now so the silence deadline
+    // runs from the accept. Without this lastSeenMs stays 0 and
+    // onHeartbeatTick's `lastSeen > 0` guard permanently exempts a peer
+    // that connects and never sends a single frame - exactly the ghost
+    // link the deadline exists to reap.
+    if (peer) peer->touchLastSeen(QDateTime::currentMSecsSinceEpoch());
     _retryAttempt = 0;  // Plan §11.10h: success restores the retry budget
     emit peerCountChanged(_server->peerCount());
     emit statusMessage(tr("Peer connected — %1 total.").arg(_server->peerCount()));
@@ -2082,10 +2267,14 @@ void LanLiveSession::onServerMessage(IPeerLink *peer, const QByteArray &payload)
         // from any peer that isn't the current presenter — defensive
         // even when the UI lock is in place, per the design note
         // "never trust client-side UI lock alone".
-        if (!isHunkSenderAuthorised(machineId, author, hunks.size())) {
+        // The gate must use the LINK's identity (set from that peer's own
+        // hello), not the payload field: the presenter's machineId is public
+        // (sessionWelcome / hatTransferred), so a payload value is spoofable.
+        const QString linkMachineId = peer ? peer->peerMachineId() : machineId;
+        if (!isHunkSenderAuthorised(linkMachineId, author, hunks.size())) {
             return;
         }
-        handleIncomingHunks(author, machineId, hunks, actionLabel);
+        const QString commitHash = handleIncomingHunks(author, machineId, hunks, actionLabel);
         applyFileMaxTickFromFrame(obj);
         // Plan §11.10q: ack this frame back to the originator so they
         // can show "✓ N events accepted by HOST" in their status bar.
@@ -2096,13 +2285,24 @@ void LanLiveSession::onServerMessage(IPeerLink *peer, const QByteArray &payload)
             qint64 raw = obj.value(QStringLiteral("frameId")).toVariant().toLongLong();
             if (raw < 0) raw = 0;
             quint64 frameId = quint64(raw);
-            peer->sendMessage(encodeHunksAck(frameId, _lastApplyApplied, _lastApplySkipped));
+            // The ack carries the hash we recorded so the originator can
+            // record its own edit under the same hash (handleIncomingHunksAck).
+            peer->sendMessage(encodeHunksAck(frameId, _lastApplyApplied, _lastApplySkipped,
+                                             commitHash));
         }
         // Forward to all other peers (echo-loop prevention per Plan §11.2).
         if (_server) {
             int otherPeers = _server->peerCount() - 1;  // exclude originator
-            if (otherPeers > 0 && _server->broadcastExcept(payload, peer))
-                recordSent(payload.size(), otherPeers);
+            // Stamp the relayed frame with our commit hash so every other
+            // peer records this edit on the host's chain, not a local one.
+            QByteArray relayPayload = payload;
+            if (!commitHash.isEmpty()) {
+                QJsonObject relayed = obj;
+                relayed.insert(QStringLiteral("commitHash"), commitHash);
+                relayPayload = QJsonDocument(relayed).toJson(QJsonDocument::Compact);
+            }
+            if (otherPeers > 0 && _server->broadcastExcept(relayPayload, peer))
+                recordSent(relayPayload.size(), otherPeers);
         }
         return;
     }
@@ -2174,19 +2374,20 @@ void LanLiveSession::onServerMessage(IPeerLink *peer, const QByteArray &payload)
 // ---------------------------------------------------------------------
 // Apply incoming changes locally
 // ---------------------------------------------------------------------
-void LanLiveSession::handleIncomingHunks(const QString &author,
-                                          const QString &machineId,
-                                          const QJsonArray &hunks,
-                                          const QString &actionLabel) {
+QString LanLiveSession::handleIncomingHunks(const QString &author,
+                                             const QString &machineId,
+                                             const QJsonArray &hunks,
+                                             const QString &actionLabel,
+                                             const QString &commitHash) {
     // Plan §11.10q: reset apply-result members so the dispatcher can
     // build an accurate hunksAck from this call's outcome.
     _lastApplyApplied = 0;
     _lastApplySkipped = 0;
     if (!_file) {
         qCWarning(lanLog) << "session: incoming hunks dropped — no file";
-        return;
+        return QString();
     }
-    if (hunks.isEmpty()) return;
+    if (hunks.isEmpty()) return QString();
 
     // Review mode (§11.10c): queue instead of apply. The user reviews
     // the accumulated bundle later via the Collab menu. This is purely
@@ -2203,7 +2404,7 @@ void LanLiveSession::handleIncomingHunks(const QString &author,
         emit pendingReviewChanged(_pendingReviewHunks.size());
         emit statusMessage(tr("Live edits paused for review: %1 hunk(s) waiting from %2.")
                                 .arg(_pendingReviewHunks.size()).arg(author));
-        return;
+        return QString();
     }
 
     qCInfo(lanLog) << "session: applying" << hunks.size() << "hunks from" << author;
@@ -2233,7 +2434,11 @@ void LanLiveSession::handleIncomingHunks(const QString &author,
     applied = r.addedCount + r.removedCount + r.modifiedCount;
     _lastApplyApplied = applied;
     _lastApplySkipped = r.skippedCount;
-    if (applied > 0) {
+    QString recordedHash;
+    // A host-assigned commitHash is recorded even when nothing applied
+    // here: the host's chain has that commit, and a peer whose chain
+    // lacks it gets fast-forwarded (re-applied) on its next rejoin.
+    if (applied > 0 || !commitHash.isEmpty()) {
         // Live-sync applies are silent (no auto-save), so onFileSaved's
         // commit path doesn't fire. Record an explicit history entry so the
         // Collaboration log shows incoming peer activity.
@@ -2241,14 +2446,20 @@ void LanLiveSession::handleIncomingHunks(const QString &author,
             ? QStringLiteral("Live: %1 change(s) from %2").arg(applied).arg(author)
             : QStringLiteral("%1 — %2 change(s) from %3")
                   .arg(actionLabel).arg(applied).arg(author);
-        CollabService::instance()->recordRemoteLiveSync(
-            _file, author, machineId, logMsg, hunks);
+        // See _suppressSidecarBroadcast: this commit is mirrored by every
+        // peer from the relayed hunks frame, so it must not trigger the
+        // host's full-sidecar re-broadcast.
+        _suppressSidecarBroadcast = true;
+        recordedHash = CollabService::instance()->recordRemoteLiveSync(
+            _file, author, machineId, logMsg, hunks, commitHash);
+        _suppressSidecarBroadcast = false;
     }
 
     if (r.skippedCount > 0) {
         emit statusMessage(tr("Live sync from %1: %2 hunks applied, %3 skipped.")
                                 .arg(author).arg(applied).arg(r.skippedCount));
     }
+    return recordedHash;
 }
 
 void LanLiveSession::handleIncomingSnapshot(const QJsonArray &events) {
@@ -2449,12 +2660,16 @@ QByteArray LanLiveSession::encodeSnapshot(const QJsonArray &events) const {
     return QJsonDocument(o).toJson(QJsonDocument::Compact);
 }
 
-QByteArray LanLiveSession::encodeHunks(const QJsonArray &hunks) const {
+QByteArray LanLiveSession::encodeHunks(const QJsonArray &hunks,
+                                       const QString &commitHash) const {
     QJsonObject o;
     o.insert(QStringLiteral("type"), QStringLiteral("hunks"));
     o.insert(QStringLiteral("author"), CollabIdentity::displayName());
     o.insert(QStringLiteral("machineId"), CollabIdentity::machineId());
     o.insert(QStringLiteral("hunks"), hunks);
+    // Host-assigned sidecar commit hash for this frame (absent on frames
+    // a joined peer sends - the host assigns it and relays / acks it).
+    if (!commitHash.isEmpty()) o.insert(QStringLiteral("commitHash"), commitHash);
     if (_file) o.insert(QStringLiteral("fileMaxTick"), _file->endTick());
     // Plan §11.10p: include the most recent finished `Protocol` action
     // description so the receiver can label the resulting commit with
@@ -2470,9 +2685,11 @@ QByteArray LanLiveSession::encodeHunks(const QJsonArray &hunks) const {
     return QJsonDocument(o).toJson(QJsonDocument::Compact);
 }
 
-QByteArray LanLiveSession::encodeHunksAck(quint64 frameId, int applied, int skipped) const {
+QByteArray LanLiveSession::encodeHunksAck(quint64 frameId, int applied, int skipped,
+                                          const QString &commitHash) const {
     QJsonObject o;
     o.insert(QStringLiteral("type"), QStringLiteral("hunksAck"));
+    if (!commitHash.isEmpty()) o.insert(QStringLiteral("commitHash"), commitHash);
     o.insert(QStringLiteral("frameId"), qint64(frameId));
     o.insert(QStringLiteral("applied"), applied);
     o.insert(QStringLiteral("skipped"), skipped);
@@ -2622,6 +2839,7 @@ void LanLiveSession::applyFileMaxTickFromFrame(const QJsonObject &frame) {
         // so undo restores both pieces atomically.
         if (shrinking) {
             int removed = 0;
+            int clamped = 0;
             // Channels 0..18: 0–15 audio, 16 text/key-sig meta, 17 tempo,
             // 18 time-sig (Plan §11.10j). All carry events that shouldn't
             // exceed the file length.
@@ -2629,18 +2847,38 @@ void LanLiveSession::applyFileMaxTickFromFrame(const QJsonObject &frame) {
                 MidiChannel *channel = _file->channel(ch);
                 if (!channel) continue;
                 QList<MidiEvent *> toRemove;
+                QList<OffEvent *> toClamp;
                 QMultiMap<int, MidiEvent *> *map = channel->eventMap();
                 for (auto it = map->begin(); it != map->end(); ++it) {
-                    if (it.key() > incoming) toRemove.append(it.value());
+                    if (it.key() <= incoming) continue;
+                    // OffEvents are keyed under their OWN tick. Removing a
+                    // bare off whose note starts before the new end leaves
+                    // the NoteOn behind with no Note Off (hanging note on
+                    // save/playback), so such spanning notes are shortened
+                    // to the new end instead - same as deleteMeasures(). An
+                    // off whose note also starts past the end is dropped
+                    // together with its on by removeEvent().
+                    OffEvent *off = dynamic_cast<OffEvent *>(it.value());
+                    if (off && off->onEvent()) {
+                        if (off->onEvent()->midiTime() <= incoming)
+                            toClamp.append(off);
+                        continue;
+                    }
+                    toRemove.append(it.value());
                 }
                 for (MidiEvent *ev : toRemove) {
                     channel->removeEvent(ev);
                     ++removed;
                 }
+                for (OffEvent *off : toClamp) {
+                    off->setMidiTime(incoming);
+                    ++clamped;
+                }
             }
-            if (removed > 0) {
+            if (removed > 0 || clamped > 0) {
                 qCInfo(lanLog) << "session: shrink removed" << removed
-                               << "orphan event(s) past new end-tick"
+                               << "orphan event(s) and clamped" << clamped
+                               << "spanning note(s) to new end-tick"
                                << incoming;
             }
         }
@@ -2655,11 +2893,27 @@ void LanLiveSession::applyFileMaxTickFromFrame(const QJsonObject &frame) {
 void LanLiveSession::handleIncomingHunksAck(const QString &ackBy,
                                               quint64 frameId,
                                               int applied,
-                                              int skipped) {
+                                              int skipped,
+                                              const QString &commitHash) {
     qCInfo(lanLog) << "session: hunksAck from" << ackBy
                    << "frame=" << frameId
                    << "applied=" << applied
                    << "skipped=" << skipped;
+    // Joined peer: the host recorded our frame under commitHash - mirror
+    // it under the same hash so our history stays on the host's chain
+    // (an ack without a hash means the host recorded nothing: drop it).
+    if (_role == Role::Joined) {
+        auto pending = _unackedLiveFrames.find(frameId);
+        if (pending != _unackedLiveFrames.end()) {
+            if (!commitHash.isEmpty() && _file) {
+                CollabService::instance()->recordRemoteLiveSync(
+                    _file, CollabIdentity::displayName(), CollabIdentity::machineId(),
+                    liveCommitMessage(pending->actionLabel, applied),
+                    pending->hunks, commitHash);
+            }
+            _unackedLiveFrames.erase(pending);
+        }
+    }
     QString peer = ackBy.isEmpty() ? tr("peer") : ackBy;
     if (skipped == 0 && applied == 0) {
         // Receiver got the frame but had nothing to apply (review-mode
@@ -2900,7 +3154,9 @@ void LanLiveSession::handleIncomingMergeResult(const QString &baseHead,
             ? stem + QStringLiteral("_diverged")
             : stem + QStringLiteral("_diverged.") + suffix;
         divergedPath = fi.absolutePath() + QLatin1Char('/') + divergedName;
-        bool ok = _file->save(divergedPath);
+        // Backup copy, not the document itself: must not clear the dirty flag.
+        bool ok = _file->save(divergedPath, false, QHash<QString, int>(),
+                              /*markSaved=*/false);
         qCInfo(lanLog) << "session: pre-merge state saved to"
                        << divergedPath << "ok=" << ok;
         if (!ok) divergedPath.clear();
@@ -2959,10 +3215,25 @@ void LanLiveSession::acceptReturningPeerMerge(const QString &peerToken,
     if (it == _pendingMerges.end()) {
         qCWarning(lanLog) << "session: acceptReturningPeerMerge — unknown peer token"
                           << peerToken;
+        // The dialog outlives both the peer link and the session: the entry
+        // is purged on peer disconnect and in resetState(), so a late Accept
+        // lands here - tell the user instead of failing silently.
+        emit statusMessage(_role == Role::Hosting
+            ? tr("Merge was not applied - the peer is no longer connected.")
+            : tr("Merge was not applied - the session has ended."));
         return;
     }
     PendingMerge pm = it.value();
     _pendingMerges.erase(it);
+    // The dialog can outlive the session (teardown nulls _file): say so
+    // instead of reporting a merge that applied nothing and told nobody.
+    if (!_file) {
+        qCWarning(lanLog) << "session: acceptReturningPeerMerge - session ended,"
+                          << "nothing to merge into for" << pm.peerName;
+        emit statusMessage(tr("Merge from %1 was not applied - the session has ended.")
+                               .arg(pm.peerName));
+        return;
+    }
     if (!pm.peer) return;
 
     qCInfo(lanLog) << "session: host accepted" << acceptedHunks.size()
@@ -2995,7 +3266,7 @@ void LanLiveSession::acceptReturningPeerMerge(const QString &peerToken,
                                          acceptedHunks, rejectedHunks,
                                          rejectedCommitHashes);
     pm.peer->sendMessage(frame);
-    if (_server) _server->broadcastExcept(frame, pm.peer);
+    if (_server) _server->broadcastExcept(frame, pm.peer.data());
 }
 
 void LanLiveSession::setReviewMode(bool enabled) {
@@ -3089,5 +3360,17 @@ void LanLiveSession::setActiveFile(MidiFile *file) {
         QJsonObject pending = _pendingSidecar;
         _pendingSidecar = QJsonObject();
         handleIncomingCollabSync(pending);
+    }
+    // Replay the hunks / snapshot frames that arrived while the transfer
+    // prompt was open - they belong to the file we just swapped to.
+    if (!_pendingTransferFrames.isEmpty()) {
+        const QList<QJsonObject> frames = _pendingTransferFrames;
+        _pendingTransferFrames.clear();
+        qCInfo(lanLog) << "session: replaying" << frames.size()
+                       << "frame(s) buffered during file transfer";
+        for (const QJsonObject &frame : frames) {
+            if (!_file || _role != Role::Joined) break;
+            applyClientDataFrame(frame);
+        }
     }
 }

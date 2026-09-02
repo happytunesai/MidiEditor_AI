@@ -129,6 +129,11 @@ SplitChannelsDialog::SplitChannelsDialog(MidiFile *file, MidiTrack *sourceTrack,
         drumLayout->addWidget(drumInfo);
         drumLayout->addWidget(_drumPresetCombo);
         mainLayout->addWidget(drumGroup);
+    } else {
+        // The combo is created unconditionally (selectedDrumPreset() reads
+        // it), but a child no layout manages is shown with its parent at
+        // (0,0) and painted over the info label - keep it hidden here.
+        _drumPresetCombo->setVisible(false);
     }
 
     // Buttons

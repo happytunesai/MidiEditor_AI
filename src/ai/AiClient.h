@@ -609,6 +609,12 @@ private:
         // Stored per tool call so it can be plumbed through tool_calls[]
         // and re-serialised in buildGeminiContents().
         QString thoughtSignature;
+        // Chat-Completions providers that report index 0 for every call
+        // (Ollama OpenAI-compat, ollama#15457) would otherwise merge parallel
+        // calls into one slot. When a new call is detected on an already used
+        // wire index, this points at the freshly allocated slot so later
+        // argument fragments for that index follow the chain.
+        int nextSlot = -1;
     };
     QHash<int, StreamToolCall> _streamToolCalls;
     // Per-output-index map for the OpenAI Responses-API streaming path.

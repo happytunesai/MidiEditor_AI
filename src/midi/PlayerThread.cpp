@@ -24,6 +24,10 @@
 #include "MidiInput.h"
 #include "MidiOutput.h"
 #include "MidiPlayer.h"
+#include "MidiTrack.h"
+#ifdef FLUIDSYNTH_SUPPORT
+#include "FluidSynthEngine.h"
+#endif
 #include <QMultiMap>
 #include <QElapsedTimer>
 #include <QMutexLocker>
@@ -37,15 +41,42 @@ PlayerThread::PlayerThread()
     timer = 0;
     timeoutSinceLastSignal = 0;
     time = 0;
+    measureEvents = 0;
 }
 
 PlayerThread::~PlayerThread() {
     delete timer;
     delete time;
+    // MidiFile::measure() hands the list over to the caller (it deletes the one
+    // it is given and returns a fresh one), so the last one is ours to free.
+    // The TimeSignatureEvents in it belong to the file and are not touched.
+    delete measureEvents;
+}
+
+void PlayerThread::start(Priority priority) {
+    // Clear the stop request on the CALLER's thread, before the worker starts.
+    // Doing it in run() overwrote a stop() issued during run()'s prologue, so
+    // the timer loop never saw it and MidiPlayer::stop()'s wait() froze the GUI
+    // until the song ended.
+    stopped = false;
+    QThread::start(priority);
 }
 
 void PlayerThread::setFile(MidiFile *f) {
     file = f;
+    // Resolve every track's FFXIV drum program HERE, on the GUI thread, once
+    // per start: MidiTrack::name() copies an unsynchronised QString that a
+    // rename/undo on the GUI thread rewrites, so the playback loop must not
+    // call it. Same lookup as before, only taken at start instead of per note.
+    trackDrumPrograms.clear();
+#ifdef FLUIDSYNTH_SUPPORT
+    if (file) {
+        FluidSynthEngine *engine = FluidSynthEngine::instance();
+        foreach (MidiTrack *track, *file->tracks()) {
+            trackDrumPrograms.insert(track, engine->drumProgramForTrackName(track->name()));
+        }
+    }
+#endif
 }
 
 void PlayerThread::stop() {
@@ -101,7 +132,8 @@ void PlayerThread::run() {
         if (it.key() >= position) {
             break;
         }
-        MidiOutput::sendCommand(it.value());
+        // Pre-resolved drum program: no track-name read on this thread.
+        MidiOutput::sendCommand(it.value(), trackDrumPrograms.value(it.value()->track(), -1));
         it++;
     }
 
@@ -110,12 +142,11 @@ void PlayerThread::run() {
     connect(timer, SIGNAL(timeout()), this, SLOT(timeout()), Qt::DirectConnection);
     timer->start(INTERVAL_TIME);
 
-    stopped = false;
-
-    QList<TimeSignatureEvent *> *list = 0;
-
+    // measureEvents is a member and is passed back in on every call: measure()
+    // deletes the list it is given before allocating the next one, so reusing
+    // the same pointer is what keeps this from leaking a QList per 15 ms tick.
     int tickInMeasure = 0;
-    measure = file->measure(file->cursorTick(), file->cursorTick(), &list, &tickInMeasure);
+    measure = file->measure(file->cursorTick(), file->cursorTick(), &measureEvents, &tickInMeasure);
     emit(measureChanged(measure, tickInMeasure));
 
     if (exec() == 0) {
@@ -160,14 +191,13 @@ void PlayerThread::timeout() {
         int newPos = position + time->elapsed() * MidiPlayer::speedScale();
         // Snapshot-backed and safe to call from here (see run()).
         int tick = file->tick(newPos);
-        QList<TimeSignatureEvent *> *list = 0;
         int ickInMeasure = 0;
 
         // NOT covered by that guarantee: measure() walks channel 18's live
         // QMultiMap on this thread. It predates the tempo cache and is a known
         // pre-existing hazard (a meter edit during playback can race it), not
         // something the tempo snapshot fixes. Do not add more calls like it.
-        int new_measure = file->measure(tick, tick, &list, &ickInMeasure);
+        int new_measure = file->measure(tick, tick, &measureEvents, &ickInMeasure);
 
         // compute current pos
 
@@ -193,7 +223,7 @@ void PlayerThread::timeout() {
             } while (it != events->end() && it.key() == sendPosition);
 
             foreach(MidiEvent* ev, offEv) {
-                MidiOutput::sendCommand(ev);
+                MidiOutput::sendCommand(ev, trackDrumPrograms.value(ev->track(), -1));
             }
             foreach(MidiEvent* ev, onEv) {
                 if (ev->line() == MidiEvent::KEY_SIGNATURE_EVENT_LINE) {
@@ -208,7 +238,8 @@ void PlayerThread::timeout() {
                         emit meterChanged(timeSig->num(), timeSig->denom());
                     }
                 }
-                MidiOutput::sendCommand(ev);
+                // Pre-resolved drum program: no track-name read on this thread.
+                MidiOutput::sendCommand(ev, trackDrumPrograms.value(ev->track(), -1));
             }
 
             //MidiOutput::sendCommand(it.value());

@@ -288,6 +288,10 @@ void McpServer::processHttpRequest(QTcpSocket *socket, const HttpRequest &req) {
         return;
     }
 
+    // Only an Origin that already passed validateOrigin() is ever reflected back
+    // in a CORS header; empty means a native client, which needs none.
+    const QString reqOrigin = req.headers.value("origin");
+
     if (req.method == "POST") {
         // JSON-RPC 2.0 request
         QJsonParseError parseErr;
@@ -295,7 +299,7 @@ void McpServer::processHttpRequest(QTcpSocket *socket, const HttpRequest &req) {
         if (parseErr.error != QJsonParseError::NoError || !doc.isObject()) {
             QJsonObject err = makeJsonRpcError(QJsonValue::Null, JSONRPC_PARSE_ERROR,
                                                "Parse error: " + parseErr.errorString());
-            sendJsonResponse(socket, 200, err);
+            sendJsonResponse(socket, 200, err, QString(), reqOrigin);
             return;
         }
 
@@ -305,7 +309,7 @@ void McpServer::processHttpRequest(QTcpSocket *socket, const HttpRequest &req) {
         if (rpcRequest["jsonrpc"].toString() != "2.0" || !rpcRequest.contains("method")) {
             QJsonObject err = makeJsonRpcError(rpcRequest["id"], JSONRPC_INVALID_REQUEST,
                                                "Invalid JSON-RPC 2.0 request");
-            sendJsonResponse(socket, 200, err);
+            sendJsonResponse(socket, 200, err, QString(), reqOrigin);
             return;
         }
 
@@ -328,7 +332,7 @@ void McpServer::processHttpRequest(QTcpSocket *socket, const HttpRequest &req) {
             _sessions[newSession.id] = newSession;
             lock.unlock();
 
-            sendJsonResponse(socket, 200, response, newSession.id);
+            sendJsonResponse(socket, 200, response, newSession.id, reqOrigin);
             emit clientConnected(newSession.id);
             emit logMessage(QString("New MCP session: %1").arg(newSession.id));
             return;
@@ -338,7 +342,7 @@ void McpServer::processHttpRequest(QTcpSocket *socket, const HttpRequest &req) {
         if (sessionId.isEmpty()) {
             QJsonObject err = makeJsonRpcError(rpcRequest["id"], JSONRPC_INVALID_REQUEST,
                                                "Missing Mcp-Session-Id header. Call initialize first.");
-            sendJsonResponse(socket, 200, err);
+            sendJsonResponse(socket, 200, err, QString(), reqOrigin);
             return;
         }
 
@@ -346,7 +350,7 @@ void McpServer::processHttpRequest(QTcpSocket *socket, const HttpRequest &req) {
         if (!session) {
             QJsonObject err = makeJsonRpcError(rpcRequest["id"], JSONRPC_INVALID_REQUEST,
                                                "Invalid or expired session. Call initialize again.");
-            sendJsonResponse(socket, 200, err);
+            sendJsonResponse(socket, 200, err, QString(), reqOrigin);
             return;
         }
 
@@ -362,7 +366,7 @@ void McpServer::processHttpRequest(QTcpSocket *socket, const HttpRequest &req) {
         }
 
         QJsonObject rpcResponse = handleJsonRpc(rpcRequest, *session);
-        sendJsonResponse(socket, 200, rpcResponse, sessionId);
+        sendJsonResponse(socket, 200, rpcResponse, sessionId, reqOrigin);
 
     } else if (req.method == "GET") {
         // SSE stream for server-initiated messages
@@ -389,12 +393,16 @@ void McpServer::processHttpRequest(QTcpSocket *socket, const HttpRequest &req) {
         session->lastActivity = QDateTime::currentDateTime();
 
         // Send SSE headers (keep-alive connection)
+        // Same reflection rule as sendJsonResponse - never "*".
         QByteArray headers = "HTTP/1.1 200 OK\r\n"
                              "Content-Type: text/event-stream\r\n"
                              "Cache-Control: no-cache\r\n"
-                             "Connection: keep-alive\r\n"
-                             "Access-Control-Allow-Origin: *\r\n"
-                             "\r\n";
+                             "Connection: keep-alive\r\n";
+        if (!reqOrigin.isEmpty()) {
+            headers.append(QString("Access-Control-Allow-Origin: %1\r\n").arg(reqOrigin).toUtf8());
+            headers.append("Vary: Origin\r\n");
+        }
+        headers.append("\r\n");
         socket->write(headers);
         socket->flush();
 
@@ -410,13 +418,16 @@ void McpServer::processHttpRequest(QTcpSocket *socket, const HttpRequest &req) {
         socket->flush();
 
     } else if (req.method == "OPTIONS") {
-        // CORS preflight
-        QByteArray resp = "HTTP/1.1 204 No Content\r\n"
-                          "Access-Control-Allow-Origin: *\r\n"
-                          "Access-Control-Allow-Methods: GET, POST, DELETE, OPTIONS\r\n"
-                          "Access-Control-Allow-Headers: Content-Type, Mcp-Session-Id, Authorization\r\n"
-                          "Access-Control-Max-Age: 86400\r\n"
-                          "\r\n";
+        // CORS preflight - reflect the validated origin, never "*".
+        QByteArray resp = "HTTP/1.1 204 No Content\r\n";
+        if (!reqOrigin.isEmpty()) {
+            resp.append(QString("Access-Control-Allow-Origin: %1\r\n").arg(reqOrigin).toUtf8());
+            resp.append("Vary: Origin\r\n");
+        }
+        resp.append("Access-Control-Allow-Methods: GET, POST, DELETE, OPTIONS\r\n"
+                    "Access-Control-Allow-Headers: Content-Type, Mcp-Session-Id, Authorization\r\n"
+                    "Access-Control-Max-Age: 86400\r\n"
+                    "\r\n");
         socket->write(resp);
         socket->flush();
     } else {
@@ -430,7 +441,8 @@ void McpServer::processHttpRequest(QTcpSocket *socket, const HttpRequest &req) {
 
 void McpServer::sendJsonResponse(QTcpSocket *socket, int statusCode,
                                   const QJsonObject &body,
-                                  const QString &sessionId) {
+                                  const QString &sessionId,
+                                  const QString &allowOrigin) {
     QByteArray json = QJsonDocument(body).toJson(QJsonDocument::Compact);
 
     QByteArray resp;
@@ -440,8 +452,15 @@ void McpServer::sendJsonResponse(QTcpSocket *socket, int statusCode,
     if (!sessionId.isEmpty()) {
         resp.append(QString("Mcp-Session-Id: %1\r\n").arg(sessionId).toUtf8());
     }
-    resp.append("Access-Control-Allow-Origin: *\r\n");
-    resp.append("Access-Control-Expose-Headers: Mcp-Session-Id\r\n");
+    // WHY: "Access-Control-Allow-Origin: *" plus the exposed Mcp-Session-Id let
+    // any browser page read the session id and every response body. Reflect only
+    // the origin that already passed validateOrigin(); native clients send no
+    // Origin, and then no CORS header is emitted at all.
+    if (!allowOrigin.isEmpty()) {
+        resp.append(QString("Access-Control-Allow-Origin: %1\r\n").arg(allowOrigin).toUtf8());
+        resp.append("Access-Control-Expose-Headers: Mcp-Session-Id\r\n");
+        resp.append("Vary: Origin\r\n");
+    }
     resp.append("\r\n");
     resp.append(json);
 
@@ -959,13 +978,15 @@ bool McpServer::validateOrigin(const HttpRequest &req) {
     if (origin.isEmpty())
         return true;
 
-    // "null" origin = sandboxed context - allow
-    if (origin == "null")
-        return true;
+    // WHY: browsers send the opaque origin "null" for sandboxed iframes, data:
+    // documents AND file:// pages, so allowing "null" (or the "file://" prefix)
+    // let any web page or downloaded .html reach the whole tool surface. Only a
+    // real local origin may pass; native clients send no Origin at all.
+    if (origin == "null" || origin.startsWith("file://"))
+        return false;
 
     // Allow vscode-webview and other IDE origins
-    if (origin.startsWith("vscode-webview://") ||
-        origin.startsWith("file://")) {
+    if (origin.startsWith("vscode-webview://")) {
         return true;
     }
 

@@ -20,11 +20,11 @@
 #define PROTOCOLSTEP_H_
 
 // Qt includes
+#include <QImage>
 #include <QStack>
 
 // Forward declarations
 class ProtocolItem;
-class QImage;
 
 /**
  * \class ProtocolStep
@@ -50,7 +50,8 @@ public:
     /**
      * \brief Creates a new ProtocolStep with the given description.
      * \param description Human-readable description of this step
-     * \param img Optional icon image for UI display
+     * \param img Optional icon image for UI display; copied (implicitly
+     *            shared), the step never takes ownership of the pointer
      */
     ProtocolStep(QString description, QImage *img = 0);
 
@@ -99,8 +100,11 @@ private:
     /** \brief Human-readable description of this step */
     QString _stepDescription;
 
-    /** \brief Optional icon image for UI display */
-    QImage *_image;
+    /** \brief Optional icon image for UI display (own shared copy) */
+    QImage _image;
+
+    /** \brief True when an icon was supplied (image() then returns &_image) */
+    bool _hasImage;
 
     /** \brief Stack of ProtocolItems representing individual actions */
     QStack<ProtocolItem *> *_itemStack;

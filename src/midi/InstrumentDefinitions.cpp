@@ -12,6 +12,56 @@
 
 InstrumentDefinitions* InstrumentDefinitions::_instance = 0;
 
+namespace {
+
+// QSettings treats '/' as its group separator, so a .ins section name carrying
+// one ("Roland/GS") used to be written as a NESTED group that loadOverrides()
+// could no longer find - those program-name overrides were silently lost on
+// restart. Escape the separator (and the escape character itself) so any
+// section name survives the round trip. A name with neither '%' nor a separator
+// is written unchanged, which keeps overrides saved by earlier versions
+// readable.
+const char* const USER_CUSTOM_SECTION = "_UserCustom_";
+
+QString encodeSectionName(const QString& section) {
+    QString encoded;
+    encoded.reserve(section.size());
+    for (int i = 0; i < section.size(); i++) {
+        const QChar c = section.at(i);
+        if (c == QLatin1Char('%')) {
+            encoded += QLatin1String("%25");
+        } else if (c == QLatin1Char('/')) {
+            encoded += QLatin1String("%2F");
+        } else if (c == QLatin1Char('\\')) {
+            encoded += QLatin1String("%5C");
+        } else {
+            encoded += c;
+        }
+    }
+    return encoded;
+}
+
+QString decodeSectionName(const QString& section) {
+    QString decoded;
+    decoded.reserve(section.size());
+    for (int i = 0; i < section.size(); i++) {
+        const QChar c = section.at(i);
+        if (c == QLatin1Char('%') && i + 2 < section.size()) {
+            bool ok = false;
+            const int code = section.mid(i + 1, 2).toInt(&ok, 16);
+            if (ok) {
+                decoded += QChar(code);
+                i += 2;
+                continue;
+            }
+        }
+        decoded += c;
+    }
+    return decoded;
+}
+
+} // namespace
+
 InstrumentDefinitions::InstrumentDefinitions() {
 }
 
@@ -35,7 +85,10 @@ void InstrumentDefinitions::cleanup() {
 void InstrumentDefinitions::clear() {
     _definitions.clear();
     _overrides.clear();
-    _ccOverrides.clear();
+    // _ccOverrides stays: the control-change names belong to the Control Change
+    // settings page, not to the .ins definition feature whose "Clear" button is
+    // the only caller here. Wiping them made the next saveOverrides() drop every
+    // custom controller name from the settings file.
     _inheritance.clear();
     _currentFile = "";
     _currentInstrument = "";
@@ -236,7 +289,9 @@ void InstrumentDefinitions::loadOverrides(QSettings* settings) {
     QStringList instruments = settings->childGroups();
     foreach(QString section, instruments) {
         // Handle placeholder for custom/empty instrument
-        QString instr = (section == "_UserCustom_") ? "" : section;
+        QString instr = (section == QLatin1String(USER_CUSTOM_SECTION))
+                            ? QString()
+                            : decodeSectionName(section);
         
         settings->beginGroup(section);
         QStringList keys = settings->childKeys();
@@ -273,7 +328,13 @@ void InstrumentDefinitions::saveOverrides(QSettings* settings) {
     for (it = _overrides.constBegin(); it != _overrides.constEnd(); ++it) {
         QString instr = it.key();
         // Use placeholder for empty instrument
-        QString section = instr.isEmpty() ? "_UserCustom_" : instr;
+        QString section = instr.isEmpty() ? QString(QLatin1String(USER_CUSTOM_SECTION))
+                                          : encodeSectionName(instr);
+        // A real .ins section literally named like the placeholder must not be
+        // read back as the custom (empty-name) bank - escape it so it differs.
+        if (!instr.isEmpty() && section == QLatin1String(USER_CUSTOM_SECTION)) {
+            section = QLatin1String("%5F") + section.mid(1);
+        }
         
         settings->beginGroup(section);
         

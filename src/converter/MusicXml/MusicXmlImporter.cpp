@@ -24,6 +24,11 @@
 
 namespace {
 
+// Upper bound for any tick / duration derived from the file. Far beyond any
+// real score (at 480 PPQ this is ~140000 quarter notes) but small enough that
+// the cursor arithmetic cannot overflow a 32-bit int.
+constexpr int kMaxTicks = 1 << 26;
+
 // Convert MusicXML <step><alter><octave> to MIDI note number.
 // MIDI: C4 = 60. step ∈ {C,D,E,F,G,A,B}, alter = semitone offset.
 int pitchToMidi(QChar step, int alter, int octave) {
@@ -185,9 +190,15 @@ private:
             // Scale local divisions to global PPQ. 64-bit intermediate so a large
             // <duration>/<backup>/<forward> can't overflow 32-bit int
             // (xmlDur * globalPPQ wrapped before, BUG-CORE-008).
-            return divisions > 0
-                ? static_cast<int>((static_cast<qint64>(xmlDur) * globalPPQ) / divisions)
-                : xmlDur;
+            // <duration> is unvalidated file input: a negative or absurd value
+            // would drive the part cursor negative (or overflow it), and the
+            // encoder's writeVarLen then emits a single bogus 0x7F delta instead
+            // of the real one. Clamp into a musically sane range instead.
+            const qint64 d = std::clamp<qint64>(xmlDur, 0, kMaxTicks);
+            const qint64 g = divisions > 0
+                ? (d * globalPPQ) / divisions
+                : d;
+            return static_cast<int>(std::min<qint64>(g, kMaxTicks));
         };
 
         while (!xr.atEnd()) {
@@ -218,7 +229,7 @@ private:
                     noteStart = prevNoteStartTick;
                 } else {
                     prevNoteStartTick = currentTick;
-                    currentTick += globalDur;
+                    currentTick = std::min(kMaxTicks, currentTick + globalDur);
                 }
                 if (!isRest && pitch >= 0 && globalDur > 0) {
                     XmlNote n;
@@ -233,7 +244,7 @@ private:
                 currentTick = std::max(0, currentTick - toGlobal(dur));
             } else if (name == QStringLiteral("forward")) {
                 int dur = parseDurationOnly(xr, QStringLiteral("forward"));
-                currentTick += toGlobal(dur);
+                currentTick = std::min(kMaxTicks, currentTick + toGlobal(dur));
             }
         }
     }
@@ -263,6 +274,15 @@ private:
         while (!xr.atEnd()) {
             xr.readNext();
             if (xr.isEndElement() && xr.name() == QStringLiteral("time")) {
+                // MusicXML repeats the score-wide <attributes> in every part and
+                // each part restarts at tick 0, so the same event arrives once
+                // per part. Stacked FF 58 events also defeat the tick-0 anchor
+                // guard in MidiChannel::removeEvent (it only protects a time
+                // signature that is alone at tick 0).
+                for (const XmlTimeSigEvent& e : _score->timeSigs) {
+                    if (e.tick == ev.tick && e.numerator == ev.numerator &&
+                        e.denominator == ev.denominator) return;
+                }
                 _score->timeSigs.append(ev);
                 return;
             }
@@ -281,6 +301,11 @@ private:
         while (!xr.atEnd()) {
             xr.readNext();
             if (xr.isEndElement() && xr.name() == QStringLiteral("key")) {
+                // Same per-part duplication as the time signature above.
+                for (const XmlKeySigEvent& e : _score->keySigs) {
+                    if (e.tick == ev.tick && e.fifths == ev.fifths &&
+                        e.isMinor == ev.isMinor) return;
+                }
                 _score->keySigs.append(ev);
                 return;
             }

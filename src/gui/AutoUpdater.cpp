@@ -339,6 +339,20 @@ bool AutoUpdater::applyUpdate(const QString &zipPath, const QString &midiPath)
         sourceDir = staging.filePath(subdirs.first());
         qDebug() << "  Step 3: Using nested subfolder:" << sourceDir;
     }
+    // The single-subdirectory rule misses every other layout (two top-level
+    // folders, an extra docs/ next to the payload). Copying such a tree
+    // verbatim would recreate the EXE one level DOWN and leave the install
+    // without one - the running EXE is a .bak from Step 1 on. Locate it
+    // instead and copy from the folder that really holds it.
+    if (!QFile::exists(QDir(sourceDir).filePath(exeName))) {
+        QDirIterator findExe(stagingDir, QStringList{exeName}, QDir::Files,
+                             QDirIterator::Subdirectories);
+        if (findExe.hasNext()) {
+            findExe.next();
+            sourceDir = findExe.fileInfo().absolutePath();
+            qDebug() << "  Step 3: Located" << exeName << "in:" << sourceDir;
+        }
+    }
 
     // Step 4: Copy new files from staging to app directory
     int filesCopied = 0;
@@ -378,6 +392,19 @@ bool AutoUpdater::applyUpdate(const QString &zipPath, const QString &midiPath)
 
     qDebug() << "  Step 4: Files copied:" << filesCopied << "skipped:" << filesSkipped;
 
+    // The install has had no executable since Step 1, so nothing may proceed
+    // past here without one: an unexpected archive layout or a copy the
+    // virus scanner blocked would otherwise end in a warning dialog and an
+    // install the user can never start again.
+    QString newExePath = QDir(appDir).filePath(exeName);
+    if (filesCopied == 0 || !QFile::exists(newExePath)) {
+        QFile::rename(bakPath, appPath); // put the running EXE back
+        QMessageBox::warning(_parentWidget, tr("Update Error"),
+            tr("The update package did not contain %1.\n\n"
+               "The previous version was restored.").arg(exeName));
+        return false;
+    }
+
     // Step 5: Cleanup temp files
     QFile::remove(zipPath);
     QDir(stagingDir).removeRecursively();
@@ -386,7 +413,6 @@ bool AutoUpdater::applyUpdate(const QString &zipPath, const QString &midiPath)
     // Step 6: Launch the new EXE
     // QProcess::startDetached works reliably for launching an EXE
     // (unlike batch files which had all the console/quoting problems)
-    QString newExePath = QDir(appDir).filePath(exeName);
     QStringList args;
     // NOTE: we deliberately do NOT pass "--open <midiPath>" here. The caller
     // persisted the full editor session (all tabs in both groups + the split)
@@ -408,6 +434,12 @@ bool AutoUpdater::applyUpdate(const QString &zipPath, const QString &midiPath)
     qDebug() << "  Launch result:" << launched;
 
     if (!launched) {
+        // Defensive: the copy check above proved the new EXE exists, but if it
+        // vanished since (installer, scanner quarantine) the install would be
+        // left with no executable at all - put the backup back first.
+        if (!QFile::exists(newExePath)) {
+            QFile::rename(bakPath, appPath);
+        }
         QMessageBox::warning(_parentWidget, tr("Update Error"),
             tr("Update extracted successfully but failed to restart.\n\n"
                "Please start %1 manually.").arg(exeName));
@@ -431,11 +463,15 @@ void AutoUpdater::cleanupOldBackups()
 {
     QString appDir = QCoreApplication::applicationDirPath();
     QDir dir(appDir);
-    QStringList bakFiles = dir.entryList({"*.bak"}, QDir::Files);
-    for (const QString &bakFile : bakFiles) {
-        QString bakPath = dir.filePath(bakFile);
+    // Recursive: applyUpdate() renames locked destination files to .bak
+    // anywhere in the payload tree (platforms/, imageformats/, ...), so a
+    // top-level-only sweep left those behind for good.
+    QDirIterator it(appDir, QStringList{"*.bak"}, QDir::Files,
+                    QDirIterator::Subdirectories);
+    while (it.hasNext()) {
+        QString bakPath = it.next();
         if (QFile::remove(bakPath)) {
-            qDebug() << "AutoUpdater: Cleaned up backup:" << bakFile;
+            qDebug() << "AutoUpdater: Cleaned up backup:" << dir.relativeFilePath(bakPath);
         }
     }
 }

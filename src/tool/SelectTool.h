@@ -128,6 +128,9 @@ protected:
 
     /** \brief Selection rectangle coordinates */
     int x_rect, y_rect;
+
+    /** \brief True while a press of this tool is waiting for its release */
+    bool _pressed;
 };
 
 #endif // SELECTTOOL_H_

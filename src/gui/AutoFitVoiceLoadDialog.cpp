@@ -18,6 +18,7 @@
 #include <QSlider>
 #include <QSpinBox>
 #include <QToolButton>
+#include <QTimer>
 
 #include <climits>
 #include <QVBoxLayout>
@@ -349,6 +350,19 @@ AutoFitVoiceLoadDialog::AutoFitVoiceLoadDialog(MidiFile *file, int startTick,
         refreshPreview();
     });
 
+    // Drag debounce: with tracking on, ONE slider drag fires dozens of
+    // valueChanged events and every refreshPreview() is a full-file dry run
+    // plus - with live preview on - a second full voice analysis and a
+    // piano-roll repaint, all synchronous on the GUI thread. While the handle
+    // is held down those are coalesced into one refresh per 100 ms (the same
+    // guard TempoConversionDialog uses); a released or programmatic value
+    // change still refreshes immediately.
+    _previewDebounce = new QTimer(this);
+    _previewDebounce->setSingleShot(true);
+    _previewDebounce->setInterval(100);
+    connect(_previewDebounce, &QTimer::timeout,
+            this, &AutoFitVoiceLoadDialog::refreshPreview);
+
     connect(_intensitySlider, &QSlider::valueChanged, this, [this](int value) {
         if (!_sliderGuard) {
             // The slider edits the CHECKED tracks; unchecked tracks keep
@@ -358,7 +372,12 @@ AutoFitVoiceLoadDialog::AutoFitVoiceLoadDialog(MidiFile *file, int startTick,
                     _trackPercents[_trackNumbers[i]] = value;
             }
         }
-        refreshPreview();
+        // The stored percents must follow every intermediate value (Apply
+        // reads them); only the expensive preview is coalesced.
+        schedulePreview(_intensitySlider->isSliderDown());
+    });
+    connect(_intensitySlider, &QSlider::sliderReleased, this, [this]() {
+        schedulePreview(false); // final value, no 100 ms wait
     });
     connect(_ceilingSpin, QOverload<int>::of(&QSpinBox::valueChanged),
             this, &AutoFitVoiceLoadDialog::refreshPreview);
@@ -371,8 +390,12 @@ AutoFitVoiceLoadDialog::AutoFitVoiceLoadDialog(MidiFile *file, int startTick,
     connect(_rateCheck, &QCheckBox::toggled, _rateKeepSlider, &QSlider::setEnabled);
     connect(_rateCheck, &QCheckBox::toggled,
             this, &AutoFitVoiceLoadDialog::refreshPreview);
-    connect(_rateKeepSlider, &QSlider::valueChanged,
-            this, &AutoFitVoiceLoadDialog::refreshPreview);
+    connect(_rateKeepSlider, &QSlider::valueChanged, this, [this]() {
+        schedulePreview(_rateKeepSlider->isSliderDown());
+    });
+    connect(_rateKeepSlider, &QSlider::sliderReleased, this, [this]() {
+        schedulePreview(false);
+    });
     connect(_preferLoudestCheck, &QCheckBox::toggled,
             this, &AutoFitVoiceLoadDialog::refreshPreview);
     connect(_livePreviewCheck, &QCheckBox::toggled,
@@ -420,6 +443,15 @@ AutoFitOptions AutoFitVoiceLoadDialog::currentOptions(bool dryRun) const {
     return opts;
 }
 
+void AutoFitVoiceLoadDialog::schedulePreview(bool dragging) {
+    if (dragging) {
+        _previewDebounce->start(); // restarts on every step of the drag
+        return;
+    }
+    _previewDebounce->stop();
+    refreshPreview();
+}
+
 void AutoFitVoiceLoadDialog::refreshPreview() {
     // Modeless safety: a track add/remove/move renumbers the live tracks and
     // would misattribute every row (labels, checkboxes, stored percents,
@@ -436,6 +468,17 @@ void AutoFitVoiceLoadDialog::refreshPreview() {
             close();
             return;
         }
+    }
+
+    // The eyes WRITE the document flag, so they have to follow it: the dialog
+    // is modeless, so an undo behind it (or the Tracks panel) can flip _hidden
+    // without us - a stale eye then makes the next click a no-op that still
+    // pushes an empty protocol step and wipes the redo stack. Signals blocked
+    // so the resync does not itself open an action.
+    for (int i = 0; i < _trackEyes.size() && i < _tracks.size(); ++i) {
+        if (!_trackEyes[i] || !_tracks[i]) continue;
+        const QSignalBlocker b(_trackEyes[i]);
+        _trackEyes[i]->setChecked(!_tracks[i]->hiddenByUser());
     }
 
     _lastDry = AutoFitVoiceLoadService::apply(_file, currentOptions(true));

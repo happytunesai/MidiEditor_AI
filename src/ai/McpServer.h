@@ -126,7 +126,8 @@ private:
     // HTTP responses
     void sendJsonResponse(QTcpSocket *socket, int statusCode,
                           const QJsonObject &body,
-                          const QString &sessionId = QString());
+                          const QString &sessionId = QString(),
+                          const QString &allowOrigin = QString());
     void sendErrorResponse(QTcpSocket *socket, int httpStatus,
                            const QString &message);
     void sendSseEvent(QTcpSocket *socket, const QJsonObject &data);

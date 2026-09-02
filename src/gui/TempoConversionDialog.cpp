@@ -16,6 +16,7 @@
 #include <QLabel>
 #include <QPushButton>
 #include <QRadioButton>
+#include <QStandardItemModel>
 #include <QTimer>
 #include <QVBoxLayout>
 
@@ -151,6 +152,24 @@ void TempoConversionDialog::buildUi() {
     _scopeCombo->addItem(tr("Selected tracks"));
     _scopeCombo->addItem(tr("Selected channels"));
     _scopeCombo->addItem(tr("Selected events"));
+
+    // The scope ids come from the launching context menu only. Offering a scope
+    // whose id set is empty let the user run a conversion that matched nothing
+    // and still closed as success, so those entries are greyed out instead.
+    if (auto *scopeModel = qobject_cast<QStandardItemModel *>(_scopeCombo->model())) {
+        const bool available[4] = { true,
+                                    !_hint.trackIds.isEmpty(),
+                                    !_hint.channelIds.isEmpty(),
+                                    !_hint.selectedEventPtrs.isEmpty() };
+        for (int i = 1; i < 4; ++i) {
+            if (available[i]) continue;
+            if (QStandardItem *item = scopeModel->item(i)) {
+                item->setFlags(item->flags() & ~(Qt::ItemIsEnabled | Qt::ItemIsSelectable));
+                item->setToolTip(tr("Open this dialog from a track, channel or "
+                                    "selection context menu to use this scope."));
+            }
+        }
+    }
     form->addRow(tr("Apply to:"), _scopeCombo);
     root->addLayout(form);
 

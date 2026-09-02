@@ -199,6 +199,15 @@ private:
      */
     void unlockMemory();
 
+    /**
+     * \brief Scoped holder of the cross-process clipboard lock.
+     *
+     * Acquires through lockMemory() and releases in its destructor, so no
+     * early return or exception can leave the semaphore held for other
+     * instances. Defined in SharedClipboard.cpp.
+     */
+    struct MemoryLock;
+
     // === Static Members ===
 
     /** \brief Singleton instance */

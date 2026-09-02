@@ -105,8 +105,13 @@ public:
     void setBeats(int beats);
 
 private:
-    /** \brief Tempo value in microseconds per quarter note */
+    /** \brief Tempo in whole beats per minute (truncated, display/timing value) */
     int _beats;
+
+    /** \brief Exact tempo in microseconds per quarter note, as read from or
+     *  written to the file. _beats truncates this to whole BPM, so save()
+     *  uses this value to keep a load/save round trip lossless. */
+    int _microsPerQuarter;
 };
 
 #endif // TEMPOCHANGEEVENT_H_

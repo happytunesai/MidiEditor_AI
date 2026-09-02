@@ -77,10 +77,27 @@ public:
     void draw(QPainter *painter);
 
     /**
+     * \brief Handles mouse press events (arms the erase gesture).
+     * \param leftClick True if the left mouse button was pressed
+     * \return False - nothing visible changes on press
+     */
+    bool press(bool leftClick);
+
+    /**
      * \brief Handles mouse release events.
      * \return True if the widget needs to be repainted
      */
     bool release();
+
+    /**
+     * \brief Handles a release that does not trigger the erase action.
+     * \return True if the widget needs to be repainted
+     */
+    bool releaseOnly();
+
+private:
+    /** \brief True between press() and release(): only an armed gesture erases */
+    bool _pressed;
 };
 
 #endif // ERASERTOOL_H_

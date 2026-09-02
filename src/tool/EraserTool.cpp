@@ -29,10 +29,12 @@ EraserTool::EraserTool()
     : EventTool() {
     setImage(":/run_environment/graphics/tool/eraser.png");
     setToolTipText(QObject::tr("Eraser (remove Events)"));
+    _pressed = false;
 }
 
 EraserTool::EraserTool(EraserTool &other)
     : EventTool(other) {
+    _pressed = false;
     return;
 }
 
@@ -62,18 +64,52 @@ bool EraserTool::move(int mouseX, int mouseY) {
     return true;
 }
 
+bool EraserTool::press(bool leftClick) {
+    Q_UNUSED(leftClick);
+    // Arm the gesture. MatrixWidget delivers press() only for a press inside the
+    // tool area, but release() for ANY release there - without this flag a drag
+    // that started on a piano key (or a press swallowed during playback) erased
+    // whatever happened to be under the cursor on release.
+    _pressed = true;
+    return false;
+}
+
 bool EraserTool::release() {
-    currentProtocol()->startNewAction(QObject::tr("Remove event"), image());
+    if (!_pressed) {
+        return false;
+    }
+    _pressed = false;
+
+    // Collect the hit events BEFORE opening the protocol action: an action that
+    // is opened and closed around nothing still marks the document modified
+    // (Protocol::endAction discards the empty step but calls setSaved(false)
+    // regardless), so a click on empty grid used to trigger the save prompt.
+    QList<MidiEvent *> toRemove;
     foreach(MidiEvent* ev, *(matrixWidget->activeEvents())) {
         if (pointInRect(mouseX, mouseY, ev->x(), ev->y(), ev->x() + ev->width(),
                         ev->y() + ev->height())) {
-            file()->channel(ev->channel())->removeEvent(ev);
-            if (Selection::instance()->selectedEvents().contains(ev)) {
-                deselectEvent(ev);
-            }
+            toRemove.append(ev);
+        }
+    }
+    if (toRemove.isEmpty()) {
+        return true;
+    }
+
+    currentProtocol()->startNewAction(QObject::tr("Remove event"), image());
+    foreach(MidiEvent* ev, toRemove) {
+        file()->channel(ev->channel())->removeEvent(ev);
+        if (Selection::instance()->selectedEvents().contains(ev)) {
+            deselectEvent(ev);
         }
     }
     Selection::instance()->setSelection(Selection::instance()->selectedEvents());
     currentProtocol()->endAction();
     return true;
+}
+
+bool EraserTool::releaseOnly() {
+    // Release outside the tool area (or a plain right-click): disarm, erase
+    // nothing.
+    _pressed = false;
+    return false;
 }

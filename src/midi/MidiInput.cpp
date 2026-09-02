@@ -25,6 +25,7 @@
 #include "../MidiEvent/OnEvent.h"
 
 #include "MidiTrack.h"
+#include "MidiFile.h"
 
 #include <QByteArray>
 #include <QTextStream>
@@ -187,6 +188,18 @@ QMultiMap<int, MidiEvent *> MidiInput::endInput(MidiTrack *track) {
 
         for (unsigned int i = 0; i < it.value().size(); i++) {
             array.append(it.value().at(i));
+        }
+
+        // Hardware SysEx arrives in wire form (F0 <bytes> F7) with no SMF
+        // length field, but loadMidiEvent() reads SysEx by its length like the
+        // file parser does. Re-frame it as SMF so the payload is read whole -
+        // otherwise the take stopped at the first SysEx message. (F085)
+        if (!array.isEmpty() && static_cast<quint8>(array.at(0)) == 0xF0) {
+            QByteArray smf;
+            smf.append(char(0xF0));
+            smf.append(MidiFile::writeVariableLengthValue(array.size() - 1));
+            smf.append(array.mid(1));
+            array = smf;
         }
 
         QDataStream tempStream(array);

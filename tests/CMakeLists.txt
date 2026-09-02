@@ -1322,10 +1322,10 @@ add_test(NAME TextEvent COMMAND test_text_event)
 # -----------------------------------------------------------------------------
 # test_sysex_event
 # -----------------------------------------------------------------------------
-# Validates the F0/<data>/F7 framing of SysExEvent::save plus the empty-payload
-# guard, accessors and setData round-trip. Same ODR-shim approach as
-# test_text_event; SysExEvent.cpp does not call any MidiFile helper so even
-# the writeVariableLengthValue shim is unnecessary.
+# Validates the SMF framing of SysExEvent::save (F0 <varlen> <data> F7, length
+# counting the F7), the empty-payload guard, accessors and the setData round
+# trip. Same ODR-shim approach as test_text_event; save() derives its length
+# through MidiFile::writeVariableLengthValue, which the test shims itself.
 add_executable(test_sysex_event
     test_sysex_event.cpp
     ../src/MidiEvent/SysExEvent.cpp

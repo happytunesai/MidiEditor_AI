@@ -113,16 +113,20 @@ FfxivVoiceAnalyzer::Result FfxivVoiceAnalyzer::resultFor(MidiFile *file) const
 
 int FfxivVoiceAnalyzer::voiceCountAt(MidiFile *file, int tick) const
 {
-    Result r = resultFor(file);
+    // WHY: const local + const iterators. `r` shares its vector with the copy
+    // in _cache, so the non-const begin()/end() detached and deep-copied the
+    // whole sample array on every call - an O(N) alloc+memcpy on the GUI
+    // thread in front of an O(log N) lookup, once per gauge repaint.
+    const Result r = resultFor(file);
     if (!r.valid || r.voiceSamples.isEmpty())
         return 0;
     // Binary search for the latest sample with sample.tick <= tick.
-    auto it = std::upper_bound(r.voiceSamples.begin(), r.voiceSamples.end(),
+    auto it = std::upper_bound(r.voiceSamples.cbegin(), r.voiceSamples.cend(),
                                tick,
                                [](int t, const VoiceSample &s) {
                                    return t < s.tick;
                                });
-    if (it == r.voiceSamples.begin())
+    if (it == r.voiceSamples.cbegin())
         return 0;
     --it;
     return it->voiceCount;
@@ -163,25 +167,33 @@ void FfxivVoiceAnalyzer::onActionFinished()
 
 void FfxivVoiceAnalyzer::onDebounceTimeout()
 {
-    MidiFile *file = _pendingRebuild.data();
-    _pendingRebuild.clear();
-    if (!file)
-        return;
-    {
-        QMutexLocker lock(&_mutex);
-        if (!_enabled)
-            return;
-        if (!_protocolConns.contains(file))
-            return; // file was forgotten while we waited
+    // WHY: rebuild EVERY file scheduled in this window, not just the last one.
+    // setEnabled(true) re-primes all watched files after clearing the cache,
+    // and two documents can finish a Protocol action inside the same 100 ms -
+    // the dropped files were left with no cached result at all, so their voice
+    // gauge and lane read a misleading 0/16 until the next edit.
+    const QList<QPointer<MidiFile>> pending = _pendingRebuilds;
+    _pendingRebuilds.clear();
+    for (const QPointer<MidiFile> &ptr : pending) {
+        MidiFile *file = ptr.data();
+        if (!file)
+            continue;
+        {
+            QMutexLocker lock(&_mutex);
+            if (!_enabled)
+                return;
+            if (!_protocolConns.contains(file))
+                continue; // file was forgotten while we waited
+        }
+        Result r = computeResult(file);
+        {
+            QMutexLocker lock(&_mutex);
+            if (!_enabled || !_protocolConns.contains(file))
+                continue;
+            _cache.insert(file, r);
+        }
+        emit analysisUpdated(file);
     }
-    Result r = computeResult(file);
-    {
-        QMutexLocker lock(&_mutex);
-        if (!_enabled || !_protocolConns.contains(file))
-            return;
-        _cache.insert(file, r);
-    }
-    emit analysisUpdated(file);
 }
 
 void FfxivVoiceAnalyzer::hookProtocol(MidiFile *file)
@@ -204,7 +216,8 @@ void FfxivVoiceAnalyzer::scheduleRebuild(MidiFile *file)
 {
     if (!_enabled || !file)
         return;
-    _pendingRebuild = file;
+    if (!_pendingRebuilds.contains(QPointer<MidiFile>(file)))
+        _pendingRebuilds.append(file);
     _debounce.start();
 }
 

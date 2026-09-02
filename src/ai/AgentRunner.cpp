@@ -408,6 +408,10 @@ void AgentRunner::run(const QString &systemPrompt,
     _currentStep = 0;
     _running = true;
     _cancelled = false;
+    // WHY: a retry timer scheduled by the PREVIOUS run must not fire into this
+    // one. Bumping the generation here (and in cleanup()) invalidates every
+    // timer left over from a run that was cancelled inside its backoff window.
+    ++_runGeneration;
     _retryCount = 0;
     _lastWriteToolSignature.clear();
     _repeatedWriteToolCalls = 0;
@@ -762,7 +766,13 @@ void AgentRunner::onApiError(const QString &error)
         // Backoff — exponential, capped at 4s. Lets transient network
         // hiccups settle and avoids hammering the provider.
         int delayMs = qMin(4000, 500 * (1 << (_retryCount - 1)));
-        QTimer::singleShot(delayMs, this, [this]() {
+        // WHY: capture the run generation - _running/_cancelled describe the
+        // CURRENT run, so after a cancel plus an immediate re-send a stale timer
+        // used to pass the guard and fire a second request into the new run,
+        // aborting it with "A request is already in progress.".
+        const quint64 gen = _runGeneration;
+        QTimer::singleShot(delayMs, this, [this, gen]() {
+            if (gen != _runGeneration) return;
             if (_running && !_cancelled) sendNextRequest();
         });
         return;
@@ -922,7 +932,13 @@ void AgentRunner::processToolCalls(const QJsonObject &assistantMessage)
         const bool isWriteTool = toolName == QStringLiteral("insert_events")
                               || toolName == QStringLiteral("replace_events");
         if (isWriteTool) {
-            const QString signature = toolName + QLatin1Char(':')
+            // WHY: the signature must name the document the write lands on.
+            // switch_document re-binds _file mid-run, so the same payload
+            // written to a second tab produced a byte-identical signature and
+            // the loop guard rejected - then aborted - a legitimate cross-tab
+            // duplication. The pointer is an identity token only.
+            const QString signature = QString::number(reinterpret_cast<quintptr>(_file))
+                + QLatin1Char(':') + toolName + QLatin1Char(':')
                 + QString::fromUtf8(QJsonDocument(args).toJson(QJsonDocument::Compact));
             if (signature == _lastWriteToolSignature) {
                 ++_repeatedWriteToolCalls;
@@ -1325,6 +1341,8 @@ QString AgentRunner::buildStepLabel(const QString &toolName, const QJsonObject &
 void AgentRunner::cleanup()
 {
     _running = false;
+    // WHY: invalidate any pending retry timer from this run (see run()).
+    ++_runGeneration;
     disconnect(_responseConn);
     disconnect(_errorConn);
     // Phase 31 — release any per-request policy override so the next caller

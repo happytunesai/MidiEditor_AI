@@ -168,7 +168,12 @@ bool LameEncoder::encode(const QString &wavPath, const QString &mp3Path,
         }
 
         if (mp3Bytes > 0) {
-            mp3.write(mp3Buf.data(), mp3Bytes);
+            // A short write (disk full / quota) must fail the export - otherwise
+            // the truncated MP3 is reported to the user as a finished render.
+            if (mp3.write(mp3Buf.data(), mp3Bytes) != static_cast<qint64>(mp3Bytes)) {
+                encodeError = true;
+                break;
+            }
         } else if (mp3Bytes < 0) {
             encodeError = true;
             break;
@@ -189,13 +194,19 @@ bool LameEncoder::encode(const QString &wavPath, const QString &mp3Path,
             gfp,
             reinterpret_cast<unsigned char *>(mp3Buf.data()),
             mp3BufSize);
-        if (flushBytes > 0) {
-            mp3.write(mp3Buf.data(), flushBytes);
+        if (flushBytes > 0 &&
+            mp3.write(mp3Buf.data(), flushBytes) != static_cast<qint64>(flushBytes)) {
+            encodeError = true;
         }
     }
 
     lame_close(gfp);
     mp3.close();
+    // close() flushes QFile's own buffer - a failure there means the file on
+    // disk is truncated too, so it must not be reported as a successful export.
+    if (mp3.error() != QFile::NoError) {
+        encodeError = true;
+    }
     wav.close();
 
     if (encodeError || cancelled) {

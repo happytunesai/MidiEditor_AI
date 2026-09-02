@@ -86,24 +86,27 @@ void StrummerTool::performStrum(int startStrengthMs, double startTension, int en
         });
 
         // 2. Group notes into chords
+        // WHY: a chord is a set of notes that start together. Grouping by overlap let one
+        // sustained note swallow every later chord that starts while it rings, so those chords
+        // were re-sorted and re-timed as one big cluster. Group by onset proximity instead: a
+        // note joins the chord when it starts within a 32nd note of the chord's first onset.
         QList<QList<NoteOnEvent *>> chords;
         if (!notes.isEmpty()) {
+            const int onsetTolerance = qMax(1, file()->ticksPerQuarter() / 8);
             QList<NoteOnEvent *> currentChord;
             currentChord.append(notes[0]);
-            int currentChordEnd = notes[0]->offEvent()->midiTime();
+            int currentChordStart = notes[0]->midiTime();
 
             for (int i = 1; i < notes.size(); i++) {
                 NoteOnEvent *note = notes[i];
-                // Check for overlap with the current chord cluster
-                if (note->midiTime() < currentChordEnd) {
+                if (note->midiTime() - currentChordStart <= onsetTolerance) {
                     currentChord.append(note);
-                    currentChordEnd = qMax(currentChordEnd, note->offEvent()->midiTime());
                 } else {
-                    // Gap detected, finalize current chord and start new one
+                    // Later onset, finalize current chord and start new one
                     chords.append(currentChord);
                     currentChord.clear();
                     currentChord.append(note);
-                    currentChordEnd = note->offEvent()->midiTime();
+                    currentChordStart = note->midiTime();
                 }
             }
             if (!currentChord.isEmpty()) {

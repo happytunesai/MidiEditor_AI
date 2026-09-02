@@ -43,8 +43,14 @@ QJsonArray HistoryReconciliation::commitsSinceFork(const QJsonArray &history,
     // Find the index of ancestorHash; everything strictly after it is
     // the divergent slice. If not found, return the whole history
     // (caller will treat as unrelated).
+    //
+    // Search backwards: commit hashes are content hashes of the saved
+    // file, so an edit that is undone and saved again repeats an earlier
+    // hash. findMergeBase means the NEWEST shared hash, so picking the
+    // oldest occurrence here would prepend commits both sides already
+    // have to the slice.
     int forkIndex = -1;
-    for (int i = 0; i < history.size(); ++i) {
+    for (int i = history.size() - 1; i >= 0; --i) {
         if (history.at(i).toObject().value(QStringLiteral("hash")).toString()
             == ancestorHash) {
             forkIndex = i;

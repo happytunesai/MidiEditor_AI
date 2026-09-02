@@ -63,6 +63,7 @@ class ClickButton;
 class QTabWidget;
 class QSplitter;
 class QMenu;
+class QActionGroup;
 class TrackListWidget;
 class QComboBox;
 class MiscWidget;
@@ -788,6 +789,12 @@ public slots:
      * \brief Marks the file as edited (unsaved changes).
      */
     void markEdited();
+
+    /**
+     * \brief Per-document variant of markEdited(): re-arms auto-save for any
+     * document, but sets the window-modified marker only for the active one.
+     */
+    void markEditedFor(MidiFile *editedFile);
 
     /**
      * \brief Sets coloring mode to color by MIDI channels.
@@ -1640,6 +1647,10 @@ private:
     *_pasteToTrackMenu, *_pasteToChannelMenu, *_selectAllFromTrackMenu, *_selectAllFromChannelMenu, *_pasteOptionsMenu,
     *_copySelectedEventsToTrackMenu, *_copySelectedEventsToChannelMenu;
 
+    /** \brief Exclusive group for the paste-to-track entries, created once by
+     *  updateTrackMenu() (a per-refresh group was leaked). */
+    QActionGroup *_pasteTrackGroup = nullptr;
+
     /** \brief Lower tab widget for additional panels */
     QTabWidget *lowerTabWidget;
 
@@ -1813,6 +1824,9 @@ private:
     /** \brief When true, closeEvent skips all save dialogs (auto-update in progress) */
     bool _forceCloseForUpdate = false;
 
+    /** \brief Choice made for the update download currently in flight: true = "Update Now", false = "After Exit" */
+    bool _pendingUpdateNow = false;
+
     /** \brief MidiPilot AI sidebar widget */
     MidiPilotWidget *_midiPilotWidget = nullptr;
 
@@ -1841,6 +1855,11 @@ private:
     QMenu *_editMenuForShowLock = nullptr;
     QMenu *_toolsMenuForShowLock = nullptr;
     QMenu *_midiMenuForShowLock = nullptr;
+
+    /** \brief True while the local peer is a Show-mode VIEWER (editing locked).
+     *  Kept so a secondary editor group built after the lock was applied, and
+     *  the comparison sync-lock toggle, can honour the current lock state. */
+    bool _showModeViewerLocked = false;
 
     /** \brief Phase 9.9f §15.2 (follow-the-host): last viewport tuple
      *  captured from MatrixWidget::scrollChanged. Used by the
@@ -1949,8 +1968,15 @@ private:
      *  the active file (a background untitled would collide on it). */
     QString autoSavePathFor(MidiFile *f) const;
 
-    /** \brief Removes auto-save sidecar files and stops the timer */
+    /** \brief Removes auto-save sidecar files and stops the timer (application
+     *  shutdown: every document was save-prompted). */
     void cleanupAutoSave();
+
+    /** \brief Per-document cleanup after a successful save of \p f: removes the
+     *  backup written for the path the document had BEFORE the save (\p
+     *  pathBeforeSave, empty = untitled slot) and stops the shared timer only
+     *  when no other open document is still dirty. */
+    void cleanupAutoSaveFor(MidiFile *f, const QString &pathBeforeSave);
 
     /** \brief Checks for leftover auto-save files on startup and offers recovery.
      *  \return true if a document was actually recovered (and is now open), so

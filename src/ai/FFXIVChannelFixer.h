@@ -37,7 +37,14 @@ public:
      */
     static QJsonObject analyzeFile(MidiFile *file);
 
-    /// Progress callback: (percent 0-100, phase description)
+    /// Progress callback: (percent 0-100, phase description).
+    ///
+    /// Called while the file is mid-edit, with the caller's Protocol
+    /// action open and the bulk undo snapshots held. It must NOT re-enter
+    /// the Qt event loop: a processEvents() here can dispatch a queued
+    /// MidiPilot/MCP tool step that calls startNewAction() on the same
+    /// file, which commits this fixer's half-finished action and splits
+    /// the fix across two undo steps.
     using ProgressCallback = std::function<void(int, const QString &)>;
 
     /**

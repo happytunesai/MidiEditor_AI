@@ -517,7 +517,11 @@ void LyricTimelineWidget::mouseMoveEvent(QMouseEvent *event)
     // Start Protocol action on first actual move (LYRIC-005 fix)
     if (!_dragActive) {
         _dragActive = true;
-        if (_file->protocol()) {
+        // A right-edge resize only changes the in-memory LyricBlock::endTick - it
+        // touches no MidiEvent, so the action would record nothing while
+        // startNewAction() already dropped the redo stack and endAction() marked
+        // the file modified. Move/left-resize do move the TextEvent, so they keep it.
+        if (_dragMode != DragResizeRight && _file->protocol()) {
             _file->protocol()->startNewAction("Edit Lyric Block");
         }
     }
@@ -563,8 +567,55 @@ void LyricTimelineWidget::mouseMoveEvent(QMouseEvent *event)
 void LyricTimelineWidget::mouseReleaseEvent(QMouseEvent *event)
 {
     if (event->button() == Qt::LeftButton && _dragMode != NoDrag) {
-        // End Protocol action if a drag was actually performed
-        if (_dragActive && _file && _file->protocol()) {
+        // The drag moved blocks with the *Direct methods, which deliberately do not
+        // re-sort - so the list has to be put back in tick order here, or every
+        // "idx + 1 is the next block in time" assumption (Merge with Next, the
+        // insert clamps, insertSorted's binary search, SRT/LRC export) reads the
+        // wrong block. Same discipline as LyricSyncDialog::onDone (P3-005).
+        if (_dragActive && _dragMode != DragResizeRight && _file && _file->lyricManager()) {
+            LyricManager *mgr = _file->lyricManager();
+
+            QSet<int> dragged = _selectedBlockIndices;
+            if (dragged.isEmpty() && _selectedBlockIndex >= 0)
+                dragged.insert(_selectedBlockIndex);
+
+            QList<LyricBlock> draggedBlocks;
+            int primaryPos = -1;
+            for (int idx : dragged) {
+                if (idx < 0 || idx >= mgr->count()) continue;
+                if (idx == _selectedBlockIndex) primaryPos = draggedBlocks.size();
+                draggedBlocks.append(mgr->blockAt(idx));
+            }
+
+            mgr->sortBlocks();
+
+            // Sorting invalidates the stored indices, so map the selection back onto
+            // the re-ordered list (by source event, or by timing/text for blocks
+            // that have none) instead of leaving it pointing at foreign blocks.
+            _selectedBlockIndices.clear();
+            _selectedBlockIndex = -1;
+            const QList<LyricBlock> &sorted = mgr->allBlocks();
+            for (int d = 0; d < draggedBlocks.size(); d++) {
+                const LyricBlock &b = draggedBlocks.at(d);
+                for (int i = 0; i < sorted.size(); i++) {
+                    if (_selectedBlockIndices.contains(i)) continue;
+                    const LyricBlock &c = sorted.at(i);
+                    bool same = b.sourceEvent
+                                    ? (c.sourceEvent == b.sourceEvent)
+                                    : (!c.sourceEvent && c.startTick == b.startTick && c.text == b.text);
+                    if (same) {
+                        _selectedBlockIndices.insert(i);
+                        if (d == primaryPos || _selectedBlockIndex < 0)
+                            _selectedBlockIndex = i;
+                        break;
+                    }
+                }
+            }
+        }
+
+        // End Protocol action if a drag was actually performed (never opened for a
+        // right-edge resize, see mouseMoveEvent)
+        if (_dragActive && _dragMode != DragResizeRight && _file && _file->protocol()) {
             _file->protocol()->endAction();
         }
         _dragMode = NoDrag;

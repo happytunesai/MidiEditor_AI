@@ -558,10 +558,21 @@ void FluidSynthEngine::sendMidiData(const QByteArray &data) {
 
     // Handle SysEx
     if (status == 0xF0) {
-        fluid_synth_sysex(_synth,
-                          data.constData() + 1,
-                          data.size() - 1,
-                          nullptr, nullptr, nullptr, 0);
+        // fluid_synth_sysex() wants the payload WITHOUT the 0xF0/0xF7 framing
+        // and matches its GM/GS/tuning branches by exact length, so the
+        // trailing 0xF7 that SysExEvent::save() appends has to come off -
+        // otherwise every message is one byte too long and is silently ignored.
+        int payloadLen = data.size() - 1;
+        if (payloadLen > 0 &&
+            static_cast<unsigned char>(data[data.size() - 1]) == 0xF7) {
+            payloadLen--;
+        }
+        if (payloadLen > 0) {
+            fluid_synth_sysex(_synth,
+                              data.constData() + 1,
+                              payloadLen,
+                              nullptr, nullptr, nullptr, 0);
+        }
         return;
     }
 
@@ -992,6 +1003,16 @@ void FluidSynthEngine::exportAudio(const ExportOptions &options) {
 
     // Render reverb/chorus tail (~2 seconds of silence after playback ends)
     if (options.includeReverbTail && !_cancelExport.load()) {
+        // The player is clocked by a sample timer on the synth, so the tail
+        // blocks below keep advancing it: without stopping it first, a range
+        // export appends 2s of the notes AFTER the range instead of the decay.
+        // all-notes-off then releases whatever was still sounding at the cut.
+        fluid_player_stop(player);
+        if (hasRange && options.endTick > 0) {
+            for (int ch = 0; ch < 16; ++ch) {
+                fluid_synth_all_notes_off(expSynth, ch);
+            }
+        }
         int tailBlocks = static_cast<int>((options.sampleRate * 2.0) / 64.0);
         for (int i = 0; i < tailBlocks; ++i) {
             if (_cancelExport.load()) break;

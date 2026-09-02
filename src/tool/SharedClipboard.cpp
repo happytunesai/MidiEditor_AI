@@ -39,6 +39,35 @@ const QString SharedClipboard::SEMAPHORE_KEY = "MidiEditor_Clipboard_Semaphore_v
 const int SharedClipboard::CLIPBOARD_VERSION = 2;
 const int SharedClipboard::MAX_CLIPBOARD_SIZE = 1024 * 1024; // 1MB max
 
+// The semaphore is a cross-process counting semaphore: whatever this process
+// acquires and never releases stays taken for every other running instance.
+// Holding it in a scoped object makes every early return and every exception
+// between acquire and release hand it back.
+struct SharedClipboard::MemoryLock {
+    explicit MemoryLock(SharedClipboard *owner)
+        : _owner(owner)
+        , _held(owner->lockMemory()) {
+    }
+
+    ~MemoryLock() {
+        if (_held) {
+            _owner->unlockMemory();
+        }
+    }
+
+    bool held() const {
+        return _held;
+    }
+
+    MemoryLock(const MemoryLock &) = delete;
+
+    MemoryLock &operator=(const MemoryLock &) = delete;
+
+private:
+    SharedClipboard *_owner;
+    bool _held;
+};
+
 // Global storage for timing information during deserialization
 static QList<QPair<int, int> > g_originalTimings; // midiTime, channel pairs
 // Phase 34: parallel storage — same length as g_originalTimings.
@@ -101,7 +130,8 @@ bool SharedClipboard::initialize() {
         }
 
         // Initialize the shared memory with empty data
-        if (lockMemory()) {
+        MemoryLock lock(this);
+        if (lock.held()) {
             ClipboardHeader *header = static_cast<ClipboardHeader *>(_sharedMemory->data());
             header->version = CLIPBOARD_VERSION;
             header->eventCount = 0;
@@ -109,13 +139,18 @@ bool SharedClipboard::initialize() {
             header->timestamp = 0;
             header->sourceProcessId = 0; // No data yet
             header->hasTempoEvents = 0;
-            unlockMemory();
         }
     } else {
-        // Check if existing data is valid
-        if (lockMemory()) {
-            ClipboardHeader *header = static_cast<ClipboardHeader *>(_sharedMemory->data());
-            unlockMemory();
+        // The attached segment was created by another process - a mismatched or
+        // older build can have made it smaller than our header, and every header
+        // read and write below assumes at least that much mapped memory.
+        if (static_cast<qint64>(_sharedMemory->size()) < static_cast<qint64>(sizeof(ClipboardHeader))) {
+            _sharedMemory->detach();
+            delete _sharedMemory;
+            _sharedMemory = nullptr;
+            delete _semaphore;
+            _semaphore = nullptr;
+            return false;
         }
     }
 
@@ -133,7 +168,8 @@ bool SharedClipboard::copyEvents(const QList<MidiEvent *> &events, MidiFile *sou
         return false;
     }
 
-    if (!lockMemory()) {
+    MemoryLock lock(this);
+    if (!lock.held()) {
         return false;
     }
 
@@ -143,7 +179,6 @@ bool SharedClipboard::copyEvents(const QList<MidiEvent *> &events, MidiFile *sou
     int availableSize = _sharedMemory->size();
 
     if (totalSize > availableSize) {
-        unlockMemory();
         return false;
     }
 
@@ -171,7 +206,6 @@ bool SharedClipboard::copyEvents(const QList<MidiEvent *> &events, MidiFile *sou
     char *dataPtr = static_cast<char *>(_sharedMemory->data()) + sizeof(ClipboardHeader);
     memcpy(dataPtr, serializedData.constData(), serializedData.size());
 
-    unlockMemory();
     return true;
 }
 
@@ -180,31 +214,46 @@ bool SharedClipboard::pasteEvents(MidiFile *targetFile, QList<MidiEvent *> &past
         return false;
     }
 
-    if (!lockMemory()) {
-        return false;
-    }
-
-    ClipboardHeader *header = static_cast<ClipboardHeader *>(_sharedMemory->data());
-
-    // Check version compatibility
-    if (header->version != CLIPBOARD_VERSION || header->eventCount == 0) {
-        unlockMemory();
-        return false;
-    }
-
-    // Store header info for tempo conversion
-    int sourceTicksPerQuarter = header->ticksPerQuarter;
-    int sourceTempo = header->tempoBeatsPerQuarter;
-    bool hasTempoEvents = (header->hasTempoEvents == 1);
-    g_sourceTicksPerQuarter = sourceTicksPerQuarter;
-
-    // Read serialized data - copy it to ensure data integrity
-    char *dataPtr = static_cast<char *>(_sharedMemory->data()) + sizeof(ClipboardHeader);
     QByteArray serializedData;
-    serializedData.resize(header->dataSize);
-    memcpy(serializedData.data(), dataPtr, header->dataSize);
+    {
+        // Scope the lock to the shared-memory read; deserialization below works
+        // on the private copy and must not hold up other instances.
+        MemoryLock lock(this);
+        if (!lock.held()) {
+            return false;
+        }
 
-    unlockMemory();
+        ClipboardHeader *header = static_cast<ClipboardHeader *>(_sharedMemory->data());
+
+        // Check version compatibility
+        if (header->version != CLIPBOARD_VERSION || header->eventCount <= 0) {
+            return false;
+        }
+
+        // dataSize lives in a segment under a well known key that any process can
+        // write, and it also survives a crashed or mismatched build, so it must be
+        // bounded by the real mapping before it is used as a memcpy length. The
+        // write path in copyEvents() already refuses to exceed the segment; this is
+        // the symmetric check that was missing on the read path.
+        const qint64 maxData = static_cast<qint64>(_sharedMemory->size())
+                               - static_cast<qint64>(sizeof(ClipboardHeader));
+        if (header->dataSize < 0 || maxData < 0 || static_cast<qint64>(header->dataSize) > maxData) {
+            return false;
+        }
+
+        // Store header info for tempo conversion
+        int sourceTicksPerQuarter = header->ticksPerQuarter;
+        int sourceTempo = header->tempoBeatsPerQuarter;
+        bool hasTempoEvents = (header->hasTempoEvents == 1);
+        Q_UNUSED(sourceTempo);
+        Q_UNUSED(hasTempoEvents);
+        g_sourceTicksPerQuarter = sourceTicksPerQuarter;
+
+        // Read serialized data - copy it to ensure data integrity
+        char *dataPtr = static_cast<char *>(_sharedMemory->data()) + sizeof(ClipboardHeader);
+        serializedData.resize(header->dataSize);
+        memcpy(serializedData.data(), dataPtr, header->dataSize);
+    }
 
     // Deserialize events
     bool result = deserializeEvents(serializedData, targetFile, pastedEvents);
@@ -220,14 +269,14 @@ bool SharedClipboard::hasData() {
         return false;
     }
 
-    if (!lockMemory()) {
+    MemoryLock lock(this);
+    if (!lock.held()) {
         return false;
     }
 
     ClipboardHeader *header = static_cast<ClipboardHeader *>(_sharedMemory->data());
     bool hasValidData = (header->version == CLIPBOARD_VERSION && header->eventCount > 0);
 
-    unlockMemory();
     return hasValidData;
 }
 
@@ -236,7 +285,8 @@ bool SharedClipboard::hasDataFromDifferentProcess() {
         return false;
     }
 
-    if (!lockMemory()) {
+    MemoryLock lock(this);
+    if (!lock.held()) {
         return false;
     }
 
@@ -249,7 +299,6 @@ bool SharedClipboard::hasDataFromDifferentProcess() {
     bool differentProcess = (header->sourceProcessId != 0 && header->sourceProcessId != currentPid);
     bool hasValidData = validVersion && hasEvents && differentProcess;
 
-    unlockMemory();
     return hasValidData;
 }
 
@@ -258,13 +307,13 @@ void SharedClipboard::clear() {
         return;
     }
 
-    if (lockMemory()) {
+    MemoryLock lock(this);
+    if (lock.held()) {
         ClipboardHeader *header = static_cast<ClipboardHeader *>(_sharedMemory->data());
         header->eventCount = 0;
         header->dataSize = 0;
         header->timestamp = 0;
         header->hasTempoEvents = 0;
-        unlockMemory();
     }
 }
 
@@ -529,7 +578,9 @@ bool SharedClipboard::lockMemory() {
 }
 
 void SharedClipboard::unlockMemory() {
-    if (_semaphore) {
-        bool released = _semaphore->release();
+    if (_semaphore && !_semaphore->release()) {
+        // A failed release leaves the cross-process lock taken for every other
+        // instance; there is nothing to retry, but it must not pass silently.
+        qWarning("SharedClipboard: releasing the clipboard semaphore failed");
     }
 }

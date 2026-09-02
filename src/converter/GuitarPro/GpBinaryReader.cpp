@@ -98,6 +98,13 @@ std::string GpBinaryReader::readString(int size, int length) {
     // Read 'size' bytes, but only use first 'length' characters
     checkBounds(size);
     int actualLength = (length >= 0) ? std::min(length, size) : size;
+    // Nothing to copy: return before taking the address. checkBounds(0) passes
+    // at pointer_ == data_.size(), where &data_[pointer_] is an out-of-range
+    // subscript (UB, and a hard assert in a debug CRT).
+    if (actualLength == 0) {
+        pointer_ += size;
+        return std::string();
+    }
     std::string result(reinterpret_cast<const char*>(&data_[pointer_]), actualLength);
     pointer_ += size;
     return result;

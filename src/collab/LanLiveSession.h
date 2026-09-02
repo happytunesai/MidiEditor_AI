@@ -28,6 +28,7 @@
 #include <QHostAddress>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QMap>
 #include <QObject>
 #include <QPointer>
 #include <QString>
@@ -609,9 +610,11 @@ private:
      *  hunks frame so the sender can show "✓ N events accepted" in
      *  its status bar. Decoupled from `encodeHunks` because acks are
      *  small and don't include diff content. */
-    QByteArray encodeHunksAck(quint64 frameId, int applied, int skipped) const;
+    QByteArray encodeHunksAck(quint64 frameId, int applied, int skipped,
+                              const QString &commitHash = QString()) const;
     QByteArray encodeSnapshot(const QJsonArray &events) const;
-    QByteArray encodeHunks(const QJsonArray &hunks) const;
+    QByteArray encodeHunks(const QJsonArray &hunks,
+                           const QString &commitHash = QString()) const;
     QByteArray encodeHeartbeat() const;
     QByteArray encodeCollabSync(const QJsonObject &sidecar) const;
     QByteArray encodeFileTransfer(const QString &filename, const QByteArray &bytes) const;
@@ -625,10 +628,16 @@ private:
                                  const QStringList &rejectedCommitHashes) const;
 
     // Frame handlers
-    void handleIncomingHunks(const QString &author,
-                             const QString &machineId,
-                             const QJsonArray &hunks,
-                             const QString &actionLabel = QString());
+    /** \brief Applies a hunks frame. Returns the hash of the sidecar
+     *  commit it recorded (empty if nothing was recorded). A non-empty
+     *  \a commitHash is the host-assigned hash for this frame and is
+     *  recorded verbatim so every peer's history converges on the host's
+     *  hash chain (returning-peer reconciliation compares hashes). */
+    QString handleIncomingHunks(const QString &author,
+                                const QString &machineId,
+                                const QJsonArray &hunks,
+                                const QString &actionLabel = QString(),
+                                const QString &commitHash = QString());
     /** \brief Plan §11.10q: receiver of an ack for one of OUR previous
      *  hunks broadcasts. Surfaces the result in the status bar so the
      *  user sees "✓ 17 events accepted" or "⚠ 3 of 17 dropped on PC2"
@@ -636,13 +645,25 @@ private:
     void handleIncomingHunksAck(const QString &ackBy,
                                 quint64 frameId,
                                 int applied,
-                                int skipped);
+                                int skipped,
+                                const QString &commitHash = QString());
     void handleIncomingSnapshot(const QJsonArray &events);
     /** \brief Plan §11.10j: read the optional `fileMaxTick` field of a
-     *  snapshot or hunks frame and grow our local file's end-tick if the
-     *  remote's is larger. Never shrinks (would orphan local events).
+     *  snapshot or hunks frame and mirror it as our local file's end-tick.
+     *  On shrink, events past the new end are removed and notes spanning
+     *  it are shortened to it (never a bare Note Off removal).
      *  Silent no-op when the field is absent or we have no bound file. */
     void applyFileMaxTickFromFrame(const QJsonObject &frame);
+
+    /** \brief Client-side apply of a `hunks` or `snapshot` frame
+     *  (including the hunksAck). Shared by onClientMessage and the
+     *  replay of frames buffered during a pending file transfer. */
+    void applyClientDataFrame(const QJsonObject &obj);
+
+    /** \brief Client-side answer to the host's `historyrequest`: ship
+     *  our commits after fromHash (cut at toHash) as a historybundle. */
+    void handleClientHistoryRequest(const QString &fromHash,
+                                    const QString &toHash);
 
     /** \brief Plan §11.10p: tear down + re-attach the
      *  `Protocol::actionFinished` listener whenever the bound file
@@ -791,7 +812,10 @@ private:
      *  the last accepted chat timestamp per sender machineId; an
      *  incoming chat frame within
      *  \c LiveSession::kChatRateLimitMsPerSender of the previous one
-     *  is dropped silently (+ \ref chatMessageDropped signal). Cleared
+     *  is dropped silently (+ \ref chatMessageDropped signal). Keyed by
+     *  the LINK's machineId and stamped with our OWN arrival clock -
+     *  the payload's `sender` / `timestamp` are sender-controlled and
+     *  can neither enforce a cap nor be trusted to name a peer. Cleared
      *  in resetState. */
     QHash<QString, qint64> _lastChatMsBySender;
 
@@ -929,6 +953,37 @@ private:
      *  has happened yet in this session. */
     QString _lastBroadcastSidecarHead;
 
+    /** \brief Set only while we record the commit for an incoming
+     *  `hunks` frame. The currentFileStateChanged hook skips its
+     *  full-sidecar re-broadcast while it is set: every peer receives
+     *  the relayed hunks frame (stamped with the host's commitHash) and
+     *  records that same commit under the same hash itself, so
+     *  re-shipping the whole history once per second added nothing and
+     *  grew the frame (plus a full sidecar rewrite on each peer) until
+     *  the 32 MB link cap dropped the session. Structural changes
+     *  (mid-session init, adoption, compaction) still broadcast. */
+    bool _suppressSidecarBroadcast = false;
+
+    /** \brief Hunks frames we sent as a JOINED peer whose hunksAck has
+     *  not arrived yet, keyed by frameId. The host's ack carries the
+     *  hash it recorded for the frame; we then record the same hunks
+     *  under that hash so our history stays on the host's chain
+     *  (otherwise a rejoin classifies us as behind and the fast-forward
+     *  re-inserts our own notes). Bounded by kMaxUnackedLiveFrames. */
+    struct UnackedLiveFrame {
+        QJsonArray hunks;
+        QString actionLabel;
+    };
+    QMap<quint64, UnackedLiveFrame> _unackedLiveFrames;
+    static constexpr int kMaxUnackedLiveFrames = 64;
+
+    /** \brief Re-entrancy guard for \ref onPeerFound. The pre-connect
+     *  file switch runs MainWindow::openFile synchronously and can spin
+     *  a nested event loop, during which the role is still Idle - so a
+     *  further host announcement would otherwise start a second client
+     *  (and a second sync timer) on top of the first. */
+    bool _joinInProgress = false;
+
     /** \brief True between receiving a `filetransfer` frame and
      *  setActiveFile() being called by the UI layer. While set, any
      *  incoming `collabsync` is buffered into _pendingSidecar — never
@@ -937,13 +992,22 @@ private:
      *  and clobber the user's pre-existing local sidecar. */
     bool _filetransferPending = false;
 
+    /** \brief Client-side `hunks` / `snapshot` frames received while
+     *  _filetransferPending was set. They target the file the transfer
+     *  brings in, not the user's current document, so they are replayed
+     *  from setActiveFile() after the swap (cleared on resetState). */
+    QList<QJsonObject> _pendingTransferFrames;
+
     // ---- Returning-peer reconciliation state (Phase 9.5g) -----------
 
     /** \brief Per-peer state held by the host between receiving hello
      *  with diverged history and receiving the historybundle response.
      *  Keyed by peer machineId (carried in hello). */
     struct PendingMerge {
-        IPeerLink *peer = nullptr;
+        // QPointer so the `if (!pm.peer) return;` guards in accept/reject
+        // really see null once the transport is deleted on teardown - the
+        // ReturningPeerDialog that calls them outlives the session.
+        QPointer<IPeerLink> peer;
         QString peerName;
         QString peerHead;
         QString commonAncestor;

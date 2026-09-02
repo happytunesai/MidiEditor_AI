@@ -901,14 +901,17 @@ void Gp5Parser::readMeasureHeaders(int count) {
 
     // Apply GP5 directions
     int fromPosition = 5;
+    // `measure` is a 1-based measure number with -1 as the "unused" sentinel, so the
+    // lower bound must be > 0: a 0 from a corrupt file would index measureHeaders[-1].
     for (int x = 0; x < fromPosition && x < static_cast<int>(directionsGp5_.size()); x++) {
-        if (directionsGp5_[x].measure > -1 &&
+        if (directionsGp5_[x].measure > 0 &&
             directionsGp5_[x].measure - 1 < static_cast<int>(measureHeaders.size())) {
             measureHeaders[directionsGp5_[x].measure - 1]->direction.push_back(directionsGp5_[x].name);
         }
     }
     for (int x = fromPosition; x < static_cast<int>(directionsGp5_.size()); x++) {
-        if (directionsGp5_[x].measure > -1 &&
+        // Same 1-based lower bound as the loop above.
+        if (directionsGp5_[x].measure > 0 &&
             directionsGp5_[x].measure - 1 < static_cast<int>(measureHeaders.size())) {
             measureHeaders[directionsGp5_[x].measure - 1]->fromDirection.push_back(directionsGp5_[x].name);
         }

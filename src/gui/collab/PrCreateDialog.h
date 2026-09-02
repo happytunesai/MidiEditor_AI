@@ -29,6 +29,7 @@
 class QLabel;
 class QLineEdit;
 class QPushButton;
+class QTimer;
 class PrBundle;
 
 class PrCreateDialog : public QDialog {
@@ -55,6 +56,10 @@ private:
     QPushButton *_postButton;
 
     int _commitsCount = 0;
+
+    // Debounces rebuildSummary() while the user types the message: the rebuild
+    // re-aggregates the full unshared history and compresses the whole bundle.
+    QTimer *_rebuildTimer = nullptr;
 
     // Single-use connection to WebhookClient::postFinished. Disconnected
     // and re-connected on every Post-to-Discord click so we don't

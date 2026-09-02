@@ -34,6 +34,7 @@ Terminal::Terminal() {
 
     _inPort = "";
     _outPort = "";
+    _portRetries = 0;
 }
 
 void Terminal::initTerminal(QString startString, QString inPort,
@@ -47,7 +48,10 @@ Terminal *Terminal::terminal() {
 }
 
 void Terminal::writeString(QString message) {
-    _textEdit->setText(_textEdit->toPlainText() + message + "\n");
+    // WHY: setText(toPlainText() + ...) copied and re-parsed the whole console
+    // on every line, so appending N lines cost O(N^2) time and memory on the GUI
+    // thread. append() adds one paragraph and leaves the existing text alone.
+    _textEdit->append(message);
     _textEdit->verticalScrollBar()->setValue(
         _textEdit->verticalScrollBar()->maximum());
 }
@@ -55,6 +59,7 @@ void Terminal::writeString(QString message) {
 void Terminal::execute(QString startString, QString inPort, QString outPort) {
     _inPort = inPort;
     _outPort = outPort;
+    _portRetries = 0;
 
     if (startString != "") {
         if (_process) {
@@ -139,7 +144,15 @@ void Terminal::processStarted() {
     }
 
     // if not both are set, try again in 1 second
+    // WHY: the saved port may never appear (device unplugged), and the old loop
+    // re-armed the timer forever - one console line per second for the whole
+    // session, each one re-copying the console. Give up after kMaxPortRetries.
     if ((MidiOutput::outputPort() == "" && _outPort != "") || (MidiInput::inputPort() == "" && _inPort != "")) {
+        if (_portRetries >= kMaxPortRetries) {
+            writeString(QObject::tr("Giving up: MIDI port not found"));
+            return;
+        }
+        _portRetries++;
         QTimer *timer = new QTimer();
         connect(timer, SIGNAL(timeout()), this, SLOT(processStarted()));
         connect(timer, SIGNAL(timeout()), timer, SLOT(deleteLater()));

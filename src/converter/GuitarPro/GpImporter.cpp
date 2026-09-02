@@ -51,7 +51,10 @@ MidiFile* GpImporter::loadFile(QString path, bool* ok) {
         } else if (ext == "gp5") {
             gpFile = std::make_unique<Gp5Parser>(data);
             gpFile->readSong();
-        } else if (ext == "gpx") {
+        } else if (ext == "gpx" || ext == "gp6") {
+            // .gp6 is advertised in the open filter and in ImportOnlyFormats, so it
+            // has to dispatch here: Guitar Pro 6 files are GPX containers whatever
+            // the suffix, and without this they failed as "unknown file extension".
 #ifdef GP678_SUPPORT
             auto gp6 = std::make_unique<Gp6Parser>(data);
             gp6->readSong();

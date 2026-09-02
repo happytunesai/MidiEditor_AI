@@ -31,6 +31,7 @@
 #include <QMap>
 #include <QMouseEvent>
 #include <QPainter>
+#include <QSet>
 #include <QWidget>
 
 // Forward declarations
@@ -89,6 +90,11 @@ public:
      * \param parent Parent widget (optional)
      */
     MatrixWidget(QSettings *settings, QWidget *parent = nullptr);
+
+    /**
+     * \brief Frees the back buffer and the helper lists owned by this view.
+     */
+    ~MatrixWidget();
 
     // === File Management ===
 
@@ -639,8 +645,20 @@ private:
      * \param y Y coordinate for the key
      * \param width Width of the key in pixels
      * \param height Height of the key in pixels
+     * \param selectedLines Lines of the current selection, collected once per paint
      */
-    void paintPianoKey(QPainter *painter, int number, int x, int y, int width, int height);
+    void paintPianoKey(QPainter *painter, int number, int x, int y, int width, int height,
+                       const QSet<int> &selectedLines);
+
+    /**
+     * \brief Is this view the active tool target AND showing the tool's document?
+     *
+     * Mouse input is only dispatched to the current tool when both static tool
+     * anchors (EditorTool::currentMatrixWidget and Tool::currentFile) point at
+     * this view and its file; otherwise the tool would read this viewport but
+     * edit a different document.
+     */
+    bool toolTargetMatchesDocument() const;
 
     // === Configuration ===
 

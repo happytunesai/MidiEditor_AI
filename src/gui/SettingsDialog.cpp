@@ -55,6 +55,11 @@ SettingsDialog::SettingsDialog(QString title, QSettings *settings, QWidget *pare
 
     setModal(true);
 
+    // Every "open Settings" entry point builds a fresh dialog and drops the
+    // pointer, so without this each open would leak a complete hidden settings
+    // dialog (all pages, their timers and connections) parented to MainWindow.
+    setAttribute(Qt::WA_DeleteOnClose);
+
     // the central widget
     QWidget *central = new QWidget(this);
     QGridLayout *centralLayout = new QGridLayout(central);
@@ -143,6 +148,18 @@ void SettingsDialog::rowChanged(int row) {
     int oldIndex = _container->currentIndex();
     if (_settingsWidgets.at(oldIndex)) {
         if (!_settingsWidgets.at(oldIndex)->accept()) {
+            // The list already moved to `row` - that is what emitted this
+            // signal - so put the highlight back on the page the stack still
+            // shows; otherwise the refused row stays selected and clicking it
+            // again emits nothing (dead click) while the panes disagree.
+            // Deferred, not inline: the view's mouse-press handler emits this
+            // signal before it applies the click's own selection, so an
+            // inline setCurrentRow() would be overwritten right after we
+            // return and the clicked row would stay highlighted anyway.
+            QMetaObject::invokeMethod(this, [this, oldIndex]() {
+                const QSignalBlocker blocker(_listWidget);
+                _listWidget->setCurrentRow(oldIndex);
+            }, Qt::QueuedConnection);
             return;
         }
     }
@@ -168,6 +185,8 @@ void SettingsDialog::submit() {
             return;
         }
     }
-    hide();
+    // close() (not hide()): runs the close path so WA_DeleteOnClose reclaims
+    // the dialog. The delete is deferred, so emitting afterwards is safe.
+    close();
     emit settingsChanged();
 }

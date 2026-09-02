@@ -28,6 +28,15 @@ OffEvent::OffEvent(int ch, int l, MidiTrack *track)
     _onEvent = 0;
     QList<OnEvent *> eventsToClose = onEvents->values(line());
     for (int i = 0; i < eventsToClose.length(); i++) {
+        // The pending-OnEvent map is process-global and is only drained around
+        // MidiFile::readMidiFile, so it can still hold OnEvents that belong to no
+        // parse at all - MatrixWidget's piano preview note registers itself for
+        // the whole session with a null track. An OffEvent's partner always comes
+        // from the same track, so scope the search to it instead of adopting a
+        // stranger and overwriting that stranger's own _offEvent pointer.
+        if (eventsToClose.at(i)->track() != track) {
+            continue;
+        }
         if (eventsToClose.at(i)->channel() == channel()) {
             setOnEvent(eventsToClose.at(i));
 

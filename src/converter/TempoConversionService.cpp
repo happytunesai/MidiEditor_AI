@@ -11,6 +11,8 @@
 #include <QMultiMap>
 #include <QtMath>
 
+#include <limits>
+
 #include "../MidiEvent/MidiEvent.h"
 #include "../MidiEvent/OffEvent.h"
 #include "../MidiEvent/TempoChangeEvent.h"
@@ -25,6 +27,25 @@ constexpr int kMetaChannel = 16;
 constexpr int kTempoChannel = 17;
 constexpr int kTimeSigChannel = 18;
 constexpr double kBpmEpsilon = 1e-6;
+// A tempo event stores 60000000 / bpm microseconds per quarter, so the map can
+// only ever express a WHOLE bpm in this range - see storableBpm().
+constexpr int kBpmMinInt = 1;
+constexpr int kBpmMaxInt = 999;
+constexpr double kBpmMin = 1.0;
+constexpr double kBpmMax = 999.0;
+
+// The tempo value that would really be written for `bpm`. The range test comes
+// first: qRound() on a far out-of-range double is undefined, and this is fed
+// with bpm * scale.
+int storableBpm(double bpm) {
+    if (bpm <= kBpmMin) {
+        return kBpmMinInt;
+    }
+    if (bpm >= kBpmMax) {
+        return kBpmMaxInt;
+    }
+    return qBound(kBpmMinInt, static_cast<int>(qRound(bpm)), kBpmMaxInt);
+}
 
 bool channelInScope(int channelIndex,
                     const TempoConversionOptions &opts) {
@@ -154,13 +175,29 @@ TempoConversionResult TempoConversionService::preview(
         result.error = QStringLiteral("Source and target BPM must be > 0.");
         return result;
     }
+    // Refuse what the tempo map cannot express: the ticks would be scaled by the
+    // requested ratio while the written tempo is clamped to 1..999, which silently
+    // destroys the duration preservation this service promises. The dialog already
+    // enforces this range; callers without a UI (the AI/MCP tool) did not.
+    if (options.sourceBpm < kBpmMin || options.sourceBpm > kBpmMax
+        || options.targetBpm < kBpmMin || options.targetBpm > kBpmMax) {
+        result.error = QStringLiteral("Source and target BPM must be between 1 and 999.");
+        return result;
+    }
     const QString conflict = scopeModeConflict(options);
     if (!conflict.isEmpty()) {
         result.error = conflict;
         return result;
     }
 
-    const double scale = options.targetBpm / options.sourceBpm;
+    // ReplaceFixed stamps ONE whole-bpm tempo event, so the file will play at that
+    // rounded tempo: scale the ticks by the ACHIEVABLE ratio, or a fractional
+    // target (128.50 written as 129) leaves a permanent timing error behind.
+    const double effectiveTargetBpm =
+        options.tempoMode == TempoConversionTempoMode::ReplaceFixed
+            ? static_cast<double>(storableBpm(options.targetBpm))
+            : options.targetBpm;
+    const double scale = effectiveTargetBpm / options.sourceBpm;
     result.scaleFactor = scale;
     result.oldDurationMs = file->msOfTick(file->endTick());
 
@@ -175,6 +212,8 @@ TempoConversionResult TempoConversionService::preview(
     int affected = 0;
     int tempoRemoved = 0;
     int tempoInserted = 0;
+    int clampedTempoEvents = 0;
+    qint64 maxNewTick = 0;
 
     for (int ci = 0; ci < 19; ++ci) {
         if (!channelTypeIncluded(ci, options)) {
@@ -201,8 +240,31 @@ TempoConversionResult TempoConversionService::preview(
                 && options.tempoMode == TempoConversionTempoMode::EventsOnly) {
                 continue;
             }
+            maxNewTick = qMax(maxNewTick, scaledTick(ev->midiTime(), scale));
+            // A rewritten bpm outside 1..999 gets clamped by convert(), and that
+            // passage then no longer keeps its real-time duration - say so.
+            if (ci == kTempoChannel
+                && options.tempoMode == TempoConversionTempoMode::ScaleTempoMap) {
+                if (auto *tc = dynamic_cast<TempoChangeEvent *>(ev)) {
+                    const double newBpm =
+                        static_cast<double>(tc->beatsPerQuarter()) * scale;
+                    if (newBpm < kBpmMin - 0.5 || newBpm > kBpmMax + 0.5) {
+                        ++clampedTempoEvents;
+                    }
+                }
+            }
             ++affected;
         }
+    }
+
+    // MidiEvent keeps its tick in an int and convert() casts the scaled qint64
+    // down to one: past INT_MAX that wraps to a negative position instead of
+    // simply being far away, so refuse the conversion rather than corrupt it.
+    if (maxNewTick > static_cast<qint64>(std::numeric_limits<int>::max())) {
+        result.error = QStringLiteral(
+            "The scaled tick positions would leave the representable range. "
+            "Use a smaller target BPM.");
+        return result;
     }
 
     if (options.tempoMode == TempoConversionTempoMode::ReplaceFixed
@@ -227,6 +289,20 @@ TempoConversionResult TempoConversionService::preview(
             qRound64(static_cast<double>(result.oldDurationMs) * scale));
     } else {
         result.newDurationMs = result.oldDurationMs;
+    }
+    // Report the substitutions instead of quietly delivering something else than
+    // the requested conversion.
+    if (!qFuzzyCompare(effectiveTargetBpm, options.targetBpm)) {
+        result.warning = QStringLiteral(
+            "The tempo map stores whole BPM values: converting to %1 BPM "
+            "instead of %2.")
+                             .arg(storableBpm(options.targetBpm))
+                             .arg(options.targetBpm, 0, 'f', 2);
+    } else if (clampedTempoEvents > 0) {
+        result.warning = QStringLiteral(
+            "%1 tempo event(s) would scale beyond the 1-999 BPM range and are "
+            "clamped, so those passages do NOT keep their duration.")
+                             .arg(clampedTempoEvents);
     }
     result.ok = true;
     return result;
@@ -311,8 +387,7 @@ TempoConversionResult TempoConversionService::convert(
                 && options.tempoMode == TempoConversionTempoMode::ScaleTempoMap) {
                 if (auto *tc = dynamic_cast<TempoChangeEvent *>(ev)) {
                     const double newBpm = static_cast<double>(tc->beatsPerQuarter()) * scale;
-                    const int clamped = qBound(1, static_cast<int>(qRound(newBpm)), 999);
-                    tc->setBeats(clamped);
+                    tc->setBeats(storableBpm(newBpm));
                 }
             }
         }
@@ -330,9 +405,8 @@ TempoConversionResult TempoConversionService::convert(
         MidiChannel *tempoCh = file->channel(kTempoChannel);
         if (tempoCh) {
             MidiTrack *generalTrack = file->track(0);
-            const int targetBpmInt = qBound(1,
-                                            static_cast<int>(qRound(options.targetBpm)),
-                                            999);
+            // Same value preview() scaled the ticks by - the two must not drift.
+            const int targetBpmInt = storableBpm(options.targetBpm);
             auto *newTempo = new TempoChangeEvent(
                 kTempoChannel,
                 60000000 / targetBpmInt,

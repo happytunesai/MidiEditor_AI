@@ -377,10 +377,17 @@ void FfxivEqualizerDialog::reject() {
     // Roll the live mixer back to the snapshot taken on construction so
     // Cancel really does cancel \u2014 even though sliders are live.
     auto *svc = FfxivEqualizerService::instance();
-    if (svc->activePresetName() != _initialPreset) {
+    bool useSnapshot = (svc->activePresetName() == _initialPreset);
+    if (!useSnapshot) {
         svc->setActivePreset(_initialPreset);
-    } else {
-        // Same preset, reapply our snapshot directly.
+        // If that preset was deleted while the dialog was open its name no
+        // longer resolves and setActivePreset() silently falls back to the
+        // built-in curve - fall through to the snapshot so Cancel still
+        // restores the gains the mixer had on construction.
+        useSnapshot = (svc->activePresetName() != _initialPreset);
+    }
+    if (useSnapshot) {
+        // Reapply our snapshot directly.
         for (auto &rc : _rows) {
             auto it = _initialSlots.constFind(rc.program);
             if (it != _initialSlots.constEnd()) {

@@ -345,6 +345,10 @@ private:
     // first if it isn't in the list (e.g. a custom or per-file model). Also
     // refreshes the tooltip so the full name is reachable when the label elides.
     void selectFooterModel(const QString &modelId);
+    /** Enable/disable the footer connection controls (provider / model /
+     *  refresh / effort). They re-point the SHARED AiClient, so they must stay
+     *  disabled while a request or an agent run is in flight. */
+    void setConnectionControlsEnabled(bool enabled);
     void addChatBubble(const QString &role, const QString &text);
     void setStatus(const QString &text, const QString &color);
     QJsonObject dispatchAction(const QJsonObject &actionObj, bool showBubbles = true);

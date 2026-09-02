@@ -89,6 +89,14 @@ void MidiChannel::reloadState(ProtocolEntry *entry) {
     _events = other->_events;
     _num = other->_num;
 
+    // visible() resolves through ChannelVisibilityManager, not through the
+    // _visible mirror restored above - so undo/redo of Hide/Show channel (and
+    // of Show all / Hide all) was a no-op on screen. Push the restored state
+    // into the manager for THIS document. (Full-review F185)
+    if (_num >= 0 && _num <= 18) {
+        ChannelVisibilityManager::instance().setChannelVisible(_num, _visible, _midiFile);
+    }
+
     // Phase 48: undo/redo swaps the whole event map in. If either side of the
     // swap is the tempo channel, MidiFile's tempo cache no longer describes
     // this map - and the swap can restore a map of the SAME size, so the size
@@ -119,9 +127,12 @@ bool MidiChannel::visible() {
 
 void MidiChannel::setVisible(bool b) {
     if (_num < 0 || _num > 18) return;
+    // Snapshot BEFORE mutating (same order as setMute/setSolo): the snapshot is
+    // what undo restores, and the copy ctor carries _visible - taken after the
+    // write it held the NEW value, so undo of Hide/Show was a visible no-op.
+    ProtocolEntry *toCopy = copy();
     ChannelVisibilityManager::instance().setChannelVisible(_num, b, _midiFile);
     _visible = b;
-    ProtocolEntry *toCopy = copy();
     protocol(toCopy, this);
 }
 

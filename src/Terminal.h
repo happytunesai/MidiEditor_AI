@@ -120,6 +120,13 @@ private:
 
     /** \brief MIDI input and output port identifiers */
     QString _inPort, _outPort;
+
+    /** \brief Number of 1-second retries already spent looking for the ports */
+    int _portRetries;
+
+    /** \brief Upper bound for those retries, so an absent device cannot spin
+     *         the console (and the GUI thread) for the whole session. */
+    static constexpr int kMaxPortRetries = 10;
 };
 
 #endif // TERMINAL_H_

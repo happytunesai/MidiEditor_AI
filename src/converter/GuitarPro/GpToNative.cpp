@@ -1,5 +1,6 @@
 #include "GpToNative.h"
 #include <cmath>
+#include <cstdlib>
 #include <algorithm>
 #include <map>
 #include <numeric>
@@ -12,7 +13,10 @@ NativeBendingPlan NativeBendingPlan::create(std::vector<NativeBendPoint> bendPoi
     int originalChannel, int usedChannel,
     int duration, int index, float resize, bool isVibrato)
 {
-    int maxDistance = duration / 10;
+    // A step of 0 (duration 1..9) never advances the in-between-point loop below,
+    // and a negative one (duration < 0) walks backwards forever - either way the
+    // loop push_backs without end and freezes the import, so keep it at >= 1 tick.
+    int maxDistance = std::max(1, duration / 10);
     if (isVibrato) {
         maxDistance = std::min(maxDistance, 60);
     }
@@ -240,13 +244,19 @@ std::vector<int> NativeTrack::getActiveChannels(
 std::unique_ptr<GpMidiTrack> NativeTrack::getMidi(bool availableChannels[16]) {
     auto midiTrack = std::make_unique<GpMidiTrack>();
 
+    // GP3/4/5 channels are flat 0..63 slots (4 ports x 16 channels), but a MIDI status
+    // byte and the 16-entry availableChannels pool only hold 0..15: emitting the raw
+    // slot mistypes every event (note_on 0x90|16 becomes 0xA0 poly aftertouch) and
+    // indexes the pool out of bounds.
+    const int midiChannel = channel & 0x0F;
+
     midiTrack->messages.push_back(std::make_unique<GpMidiMessage>(
         "midi_port", std::vector<std::string>{std::to_string(port)}, 0));
     midiTrack->messages.push_back(std::make_unique<GpMidiMessage>(
         "track_name", std::vector<std::string>{name}, 0));
     midiTrack->messages.push_back(std::make_unique<GpMidiMessage>(
         "program_change",
-        std::vector<std::string>{std::to_string(channel), std::to_string(patch)}, 0));
+        std::vector<std::string>{std::to_string(midiChannel), std::to_string(patch)}, 0));
 
     if (notes.empty()) {
         return midiTrack;
@@ -363,13 +373,17 @@ std::unique_ptr<GpMidiTrack> NativeTrack::getMidi(bool availableChannels[16]) {
                     }
                 }
                 channelConnections = newCC;
-                availableChannels[bpl.usedChannel] = true;
+                // availableChannels is a 16-slot pool at the front of NativeFormat: a
+                // plan channel outside it would scribble over the neighbouring members.
+                if (bpl.usedChannel >= 0 && bpl.usedChannel < 16) {
+                    availableChannels[bpl.usedChannel] = true;
+                }
             }
         }
         activeBendingPlans = finalPlans;
 
         // Handle tremolo points
-        auto activeChans = getActiveChannels(channel, channelConnections);
+        auto activeChans = getActiveChannels(midiChannel, channelConnections);
         std::vector<NativeTremoloPoint> newTremPts;
         for (const auto& tp : localTremoloPoints) {
             if (tp.index <= n.index) {
@@ -448,15 +462,15 @@ std::unique_ptr<GpMidiTrack> NativeTrack::getMidi(bool availableChannels[16]) {
             }
         }
 
-        int noteChannel = channel;
+        int noteChannel = midiChannel;
 
         // Bending setup
         if (!n.bendPoints.empty()) {
             int usedChannel = tryToFindChannel(availableChannels);
-            if (usedChannel == -1) usedChannel = channel;
+            if (usedChannel == -1) usedChannel = midiChannel;
 
             availableChannels[usedChannel] = false;
-            channelConnections.push_back({channel, usedChannel, n.index + n.duration});
+            channelConnections.push_back({midiChannel, usedChannel, n.index + n.duration});
             midiTrack->messages.push_back(std::make_unique<GpMidiMessage>(
                 "program_change",
                 std::vector<std::string>{"" + std::to_string(usedChannel),
@@ -465,14 +479,14 @@ std::unique_ptr<GpMidiTrack> NativeTrack::getMidi(bool availableChannels[16]) {
             noteChannel = usedChannel;
             currentIndex = n.index;
             activeBendingPlans.push_back(NativeBendingPlan::create(
-                n.bendPoints, channel, usedChannel, n.duration, n.index,
+                n.bendPoints, midiChannel, usedChannel, n.duration, n.index,
                 n.resizeValue, n.isVibrato));
         }
 
         // Vibrato without bending
         if (n.isVibrato && n.bendPoints.empty()) {
             activeBendingPlans.push_back(NativeBendingPlan::create(
-                {}, channel, channel, n.duration, n.index,
+                {}, midiChannel, midiChannel, n.duration, n.index,
                 n.resizeValue, true));
         }
 
@@ -705,16 +719,16 @@ std::vector<NativeMasterBar> NativeFormat::retrieveMasterBars() {
         mb.num = mh->timeSignature.numerator;
         mb.den = mh->timeSignature.denominator.value;
 
-        // Decompose key signature
-        std::string keyFull = std::to_string(static_cast<int>(mh->keySignature));
-        if (keyFull.length() != 1) {
-            mb.keyType = std::stoi(keyFull.substr(keyFull.length() - 1));
-            mb.key = std::stoi(keyFull.substr(0, keyFull.length() - 1));
-        } else {
-            mb.key = 0;
-            mb.keyType = std::stoi(keyFull);
+        // Decompose the key signature by arithmetic instead of string surgery: GP3+
+        // pack it as root * 10 + type, and for a negative single-digit value the old
+        // substr(0, len - 1) was "-", so std::stoi threw and aborted the whole import.
+        int keyValue = static_cast<int>(mh->keySignature);
+        if (gpFile_->versionTuple[0] < 3) {
+            keyValue *= 10; // GP1/2 store the plain root, without the type digit
         }
-        mb.keyBoth = keyFull;
+        mb.keyType = std::abs(keyValue) % 10;
+        mb.key = keyValue / 10;
+        mb.keyBoth = std::to_string(keyValue);
         mb.tripletFeel = mh->tripletFeel;
         masterBars.push_back(mb);
     }
@@ -740,7 +754,9 @@ std::vector<NativeTrack> NativeFormat::retrieveTracks() {
         track.name = tr->name;
         track.patch = tr->channel.instrument;
         track.port = tr->port;
-        track.channel = tr->channel.channel;
+        // The GP channel table is a flat 0..63 index (4 ports x 16 channels); every
+        // consumer downstream needs a real 0..15 MIDI channel.
+        track.channel = tr->channel.channel & 0x0F;
         track.state = PlaybackState::Def;
         track.capo = tr->offset;
 
@@ -749,6 +765,11 @@ std::vector<NativeTrack> NativeFormat::retrieveTracks() {
 
         track.tuning = getTuning(tr->strings);
         track.notes = retrieveNotes(*tr, track.tuning, track);
+        // getMidi emits deltas as (index - currentIndex) and rewinds currentIndex on an
+        // out-of-order note, shifting every later event: grace notes and brushes can
+        // place a note before its predecessor, so keep the list ascending.
+        std::stable_sort(track.notes.begin(), track.notes.end(),
+            [](const NativeNote& a, const NativeNote& b) { return a.index < b.index; });
         tracks.push_back(std::move(track));
     }
     return tracks;
@@ -1124,15 +1145,28 @@ std::vector<NativeNote> NativeFormat::retrieveNotes(const GpTrack& track,
                             graceNote.fret = n->effect.grace->fret;
                             graceNote.str = note.str;
                             Duration dur;
-                            dur.value = n->effect.grace->duration;
+                            // GP3/4/5 store the grace length as a code (1/2/3), not as a
+                            // note-value denominator: flipDuration read a 1 as a whole
+                            // note (3840 ticks) instead of the intended 60.
+                            int graceCode = std::max(1, std::min(3, n->effect.grace->duration));
+                            dur.value = 1 << (7 - graceCode);
                             graceNote.duration = flipDuration(dur);
                             if (isOnBeat) {
-                                int orig = note.duration;
-                                note.duration -= graceNote.duration;
-                                note.index += graceNote.duration;
-                                note.resizeValue *= static_cast<float>(note.duration) / orig;
+                                // The grace must never swallow the main note: a duration
+                                // <= 0 makes it inaudible and rewinds the delta cursor
+                                // (the GP6/7 branch above guards the same way).
+                                graceNote.duration = std::min(graceNote.duration,
+                                    std::max(0, note.duration - 1));
+                                if (graceNote.duration > 0) {
+                                    int orig = note.duration;
+                                    note.duration -= graceNote.duration;
+                                    note.index += graceNote.duration;
+                                    note.resizeValue *= static_cast<float>(note.duration) / orig;
+                                }
                             } else {
-                                graceNote.index -= graceNote.duration;
+                                // Before the first beat the grace would otherwise land at
+                                // a negative index and drag the whole track late.
+                                graceNote.index = std::max(0, graceNote.index - graceNote.duration);
                             }
                             notes.push_back(graceNote);
                             notesInMeasure++;

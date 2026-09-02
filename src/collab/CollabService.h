@@ -212,13 +212,28 @@ public:
      * batches don't collapse to the same id), persists the sidecar, and
      * emits currentFileStateChanged.
      *
+     * When \a commitHash is non-empty it is recorded verbatim: the live
+     * host assigns one hash per hunks frame and every peer mirrors it, so
+     * all histories converge on the host's chain (returning-peer
+     * reconciliation compares hashes). Returns the recorded hash, empty
+     * when nothing was recorded.
+     *
      * No-op if collab is disabled or the file isn't initialized.
      */
-    void recordRemoteLiveSync(MidiFile *file,
-                              const QString &author,
-                              const QString &machineId,
-                              const QString &message,
-                              const QJsonArray &hunks);
+    QString recordRemoteLiveSync(MidiFile *file,
+                                 const QString &author,
+                                 const QString &machineId,
+                                 const QString &message,
+                                 const QJsonArray &hunks,
+                                 const QString &commitHash = QString());
+
+    /** \brief Hash of a live-sync commit: sha256(snapshot + tsMs + author).
+     *  Exposed so the live-session host can stamp the hash into the hunks
+     *  frame BEFORE recording it, letting every peer record the same
+     *  commit under the same hash. */
+    static QString liveCommitHash(const QJsonArray &snapshot,
+                                  const QString &author,
+                                  qint64 tsMs);
 
     /** \brief Snapshot of the active sidecar's JSON representation.
      *  Empty object when no file is initialized for collaboration. */

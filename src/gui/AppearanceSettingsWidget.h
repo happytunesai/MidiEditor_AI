@@ -28,6 +28,7 @@
 
 // Forward declarations
 class QCheckBox;
+class QComboBox;
 
 /**
  * \class NamedColorWidgetItem
@@ -177,6 +178,10 @@ private:
 
     /** \brief List of track color items */
     QList<NamedColorWidgetItem *> _trackItems;
+
+    /** \brief Color preset combo; a member so resetColors() can re-sync it
+     *  to Appearance::colorPreset() while the dialog is still open. */
+    QComboBox *_presetCombo = nullptr;
 };
 
 #endif // APPEARANCESETTINGSWIDGET_H_

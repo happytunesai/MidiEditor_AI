@@ -112,6 +112,30 @@ void GpBitStream::increaseSubpointer() {
 Gp6Parser::Gp6Parser(const std::vector<uint8_t>& data) : rawData_(data) {}
 Gp6Parser::Gp6Parser(const std::string& xml) : xmlContent_(xml), isXmlDirect_(true) {}
 
+XmlNode* Gp6Parser::findSubnodeById(XmlNode* collection, int id) {
+    if (!collection) return nullptr;
+    auto cached = idIndexCache_.find(collection);
+    if (cached == idIndexCache_.end()) {
+        // Build the index on first use. Keep "first node with this id wins",
+        // which is what the previous linear scans did.
+        std::unordered_map<int, XmlNode*> index;
+        index.reserve(collection->subnodes.size());
+        for (const auto& n : collection->subnodes) {
+            if (n->propertyValues.empty()) continue;
+            int nodeId = 0;
+            try {
+                nodeId = std::stoi(n->propertyValues[0]);
+            } catch (const std::exception&) {
+                continue;  // non-numeric id: unusable as a reference target
+            }
+            index.emplace(nodeId, n.get());
+        }
+        cached = idIndexCache_.emplace(collection, std::move(index)).first;
+    }
+    auto hit = cached->second.find(id);
+    return hit == cached->second.end() ? nullptr : hit->second;
+}
+
 void Gp6Parser::readSong() {
     std::string xml;
     if (isXmlDirect_) {
@@ -137,7 +161,16 @@ std::string Gp6Parser::decompressGPX(const std::vector<uint8_t>& data) {
         std::vector<uint8_t> decompressed;
         decompressed.reserve(data.size() * 4);
 
+        // BCFZ has no output ceiling of its own: a crafted back-reference chain
+        // can copy the whole output back onto itself and so double it per token,
+        // exhausting RAM long before the bitstream ends. Cap it at the same
+        // 256 MB the sibling ZIP/inflate path enforces.
+        constexpr size_t kMaxDecompressed = 256u * 1024u * 1024u;
+
         while (!bs.isFinished()) {
+            if (decompressed.size() > kMaxDecompressed)
+                throw std::runtime_error("GP6: BCFZ stream expands beyond the size limit");
+
             bool isCompressed = bs.getBit();
 
             if (isCompressed) {
@@ -202,10 +235,11 @@ std::unique_ptr<XmlNode> Gp6Parser::parseGP6(const std::string& xml, int start) 
     std::string xmlCopy = xml;
     bool skipMode = false;
     for (size_t x = 0; x + 3 < xmlCopy.size(); x++) {
-        std::string sub = xmlCopy.substr(x, 3);
-        if (sub == "<!-") { xmlCopy[x] = '{'; continue; }
-        if (sub == "<![") { skipMode = true; continue; }
-        if (sub == "]]>") skipMode = false;
+        // compare() instead of substr(): the old form allocated a std::string
+        // for every single character of the document.
+        if (xmlCopy.compare(x, 3, "<!-") == 0) { xmlCopy[x] = '{'; continue; }
+        if (xmlCopy.compare(x, 3, "<![") == 0) { skipMode = true; continue; }
+        if (xmlCopy.compare(x, 3, "]]>") == 0) skipMode = false;
         if (skipMode && xmlCopy[x] == '<') xmlCopy[x] = '{';
     }
 
@@ -333,6 +367,9 @@ std::unique_ptr<XmlNode> Gp6Parser::parseGP6(const std::string& xml, int start) 
 void Gp6Parser::gp6NodeToGP5File(XmlNode* root) {
     if (!root) return;
 
+    // The id index holds raw pointers into this parse's node tree only.
+    idIndexCache_.clear();
+
     // Create a GP5 file to populate
     auto gp5 = std::make_unique<Gp5Parser>(std::vector<uint8_t>{});
     gp5->versionTuple[0] = 5;
@@ -448,13 +485,7 @@ void Gp6Parser::gp6NodeToGP5File(XmlNode* root) {
             for (size_t trackIdx = 0; trackIdx < barIds.size() && trackIdx < gp5->tracks.size(); trackIdx++) {
                 int barId = barIds[trackIdx];
                 // Find the bar node by ID
-                XmlNode* nBar = nullptr;
-                for (const auto& b : nBars->subnodes) {
-                    if (!b->propertyValues.empty() && std::stoi(b->propertyValues[0]) == barId) {
-                        nBar = b.get();
-                        break;
-                    }
-                }
+                XmlNode* nBar = findSubnodeById(nBars, barId);
                 if (!nBar) continue;
 
                 auto* measure = gp5->tracks[trackIdx]->measures[barIdx].get();
@@ -485,13 +516,7 @@ void Gp6Parser::gp6NodeToGP5File(XmlNode* root) {
                         if (voiceIds[vi] == -1) continue;
 
                         // Find voice node
-                        XmlNode* nVoice = nullptr;
-                        for (const auto& v : nVoices->subnodes) {
-                            if (!v->propertyValues.empty() && std::stoi(v->propertyValues[0]) == voiceIds[vi]) {
-                                nVoice = v.get();
-                                break;
-                            }
-                        }
+                        XmlNode* nVoice = findSubnodeById(nVoices, voiceIds[vi]);
                         if (nVoice) {
                             transferVoice(nVoice, measure->voices[vi].get(),
                                           nBeats, nNotes, nRhythms, measure,
@@ -751,13 +776,7 @@ void Gp6Parser::transferVoice(XmlNode* nVoice, GpVoice* voice,
     int beatPos = measure->start();
     for (int beatId : beatIds) {
         // Find beat node
-        XmlNode* nBeat = nullptr;
-        for (const auto& b : nBeats->subnodes) {
-            if (!b->propertyValues.empty() && std::stoi(b->propertyValues[0]) == beatId) {
-                nBeat = b.get();
-                break;
-            }
-        }
+        XmlNode* nBeat = findSubnodeById(nBeats, beatId);
         if (!nBeat) continue;
 
         auto beat = std::make_unique<GpBeat>();
@@ -877,13 +896,7 @@ void Gp6Parser::transferBeat(XmlNode* nBeat, GpBeat* beat,
         beat->status = noteIds.empty() ? BeatStatus::rest : BeatStatus::normal;
 
         for (int noteId : noteIds) {
-            XmlNode* nNote = nullptr;
-            for (const auto& n : nNotes->subnodes) {
-                if (!n->propertyValues.empty() && std::stoi(n->propertyValues[0]) == noteId) {
-                    nNote = n.get();
-                    break;
-                }
-            }
+            XmlNode* nNote = findSubnodeById(nNotes, noteId);
             if (!nNote) continue;
 
             auto note = std::make_unique<GpNote>(beat);

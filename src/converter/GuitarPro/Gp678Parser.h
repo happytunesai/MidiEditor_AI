@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <unordered_map>
 
 // ============================================================
 // XML Node — ported from GP6File.cs Node class
@@ -82,13 +83,13 @@ protected:
     static std::vector<Lyrics> transferLyrics(XmlNode* nTracks);
     static void transferBars(XmlNode* nBars, Gp5Parser* song,
                               const std::vector<std::unique_ptr<MeasureHeader>>& headers);
-    static void transferVoice(XmlNode* nVoice, GpVoice* voice,
+    void transferVoice(XmlNode* nVoice, GpVoice* voice,
                                XmlNode* nBeats, XmlNode* nNotes, XmlNode* nRhythms,
                                GpMeasure* measure, const std::vector<GP6Rhythm>& rhythms,
                                const std::vector<GP6Chord>& chords,
                                const std::vector<GP6Tempo>& tempos,
                                int masterBarIdx);
-    static void transferBeat(XmlNode* nBeat, GpBeat* beat,
+    void transferBeat(XmlNode* nBeat, GpBeat* beat,
                               XmlNode* nNotes, XmlNode* nRhythms,
                               GpMeasure* measure, const std::vector<GP6Rhythm>& rhythms,
                               const std::vector<GP6Chord>& chords,
@@ -97,6 +98,12 @@ protected:
     static void transferNote(XmlNode* nNote, GpNote* note, GpBeat* beat,
                               const std::string& tremolo, GraceEffect* graceEffect,
                               int velocity);
+
+    // GPIF references bars/voices/beats/notes by numeric id into flat global
+    // collections. Scanning a collection per reference is O(n^2); index each
+    // collection once (id -> node) and look references up in the map instead.
+    XmlNode* findSubnodeById(XmlNode* collection, int id);
+    std::unordered_map<const XmlNode*, std::unordered_map<int, XmlNode*>> idIndexCache_;
 
     static std::vector<GP6Rhythm> readRhythms(XmlNode* nRhythms);
     static std::vector<GP6Chord> readChords(XmlNode* nTracks);

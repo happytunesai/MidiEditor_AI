@@ -192,6 +192,11 @@ bool SizeChangeTool::press(bool leftClick) {
 bool SizeChangeTool::release() {
     int currentX = rasteredX(mouseX);
 
+    // WHY: MatrixWidget delivers release() for any release inside the tool area, even when the
+    // matching press never reached this tool (piano column / ruler) or hit no note edge. Only a
+    // drag started by press() may resize; otherwise xPos/dragsOnEvent are stale and every
+    // selected note would be shifted by the full cursor offset.
+    bool wasDragging = inDrag;
     inDrag = false;
     int endEventShift = 0;
     int startEventShift = 0;
@@ -201,12 +206,20 @@ bool SizeChangeTool::release() {
         endEventShift = currentX - xPos;
     }
     xPos = 0;
-    if (Selection::instance()->selectedEvents().count() > 0) {
+    int shift = dragsOnEvent ? startEventShift : endEventShift;
+    // Same no-op threshold as EventMoveTool::release(): a plain click on a note edge must not open
+    // a protocol action (which would clear the redo stack and dirty the file) for a zero-delta.
+    bool applyResize = wasDragging && (shift < -2 || shift > 2);
+    if (applyResize && Selection::instance()->selectedEvents().count() > 0) {
         currentProtocol()->startNewAction(QObject::tr("Change Event Duration"), image());
         foreach(MidiEvent* event, Selection::instance()->selectedEvents()) {
             OnEvent *on = dynamic_cast<OnEvent *>(event);
             OffEvent *off = dynamic_cast<OffEvent *>(event);
             if (on) {
+                if (!on->offEvent()) {
+                    // an OnEvent without its OffEvent has no duration to change
+                    continue;
+                }
                 int onTick = file()->tick(file()->msOfTick(on->midiTime()) - matrixWidget->timeMsOfWidth(-startEventShift));
                 int offTick = file()->tick(file()->msOfTick(on->offEvent()->midiTime()) - matrixWidget->timeMsOfWidth(-endEventShift));
                 if (onTick < offTick) {

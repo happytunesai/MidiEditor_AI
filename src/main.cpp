@@ -441,10 +441,14 @@ int main(int argc, char *argv[]) {
     QString openFilePath;
     bool openSettings = false;
     QString updatedFromVersion;
-    for (int i = 1; i < argc; ++i) {
-        QString arg = QString::fromLocal8Bit(argv[i]);
-        if (arg == "--open" && i + 1 < argc) {
-            openFilePath = QString::fromLocal8Bit(argv[++i]);
+    // Read the arguments through QCoreApplication, not raw argv: argv is
+    // ANSI-mangled on Windows, so a path with non-ASCII characters would not
+    // survive (the same hazard AppPaths::exeDir() documents for argv[0]).
+    const QStringList appArgs = a.arguments();
+    for (int i = 1; i < appArgs.size(); ++i) {
+        QString arg = appArgs.at(i);
+        if (arg == "--open" && i + 1 < appArgs.size()) {
+            openFilePath = appArgs.at(++i);
         } else if (arg == "--open-settings") {
             openSettings = true;
         } else if (arg.startsWith("--updated-from=")) {
@@ -456,7 +460,9 @@ int main(int argc, char *argv[]) {
 
     MainWindow *w;
     if (!openFilePath.isEmpty())
-        w = new MainWindow(openFilePath.toLocal8Bit().data());
+        // MainWindow takes a QString - the old toLocal8Bit().data() round-trip
+        // re-decoded the ANSI bytes as UTF-8 and destroyed non-ASCII paths.
+        w = new MainWindow(openFilePath);
     else
         w = new MainWindow();
     w->showMaximized();

@@ -147,6 +147,12 @@ private:
      * \param notes List of notes to process
      */
     void processPolyOverlaps(const QList<NoteOnEvent *> &notes);
+
+    /** \brief Channels that already carry their one undo snapshot for the running operation */
+    QSet<int> _snapshottedChannels;
+
+    /** \brief Notes removed by the running operation (dropped from the selection at the end) */
+    QList<MidiEvent *> _removedNotes;
 };
 
 #endif // DELETEOVERLAPSTOOL_H_

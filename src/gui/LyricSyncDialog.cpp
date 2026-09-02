@@ -168,7 +168,8 @@ LyricSyncDialog::LyricSyncDialog(MidiFile *file, QWidget *parent)
       _isPlaying(false),
       _currentMs(0),
       _fileDurationMs(0),
-      _savedSmoothScroll(false)
+      _savedSmoothScroll(false),
+      _playGeneration(0)
 {
     setWindowTitle(tr("Sync Lyrics"));
     setMinimumSize(550, 520);
@@ -421,7 +422,21 @@ void LyricSyncDialog::onStartPlayback() {
     PlayerThread *pt = MidiPlayer::playerThread();
     if (pt) {
         connect(pt, &PlayerThread::timeMsChanged, this, &LyricSyncDialog::onPlaybackPositionChanged, Qt::UniqueConnection);
-        connect(pt, &PlayerThread::playerStopped, this, &LyricSyncDialog::onPlaybackStopped, Qt::UniqueConnection);
+        // playerStopped is emitted on the player thread and delivered queued:
+        // MidiPlayer::stop() joins the thread but does not drain the queue, so
+        // when onSeek() stops and restarts in one slot the OLD run's stop lands
+        // after the restart and would mark the dialog "Stopped" while audio
+        // keeps playing (Space taps ignored, Stop greyed out). Tag each run and
+        // drop notifications that do not belong to the current one.
+        if (_stopConnection)
+            disconnect(_stopConnection);
+        const int generation = ++_playGeneration;
+        _stopConnection = connect(pt, &PlayerThread::playerStopped, this,
+                                  [this, generation]() {
+            if (generation != _playGeneration)
+                return;
+            onPlaybackStopped();
+        });
     }
     connectBackgroundScroll();
     _isPlaying = true;

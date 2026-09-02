@@ -2027,10 +2027,18 @@ void AiClient::sendStreamingMessages(const QJsonArray &messages, const QJsonArra
             .arg(_streamContent.size()).arg(toolCalls.size()));
 
         clearStreamingRetryContext();
-        emit responseReceived(_streamContent, responseObj);
 
+        // WHY: responseReceived is a direct connection into AgentRunner, which
+        // may start the next turn's request synchronously from inside this
+        // emit. Reset the per-request stream state BEFORE emitting, or these
+        // lines would clobber the already in-flight follow-up request (they
+        // would switch its tool-call parsing off). _streamContent is copied
+        // out for the same reason: the nested send clears the member.
+        const QString finalContent = _streamContent;
         _streamHasTools = false;
         _streamToolCalls.clear();
+        emit responseReceived(finalContent, responseObj);
+
         reply->deleteLater();
     });
 }
@@ -2257,20 +2265,31 @@ void AiClient::onStreamDataAvailable()
 
     _streamBuffer += _currentReply->readAll();
 
-    // Process complete SSE events (separated by \n\n)
+    // Process complete SSE events (separated by a blank line).
+    // WHY: be tolerant of \r\n vs \n like onResponsesStreamDataAvailable().
+    // An endpoint that terminates SSE lines with CRLF never produces a bare
+    // \n\n, so an LF-only split found no event and the whole response was
+    // discarded as an "empty stream".
     while (true) {
         int idx = _streamBuffer.indexOf("\n\n");
+        int sep = 2;
+        int crIdx = _streamBuffer.indexOf("\r\n\r\n");
+        if (crIdx >= 0 && (idx < 0 || crIdx < idx)) {
+            idx = crIdx;
+            sep = 4;
+        }
         if (idx < 0) break;
 
         QByteArray chunk = _streamBuffer.left(idx);
-        _streamBuffer.remove(0, idx + 2);
+        _streamBuffer.remove(0, idx + sep);
 
         // Parse SSE lines — may have multiple "data:" lines per event
         for (const QByteArray &line : chunk.split('\n')) {
             QByteArray trimmed = line.trimmed();
-            if (!trimmed.startsWith("data: ")) continue;
+            // The space after "data:" is optional in the SSE grammar.
+            if (!trimmed.startsWith("data:")) continue;
 
-            QByteArray payload = trimmed.mid(6);
+            QByteArray payload = trimmed.mid(5).trimmed();
             if (payload == "[DONE]") {
                 // Stream complete — finished handler will fire
                 continue;
@@ -2310,23 +2329,47 @@ void AiClient::onStreamDataAvailable()
                 if (_streamHasTools && delta.contains(QStringLiteral("tool_calls"))) {
                     for (const QJsonValue &tcVal : delta[QStringLiteral("tool_calls")].toArray()) {
                         QJsonObject tc = tcVal.toObject();
-                        // index identifies the call across deltas; some providers
-                        // (Ollama OpenAI-compat, see ollama#15457) always send 0
-                        // — we still keyed by index because id-based correlation
-                        // would require lookahead. The first chunk for an index
-                        // carries id + function.name; subsequent chunks only carry
-                        // function.arguments fragments.
-                        int idx = tc[QStringLiteral("index")].toInt(0);
-                        StreamToolCall &acc = _streamToolCalls[idx];
-                        if (tc.contains(QStringLiteral("id"))) {
-                            QString id = tc[QStringLiteral("id")].toString();
-                            if (!id.isEmpty()) acc.id = id;
-                        }
+                        // index identifies the call across deltas. The first
+                        // chunk for an index carries id + function.name;
+                        // subsequent chunks only carry function.arguments
+                        // fragments.
+                        const QString incomingId = tc[QStringLiteral("id")].toString();
                         QJsonObject fn = tc[QStringLiteral("function")].toObject();
-                        if (fn.contains(QStringLiteral("name"))) {
-                            QString name = fn[QStringLiteral("name")].toString();
-                            if (!name.isEmpty()) acc.name = name;
+                        const QString incomingName = fn[QStringLiteral("name")].toString();
+
+                        int slot = tc[QStringLiteral("index")].toInt(0);
+                        // WHY: some providers (Ollama OpenAI-compat, see
+                        // ollama#15457) report index 0 for EVERY call, which
+                        // merged parallel calls into one slot with
+                        // concatenated, unparseable arguments. Follow the
+                        // split chain for this wire index, then move to a
+                        // fresh slot as soon as the delta contradicts the
+                        // current one (different id, or a different function
+                        // name after arguments already arrived).
+                        while (_streamToolCalls.contains(slot)
+                               && _streamToolCalls[slot].nextSlot >= 0)
+                            slot = _streamToolCalls[slot].nextSlot;
+                        if (_streamToolCalls.contains(slot)) {
+                            const StreamToolCall &cur = _streamToolCalls[slot];
+                            const bool isNewCall =
+                                (!incomingId.isEmpty() && !cur.id.isEmpty()
+                                 && incomingId != cur.id)
+                                || (!incomingName.isEmpty() && !cur.name.isEmpty()
+                                    && incomingName != cur.name
+                                    && !cur.arguments.isEmpty());
+                            if (isNewCall) {
+                                int freeSlot = 0;
+                                for (auto it = _streamToolCalls.constBegin();
+                                     it != _streamToolCalls.constEnd(); ++it)
+                                    freeSlot = qMax(freeSlot, it.key() + 1);
+                                _streamToolCalls[slot].nextSlot = freeSlot;
+                                slot = freeSlot;
+                            }
                         }
+
+                        StreamToolCall &acc = _streamToolCalls[slot];
+                        if (!incomingId.isEmpty()) acc.id = incomingId;
+                        if (!incomingName.isEmpty()) acc.name = incomingName;
                         if (!acc.started && !acc.id.isEmpty() && !acc.name.isEmpty()) {
                             acc.started = true;
                             emit streamToolCallStarted(acc.id, acc.name);
@@ -2728,14 +2771,34 @@ void AiClient::sendStreamingMessagesResponses(const QJsonArray &messages,
     }
     body[QStringLiteral("tools")] = responsesTools;
 
+    // WHY: streaming is the default transport for gpt-5.5 agent runs, so the
+    // Phase 31 sequential-tools policy has to be applied here as well - it was
+    // only honoured by the non-streaming Responses builder and therefore never
+    // reached the request that actually goes out.
+    if (_nextForceSequentialTools) {
+        body[QStringLiteral("parallel_tool_calls")] = false;
+    }
+
     // Same cache routing hint as the non-streaming Responses path. The
     // dynamic editor snapshot is at the end of the input, while the stable
     // developer prompt and tool schemas stay at the front for prefix hits.
     body[QStringLiteral("prompt_cache_key")] = promptCacheKeyForRequest(_model, !tools.isEmpty());
 
     QJsonObject reasoningObj;
-    reasoningObj[QStringLiteral("effort")] = _thinkingEnabled
-        ? _reasoningEffort : QStringLiteral("medium");
+    // WHY: same reason as parallel_tool_calls above - the Phase 31 one-shot
+    // effort override wins over _thinkingEnabled and the configured effort,
+    // and must be applied on the streaming path too.
+    QString effortToSend;
+    if (!_nextReasoningEffortOverride.isEmpty()) {
+        effortToSend = _nextReasoningEffortOverride;
+        qInfo().noquote() << QStringLiteral(
+            "[POLICY] reasoning_effort overridden: %1 -> %2 (per-request override)")
+            .arg(_thinkingEnabled ? _reasoningEffort : QStringLiteral("medium"),
+                 effortToSend);
+    } else {
+        effortToSend = _thinkingEnabled ? _reasoningEffort : QStringLiteral("medium");
+    }
+    reasoningObj[QStringLiteral("effort")] = effortToSend;
     reasoningObj[QStringLiteral("summary")] = QStringLiteral("auto");
     body[QStringLiteral("reasoning")] = reasoningObj;
 
@@ -2866,12 +2929,17 @@ void AiClient::sendStreamingMessagesResponses(const QJsonArray &messages,
         }
 
         clearStreamingRetryContext();
-        emit responseReceived(_streamContent, responseObj);
 
+        // WHY: see sendStreamingMessages() - the emit re-enters AgentRunner,
+        // which may send the next turn synchronously, so per-request stream
+        // state must be reset (and the content copied out) before emitting.
+        const QString finalContent = _streamContent;
         _streamHasTools = false;
         _streamToolCalls.clear();
         _responsesStreamItems.clear();
         _responsesStreamUsage = QJsonObject();
+        emit responseReceived(finalContent, responseObj);
+
         reply->deleteLater();
     });
 }
@@ -3101,6 +3169,11 @@ void AiClient::sendStreamingMessagesGemini(const QJsonArray &messages,
         .arg(isThinkingModel && _thinkingEnabled ? QStringLiteral("on") : QStringLiteral("off"),
              QString::fromUtf8(data.left(4000))));
 
+    // WHY: every other sender clears this before posting. Without it a Stop
+    // pressed during a stream leaves _userCancelled true forever (nothing
+    // consumes it once the reply is disconnected), and emitStreamTransferTimeout()
+    // then swallows the next genuine stall - the silent hang STREAMSILENT-001 fixed.
+    _userCancelled = false; // a new request supersedes any earlier Stop
     _currentReply = _manager->post(request, data);
     disconnect(_manager, &QNetworkAccessManager::finished,
                this, &AiClient::onReplyFinished);
@@ -3282,10 +3355,15 @@ void AiClient::sendStreamingMessagesGemini(const QJsonArray &messages,
         }
 
         clearStreamingRetryContext();
-        emit responseReceived(_streamContent, responseObj);
 
+        // WHY: see sendStreamingMessages() - the emit re-enters AgentRunner,
+        // which may send the next turn synchronously, so per-request stream
+        // state must be reset (and the content copied out) before emitting.
+        const QString finalContent = _streamContent;
         _streamHasTools = false;
         _streamToolCalls.clear();
+        emit responseReceived(finalContent, responseObj);
+
         reply->deleteLater();
     });
 }

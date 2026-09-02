@@ -28,6 +28,7 @@ class QSpinBox;
 class QSlider;
 class QComboBox;
 class QPushButton;
+class QTimer;
 
 class AutoFitVoiceLoadDialog : public QDialog {
     Q_OBJECT
@@ -68,6 +69,11 @@ private slots:
 
 private:
     AutoFitOptions currentOptions(bool dryRun) const;
+
+    /// Slider debounce: while a slider handle is held down the (full-file)
+    /// preview is coalesced into one run per 100 ms; every other change - and
+    /// the release of the handle - refreshes immediately.
+    void schedulePreview(bool dragging);
 
     // Test-only hook, no production behaviour: tests/test_auto_fit_dialog.cpp
     // pins the option mapping (the ALL/SUBSET/NONE track filter, the
@@ -111,6 +117,7 @@ private:
     QPushButton *_previewButton;
     QPushButton *_selectButton;
     QPushButton *_applyButton;
+    QTimer *_previewDebounce = nullptr; ///< slider-drag preview debounce
     bool _keepSelection = false;
 
     AutoFitResult _lastDry;

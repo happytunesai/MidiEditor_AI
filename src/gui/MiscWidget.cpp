@@ -366,6 +366,11 @@ void MiscWidget::mousePressEvent(QMouseEvent *event) {
     if (matrixWidget) {
         matrixWidget->claimAsActiveView();
     }
+    // Only the left button starts an editing gesture in this lane; a right or middle
+    // press used to arm the drag/draw state that the release below then committed.
+    if (event->button() != Qt::LeftButton) {
+        return;
+    }
     if (edit_mode == SINGLE_MODE) {
         if (mode == VelocityEditor) {
             // check whether selection has to be changed.
@@ -482,6 +487,12 @@ void MiscWidget::mousePressEvent(QMouseEvent *event) {
 }
 
 void MiscWidget::mouseReleaseEvent(QMouseEvent *event) {
+    // Symmetric to mousePressEvent: only a left release completes a gesture. Any other
+    // button fell through to the insert branch below and added an event on right-click.
+    if (event->button() != Qt::LeftButton) {
+        return;
+    }
+
     int channelToUse = (mode == TempoEditor) ? 17 : channel;
 
     if (event->button() == Qt::LeftButton) {
@@ -875,11 +886,25 @@ void MiscWidget::mouseReleaseEvent(QMouseEvent *event) {
                 }
 
                 // remove old events
+                int retunedTick = -1;
                 QList<MidiEvent *> *list = matrixWidget->velocityEvents();
                 for (int i = 0; i < list->size(); i++) {
                     if (list->at(i) && list->at(i)->channel() == channelToUse) {
                         if (list->at(i)->midiTime() >= minTick && list->at(i)->midiTime() <= maxTick && filter(list->at(i))) {
-                            matrixWidget->midiFile()->channel(channelToUse)->removeEvent(list->at(i));
+                            if (!matrixWidget->midiFile()->channel(channelToUse)->removeEvent(list->at(i))) {
+                                // MidiChannel refuses to drop the last tick 0 event of the
+                                // tempo map, so retune that one in place - inserting on top
+                                // of it would leave two tempo events shadowing each other.
+                                TempoChangeEvent *kept = dynamic_cast<TempoChangeEvent *>(list->at(i));
+                                if (kept) {
+                                    int keptValue = value(interpolate(toAlignByTick, kept->midiTime()));
+                                    if (keptValue < 1) {
+                                        keptValue = 1;
+                                    }
+                                    kept->setBeats(keptValue);
+                                    retunedTick = kept->midiTime();
+                                }
+                            }
                         }
                     }
                 }
@@ -924,6 +949,10 @@ void MiscWidget::mouseReleaseEvent(QMouseEvent *event) {
                         case TempoEditor: {
                             if (v < 1)
                                 v = 1;
+                            if (tick == retunedTick) {
+                                // already applied to the protected tick 0 event above
+                                break;
+                            }
                             TempoChangeEvent *event = new TempoChangeEvent(channelToUse, 60000000 / v, track);
                             matrixWidget->midiFile()->channel(channelToUse)->insertEvent(event, tick);
                             break;

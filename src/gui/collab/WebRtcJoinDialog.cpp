@@ -83,16 +83,7 @@ WebRtcJoinDialog::WebRtcJoinDialog(MidiFile *file, QWidget *parent)
     _connectButton = box->addButton(tr("Connect"), QDialogButtonBox::AcceptRole);
     box->addButton(QDialogButtonBox::Cancel);
     connect(_connectButton, &QPushButton::clicked, this, &WebRtcJoinDialog::onConnect);
-    connect(box, &QDialogButtonBox::rejected, this, [this]() {
-        // Cancel during an in-flight join: tear down the half-open
-        // session so we don't leave a transport / rendezvous client
-        // running in the background.
-        if (_searchTimeout && _searchTimeout->isActive()) {
-            _searchTimeout->stop();
-            LanLiveSession::instance()->leaveSession();
-        }
-        reject();
-    });
+    connect(box, &QDialogButtonBox::rejected, this, &WebRtcJoinDialog::reject);
     root->addWidget(box);
 
     _searchTimeout = new QTimer(this);
@@ -109,6 +100,18 @@ WebRtcJoinDialog::WebRtcJoinDialog(MidiFile *file, QWidget *parent)
             this, &WebRtcJoinDialog::onStatusMessage);
 
     _codeEdit->setFocus();
+}
+
+void WebRtcJoinDialog::reject() {
+    // Cancel during an in-flight join: tear down the half-open session so we
+    // don't leave a transport / rendezvous client running in the background.
+    // Escape and the window X call reject() directly and used to bypass this,
+    // leaving the joiner polling the rendezvous with no dialog left to cancel.
+    if (_searchTimeout && _searchTimeout->isActive()) {
+        _searchTimeout->stop();
+        LanLiveSession::instance()->leaveSession();
+    }
+    QDialog::reject();
 }
 
 void WebRtcJoinDialog::onConnect() {

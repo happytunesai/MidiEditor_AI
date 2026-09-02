@@ -51,7 +51,14 @@ MidiFile* MmlImporter::loadFile(QString path, bool* ok) {
     if (!tempFile.open())
         return nullptr;
 
-    tempFile.write(midiBytes);
+    // A short write (full volume, locked temp dir) would leave a truncated
+    // .mid that MidiFile cannot parse - bail before constructing it.
+    if (tempFile.write(midiBytes) != midiBytes.size()) {
+        QString badPath = tempFile.fileName();
+        tempFile.close();
+        QFile::remove(badPath);
+        return nullptr;
+    }
     QString tempPath = tempFile.fileName();
     tempFile.close();
 
@@ -60,7 +67,10 @@ MidiFile* MmlImporter::loadFile(QString path, bool* ok) {
     QFile::remove(tempPath);
 
     if (!midiOk || !midiFile) {
-        delete midiFile;
+        // Do NOT delete a MidiFile whose ctor reported failure: its early
+        // returns leave the object half-built (only the in-class initializers
+        // in MidiFile.h keep ~MidiFile from deleting indeterminate pointers).
+        // Leak it, matching the class's own documented cleanup policy.
         return nullptr;
     }
 

@@ -66,7 +66,7 @@ LanLiveJoinDialog::LanLiveJoinDialog(MidiFile *file, QWidget *parent)
     _connectButton = box->addButton(tr("Connect"), QDialogButtonBox::AcceptRole);
     box->addButton(QDialogButtonBox::Cancel);
     connect(_connectButton, &QPushButton::clicked, this, &LanLiveJoinDialog::onConnect);
-    connect(box, &QDialogButtonBox::rejected, this, &QDialog::reject);
+    connect(box, &QDialogButtonBox::rejected, this, &LanLiveJoinDialog::reject);
     root->addWidget(box);
 
     _searchTimeout = new QTimer(this);
@@ -81,6 +81,17 @@ LanLiveJoinDialog::LanLiveJoinDialog(MidiFile *file, QWidget *parent)
             this, &LanLiveJoinDialog::onJoinFailed);
 
     _codeEdit->setFocus();
+}
+
+void LanLiveJoinDialog::reject() {
+    // Cancel / Escape / window X during an in-flight join: tear down the
+    // half-joined session, otherwise the multicast listener keeps running
+    // with no dialog left and silently auto-joins a later host announcement.
+    if (_searchTimeout && _searchTimeout->isActive()) {
+        _searchTimeout->stop();
+        LanLiveSession::instance()->leaveSession();
+    }
+    QDialog::reject();
 }
 
 void LanLiveJoinDialog::onConnect() {

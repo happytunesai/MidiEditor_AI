@@ -277,6 +277,14 @@ void EventTool::pasteAction() {
     // copy copied events to insert unique events
     QList<MidiEvent *> copiedCopiedEvents;
     foreach(MidiEvent* event, *copiedEvents) {
+        // The clipboard stores every note's OffEvent alongside its OnEvent, but the
+        // paired off is re-cloned from the OnEvent further down. Skip clipboard
+        // OffEvents here - copying one produced an object that was neither stored
+        // nor deleted, i.e. one leaked OffEvent per pasted note.
+        if (dynamic_cast<OffEvent *>(event)) {
+            continue;
+        }
+
         // add the current Event
         MidiEvent *ev = dynamic_cast<MidiEvent *>(event->copy());
         if (ev) {
@@ -599,9 +607,10 @@ bool EventTool::pasteFromSharedClipboardWithOptions(const PasteSpecialOptions &o
         if (insertCount <= 0) {
             // Everything is already present here - paste nothing (and don't open an
             // empty undo step). The events are freed here since none are inserted.
-            // Clear the selection so the caller's "reveal" step doesn't scroll to a
-            // stale (pre-paste) selection.
-            clearSelection();
+            // The selection is deliberately left untouched: nothing was pasted, so it
+            // is not stale, and clearing it here would run outside any Protocol action
+            // - Protocol::enterUndoStep() would then delete (leak) the selection
+            // snapshot and the user's lost selection could not be undone.
             qDeleteAll(sharedEvents);
             sharedEvents.clear();
             if (_mainWindow) {
@@ -722,6 +731,12 @@ bool EventTool::pasteFromSharedClipboardWithOptions(const PasteSpecialOptions &o
         // Build a NEW local selection list — do NOT rely on selectEvent() mutating
         // the internal Selection list through a reference. (PASTE-001)
         QList<MidiEvent *> pastedSelection;
+
+        // Every event actually inserted below, OffEvents included. The tempo
+        // recalculation must not re-time the material it has just placed, and it
+        // cannot learn that from Selection: the selection is cleared above and only
+        // restored after the recalculation has run.
+        QSet<MidiEvent *> pastedEvents;
 
         // Separate tempo/time signature events from regular events first.
         // IMPORTANT: the clipboard timing/source metadata is indexed by each
@@ -849,6 +864,7 @@ bool EventTool::pasteFromSharedClipboardWithOptions(const PasteSpecialOptions &o
                     event->setChannel(16, false);
                     currentFile()->channel(16)->insertEvent(event, newTime, false);
                 }
+                pastedEvents.insert(event);
 
                 // Accumulate into local selection list (respecting visibility & skipping OffEvents).
                 if (!dynamic_cast<OffEvent *>(event)
@@ -914,6 +930,7 @@ bool EventTool::pasteFromSharedClipboardWithOptions(const PasteSpecialOptions &o
 
                 // Insert into the (possibly per-event) target channel.
                 currentFile()->channel(eventChannel)->insertEvent(event, newTime, false);
+                pastedEvents.insert(event);
 
                 // Accumulate into local selection list (respecting visibility & skipping OffEvents).
                 if (!dynamic_cast<OffEvent *>(event)
@@ -938,10 +955,21 @@ bool EventTool::pasteFromSharedClipboardWithOptions(const PasteSpecialOptions &o
         // edge. (Previously this only ran when tempo events were pasted.)
         currentFile()->calcMaxTime();
 
-        // If tempo/time signature events were pasted, recalculate existing notes
-        // This must happen AFTER protocol entries are committed so recalculation is included in undo
-        if (!tempoEvents.isEmpty()) {
-            recalculateExistingNotesAfterTempoChange(tempoEvents);
+        // If tempo events were pasted, recalculate existing notes.
+        // This must happen AFTER protocol entries are committed so recalculation is included in undo.
+        // Only a TempoChangeEvent alters the ms<->tick mapping; time and key
+        // signatures do not, and the tick(msOfTick()) round trip below is lossy
+        // (both conversions truncate), so running it for a bare time or key
+        // signature paste would only nudge existing notes off their ticks.
+        bool pastedTempoChange = false;
+        for (MidiEvent *event : tempoEvents) {
+            if (dynamic_cast<TempoChangeEvent *>(event)) {
+                pastedTempoChange = true;
+                break;
+            }
+        }
+        if (pastedTempoChange) {
+            recalculateExistingNotesAfterTempoChange(tempoEvents, pastedEvents);
         }
 
         // Update the selection to show the pasted events
@@ -1240,7 +1268,8 @@ bool EventTool::copySelectionToChannel(int channel) {
     return !newSelection.isEmpty();
 }
 
-void EventTool::recalculateExistingNotesAfterTempoChange(const QList<MidiEvent *> &tempoEvents) {
+void EventTool::recalculateExistingNotesAfterTempoChange(const QList<MidiEvent *> &tempoEvents,
+                                                         const QSet<MidiEvent *> &newlyPastedEvents) {
     if (tempoEvents.isEmpty() || !currentFile()) {
         return;
     }
@@ -1276,14 +1305,11 @@ void EventTool::recalculateExistingNotesAfterTempoChange(const QList<MidiEvent *
             MidiEvent *event = it.value();
             int originalPosition = it.key();
             
-            // Skip the events we just pasted (they're already correctly positioned)
-            bool isNewlyPasted = false;
-            for (MidiEvent *pastedEvent : Selection::instance()->selectedEvents()) {
-                if (pastedEvent == event) {
-                    isNewlyPasted = true;
-                    break;
-                }
-            }
+            // Skip the events we just pasted (they're already correctly positioned).
+            // The caller hands them over explicitly: reading them back out of
+            // Selection did not work, because the paste clears the selection and only
+            // restores it AFTER this function runs, so the guard never fired.
+            const bool isNewlyPasted = newlyPastedEvents.contains(event);
             
             if (!isNewlyPasted) {
                 eventsToRecalculate.append(QPair<MidiEvent *, int>(event, originalPosition));
@@ -1329,11 +1355,13 @@ void EventTool::recalculateExistingNotesAfterTempoChange(const QList<MidiEvent *
 
         // Only update if position actually changed
         if (newPosition != oldPosition && newPosition >= 0) {
-            // Remove from old position (unprotocolled - covered by the snapshot)
-            currentFile()->channel(event->channel())->removeEvent(event, false);
-
-            // Insert at new position
-            currentFile()->channel(event->channel())->insertEvent(event, newPosition, false);
+            // Move the event atomically. removeEvent() also unmaps a NoteOn's paired
+            // OffEvent, while insertEvent() re-maps only the event passed in, so the
+            // OffEvent was dropped from the channel map whenever its own tick did not
+            // move on its later iteration - the note was then saved (and played) with
+            // no note-off. setMidiTime() removes and re-inserts exactly this event
+            // (and, on channel 16, does not clear a track's name event either).
+            event->setMidiTime(newPosition, false);
         }
     }
 

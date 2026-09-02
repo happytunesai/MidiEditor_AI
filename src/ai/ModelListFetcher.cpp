@@ -27,6 +27,39 @@ QString ModelListFetcher::redactSecrets(const QString &text) const
     return AiSecrets::redactSecrets(text, _apiKey);
 }
 
+// WHY: a base URL typed without a scheme ("localhost:8080/v1") is parsed by
+// QUrl as scheme "localhost" with an empty host, so model refresh died with
+// "Protocol \"localhost\" is unknown" for an endpoint chat was happily using -
+// AiClient normalises at its own entry points, the fetcher never did. Same rule
+// as AiClient::normalizedBaseUrl(), kept local because this TU is linked on its
+// own by test_model_list_fetcher (calling AiClient would drag in its whole
+// dependency chain). Empty in, empty out.
+static QString normalizedBaseUrl(const QString &baseUrl)
+{
+    QString text = baseUrl.trimmed();
+    if (text.isEmpty())
+        return text;
+
+    // Only a real "<scheme>://" counts; anything else gets http:// prepended.
+    const int schemeEnd = text.indexOf(QStringLiteral("://"));
+    bool hasScheme = schemeEnd > 0 && text.at(0).isLetter();
+    for (int i = 0; hasScheme && i < schemeEnd; ++i) {
+        const QChar c = text.at(i);
+        if (!(c.isLetterOrNumber() || c == QLatin1Char('+') || c == QLatin1Char('-')
+              || c == QLatin1Char('.')))
+            hasScheme = false;
+    }
+    if (hasScheme)
+        return text;
+
+    // A scheme-relative "//host/v1" only lacks the scheme itself; prepending
+    // the full "http://" would produce "http:////host/v1".
+    text.prepend(text.startsWith(QStringLiteral("//"))
+                     ? QStringLiteral("http:")
+                     : QStringLiteral("http://"));
+    return text;
+}
+
 void ModelListFetcher::fetch(const QString &provider,
                              const QString &apiKey,
                              const QString &baseUrl,
@@ -59,7 +92,7 @@ void ModelListFetcher::fetch(const QString &provider,
         // download sizes and flag tool-capable models. The configured base URL
         // is the /v1 compat endpoint (e.g. http://localhost:11434/v1); strip the
         // /v1 suffix to reach the native API root.
-        QString host = baseUrl.trimmed();
+        QString host = normalizedBaseUrl(baseUrl);
         if (host.isEmpty())
             host = QStringLiteral("http://localhost:11434");
         if (host.endsWith('/'))
@@ -71,7 +104,7 @@ void ModelListFetcher::fetch(const QString &provider,
         if (!apiKey.isEmpty())
             req.setRawHeader("Authorization", QByteArray("Bearer ") + apiKey.toUtf8());
     } else { // custom
-        QString b = baseUrl.trimmed();
+        QString b = normalizedBaseUrl(baseUrl);
         if (b.isEmpty()) {
             emit failed(_scope, tr("No base URL configured for Custom provider"));
             deleteLater();

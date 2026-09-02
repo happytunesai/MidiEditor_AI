@@ -84,7 +84,9 @@ public:
     QMap<int, QString> controlChangeNames() const;
     
     /**
-     * @brief Clears all loaded definitions and overrides
+     * @brief Clears the loaded definitions and the program-name overrides
+     *
+     * The control-change names are a separate feature and are kept.
      */
     void clear();
 

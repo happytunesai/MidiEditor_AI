@@ -78,7 +78,9 @@ QList<LyricBlock> LrcExporter::importLrc(const QString &filePath, MidiFile *file
 
     // Regex for LRC timestamp lines: [MM:SS.cc]Text or [MM:SS.ccc]Text
     // Supports multi-timestamp lines like [00:12.34][01:56.78]Text (P3-011)
-    static QRegularExpression timestampRx(R"(\[(\d{2}:\d{2}\.\d{2,3})\])");
+    // Minutes are exported unclamped, so a lyric past 99:59 writes three or
+    // more digits - accept them here or those blocks are silently dropped.
+    static QRegularExpression timestampRx(R"(\[(\d{2,}:\d{2}\.\d{2,3})\])");
     // Regex for header tags: [tag:value]
     static QRegularExpression headerRx(R"(^\[([a-z]+):(.+)\]$)");
 
@@ -172,7 +174,7 @@ QString LrcExporter::tickToLrcTimestamp(int tick, MidiFile *file)
 int LrcExporter::lrcTimestampToMs(const QString &ts)
 {
     // Format: MM:SS.cc or MM:SS.ccc
-    static QRegularExpression tsRx(R"((\d{2}):(\d{2})\.(\d{2,3}))");
+    static QRegularExpression tsRx(R"((\d{2,}):(\d{2})\.(\d{2,3}))");
     QRegularExpressionMatch match = tsRx.match(ts);
     if (!match.hasMatch())
         return 0;

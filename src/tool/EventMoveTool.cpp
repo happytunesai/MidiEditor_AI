@@ -148,6 +148,14 @@ bool EventMoveTool::press(bool leftClick) {
 }
 
 bool EventMoveTool::release() {
+    // WHY: MatrixWidget gates press() and release() on different pointer
+    // positions, so a press outside the tool area (piano keys, ruler) that is
+    // dragged into the grid delivers release() with no press() - startX/startY
+    // were then stale (or 0) and the whole selection was moved and transposed
+    // silently. Only a release that belongs to our own press applies a move.
+    if (!inDrag) {
+        return releaseOnly();
+    }
     inDrag = false;
     // Cursor goes to the visible pane the tool is acting on
     setToolCursor(Qt::ArrowCursor);
@@ -166,6 +174,8 @@ bool EventMoveTool::release() {
     // return when there shiftX/shiftY is too small or there are no selected
     // events
     if (Selection::instance()->selectedEvents().count() == 0 || (-2 <= shiftX && shiftX <= 2 && -2 <= shiftY && shiftY <= 2)) {
+        startX = 0;
+        startY = 0;
         if (_standardTool) {
             Tool::setCurrentTool(_standardTool);
             _standardTool->move(mouseX, mouseY);
@@ -200,6 +210,8 @@ bool EventMoveTool::release() {
     }
 
     currentProtocol()->endAction();
+    startX = 0;
+    startY = 0;
     if (_standardTool) {
         Tool::setCurrentTool(_standardTool);
         _standardTool->move(mouseX, mouseY);
@@ -219,6 +231,15 @@ bool EventMoveTool::releaseOnly() {
     setToolCursor(Qt::ArrowCursor);
     startX = 0;
     startY = 0;
+    // WHY: a drag that ends outside the tool area (or a plain right-click)
+    // lands here; without handing back to the standard tool the user stayed
+    // in the move tool with a zeroed anchor, and the next release inside the
+    // grid moved the selection. Same handoff SelectTool::releaseOnly() does.
+    if (_standardTool) {
+        Tool::setCurrentTool(_standardTool);
+        _standardTool->move(mouseX, mouseY);
+        _standardTool->release();
+    }
     return true;
 }
 

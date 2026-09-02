@@ -292,7 +292,10 @@ void TrackListWidget::dropEvent(QDropEvent *event) {
         
         int to = row(dropItem);
         
-        if (from == to || from < 0 || to < 0) {
+        // from/to == 0 is refused by reorderTracks() (the tempo/meta track
+        // stays in slot 0) - bail out here too so the drop does not move the
+        // selection to a row that never changed.
+        if (from == to || from <= 0 || to <= 0) {
             event->ignore();
             return;
         }
@@ -327,27 +330,35 @@ void TrackListWidget::reorderTracks(int fromIndex, int toIndex) {
         return;
     }
 
+    // Slot 0 is the conventional tempo/meta track and the destructive context
+    // menu ops guard BY POSITION (number() == 0), so it has to stay in slot 0 -
+    // the same rule Move Up/Down already enforces. A drag must not be the one
+    // path that can push another track into slot 0.
+    if (fromIndex == 0 || toIndex == 0) {
+        return;
+    }
+
+    // Get the track being moved
+    MidiTrack *track = trackorder.at(fromIndex);
+    if (!track) {
+        return;
+    }
+
     // Start protocol action for undo/redo support
     file->protocol()->startNewAction(tr("Reorder tracks"));
 
-    // Get the track being moved
-    MidiTrack *track = trackorder[fromIndex];
-    
-    // Remove from current position
-    trackorder.removeAt(fromIndex);
-    
-    // Insert at new position
-    trackorder.insert(toIndex, track);
-
-    // Update track numbers to match their new positions
-    for (int i = 0; i < trackorder.size(); i++) {
-        trackorder[i]->setNumber(i);
+    // Move through the protocolled primitive instead of rewriting _tracks by
+    // hand: MidiFile::moveTrack snapshots the FILE, so undo restores the list
+    // ORDER and not just the numbers. Renumbering alone (what this did before)
+    // left number() and position permanently out of sync after Ctrl+Z, which
+    // sends every positional track(int) lookup - rename/remove, lyrics, AI
+    // writes, save order - to the wrong track.
+    const int delta = (toIndex > fromIndex) ? 1 : -1;
+    for (int i = fromIndex; i != toIndex; i += delta) {
+        if (!file->moveTrack(track, delta)) {
+            break;
+        }
     }
-
-    // Update the MidiFile's track list to match our new order
-    QList<MidiTrack *> *fileTracks = file->tracks();
-    fileTracks->clear();
-    *fileTracks = trackorder;
 
     // End protocol action
     file->protocol()->endAction();
@@ -355,7 +366,20 @@ void TrackListWidget::reorderTracks(int fromIndex, int toIndex) {
     // Force rebuild by clearing trackorder so update() detects a change
     trackorder.clear();
     update();
-    
+
+    // The order-dependent UI (edit-track combo, move/copy/select-by-track
+    // menus) has no receiver for trackOrderChanged() and setNumber() emits no
+    // trackChanged(), so it would keep the pre-drag order until something else
+    // rebuilt it. Walk the parent chain rather than window(): a floating
+    // dock's window() would be the dock, not the main window.
+    MainWindow *mw = nullptr;
+    for (QObject *o = parent(); o && !mw; o = o->parent()) {
+        mw = qobject_cast<MainWindow *>(o);
+    }
+    if (mw) {
+        mw->updateTrackMenu();
+    }
+
     // Emit signal to notify other components
     emit trackOrderChanged();
 }

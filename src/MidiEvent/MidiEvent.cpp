@@ -74,6 +74,21 @@ MidiEvent *MidiEvent::loadMidiEvent(QDataStream *content, bool *ok, bool *endEve
 
     quint8 prevStartByte = _startByte;
 
+    // The running-status register is a class static shared by every parse, so a
+    // failed event must not leave it pointing at the byte that failed: that value
+    // survived into the next track - and into the next document - where the
+    // running-status retry below could turn a stray data byte into a fabricated
+    // event. Restore it whenever this call reports failure.
+    struct RunningStatusGuard {
+        quint8 saved;
+        const bool *okFlag;
+        ~RunningStatusGuard() {
+            if (!*okFlag) {
+                _startByte = saved;
+            }
+        }
+    } runningStatusGuard{prevStartByte, ok};
+
     if (!startByte) {
         (*content) >> tempByte;
     } else {
@@ -217,20 +232,58 @@ MidiEvent *MidiEvent::loadMidiEvent(QDataStream *content, bool *ok, bool *endEve
 
             switch (tempByte & 0x0F) {
                 case 0x00: {
-                    // SysEx
+                    // SysEx: SMF stores F0 <varlen length> <bytes> with the length
+                    // covering the terminating F7. Reading by length instead of
+                    // scanning for F7 keeps the length prefix out of the payload
+                    // (save() re-derives it) and stops an unterminated chunk from
+                    // swallowing the rest of the track.
+                    int sysExLength = MidiFile::variableLengthvalue(content);
+                    if (sysExLength < 0 || sysExLength > 65535) {
+                        *ok = false;
+                        return 0;
+                    }
                     QByteArray array;
-                    while (tempByte != 0xF7) {
+                    array.reserve(sysExLength);
+                    for (int i = 0; i < sysExLength; i++) {
                         if (content->atEnd()) {
                             *ok = false;
-                            return nullptr;
+                            return 0;
                         }
                         (*content) >> tempByte;
-                        if (tempByte != 0xF7) {
-                            array.append((char) tempByte);
-                        }
+                        array.append((char) tempByte);
+                    }
+                    if (!array.isEmpty() && (quint8) array.at(array.size() - 1) == 0xF7) {
+                        array.chop(1);
                     }
                     *ok = true;
                     return new SysExEvent(channel, array, track);
+                }
+
+                case 0x07: {
+                    // SMF escape / sysex continuation: F7 <varlen length> <bytes>.
+                    // Without this case control fell out of both switches into the
+                    // running-status retry below, which re-read the F7 status byte
+                    // as a data byte, set *ok = false and made readTrack() discard
+                    // every remaining event of the track. The payload is kept as an
+                    // UnknownEvent so it survives a save round trip as an ignorable
+                    // meta event, rather than as a live F0 sysex message.
+                    int escLength = MidiFile::variableLengthvalue(content);
+                    if (escLength < 0 || escLength > 65535) {
+                        *ok = false;
+                        return 0;
+                    }
+                    QByteArray escData;
+                    escData.reserve(escLength);
+                    for (int i = 0; i < escLength; i++) {
+                        if (content->atEnd()) {
+                            *ok = false;
+                            return 0;
+                        }
+                        (*content) >> tempByte;
+                        escData.append((char) tempByte);
+                    }
+                    *ok = true;
+                    return new UnknownEvent(channel, (char) 0xF7, escData, track);
                 }
 
                 case 0x0F: {
@@ -385,6 +438,15 @@ MidiEvent *MidiEvent::loadMidiEvent(QDataStream *content, bool *ok, bool *endEve
                         }
                     }
                 }
+
+                default: {
+                    // F1..F6 and F8..FE are not legal inside an SMF track and can
+                    // never be a data byte either, so the running-status retry
+                    // below could only fabricate an event (a CC or ProgChange with
+                    // a bogus payload) out of this status byte. Fail here instead.
+                    *ok = false;
+                    return 0;
+                }
             }
         }
     }
@@ -397,12 +459,19 @@ MidiEvent *MidiEvent::loadMidiEvent(QDataStream *content, bool *ok, bool *endEve
     // previous status byte and this isn't already a recursive call
     // (startByte == 0 means this is a fresh call, not recursive)
     if (startByte != 0 || prevStartByte == 0) {
-        // Already in a recursive call or no valid running status — give up
+        // Already in a recursive call or no valid running status - give up
         *ok = false;
         return nullptr;
     }
     _startByte = prevStartByte;
     return loadMidiEvent(content, ok, endEvent, track, _startByte, tempByte);
+}
+
+void MidiEvent::resetRunningStatus() {
+    // Running status must not cross a track boundary (SMF spec) and must not
+    // cross a document boundary either - the register is a class static shared
+    // by every parse, including MIDI input.
+    _startByte = 0;
 }
 
 void MidiEvent::setTrack(MidiTrack *track, bool toProtocol) {

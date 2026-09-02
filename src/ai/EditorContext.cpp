@@ -151,7 +151,13 @@ QJsonObject EditorContext::captureTempo(MidiFile *file, int tick)
     TempoChangeEvent *activeTempoEvent = nullptr;
     for (auto it = tempoMap->begin(); it != tempoMap->end(); ++it) {
         if (it.key() > tick) break;
-        activeTempoEvent = dynamic_cast<TempoChangeEvent *>(it.value());
+        // WHY: assign only on a successful cast. Channel 17 can legally hold
+        // non-tempo events (a text event with an explicit channel, say), and
+        // an unconditional assignment let one of those null out a good tempo
+        // found earlier in the same walk - the AI-visible state then reported
+        // a fabricated 120 BPM.
+        if (auto *tc = dynamic_cast<TempoChangeEvent *>(it.value()))
+            activeTempoEvent = tc;
     }
 
     if (activeTempoEvent) {
@@ -171,7 +177,11 @@ QJsonObject EditorContext::captureTimeSignature(MidiFile *file, int tick)
     file->meterAt(tick, &num, &denom);
 
     // denom is stored as power-of-2 (MIDI standard). Convert to actual denominator.
-    int actualDenom = static_cast<int>(std::pow(2, denom));
+    // WHY: the exponent comes straight from the file and is never clamped on
+    // load, so a crafted FF 58 byte made the double->int conversion overflow
+    // (undefined behaviour, INT_MIN on MSVC x64). Clamp to the 0-5 range the
+    // event deserializer already enforces, like ticksPerMeasureOfMeter does.
+    int actualDenom = 1 << qBound(0, denom, 5);
 
     tsObj[QStringLiteral("numerator")] = num;
     tsObj[QStringLiteral("denominator")] = actualDenom;

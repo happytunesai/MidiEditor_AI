@@ -120,44 +120,90 @@ QJsonArray MidiDiff::compute(const QJsonArray &parent,
     // collapse into one entry — second-insert overwrote first, silently
     // dropping the second event from the diff. Now we append a per-base-
     // key collision index (`|#0`, `|#1`, …) so each stacked event gets
-    // its own slot. Both parent and current are indexed by the same
-    // function in the same iteration order — `MidiSnapshot::ofFile`
-    // walks tracks/channels deterministically — so the Nth-collision on
-    // each side pairs up correctly across the diff.
-    auto buildKeyMap = [](const QJsonArray &events,
-                          QHash<QString, QJsonObject> &outByKey) {
+    // its own slot. The sub-key is derived from the event payload (see
+    // buildKeyMap) rather than from its position in the snapshot, so a
+    // stack member removed or reordered in the middle no longer shifts
+    // the slots of everything behind it.
+    // Count each identity tuple first. A purely positional collision
+    // index (`|#0`, `|#1`, ...) only lines up across the two sides when
+    // a stack is appended to or truncated at its end: deleting or
+    // reordering any earlier member shifts every later index, so
+    // unrelated events get paired and the diff emits a bogus
+    // modified+removed chain that corrupts the receiver. Events whose
+    // tuple is unique keep the plain base key (so an ordinary payload
+    // edit still pairs up as "modified"); stacked events are
+    // disambiguated by their payload instead of by snapshot position.
+    //
+    // "Stacked" is decided per tuple over BOTH snapshots (max of the two
+    // per-side counts, not the sum): a stack that shrinks to one member
+    // must still be payload-keyed on the shrunk side, or the survivor
+    // gets the plain key and the diff reports removed+removed+added
+    // instead of one removal. Using the sum would wrongly mark every
+    // ordinary payload edit as stacked.
+    auto countBases = [](const QJsonArray &events) {
+        QHash<QString, int> counts;
+        for (const QJsonValue &v : events) {
+            QString base = identityKey(v.toObject());
+            if (!base.isEmpty()) ++counts[base];
+        }
+        return counts;
+    };
+    QHash<QString, int> stackedCount = countBases(parent);
+    {
+        const QHash<QString, int> currentCount = countBases(current);
+        for (auto it = currentCount.cbegin(); it != currentCount.cend(); ++it) {
+            int &n = stackedCount[it.key()];
+            n = qMax(n, it.value());
+        }
+    }
+    auto buildKeyMap = [&stackedCount](const QJsonArray &events,
+                                       QHash<QString, QJsonObject> &outByKey) {
         QHash<QString, int> nextIndex;
         outByKey.reserve(events.size());
-        int collisionCount = 0;
-        int collidingKeys = 0;
         for (const QJsonValue &v : events) {
             QJsonObject obj = v.toObject();
             QString base = identityKey(obj);
             if (base.isEmpty()) continue;
-            int n = nextIndex[base]++;
-            QString key = (n == 0) ? base
-                                    : QStringLiteral("%1|#%2").arg(base).arg(n);
-            outByKey.insert(key, obj);
-            if (n > 0) {
-                ++collisionCount;
-                if (n == 1) ++collidingKeys;  // first collision per key
+            QString key = base;
+            if (stackedCount.value(base) > 1) {
+                // Payload-derived sub-key; the trailing index only ever
+                // separates genuinely identical events (or a hash
+                // collision, which degrades to the old positional
+                // behaviour). The keys are local to this call - they
+                // never go on the wire.
+                QString payloadKey = base + QLatin1Char('|')
+                    + QString::number(qHash(sanitizeForKey(obj), 0), 16);
+                int n = nextIndex[payloadKey]++;
+                key = (n == 0) ? payloadKey
+                               : QStringLiteral("%1|#%2").arg(payloadKey).arg(n);
             }
-        }
-        // Summary-only log line, once per buildKeyMap call. Earlier
-        // version logged one line per stacked event at INF level →
-        // 300 k lines / 5-min session on GP-imported files, tanked disk
-        // and responsiveness. Now collapsed to a single debug-level
-        // line (still useful for spotting stacked-event files in CI).
-        if (collisionCount > 0) {
-            qCDebug(midiDiffLog).noquote()
-                << "stacked events:" << collisionCount
-                << "collisions across" << collidingKeys << "keys";
+            outByKey.insert(key, obj);
         }
     };
     QHash<QString, QJsonObject> parentByKey;
     QHash<QString, QJsonObject> currentByKey;
     buildKeyMap(parent, parentByKey);
     buildKeyMap(current, currentByKey);
+    // Summary-only log line, once per compute() call. Earlier version
+    // logged one line per stacked event at INF level -
+    // 300 k lines / 5-min session on GP-imported files, tanked disk
+    // and responsiveness. Now collapsed to a single debug-level
+    // line (still useful for spotting stacked-event files in CI).
+    {
+        int collisionCount = 0;
+        int collidingKeys = 0;
+        for (auto it = stackedCount.cbegin(); it != stackedCount.cend(); ++it) {
+            if (it.value() > 1) {
+                ++collidingKeys;
+                collisionCount += it.value();
+            }
+        }
+        if (collisionCount > 0) {
+            qCDebug(midiDiffLog).noquote()
+                << "stacked events:" << collisionCount
+                << "across" << collidingKeys << "keys";
+        }
+    }
 
     QList<Change> changes;
 

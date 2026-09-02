@@ -5,6 +5,7 @@
 #include "../midi/MidiChannel.h"
 #include "../MidiEvent/MidiEvent.h"
 #include "../MidiEvent/NoteOnEvent.h"
+#include "../MidiEvent/OnEvent.h"
 #include "../MidiEvent/OffEvent.h"
 #include "../MidiEvent/ProgChangeEvent.h"
 #include "../MidiEvent/TextEvent.h"
@@ -442,6 +443,15 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
         }
     }
 
+    // Deterministic iteration order for the two passes below. QSet<int>
+    // iterates in QHash order, which depends on the per-process hash seed, so
+    // a tie (two guitar channels whose earliest NoteOn share a tick) would
+    // resolve differently across app restarts and rename the track / emit the
+    // switch program changes differently for the same file. Lowest channel
+    // number wins, in every run.
+    QList<int> sortedGuitarChs = allGuitarChs.values();
+    std::sort(sortedGuitarChs.begin(), sortedGuitarChs.end());
+
     // -----------------------------------------------------------------------
     // 1b. RESYNC PLAN (Tier 3 opt-in, v2.0) — non-guitar channels whose
     //     tick-0 program no longer matches the owning track's name.
@@ -678,7 +688,23 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
 
             for (const auto &info : trackEvents) {
                 if (info.currentCh == targetCh) continue;
+                // WHY: the bulk channel snapshot is a clone of the POINTER map,
+                // so it restores channel membership but not the event's own
+                // numChannel field. Without this small per-event ProtocolItem
+                // undo leaves the event in the old map while it still reports
+                // the new channel (wrong save output, dead delete, duplicated
+                // map entry on the next time edit). The paired OffEvent moves
+                // with its OnEvent and needs the same item.
+                OffEvent *off = nullptr;
+                ProtocolEntry *beforeOff = nullptr;
+                if (OnEvent *on = dynamic_cast<OnEvent *>(info.ev)) {
+                    off = on->offEvent();
+                    if (off) beforeOff = off->copy();
+                }
+                ProtocolEntry *beforeEv = info.ev->copy();
                 info.ev->moveToChannel(targetCh, false);
+                info.ev->protocol(beforeEv, info.ev);
+                if (off) off->protocol(beforeOff, off);
             }
 
             track->assignChannel(targetCh);
@@ -723,7 +749,7 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
                 // rule — Bug #4 revisit 2026-04-17.)
                 int firstCh = -1;
                 int firstTick = INT_MAX;
-                for (int ch : allGuitarChs) {
+                for (int ch : sortedGuitarChs) {
                     MidiChannel *channel = file->channel(ch);
                     if (!channel) continue;
                     QMultiMap<int, MidiEvent *> *map = channel->eventMap();
@@ -851,7 +877,7 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
             struct NoteInfo { int tick; int channel; };
             QList<NoteInfo> notes;
 
-            for (int ch : allGuitarChs) {
+            for (int ch : sortedGuitarChs) {
                 MidiChannel *channel = file->channel(ch);
                 if (!channel) continue;
                 QMultiMap<int, MidiEvent *> *map = channel->eventMap();
@@ -862,9 +888,14 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
                 }
             }
 
+            // (tick, channel) is a total order: comparing the tick alone
+            // leaves equal-tick notes from different channels in an
+            // unspecified order (std::sort is not stable), which changes the
+            // switch program changes emitted below from run to run.
             std::sort(notes.begin(), notes.end(),
                       [](const NoteInfo &a, const NoteInfo &b) {
-                          return a.tick < b.tick;
+                          if (a.tick != b.tick) return a.tick < b.tick;
+                          return a.channel < b.channel;
                       });
 
             int lastCh = -1;
@@ -900,7 +931,13 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
         for (auto it = map->begin(); it != map->end(); ++it) {
             NoteOnEvent *noteOn = dynamic_cast<NoteOnEvent *>(it.value());
             if (noteOn && noteOn->velocity() > 0 && noteOn->velocity() != 127) {
+                // WHY: the channel snapshot clones only the pointer map and
+                // therefore shares these very NoteOnEvents - mutating
+                // _velocity mutates the snapshot too. A small per-event
+                // ProtocolItem is what actually makes the change undoable.
+                ProtocolEntry *before = noteOn->copy();
                 noteOn->setVelocity(127, false);
+                noteOn->protocol(before, noteOn);
                 velocityChangedCount++;
             }
         }

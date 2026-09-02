@@ -238,8 +238,15 @@ QStringList FfxivEqualizerService::allPresetNames() const {
     const QStringList groups = settings.childGroups();
     settings.endGroup();
     for (const QString &g : groups) {
-        if (g != builtinPresetName() && !names.contains(g))
-            names.append(g);
+        if (g == builtinPresetName() || names.contains(g))
+            continue;
+        // Only a real preset group carries a "master" key; intermediate path
+        // components left by a legacy name containing '/' do not, and listing
+        // them would offer a preset that silently resets the mixer.
+        if (settings.value(QStringLiteral("FFXIV/equalizerPresets/") + g +
+                           QStringLiteral("/master")).isNull())
+            continue;
+        names.append(g);
     }
     if (!names.contains(builtinPresetName())) {
         names.prepend(builtinPresetName());
@@ -314,6 +321,17 @@ bool FfxivEqualizerService::savePresetAs(const QString &name) {
     if (name == builtinPresetName()) return false;
     auto settingsPtr = ffxivEqSettings();
     QSettings &settings = *settingsPtr;
+    // '/' and '\\' are QSettings group separators: such a name would be stored
+    // as nested groups whose intermediate component then shows up as a phantom
+    // preset that resets the mixer when selected. Refuse it for new presets;
+    // a legacy preset that an older build already indexed under such a name
+    // still loads via its path, so its in-place re-save has to keep working.
+    if (name.contains(QLatin1Char('/')) || name.contains(QLatin1Char('\\'))) {
+        const QStringList existing =
+            settings.value(QStringLiteral("FFXIV/equalizerPresetIndex"))
+                    .toStringList();
+        if (!existing.contains(name)) return false;
+    }
     // Use explicit beginGroup so Qt registers the preset as a proper child
     // group, making it visible via childGroups() in allPresetNames().
     // setValue("a/b/c") writes correctly but does not reliably expose

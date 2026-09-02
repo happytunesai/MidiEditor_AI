@@ -51,6 +51,13 @@ public:
                         MidiFile *targetFile,
                         QWidget *parent = nullptr);
 
+public slots:
+    /**
+     * \brief Escape / window-close also has to answer the peer, so the
+     *        pending merge is never left unresolved.
+     */
+    void reject() override;
+
 private slots:
     void onAcceptAll();
     void onReview();
@@ -61,6 +68,8 @@ private:
     QString _peerToken;
     PrBundle _bundle;
     MidiFile *_file;
+    /** \brief True once accept-/rejectReturningPeerMerge has been sent. */
+    bool _resolved = false;
 };
 
 #endif // RETURNINGPEERDIALOG_H

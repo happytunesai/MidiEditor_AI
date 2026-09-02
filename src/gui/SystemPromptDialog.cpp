@@ -211,13 +211,6 @@ void SystemPromptDialog::onSave()
 
     QString path = promptsFilePath();
 
-    // Back up existing file
-    if (QFile::exists(path)) {
-        QString bakPath = path + QStringLiteral(".bak");
-        QFile::remove(bakPath);
-        QFile::rename(path, bakPath);
-    }
-
     QJsonObject prompts;
     prompts[QStringLiteral("simple")] = _simpleEdit->toPlainText();
     prompts[QStringLiteral("agent")] = _agentEdit->toPlainText();
@@ -229,14 +222,46 @@ void SystemPromptDialog::onSave()
     root[QStringLiteral("prompts")] = prompts;
 
     QJsonDocument doc(root);
-    QFile file(path);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+
+    // Write to a temporary file first and only rotate the backup once the new
+    // content is safely on disk - moving the old file to .bak up front meant a
+    // failed write left no prompts file at all (and the .bak is swept by the
+    // startup backup cleanup).
+    const QString tmpPath = path + QStringLiteral(".tmp");
+    QFile::remove(tmpPath);
+    const QByteArray json = doc.toJson(QJsonDocument::Indented);
+    QFile tmpFile(tmpPath);
+    if (!tmpFile.open(QIODevice::WriteOnly | QIODevice::Text) ||
+        tmpFile.write(json) != json.size() || !tmpFile.flush()) {
+        tmpFile.close();
+        QFile::remove(tmpPath);
         QMessageBox::warning(this, "Save Failed",
             QString("Could not write to:\n%1\n\nCheck file permissions.").arg(path));
         return;
     }
-    file.write(doc.toJson(QJsonDocument::Indented));
-    file.close();
+    tmpFile.close();
+
+    // Rotate: current file -> .bak, temp -> live. If the final rename fails,
+    // the backup is put back so the existing customisation is never lost.
+    const QString bakPath = path + QStringLiteral(".bak");
+    bool haveBackup = false;
+    if (QFile::exists(path)) {
+        QFile::remove(bakPath);
+        haveBackup = QFile::rename(path, bakPath);
+        if (!haveBackup && !QFile::remove(path)) {
+            QFile::remove(tmpPath);
+            QMessageBox::warning(this, "Save Failed",
+                QString("Could not write to:\n%1\n\nCheck file permissions.").arg(path));
+            return;
+        }
+    }
+    if (!QFile::rename(tmpPath, path)) {
+        if (haveBackup) QFile::rename(bakPath, path);
+        QFile::remove(tmpPath);
+        QMessageBox::warning(this, "Save Failed",
+            QString("Could not write to:\n%1\n\nCheck file permissions.").arg(path));
+        return;
+    }
 
     // Reload the saved prompts so they take effect immediately
     EditorContext::loadCustomPrompts(path);

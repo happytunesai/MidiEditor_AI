@@ -238,6 +238,10 @@ private:
     int _currentStep;
     bool _running;
     bool _cancelled;
+    // Monotonic id of the current run. Bumped by run() and cleanup() so a
+    // queued retry timer can tell whether the run it belongs to is still the
+    // live one (see onApiError's backoff).
+    quint64 _runGeneration = 0;
 
     // Self-healing retry state — reset on every successful API response.
     int _retryCount;

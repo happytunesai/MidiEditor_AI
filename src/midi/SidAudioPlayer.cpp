@@ -30,7 +30,14 @@ namespace { const int kSampleRate = 44100; }
 namespace {
 struct SfInfo { qint64 frames; int samplerate; int channels; int format; int sections; int seekable; };
 typedef void *SndHandle;
+// WHY: sf_wchar_open exists only in the Windows build of libsndfile; macOS and
+// Linux export sf_open (native 8-bit path), so binding the wide-char entry
+// point everywhere made the export fail on every non-Windows platform.
+#ifdef Q_OS_WIN
 typedef SndHandle (*Fn_open)(const wchar_t *, int, SfInfo *); // sf_wchar_open (Windows wide path)
+#else
+typedef SndHandle (*Fn_open)(const char *, int, SfInfo *);    // sf_open (native encoded path)
+#endif
 typedef qint64   (*Fn_write)(SndHandle, const short *, qint64); // sf_write_short
 typedef int      (*Fn_close)(SndHandle);                        // sf_close
 typedef int      (*Fn_command)(SndHandle, int, void *, int);    // sf_command
@@ -44,9 +51,21 @@ struct SndApi {
 const SndApi &sndApi() {
     static const SndApi api = [] {
         SndApi a;
-        static QLibrary lib(QStringLiteral("sndfile")); // app-lifetime; FluidSynth also keeps it loaded
-        if (lib.load()) {
+        static QLibrary lib; // app-lifetime; FluidSynth also keeps it loaded
+        lib.setFileName(QStringLiteral("sndfile"));
+        bool loaded = lib.load();
+        if (!loaded) {
+            // The unversioned name resolves only with a dev package installed on
+            // Linux/macOS; the runtime library is libsndfile.so.1 / .1.dylib.
+            lib.setFileNameAndVersion(QStringLiteral("sndfile"), 1);
+            loaded = lib.load();
+        }
+        if (loaded) {
+#ifdef Q_OS_WIN
             a.open    = reinterpret_cast<Fn_open>(lib.resolve("sf_wchar_open"));
+#else
+            a.open    = reinterpret_cast<Fn_open>(lib.resolve("sf_open"));
+#endif
             a.write   = reinterpret_cast<Fn_write>(lib.resolve("sf_write_short"));
             a.close   = reinterpret_cast<Fn_close>(lib.resolve("sf_close"));
             a.command = reinterpret_cast<Fn_command>(lib.resolve("sf_command"));
@@ -210,7 +229,12 @@ bool SidAudioPlayer::exportToFile(const QString &path, const QString &fileType,
     info.samplerate = kSampleRate;
     info.channels   = 1;
     info.format     = sfFormat;
+#ifdef Q_OS_WIN
     SndHandle h = sf.open(reinterpret_cast<const wchar_t *>(path.utf16()), kSfmWrite, &info);
+#else
+    const QByteArray nativePath = QFile::encodeName(path);
+    SndHandle h = sf.open(nativePath.constData(), kSfmWrite, &info);
+#endif
     if (!h)
         return false;
     if (isOgg && sf.command) {

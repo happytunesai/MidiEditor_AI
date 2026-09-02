@@ -13416,6 +13416,33 @@ midipilot-settings.html (+ help_db regen), CHANGELOG per the template.
   through the same fallback next cycle; (c) a close notification could null
   AgentRunner::_originFile instead of the documented dangling-comparison caveat.
 
+* **Owner decisions left open by the full-codebase review (2026-09-02)** - confirmed
+  defects whose correct fix changes forward behaviour or needs a redesign; nothing here
+  was changed in 2.3.1 without a decision:
+  1. FFXIV Channel Fixer, Tier 3 (review F065): a guitar channel whose only guitar program
+     change sits mid-song loses it and gets nothing back (analyzeFile accepts a PC at ANY
+     tick, fixChannels only at tick 0, so the recommended tier is the one that destroys
+     the data). Ready-to-apply fix: in the Tier-3 re-insert loop fall back to the guitar
+     track's own programNumber(baseName) when guitarChToProgram has no entry (owner chosen
+     like the resync plan: earliest first NoteOn, tie-break lowest track index), and align
+     analyzeFile's hasGuitarPCs test with the tick-0 rule. Forward-behaviour change.
+  2. FFXIV Channel Fixer, Tier 2 (F066): every track index above 15 is clamped onto
+     channel 15 (events merged, CCs stripped, only the last program survives) as soon as
+     ONE track name matches an FFXIV instrument - silently. Options: (a) additive:
+     report `clampedTracks` in the result + warn in the HTML summary/dialog; (b) leave
+     tracks beyond the 16-channel budget on their channels and report them; (c) refuse
+     Tier 2 when a note-carrying track would be clamped.
+  3. Collab live session vs. tabs (F106): the session ends on ANY document activation,
+     including a plain tab switch, because CollabService keeps one "current file". Keeping
+     the session alive needs per-file collab state in CollabService (file-keyed
+     sessionId/currentHead/sidecar/history) before LanLiveSession may relax its hook -
+     relaxing it alone would write commits into the other document's sidecar.
+  4. Guitar Pro port-2+ tracks (F033): channels are now masked to 0..15 (imports no longer
+     come in empty), but a port-2 track can share a channel with a port-1 track; the real
+     fix is a GM channel router across NativeFormat/GpMidiExport/parsers.
+  5. Shared clipboard (F222): lockMemory() has no timeout; RAII release is in, a bounded
+     wait that reports "clipboard busy" instead of blocking is the remaining half.
+
 * **Mid-run agent steering (candidate, design-validated 2026-08-26):** today the input
   field is blocked while an agent run is active; the user cannot correct course until the
   run ends. Feasible without architecture change: the agent loop already has a natural

@@ -111,8 +111,12 @@ void CollabService::onFileSaved(MidiFile *file, const QString &path) {
     if (!_currentInitialized) { clearPendingMerge(); return; }  // file not opted in for collab
 
     QString hash = MidiHash::sha256OfFile(path);
-    if (hash.isEmpty()) return;
-    if (hash == _currentHistory.currentHead()) return;  // nothing changed
+    // BUG-COLLAB-013 (cont.): these two exits are ordinary "nothing to
+    // commit" cases, but they must still consume the marker - a no-op
+    // merge that hashes to the current head would otherwise leave it
+    // armed and mis-attribute the next unrelated save to the PR author.
+    if (hash.isEmpty()) { clearPendingMerge(); return; }
+    if (hash == _currentHistory.currentHead()) { clearPendingMerge(); return; }  // nothing changed
 
     // Compute hunks: diff(last known snapshot, current in-memory state).
     QJsonArray newSnapshot = MidiSnapshot::ofFile(file);
@@ -281,21 +285,31 @@ bool CollabService::adoptRemoteSidecar(MidiFile *file, const QJsonObject &sideca
     return true;
 }
 
-void CollabService::recordRemoteLiveSync(MidiFile *file,
-                                          const QString &author,
-                                          const QString &machineId,
-                                          const QString &message,
-                                          const QJsonArray &hunks) {
-    if (!_enabled || !_currentInitialized || !file) return;
+QString CollabService::liveCommitHash(const QJsonArray &snapshot,
+                                      const QString &author,
+                                      qint64 tsMs) {
+    QByteArray seed = QJsonDocument(snapshot).toJson(QJsonDocument::Compact);
+    seed.append(QByteArray::number(tsMs));
+    seed.append(author.toUtf8());
+    return QString::fromUtf8(
+        QCryptographicHash::hash(seed, QCryptographicHash::Sha256).toHex());
+}
+
+QString CollabService::recordRemoteLiveSync(MidiFile *file,
+                                             const QString &author,
+                                             const QString &machineId,
+                                             const QString &message,
+                                             const QJsonArray &hunks,
+                                             const QString &commitHash) {
+    if (!_enabled || !_currentInitialized || !file) return QString();
 
     QJsonArray currentSnapshot = MidiSnapshot::ofFile(file);
-    QByteArray snapshotBytes = QJsonDocument(currentSnapshot).toJson(QJsonDocument::Compact);
     qint64 ts = QDateTime::currentMSecsSinceEpoch();
-    QByteArray seed = snapshotBytes;
-    seed.append(QByteArray::number(ts));
-    seed.append(author.toUtf8());
-    QString hash = QString::fromUtf8(
-        QCryptographicHash::hash(seed, QCryptographicHash::Sha256).toHex());
+    // A host-assigned hash wins so every peer's chain matches the host's;
+    // a locally synthesized one is only for commits nobody else records.
+    QString hash = commitHash.isEmpty()
+        ? liveCommitHash(currentSnapshot, author, ts)
+        : commitHash;
 
     _currentHistory.appendCommit(
         hash,
@@ -309,6 +323,7 @@ void CollabService::recordRemoteLiveSync(MidiFile *file,
     _currentHistory.save(_currentPath);
     _lastSnapshot = currentSnapshot;
     emit currentFileStateChanged();
+    return hash;
 }
 
 int CollabService::compactHistory(int keepLastN) {

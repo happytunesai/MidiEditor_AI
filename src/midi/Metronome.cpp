@@ -30,7 +30,13 @@ void Metronome::measureUpdate(int measure, int tickInMeasure) {
         return;
     }
 
-    int ticksPerClick = (_file->ticksPerQuarter() * 4) / qPow(2, denom);
+    // A malformed file can carry any 0..255 power-of-two exponent in its time
+    // signature; unclamped that makes ticksPerClick 0 and the division below a
+    // hard crash on the player thread. Clamp like MidiFile::ticksPerMeasureOfMeter.
+    int ticksPerClick = (_file->ticksPerQuarter() * 4) >> qBound(0, denom, 16);
+    if (ticksPerClick <= 0) {
+        ticksPerClick = qMax(1, _file->ticksPerQuarter());
+    }
     int pos = tickInMeasure / ticksPerClick;
 
     if (lastMeasure < measure) {

@@ -122,6 +122,9 @@ void DeleteOverlapsTool::performDeleteOverlapsOperation(OverlapMode mode, bool r
 
     currentProtocol()->startNewAction(actionName, image());
 
+    _snapshottedChannels.clear();
+    _removedNotes.clear();
+
     // Perform the appropriate operation
     switch (mode) {
         case MONO_MODE:
@@ -134,6 +137,23 @@ void DeleteOverlapsTool::performDeleteOverlapsOperation(OverlapMode mode, bool r
             deleteDoubles(notes, respectChannels, respectTracks);
             break;
     }
+
+    // WHY: one selection update (one undo snapshot) for all removed notes
+    // instead of a full selection copy per note; undo still restores the
+    // selection as it was before the operation.
+    if (!_removedNotes.isEmpty()) {
+        const QSet<MidiEvent *> removed(_removedNotes.begin(), _removedNotes.end());
+        QList<MidiEvent *> remaining;
+        remaining.reserve(eventsToProcess.size());
+        for (MidiEvent *event: eventsToProcess) {
+            if (!removed.contains(event)) {
+                remaining.append(event);
+            }
+        }
+        Selection::instance()->setSelection(remaining);
+    }
+    _snapshottedChannels.clear();
+    _removedNotes.clear();
 
     currentProtocol()->endAction();
 
@@ -351,13 +371,23 @@ void DeleteOverlapsTool::removeNote(NoteOnEvent *note) {
         return;
     }
 
-    // Remove from selection if selected
-    deselectEvent(note);
-
     // Remove the note and its off event from the channel
     MidiChannel *channel = file()->channel(note->channel());
     if (channel) {
-        channel->removeEvent(note);
-        channel->removeEvent(note->offEvent());
+        // WHY: removeEvent(toProtocol=true) deep-clones the ENTIRE channel map,
+        // and this ran twice per removed note - O(removed x events) undo memory
+        // in one action. The first removal on a channel takes the snapshot
+        // exactly where it did before (so it stays consistent with the
+        // per-event undo items of notes shortened earlier); every later
+        // removal on that channel is already covered by it. removeEvent(note)
+        // also unmaps the paired OffEvent, so its own call is silent too.
+        const int channelNumber = note->channel();
+        const bool firstOnChannel = !_snapshottedChannels.contains(channelNumber);
+        if (!channel->removeEvent(note, firstOnChannel)) {
+            return; // refused: nothing removed, nothing snapshotted
+        }
+        _snapshottedChannels.insert(channelNumber);
+        channel->removeEvent(note->offEvent(), false);
     }
+    _removedNotes.append(note);
 }

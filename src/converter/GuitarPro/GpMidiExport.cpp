@@ -122,7 +122,16 @@ std::vector<uint8_t> GpMidiMessage::createMetaBytes() const {
     }
     if (type == "time_signature") {
         payload.push_back(static_cast<uint8_t>(numerator));
-        payload.push_back(static_cast<uint8_t>(std::log2(denominator)));
+        // The denominator is raw file input (a signed byte in GP3/GP5, an
+        // unchecked stoi in GP6/7), and std::log2(0) is -inf while
+        // std::log2(negative) is NaN - converting either to uint8_t is
+        // undefined behaviour. Derive the exponent by shifting instead;
+        // floor(log2) matches what the old expression produced for every
+        // well-formed denominator.
+        const int den = denominator > 0 ? denominator : 4;
+        int denExponent = 0;
+        while (denExponent < 7 && (1 << (denExponent + 1)) <= den) ++denExponent;
+        payload.push_back(static_cast<uint8_t>(denExponent));
         payload.push_back(static_cast<uint8_t>(clocks_per_click));
         payload.push_back(static_cast<uint8_t>(notated_32nd_notes_per_beat));
     }
@@ -141,31 +150,41 @@ std::vector<uint8_t> GpMidiMessage::createMetaBytes() const {
     return result;
 }
 
+namespace {
+// MIDI data bytes are 7-bit. GP note velocities are unvalidated file input and
+// are additionally scaled by the accent (x1.2) / heavy-accent (x1.4) factors,
+// so they can exceed 127 - writing one raw emits an out-of-spec SMF byte with
+// the MSB set and loads a note with velocity > 127 into the document.
+inline uint8_t gpDataByte(int v) {
+    return static_cast<uint8_t>(std::clamp(v, 0, 127));
+}
+} // namespace
+
 std::vector<uint8_t> GpMidiMessage::createMessageBytes() const {
     std::vector<uint8_t> result;
 
     if (type == "note_off" || type == "note_on") {
         result.push_back(static_cast<uint8_t>(code_ | static_cast<uint8_t>(channel)));
-        result.push_back(static_cast<uint8_t>(note));
-        result.push_back(static_cast<uint8_t>(velocity));
+        result.push_back(gpDataByte(note));
+        result.push_back(gpDataByte(velocity));
     }
     else if (type == "polytouch") {
         result.push_back(static_cast<uint8_t>(code_ | static_cast<uint8_t>(channel)));
-        result.push_back(static_cast<uint8_t>(note));
-        result.push_back(static_cast<uint8_t>(value));
+        result.push_back(gpDataByte(note));
+        result.push_back(gpDataByte(value));
     }
     else if (type == "control_change") {
         result.push_back(static_cast<uint8_t>(code_ | static_cast<uint8_t>(channel)));
-        result.push_back(static_cast<uint8_t>(control));
-        result.push_back(static_cast<uint8_t>(value));
+        result.push_back(gpDataByte(control));
+        result.push_back(gpDataByte(value));
     }
     else if (type == "program_change") {
         result.push_back(static_cast<uint8_t>(code_ | static_cast<uint8_t>(channel)));
-        result.push_back(static_cast<uint8_t>(program));
+        result.push_back(gpDataByte(program));
     }
     else if (type == "aftertouch") {
         result.push_back(static_cast<uint8_t>(code_ | static_cast<uint8_t>(channel)));
-        result.push_back(static_cast<uint8_t>(value));
+        result.push_back(gpDataByte(value));
     }
     else if (type == "pitchwheel") {
         result.push_back(static_cast<uint8_t>(code_ | static_cast<uint8_t>(channel)));

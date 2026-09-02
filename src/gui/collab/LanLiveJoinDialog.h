@@ -23,6 +23,9 @@ class LanLiveJoinDialog : public QDialog {
 public:
     explicit LanLiveJoinDialog(MidiFile *file, QWidget *parent = nullptr);
 
+public slots:
+    void reject() override;
+
 private slots:
     void onConnect();
     void onJoined(const QString &hostName);
