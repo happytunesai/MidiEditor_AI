@@ -25,24 +25,31 @@
 #include "../midi/MidiFile.h"
 #include "../midi/MidiTrack.h"
 
+#include <QCoreApplication>
 #include <QDataStream>
 #include <QDateTime>
+#include <QDir>
 #include <QIODevice>
 
 // Static member definitions
 SharedClipboard *SharedClipboard::_instance = nullptr;
 const QString SharedClipboard::SHARED_MEMORY_KEY = "MidiEditor_Clipboard_v1";
-const QString SharedClipboard::SEMAPHORE_KEY = "MidiEditor_Clipboard_Semaphore_v1";
+// The lock used to be a QSystemSemaphore, which has no timed acquire and stays
+// taken forever when the holder dies. QLockFile waits with a deadline and
+// removes a lock left behind by a dead process, so a crashed editor can no
+// longer freeze every other running instance on its next copy or paste.
+const QString SharedClipboard::LOCK_FILE_NAME = "MidiEditor_Clipboard_v1.lock";
+const int SharedClipboard::LOCK_TIMEOUT_MS = 2000;
 // v2 (Phase 34) widens the per-event header with sourceTrackId and adds
 // a track-name table at the start of the data block. v1 readers will
 // reject the buffer via the version mismatch in pasteEvents().
 const int SharedClipboard::CLIPBOARD_VERSION = 2;
 const int SharedClipboard::MAX_CLIPBOARD_SIZE = 1024 * 1024; // 1MB max
 
-// The semaphore is a cross-process counting semaphore: whatever this process
-// acquires and never releases stays taken for every other running instance.
-// Holding it in a scoped object makes every early return and every exception
-// between acquire and release hand it back.
+// Whatever this process locks and never unlocks stays taken for every other
+// running instance until the stale-lock detection kicks in. Holding the lock
+// in a scoped object makes every early return and every exception between
+// acquire and release hand it back.
 struct SharedClipboard::MemoryLock {
     explicit MemoryLock(SharedClipboard *owner)
         : _owner(owner)
@@ -85,7 +92,7 @@ static int g_sourceTicksPerQuarter = 0;
 SharedClipboard::SharedClipboard(QObject *parent)
     : QObject(parent)
       , _sharedMemory(nullptr)
-      , _semaphore(nullptr)
+      , _lockFile(nullptr)
       , _initialized(false) {
 }
 
@@ -105,13 +112,8 @@ bool SharedClipboard::initialize() {
         return true;
     }
 
-    // Create semaphore for synchronization
-    _semaphore = new QSystemSemaphore(SEMAPHORE_KEY, 1, QSystemSemaphore::Create);
-    if (_semaphore->error() != QSystemSemaphore::NoError) {
-        delete _semaphore;
-        _semaphore = nullptr;
-        return false;
-    }
+    // Create the cross-process lock; it is only taken inside lockMemory()
+    _lockFile = new QLockFile(lockFilePath());
 
     // Create shared memory
     _sharedMemory = new QSharedMemory(SHARED_MEMORY_KEY);
@@ -124,8 +126,8 @@ bool SharedClipboard::initialize() {
         if (!_sharedMemory->create(MAX_CLIPBOARD_SIZE)) {
             delete _sharedMemory;
             _sharedMemory = nullptr;
-            delete _semaphore;
-            _semaphore = nullptr;
+            delete _lockFile;
+            _lockFile = nullptr;
             return false;
         }
 
@@ -148,8 +150,8 @@ bool SharedClipboard::initialize() {
             _sharedMemory->detach();
             delete _sharedMemory;
             _sharedMemory = nullptr;
-            delete _semaphore;
-            _semaphore = nullptr;
+            delete _lockFile;
+            _lockFile = nullptr;
             return false;
         }
     }
@@ -324,12 +326,22 @@ void SharedClipboard::cleanup() {
         _sharedMemory = nullptr;
     }
 
-    if (_semaphore) {
-        delete _semaphore;
-        _semaphore = nullptr;
+    if (_lockFile) {
+        delete _lockFile;
+        _lockFile = nullptr;
     }
 
     _initialized = false;
+}
+
+QString SharedClipboard::lockFilePath() {
+    // The per-user temp dir matches the scope of the shared-memory segment:
+    // every instance the same user starts sees the same file.
+    return QDir::temp().filePath(LOCK_FILE_NAME);
+}
+
+int SharedClipboard::lockTimeoutMs() {
+    return LOCK_TIMEOUT_MS;
 }
 
 QByteArray SharedClipboard::serializeEvents(const QList<MidiEvent *> &events, MidiFile *sourceFile) {
@@ -569,18 +581,24 @@ int SharedClipboard::convertTiming(int originalTime, int sourceTicksPerQuarter, 
 }
 
 bool SharedClipboard::lockMemory() {
-    if (!_semaphore) {
+    if (!_lockFile) {
         return false;
     }
 
-    bool acquired = _semaphore->acquire();
-    return acquired;
+    // Bounded wait on the GUI thread: a lock left behind by a dead process is
+    // removed and retaken by tryLock(); a lock held by a live process that
+    // does not release in time makes this copy or paste report "busy" instead
+    // of blocking. Callers fall back to the in-process clipboard on false.
+    if (_lockFile->tryLock(LOCK_TIMEOUT_MS)) {
+        return true;
+    }
+    qWarning("SharedClipboard: clipboard busy, could not take the cross-process lock within %d ms (error %d)",
+             LOCK_TIMEOUT_MS, static_cast<int>(_lockFile->error()));
+    return false;
 }
 
 void SharedClipboard::unlockMemory() {
-    if (_semaphore && !_semaphore->release()) {
-        // A failed release leaves the cross-process lock taken for every other
-        // instance; there is nothing to retry, but it must not pass silently.
-        qWarning("SharedClipboard: releasing the clipboard semaphore failed");
+    if (_lockFile) {
+        _lockFile->unlock();
     }
 }

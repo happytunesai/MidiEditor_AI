@@ -2425,6 +2425,12 @@ void MainWindow::closeDocumentFile(MidiFile *oldFile) {
     Selection::forgetFile(oldFile);
     TempoMapThinner::forgetFile(oldFile);
     ChannelVisibilityManager::instance().forgetFile(oldFile);
+    #ifdef MIDIEDITOR_COLLAB_ENABLED
+    // Per-document collab state (review F106): the live session is bound to a
+    // document, so tell CollabService the file is going away while it is still
+    // valid - the session ends here, not on the next tab activation.
+    CollabService::instance()->forgetFile(oldFile);
+    #endif
     if (_mcpServer) _mcpServer->forgetFile(oldFile);
     _connectedFiles.remove(oldFile);
     delete oldFile;
@@ -5379,11 +5385,18 @@ void MainWindow::fixFFXIVChannels() {
     // Analyze file and show tier selection dialog
     QJsonObject analysis = FFXIVChannelFixer::analyzeFile(file);
 
-    if (!analysis["valid"].toBool()) {
-        QMessageBox::warning(this, tr("Fix X|V Channels"),
-            tr("No FFXIV instrument names detected. "
-               "Track names must match FFXIV instruments "
-               "(e.g. Piano, Flute, ElectricGuitarOverdriven, Snare Drum, etc.)."));
+    // v2.3.1 (review F066): the fixer's own eligibility gate decides whether
+    // this is an FFXIV MIDI at all - one renamed track in a General MIDI file
+    // no longer gets Rebuild past this point. Same gate, same reason text as
+    // the AI tool; refused before any Protocol action is opened.
+    const QJsonObject eligibility = analysis["eligibility"].toObject();
+    if (!analysis["valid"].toBool() || !eligibility["eligible"].toBool()) {
+        QString reason = eligibility["reason"].toString();
+        if (reason.isEmpty())
+            reason = tr("No FFXIV instrument names detected. "
+                        "Track names must match FFXIV instruments "
+                        "(e.g. Piano, Flute, ElectricGuitarOverdriven, Snare Drum, etc.).");
+        QMessageBox::warning(this, tr("Fix X|V Channels"), reason);
         return;
     }
 

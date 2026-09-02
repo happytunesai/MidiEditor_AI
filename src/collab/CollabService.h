@@ -18,6 +18,13 @@
  * next to it; when a file is saved, we append a new commit to that history
  * if it exists. Files without a sidecar are untouched — the user must
  * explicitly opt them in via initializeCurrentFile().
+ *
+ * Every open document keeps its own record (path, sidecar history, save
+ * baseline), keyed by MidiFile pointer. The no-argument accessors read the
+ * ACTIVE document (whichever tab has focus); the MidiFile-keyed overloads
+ * read a specific document, so a live session bound to a background tab
+ * keeps commits and sidecar writes on its own file. Activation rebinds the
+ * active record, closing a document (forgetFile) drops it.
  */
 
 #ifndef COLLABSERVICE_H
@@ -72,6 +79,15 @@ public:
     void onFileLoaded(MidiFile *file, const QString &path);
 
     /**
+     * \brief Drop the per-document record of \a file because the document
+     *        is being closed (MainWindow::closeDocumentFile, before the
+     *        MidiFile is deleted). Emits fileClosing() first, while the
+     *        MidiFile is still valid, so a live session bound to it can end
+     *        cleanly. Mirrors Selection::forgetFile.
+     */
+    void forgetFile(MidiFile *file);
+
+    /**
      * \brief Notify the service that the active file has been saved.
      *
      * If the file has a sidecar history and \a file is non-null, computes
@@ -90,6 +106,9 @@ public:
      * Used by the File menu to enable/disable the "Initialize" action.
      */
     bool isCurrentFileInitialized() const;
+
+    /** \brief Whether \a file (any open document) has a sidecar history. */
+    bool isInitialized(MidiFile *file) const;
 
     /**
      * \brief Whether a file is currently active (path is set).
@@ -110,6 +129,15 @@ public:
      *   - I/O error writing the sidecar
      */
     bool initializeCurrentFile(MidiFile *file, const QString &commitMessage);
+
+    /**
+     * \brief Initialize a specific open document for collaboration.
+     *
+     * Same contract as initializeCurrentFile(), but keyed by \a file so a
+     * live session can opt in the document it is bound to, whichever tab
+     * is active. Returns false for a null or unknown file.
+     */
+    bool initializeFile(MidiFile *file, const QString &commitMessage);
 
     /**
      * \brief Mark that the next save will be the persistence step of a
@@ -154,11 +182,15 @@ public:
 
     /** \brief The current head hash for the active file (empty if none). */
     QString currentHead() const;
+    /** \brief The current head hash of a specific open document. */
+    QString currentHead(MidiFile *file) const;
 
     /**
      * \brief The sessionId of the active sidecar (empty if not initialized).
      */
     QString sessionId() const;
+    /** \brief The sessionId of a specific open document's sidecar. */
+    QString sessionId(MidiFile *file) const;
 
     /**
      * \brief The full history of the active file, oldest first.
@@ -218,7 +250,8 @@ public:
      * reconciliation compares hashes). Returns the recorded hash, empty
      * when nothing was recorded.
      *
-     * No-op if collab is disabled or the file isn't initialized.
+     * No-op if collab is disabled or the file isn't initialized. The commit
+     * lands in \a file's own history and sidecar, not the active tab's.
      */
     QString recordRemoteLiveSync(MidiFile *file,
                                  const QString &author,
@@ -238,16 +271,19 @@ public:
     /** \brief Snapshot of the active sidecar's JSON representation.
      *  Empty object when no file is initialized for collaboration. */
     QJsonObject currentSidecarJson() const;
+    /** \brief Sidecar JSON of a specific open document (empty object when
+     *  that document is unknown or not initialized). */
+    QJsonObject currentSidecarJson(MidiFile *file) const;
 
     /**
      * \brief Adopt a sidecar shipped from a peer (LAN Live host) and
-     *        persist it next to the active file.
+     *        persist it next to \a file (the active file when null).
      *
      * Called on the client after receiving a `collabsync` frame. Replaces
      * the in-memory state, writes the sidecar JSON to disk, marks the
      * file initialized, and emits currentFileStateChanged so the
      * Collaboration log refreshes. No-op when collab is disabled, the
-     * incoming object is empty, or there's no current file path.
+     * incoming object is empty, or the document has no file path.
      *
      * Returns true when the sidecar was adopted and persisted.
      */
@@ -301,20 +337,37 @@ signals:
      */
     void activeFileChanged(MidiFile *file);
 
+    /**
+     * \brief Emitted from forgetFile() right before a document's record is
+     *        dropped. \a file is still a valid MidiFile at this point (the
+     *        caller deletes it afterwards). A live session bound to it ends
+     *        on this signal - NOT on activeFileChanged, which also fires for
+     *        a plain tab switch.
+     */
+    void fileClosing(MidiFile *file);
+
 private:
     explicit CollabService(QObject *parent = nullptr);
 
     bool _enabled;
 
-    // Active-file state. Empty when no file is loaded or collab is off.
-    QString _currentPath;
-    CollabHistoryFile _currentHistory;
-    bool _currentInitialized = false;
+    // Per-document collab state. One record per open MidiFile; the active
+    // record is the one for _activeFile (null when no document is active
+    // or collab is off, in which case the no-arg accessors read empty).
+    struct FileState {
+        QString path;
+        CollabHistoryFile history;
+        bool initialized = false;
+        // Last-known snapshot of the in-memory MidiFile. Updated on file
+        // load, initialize, and save. Used as the parent state when
+        // computing hunks for the next save's history entry.
+        QJsonArray lastSnapshot;
+    };
+    QHash<MidiFile *, FileState> _files;
+    MidiFile *_activeFile = nullptr;
 
-    // Last-known snapshot of the in-memory MidiFile. Updated on file load,
-    // initialize, and save. Used as the parent state when computing hunks
-    // for the next save's history entry.
-    QJsonArray _lastSnapshot;
+    FileState *stateFor(MidiFile *file);
+    const FileState *stateFor(MidiFile *file) const;
 
     // Pending-merge marker: set by markPendingMerge() right before the
     // file is saved as part of a PR merge. Consumed (cleared) by the next

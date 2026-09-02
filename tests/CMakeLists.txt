@@ -1532,21 +1532,73 @@ add_test(NAME ThreeMleParser COMMAND test_three_mle_parser)
 # sidecarPathFor() path translation, tolerant field parsing in loadFromJson,
 # QSaveFile-based atomic save/load round-trip, appendCommit / ensureSessionId,
 # and compactHistory(N) hunk-stripping while preserving audit metadata.
-# Pure Qt (QJson + QSaveFile + QUuid) — no MidiFile dep, no network, no
-# QSettings. The test compiles only the single .cpp; QTemporaryDir scopes
-# all on-disk fixtures.
+# Since the full review (F106) the same binary also hosts TestCollabServicePerFile:
+# CollabService keeps per-document collab state, so the test drives real
+# MidiFile objects and needs the midi core + ODR shims (same list as
+# test_tempo_map_thinner). QSettings are sandboxed via
+# AppPaths::setSettingsScopeForTests; QTemporaryDir scopes all on-disk fixtures.
 add_executable(test_collab_history_file
     test_collab_history_file.cpp
     ../src/collab/CollabHistoryFile.cpp
+    ../src/collab/CollabService.cpp
+    ../src/collab/CollabIdentity.cpp
+    ../src/collab/MidiDiff.cpp
+    ../src/collab/MidiHash.cpp
+    ../src/collab/MidiSnapshot.cpp
+    ../src/ai/MidiEventSerializer.cpp
+    ../src/AppPaths.cpp
+    ../src/midi/MidiFile.cpp
+    ../src/midi/MidiChannel.cpp
+    ../src/midi/MidiTrack.cpp
+    ../src/midi/LyricManager.cpp
+    ../src/midi/InstrumentDefinitions.cpp
+    ../src/converter/SrtParser.cpp
+    ../src/protocol/Protocol.cpp
+    ../src/protocol/ProtocolEntry.cpp
+    ../src/protocol/ProtocolItem.cpp
+    ../src/protocol/ProtocolStep.cpp
+    ../src/gui/ChannelVisibilityManager.cpp
+    ../src/gui/GraphicObject.cpp
+    ../src/MidiEvent/MidiEvent.cpp
+    ../src/MidiEvent/NoteOnEvent.cpp
+    ../src/MidiEvent/OffEvent.cpp
+    ../src/MidiEvent/OnEvent.cpp
+    ../src/MidiEvent/ControlChangeEvent.cpp
+    ../src/MidiEvent/ProgChangeEvent.cpp
+    ../src/MidiEvent/PitchBendEvent.cpp
+    ../src/MidiEvent/ChannelPressureEvent.cpp
+    ../src/MidiEvent/KeyPressureEvent.cpp
+    ../src/MidiEvent/TempoChangeEvent.cpp
+    ../src/MidiEvent/TimeSignatureEvent.cpp
+    ../src/MidiEvent/KeySignatureEvent.cpp
+    ../src/MidiEvent/TextEvent.cpp
+    ../src/MidiEvent/SysExEvent.cpp
+    ../src/MidiEvent/UnknownEvent.cpp
 )
 target_include_directories(test_collab_history_file PRIVATE
+    ../src
     ../src/collab
+    ../src/ai
+    ../src/MidiEvent
+    ../src/midi
+    ../src/protocol
+    ../src/gui
+    ../src/converter
 )
 target_link_libraries(test_collab_history_file PRIVATE
     Qt6::Core
+    Qt6::Gui
+    Qt6::Widgets
     Qt6::Test
 )
 add_test(NAME CollabHistoryFile COMMAND test_collab_history_file)
+
+if(WIN32)
+    get_target_property(_qt_core_loc Qt6::Core LOCATION)
+    get_filename_component(_qt_bin_dir "${_qt_core_loc}" DIRECTORY)
+    set_tests_properties(CollabHistoryFile PROPERTIES
+        ENVIRONMENT "PATH=${_qt_bin_dir};$ENV{PATH}")
+endif()
 
 # -----------------------------------------------------------------------------
 # test_logging_config
@@ -1946,5 +1998,66 @@ if(WIN32)
     get_target_property(_qt_core_loc Qt6::Core LOCATION)
     get_filename_component(_qt_bin_dir "${_qt_core_loc}" DIRECTORY)
     set_tests_properties(ProviderProfileStore PROPERTIES
+        ENVIRONMENT "PATH=${_qt_bin_dir};$ENV{PATH}")
+endif()
+
+# -----------------------------------------------------------------------------
+# test_shared_clipboard_lock (full review F222)
+# -----------------------------------------------------------------------------
+# Bounded cross-process clipboard lock: a busy lock makes copy/paste report
+# false within lockTimeoutMs() instead of blocking, and a lock left behind by
+# a killed holder process is recovered. Same harness as test_midi_measure; the
+# binary doubles as its own lock-holding helper ("--hold-lock <path>").
+add_executable(test_shared_clipboard_lock
+    test_shared_clipboard_lock.cpp
+    ../src/tool/SharedClipboard.cpp
+    ../src/midi/MidiFile.cpp
+    ../src/midi/MidiChannel.cpp
+    ../src/midi/MidiTrack.cpp
+    ../src/midi/LyricManager.cpp
+    ../src/midi/InstrumentDefinitions.cpp
+    ../src/converter/SrtParser.cpp
+    ../src/protocol/Protocol.cpp
+    ../src/protocol/ProtocolEntry.cpp
+    ../src/protocol/ProtocolItem.cpp
+    ../src/protocol/ProtocolStep.cpp
+    ../src/gui/ChannelVisibilityManager.cpp
+    ../src/gui/GraphicObject.cpp
+    ../src/MidiEvent/MidiEvent.cpp
+    ../src/MidiEvent/NoteOnEvent.cpp
+    ../src/MidiEvent/OffEvent.cpp
+    ../src/MidiEvent/OnEvent.cpp
+    ../src/MidiEvent/ControlChangeEvent.cpp
+    ../src/MidiEvent/ProgChangeEvent.cpp
+    ../src/MidiEvent/PitchBendEvent.cpp
+    ../src/MidiEvent/ChannelPressureEvent.cpp
+    ../src/MidiEvent/KeyPressureEvent.cpp
+    ../src/MidiEvent/TempoChangeEvent.cpp
+    ../src/MidiEvent/TimeSignatureEvent.cpp
+    ../src/MidiEvent/KeySignatureEvent.cpp
+    ../src/MidiEvent/TextEvent.cpp
+    ../src/MidiEvent/SysExEvent.cpp
+    ../src/MidiEvent/UnknownEvent.cpp
+)
+target_include_directories(test_shared_clipboard_lock PRIVATE
+    ../src/tool
+    ../src/MidiEvent
+    ../src/midi
+    ../src/protocol
+    ../src/gui
+    ../src/converter
+)
+target_link_libraries(test_shared_clipboard_lock PRIVATE
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Widgets
+    Qt6::Test
+)
+add_test(NAME SharedClipboardLock COMMAND test_shared_clipboard_lock)
+
+if(WIN32)
+    get_target_property(_qt_core_loc Qt6::Core LOCATION)
+    get_filename_component(_qt_bin_dir "${_qt_core_loc}" DIRECTORY)
+    set_tests_properties(SharedClipboardLock PROPERTIES
         ENVIRONMENT "PATH=${_qt_bin_dir};$ENV{PATH}")
 endif()

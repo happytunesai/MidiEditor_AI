@@ -21,7 +21,7 @@
 
 // Qt includes
 #include <QSharedMemory>
-#include <QSystemSemaphore>
+#include <QLockFile>
 #include <QList>
 #include <QHash>
 #include <QString>
@@ -60,7 +60,7 @@ struct PasteSourceInfo {
  * - **Inter-process communication**: Share clipboard data between editor instances
  * - **Event serialization**: Proper preservation of MIDI event data
  * - **Tempo preservation**: Maintains timing information across instances
- * - **Thread safety**: Uses semaphores for safe concurrent access
+ * - **Thread safety**: A bounded cross-process lock file guards the segment
  * - **Process detection**: Identifies data from different processes
  * - **Automatic cleanup**: Manages shared memory lifecycle
  */
@@ -119,6 +119,22 @@ public:
      * @brief Cleanup shared memory resources
      */
     void cleanup();
+
+    /**
+     * @brief Path of the cross-process lock file that guards the segment.
+     *
+     * Every instance run by the same user resolves the same path, which is
+     * what makes the lock shared between editors. Exposed for tests.
+     */
+    static QString lockFilePath();
+
+    /**
+     * @brief Longest wait for the cross-process lock, in milliseconds.
+     *
+     * After this the clipboard operation reports "busy" (returns false)
+     * instead of blocking the GUI thread. Exposed for tests.
+     */
+    static int lockTimeoutMs();
 
     /**
      * @brief Get original timing for deserialized events
@@ -190,7 +206,8 @@ private:
                      int targetTicksPerQuarter, int targetTempo);
 
     /**
-     * @brief Lock shared memory for exclusive access
+     * @brief Lock shared memory for exclusive access.
+     * @return false when the lock could not be taken within lockTimeoutMs()
      */
     bool lockMemory();
 
@@ -203,7 +220,7 @@ private:
      * \brief Scoped holder of the cross-process clipboard lock.
      *
      * Acquires through lockMemory() and releases in its destructor, so no
-     * early return or exception can leave the semaphore held for other
+     * early return or exception can leave the lock held for other
      * instances. Defined in SharedClipboard.cpp.
      */
     struct MemoryLock;
@@ -216,8 +233,11 @@ private:
     /** \brief Shared memory key identifier */
     static const QString SHARED_MEMORY_KEY;
 
-    /** \brief Semaphore key identifier */
-    static const QString SEMAPHORE_KEY;
+    /** \brief File name of the cross-process lock (inside the temp dir) */
+    static const QString LOCK_FILE_NAME;
+
+    /** \brief Bounded wait for the cross-process lock in milliseconds */
+    static const int LOCK_TIMEOUT_MS;
 
     /** \brief Clipboard data format version */
     static const int CLIPBOARD_VERSION;
@@ -230,8 +250,8 @@ private:
     /** \brief Shared memory segment */
     QSharedMemory *_sharedMemory;
 
-    /** \brief Semaphore for synchronization */
-    QSystemSemaphore *_semaphore;
+    /** \brief Cross-process lock guarding the segment (stale-lock aware) */
+    QLockFile *_lockFile;
 
     /** \brief Initialization state flag */
     bool _initialized;

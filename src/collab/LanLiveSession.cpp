@@ -109,22 +109,37 @@ QString liveCommitMessage(const QString &actionLabel, int changes) {
 }  // namespace
 
 LanLiveSession::LanLiveSession(QObject *parent) : QObject(parent) {
-    // If the user loads / closes a MIDI file while a session is running,
-    // the MainWindow deletes our previously-bound MidiFile. Catching
-    // this signal lets us end the session cleanly rather than crash on
-    // the next sync tick reading freed memory.
+    // The session stays bound to _file whichever editor tab is active:
+    // CollabService keeps per-document collab state, so every commit and
+    // sidecar write below goes through _file, never through the active
+    // tab. The session ends only when its own document is closed.
+    connect(CollabService::instance(), &CollabService::fileClosing,
+            this, [this](MidiFile *closing) {
+                if (_role == Role::Idle) return;
+                if (!closing || closing != _file.data()) return;
+                qCWarning(lanLog) << "session: bound file is being closed -"
+                                  << "ending LAN session"
+                                  << "(role=" << static_cast<int>(_role)
+                                  << "_file=" << _file.data() << ")";
+                emit statusMessage(tr("LAN session ended — file was closed."));
+                leaveSession();
+            });
+    // WHY: activeFileChanged also fires on a plain tab switch (MainWindow
+    // rebinds every per-document singleton there), which used to tear the
+    // session down and drop every peer. A switch is harmless now; only a
+    // bound MidiFile that is already gone (QPointer self-nulled without a
+    // fileClosing notice) still ends the session instead of ticking on a
+    // stale pointer.
     connect(CollabService::instance(), &CollabService::activeFileChanged,
             this, [this](MidiFile *newFile) {
                 if (_role == Role::Idle) return;
-                if (newFile == _file.data()) return;  // our own setActiveFile
                 if (_filetransferPending) return;      // file-on-join: we triggered this
-                qCWarning(lanLog) << "session: active file changed externally —"
+                if (!_file.isNull()) return;           // tab switch: session keeps its file
+                qCWarning(lanLog) << "session: bound file is gone -"
                                   << "ending LAN session to avoid stale pointer"
                                   << "(role=" << static_cast<int>(_role)
-                                  << "newFile=" << newFile
-                                  << "_file=" << _file.data()
-                                  << "filetransferPending=" << _filetransferPending << ")";
-                emit statusMessage(tr("LAN session ended — file was changed."));
+                                  << "newFile=" << newFile << ")";
+                emit statusMessage(tr("LAN session ended — file was closed."));
                 leaveSession();
             });
 
@@ -151,7 +166,7 @@ LanLiveSession::LanLiveSession(QObject *parent) : QObject(parent) {
                 // grew the frame (and rewrote every peer's sidecar to
                 // disk) until it hit the 32 MB link cap.
                 if (_suppressSidecarBroadcast) return;
-                QJsonObject sidecar = CollabService::instance()->currentSidecarJson();
+                QJsonObject sidecar = CollabService::instance()->currentSidecarJson(_file);
                 if (sidecar.isEmpty()) return;
                 QString head = sidecar.value(QStringLiteral("currentHead")).toString();
                 if (head == _lastBroadcastSidecarHead) return;
@@ -423,8 +438,8 @@ QString LanLiveSession::startHosting(MidiFile *file, SessionMode mode) {
     // users don't hit the silent-no-sync footgun. Master toggle is
     // already enforced by the menu's `setVisible(enabled)` gate.
     if (!file->path().isEmpty()
-        && !CollabService::instance()->isCurrentFileInitialized()) {
-        CollabService::instance()->initializeCurrentFile(
+        && !CollabService::instance()->isInitialized(file)) {
+        CollabService::instance()->initializeFile(
             file, tr("Auto-init for live session"));
     }
 
@@ -461,7 +476,7 @@ QString LanLiveSession::startHosting(MidiFile *file, SessionMode mode) {
     // Multicast announce. Use the file's collab sessionId if available
     // (so receivers can detect cross-session pairings), else a fresh UUID
     // would also work — for now keep it empty when collab isn't init'd.
-    QString sessionId = CollabService::instance()->sessionId();
+    QString sessionId = CollabService::instance()->sessionId(_file);
     _discovery = new LanDiscovery(this);
     if (!_discovery->startAnnouncing(sessionId,
                                       CollabIdentity::displayName(),
@@ -509,8 +524,8 @@ void LanLiveSession::joinSession(MidiFile *file, const QString &pairingCode) {
     // their sidecar) or path is empty (untitled file — sidecar lives
     // on disk next to the .mid).
     if (file && !file->path().isEmpty()
-        && !CollabService::instance()->isCurrentFileInitialized()) {
-        CollabService::instance()->initializeCurrentFile(
+        && !CollabService::instance()->isInitialized(file)) {
+        CollabService::instance()->initializeFile(
             file, tr("Auto-init for live session"));
     }
     if (file) {
@@ -545,8 +560,8 @@ bool LanLiveSession::startHostingWan(MidiFile *file, SessionMode mode) {
 
     // Plan §11.10n auto-init (mirror of LAN host path, see startHosting).
     if (!file->path().isEmpty()
-        && !CollabService::instance()->isCurrentFileInitialized()) {
-        CollabService::instance()->initializeCurrentFile(
+        && !CollabService::instance()->isInitialized(file)) {
+        CollabService::instance()->initializeFile(
             file, tr("Auto-init for live session"));
     }
 
@@ -579,7 +594,7 @@ bool LanLiveSession::startHostingWan(MidiFile *file, SessionMode mode) {
     // ask the server to spin up a Responder transport, generate an
     // answer, and post that answer back to the rendezvous keyed by
     // the joinerId.
-    QString sessionId = CollabService::instance()->sessionId();
+    QString sessionId = CollabService::instance()->sessionId(_file);
     QString displayName = CollabIdentity::displayName();
     _rdv->postSession(sessionId, displayName);
 
@@ -708,8 +723,8 @@ void LanLiveSession::joinSessionWan(MidiFile *file, const QString &code) {
     _pairingCode = upper;
     // Plan §11.10n auto-init: same rationale as the LAN paths.
     if (file && !file->path().isEmpty()
-        && !CollabService::instance()->isCurrentFileInitialized()) {
-        CollabService::instance()->initializeCurrentFile(
+        && !CollabService::instance()->isInitialized(file)) {
+        CollabService::instance()->initializeFile(
             file, tr("Auto-init for live session"));
     }
     qCInfo(lanLog) << "session: joinSessionWan code=" << upper
@@ -1581,7 +1596,7 @@ void LanLiveSession::onSyncTick() {
     QString hostCommitHash;
     if (_role == Role::Hosting && !hunks.isEmpty()
         && CollabService::instance()->isEnabled()
-        && !CollabService::instance()->sessionId().isEmpty()) {
+        && !CollabService::instance()->sessionId(_file).isEmpty()) {
         hostCommitHash = CollabService::liveCommitHash(
             now, CollabIdentity::displayName(), QDateTime::currentMSecsSinceEpoch());
     }
@@ -1683,7 +1698,7 @@ void LanLiveSession::onPeerFound(const QString &sessionId,
     // and §11.10b reconciliation routes correctly. The signal is
     // wired to MainWindow::openFile via Qt::AutoConnection on the
     // same thread, so it runs synchronously.
-    QString currentActiveSession = CollabService::instance()->sessionId();
+    QString currentActiveSession = CollabService::instance()->sessionId(_file);
     bool alreadyOnRightFile = !sessionId.isEmpty()
                                && sessionId == currentActiveSession;
     if (!sessionId.isEmpty() && !alreadyOnRightFile) {
@@ -1977,7 +1992,7 @@ void LanLiveSession::handleClientHistoryRequest(const QString &fromHash,
     qCInfo(lanLog) << "client: host requested history slice since"
                    << fromHash.left(8) << "up to" << toHash.left(8);
     if (!_client || !_client->isConnected()) return;
-    QJsonObject sidecar = CollabService::instance()->currentSidecarJson();
+    QJsonObject sidecar = CollabService::instance()->currentSidecarJson(_file);
     QJsonArray history = sidecar.value(QStringLiteral("history")).toArray();
     QJsonArray slice = HistoryReconciliation::commitsSinceFork(history, fromHash);
     // In the Diverged case the host ships its own bundle BEFORE this
@@ -2156,9 +2171,9 @@ void LanLiveSession::onServerMessage(IPeerLink *peer, const QByteArray &payload)
         // If the joining peer's sessionId matches ours, we're seeing the
         // same logical file at potentially different commits. Decide
         // what to do based on the relation between our heads.
-        QString hostSessionId = CollabService::instance()->sessionId();
-        QString hostHead = CollabService::instance()->currentHead();
-        QJsonObject hostSidecar = CollabService::instance()->currentSidecarJson();
+        QString hostSessionId = CollabService::instance()->sessionId(_file);
+        QString hostHead = CollabService::instance()->currentHead(_file);
+        QJsonObject hostSidecar = CollabService::instance()->currentSidecarJson(_file);
         QJsonArray hostHistory = hostSidecar.value(QStringLiteral("history")).toArray();
         QStringList hostTail = HistoryReconciliation::tailHashes(hostHistory);
 
@@ -2175,7 +2190,7 @@ void LanLiveSession::onServerMessage(IPeerLink *peer, const QByteArray &payload)
             case HistoryReconciliation::Relation::SameHead: {
                 // Heads match — skip filetransfer, just ship sidecar in
                 // case peer's is missing/older, and let sync take over.
-                QJsonObject sidecar = CollabService::instance()->currentSidecarJson();
+                QJsonObject sidecar = CollabService::instance()->currentSidecarJson(_file);
                 if (!sidecar.isEmpty()) peer->sendMessage(encodeCollabSync(sidecar));
                 emit statusMessage(tr("Peer %1 reconnected at the same commit — no merge needed.").arg(name));
                 return;
@@ -2251,7 +2266,7 @@ void LanLiveSession::onServerMessage(IPeerLink *peer, const QByteArray &payload)
             // the peer adopts the same history. Snapshot is unnecessary
             // — transferred bytes already match our on-disk state, and
             // the sync timer reconciles any in-memory edits.
-            QJsonObject sidecar = CollabService::instance()->currentSidecarJson();
+            QJsonObject sidecar = CollabService::instance()->currentSidecarJson(_file);
             if (!sidecar.isEmpty()) {
                 peer->sendMessage(encodeCollabSync(sidecar));
             }
@@ -2624,7 +2639,7 @@ QByteArray LanLiveSession::encodeSessionModeSwitch(
 QByteArray LanLiveSession::encodeHello() const {
     QJsonObject o;
     o.insert(QStringLiteral("type"), QStringLiteral("hello"));
-    o.insert(QStringLiteral("sessionId"), CollabService::instance()->sessionId());
+    o.insert(QStringLiteral("sessionId"), CollabService::instance()->sessionId(_file));
     o.insert(QStringLiteral("displayName"), CollabIdentity::displayName());
     o.insert(QStringLiteral("machineId"), CollabIdentity::machineId());
     // v1.7.2+: build version so the host can warn its own user about
@@ -2639,8 +2654,8 @@ QByteArray LanLiveSession::encodeHello() const {
     // whether to ship the file wholesale, fast-forward us, or invoke a
     // cherry-pick merge dialog. Empty when we have no sidecar yet.
     o.insert(QStringLiteral("currentHead"),
-             CollabService::instance()->currentHead());
-    QJsonObject sidecar = CollabService::instance()->currentSidecarJson();
+             CollabService::instance()->currentHead(_file));
+    QJsonObject sidecar = CollabService::instance()->currentSidecarJson(_file);
     QStringList tail = HistoryReconciliation::tailHashes(
         sidecar.value(QStringLiteral("history")).toArray());
     QJsonArray tailJson;
@@ -3037,7 +3052,7 @@ void LanLiveSession::handleIncomingHistoryRequest(IPeerLink *peer,
     Q_UNUSED(toHash);  // we always go to head; toHash is informational
     qCInfo(lanLog) << "session: peer requested history slice since"
                    << fromHash.left(8);
-    QJsonObject sidecar = CollabService::instance()->currentSidecarJson();
+    QJsonObject sidecar = CollabService::instance()->currentSidecarJson(_file);
     QJsonArray history = sidecar.value(QStringLiteral("history")).toArray();
     QJsonArray slice = HistoryReconciliation::commitsSinceFork(history, fromHash);
     qCInfo(lanLog) << "session: shipping slice of" << slice.size()
@@ -3071,7 +3086,7 @@ void LanLiveSession::handleIncomingHistoryBundle(const QJsonArray &commits,
         }
         const PendingMerge pm = _pendingMerges.value(peerMachineId);
         PrBundle bundle = HistoryReconciliation::synthesizeBundle(
-            commits, CollabService::instance()->sessionId(), fromHash);
+            commits, CollabService::instance()->sessionId(_file), fromHash);
         if (!bundle.isValid()) {
             qCWarning(lanLog) << "session: synthesized bundle is invalid; "
                               << "auto-rejecting peer" << pm.peerName;
@@ -3261,7 +3276,7 @@ void LanLiveSession::acceptReturningPeerMerge(const QString &peerToken,
         }
     }
 
-    QString newHead = CollabService::instance()->currentHead();
+    QString newHead = CollabService::instance()->currentHead(_file);
     QByteArray frame = encodeMergeResult(pm.commonAncestor, newHead,
                                          acceptedHunks, rejectedHunks,
                                          rejectedCommitHashes);
@@ -3282,12 +3297,12 @@ void LanLiveSession::setReviewMode(bool enabled) {
 PrBundle LanLiveSession::pendingReviewBundle() const {
     PrBundle b;
     if (_pendingReviewHunks.isEmpty()) return b;
-    b.sessionId  = CollabService::instance()->sessionId();
+    b.sessionId  = CollabService::instance()->sessionId(_file);
     b.author     = _pendingReviewAuthor.isEmpty()
                        ? QStringLiteral("(remote peer)")
                        : _pendingReviewAuthor;
     b.machineId  = _pendingReviewMachineId;
-    b.parentHash = CollabService::instance()->currentHead();
+    b.parentHash = CollabService::instance()->currentHead(_file);
     b.timestamp  = QDateTime::currentSecsSinceEpoch();
     b.message    = QStringLiteral("Live edits queued for review (%1 hunk(s))")
                         .arg(_pendingReviewHunks.size());

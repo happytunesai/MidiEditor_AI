@@ -542,6 +542,7 @@ NativeFormat::NativeFormat(GpFile* gpFile) : gpFile_(gpFile) {
     tempos_ = retrieveTempos();
     masterBars_ = retrieveMasterBars();
     nativeTracks_ = retrieveTracks();
+    routeChannels();
     updateAvailableChannels();
 }
 
@@ -645,6 +646,90 @@ void NativeFormat::updateAvailableChannels() {
         if (track.channel >= 0 && track.channel < 16) {
             availableChannels[track.channel] = false;
         }
+    }
+}
+
+// ============================================================
+// routeChannels - GM channel router
+// ============================================================
+
+void NativeFormat::routeChannels() {
+    // Guitar Pro addresses channels as a flat 0..63 table (4 ports x 16) but the
+    // editor has a single port: folding the slot to 0..15 put a port-2 track on the
+    // same GM channel as a port-1 track (patch and pitch-bend collisions). Give every
+    // melodic track its own channel while the 15 melodic channels last, keep
+    // percussion on 9, and share only when the file has more tracks than that.
+    constexpr int kChannels = 16;
+    constexpr int kPercussion = 9;
+    const size_t count = std::min(nativeTracks_.size(), gpFile_->tracks.size());
+
+    std::vector<int> wanted(count, 0);
+    std::vector<bool> percussion(count, false);
+    bool bendChannel[kChannels] = {}; // declared as the effect channel of some track
+    for (size_t i = 0; i < count; i++) {
+        const GpMidiChannel& ch = gpFile_->tracks[i]->channel;
+        wanted[i] = ch.channel & 0x0F;
+        percussion[i] = (wanted[i] == kPercussion);
+        const int effect = ch.effectChannel & 0x0F;
+        if (!percussion[i] && effect != wanted[i]) {
+            bendChannel[effect] = true;
+        }
+    }
+
+    int load[kChannels] = {};
+    int owner[kChannels];
+    std::fill(owner, owner + kChannels, -1);
+    std::vector<int> routed(count, -1);
+
+    // Pass 1: percussion always on 9; a melodic track keeps its own channel when no
+    // earlier track claimed it - so a single-port file comes out exactly as before.
+    for (size_t i = 0; i < count; i++) {
+        if (percussion[i]) {
+            routed[i] = kPercussion;
+            load[kPercussion]++;
+        } else if (load[wanted[i]] == 0) {
+            routed[i] = wanted[i];
+            load[wanted[i]]++;
+            owner[wanted[i]] = static_cast<int>(i);
+        }
+    }
+
+    // Pass 2: the rest take a free channel, preferring one no track reserved for
+    // its bends so the effect-channel pairing survives; when all 15 are taken,
+    // share the least-loaded channel (own channel on a tie, then the lowest).
+    for (size_t i = 0; i < count; i++) {
+        if (routed[i] >= 0) continue;
+        int pick = -1;
+        for (int pass = 0; pass < 2 && pick < 0; pass++) {
+            for (int ch = 0; ch < kChannels; ch++) {
+                if (ch == kPercussion || load[ch] != 0) continue;
+                if (pass == 0 && bendChannel[ch]) continue;
+                pick = ch;
+                break;
+            }
+        }
+        if (pick < 0) {
+            for (int ch = 0; ch < kChannels; ch++) {
+                if (ch == kPercussion) continue;
+                if (pick < 0 || load[ch] < load[pick] ||
+                    (load[ch] == load[pick] && ch == wanted[i])) {
+                    pick = ch;
+                }
+            }
+            const int other = owner[pick];
+            warnings_.push_back("Track " + std::to_string(i + 1) + " \"" +
+                nativeTracks_[i].name + "\" shares MIDI channel " + std::to_string(pick) +
+                " with track " + std::to_string(other + 1) + " \"" +
+                (other >= 0 ? nativeTracks_[other].name : std::string()) +
+                "\": the file has more than 15 melodic tracks");
+        }
+        routed[i] = pick;
+        load[pick]++;
+        if (owner[pick] < 0) owner[pick] = static_cast<int>(i);
+    }
+
+    for (size_t i = 0; i < count; i++) {
+        nativeTracks_[i].channel = routed[i];
     }
 }
 

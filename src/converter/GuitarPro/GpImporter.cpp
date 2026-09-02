@@ -151,6 +151,11 @@ MidiFile* GpImporter::loadFile(QString path, bool* ok) {
         GpFile* effectiveFile = gpFile->effective();
         NativeFormat format(effectiveFile);
         GpMidiExport midiExport = format.toMidi();
+    // Channel sharing (more than 15 melodic tracks) is silent in the MIDI itself -
+    // report it like the other import warnings. (Full-review F033)
+    for (const auto &w : format.importWarnings()) {
+        qWarning() << "GpImporter:" << QString::fromStdString(w);
+    }
         std::vector<uint8_t> midiBytes = midiExport.createBytes();
 
         if (midiBytes.empty()) {

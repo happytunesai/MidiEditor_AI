@@ -37,6 +37,34 @@ public:
      */
     static QJsonObject analyzeFile(MidiFile *file);
 
+    /**
+     * \brief Eligibility gate (v2.3.1, review F066): decides whether the
+     *        file IS an FFXIV MIDI before either tier is allowed to run.
+     *
+     * A single renamed track used to be enough to let Rebuild loose on a
+     * plain General MIDI file (every other track got its channel/program
+     * rebuilt, tracks beyond index 15 were clamped onto channel 15). The
+     * gate looks at the tracks that actually carry notes:
+     *   (a) no track name matches an FFXIV instrument  -> not eligible;
+     *   (b) a note-carrying track whose name is not an FFXIV instrument
+     *       -> not eligible, the reason lists them by index and name.
+     *       Tracks without notes (conductor, title, empty) are ignored, and
+     *       so is a GM drum track whose notes live on channel 9 - Tier 2
+     *       keeps such a track on channel 9 by design (drum-split leftover);
+     *   (c) more than 16 note-carrying tracks -> Tier 2 (Rebuild) is not
+     *       eligible, Tier 3 (Preserve) still is.
+     * Name matching is programNumber(stripSuffix(name)) - nothing wider.
+     *
+     * This is the ONE implementation: analyzeFile() embeds it (dialog +
+     * MainWindow warning), fixChannels() runs it before its first edit, and
+     * the AI/MCP setup_channel_pattern tool consults it before opening a
+     * Protocol action. Read-only.
+     *
+     * \return {eligible, reason, tier2Eligible, tier2Reason, noteTrackCount,
+     *          ffxivNamedNoteTrackCount, nonFfxivNoteTracks:[{index,name}]}
+     */
+    static QJsonObject checkEligibility(MidiFile *file);
+
     /// Progress callback: (percent 0-100, phase description).
     ///
     /// Called while the file is mid-edit, with the caller's Protocol

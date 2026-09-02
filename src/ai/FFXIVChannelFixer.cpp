@@ -76,13 +76,145 @@ QStringList FFXIVChannelFixer::instrumentNames() {
 }
 
 // ---------------------------------------------------------------------------
-// analyzeFile  â€” read-only scan for the tier selection dialog
+// checkEligibility - "is this an FFXIV MIDI at all?" (v2.3.1, review F066)
+// ---------------------------------------------------------------------------
+
+namespace {
+const char *kNoFfxivNamesText =
+    "No FFXIV instrument names detected. "
+    "Track names must match FFXIV instruments (e.g. Piano, Flute, "
+    "ElectricGuitarOverdriven, Snare Drum, etc.).";
+} // namespace
+
+QJsonObject FFXIVChannelFixer::checkEligibility(MidiFile *file) {
+    QJsonObject out;
+    out["eligible"]      = false;
+    out["tier2Eligible"] = false;
+    out["reason"]        = QString();
+    out["tier2Reason"]   = QString();
+    out["noteTrackCount"]           = 0;
+    out["ffxivNamedNoteTrackCount"] = 0;
+    out["nonFfxivNoteTracks"]       = QJsonArray();
+
+    if (!file) {
+        out["reason"] = QStringLiteral("No file loaded.");
+        return out;
+    }
+    const int trackCount = file->numTracks();
+    if (trackCount == 0) {
+        out["reason"] = QStringLiteral("No tracks in file.");
+        return out;
+    }
+
+    // One pass over every channel: NoteOn count per (track, channel). This
+    // is what decides "carries notes" and, for unmatched names, whether the
+    // track is a GM drum track parked on channel 9 (same rule Tier 2 applies
+    // via dominantNoteChannel(), computed here without a per-track rescan).
+    QHash<MidiTrack *, QHash<int, int>> notesPerTrack;
+    for (int ch = 0; ch < 16; ch++) {
+        MidiChannel *channel = file->channel(ch);
+        if (!channel) continue;
+        QMultiMap<int, MidiEvent *> *map = channel->eventMap();
+        for (auto it = map->begin(); it != map->end(); ++it) {
+            if (!dynamic_cast<NoteOnEvent *>(it.value())) continue;
+            notesPerTrack[it.value()->track()][ch]++;
+        }
+    }
+
+    int ffxivNameCount = 0;          // every track, notes or not (rule a)
+    int noteTrackCount = 0;
+    bool clampRisk = false;          // rule (c): a melodic note track at index > 15
+    int ffxivNamedNoteTrackCount = 0;
+    QJsonArray nonFfxivNoteTracks;
+    QStringList offenders;
+
+    for (int t = 0; t < trackCount; t++) {
+        MidiTrack *track = file->track(t);
+        if (!track) continue;
+        const QString name = track->name();
+        const bool isFfxivName = programNumber(stripSuffix(name)) >= 0;
+        if (isFfxivName) ffxivNameCount++;
+
+        auto notesIt = notesPerTrack.constFind(track);
+        if (notesIt == notesPerTrack.constEnd()) continue; // no notes: ignored
+        noteTrackCount++;
+        int bestCh = -1, bestCount = 0;
+        for (auto c = notesIt->constBegin(); c != notesIt->constEnd(); ++c) {
+            if (c.value() > bestCount) { bestCount = c.value(); bestCh = c.key(); }
+        }
+        // Rule (c) counts by TRACK INDEX, not by number of note tracks: Tier 2
+        // maps track t onto channel t and clamps t > 15 onto channel 15, so an
+        // idle track 0 plus 16 note tracks still loses the last one. Percussion
+        // (predominantly channel 9) is routed to channel 9 regardless of index.
+        if (t > 15 && bestCh != 9) clampRisk = true;
+        if (isFfxivName) {
+            ffxivNamedNoteTrackCount++;
+            continue;
+        }
+
+        // Unmatched name: a track whose notes are predominantly on channel 9
+        // is a GM drum track (e.g. the "Drums" leftover of the FFXIV drum
+        // split). Tier 2 keeps it on channel 9 instead of renumbering it, so
+        // it is part of a legitimate FFXIV file and must not block the gate.
+        if (bestCh == 9) continue;
+
+        const QString shown = name.trimmed().isEmpty()
+            ? QStringLiteral("(unnamed)") : name.trimmed();
+        QJsonObject entry;
+        entry["index"] = t;
+        entry["name"]  = shown;
+        nonFfxivNoteTracks.append(entry);
+        offenders << QStringLiteral("%1 %2").arg(t).arg(shown);
+    }
+
+    out["noteTrackCount"]           = noteTrackCount;
+    out["ffxivNamedNoteTrackCount"] = ffxivNamedNoteTrackCount;
+    out["nonFfxivNoteTracks"]       = nonFfxivNoteTracks;
+
+    // (c) is reported independently of (a)/(b) so the dialog can grey out
+    // Rebuild while Preserve stays available.
+    if (clampRisk) {
+        out["tier2Reason"] = QStringLiteral(
+            "This file has melodic tracks with notes beyond track 16 (MIDI has "
+            "only 16 channels) - Rebuild (Full Reassignment) would merge them "
+            "onto channel 15. Use Preserve (Minimal Changes) instead, or merge "
+            "tracks first. (%1 tracks with notes)").arg(noteTrackCount);
+    } else {
+        out["tier2Eligible"] = true;
+    }
+
+    // (a) zero FFXIV names anywhere - the long-standing message stays.
+    if (ffxivNameCount == 0) {
+        out["reason"] = QString::fromLatin1(kNoFfxivNamesText);
+        return out;
+    }
+
+    // (b) note-carrying tracks that are not FFXIV instruments.
+    if (!offenders.isEmpty()) {
+        const int kMaxListed = 12;
+        QStringList listed = offenders.mid(0, kMaxListed);
+        QString list = listed.join(QStringLiteral(", "));
+        if (offenders.size() > kMaxListed)
+            list += QStringLiteral(" and %1 more").arg(offenders.size() - kMaxListed);
+        out["reason"] = (offenders.size() == 1)
+            ? QStringLiteral("Track %1 is not an FFXIV instrument - rename it first.").arg(list)
+            : QStringLiteral("Tracks %1 are not FFXIV instruments - rename them first.").arg(list);
+        return out;
+    }
+
+    out["eligible"] = true;
+    return out;
+}
+
+// ---------------------------------------------------------------------------
+// analyzeFile  - read-only scan for the tier selection dialog
 // ---------------------------------------------------------------------------
 
 QJsonObject FFXIVChannelFixer::analyzeFile(MidiFile *file) {
     QJsonObject result;
     if (!file || file->numTracks() == 0) {
         result["valid"] = false;
+        result["eligibility"] = checkEligibility(file);
         return result;
     }
 
@@ -138,6 +270,14 @@ QJsonObject FFXIVChannelFixer::analyzeFile(MidiFile *file) {
     result["guitarVariants"]      = QJsonArray::fromStringList(guitarVariants);
     result["percussionTracks"]    = QJsonArray::fromStringList(percussionTracks);
     result["melodicTracks"]       = QJsonArray::fromStringList(melodicTracks);
+
+    // v2.3.1 eligibility gate (review F066) - the fields above are unchanged,
+    // the dialog and MainWindow read the gate from here.
+    const QJsonObject gate = checkEligibility(file);
+    result["noteTrackCount"]           = gate["noteTrackCount"];
+    result["ffxivNamedNoteTrackCount"] = gate["ffxivNamedNoteTrackCount"];
+    result["nonFfxivNoteTracks"]       = gate["nonFfxivNoteTracks"];
+    result["eligibility"]              = gate;
     return result;
 }
 
@@ -211,27 +351,27 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
     reportProgress(5, QStringLiteral("Scanning tracks..."));
 
     QVector<QString> baseNames(trackCount);
-    int ffxivTrackCount = 0;
     bool hasGuitar = false;
     QSet<QString> guitarVariantsPresent;
 
     for (int t = 0; t < trackCount; t++) {
         QString base = stripSuffix(file->track(t)->name());
         baseNames[t] = base;
-        if (programNumber(base) >= 0)
-            ffxivTrackCount++;
         if (isGuitar(base)) {
             hasGuitar = true;
             guitarVariantsPresent.insert(base);
         }
     }
 
-    // TIER 1 â€” Not an FFXIV MIDI
-    if (ffxivTrackCount == 0) {
+    // TIER 1 - Not an FFXIV MIDI. v2.3.1 (review F066): the shared
+    // eligibility gate replaces the bare "zero names" test, so one renamed
+    // track in a General MIDI file no longer lets Rebuild loose on the other
+    // eleven. Read-only; a refused file is returned before the first edit.
+    const QJsonObject gate = checkEligibility(file);
+    if (!gate["eligible"].toBool()) {
         result["success"] = false;
-        result["error"] = QStringLiteral("No FFXIV instrument names detected. "
-            "Track names must match FFXIV instruments (e.g. Piano, Flute, "
-            "ElectricGuitarOverdriven, Snare Drum, etc.).");
+        result["error"] = gate["reason"].toString();
+        result["eligibility"] = gate;
         result["tier"] = 1;
         return result;
     }
@@ -315,6 +455,17 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
     // Override with forced tier if specified by the user
     if (forcedTier == 2) isPreserveMode = false;
     else if (forcedTier == 3) isPreserveMode = true;
+
+    // Gate rule (c): Rebuild renumbers tracks onto channels by index, and a
+    // file with more than 16 note-carrying tracks would have the rest merged
+    // onto channel 15. Still read-only at this point; Preserve is unaffected.
+    if (!isPreserveMode && !gate["tier2Eligible"].toBool()) {
+        result["success"] = false;
+        result["error"] = gate["tier2Reason"].toString();
+        result["eligibility"] = gate;
+        result["tier"] = 2;
+        return result;
+    }
 
     // -----------------------------------------------------------------------
     // Build channel assignment map + guitarChannelMap

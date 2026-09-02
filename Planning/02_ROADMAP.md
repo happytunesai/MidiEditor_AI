@@ -13417,8 +13417,13 @@ midipilot-settings.html (+ help_db regen), CHANGELOG per the template.
   AgentRunner::_originFile instead of the documented dangling-comparison caveat.
 
 * **Owner decisions left open by the full-codebase review (2026-09-02)** - confirmed
-  defects whose correct fix changes forward behaviour or needs a redesign; nothing here
-  was changed in 2.3.1 without a decision:
+  defects whose correct fix changes forward behaviour or needs a redesign. Decided the
+  same day: items 3, 4 and 5 were approved and are DONE in 2.3.1 (per-file CollabService
+  state - live sessions survive tab switches; GM channel router for Guitar Pro port-2+
+  tracks; QLockFile-based clipboard lock with a 2 s timeout and stale-lock recovery).
+  Items 1 and 2 (the Channel Fixer) stay open pending the owner's own repro; the F066
+  eligibility gate ("is this an FFXIV MIDI at all?") was approved separately after the
+  owner reproduced the one-renamed-track loophole on a 12-track GM file:
   1. FFXIV Channel Fixer, Tier 3 (review F065): a guitar channel whose only guitar program
      change sits mid-song loses it and gets nothing back (analyzeFile accepts a PC at ANY
      tick, fixChannels only at tick 0, so the recommended tier is the one that destroys

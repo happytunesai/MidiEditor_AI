@@ -892,8 +892,9 @@ private:
      *  session). Without this guard, the next \ref onSyncTick would
      *  read from a freed object and crash with an access violation
      *  (observed 2026-05-06 when the host loaded a new file while
-     *  hosting). The activeFileChanged hook below closes the
-     *  session cleanly so we don't keep ticking on a stale ptr. */
+     *  hosting). The CollabService::fileClosing hook in the ctor ends
+     *  the session when THIS document is closed; a plain tab switch
+     *  leaves it bound (CollabService keeps per-file collab state). */
     QPointer<MidiFile> _file;
     QString _pairingCode;
     QString _hostDisplayName;

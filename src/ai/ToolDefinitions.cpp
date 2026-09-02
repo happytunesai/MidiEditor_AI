@@ -2169,6 +2169,19 @@ QJsonObject ToolDefinitions::execSetupChannelPattern(MidiFile *file,
             }
         }
     }
+#ifndef TOOLDEFINITIONS_TEST_STUB_FFXIV
+    // v2.3.1 (review F066): the fixer's own eligibility gate - the SAME
+    // function fixChannels() runs before its first edit, so a file it refuses
+    // (a note-carrying track that is not an FFXIV instrument, or no FFXIV
+    // names at all) returns success=false with the gate's reason without an
+    // action being opened. Rule (c) (more than 16 note tracks, Rebuild only)
+    // is left to fixChannels(): whether auto-detection lands on Rebuild is
+    // only known in there, and opening an action for a Preserve run is the
+    // safe direction.
+    if (fixerWillEdit)
+        fixerWillEdit = FFXIVChannelFixer::checkEligibility(file)
+                            .value(QStringLiteral("eligible")).toBool();
+#endif
     if (!fixerWillEdit)
         return FFXIVChannelFixer::fixChannels(file);
 
