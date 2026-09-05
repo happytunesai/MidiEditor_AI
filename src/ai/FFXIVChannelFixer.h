@@ -65,6 +65,16 @@ public:
      */
     static QJsonObject checkEligibility(MidiFile *file);
 
+    /**
+     * \brief The tier fixChannels() auto-detects for this file (2 = Rebuild,
+     *        3 = Preserve), computed read-only with the same rules: Preserve
+     *        when a guitar program sits at tick 0 on any channel or a guitar
+     *        track plays on more than one guitar channel. Lets callers know
+     *        BEFORE opening an undo action whether a Rebuild-only refusal
+     *        (eligibility rule c) would make the run a no-op (review R231-17).
+     */
+    static int autoTier(MidiFile *file);
+
     /// Progress callback: (percent 0-100, phase description).
     ///
     /// Called while the file is mid-edit, with the caller's Protocol

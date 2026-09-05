@@ -237,6 +237,8 @@ MidiEvent *MidiEvent::loadMidiEvent(QDataStream *content, bool *ok, bool *endEve
                     // scanning for F7 keeps the length prefix out of the payload
                     // (save() re-derives it) and stops an unterminated chunk from
                     // swallowing the rest of the track.
+                    QIODevice *device = content->device();
+                    const qint64 lengthPos = device ? device->pos() : -1;
                     int sysExLength = MidiFile::variableLengthvalue(content);
                     if (sysExLength < 0 || sysExLength > 65535) {
                         *ok = false;
@@ -244,15 +246,44 @@ MidiEvent *MidiEvent::loadMidiEvent(QDataStream *content, bool *ok, bool *endEve
                     }
                     QByteArray array;
                     array.reserve(sysExLength);
+                    bool truncated = false;
                     for (int i = 0; i < sysExLength; i++) {
                         if (content->atEnd()) {
-                            *ok = false;
-                            return 0;
+                            truncated = true;
+                            break;
                         }
                         (*content) >> tempByte;
                         array.append((char) tempByte);
                     }
-                    if (!array.isEmpty() && (quint8) array.at(array.size() - 1) == 0xF7) {
+                    // Compatibility (review R231-13): MidiEditor 2.3.0 and earlier
+                    // wrote "F0 <data> F7" WITHOUT the length field, so the first
+                    // data byte (a manufacturer id such as 7E) was just read as a
+                    // length. Sysex data bytes are all below 0x80, so an F7 INSIDE
+                    // the chunk (or a chunk running past the track) can only mean
+                    // the old framing: rewind and scan to the terminator instead.
+                    // A length-framed packet that merely lacks the trailing F7 is a
+                    // legitimate multi-packet dump and is kept as read.
+                    const int innerF7 = array.indexOf((char) 0xF7);
+                    const bool oldFraming = (innerF7 >= 0 && innerF7 != array.size() - 1)
+                                            || truncated;
+                    if (oldFraming) {
+                        if (!device || lengthPos < 0 || !device->seek(lengthPos)) {
+                            *ok = false;
+                            return 0;
+                        }
+                        array.clear();
+                        while (true) {
+                            if (content->atEnd() || array.size() > 65535) {
+                                *ok = false;
+                                return 0;
+                            }
+                            (*content) >> tempByte;
+                            if (tempByte == 0xF7) {
+                                break;
+                            }
+                            array.append((char) tempByte);
+                        }
+                    } else if (!array.isEmpty() && (quint8) array.at(array.size() - 1) == 0xF7) {
                         array.chop(1);
                     }
                     *ok = true;
@@ -595,11 +626,20 @@ void MidiEvent::reloadState(ProtocolEntry *entry) {
         return;
     }
     _track = other->_track;
-    file()->channelEvents(numChannel)->remove(timePos, this);
+    // A channel-level snapshot restored earlier in the same undo/redo step may
+    // already hold this event at its target key (or still at the stale one):
+    // unmap it at BOTH keys, in both channels, before re-inserting, so no map
+    // ever holds the event twice and a stale entry never survives (review
+    // R231-11 - Delete Overlaps redo doubled shortened notes).
+    QMultiMap<int, MidiEvent *> *current = file()->channelEvents(numChannel);
+    current->remove(timePos, this);
+    current->remove(other->timePos, this);
     numChannel = other->numChannel;
-    file()->channelEvents(numChannel)->remove(timePos, this);
+    QMultiMap<int, MidiEvent *> *target = file()->channelEvents(numChannel);
+    target->remove(timePos, this);
+    target->remove(other->timePos, this);
     timePos = other->timePos;
-    file()->channelEvents(numChannel)->insert(timePos, this);
+    target->insert(timePos, this);
     midiFile = other->midiFile;
 }
 

@@ -3288,11 +3288,6 @@ void MainWindow::onGroup1TabCloseRequested(int index) {
     }
     MidiFile *f = d->file();
 
-    // The closing document is deleted on every path below (including the
-    // last-tab collapse, which returns early) and PlayerThread keeps reading the
-    // playing MidiFile on its own thread - stop the transport up front.
-    stop();
-
     // Closing a tab in the UNFOCUSED group must not steal the active document
     // from the focused one (the primary handler has the same corrective guard).
     const bool g1WasFocused = (_activeView == _compareMatrixWidget);
@@ -3330,6 +3325,13 @@ void MainWindow::onGroup1TabCloseRequested(int index) {
     }
 
     const bool closingActive = (index == _group1Docs->activeIndex());
+
+    // The closing document is deleted on every path below (including the
+    // last-tab collapse, which returns early) and PlayerThread keeps reading the
+    // playing MidiFile on its own thread - stop the transport before it goes.
+    // Only now that the close is committed: a cancelled save prompt or a
+    // background tab must not interrupt playback (review R231-15).
+    stop();
 
     _group1Docs->removeAt(index);   // detaches (does NOT delete the file)
     _suppressGroup1TabSignals = true;
@@ -3944,6 +3946,16 @@ QJsonArray MainWindow::listOpenDocumentsJson() const {
     addDocs(_documentManager, 0);
     addDocs(_group1Docs, 1);
     return arr;
+}
+
+bool MainWindow::isDocumentOpen(MidiFile *f) const {
+    if (!f) {
+        return false;
+    }
+    if (_documentManager && _documentManager->indexOfFile(f) >= 0) {
+        return true;
+    }
+    return _group1Docs && _group1Docs->indexOfFile(f) >= 0;
 }
 
 MidiFile *MainWindow::documentFileByListIndex(int index) const {
@@ -5497,6 +5509,21 @@ void MainWindow::fixFFXIVChannels() {
                          re["newName"].toString().toHtmlEscaped());
             }
         }
+        // Preserve took a channel's program from the guitar track's own name
+        // (no guitar program was there yet) - show it like the renames.
+        const QJsonArray fallbacks = result["guitarProgramFallbackLog"].toArray();
+        if (!fallbacks.isEmpty()) {
+            html += QString("<br>&#x1F3B8; Program taken from the track name on <b>%1</b> channel(s):")
+                        .arg(fallbacks.size());
+            for (const auto &v : fallbacks) {
+                QJsonObject fb = v.toObject();
+                html += QString("<br>&nbsp;&nbsp;&nbsp;T%1 %2 &rarr; CH%3 program %4")
+                    .arg(QString::number(fb["track"].toInt()),
+                         fb["trackName"].toString().toHtmlEscaped(),
+                         QString::number(fb["channel"].toInt()),
+                         QString::number(fb["program"].toInt()));
+            }
+        }
         html += QStringLiteral("</p>");
         html += QStringLiteral("<p style='font-size:10px; color:gray; margin-top:8px;'>Press Ctrl+Z to undo all changes.</p>");
 
@@ -6060,7 +6087,7 @@ void MainWindow::renameTrack(int tracknumber) {
     if (!ok || text.isEmpty()) {
         return;
     }
-    if (_documentManager->indexOfFile(f) < 0 || tracknumber >= f->numTracks()) {
+    if (!isDocumentOpen(f) || tracknumber >= f->numTracks()) {
         return; // document closed / track removed while the dialog was up
     }
 
@@ -13880,7 +13907,7 @@ void MainWindow::importLyricsSrt() {
         startDirectory, tr("SRT Subtitle Files (*.srt);;All Files (*)"));
     if (path.isEmpty())
         return;
-    if (_documentManager && _documentManager->indexOfFile(targetFile) < 0)
+    if (!isDocumentOpen(targetFile))
         return; // target document was closed while the dialog was open
 
     LyricManager *mgr = targetFile->lyricManager();
@@ -13918,7 +13945,7 @@ void MainWindow::importLyricsText() {
     LyricImportDialog dialog(fileDurationMs, this);
     if (dialog.exec() != QDialog::Accepted)
         return;
-    if (_documentManager && _documentManager->indexOfFile(targetFile) < 0)
+    if (!isDocumentOpen(targetFile))
         return; // target document was closed while the dialog was open
 
     QStringList phrases = dialog.parsedPhrases();
@@ -14008,8 +14035,8 @@ void MainWindow::syncLyrics() {
         markEditedFor(targetFile);
     }
 
-    // Reset file state after sync
-    if (!_documentManager || _documentManager->indexOfFile(targetFile) >= 0)
+    // Reset file state after sync (only if the document is still open)
+    if (isDocumentOpen(targetFile))
         targetFile->setPauseTick(-1);
 }
 
@@ -14059,13 +14086,16 @@ void MainWindow::importLyricsLrc() {
     }
 
     LyricManager *mgr = file->lyricManager();
-    if (!importedMeta.isEmpty()) {
-        mgr->setMetadata(importedMeta);
-    }
 
     // Wrap entire import in a single Protocol action (P3-002)
     // Use direct insertion instead of addBlock() which creates nested actions
     file->protocol()->startNewAction("Import Lyrics (LRC)");
+    // Header tags ([ar:], [ti:], ...) are written INSIDE this action: with its
+    // own action they became a second undo step and one Ctrl+Z left the
+    // header events behind (review R231-09).
+    if (!importedMeta.isEmpty()) {
+        mgr->setMetadata(importedMeta, /*ownAction=*/false);
+    }
     MidiTrack *defaultTrack = (file->numTracks() > 0) ? file->track(0) : nullptr;
     for (const LyricBlock &block : blocks) {
         LyricBlock b = block;

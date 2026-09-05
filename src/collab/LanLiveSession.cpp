@@ -3124,12 +3124,18 @@ void LanLiveSession::handleIncomingHistoryBundle(const QJsonArray &commits,
         int thisApplied = r.addedCount + r.removedCount + r.modifiedCount;
         totalApplied += thisApplied;
 
-        // Mirror in our local sidecar so the Collab log stays in sync.
-        if (thisApplied > 0) {
+        // Mirror in our local sidecar so the Collab log stays in sync - under
+        // the HOST's commit hash, and also for a hunk-less commit when it
+        // carries one: a locally minted hash left this peer on a head the host
+        // never had, so the next hello read as Diverged, the host re-shipped
+        // the same slice and PrApply re-applied it as duplicate notes
+        // (review R231-02). Same rule as handleIncomingHunks.
+        const QString hostHash = c.value(QStringLiteral("hash")).toString();
+        if (thisApplied > 0 || !hostHash.isEmpty()) {
             CollabService::instance()->recordRemoteLiveSync(
                 _file, author,
                 c.value(QStringLiteral("machineId")).toString(),
-                QStringLiteral("Fast-forward: %1").arg(message), hunks);
+                QStringLiteral("Fast-forward: %1").arg(message), hunks, hostHash);
         }
     }
     _lastSyncedSnapshot = MidiSnapshot::ofFile(_file);
@@ -3282,6 +3288,13 @@ void LanLiveSession::acceptReturningPeerMerge(const QString &peerToken,
                                          rejectedCommitHashes);
     pm.peer->sendMessage(frame);
     if (_server) _server->broadcastExcept(frame, pm.peer.data());
+
+    // Converge the peer's history onto ours: its unmerged commits (and the
+    // "Merge from host" entry it records on the result) carry local hashes,
+    // so without this the very next reconnect raised the same merge dialog
+    // again for commits we had already dealt with (review R231-06).
+    const QJsonObject sidecar = CollabService::instance()->currentSidecarJson(_file);
+    if (!sidecar.isEmpty()) pm.peer->sendMessage(encodeCollabSync(sidecar));
 }
 
 void LanLiveSession::setReviewMode(bool enabled) {
@@ -3344,6 +3357,13 @@ void LanLiveSession::rejectReturningPeer(const QString &peerToken,
     if (!pm.peer) return;
     qCInfo(lanLog) << "session: host rejected returning peer"
                    << pm.peerName << "—" << reason;
+    // Hand the peer our history first so it drops the rejected local commits
+    // from its chain and the next join compares equal heads instead of
+    // re-offering the same commits forever (review R231-06).
+    if (_file) {
+        const QJsonObject sidecar = CollabService::instance()->currentSidecarJson(_file);
+        if (!sidecar.isEmpty()) pm.peer->sendMessage(encodeCollabSync(sidecar));
+    }
     pm.peer->sendMessage(encodeJoinRejected(
         reason.isEmpty()
             ? tr("Host doesn't want to merge your changes right now.")

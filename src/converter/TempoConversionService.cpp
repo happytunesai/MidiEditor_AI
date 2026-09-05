@@ -246,8 +246,9 @@ TempoConversionResult TempoConversionService::preview(
             if (ci == kTempoChannel
                 && options.tempoMode == TempoConversionTempoMode::ScaleTempoMap) {
                 if (auto *tc = dynamic_cast<TempoChangeEvent *>(ev)) {
+                    // Same exact (microsecond-based) tempo convert() scales.
                     const double newBpm =
-                        static_cast<double>(tc->beatsPerQuarter()) * scale;
+                        (60000000.0 / tc->microsPerQuarter()) * scale;
                     if (newBpm < kBpmMin - 0.5 || newBpm > kBpmMax + 0.5) {
                         ++clampedTempoEvents;
                     }
@@ -382,12 +383,20 @@ TempoConversionResult TempoConversionService::convert(
                 ev->setMidiTime(static_cast<int>(newTick), true);
                 ++affected;
             }
-            // ScaleTempoMap: also rewrite stored BPM.
+            // ScaleTempoMap: also rewrite the stored tempo - EXACTLY. Ticks are
+            // scaled by the unrounded ratio, so writing a whole BPM here (the
+            // pre-2.3.1 setBeats path) silently drifted every passage by the
+            // rounding error (review R231-12). The event stores microseconds
+            // per quarter, which represents any fractional BPM; only the 1-999
+            // BPM range is still clamped (reported by preview()).
             if (ci == kTempoChannel
                 && options.tempoMode == TempoConversionTempoMode::ScaleTempoMap) {
                 if (auto *tc = dynamic_cast<TempoChangeEvent *>(ev)) {
-                    const double newBpm = static_cast<double>(tc->beatsPerQuarter()) * scale;
-                    tc->setBeats(storableBpm(newBpm));
+                    const double oldBpm = 60000000.0 / tc->microsPerQuarter();
+                    const double newBpm = qBound(static_cast<double>(kBpmMin),
+                                                 oldBpm * scale,
+                                                 static_cast<double>(kBpmMax));
+                    tc->setMicrosPerQuarter(qRound(60000000.0 / newBpm));
                 }
             }
         }

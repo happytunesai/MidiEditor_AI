@@ -98,7 +98,7 @@ public:
      *        [offset:]) at tick 0 inside a Protocol action, so the values
      *        survive save/reload and undo.
      */
-    void setMetadata(const LyricMetadata &meta);
+    void setMetadata(const LyricMetadata &meta, bool ownAction = true);
 
     /** \brief Returns true if any metadata fields are filled */
     bool hasMetadata() const;

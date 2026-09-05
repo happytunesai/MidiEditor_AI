@@ -354,6 +354,7 @@ private slots:
     void convert_selectedChannels_leavesGlobalMetaAlone();
 
     void convert_roundTrip_returnsToOrigin();
+    void convert_scaleTempoMap_keepsExactTempo();
 };
 
 // -------------------------------------------------------------------------
@@ -625,6 +626,32 @@ void TestTempoConversionService::convert_roundTrip_returnsToOrigin() {
         QVERIFY(TempoConversionService::convert(f.file, opts).ok);
     }
     QVERIFY(qAbs(on->midiTime() - origTick) <= 1);
+}
+
+void TestTempoConversionService::convert_scaleTempoMap_keepsExactTempo() {
+    // Review R231-12: ScaleTempoMap scaled the ticks by the exact ratio but
+    // wrote a whole BPM, so every passage drifted by the rounding error. The
+    // event stores microseconds per quarter, so 128.5 BPM is representable.
+    ScopedFile f;
+    f.file->setTempoBpm(120.0);
+    TempoChangeEvent *tempo = f.addTempo(0, 120);
+    NoteOnEvent *on = f.addNote(0, 480, 480);
+
+    TempoConversionOptions opts;
+    opts.sourceBpm = 120.0;
+    opts.targetBpm = 128.5;
+    opts.scope = TempoConversionScope::WholeProject;
+    opts.tempoMode = TempoConversionTempoMode::ScaleTempoMap;
+
+    auto preview = TempoConversionService::preview(f.file, opts);
+    QVERIFY(preview.ok);
+    QVERIFY2(preview.warning.isEmpty(), qPrintable(preview.warning));
+
+    auto r = TempoConversionService::convert(f.file, opts);
+    QVERIFY(r.ok);
+    QCOMPARE(tempo->microsPerQuarter(), qRound(60000000.0 / 128.5)); // exact, not 129 BPM
+    QCOMPARE(tempo->beatsPerQuarter(), 128);                         // truncated display value
+    QCOMPARE(on->midiTime(), qRound(480 * 128.5 / 120.0));
 }
 
 QTEST_MAIN(TestTempoConversionService)

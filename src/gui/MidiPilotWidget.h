@@ -148,6 +148,12 @@ public:
     QString documentTitleForFile(MidiFile *f) const;
 
     /**
+     * \brief Titles of every document this agent run was bound to (origin
+     * first), disambiguated with the folder name when two share a title.
+     */
+    QStringList runDocumentLabels() const;
+
+    /**
      * \brief v2.3.1 cross-tab: moves the RUNNING agent run's bind to
      * \a target in one step - called by AgentRunner's switch_document
      * intercept right after it re-pointed its own file pointer, so the whole
@@ -390,6 +396,12 @@ private:
     /** Ordered, de-duplicated titles of every document this run was bound to
      *  (origin first). More than one entry = the run-end summary lists them. */
     QStringList _runDocTitles;
+    /** Identity-keyed twins of the title bookkeeping (review R231-18): two tabs
+     *  can share a title ("Untitled" twice, v1/song.mid vs v2/song.mid), so
+     *  "did the run switch?" and the run-end summary are decided on the
+     *  MidiFile pointer; titles are only rendered at emission time. */
+    MidiFile *_runStartFile = nullptr;
+    QList<MidiFile *> _runDocs;
     /** Phase 28: the document the CURRENTLY-dispatching apply targets. Set in a
      *  tight scope around each dispatch (executeTool's guard for agent/MCP, the
      *  simple-mode wrapper) and reset to nullptr after, so activeEditFile() only

@@ -610,6 +610,56 @@ private slots:
         QCOMPARE(f->track(idle)->assignedChannel(), 1);
         delete f;
     }
+
+    // ---- review R231-21: gate rule (c) mirrors Tier-2 routing --------------
+
+    void gate_ruleC_followsTier2Routing() {
+        // Track 0 idle, tracks 1..15 melodic FFXIV names with notes; index 16 is
+        // the track Tier 2 would clamp onto channel 15 - unless its NAME routes
+        // it to channel 9 the way Tier 2 routes percussion names.
+        const QStringList names = {
+            "Piano", "Harp", "Fiddle", "Lute", "Fife", "Flute", "Oboe",
+            "Panpipes", "Clarinet", "Trumpet", "Saxophone", "Trombone",
+            "Horn", "Tuba", "Violin"};
+        auto build = [&](const QString &name16, int ch16) {
+            MidiFile *f = makeFile(names.first(), 1);
+            addNote(f, 1, f->track(1), 60, 0, 100);
+            for (int i = 1; i < names.size(); ++i)
+                addNoteTrack(f, names.at(i), i + 1);   // indices 2..15
+            addNoteTrack(f, name16, ch16);             // index 16
+            return f;
+        };
+        // Timpani is tonal and renumbered by Tier 2: notes on channel 9 do not
+        // save it from the clamp -> Rebuild refused.
+        MidiFile *timpani = build("Timpani", 9);
+        QCOMPARE(timpani->numTracks(), 17);
+        QVERIFY(!FFXIVChannelFixer::checkEligibility(timpani)["tier2Eligible"].toBool());
+        // A percussion NAME goes to channel 9 whatever channel its notes are on
+        // -> no clamp, Rebuild allowed (the old rule refused this file).
+        MidiFile *snare = build("Snare Drum", 5);
+        QVERIFY(FFXIVChannelFixer::checkEligibility(snare)["tier2Eligible"].toBool());
+        // The unmatched drum-split leftover parked on channel 9 stays there.
+        MidiFile *drums = build("Drums", 9);
+        QVERIFY(FFXIVChannelFixer::checkEligibility(drums)["tier2Eligible"].toBool());
+        delete timpani;
+        delete snare;
+        delete drums;
+    }
+
+    // ---- review R231-17: read-only tier detection for the AI tool -----------
+
+    void autoTier_matchesFixChannelsDetection() {
+        MidiFile *f = makeFile("ElectricGuitarOverdriven", 1);
+        addNote(f, 1, f->track(1), 60, 0, 100);
+        QCOMPARE(FFXIVChannelFixer::autoTier(f), 2);   // no guitar program yet -> Rebuild
+        addPc(f, 1, 29, f->track(1), 0);
+        QCOMPARE(FFXIVChannelFixer::autoTier(f), 3);   // configured -> Preserve
+        MidiFile *g = makeFile("Viola", 1);
+        addNote(g, 1, g->track(1), 60, 0, 100);
+        QCOMPARE(FFXIVChannelFixer::autoTier(g), 2);   // no guitar at all -> Rebuild
+        delete f;
+        delete g;
+    }
 };
 
 QTEST_GUILESS_MAIN(TestFfxivFixerResync)

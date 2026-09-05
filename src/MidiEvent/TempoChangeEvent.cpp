@@ -93,6 +93,25 @@ QByteArray TempoChangeEvent::save() {
     return array;
 }
 
+int TempoChangeEvent::microsPerQuarter() const {
+    if (_microsPerQuarter > 0) {
+        return _microsPerQuarter;
+    }
+    return (_beats > 0) ? (60000000 / _beats) : 500000;
+}
+
+void TempoChangeEvent::setMicrosPerQuarter(int value) {
+    if (value <= 0) {
+        value = 500000;
+    }
+    ProtocolEntry *toCopy = copy();
+    _microsPerQuarter = value;
+    _beats = 60000000 / value;
+    MidiChannel::bumpTempoRevision();
+    file()->calcMaxTime();
+    protocol(toCopy, this);
+}
+
 void TempoChangeEvent::setBeats(int beats) {
     ProtocolEntry *toCopy = copy();
     _beats = beats;

@@ -251,6 +251,16 @@ public:
         }
     }
 
+    // v2.3.1 cross-tab: a step planned before a switch_document in the same
+    // tool batch was labeled for the OLD document; the label the runner sends
+    // when the step starts wins, so the panel names the document the step
+    // really ran in (review R231-16). markActive() re-renders the text.
+    void relabelStep(int step, const QString &label) {
+        if (!_stepLabels.contains(step) || _stepNames.value(step) == label) return;
+        _stepNames[step] = label;
+        _stepLabels[step]->setText(QString("\xE2\x8F\xB3 %1").arg(label));  // ⏳
+    }
+
     void markActive(int step) {
         if (!_stepLabels.contains(step)) return;
         bool dark = Appearance::shouldUseDarkMode();
@@ -1594,6 +1604,10 @@ bool MidiPilotWidget::sendCurrentPrompt() {
         _runDocTitles.clear();
         if (!_runOriginDocTitle.isEmpty())
             _runDocTitles.append(_runOriginDocTitle);
+        _runStartFile = _file;
+        _runDocs.clear();
+        if (_file)
+            _runDocs.append(_file);
         _sendButton->setVisible(false);
         _stopButton->setVisible(true);
 
@@ -2296,6 +2310,8 @@ void MidiPilotWidget::rebindAgentRun(MidiFile *target, const QString &title) {
     _runCurrentDocTitle = title;
     if (!title.isEmpty() && !_runDocTitles.contains(title))
         _runDocTitles.append(title);
+    if (!_runDocs.contains(target))
+        _runDocs.append(target);
 
     // The unmissable, chat-visible announcement (same addChatBubble("system")
     // channel as TOOLFAIL-SILENT-001). Title CONCATENATED, never
@@ -2306,6 +2322,26 @@ void MidiPilotWidget::rebindAgentRun(MidiFile *target, const QString &title) {
                                        "tab. The view stays here; from now on its "
                                        "edits (and their undo steps) are in '")
                       + title + QStringLiteral("'."));
+}
+
+QStringList MidiPilotWidget::runDocumentLabels() const {
+    QStringList titles;
+    for (MidiFile *f : _runDocs)
+        titles << documentTitleForFile(f);
+    QStringList out;
+    for (int i = 0; i < _runDocs.size(); ++i) {
+        QString label = titles.at(i);
+        if (label.isEmpty())
+            label = QStringLiteral("(closed document)");
+        // The same title twice: add the folder so the two can be told apart.
+        if (titles.count(titles.at(i)) > 1 && _runDocs.at(i)) {
+            const QString dir = QFileInfo(_runDocs.at(i)->path()).dir().dirName();
+            if (!dir.isEmpty())
+                label += QStringLiteral(" (") + dir + QLatin1Char(')');
+        }
+        out << label;
+    }
+    return out;
 }
 
 QJsonObject MidiPilotWidget::executeAction(const QJsonObject &actionObj) {
@@ -2760,6 +2796,7 @@ void MidiPilotWidget::onAgentStepStarted(int step, const QString &toolName) {
     if (_agentStepsWidget) {
         AgentStepsWidget *sw = static_cast<AgentStepsWidget *>(_agentStepsWidget);
         sw->addStep(step, toolName);  // No-op if already planned
+        sw->relabelStep(step, toolName);  // the started label carries the current document
         sw->markActive(step);
     }
 }
@@ -2832,9 +2869,15 @@ void MidiPilotWidget::onAgentStepCompleted(int step, const QString &toolName, co
     // run is bound AWAY from the document it started on, so the persisted
     // step list says which steps' undo entries live in another tab; unmarked
     // steps are the run's own (origin) document as before.
-    if (_isAgentRunning && !_runCurrentDocTitle.isEmpty()
-        && _runCurrentDocTitle != _runOriginDocTitle) {
-        stepEntry[QStringLiteral("document")] = _runCurrentDocTitle;
+    // Decided on document identity, not on the title: two tabs may share one
+    // title and the mark must still say "another tab" (review R231-18).
+    if (_isAgentRunning && _runOriginFile && _runStartFile
+        && _runOriginFile != _runStartFile) {
+        const QString title = _runCurrentDocTitle.isEmpty()
+            ? documentTitleForFile(_runOriginFile) : _runCurrentDocTitle;
+        stepEntry[QStringLiteral("document")] = title;
+        if (!_runOriginFile->path().isEmpty())
+            stepEntry[QStringLiteral("documentPath")] = _runOriginFile->path();
     }
     _turnSteps.append(stepEntry);
 
@@ -2899,16 +2942,18 @@ void MidiPilotWidget::onAgentFinished(const QString &finalMessage) {
     // active tab reacts to Ctrl+Z, so the user needs the list. One line,
     // only when more than one document was actually bound. Titles
     // concatenated (file-name input, could contain '%N').
-    if (_runDocTitles.size() > 1) {
+    if (_runDocs.size() > 1) {
         addChatBubble(QStringLiteral("system"),
                       QStringLiteral("\u21C4 This run worked on %1 documents: ")
-                              .arg(_runDocTitles.size())
-                          + _runDocTitles.join(QStringLiteral(", "))
+                              .arg(_runDocs.size())
+                          + runDocumentLabels().join(QStringLiteral(", "))
                           + QStringLiteral(". Undo steps live in the document "
                                            "each edit was applied to - switch "
                                            "to that tab to undo its steps."));
     }
     _runDocTitles.clear();
+    _runDocs.clear();
+    _runStartFile = nullptr;
     _runOriginDocTitle.clear();
     _runCurrentDocTitle.clear();
 
@@ -3020,16 +3065,18 @@ void MidiPilotWidget::onAgentError(const QString &error) {
     // v2.3.1 cross-tab: even an aborted multi-document run has already put
     // undo steps into other tabs' Protocols - same disclosure as the success
     // path so the user can find (and undo) what landed before the error.
-    if (_runDocTitles.size() > 1) {
+    if (_runDocs.size() > 1) {
         addChatBubble(QStringLiteral("system"),
                       QStringLiteral("\u21C4 This run worked on %1 documents: ")
-                              .arg(_runDocTitles.size())
-                          + _runDocTitles.join(QStringLiteral(", "))
+                              .arg(_runDocs.size())
+                          + runDocumentLabels().join(QStringLiteral(", "))
                           + QStringLiteral(". Undo steps live in the document "
                                            "each edit was applied to - switch "
                                            "to that tab to undo its steps."));
     }
     _runDocTitles.clear();
+    _runDocs.clear();
+    _runStartFile = nullptr;
     _runOriginDocTitle.clear();
     _runCurrentDocTitle.clear();
     // ANALYZE-LATCH-001: same terminal-outcome contract as onErrorOccurred.

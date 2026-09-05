@@ -27,20 +27,33 @@ OffEvent::OffEvent(int ch, int l, MidiTrack *track)
     _line = l;
     _onEvent = 0;
     QList<OnEvent *> eventsToClose = onEvents->values(line());
+    // The pending-OnEvent map is process-global and is only drained around
+    // MidiFile::readMidiFile, so it can still hold OnEvents that belong to no
+    // parse at all - MatrixWidget's piano preview note registers itself for
+    // the whole session with a null track. Pass 1 prefers the partner from the
+    // same track (the normal case) instead of adopting a stranger and
+    // overwriting that stranger's own _offEvent pointer.
     for (int i = 0; i < eventsToClose.length(); i++) {
-        // The pending-OnEvent map is process-global and is only drained around
-        // MidiFile::readMidiFile, so it can still hold OnEvents that belong to no
-        // parse at all - MatrixWidget's piano preview note registers itself for
-        // the whole session with a null track. An OffEvent's partner always comes
-        // from the same track, so scope the search to it instead of adopting a
-        // stranger and overwriting that stranger's own _offEvent pointer.
         if (eventsToClose.at(i)->track() != track) {
             continue;
         }
         if (eventsToClose.at(i)->channel() == channel()) {
             setOnEvent(eventsToClose.at(i));
-
-            // remove entry
+            removeOnEvent(eventsToClose.at(i));
+            return;
+        }
+    }
+    // Pass 2: a pending OnEvent of a REAL track on the same channel. Files
+    // written by MidiEditor 2.3.0 and earlier can carry the Note-Off in a
+    // different track than its Note-On (the old move-to-track moved only the
+    // Note-On half); a strict same-track rule made those notes vanish on load
+    // (review R231-10). Only the null-track preview note stays excluded.
+    for (int i = 0; i < eventsToClose.length(); i++) {
+        if (!eventsToClose.at(i)->track()) {
+            continue;
+        }
+        if (eventsToClose.at(i)->channel() == channel()) {
+            setOnEvent(eventsToClose.at(i));
             removeOnEvent(eventsToClose.at(i));
             return;
         }

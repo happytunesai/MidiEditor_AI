@@ -54,6 +54,12 @@ MidiChannel::MidiChannel(MidiChannel &other) {
     _num = other._num;
 }
 
+MidiChannel::~MidiChannel() {
+    // The container only - the events are the document's. A snapshot whose map
+    // reloadState() adopted has _events == nullptr by then (see below).
+    delete _events;
+}
+
 ProtocolEntry *MidiChannel::copy() {
     // v2.2 #3 (undo-memory instrumentation): this is the SINGLE heavy snapshot
     // factory of the undo system - every protocolled channel mutation clones
@@ -87,6 +93,12 @@ void MidiChannel::reloadState(ProtocolEntry *entry) {
         delete _events;
     }
     _events = other->_events;
+    // Ownership moved to this live channel: the snapshot is deleted right
+    // after this call (ProtocolItem::release) and must not free the map we
+    // just adopted (review R231-08).
+    if (other != this) {
+        other->_events = nullptr;
+    }
     _num = other->_num;
 
     // visible() resolves through ChannelVisibilityManager, not through the

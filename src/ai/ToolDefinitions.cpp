@@ -1614,6 +1614,28 @@ QJsonObject ToolDefinitions::execImportTracksFromDocument(const QJsonObject &arg
         tempoMapsDiffer = (srcTempo != dstTempo);
     }
 
+    // Channel the new track is assigned (review R231-04): the channel most of
+    // its events use, else the source track's own assignment. addTrack() alone
+    // left it at (trackNumber - 1), so the track metadata disagreed with its
+    // events and a follow-up insert_events with channel:null landed elsewhere.
+    auto importChannelFor = [&](int t) {
+        QHash<int, int> counts;
+        for (MidiEvent *ev : planned[t])
+            counts[ev->channel()]++;
+        int best = -1, bestCount = 0;
+        for (auto it = counts.constBegin(); it != counts.constEnd(); ++it) {
+            if (it.value() > bestCount || (it.value() == bestCount && it.key() < best)) {
+                bestCount = it.value();
+                best = it.key();
+            }
+        }
+        if (best < 0) {
+            MidiTrack *s = src->track(t);
+            best = s ? s->assignedChannel() : 0;
+        }
+        return qBound(0, best, 15);
+    };
+
     // Per-track report + totals (shared by dry run and apply).
     const int firstNewIndex = file->numTracks();
     QJsonArray trackReport;
@@ -1626,6 +1648,7 @@ QJsonObject ToolDefinitions::execImportTracksFromDocument(const QJsonObject &arg
         o["sourceTrackIndex"] = t;
         o["name"] = srcTrack ? srcTrack->name() : QString();
         o["targetTrackIndex"] = firstNewIndex + i;
+        o["channel"] = importChannelFor(t);
         o["noteCount"] = plannedNotes[t];
         o["eventCount"] = static_cast<int>(planned[t].size());
         trackReport.append(o);
@@ -1652,6 +1675,7 @@ QJsonObject ToolDefinitions::execImportTracksFromDocument(const QJsonObject &arg
             MidiTrack *srcTrack = src->track(t);
             if (srcTrack)
                 dst->setName(srcTrack->name()); // preserve the name
+            dst->assignChannel(importChannelFor(t));
             dstTracks.append(dst);
         }
 
@@ -2174,13 +2198,16 @@ QJsonObject ToolDefinitions::execSetupChannelPattern(MidiFile *file,
     // function fixChannels() runs before its first edit, so a file it refuses
     // (a note-carrying track that is not an FFXIV instrument, or no FFXIV
     // names at all) returns success=false with the gate's reason without an
-    // action being opened. Rule (c) (more than 16 note tracks, Rebuild only)
-    // is left to fixChannels(): whether auto-detection lands on Rebuild is
-    // only known in there, and opening an action for a Preserve run is the
-    // safe direction.
-    if (fixerWillEdit)
-        fixerWillEdit = FFXIVChannelFixer::checkEligibility(file)
-                            .value(QStringLiteral("eligible")).toBool();
+    // action being opened. Rule (c) refuses REBUILD only: when Rebuild is what
+    // auto-detection would pick, fixChannels() refuses before its first edit
+    // as well, so that run stays outside an action too (review R231-17) - an
+    // empty action wiped the redo stack and dirtied the untouched file.
+    if (fixerWillEdit) {
+        const QJsonObject gate = FFXIVChannelFixer::checkEligibility(file);
+        fixerWillEdit = gate.value(QStringLiteral("eligible")).toBool()
+            && (gate.value(QStringLiteral("tier2Eligible")).toBool()
+                || FFXIVChannelFixer::autoTier(file) == 3);
+    }
 #endif
     if (!fixerWillEdit)
         return FFXIVChannelFixer::fixChannels(file);

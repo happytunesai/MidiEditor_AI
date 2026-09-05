@@ -148,7 +148,10 @@ AdditionalMidiSettingsWidget::~AdditionalMidiSettingsWidget() {
     if (!terminal) return;
     QTextEdit *console = terminal->console();
     if (console && console->parentWidget() == this) {
-        console->hide();
+        // No explicit hide() here: Qt keeps an explicitly hidden state across
+        // re-parenting, so the console would never show again in the next
+        // dialog (review R231-05). setParent(nullptr) alone makes it an
+        // implicitly hidden top-level that the next page's layout shows.
         console->setParent(nullptr);
     }
 }

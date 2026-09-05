@@ -163,12 +163,14 @@ const LyricMetadata &LyricManager::metadata() const
     return _metadata;
 }
 
-void LyricManager::setMetadata(const LyricMetadata &meta)
+void LyricManager::setMetadata(const LyricMetadata &meta, bool ownAction)
 {
     // F187: this used to assign the in-memory struct only, so the Lyric Settings
     // were lost on reload and never dirtied the file. Persist every non-empty
     // field as a tick-0 "[tag:value]" TextEvent inside one Protocol action;
     // importFromTextEvents() reads them back (also after undo/redo).
+    // ownAction=false lets a caller that already holds an open action (the LRC
+    // import) write the header events into ITS step instead of a second one.
     MidiTrack *track = (_file && _file->numTracks() > 0) ? _file->track(0) : nullptr;
     if (!track) {
         _metadata = meta;
@@ -201,7 +203,7 @@ void LyricManager::setMetadata(const LyricMetadata &meta)
         }
     }
 
-    if (_file->protocol()) {
+    if (ownAction && _file->protocol()) {
         _file->protocol()->startNewAction("Edit Lyric Metadata");
     }
 
@@ -236,7 +238,7 @@ void LyricManager::setMetadata(const LyricMetadata &meta)
 
     _metadata = meta;
 
-    if (_file->protocol()) {
+    if (ownAction && _file->protocol()) {
         _file->protocol()->endAction();
     }
 

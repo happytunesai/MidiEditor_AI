@@ -113,7 +113,7 @@ The fixer analyzes your MIDI file by track name, auto-detects the best mode, and
 <div class="step-card">
 <h4>1&#xFE0F;&#x20E3; Analyze</h4>
 <p>Scans all tracks and identifies FFXIV instruments by track name. Counts existing program changes and guitar variants.</p>
-<p>Before anything is changed, the fixer checks that the file is an FFXIV MIDI: every track that contains notes must be named after an FFXIV instrument. If some are not, the fixer stops and lists them by track number and name so you can rename them first; tracks without notes (tempo, title or empty tracks) are ignored, and a General MIDI drum track that plays on channel 10 is accepted as it is. Rebuild (Full Reassignment) is only offered while every melodic track with notes sits within the first 16 tracks, because MIDI has 16 channels - larger files can still use Preserve (Minimal Changes). The File Analysis box shows how many tracks contain notes and how many of those are not FFXIV instruments.</p>
+<p>Before anything is changed, the fixer checks that the file is an FFXIV MIDI: every track that contains notes must be named after an FFXIV instrument. If some are not, the fixer stops and lists them by track number and name so you can rename them first; tracks without notes (tempo, title or empty tracks) are ignored, and a General MIDI drum track that plays on the percussion channel (CH9) is accepted as it is. Rebuild (Full Reassignment) is only offered while every melodic track with notes sits within the first 16 tracks, because MIDI has 16 channels - larger files can still use Preserve (Minimal Changes). The File Analysis box shows how many tracks contain notes and how many of those are not FFXIV instruments.</p>
 </div>
 <div class="step-card">
 <h4>2&#xFE0F;&#x20E3; Clean</h4>

@@ -167,6 +167,17 @@ public:
     MidiFile *documentFileByListIndex(int index) const;
 
     /**
+     * \brief True when \a f is an open document in EITHER editor group.
+     *
+     * The "is the document still open after the modal dialog?" guards must
+     * ask this, never _documentManager alone: a document shown in the second
+     * group is the active file while the right pane is focused, yet it lives
+     * only in _group1Docs - the group-0-only check made renames and lyric
+     * imports there silently do nothing (review R231-01/03).
+     */
+    bool isDocumentOpen(MidiFile *f) const;
+
+    /**
      * \brief Gets the matrix widget for note editing.
      * \return Pointer to the MatrixWidget
      */

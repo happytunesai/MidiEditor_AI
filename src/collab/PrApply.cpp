@@ -35,12 +35,25 @@ namespace {
 
 // True when ev serializes to exactly the payload je describes. Used to
 // tell apart events that share one identity tuple (see findMatchingEvent).
+// Display-only labels the serializer adds for the AI (programName from the
+// user's instrument definitions, controlName, noteName). They differ between
+// peers with different definition files, so they must not take part in the
+// identity comparison - otherwise nothing ever matched byte-for-byte and the
+// lookup silently fell back to first-match (review R231-07).
+QJsonObject withoutDisplayLabels(QJsonObject o) {
+    o.remove(QStringLiteral("programName"));
+    o.remove(QStringLiteral("controlName"));
+    o.remove(QStringLiteral("noteName"));
+    return o;
+}
+
 bool payloadMatches(MidiFile *file, MidiEvent *ev, const QJsonObject &je) {
     QList<MidiEvent *> one;
     one.append(ev);
     QJsonArray serialized = MidiEventSerializer::serialize(one, file);
     if (serialized.isEmpty()) return false;
-    return MidiDiff::eventsEqual(serialized.first().toObject(), je);
+    return MidiDiff::eventsEqual(withoutDisplayLabels(serialized.first().toObject()),
+                                 withoutDisplayLabels(je));
 }
 
 }

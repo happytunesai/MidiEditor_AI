@@ -75,6 +75,14 @@ public:
      */
     MidiChannel(MidiChannel &other);
 
+    /**
+     * \brief Frees the event map container (not the events - they are owned
+     *        by the document). Undo snapshots are MidiChannel copies: without
+     *        this the map copy of every discarded snapshot leaked (review
+     *        R231-08, the leak F012 named).
+     */
+    ~MidiChannel();
+
     // === Basic Properties ===
 
     /**

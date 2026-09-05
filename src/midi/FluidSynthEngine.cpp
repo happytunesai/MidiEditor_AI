@@ -1007,7 +1007,13 @@ void FluidSynthEngine::exportAudio(const ExportOptions &options) {
         // blocks below keep advancing it: without stopping it first, a range
         // export appends 2s of the notes AFTER the range instead of the decay.
         // all-notes-off then releases whatever was still sounding at the cut.
-        fluid_player_stop(player);
+        // Stop only a player that is still running (the range case): a
+        // full-song player has already reached its end, and stopping it again
+        // would make FluidSynth cut the release of the last notes on the very
+        // first tail block (review R231-14).
+        if (fluid_player_get_status(player) == FLUID_PLAYER_PLAYING) {
+            fluid_player_stop(player);
+        }
         if (hasRange && options.endTick > 0) {
             for (int ch = 0; ch < 16; ++ch) {
                 fluid_synth_all_notes_off(expSynth, ch);

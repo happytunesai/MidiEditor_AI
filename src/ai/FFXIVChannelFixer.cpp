@@ -84,6 +84,22 @@ const char *kNoFfxivNamesText =
     "No FFXIV instrument names detected. "
     "Track names must match FFXIV instruments (e.g. Piano, Flute, "
     "ElectricGuitarOverdriven, Snare Drum, etc.).";
+
+// True when `track` has at least one NoteOn on channel `ch`. Shared by the
+// Preserve program fallback in fixChannels() and analyzeFile()'s listing of
+// guitar tracks without a program, so the dialog never announces a fallback
+// the fixer will not perform (review R231-22).
+bool trackPlaysOnChannel(MidiFile *file, MidiTrack *track, int ch) {
+    if (!file || !track || ch < 0 || ch > 15) return false;
+    MidiChannel *channel = file->channel(ch);
+    if (!channel) return false;
+    QMultiMap<int, MidiEvent *> *map = channel->eventMap();
+    for (auto it = map->begin(); it != map->end(); ++it) {
+        if (it.value()->track() == track && dynamic_cast<NoteOnEvent *>(it.value()))
+            return true;
+    }
+    return false;
+}
 } // namespace
 
 QJsonObject FFXIVChannelFixer::checkEligibility(MidiFile *file) {
@@ -146,7 +162,16 @@ QJsonObject FFXIVChannelFixer::checkEligibility(MidiFile *file) {
         // maps track t onto channel t and clamps t > 15 onto channel 15, so an
         // idle track 0 plus 16 note tracks still loses the last one. Percussion
         // (predominantly channel 9) is routed to channel 9 regardless of index.
-        if (t > 15 && bestCh != 9) clampRisk = true;
+        // ...and mirrors Tier 2's routing (review R231-21): a percussion NAME
+        // goes to channel 9 whatever its notes' channel, an unmatched name
+        // stays on channel 9 only when its notes are predominantly there, and
+        // every other track (FFXIV melodic names, guitars) is renumbered.
+        {
+            const QString base = stripSuffix(name);
+            const bool unmatched = !isGuitar(base) && programNumber(base) < 0;
+            if (t > 15 && !isPercussion(base) && !(unmatched && bestCh == 9))
+                clampRisk = true;
+        }
         if (isFfxivName) {
             ffxivNamedNoteTrackCount++;
             continue;
@@ -207,6 +232,48 @@ QJsonObject FFXIVChannelFixer::checkEligibility(MidiFile *file) {
 }
 
 // ---------------------------------------------------------------------------
+// autoTier - the tier fixChannels() picks when none is forced (read-only,
+// same rules as its TIER DETECTION block)
+// ---------------------------------------------------------------------------
+
+int FFXIVChannelFixer::autoTier(MidiFile *file) {
+    if (!file || file->numTracks() == 0) return 2;
+    const int trackCount = file->numTracks();
+    QVector<QString> baseNames(trackCount);
+    bool hasGuitar = false;
+    for (int t = 0; t < trackCount; t++) {
+        baseNames[t] = stripSuffix(file->track(t)->name());
+        if (isGuitar(baseNames[t])) hasGuitar = true;
+    }
+    if (!hasGuitar) return 2;
+
+    // (A) a guitar program at tick 0 on any channel -> already configured
+    for (int ch = 0; ch < 16; ch++) {
+        MidiChannel *channel = file->channel(ch);
+        if (!channel) continue;
+        const int prog = channel->progAtTick(0);
+        if (prog >= 27 && prog <= 31) return 3;
+    }
+
+    // (B) a guitar track with notes on more than one guitar channel
+    QSet<int> knownGuitarChs;
+    for (int t = 0; t < trackCount; t++) {
+        if (!isGuitar(baseNames[t])) continue;
+        const int aCh = file->track(t)->assignedChannel();
+        if (aCh >= 0) knownGuitarChs.insert(aCh);
+    }
+    for (int t = 0; t < trackCount; t++) {
+        if (!isGuitar(baseNames[t])) continue;
+        int chsWithNotes = 0;
+        for (int ch : knownGuitarChs) {
+            if (trackPlaysOnChannel(file, file->track(t), ch)) chsWithNotes++;
+        }
+        if (chsWithNotes > 1) return 3;
+    }
+    return 2;
+}
+
+// ---------------------------------------------------------------------------
 // analyzeFile  - read-only scan for the tier selection dialog
 // ---------------------------------------------------------------------------
 
@@ -264,8 +331,11 @@ QJsonObject FFXIVChannelFixer::analyzeFile(MidiFile *file) {
     for (int t = 0; t < trackCount; t++) {
         MidiTrack *track = file->track(t);
         if (!isGuitar(stripSuffix(track->name()))) continue;
-        const int ch = dominantNoteChannel(file, track);
-        if (ch < 0) continue;
+        // Same channel and the same "plays there" test as the Preserve
+        // fallback in fixChannels() - the two must agree (review R231-22).
+        int ch = track->assignedChannel();
+        if (ch < 0 || ch > 15) ch = qMin(t, 15);
+        if (!trackPlaysOnChannel(file, track, ch)) continue;
         const int prog = file->channel(ch)->progAtTick(0);
         if (prog >= 27 && prog <= 31) continue;
         QJsonObject entry;
@@ -499,17 +569,6 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
     QSet<int> idleGuitarTracks;             // Tier 3: guitar tracks without notes on their channel
     QJsonArray guitarProgramFallbackLog;    // Tier 3: channels that took the program from the track name
 
-    auto trackPlaysOnChannel = [&](MidiTrack *track, int ch) -> bool {
-        MidiChannel *channel = file->channel(ch);
-        if (!channel) return false;
-        QMultiMap<int, MidiEvent *> *map = channel->eventMap();
-        for (auto it = map->begin(); it != map->end(); ++it) {
-            if (it.value()->track() == track && dynamic_cast<NoteOnEvent *>(it.value()))
-                return true;
-        }
-        return false;
-    };
-
     if (isPreserveMode) {
         // TIER 3 -- minimal-invasive: assignedChannel() is the ONLY source of truth.
         // Every guitar track keeps its own assigned channel — even if two tracks
@@ -537,7 +596,7 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
                 // channel, so neither branch fires for them and the frozen
                 // Tier-3 result stays byte-identical.
                 if (!guitarChToProgram.contains(aCh)) {
-                    if (!trackPlaysOnChannel(track, aCh)) {
+                    if (!trackPlaysOnChannel(file, track, aCh)) {
                         idleGuitarTracks.insert(t);
                         continue;
                     }

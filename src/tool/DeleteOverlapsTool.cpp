@@ -192,27 +192,41 @@ void DeleteOverlapsTool::deleteOverlapsMono(const QList<NoteOnEvent *> &notes, b
             return a->midiTime() < b->midiTime();
         });
 
-        // Handle overlaps: prioritize longer notes, remove shorter overlapping ones
+        // Handle overlaps: prioritize longer notes, remove shorter overlapping ones.
+        //
+        // Plan first, mutate afterwards (review R231-11): a note that was first
+        // shortened (a protocolled time change) and later found enclosed used to
+        // be removed silently under the channel's one snapshot - on redo the
+        // per-event item re-inserted it without its Note-Off. Time changes are
+        // therefore collected here and applied only to the notes that survive.
         QList<NoteOnEvent *> notesToRemove;
+        QHash<NoteOnEvent *, int> newStarts;
+        QHash<NoteOnEvent *, int> newEnds;
+        auto startOf = [&](NoteOnEvent *n) {
+            return newStarts.contains(n) ? newStarts.value(n) : n->midiTime();
+        };
+        auto endOf = [&](NoteOnEvent *n) {
+            return newEnds.contains(n) ? newEnds.value(n) : n->offEvent()->midiTime();
+        };
 
         for (int i = 0; i < groupNotes.size(); i++) {
             if (notesToRemove.contains(groupNotes[i])) continue;
 
             NoteOnEvent *currentNote = groupNotes[i];
-            int currentStart = currentNote->midiTime();
-            int currentEnd = currentNote->offEvent()->midiTime();
+            int currentStart = startOf(currentNote);
+            int currentEnd = endOf(currentNote);
             int currentLength = currentEnd - currentStart;
 
             for (int j = i + 1; j < groupNotes.size(); j++) {
                 if (notesToRemove.contains(groupNotes[j])) continue;
 
                 NoteOnEvent *laterNote = groupNotes[j];
-                int laterStart = laterNote->midiTime();
-                int laterEnd = laterNote->offEvent()->midiTime();
+                int laterStart = startOf(laterNote);
+                int laterEnd = endOf(laterNote);
                 int laterLength = laterEnd - laterStart;
 
-                // Check if notes overlap
-                if (notesOverlap(currentNote, laterNote)) {
+                // Check if notes overlap (on their planned positions)
+                if (currentStart < laterEnd && laterStart < currentEnd) {
                     // Decide which note to keep based on length and position
                     if (laterStart >= currentStart && laterEnd <= currentEnd) {
                         // Later note is completely inside current note - remove later note
@@ -227,7 +241,7 @@ void DeleteOverlapsTool::deleteOverlapsMono(const QList<NoteOnEvent *> &notes, b
                             // Shorten the later note to start after current note ends
                             int newStart = currentEnd;
                             if (newStart < laterEnd - 1) {
-                                laterNote->setMidiTime(newStart);
+                                newStarts.insert(laterNote, newStart);
                             } else {
                                 // Later note would be too short, remove it
                                 notesToRemove.append(laterNote);
@@ -238,7 +252,7 @@ void DeleteOverlapsTool::deleteOverlapsMono(const QList<NoteOnEvent *> &notes, b
                         if (currentEnd > laterStart) {
                             // Shorten current note to end before later note starts
                             int newEnd = qMax(laterStart - 1, currentStart + 1);
-                            currentNote->offEvent()->setMidiTime(newEnd);
+                            newEnds.insert(currentNote, newEnd);
                             currentEnd = newEnd;
                         }
                     }
@@ -246,9 +260,19 @@ void DeleteOverlapsTool::deleteOverlapsMono(const QList<NoteOnEvent *> &notes, b
             }
         }
 
-        // Remove the notes marked for deletion
+        // Removals first (silent after the channel's first snapshot), then the
+        // survivors' time changes as protocolled per-event items - so every
+        // per-event undo item describes a note that still exists.
         for (NoteOnEvent *note: notesToRemove) {
             removeNote(note);
+        }
+        for (auto it = newStarts.constBegin(); it != newStarts.constEnd(); ++it) {
+            if (notesToRemove.contains(it.key())) continue;
+            it.key()->setMidiTime(it.value());
+        }
+        for (auto it = newEnds.constBegin(); it != newEnds.constEnd(); ++it) {
+            if (notesToRemove.contains(it.key())) continue;
+            it.key()->offEvent()->setMidiTime(it.value());
         }
     }
 }

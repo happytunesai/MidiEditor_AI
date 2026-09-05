@@ -67,10 +67,11 @@ MidiFile* MmlImporter::loadFile(QString path, bool* ok) {
     QFile::remove(tempPath);
 
     if (!midiOk || !midiFile) {
-        // Do NOT delete a MidiFile whose ctor reported failure: its early
-        // returns leave the object half-built (only the in-class initializers
-        // in MidiFile.h keep ~MidiFile from deleting indeterminate pointers).
-        // Leak it, matching the class's own documented cleanup policy.
+        // A MidiFile whose ctor reported failure is half-built; MidiFile.h's
+        // in-class initializers exist exactly so that callers can delete it
+        // safely (the other importers do). Deleting it frees the Protocol, the
+        // track list and the channels the early return left behind (R231-24).
+        delete midiFile;
         return nullptr;
     }
 
