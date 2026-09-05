@@ -65,6 +65,15 @@ public:
     AdditionalMidiSettingsWidget(QSettings *settings, QWidget *parent = 0);
 
     /**
+     * \brief Hands the borrowed Terminal console back before the page dies.
+     *
+     * The console widget belongs to the Terminal singleton and is only
+     * embedded here; without this it would be destroyed together with the
+     * (delete-on-close) Settings dialog.
+     */
+    ~AdditionalMidiSettingsWidget() override;
+
+    /**
      * \brief Validates and applies the settings changes.
      * \return True if settings are valid and applied successfully
      */

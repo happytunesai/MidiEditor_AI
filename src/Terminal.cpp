@@ -51,9 +51,9 @@ void Terminal::writeString(QString message) {
     // WHY: setText(toPlainText() + ...) copied and re-parsed the whole console
     // on every line, so appending N lines cost O(N^2) time and memory on the GUI
     // thread. append() adds one paragraph and leaves the existing text alone.
-    _textEdit->append(message);
-    _textEdit->verticalScrollBar()->setValue(
-        _textEdit->verticalScrollBar()->maximum());
+    QTextEdit *edit = console();
+    edit->append(message);
+    edit->verticalScrollBar()->setValue(edit->verticalScrollBar()->maximum());
 }
 
 void Terminal::execute(QString startString, QString inPort, QString outPort) {
@@ -170,5 +170,13 @@ void Terminal::printErrorToTerminal() {
 }
 
 QTextEdit *Terminal::console() {
+    if (!_textEdit) {
+        // An embedder deleted the widget together with its own window (the
+        // Settings dialog hands it back in its destructor, but any other
+        // owner might not). The log text is lost in that case; a dangling
+        // pointer must never be returned.
+        _textEdit = new QTextEdit();
+        _textEdit->setReadOnly(true);
+    }
     return _textEdit;
 }

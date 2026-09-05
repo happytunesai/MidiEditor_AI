@@ -61,6 +61,23 @@ void FFXIVFixerDialog::setupUI(const QJsonObject &analysis) {
         QStringList gv;
         for (const auto &v : guitarArr) gv << v.toString();
         infoText += QString("<br>Guitar variants: <b>%1</b>").arg(gv.join(", "));
+
+        // Guitar tracks playing on a channel without a guitar program (e.g. a
+        // Viola track renamed to a guitar): Preserve takes the program from
+        // the track name instead of leaving the channel on program 0.
+        const QJsonArray noProgArr = analysis["guitarTracksWithoutProgram"].toArray();
+        if (!noProgArr.isEmpty()) {
+            QStringList np;
+            for (const auto &v : noProgArr) {
+                const QJsonObject e = v.toObject();
+                np << QString("%1 %2 (CH%3)").arg(e["index"].toInt())
+                        .arg(e["name"].toString().toHtmlEscaped())
+                        .arg(e["channel"].toInt());
+            }
+            infoText += QString("<br>Guitar tracks without a guitar program: <b>%1</b>"
+                                " - the program is taken from the track name")
+                            .arg(np.join(", "));
+        }
     }
     if (!percArr.isEmpty()) {
         QStringList pv;

@@ -13421,22 +13421,22 @@ midipilot-settings.html (+ help_db regen), CHANGELOG per the template.
   same day: items 3, 4 and 5 were approved and are DONE in 2.3.1 (per-file CollabService
   state - live sessions survive tab switches; GM channel router for Guitar Pro port-2+
   tracks; QLockFile-based clipboard lock with a 2 s timeout and stale-lock recovery).
-  Items 1 and 2 (the Channel Fixer) stay open pending the owner's own repro; the F066
-  eligibility gate ("is this an FFXIV MIDI at all?") was approved separately after the
-  owner reproduced the one-renamed-track loophole on a 12-track GM file:
-  1. FFXIV Channel Fixer, Tier 3 (review F065): a guitar channel whose only guitar program
-     change sits mid-song loses it and gets nothing back (analyzeFile accepts a PC at ANY
-     tick, fixChannels only at tick 0, so the recommended tier is the one that destroys
-     the data). Ready-to-apply fix: in the Tier-3 re-insert loop fall back to the guitar
-     track's own programNumber(baseName) when guitarChToProgram has no entry (owner chosen
-     like the resync plan: earliest first NoteOn, tie-break lowest track index), and align
-     analyzeFile's hasGuitarPCs test with the tick-0 rule. Forward-behaviour change.
-  2. FFXIV Channel Fixer, Tier 2 (F066): every track index above 15 is clamped onto
-     channel 15 (events merged, CCs stripped, only the last program survives) as soon as
-     ONE track name matches an FFXIV instrument - silently. Options: (a) additive:
-     report `clampedTracks` in the result + warn in the HTML summary/dialog; (b) leave
-     tracks beyond the 16-channel budget on their channels and report them; (c) refuse
-     Tier 2 when a note-carrying track would be clamped.
+  Items 1 and 2 (the Channel Fixer) are DONE as well: the F066 eligibility gate ("is this
+  an FFXIV MIDI at all?") was approved after the owner reproduced the one-renamed-track
+  loophole on a 12-track GM file, and F065 was hit in daily use on 2026-09-05 (a Viola
+  track renamed to ElectricGuitarOverdriven came out of Preserve on program 0) and fixed
+  the same day:
+  1. FFXIV Channel Fixer, Tier 3 (review F065) - DONE 2026-09-05: Preserve gives a guitar
+     track's channel the program of the track's own variant when the channel carries no
+     27-31 program at tick 0 and the track plays there (first track by index wins,
+     reported as `guitarProgramFallbacks`); an idle guitar track parked on another
+     instrument's channel no longer strips that channel's program; analyzeFile lists
+     `guitarTracksWithoutProgram` and the dialog shows them. No-op for configured files,
+     so the frozen Tier-3 forward result is unchanged for them. Tests 15-16.
+  2. FFXIV Channel Fixer, Tier 2 (F066) - DONE via option (c): the eligibility gate
+     refuses Rebuild when a melodic note track sits beyond index 15 (would be clamped onto
+     channel 15) and offers Preserve instead; the reason is shown in the dialog and
+     returned by setup_channel_pattern.
   3. Collab live session vs. tabs (F106): the session ends on ANY document activation,
      including a plain tab switch, because CollabService keeps one "current file". Keeping
      the session alive needs per-file collab state in CollabService (file-keyed

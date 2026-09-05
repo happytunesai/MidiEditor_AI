@@ -136,6 +136,23 @@ AdditionalMidiSettingsWidget::AdditionalMidiSettingsWidget(QSettings *settings, 
     layout->setRowStretch(3, 1);
 }
 
+AdditionalMidiSettingsWidget::~AdditionalMidiSettingsWidget() {
+    // The console is the Terminal singleton's widget and only borrowed by this
+    // page (layout->addWidget() re-parented it to us). The Settings dialog is
+    // deleted on close since v2.3.1, which took the console down with it and
+    // left Terminal::console() - and therefore the NEXT Settings dialog -
+    // holding a freed widget: access violation in QWidget::setParent on the
+    // second "Settings" click. Detach it before our children are destroyed so
+    // it survives, log text included.
+    Terminal *terminal = Terminal::terminal();
+    if (!terminal) return;
+    QTextEdit *console = terminal->console();
+    if (console && console->parentWidget() == this) {
+        console->hide();
+        console->setParent(nullptr);
+    }
+}
+
 void AdditionalMidiSettingsWidget::manualModeToggled(bool enable) {
     MidiOutput::isAlternativePlayer = enable;
 }

@@ -20,6 +20,7 @@
 #define TERMINAL_H_
 
 #include <QObject>
+#include <QPointer>
 
 // Forward declarations
 class QProcess;
@@ -115,8 +116,13 @@ private:
     /** \brief The external process being managed */
     QProcess *_process;
 
-    /** \brief The text widget used as the console display */
-    QTextEdit *_textEdit;
+    /** \brief The text widget used as the console display.
+     *
+     * A QPointer on purpose: the Settings dialog embeds this widget in one of
+     * its pages and the dialog is deleted on close, so the widget can go down
+     * with it. console() then hands out a fresh one instead of the freed
+     * pointer that crashed the next Settings dialog. */
+    QPointer<QTextEdit> _textEdit;
 
     /** \brief MIDI input and output port identifiers */
     QString _inPort, _outPort;

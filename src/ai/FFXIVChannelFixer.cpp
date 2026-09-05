@@ -256,6 +256,25 @@ QJsonObject FFXIVChannelFixer::analyzeFile(MidiFile *file) {
         }
     }
 
+    // v2.3.1 (review F065): guitar tracks that play on a channel whose tick-0
+    // program is not a guitar program (27-31) - e.g. a Viola track renamed to
+    // ElectricGuitarOverdriven. Preserve gives such a channel the program of
+    // the track's own variant; the dialog lists them so the user sees why.
+    QJsonArray guitarTracksWithoutProgram;
+    for (int t = 0; t < trackCount; t++) {
+        MidiTrack *track = file->track(t);
+        if (!isGuitar(stripSuffix(track->name()))) continue;
+        const int ch = dominantNoteChannel(file, track);
+        if (ch < 0) continue;
+        const int prog = file->channel(ch)->progAtTick(0);
+        if (prog >= 27 && prog <= 31) continue;
+        QJsonObject entry;
+        entry["index"]   = t;
+        entry["name"]    = track->name();
+        entry["channel"] = ch;
+        guitarTracksWithoutProgram.append(entry);
+    }
+
     // Auto-detect tier
     int autoTier = (ffxivTrackCount > 0) ? 2 : 1;
     if (autoTier == 2 && hasGuitar && hasGuitarPCs)
@@ -270,6 +289,7 @@ QJsonObject FFXIVChannelFixer::analyzeFile(MidiFile *file) {
     result["guitarVariants"]      = QJsonArray::fromStringList(guitarVariants);
     result["percussionTracks"]    = QJsonArray::fromStringList(percussionTracks);
     result["melodicTracks"]       = QJsonArray::fromStringList(melodicTracks);
+    result["guitarTracksWithoutProgram"] = guitarTracksWithoutProgram;
 
     // v2.3.1 eligibility gate (review F066) - the fields above are unchanged,
     // the dialog and MainWindow read the gate from here.
@@ -476,6 +496,19 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
     QVector<int> channelFor(trackCount, -1);
     QSet<int> usedChannels;
     QHash<QString, int> guitarChannelMap;
+    QSet<int> idleGuitarTracks;             // Tier 3: guitar tracks without notes on their channel
+    QJsonArray guitarProgramFallbackLog;    // Tier 3: channels that took the program from the track name
+
+    auto trackPlaysOnChannel = [&](MidiTrack *track, int ch) -> bool {
+        MidiChannel *channel = file->channel(ch);
+        if (!channel) return false;
+        QMultiMap<int, MidiEvent *> *map = channel->eventMap();
+        for (auto it = map->begin(); it != map->end(); ++it) {
+            if (it.value()->track() == track && dynamic_cast<NoteOnEvent *>(it.value()))
+                return true;
+        }
+        return false;
+    };
 
     if (isPreserveMode) {
         // TIER 3 -- minimal-invasive: assignedChannel() is the ONLY source of truth.
@@ -490,6 +523,35 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
                 int aCh = track->assignedChannel();
                 if (aCh < 0 || aCh > 15) aCh = qMin(t, 15);
                 channelFor[t] = aCh;
+
+                // v2.3.1 (review F065): a guitar track on a channel that has
+                // no guitar program at tick 0 - typically a track the user just
+                // renamed from a melodic instrument (Viola -> Overdriven) - used
+                // to lose the channel's only program change in CLEAN and get
+                // nothing back, so the editor played it as program 0 (piano).
+                //   * The track plays on that channel: the channel takes the
+                //     program of the track's own variant.
+                //   * The track is idle there: the channel is not a guitar
+                //     channel at all - leave it and its owner's program alone.
+                // Configured files carry a 27-31 program on every guitar
+                // channel, so neither branch fires for them and the frozen
+                // Tier-3 result stays byte-identical.
+                if (!guitarChToProgram.contains(aCh)) {
+                    if (!trackPlaysOnChannel(track, aCh)) {
+                        idleGuitarTracks.insert(t);
+                        continue;
+                    }
+                    const int prog = programNumber(baseNames[t]);
+                    if (prog >= 0) {
+                        guitarChToProgram[aCh] = prog;
+                        QJsonObject entry;
+                        entry["track"]     = t;
+                        entry["trackName"] = track->name();
+                        entry["channel"]   = aCh;
+                        entry["program"]   = prog;
+                        guitarProgramFallbackLog.append(entry);
+                    }
+                }
                 usedChannels.insert(aCh);
 
                 // Register first-seen variant (for chToVariant fallback)
@@ -575,7 +637,8 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
     if (hasGuitar) {
         // Include ALL guitar track channels (not just first occurrence per variant)
         for (int t = 0; t < trackCount; t++) {
-            if (isGuitar(baseNames[t]) && channelFor[t] >= 0) {
+            if (isGuitar(baseNames[t]) && channelFor[t] >= 0
+                && !idleGuitarTracks.contains(t)) {
                 allGuitarChs.insert(channelFor[t]);
                 guitarChsFromTracks.insert(channelFor[t]);
             }
@@ -1147,6 +1210,10 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
     result["resyncedNonGuitarChannels"] = resyncPlan.size();
     if (!resyncLog.isEmpty())
         result["nonGuitarResyncs"] = resyncLog;
+
+    result["guitarProgramFallbacks"] = guitarProgramFallbackLog.size();
+    if (!guitarProgramFallbackLog.isEmpty())
+        result["guitarProgramFallbackLog"] = guitarProgramFallbackLog;
 
     result["success"] = true;
     result["tier"] = tier;

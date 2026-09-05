@@ -323,6 +323,7 @@ FFXIV electric guitar supports 5 tonal variants that share channels via <code>pr
 <li><b>Reserved channels visible in Preserve</b> - when you manually place notes on a reserved guitar channel (e.g. Guitar harmonics on CH6), Preserve mode detects them for auto-rename and switch-point insertion.</li>
 <li><b>Mid-song switches</b> - when notes jump between guitar channels, a <code>program_change</code> is inserted at the switch point</li>
 <li><b>Auto-rename</b> - in Preserve mode, if a guitar track's first note is on a different variant's channel, the track is automatically renamed to match</li>
+<li><b>Program from the track name</b> - in Preserve mode, a guitar track that plays on a channel without a guitar program (for example a Viola track you renamed to ElectricGuitarOverdriven) gets the program of its own variant on that channel; the analysis dialog lists such tracks. An empty guitar track parked on another instrument's channel leaves that channel alone.</li>
 </ul>
 
 <hr>

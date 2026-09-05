@@ -32,6 +32,14 @@
  *      the single-track wording.
  *  14. analyzeFile()'s pre-existing fields are pinned for an eligible file.
  *
+ * v2.3.1 (review F065) - Preserve and a guitar track whose channel carries no
+ * guitar program at tick 0:
+ *  15. A Viola track renamed to ElectricGuitarOverdriven keeps its channel and
+ *      the channel takes program 29 from the track name (reported, no rename,
+ *      the second run changes nothing).
+ *  16. An idle guitar track parked on the Viola's channel leaves that
+ *      channel's program alone.
+ *
  * Harness: compiles the REAL FFXIVChannelFixer + MidiFile/MidiChannel/
  * MidiTrack/Protocol/MidiEvent stack; only the GUI periphery is ODR-shimmed
  * (Appearance colors, EventWidget), same approach as test_midi_event.
@@ -536,6 +544,70 @@ private slots:
         QCOMPARE(a["noteTrackCount"].toInt(), 3);
         QCOMPARE(a["ffxivNamedNoteTrackCount"].toInt(), 3);
         QVERIFY(a["eligibility"].toObject()["eligible"].toBool());
+        delete f;
+    }
+
+    // ---- v2.3.1 review F065: guitar track on a channel without a guitar PC ----
+
+    void tier3_renamedGuitarTrackGetsProgramFromTrackName() {
+        // Track 1 was a Viola on CH1 (PC 41) and got renamed to
+        // ElectricGuitarOverdriven; track 2 is a configured Overdriven on CH4
+        // (PC 29), so auto-detection lands on Preserve. Before the fix CLEAN
+        // stripped the Viola PC from CH1 and nothing came back: program 0.
+        MidiFile *f = makeFile("ElectricGuitarOverdriven", 1);
+        addNote(f, 1, f->track(1), 60, 0, 100);
+        addPc(f, 1, 41, f->track(1), 0);
+        const int g = addNoteTrack(f, "ElectricGuitarOverdriven", 4);
+        addPc(f, 4, 29, f->track(g), 0);
+
+        const QJsonObject a = FFXIVChannelFixer::analyzeFile(f);
+        QCOMPARE(a["autoDetectedTier"].toInt(), 3);
+        const QJsonArray noProg = a["guitarTracksWithoutProgram"].toArray();
+        QCOMPARE(noProg.size(), 1);
+        QCOMPARE(noProg.first().toObject()["index"].toInt(), 1);
+        QCOMPARE(noProg.first().toObject()["channel"].toInt(), 1);
+
+        QJsonObject r = runTier(f, 0); // auto -> Preserve
+        QVERIFY2(r["success"].toBool(), qPrintable(r["error"].toString()));
+        QCOMPARE(r["tier"].toInt(), 3);
+        QCOMPARE(r["guitarProgramFallbacks"].toInt(), 1);
+        QCOMPARE(f->channel(1)->progAtTick(0), 29);
+        QVERIFY(!tickZeroPrograms(f, 1).contains(41));
+        QCOMPARE(f->channel(4)->progAtTick(0), 29);
+        QCOMPARE(f->track(1)->name(), QString("ElectricGuitarOverdriven")); // no rename
+        QCOMPARE(f->track(1)->assignedChannel(), 1);                       // no migration
+
+        // Second run: CH1 now carries a guitar program, the fallback is not
+        // needed any more and the file does not change any further.
+        const auto after1 = pcFingerprint(f);
+        QJsonObject r2 = runTier(f, 3);
+        QCOMPARE(r2["guitarProgramFallbacks"].toInt(), 0);
+        QCOMPARE(pcFingerprint(f), after1);
+        QCOMPARE(FFXIVChannelFixer::analyzeFile(f)["guitarTracksWithoutProgram"].toArray().size(), 0);
+        delete f;
+    }
+
+    void tier3_idleGuitarTrackLeavesForeignChannelAlone() {
+        // An empty ElectricGuitarClean track parked on the Viola's channel must
+        // neither strip the Viola's program nor turn CH1 into a guitar channel.
+        MidiFile *f = makeFile("Viola", 1);
+        addNote(f, 1, f->track(1), 60, 0, 100);
+        addPc(f, 1, 41, f->track(1), 0);
+        const int g = addNoteTrack(f, "ElectricGuitarOverdriven", 4);
+        addPc(f, 4, 29, f->track(g), 0);
+        f->protocol()->startNewAction("setup-track");
+        f->addTrack();
+        f->protocol()->endAction();
+        const int idle = f->numTracks() - 1;
+        f->track(idle)->setName("ElectricGuitarClean");
+        f->track(idle)->assignChannel(1);
+
+        QJsonObject r = runTier(f, 3);
+        QVERIFY2(r["success"].toBool(), qPrintable(r["error"].toString()));
+        QCOMPARE(r["guitarProgramFallbacks"].toInt(), 0);
+        QCOMPARE(tickZeroPrograms(f, 1), QList<int>{41}); // Viola untouched
+        QCOMPARE(f->channel(4)->progAtTick(0), 29);
+        QCOMPARE(f->track(idle)->assignedChannel(), 1);
         delete f;
     }
 };
