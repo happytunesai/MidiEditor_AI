@@ -64,6 +64,7 @@
 #include "../src/MidiEvent/OffEvent.h"
 #include "../src/MidiEvent/ProgChangeEvent.h"
 #include "../src/MidiEvent/SysExEvent.h"
+#include "../src/MidiEvent/TextEvent.h"
 
 // ---- ODR shims: Appearance colors (statics used by midi core / events) ---
 #include "../src/gui/Appearance.h"
@@ -93,7 +94,13 @@ private:
 
     // What the real loader made of a hand-written SMF (see loadShape below).
     // Declared here: moc rejects type declarations inside "private slots".
-    struct LoadedShape { int notes = 0; bool notesPaired = true; QList<QByteArray> sysex; };
+    struct LoadedShape {
+        int notes = 0;
+        bool notesPaired = true;
+        QList<int> noteTicks;
+        QList<QByteArray> sysex;
+        QStringList texts;
+    };
 
     // New empty file (2 tracks: "Tempo Track", "New Instrument").
     // Renames track 1 and pins it to a channel.
@@ -411,6 +418,7 @@ private slots:
             for (auto it = notesMap->begin(); it != notesMap->end(); ++it) {
                 if (auto *n = dynamic_cast<NoteOnEvent *>(it.value())) {
                     ++shape.notes;
+                    shape.noteTicks << n->midiTime();
                     if (!n->offEvent()) shape.notesPaired = false;
                 }
             }
@@ -418,6 +426,10 @@ private slots:
             for (auto it = sysMap->begin(); it != sysMap->end(); ++it) {
                 if (auto *sx = dynamic_cast<SysExEvent *>(it.value()))
                     shape.sysex << sx->data();
+                if (auto *text = dynamic_cast<TextEvent *>(it.value())) {
+                    if (text->type() == TextEvent::TEXT)
+                        shape.texts << text->text();
+                }
             }
         }
         delete loaded;
@@ -862,6 +874,36 @@ private slots:
         QCOMPARE(s.notes, 1);
         QVERIFY(s.notesPaired);
         QCOMPARE(s.sysex, QList<QByteArray>{QByteArray::fromHex("411042")});
+    }
+
+    void loader_sysexLookaheadLimitPreservesStandardFraming_data() {
+        QTest::addColumn<int>("metaCount");
+        QTest::newRow("at-lookahead-limit") << 16;
+        QTest::newRow("past-lookahead-limit") << 17;
+        QTest::newRow("well-past-lookahead-limit") << 64;
+    }
+
+    void loader_sysexLookaheadLimitPreservesStandardFraming() {
+        QFETCH(int, metaCount);
+        QByteArray track = QByteArray::fromHex("00 F0 03 41 10 42");
+        QStringList expectedTexts;
+        for (int i = 0; i < metaCount; ++i) {
+            // Distinct texts and nonzero deltas detect lost events and timing
+            // changes when the look-ahead rewinds to the first packet's end.
+            const QByteArray text = QByteArray::number(i);
+            track += QByteArray::fromHex("01 FF 01");
+            track += MidiFile::writeVariableLengthValue(text.size());
+            track += text;
+            expectedTexts << QString::fromLatin1(text);
+        }
+        track += QByteArray::fromHex("0A F7 04 12 40 00 F7 60 903C64 60 803C00");
+
+        const LoadedShape s = loadShape(smfWithOneTrack(track));
+        QCOMPARE(s.sysex, QList<QByteArray>{QByteArray::fromHex("411042")});
+        QCOMPARE(s.texts, expectedTexts);
+        QCOMPARE(s.notes, 1);
+        QVERIFY(s.notesPaired);
+        QCOMPARE(s.noteTicks, QList<int>{metaCount + 10 + 96});
     }
 
     // ---- review R231-11 core rule: snapshot + later per-event item ----------

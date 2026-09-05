@@ -291,17 +291,23 @@ MidiEvent *MidiEvent::loadMidiEvent(QDataStream *content, bool *ok, bool *endEve
                     // meta events (FF ...) may sit between the packets - they are
                     // not MIDI data, so the SMF spec allows them there. Look ahead
                     // for exactly that structure (skipping a bounded number of
-                    // meta events); anything else is the old framing, whose F7
-                    // terminator we would otherwise misread as the continuation
-                    // status.
+                    // meta events). Exhausting that look-ahead is inconclusive:
+                    // keep the standard framing rather than treating a search
+                    // limit as evidence of an old-framed message.
                     if (!oldFraming && innerF7 < 0 && device && !content->atEnd()) {
                         const qint64 afterChunk = device->pos();
                         bool continuationOk = false;
-                        for (int skippedMeta = 0; skippedMeta <= 16; skippedMeta++) {
+                        bool lookaheadLimitReached = false;
+                        constexpr int kMaxLookaheadMetaEvents = 16;
+                        for (int skippedMeta = 0; skippedMeta <= kMaxLookaheadMetaEvents; skippedMeta++) {
                             const int delta = MidiFile::variableLengthvalue(content);
                             if (delta < 0 || content->atEnd()) break;
                             (*content) >> tempByte;
                             if (tempByte == 0xFF) {
+                                if (skippedMeta == kMaxLookaheadMetaEvents) {
+                                    lookaheadLimitReached = true;
+                                    break;
+                                }
                                 // <type> <len> <data>: skip and look at the next event
                                 if (content->atEnd()) break;
                                 (*content) >> tempByte;
@@ -336,7 +342,7 @@ MidiEvent *MidiEvent::loadMidiEvent(QDataStream *content, bool *ok, bool *endEve
                             *ok = false;
                             return 0;
                         }
-                        oldFraming = !continuationOk;
+                        oldFraming = !continuationOk && !lookaheadLimitReached;
                     }
                     if (oldFraming) {
                         if (!device || lengthPos < 0 || !device->seek(lengthPos)) {
