@@ -213,6 +213,10 @@ QJsonObject MidiEventSerializer::serializeTempoEvent(MidiEvent *event)
     obj[QStringLiteral("channel")] = t->channel();
     if (t->track()) obj[QStringLiteral("track")] = t->track()->number();
     obj[QStringLiteral("bpm")] = t->beatsPerQuarter();
+    // Exact tempo: bpm above is the truncated whole number, but a scaled tempo
+    // map carries fractional tempi (128.5 BPM = 466926 us per quarter). Peers
+    // and PR bundles must not round them down to 128 (post-review finding).
+    obj[QStringLiteral("microsPerQuarter")] = t->microsPerQuarter();
     return obj;
 }
 
@@ -550,9 +554,16 @@ bool MidiEventSerializer::deserialize(const QJsonArray &eventsJson,
             createdEvents.append(pcEvent);
         } else if (type == QStringLiteral("tempo")) {
             // BPM ↔ microsPerQuarter conversion mirrors MidiPilotWidget's
-            // applyTempoAction so behavioural parity is exact.
+            // applyTempoAction so behavioural parity is exact. A payload that
+            // carries the exact microseconds (this build's serializer) wins, so
+            // fractional tempi survive live sync and PR bundles; older senders
+            // only provide the whole bpm.
             int bpm = qBound(1, obj[QStringLiteral("bpm")].toInt(), 999);
             int microsPerQuarter = 60000000 / bpm;
+            const int exactMicros = obj[QStringLiteral("microsPerQuarter")].toInt(0);
+            if (exactMicros >= 60000000 / 999 && exactMicros <= 60000000) {
+                microsPerQuarter = exactMicros;
+            }
             TempoChangeEvent *ev = new TempoChangeEvent(ch, microsPerQuarter, track);
             file->channel(ch)->insertEvent(ev, tick);
             createdEvents.append(ev);

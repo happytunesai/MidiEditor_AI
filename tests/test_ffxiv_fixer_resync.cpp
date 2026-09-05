@@ -63,6 +63,7 @@
 #include "../src/MidiEvent/NoteOnEvent.h"
 #include "../src/MidiEvent/OffEvent.h"
 #include "../src/MidiEvent/ProgChangeEvent.h"
+#include "../src/MidiEvent/SysExEvent.h"
 
 // ---- ODR shims: Appearance colors (statics used by midi core / events) ---
 #include "../src/gui/Appearance.h"
@@ -89,6 +90,10 @@ class TestFfxivFixerResync : public QObject {
 
 private:
     // --- helpers ----------------------------------------------------------
+
+    // What the real loader made of a hand-written SMF (see loadShape below).
+    // Declared here: moc rejects type declarations inside "private slots".
+    struct LoadedShape { int notes = 0; bool notesPaired = true; QList<QByteArray> sysex; };
 
     // New empty file (2 tracks: "Tempo Track", "New Instrument").
     // Renames track 1 and pins it to a channel.
@@ -374,6 +379,50 @@ private slots:
         QStringList out;
         for (int t = 0; t < f->numTracks(); ++t) out << f->track(t)->name();
         return out;
+    }
+
+    // Raw SMF (format 1, one track, 480 tpq) around a hand-written track body.
+    static QByteArray smfWithOneTrack(const QByteArray &trackBody) {
+        QByteArray out;
+        out.append("MThd");
+        out.append(QByteArray::fromHex("00000006" "0001" "0001" "01E0"));
+        out.append("MTrk");
+        const QByteArray body = trackBody + QByteArray::fromHex("00FF2F00");
+        const quint32 len = static_cast<quint32>(body.size());
+        out.append(char((len >> 24) & 0xFF)).append(char((len >> 16) & 0xFF))
+           .append(char((len >> 8) & 0xFF)).append(char(len & 0xFF));
+        out.append(body);
+        return out;
+    }
+
+    // Writes the bytes to a temp file, loads them through the REAL loader and
+    // reports what channel 0 (notes) and channel 16 (sysex) ended up holding.
+    static LoadedShape loadShape(const QByteArray &smf) {
+        LoadedShape shape;
+        QTemporaryFile tmp(QDir::tempPath() + QStringLiteral("/sysex_XXXXXX.mid"));
+        if (!tmp.open()) return shape;
+        tmp.write(smf);
+        const QString path = tmp.fileName();
+        tmp.close();
+        bool ok = false;
+        MidiFile *loaded = new MidiFile(path, &ok);
+        if (ok) {
+            QMultiMap<int, MidiEvent *> *notesMap = loaded->channel(0)->eventMap();
+            for (auto it = notesMap->begin(); it != notesMap->end(); ++it) {
+                if (auto *n = dynamic_cast<NoteOnEvent *>(it.value())) {
+                    ++shape.notes;
+                    if (!n->offEvent()) shape.notesPaired = false;
+                }
+            }
+            QMultiMap<int, MidiEvent *> *sysMap = loaded->channel(16)->eventMap();
+            for (auto it = sysMap->begin(); it != sysMap->end(); ++it) {
+                if (auto *sx = dynamic_cast<SysExEvent *>(it.value()))
+                    shape.sysex << sx->data();
+            }
+        }
+        delete loaded;
+        QFile::remove(path);
+        return shape;
     }
 
     void gate_gmFileWithOneFlute_refusedListingOthers() {
@@ -733,6 +782,47 @@ private slots:
         delete loaded;
         delete f;
         QFile::remove(path);
+    }
+
+    // ---- review R231-13: sysex framing compatibility in the real loader --------
+    // (helpers smfWithOneTrack / loadShape live in the private section above -
+    // moc rejects non-slot declarations inside "private slots")
+
+    void loader_oldFramedSysexKeepsFollowingNotes() {
+        // MidiEditor <= 2.3.0 wrote "F0 <data> F7" without a length. Manufacturer
+        // id 01 with a longer payload: read as a length it would swallow one byte
+        // and leave the parser inside the message, losing the note behind it.
+        const QByteArray note = QByteArray::fromHex("60 903C64 60 803C00");
+        LoadedShape s = loadShape(smfWithOneTrack(QByteArray::fromHex("00 F0 01 02 03 F7") + note));
+        QCOMPARE(s.notes, 1);
+        QVERIFY(s.notesPaired);
+        QCOMPARE(s.sysex, QList<QByteArray>{QByteArray::fromHex("010203")});
+
+        // The GM reset most files carry (id 7E) and an extended id (00 20 33).
+        s = loadShape(smfWithOneTrack(QByteArray::fromHex("00 F0 7E 7F 09 01 F7") + note));
+        QCOMPARE(s.notes, 1);
+        QCOMPARE(s.sysex, QList<QByteArray>{QByteArray::fromHex("7E7F0901")});
+        s = loadShape(smfWithOneTrack(QByteArray::fromHex("00 F0 00 20 33 01 02 F7") + note));
+        QCOMPARE(s.notes, 1);
+        QCOMPARE(s.sysex, QList<QByteArray>{QByteArray::fromHex("0020330102")});
+
+        // 2.3.0 saved an empty sysex event as the bare "F0 F7".
+        s = loadShape(smfWithOneTrack(QByteArray::fromHex("00 F0 F7") + note));
+        QCOMPARE(s.notes, 1);
+        QCOMPARE(s.sysex, QList<QByteArray>{QByteArray()});
+    }
+
+    void loader_standardSysexFramingStillLoads() {
+        const QByteArray note = QByteArray::fromHex("60 903C64 60 803C00");
+        // Length-framed, terminated (what 2.3.1 writes).
+        LoadedShape s = loadShape(smfWithOneTrack(QByteArray::fromHex("00 F0 05 7E 7F 09 01 F7") + note));
+        QCOMPARE(s.notes, 1);
+        QCOMPARE(s.sysex, QList<QByteArray>{QByteArray::fromHex("7E7F0901")});
+        // Multi-packet dump: first packet without F7, continuation as F7 escape.
+        s = loadShape(smfWithOneTrack(QByteArray::fromHex("00 F0 03 41 10 42  0A F7 04 12 40 00 F7") + note));
+        QCOMPARE(s.notes, 1);
+        QVERIFY(s.notesPaired);
+        QCOMPARE(s.sysex, QList<QByteArray>{QByteArray::fromHex("411042")});
     }
 
     // ---- review R231-11 core rule: snapshot + later per-event item ----------

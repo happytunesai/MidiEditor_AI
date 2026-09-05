@@ -279,9 +279,46 @@ MidiEvent *MidiEvent::loadMidiEvent(QDataStream *content, bool *ok, bool *endEve
                     const int innerF7 = array.indexOf((char) 0xF7);
                     // A length of 0 never occurs in a standard file either: it is
                     // the first byte of an extended manufacturer id (00 xx yy).
-                    const bool oldFraming = (innerF7 >= 0 && innerF7 != array.size() - 1)
-                                            || truncated
-                                            || (sysExLength == 0 && !content->atEnd());
+                    bool oldFraming = (innerF7 >= 0 && innerF7 != array.size() - 1)
+                                      || truncated
+                                      || (sysExLength == 0 && !content->atEnd());
+                    // No F7 inside the chunk and not at the end: EITHER the first
+                    // packet of a standard multi-packet dump OR an old-framed
+                    // message whose payload is longer than its first byte (e.g.
+                    // "F0 01 02 03 F7", manufacturer id 01 read as length 1). The
+                    // standard form is followed by a continuation packet:
+                    // <delta> F7 <len> <data bytes < 0x80, last may be F7>. Look
+                    // ahead for exactly that structure; anything else is the old
+                    // framing (whose F7 terminator we would otherwise misread as
+                    // that continuation status).
+                    if (!oldFraming && innerF7 < 0 && device && !content->atEnd()) {
+                        const qint64 afterChunk = device->pos();
+                        bool continuationOk = false;
+                        const int delta = MidiFile::variableLengthvalue(content);
+                        if (delta >= 0 && !content->atEnd()) {
+                            (*content) >> tempByte;
+                            if (tempByte == 0xF7) {
+                                const int escLen = MidiFile::variableLengthvalue(content);
+                                if (escLen > 0 && escLen <= 65535) {
+                                    continuationOk = true;
+                                    for (int i = 0; i < escLen; i++) {
+                                        if (content->atEnd()) { continuationOk = false; break; }
+                                        (*content) >> tempByte;
+                                        if (tempByte >= 0x80
+                                            && !(tempByte == 0xF7 && i == escLen - 1)) {
+                                            continuationOk = false;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if (!device->seek(afterChunk)) {
+                            *ok = false;
+                            return 0;
+                        }
+                        oldFraming = !continuationOk;
+                    }
                     if (oldFraming) {
                         if (!device || lengthPos < 0 || !device->seek(lengthPos)) {
                             *ok = false;

@@ -43,6 +43,26 @@
 #include <unistd.h>
 #endif
 
+namespace {
+const char *kPendingBackupsKey = "Updater/pendingBackups";
+
+// Every ".bak" the updater creates is recorded here, so cleanupOldBackups()
+// removes exactly those files on the next start - and never a user's own
+// "<file>.bak" that happens to live below the program folder (a portable
+// install keeps its projects there).
+void recordBackupPath(const QString &bakPath)
+{
+    auto sPtr = AppPaths::settings();
+    QSettings &s = *sPtr;
+    QStringList pending = s.value(QLatin1String(kPendingBackupsKey)).toStringList();
+    if (!pending.contains(bakPath)) {
+        pending << bakPath;
+        s.setValue(QLatin1String(kPendingBackupsKey), pending);
+        s.sync();
+    }
+}
+} // namespace
+
 AutoUpdater::AutoUpdater(QWidget *parentWidget, QSettings *settings, QObject *parent)
     : QObject(parent),
       _parentWidget(parentWidget),
@@ -280,6 +300,7 @@ bool AutoUpdater::applyUpdate(const QString &zipPath, const QString &midiPath)
                "Make sure you have write permissions to:\n%1").arg(appDir));
         return false;
     }
+    recordBackupPath(bakPath);
     qDebug() << "  Step 1: Renamed EXE to .bak";
 
     // Step 2: Extract ZIP to a temp staging directory
@@ -379,6 +400,7 @@ bool AutoUpdater::applyUpdate(const QString &zipPath, const QString &midiPath)
                     filesSkipped++;
                     continue;
                 }
+                recordBackupPath(destBak);
             }
         }
 
@@ -463,11 +485,28 @@ void AutoUpdater::cleanupOldBackups()
 {
     QString appDir = QCoreApplication::applicationDirPath();
     QDir dir(appDir);
-    // Recursive: applyUpdate() renames locked destination files to .bak
-    // anywhere in the payload tree (platforms/, imageformats/, ...), so a
-    // top-level-only sweep left those behind for good.
-    QDirIterator it(appDir, QStringList{"*.bak"}, QDir::Files,
-                    QDirIterator::Subdirectories);
+
+    // 1) Exactly the files applyUpdate() renamed (recorded there). A blanket
+    //    recursive "*.bak" sweep also deleted a user's own backups below the
+    //    program folder - e.g. projects/song.mid.bak in a portable install.
+    auto sPtr = AppPaths::settings();
+    QSettings &s = *sPtr;
+    const QStringList recorded = s.value(QLatin1String(kPendingBackupsKey)).toStringList();
+    for (const QString &bakPath : recorded) {
+        if (QFile::exists(bakPath) && QFile::remove(bakPath)) {
+            qDebug() << "AutoUpdater: Cleaned up backup:" << dir.relativeFilePath(bakPath);
+        }
+    }
+    s.remove(QLatin1String(kPendingBackupsKey));
+
+    // 2) Leftovers of updates made before that list existed: only the payload
+    //    types the updater ever renames (program, libraries, translations),
+    //    anywhere in the payload tree (platforms/, imageformats/, ...). Never a
+    //    "<document>.bak".
+    static const QStringList legacyPatterns = {
+        QStringLiteral("*.exe.bak"), QStringLiteral("*.dll.bak"),
+        QStringLiteral("*.qm.bak"),  QStringLiteral("*.pdb.bak")};
+    QDirIterator it(appDir, legacyPatterns, QDir::Files, QDirIterator::Subdirectories);
     while (it.hasNext()) {
         QString bakPath = it.next();
         if (QFile::remove(bakPath)) {

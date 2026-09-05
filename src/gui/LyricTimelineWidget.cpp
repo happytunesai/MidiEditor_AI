@@ -635,6 +635,12 @@ void LyricTimelineWidget::mouseReleaseEvent(QMouseEvent *event)
         if (_dragActive && _dragActionOpen && _file && _file->protocol()) {
             _file->protocol()->endAction();
         }
+        // A drag that opened no action still changed the document (block
+        // lengths / positions the user sees) - keep it marked as modified, as
+        // the former empty undo step did (post-review finding).
+        if (_dragActive && !_dragActionOpen && _file) {
+            _file->setSaved(false);
+        }
         _dragActionOpen = false;
         _dragMode = NoDrag;
         _dragActive = false;

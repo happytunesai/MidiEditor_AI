@@ -249,7 +249,9 @@ TempoConversionResult TempoConversionService::preview(
                     // Same exact (microsecond-based) tempo convert() scales.
                     const double newBpm =
                         (60000000.0 / tc->microsPerQuarter()) * scale;
-                    if (newBpm < kBpmMin - 0.5 || newBpm > kBpmMax + 0.5) {
+                    // convert() clamps to [1, 999] exactly (no whole-BPM
+                    // rounding any more), so warn for every value outside.
+                    if (newBpm < kBpmMin || newBpm > kBpmMax) {
                         ++clampedTempoEvents;
                     }
                 }
