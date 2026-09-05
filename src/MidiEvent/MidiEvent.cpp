@@ -239,6 +239,19 @@ MidiEvent *MidiEvent::loadMidiEvent(QDataStream *content, bool *ok, bool *endEve
                     // swallowing the rest of the track.
                     QIODevice *device = content->device();
                     const qint64 lengthPos = device ? device->pos() : -1;
+                    // MidiEditor 2.3.0 and earlier saved an EMPTY sysex as the
+                    // bare "F0 F7": a terminator where the length would be.
+                    if (device && lengthPos >= 0 && !content->atEnd()) {
+                        (*content) >> tempByte;
+                        if (tempByte == 0xF7) {
+                            *ok = true;
+                            return new SysExEvent(channel, QByteArray(), track);
+                        }
+                        if (!device->seek(lengthPos)) {
+                            *ok = false;
+                            return 0;
+                        }
+                    }
                     int sysExLength = MidiFile::variableLengthvalue(content);
                     if (sysExLength < 0 || sysExLength > 65535) {
                         *ok = false;
@@ -264,8 +277,11 @@ MidiEvent *MidiEvent::loadMidiEvent(QDataStream *content, bool *ok, bool *endEve
                     // A length-framed packet that merely lacks the trailing F7 is a
                     // legitimate multi-packet dump and is kept as read.
                     const int innerF7 = array.indexOf((char) 0xF7);
+                    // A length of 0 never occurs in a standard file either: it is
+                    // the first byte of an extended manufacturer id (00 xx yy).
                     const bool oldFraming = (innerF7 >= 0 && innerF7 != array.size() - 1)
-                                            || truncated;
+                                            || truncated
+                                            || (sysExLength == 0 && !content->atEnd());
                     if (oldFraming) {
                         if (!device || lengthPos < 0 || !device->seek(lengthPos)) {
                             *ok = false;

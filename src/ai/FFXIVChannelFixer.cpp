@@ -140,6 +140,7 @@ QJsonObject FFXIVChannelFixer::checkEligibility(MidiFile *file) {
     int ffxivNameCount = 0;          // every track, notes or not (rule a)
     int noteTrackCount = 0;
     bool clampRisk = false;          // rule (c): a melodic note track at index > 15
+    QSet<QString> guitarVariantsWithin16; // guitar variants Tier 2 places by index <= 15
     int ffxivNamedNoteTrackCount = 0;
     QJsonArray nonFfxivNoteTracks;
     QStringList offenders;
@@ -148,8 +149,12 @@ QJsonObject FFXIVChannelFixer::checkEligibility(MidiFile *file) {
         MidiTrack *track = file->track(t);
         if (!track) continue;
         const QString name = track->name();
-        const bool isFfxivName = programNumber(stripSuffix(name)) >= 0;
+        const QString base = stripSuffix(name);
+        const bool isFfxivName = programNumber(base) >= 0;
         if (isFfxivName) ffxivNameCount++;
+        // Tier 2 registers a guitar variant at its first occurrence (notes or
+        // not) and routes every later track of that variant onto its channel.
+        if (isGuitar(base) && t <= 15) guitarVariantsWithin16.insert(base);
 
         auto notesIt = notesPerTrack.constFind(track);
         if (notesIt == notesPerTrack.constEnd()) continue; // no notes: ignored
@@ -167,9 +172,12 @@ QJsonObject FFXIVChannelFixer::checkEligibility(MidiFile *file) {
         // stays on channel 9 only when its notes are predominantly there, and
         // every other track (FFXIV melodic names, guitars) is renumbered.
         {
-            const QString base = stripSuffix(name);
             const bool unmatched = !isGuitar(base) && programNumber(base) < 0;
-            if (t > 15 && !isPercussion(base) && !(unmatched && bestCh == 9))
+            // A guitar variant already placed within the first 16 tracks is
+            // routed onto that first occurrence's channel - no clamp either.
+            const bool duplicateGuitar = isGuitar(base) && guitarVariantsWithin16.contains(base);
+            if (t > 15 && !isPercussion(base) && !duplicateGuitar
+                && !(unmatched && bestCh == 9))
                 clampRisk = true;
         }
         if (isFfxivName) {
@@ -328,16 +336,20 @@ QJsonObject FFXIVChannelFixer::analyzeFile(MidiFile *file) {
     // ElectricGuitarOverdriven. Preserve gives such a channel the program of
     // the track's own variant; the dialog lists them so the user sees why.
     QJsonArray guitarTracksWithoutProgram;
+    QSet<int> listedChannels;
     for (int t = 0; t < trackCount; t++) {
         MidiTrack *track = file->track(t);
         if (!isGuitar(stripSuffix(track->name()))) continue;
         // Same channel and the same "plays there" test as the Preserve
-        // fallback in fixChannels() - the two must agree (review R231-22).
+        // fallback in fixChannels() - the two must agree (review R231-22), and
+        // like the fallback one entry per CHANNEL (its first guitar track).
         int ch = track->assignedChannel();
         if (ch < 0 || ch > 15) ch = qMin(t, 15);
+        if (listedChannels.contains(ch)) continue;
         if (!trackPlaysOnChannel(file, track, ch)) continue;
         const int prog = file->channel(ch)->progAtTick(0);
         if (prog >= 27 && prog <= 31) continue;
+        listedChannels.insert(ch);
         QJsonObject entry;
         entry["index"]   = t;
         entry["name"]    = track->name();
@@ -523,16 +535,11 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
                 MidiTrack *track = file->track(t);
                 QSet<int> chsWithNotes;
                 for (int ch : knownGuitarChs) {
-                    MidiChannel *channel = file->channel(ch);
-                    if (!channel) continue;
-                    QMultiMap<int, MidiEvent *> *map = channel->eventMap();
-                    for (auto it = map->begin(); it != map->end(); ++it) {
-                        if (it.value()->track() != track) continue;
-                        if (dynamic_cast<NoteOnEvent *>(it.value())) {
-                            chsWithNotes.insert(ch);
-                            break;
-                        }
-                    }
+                    // The helper autoTier() uses as well, so the two detections
+                    // cannot drift - and an assignedChannel above 15 no longer
+                    // reads MidiFile::channel()'s fallback channel (R231-17).
+                    if (trackPlaysOnChannel(file, track, ch))
+                        chsWithNotes.insert(ch);
                 }
                 if (chsWithNotes.size() > 1) {
                     isPreserveMode = true;

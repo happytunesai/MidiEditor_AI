@@ -24,7 +24,9 @@
 
 // Qt includes
 #include <QHash>
+#include <QList>
 #include <QMultiMap>
+#include <QPair>
 #include <QMutex>
 #include <QObject>
 
@@ -39,6 +41,7 @@ class TempoChangeEvent;
 class Protocol;
 class MidiChannel;
 class MidiTrack;
+class OffEvent;
 class LyricManager;
 
 /**
@@ -868,6 +871,11 @@ private:
 
     /** \brief Array of MIDI channels (0-15 standard, 16-18 special) */
     MidiChannel *channels[19] = {};
+
+    /** \brief Loading only: Note-Offs (with their tick) whose Note-On was not
+     *  pending while their track was read - paired against later tracks' Note-Ons
+     *  at the end of readMidiFile(), dropped if still unpaired. */
+    QList<QPair<OffEvent *, int>> _orphanOffEvents;
 
     /** \brief File path and basic properties */
     QString _path;

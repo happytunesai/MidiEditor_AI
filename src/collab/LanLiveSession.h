@@ -1012,6 +1012,12 @@ private:
         QString peerName;
         QString peerHead;
         QString commonAncestor;
+        /** The slice the peer sent (filled once its history bundle arrived), so
+         *  a rejection can hand it back as "all rejected" and the peer reverts
+         *  its unmerged edits (with its usual _diverged.mid backup) instead of
+         *  keeping them while adopting our history (review R231-06). */
+        QJsonArray bundleHunks;
+        QStringList bundleCommitHashes;
     };
     QHash<QString, PendingMerge> _pendingMerges;
 

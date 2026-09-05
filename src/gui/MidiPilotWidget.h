@@ -175,6 +175,13 @@ public:
     void rebindAgentRun(MidiFile *target, const QString &title);
 
     /**
+     * \brief A document is being closed: drop it from the run's document
+     * bookkeeping so no summary or step record dereferences the freed file.
+     * MainWindow::closeDocumentFile calls this before deleting the MidiFile.
+     */
+    void forgetDocument(MidiFile *f);
+
+    /**
      * \brief Lock the MidiPilot panel for Show-mode viewers (Phase 9.9c
      *        §15.2). When locked, the input field is read-only with an
      *        explanatory placeholder, and the send button is disabled.
@@ -388,18 +395,17 @@ private:
      *  apply target for simple mode. nullptr when no request is in flight. */
     MidiFile *_runOriginFile = nullptr;
     /** v2.3.1 cross-tab (agent runs only): tab title of the document the run
-     *  STARTED on. Anchor for "is a step landing outside the chat's own
-     *  document?" - titles, not pointers, so a closed origin cannot dangle. */
+     *  STARTED on (display only). */
     QString _runOriginDocTitle;
     /** Tab title of the run's CURRENT bind; moves with rebindAgentRun(). */
     QString _runCurrentDocTitle;
-    /** Ordered, de-duplicated titles of every document this run was bound to
-     *  (origin first). More than one entry = the run-end summary lists them. */
-    QStringList _runDocTitles;
-    /** Identity-keyed twins of the title bookkeeping (review R231-18): two tabs
-     *  can share a title ("Untitled" twice, v1/song.mid vs v2/song.mid), so
-     *  "did the run switch?" and the run-end summary are decided on the
-     *  MidiFile pointer; titles are only rendered at emission time. */
+    /** Identity keys of the run's documents (review R231-18): two tabs can
+     *  share a title ("Untitled" twice, v1/song.mid vs v2/song.mid), so "did
+     *  the run switch?" and the run-end summary are decided on the MidiFile
+     *  pointer and titles are rendered at emission time. A closing document is
+     *  removed by forgetDocument() before it is deleted, so these never dangle
+     *  (_runStartFile becomes null when the origin closes - every later step is
+     *  then "elsewhere" by definition). */
     MidiFile *_runStartFile = nullptr;
     QList<MidiFile *> _runDocs;
     /** Phase 28: the document the CURRENTLY-dispatching apply targets. Set in a

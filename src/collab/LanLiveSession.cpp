@@ -3094,6 +3094,14 @@ void LanLiveSession::handleIncomingHistoryBundle(const QJsonArray &commits,
                                 tr("Couldn't build a merge bundle from your history."));
             return;
         }
+        // Remember the slice for a later rejection (see rejectReturningPeer).
+        PendingMerge &live = _pendingMerges[peerMachineId];
+        live.bundleHunks = bundle.hunks;
+        live.bundleCommitHashes.clear();
+        for (const QJsonValue &v : commits) {
+            const QString h = v.toObject().value(QStringLiteral("hash")).toString();
+            if (!h.isEmpty()) live.bundleCommitHashes << h;
+        }
         emit returningPeerArrived(pm.peerName, peerMachineId, bundle);
         return;
     }
@@ -3357,10 +3365,19 @@ void LanLiveSession::rejectReturningPeer(const QString &peerToken,
     if (!pm.peer) return;
     qCInfo(lanLog) << "session: host rejected returning peer"
                    << pm.peerName << "—" << reason;
-    // Hand the peer our history first so it drops the rejected local commits
-    // from its chain and the next join compares equal heads instead of
-    // re-offering the same commits forever (review R231-06).
+    // Converge the peer (review R231-06): first a merge result that rejects
+    // every hunk of its slice, so the peer reverts those edits through its
+    // normal path (with the _diverged.mid backup) and its FILE matches ours;
+    // then our history, so its chain drops the rejected commits and the next
+    // join compares equal heads instead of re-offering them forever. Without
+    // the revert the peer would adopt our history while keeping the edits -
+    // a silent divergence the next live tick could never reconcile.
     if (_file) {
+        if (!pm.bundleHunks.isEmpty()) {
+            pm.peer->sendMessage(encodeMergeResult(
+                pm.commonAncestor, CollabService::instance()->currentHead(_file),
+                QJsonArray(), pm.bundleHunks, pm.bundleCommitHashes));
+        }
         const QJsonObject sidecar = CollabService::instance()->currentSidecarJson(_file);
         if (!sidecar.isEmpty()) pm.peer->sendMessage(encodeCollabSync(sidecar));
     }

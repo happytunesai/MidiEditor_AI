@@ -1601,9 +1601,6 @@ bool MidiPilotWidget::sendCurrentPrompt() {
         // when the agent switches its bind to another tab.
         _runOriginDocTitle = documentTitleForFile(_file);
         _runCurrentDocTitle = _runOriginDocTitle;
-        _runDocTitles.clear();
-        if (!_runOriginDocTitle.isEmpty())
-            _runDocTitles.append(_runOriginDocTitle);
         _runStartFile = _file;
         _runDocs.clear();
         if (_file)
@@ -2308,8 +2305,6 @@ void MidiPilotWidget::rebindAgentRun(MidiFile *target, const QString &title) {
     // this title (see onAgentStepCompleted) so the user can tell which tab's
     // Protocol holds a step's undo entry.
     _runCurrentDocTitle = title;
-    if (!title.isEmpty() && !_runDocTitles.contains(title))
-        _runDocTitles.append(title);
     if (!_runDocs.contains(target))
         _runDocs.append(target);
 
@@ -2331,17 +2326,30 @@ QStringList MidiPilotWidget::runDocumentLabels() const {
     QStringList out;
     for (int i = 0; i < _runDocs.size(); ++i) {
         QString label = titles.at(i);
-        if (label.isEmpty())
-            label = QStringLiteral("(closed document)");
+        if (label.isEmpty()) {
+            // Not listed any more (closed between switch and summary; the
+            // pointer was dropped by forgetDocument, never dereference it).
+            out << QStringLiteral("(closed document)");
+            continue;
+        }
         // The same title twice: add the folder so the two can be told apart.
-        if (titles.count(titles.at(i)) > 1 && _runDocs.at(i)) {
-            const QString dir = QFileInfo(_runDocs.at(i)->path()).dir().dirName();
+        if (titles.count(label) > 1) {
+            const QString path = _runDocs.at(i)->path();
+            const QString dir = path.isEmpty() ? QString() : QFileInfo(path).dir().dirName();
             if (!dir.isEmpty())
                 label += QStringLiteral(" (") + dir + QLatin1Char(')');
         }
         out << label;
     }
     return out;
+}
+
+void MidiPilotWidget::forgetDocument(MidiFile *f) {
+    if (!f)
+        return;
+    _runDocs.removeAll(f);
+    if (_runStartFile == f)
+        _runStartFile = nullptr;
 }
 
 QJsonObject MidiPilotWidget::executeAction(const QJsonObject &actionObj) {
@@ -2871,8 +2879,7 @@ void MidiPilotWidget::onAgentStepCompleted(int step, const QString &toolName, co
     // steps are the run's own (origin) document as before.
     // Decided on document identity, not on the title: two tabs may share one
     // title and the mark must still say "another tab" (review R231-18).
-    if (_isAgentRunning && _runOriginFile && _runStartFile
-        && _runOriginFile != _runStartFile) {
+    if (_isAgentRunning && _runOriginFile && _runOriginFile != _runStartFile) {
         const QString title = _runCurrentDocTitle.isEmpty()
             ? documentTitleForFile(_runOriginFile) : _runCurrentDocTitle;
         stepEntry[QStringLiteral("document")] = title;
@@ -2951,7 +2958,6 @@ void MidiPilotWidget::onAgentFinished(const QString &finalMessage) {
                                            "each edit was applied to - switch "
                                            "to that tab to undo its steps."));
     }
-    _runDocTitles.clear();
     _runDocs.clear();
     _runStartFile = nullptr;
     _runOriginDocTitle.clear();
@@ -3074,7 +3080,6 @@ void MidiPilotWidget::onAgentError(const QString &error) {
                                            "each edit was applied to - switch "
                                            "to that tab to undo its steps."));
     }
-    _runDocTitles.clear();
     _runDocs.clear();
     _runStartFile = nullptr;
     _runOriginDocTitle.clear();

@@ -48,8 +48,11 @@
 #include <QtTest/QtTest>
 #include <QObject>
 #include <QColor>
+#include <QDir>
+#include <QFile>
 #include <QJsonObject>
 #include <QJsonArray>
+#include <QTemporaryFile>
 
 #include "../src/ai/FFXIVChannelFixer.h"
 #include "../src/midi/MidiFile.h"
@@ -58,6 +61,7 @@
 #include "../src/protocol/Protocol.h"
 #include "../src/MidiEvent/MidiEvent.h"
 #include "../src/MidiEvent/NoteOnEvent.h"
+#include "../src/MidiEvent/OffEvent.h"
 #include "../src/MidiEvent/ProgChangeEvent.h"
 
 // ---- ODR shims: Appearance colors (statics used by midi core / events) ---
@@ -641,24 +645,148 @@ private slots:
         // The unmatched drum-split leftover parked on channel 9 stays there.
         MidiFile *drums = build("Drums", 9);
         QVERIFY(FFXIVChannelFixer::checkEligibility(drums)["tier2Eligible"].toBool());
+        // A guitar variant at index 16 is clamped - unless the same variant
+        // already sits within the first 16 tracks (Tier 2 reuses its channel).
+        MidiFile *dup = build("ElectricGuitarClean", 6);
+        QVERIFY(!FFXIVChannelFixer::checkEligibility(dup)["tier2Eligible"].toBool());
+        dup->track(3)->setName("ElectricGuitarClean");
+        QVERIFY(FFXIVChannelFixer::checkEligibility(dup)["tier2Eligible"].toBool());
         delete timpani;
         delete snare;
         delete drums;
+        delete dup;
     }
 
     // ---- review R231-17: read-only tier detection for the AI tool -----------
 
     void autoTier_matchesFixChannelsDetection() {
+        // Rule (A): a guitar program at tick 0 decides Preserve.
         MidiFile *f = makeFile("ElectricGuitarOverdriven", 1);
         addNote(f, 1, f->track(1), 60, 0, 100);
         QCOMPARE(FFXIVChannelFixer::autoTier(f), 2);   // no guitar program yet -> Rebuild
-        addPc(f, 1, 29, f->track(1), 0);
-        QCOMPARE(FFXIVChannelFixer::autoTier(f), 3);   // configured -> Preserve
+        QCOMPARE(runTier(f, 0)["tier"].toInt(), 2);    // ...and that is what fixChannels does
+        // The run inserted PC 29 on channel 1: now configured -> Preserve.
+        QCOMPARE(f->channel(1)->progAtTick(0), 29);
+        QCOMPARE(FFXIVChannelFixer::autoTier(f), 3);
+        QCOMPARE(runTier(f, 0)["tier"].toInt(), 3);
+
+        // No guitar at all -> Rebuild.
         MidiFile *g = makeFile("Viola", 1);
         addNote(g, 1, g->track(1), 60, 0, 100);
-        QCOMPARE(FFXIVChannelFixer::autoTier(g), 2);   // no guitar at all -> Rebuild
+        QCOMPARE(FFXIVChannelFixer::autoTier(g), 2);
+        QCOMPARE(runTier(g, 0)["tier"].toInt(), 2);
+
+        // Rule (B): no guitar program anywhere, but a guitar track plays on two
+        // guitar channels (its own and the other guitar track's) -> Preserve.
+        MidiFile *h = makeFile("ElectricGuitarClean", 2);
+        addNote(h, 2, h->track(1), 60, 0, 100);
+        const int other = addNoteTrack(h, "ElectricGuitarOverdriven", 3);
+        addNote(h, 3, h->track(1), 64, 200, 300);      // track 1 also plays on channel 3
+        Q_UNUSED(other);
+        QCOMPARE(FFXIVChannelFixer::autoTier(h), 3);
+        QCOMPARE(runTier(h, 0)["tier"].toInt(), 3);
         delete f;
         delete g;
+        delete h;
+    }
+
+    // ---- review R231-10 (cross-track case): Note-Off before its Note-On ------
+
+    void loader_pairsNoteOffFromEarlierTrackWithNoteOnFromLaterTrack() {
+        // Files written by 2.3.0's move-to-track: the Note-Off stayed in the
+        // source track, the Note-On went into the appended target track, which
+        // is parsed LATER. The pairing must happen after the last track.
+        MidiFile *f = makeFile("Piano", 1);
+        f->protocol()->startNewAction("setup-track");
+        f->addTrack();
+        f->protocol()->endAction();
+        MidiTrack *src = f->track(1);
+        MidiTrack *dst = f->track(2);
+        NoteOnEvent *on = new NoteOnEvent(60, 100, 1, dst);
+        OffEvent *off = new OffEvent(1, 127 - 60, src);
+        QCOMPARE(off->onEvent(), static_cast<OnEvent *>(on)); // in-memory pairing (pass 2)
+        on->setFile(f);
+        off->setFile(f);
+        on->setMidiTime(480, false);
+        off->setMidiTime(960, false);
+
+        QTemporaryFile tmp(QDir::tempPath() + QStringLiteral("/crosstrack_XXXXXX.mid"));
+        QVERIFY(tmp.open());
+        const QString path = tmp.fileName();
+        tmp.close();
+        QVERIFY(f->save(path));
+
+        bool ok = false;
+        MidiFile *loaded = new MidiFile(path, &ok);
+        QVERIFY(ok);
+        int notes = 0;
+        QMultiMap<int, MidiEvent *> *map = loaded->channel(1)->eventMap();
+        for (auto it = map->begin(); it != map->end(); ++it) {
+            if (auto *n = dynamic_cast<NoteOnEvent *>(it.value())) {
+                ++notes;
+                QVERIFY(n->offEvent());
+                QCOMPARE(n->midiTime(), 480);
+                QCOMPARE(n->offEvent()->midiTime(), 960);
+            }
+        }
+        QCOMPARE(notes, 1);
+        delete loaded;
+        delete f;
+        QFile::remove(path);
+    }
+
+    // ---- review R231-11 core rule: snapshot + later per-event item ----------
+
+    void undo_channelSnapshotThenPerEventShift_redoLeavesNoDuplicates() {
+        // A protocolled removeEvent snapshots the channel; a later protocolled
+        // setMidiTime on another note of the same channel must survive
+        // undo -> redo with that note exactly once at its new position.
+        MidiFile *f = makeFile("Piano", 1);
+        MidiTrack *t = f->track(1);
+        auto makeNote = [&](int pitch, int start, int end) {
+            NoteOnEvent *n = new NoteOnEvent(pitch, 100, 1, t);
+            OffEvent *o = new OffEvent(1, 127 - pitch, t);
+            n->setFile(f);
+            o->setFile(f);
+            n->setMidiTime(start, false);
+            o->setMidiTime(end, false);
+            return n;
+        };
+        NoteOnEvent *a = makeNote(60, 0, 100);
+        NoteOnEvent *n = makeNote(62, 200, 400);
+        auto occurrences = [&](MidiEvent *ev) {
+            int c = 0;
+            QMultiMap<int, MidiEvent *> *map = f->channel(1)->eventMap();
+            for (auto it = map->begin(); it != map->end(); ++it)
+                if (it.value() == ev) ++c;
+            return c;
+        };
+        auto keyOf = [&](MidiEvent *ev) {
+            QMultiMap<int, MidiEvent *> *map = f->channel(1)->eventMap();
+            for (auto it = map->begin(); it != map->end(); ++it)
+                if (it.value() == ev) return it.key();
+            return -1;
+        };
+
+        f->protocol()->startNewAction("mixed");
+        QVERIFY(f->channel(1)->removeEvent(a, true));  // channel snapshot
+        n->setMidiTime(300, true);                       // per-event item after it
+        f->protocol()->endAction();
+        QCOMPARE(occurrences(a), 0);
+        QCOMPARE(keyOf(n), 300);
+
+        f->protocol()->undo();
+        QCOMPARE(occurrences(a), 1);
+        QCOMPARE(occurrences(n), 1);
+        QCOMPARE(keyOf(n), 200);
+        QCOMPARE(n->midiTime(), 200);
+
+        f->protocol()->redo();
+        QCOMPARE(occurrences(a), 0);
+        QCOMPARE(occurrences(n), 1);
+        QCOMPARE(keyOf(n), 300);
+        QCOMPARE(n->midiTime(), 300);
+        delete f;
     }
 };
 

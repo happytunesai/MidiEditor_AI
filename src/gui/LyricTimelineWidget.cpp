@@ -514,21 +514,38 @@ void LyricTimelineWidget::mouseMoveEvent(QMouseEvent *event)
     if (!_file || !_file->lyricManager() || _selectedBlockIndex < 0)
         return;
 
+    LyricManager *mgr = _file->lyricManager();
+
     // Start Protocol action on first actual move (LYRIC-005 fix)
     if (!_dragActive) {
         _dragActive = true;
         // A right-edge resize only changes the in-memory LyricBlock::endTick - it
         // touches no MidiEvent, so the action would record nothing while
         // startNewAction() already dropped the redo stack and endAction() marked
-        // the file modified. Move/left-resize do move the TextEvent, so they keep it.
-        if (_dragMode != DragResizeRight && _file->protocol()) {
+        // the file modified. The same holds for a move/left-resize of blocks that
+        // have no lyric event behind them (moveBlockDirect touches no MidiEvent).
+        // Only a drag that moves at least one TextEvent opens the action.
+        bool touchesEvent = false;
+        if (_dragMode != DragResizeRight) {
+            if (_selectedBlockIndices.size() > 1) {
+                for (int idx : _selectedBlockIndices) {
+                    if (idx >= 0 && idx < mgr->count() && mgr->blockAt(idx).sourceEvent) {
+                        touchesEvent = true;
+                        break;
+                    }
+                }
+            } else if (_selectedBlockIndex < mgr->count()) {
+                touchesEvent = mgr->blockAt(_selectedBlockIndex).sourceEvent != nullptr;
+            }
+        }
+        _dragActionOpen = touchesEvent && _file->protocol();
+        if (_dragActionOpen) {
             _file->protocol()->startNewAction("Edit Lyric Block");
         }
     }
 
     int currentTick = tickOfXPos(x);
     int deltaTick = currentTick - _dragStartTick;
-    LyricManager *mgr = _file->lyricManager();
 
     if (_dragMode == DragMove) {
         setCursor(Qt::ClosedHandCursor);
@@ -613,11 +630,12 @@ void LyricTimelineWidget::mouseReleaseEvent(QMouseEvent *event)
             }
         }
 
-        // End Protocol action if a drag was actually performed (never opened for a
-        // right-edge resize, see mouseMoveEvent)
-        if (_dragActive && _dragMode != DragResizeRight && _file && _file->protocol()) {
+        // End the Protocol action only if mouseMoveEvent opened one (never for a
+        // right-edge resize or a drag of blocks without lyric events)
+        if (_dragActive && _dragActionOpen && _file && _file->protocol()) {
             _file->protocol()->endAction();
         }
+        _dragActionOpen = false;
         _dragMode = NoDrag;
         _dragActive = false;
         setCursor(Qt::ArrowCursor);

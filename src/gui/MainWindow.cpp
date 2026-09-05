@@ -2409,6 +2409,11 @@ void MainWindow::closeDocumentFile(MidiFile *oldFile) {
     if (_midiPilotWidget && _midiPilotWidget->isAgentRunningOn(oldFile)) {
         _midiPilotWidget->abortActiveRequest();
     }
+    // A run that merely PASSED through this document keeps running; make sure
+    // its document list no longer points at the file we are about to delete.
+    if (_midiPilotWidget) {
+        _midiPilotWidget->forgetDocument(oldFile);
+    }
     // Phase 28: drop the closing document's per-file state so nothing leaks or
     // dangles past the delete. Deleting the MidiFile (a QObject) automatically
     // disconnects every signal connection made to it in activateDocument.
@@ -3304,6 +3309,13 @@ void MainWindow::onGroup1TabCloseRequested(int index) {
         }
     };
 
+    // A running recording is bound to the CURRENTLY active document; end it
+    // before the prompt below re-targets the active document to the closing
+    // tab, or the record dialog would land the take in the wrong file.
+    if (MidiInput::recording()) {
+        stop();
+    }
+
     // Prompt to save if the closing tab has unsaved changes. saveBeforeClose
     // acts on the active file, so make the closing tab active (in the secondary
     // group) first.
@@ -3329,8 +3341,10 @@ void MainWindow::onGroup1TabCloseRequested(int index) {
     // The closing document is deleted on every path below (including the
     // last-tab collapse, which returns early) and PlayerThread keeps reading the
     // playing MidiFile on its own thread - stop the transport before it goes.
-    // Only now that the close is committed: a cancelled save prompt or a
-    // background tab must not interrupt playback (review R231-15).
+    // Only now that the close is committed, so a cancelled save prompt does not
+    // interrupt playback (review R231-15). Unconditional on purpose: a playing
+    // document can be a background tab (clone opens tabs without stopping) and
+    // the player exposes no "which file" accessor to narrow this down.
     stop();
 
     _group1Docs->removeAt(index);   // detaches (does NOT delete the file)
@@ -3890,6 +3904,13 @@ void MainWindow::onDocumentTabCloseRequested(int index) {
 
     const bool closingActive = (index == _documentManager->activeIndex());
 
+    // The closing document is deleted below and PlayerThread keeps reading the
+    // playing MidiFile on its own thread. Stop for EVERY committed close, not
+    // only the active tab's: a playing document can sit in a background tab
+    // (clone opens tabs without stopping) and the player exposes no "which
+    // file" accessor - same rule as the second group's handler.
+    stop();
+
     _documentManager->removeAt(index);
     _suppressTabSignals = true;
     _documentTabBar->removeTab(index);
@@ -3901,7 +3922,6 @@ void MainWindow::onDocumentTabCloseRequested(int index) {
             _suppressTabSignals = true;
             _documentTabBar->setCurrentIndex(_documentManager->activeIndex());
             _suppressTabSignals = false;
-            stop();
             activateDocument(na->file());
         }
     }
@@ -13194,7 +13214,11 @@ void MainWindow::thinTempoMap() {
         return;
     }
     // The document may have been swapped underneath a modal dialog by an
-    // agent/MCP run; thin the file the dialog was talking about.
+    // agent/MCP run; thin the file the dialog was talking about - if it is
+    // still open in either editor group.
+    if (!isDocumentOpen(targetFile)) {
+        return;
+    }
     const TempoMapThinner::Result r =
         TempoMapThinner::thin(targetFile, toleranceBox->value(), false);
     if (!r.ok) {

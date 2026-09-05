@@ -46,7 +46,16 @@ int TempoChangeEvent::beatsPerQuarter() {
 double TempoChangeEvent::msPerTick() {
     if (!file() || _beats <= 0 || file()->ticksPerQuarter() <= 0)
         return 1.0;
-    double quarters_per_second = (double) _beats / 60;
+    // Whole-BPM tempos keep the exact _beats/60 arithmetic the editor always
+    // used. A FRACTIONAL tempo (128.5 BPM is stored as 466926 us per quarter,
+    // _beats truncates it to 128) is timed from the microseconds the file
+    // carries, so it plays and measures as written (review R231-12).
+    double quarters_per_second;
+    if (_microsPerQuarter > 0 && _microsPerQuarter != 60000000 / _beats) {
+        quarters_per_second = 1000000.0 / (double) _microsPerQuarter;
+    } else {
+        quarters_per_second = (double) _beats / 60;
+    }
     double ticks_per_second = (double) (file()->ticksPerQuarter()) * quarters_per_second;
     return 1000 / (ticks_per_second);
 }
