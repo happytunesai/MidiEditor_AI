@@ -124,7 +124,7 @@ public:
      * was started against \a f. Lets MainWindow abort the run before deleting the
      * document the agent is editing (e.g. its tab is closed mid-run).
      *
-     * v2.3.1 cross-tab: "started against" has become "currently bound to" -
+     * v2.4.0 cross-tab: "started against" has become "currently bound to" -
      * an intercepted switch_document moves the tracked file (see
      * \ref rebindAgentRun), so after a switch it is the CURRENT target whose
      * tab-close aborts the run, while closing the original document no longer
@@ -133,7 +133,7 @@ public:
     bool isAgentRunningOn(MidiFile *f) const;
 
     /**
-     * \brief v2.3.1 cross-tab: resolves a flattened document list index (from
+     * \brief v2.4.0 cross-tab: resolves a flattened document list index (from
      * list_documents / MainWindow::listOpenDocumentsJson) to its MidiFile
      * without activating, re-binding, or otherwise touching anything.
      * Thin delegate to MainWindow::documentFileByListIndex; null when the
@@ -142,7 +142,7 @@ public:
     MidiFile *documentFileByListIndex(int index) const;
 
     /**
-     * \brief v2.3.1 cross-tab: tab title of the open document holding \a f
+     * \brief v2.4.0 cross-tab: tab title of the open document holding \a f
      * (same title list_documents reports); empty when \a f is not listed.
      */
     QString documentTitleForFile(MidiFile *f) const;
@@ -154,7 +154,7 @@ public:
     QStringList runDocumentLabels() const;
 
     /**
-     * \brief v2.3.1 cross-tab: moves the RUNNING agent run's bind to
+     * \brief v2.4.0 cross-tab: moves the RUNNING agent run's bind to
      * \a target in one step - called by AgentRunner's switch_document
      * intercept right after it re-pointed its own file pointer, so the whole
      * re-bind (runner file + closed-mid-run guard + step/undo bookkeeping +
@@ -394,7 +394,7 @@ private:
      *  abort the run if that document is closed (isAgentRunningOn) and as the
      *  apply target for simple mode. nullptr when no request is in flight. */
     MidiFile *_runOriginFile = nullptr;
-    /** v2.3.1 cross-tab (agent runs only): tab title of the document the run
+    /** v2.4.0 cross-tab (agent runs only): tab title of the document the run
      *  STARTED on (display only). */
     QString _runOriginDocTitle;
     /** Tab title of the run's CURRENT bind; moves with rebindAgentRun(). */

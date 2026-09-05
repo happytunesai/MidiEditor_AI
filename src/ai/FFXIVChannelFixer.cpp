@@ -76,7 +76,7 @@ QStringList FFXIVChannelFixer::instrumentNames() {
 }
 
 // ---------------------------------------------------------------------------
-// checkEligibility - "is this an FFXIV MIDI at all?" (v2.3.1, review F066)
+// checkEligibility - "is this an FFXIV MIDI at all?" (v2.4.0, review F066)
 // ---------------------------------------------------------------------------
 
 namespace {
@@ -331,7 +331,7 @@ QJsonObject FFXIVChannelFixer::analyzeFile(MidiFile *file) {
         }
     }
 
-    // v2.3.1 (review F065): guitar tracks that play on a channel whose tick-0
+    // v2.4.0 (review F065): guitar tracks that play on a channel whose tick-0
     // program is not a guitar program (27-31) - e.g. a Viola track renamed to
     // ElectricGuitarOverdriven. Preserve gives such a channel the program of
     // the track's own variant; the dialog lists them so the user sees why.
@@ -373,7 +373,7 @@ QJsonObject FFXIVChannelFixer::analyzeFile(MidiFile *file) {
     result["melodicTracks"]       = QJsonArray::fromStringList(melodicTracks);
     result["guitarTracksWithoutProgram"] = guitarTracksWithoutProgram;
 
-    // v2.3.1 eligibility gate (review F066) - the fields above are unchanged,
+    // v2.4.0 eligibility gate (review F066) - the fields above are unchanged,
     // the dialog and MainWindow read the gate from here.
     const QJsonObject gate = checkEligibility(file);
     result["noteTrackCount"]           = gate["noteTrackCount"];
@@ -465,7 +465,7 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
         }
     }
 
-    // TIER 1 - Not an FFXIV MIDI. v2.3.1 (review F066): the shared
+    // TIER 1 - Not an FFXIV MIDI. v2.4.0 (review F066): the shared
     // eligibility gate replaces the bare "zero names" test, so one renamed
     // track in a General MIDI file no longer lets Rebuild loose on the other
     // eleven. Read-only; a refused file is returned before the first edit.
@@ -590,7 +590,7 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
                 if (aCh < 0 || aCh > 15) aCh = qMin(t, 15);
                 channelFor[t] = aCh;
 
-                // v2.3.1 (review F065): a guitar track on a channel that has
+                // v2.4.0 (review F065): a guitar track on a channel that has
                 // no guitar program at tick 0 - typically a track the user just
                 // renamed from a melodic instrument (Viola -> Overdriven) - used
                 // to lose the channel's only program change in CLEAN and get

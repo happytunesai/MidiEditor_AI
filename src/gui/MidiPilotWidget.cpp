@@ -251,7 +251,7 @@ public:
         }
     }
 
-    // v2.3.1 cross-tab: a step planned before a switch_document in the same
+    // v2.4.0 cross-tab: a step planned before a switch_document in the same
     // tool batch was labeled for the OLD document; the label the runner sends
     // when the step starts wins, so the panel names the document the step
     // really ran in (review R231-16). markActive() re-renders the text.
@@ -1595,7 +1595,7 @@ bool MidiPilotWidget::sendCurrentPrompt() {
         // phantom terminal assistantReplied.
         _simpleRetryPending = false;
         _runOriginFile = _file;
-        // v2.3.1 cross-tab: seed the run's document bookkeeping. The titles
+        // v2.4.0 cross-tab: seed the run's document bookkeeping. The titles
         // feed the per-step undo records (which tab holds a step's undo) and
         // the run-end multi-document summary; rebindAgentRun() extends them
         // when the agent switches its bind to another tab.
@@ -2262,7 +2262,7 @@ bool MidiPilotWidget::isAgentRunning() const {
 
 bool MidiPilotWidget::isAgentRunningOn(MidiFile *f) const {
     // True if an in-flight request (agent or simple) was started against f -
-    // or, v2.3.1, re-bound onto f by an intercepted switch_document
+    // or, v2.4.0, re-bound onto f by an intercepted switch_document
     // (rebindAgentRun moves _runOriginFile with the run's current target).
     return f && _runOriginFile == f;
 }
@@ -2870,7 +2870,7 @@ void MidiPilotWidget::onAgentStepCompleted(int step, const QString &toolName, co
     stepEntry[QStringLiteral("tool")] = toolName;
     stepEntry[QStringLiteral("success")] = success;
     if (recoverable) stepEntry[QStringLiteral("recoverable")] = true;
-    // v2.3.1 cross-tab: the DOCUMENT dimension of the undo bookkeeping. Each
+    // v2.4.0 cross-tab: the DOCUMENT dimension of the undo bookkeeping. Each
     // tool call opens its Protocol action on the run's current bind (Protocol
     // is per-MidiFile, so undo automatically acts on the document the step
     // edited - via that document's tab). Record the document only while the
@@ -2944,7 +2944,7 @@ void MidiPilotWidget::onAgentFinished(const QString &finalMessage) {
 
     addChatBubble("assistant", finalMessage);
 
-    // v2.3.1 cross-tab: when the run switched its bind, say WHERE the work
+    // v2.4.0 cross-tab: when the run switched its bind, say WHERE the work
     // went - undo lives in each edited document's own Protocol, and only the
     // active tab reacts to Ctrl+Z, so the user needs the list. One line,
     // only when more than one document was actually bound. Titles
@@ -3068,7 +3068,7 @@ void MidiPilotWidget::onAgentError(const QString &error) {
     setConnectionControlsEnabled(true);
 
     addChatBubble("system", "Agent error: " + error);
-    // v2.3.1 cross-tab: even an aborted multi-document run has already put
+    // v2.4.0 cross-tab: even an aborted multi-document run has already put
     // undo steps into other tabs' Protocols - same disclosure as the success
     // path so the user can find (and undo) what landed before the error.
     if (_runDocs.size() > 1) {
@@ -4547,7 +4547,7 @@ void MidiPilotWidget::loadConversation(const QString &id)
                         bool ok = s.value(QStringLiteral("success")).toBool(true);
                         QString part = QString::fromUtf8(ok ? "\xe2\x9c\x93 " : "\xe2\x9c\x97 ")
                                 + s.value(QStringLiteral("tool")).toString();
-                        // v2.3.1 cross-tab: a step that landed in ANOTHER
+                        // v2.4.0 cross-tab: a step that landed in ANOTHER
                         // document than the run's own carries its tab title -
                         // keep saying so after a reload (undo lives there).
                         const QString doc = s.value(QStringLiteral("document")).toString();

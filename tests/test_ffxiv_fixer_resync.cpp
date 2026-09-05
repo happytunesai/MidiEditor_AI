@@ -20,7 +20,7 @@
  *      channel owns the program.
  *   9. Non-FFXIV track names leave their channel untouched.
  *
- * v2.3.1 (review F066) - eligibility gate, FFXIVChannelFixer::checkEligibility
+ * v2.4.0 (review F066) - eligibility gate, FFXIVChannelFixer::checkEligibility
  * as embedded in analyzeFile() and run first by fixChannels():
  *  10. A 12-track General MIDI file with ONE track renamed "Flute" is refused
  *      and the reason lists the other note-carrying tracks.
@@ -32,7 +32,7 @@
  *      the single-track wording.
  *  14. analyzeFile()'s pre-existing fields are pinned for an eligible file.
  *
- * v2.3.1 (review F065) - Preserve and a guitar track whose channel carries no
+ * v2.4.0 (review F065) - Preserve and a guitar track whose channel carries no
  * guitar program at tick 0:
  *  15. A Viola track renamed to ElectricGuitarOverdriven keeps its channel and
  *      the channel takes program 29 from the track name (reported, no rename,
@@ -359,7 +359,7 @@ private slots:
         delete f;
     }
 
-    // ---- v2.3.1 eligibility gate (review F066) --------------------------
+    // ---- v2.4.0 eligibility gate (review F066) --------------------------
 
     // Appends a track named `name`, pins it to `ch` and gives it one note
     // there. Returns the new track's index.
@@ -582,7 +582,7 @@ private slots:
 
     void analyzeFile_existingFieldsPinnedForEligibleFile() {
         // Pre-gate contract of analyzeFile(): every field the dialog read
-        // before v2.3.1 keeps its value and semantics (ffxivTrackCount counts
+        // before v2.4.0 keeps its value and semantics (ffxivTrackCount counts
         // by NAME, idle tracks included; autoDetectedTier 3 = guitar + PC).
         MidiFile *f = makeFile("ElectricGuitarOverdriven", 1);
         addNote(f, 1, f->track(1), 60, 0, 100);
@@ -612,7 +612,7 @@ private slots:
         delete f;
     }
 
-    // ---- v2.3.1 review F065: guitar track on a channel without a guitar PC ----
+    // ---- v2.4.0 review F065: guitar track on a channel without a guitar PC ----
 
     void tier3_renamedGuitarTrackGetsProgramFromTrackName() {
         // Track 1 was a Viola on CH1 (PC 41) and got renamed to
@@ -859,7 +859,7 @@ private slots:
 
     void loader_standardSysexFramingStillLoads() {
         const QByteArray note = QByteArray::fromHex("60 903C64 60 803C00");
-        // Length-framed, terminated (what 2.3.1 writes).
+        // Length-framed, terminated (what 2.4.0 writes).
         LoadedShape s = loadShape(smfWithOneTrack(QByteArray::fromHex("00 F0 05 7E 7F 09 01 F7") + note));
         QCOMPARE(s.notes, 1);
         QCOMPARE(s.sysex, QList<QByteArray>{QByteArray::fromHex("7E7F0901")});

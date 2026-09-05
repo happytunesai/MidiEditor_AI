@@ -38,7 +38,7 @@ public:
     static QJsonObject analyzeFile(MidiFile *file);
 
     /**
-     * \brief Eligibility gate (v2.3.1, review F066): decides whether the
+     * \brief Eligibility gate (v2.4.0, review F066): decides whether the
      *        file IS an FFXIV MIDI before either tier is allowed to run.
      *
      * A single renamed track used to be enough to let Rebuild loose on a

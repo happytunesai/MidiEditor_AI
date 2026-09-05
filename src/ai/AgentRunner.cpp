@@ -400,7 +400,7 @@ void AgentRunner::run(const QString &systemPrompt,
 
     _file = file;
     _widget = widget;
-    // v2.3.1 cross-tab: remember the run's home document. `_file` may be
+    // v2.4.0 cross-tab: remember the run's home document. `_file` may be
     // re-bound by an intercepted switch_document call; `_originFile` is what
     // the step labels compare against ("is this step landing elsewhere?").
     _originFile = file;
@@ -523,7 +523,7 @@ void AgentRunner::rebuildToolSchemas()
     // inside toolSchemas() that gates the FFXIV bundle.
     ToolDefinitions::ToolSchemaOptions schemaOpts;
     schemaOpts.includePitchBend = _policy.allowPitchBendEvents;
-    // v2.3.1 cross-tab: only the AgentRunner opts in to the switch_document
+    // v2.4.0 cross-tab: only the AgentRunner opts in to the switch_document
     // definition - it intercepts the call before dispatch and re-binds the
     // run (no tab activation). The MCP server keeps the default options and
     // appends its OWN switch_document with the activate-the-tab contract.
@@ -901,7 +901,7 @@ void AgentRunner::processToolCalls(const QJsonObject &assistantMessage)
         QString name = fn["name"].toString();
         QString argsStr = fn["arguments"].toString();
         QJsonObject args = QJsonDocument::fromJson(argsStr.toUtf8()).object();
-        // v2.3.1: labels carry the bound document's title while the run is
+        // v2.4.0: labels carry the bound document's title while the run is
         // away from its origin. Planned labels use the suffix as of NOW - a
         // batch that switches mid-way keeps its pre-planned labels (the step
         // records and the chat's switch line still name the right document).
@@ -1005,7 +1005,7 @@ void AgentRunner::processToolCalls(const QJsonObject &assistantMessage)
             }
         }
 
-        // v2.3.1 cross-tab: switch_document is intercepted HERE, before
+        // v2.4.0 cross-tab: switch_document is intercepted HERE, before
         // generic dispatch - the runner (not ToolDefinitions) owns the run
         // bind, exactly like the MCP server owns its session bind and
         // intercepts its own switch_document before bound-file resolution.
@@ -1351,7 +1351,7 @@ void AgentRunner::cleanup()
         _client->setNextRequestPolicyOverride(false, QString());
     _file = nullptr;
     _widget = nullptr;
-    // v2.3.1 cross-tab: drop the run's home/bind bookkeeping with the run.
+    // v2.4.0 cross-tab: drop the run's home/bind bookkeeping with the run.
     _originFile = nullptr;
     _boundDocTitle.clear();
 }

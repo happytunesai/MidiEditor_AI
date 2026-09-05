@@ -184,7 +184,7 @@ const QStringList kCoreToolNames = {
     QStringLiteral("copy_events_to_track"),    // Phase 46 pt 3 (octet #2)
     QStringLiteral("search_help"),             // Phase 44 manual bot
     QStringLiteral("get_help_section"),        // Phase 44 manual bot
-    // v2.3.1 cross-tab tools. list_documents was MCP-only from v2.0 and is
+    // v2.4.0 cross-tab tools. list_documents was MCP-only from v2.0 and is
     // now CORE (the MCP server no longer appends its own copy); the other two
     // are new. switch_document is deliberately NOT here - its definition is
     // gated behind ToolSchemaOptions::includeDocumentSwitch (AgentRunner opts
@@ -682,7 +682,7 @@ private slots:
     }
 
     // -----------------------------------------------------------------
-    // v2.3.1 cross-tab tools: list_documents / get_document_overview /
+    // v2.4.0 cross-tab tools: list_documents / get_document_overview /
     // import_tracks_from_document are CORE; switch_document is opt-in.
     // The generic strict-mode sweep above already covers their shape - the
     // slots below pin each tool's OWN contract so a later edit cannot

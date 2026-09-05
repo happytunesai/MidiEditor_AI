@@ -139,7 +139,7 @@ AdditionalMidiSettingsWidget::AdditionalMidiSettingsWidget(QSettings *settings, 
 AdditionalMidiSettingsWidget::~AdditionalMidiSettingsWidget() {
     // The console is the Terminal singleton's widget and only borrowed by this
     // page (layout->addWidget() re-parented it to us). The Settings dialog is
-    // deleted on close since v2.3.1, which took the console down with it and
+    // deleted on close since v2.4.0, which took the console down with it and
     // left Terminal::console() - and therefore the NEXT Settings dialog -
     // holding a freed widget: access violation in QWidget::setParent on the
     // second "Settings" click. Detach it before our children are destroyed so

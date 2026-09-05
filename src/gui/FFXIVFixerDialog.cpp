@@ -32,7 +32,7 @@ void FFXIVFixerDialog::setupUI(const QJsonObject &analysis) {
     int autoTier         = analysis["autoDetectedTier"].toInt(2);
     QJsonArray guitarArr = analysis["guitarVariants"].toArray();
     QJsonArray percArr   = analysis["percussionTracks"].toArray();
-    // v2.3.1 eligibility facts (review F066) - same numbers the gate used.
+    // v2.4.0 eligibility facts (review F066) - same numbers the gate used.
     const QJsonObject eligibility = analysis["eligibility"].toObject();
     int noteTrackCount   = analysis["noteTrackCount"].toInt();
     QJsonArray nonFfxivArr = analysis["nonFfxivNoteTracks"].toArray();

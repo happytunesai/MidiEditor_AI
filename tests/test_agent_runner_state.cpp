@@ -12,7 +12,7 @@
 
 class MidiFile;
 
-// v2.3.1 cross-tab: AgentRunner::interceptSwitchDocument references three
+// v2.4.0 cross-tab: AgentRunner::interceptSwitchDocument references three
 // MidiPilotWidget members (this project's /OPT:REF configuration does not
 // strip them - same root cause as the ODR shims in test_tool_definitions.cpp).
 // The intercept itself needs a live widget and is not driven here; only the
@@ -288,7 +288,7 @@ private slots:
         QVERIFY(AgentRunner::hintForRetry(kind, QString()).isEmpty());
     }
 
-    // --- v2.3.1 cross-tab tools: working-state semantics ------------------
+    // --- v2.4.0 cross-tab tools: working-state semantics ------------------
     // The runner-side halves that ARE headlessly drivable: the model-facing
     // facts updateWorkingStateFromToolResult derives from the four new tools'
     // results. (interceptSwitchDocument / decorateStepLabel are private and

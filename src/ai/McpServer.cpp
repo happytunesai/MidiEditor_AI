@@ -676,12 +676,12 @@ QJsonObject McpServer::handleToolsCall(const QJsonObject &params, Session &sessi
                          ? QStringLiteral("mcp")
                          : QStringLiteral("mcp:") + session.clientName;
 
-    // v2.0 (naming updated v2.3.1): document/tab tools. They act on the
+    // v2.0 (naming updated v2.4.0): document/tab tools. They act on the
     // WINDOW (which tabs exist / which one is active), not on the session's
     // bound document, so they run BEFORE the bound-file resolution below.
     // After switch_document the client must call get_editor_state to re-bind
     // the session to the newly active document (the binding itself is
-    // deliberately untouched). list_documents became a CORE tool in v2.3.1;
+    // deliberately untouched). list_documents became a CORE tool in v2.4.0;
     // this intercept still answers it FIRST (shadowing the core executor,
     // whose {success, documents} shape is identical) so it keeps working even
     // while session.boundFileClosed would refuse stateful tools below.
@@ -1064,7 +1064,7 @@ QJsonArray McpServer::convertToolSchemas() {
         mcpTools.append(mcpTool);
     }
 
-    // v2.3.1: list_documents is a CORE tool now (promoted for MidiPilot's
+    // v2.4.0: list_documents is a CORE tool now (promoted for MidiPilot's
     // cross-tab abilities) and flows through the conversion above with the
     // SAME description it had as an MCP-only append, so clients see one
     // identical tool instead of two. The pre-dispatch intercept in

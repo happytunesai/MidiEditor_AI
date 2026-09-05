@@ -158,7 +158,7 @@ public:
     bool activateDocumentByListIndex(int index);
 
     /**
-     * \brief v2.3.1 cross-tab tools: resolves the SAME flattened list index
+     * \brief v2.4.0 cross-tab tools: resolves the SAME flattened list index
      *        (group 0 tabs first, then group 1 - identical skipping rules to
      *        listOpenDocumentsJson()) to the document's MidiFile WITHOUT
      *        activating, re-binding, or otherwise touching anything.

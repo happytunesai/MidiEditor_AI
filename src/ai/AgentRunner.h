@@ -152,7 +152,7 @@ private:
     static QString buildStepLabel(const QString &toolName, const QJsonObject &args);
 
     /**
-     * \brief v2.3.1 cross-tab: appends " [in <tab title>]" to a step label
+     * \brief v2.4.0 cross-tab: appends " [in <tab title>]" to a step label
      *        while the run is bound to a document OTHER than the one it was
      *        started on, so the steps dock says where each edit (and its undo
      *        step) landed. Empty-suffix (= no-op) on the origin document.
@@ -160,7 +160,7 @@ private:
     QString decorateStepLabel(const QString &label) const;
 
     /**
-     * \brief v2.3.1 cross-tab: handles a `switch_document` tool call BEFORE
+     * \brief v2.4.0 cross-tab: handles a `switch_document` tool call BEFORE
      *        generic dispatch (mirroring the MCP server's pre-dispatch
      *        intercept) and re-binds the run ATOMICALLY - `_file`, the
      *        widget-side closed-mid-run guard (`_runOriginFile`) and the
@@ -218,7 +218,7 @@ private:
     MidiFile *_file;
     MidiPilotWidget *_widget;
 
-    // v2.3.1 cross-tab: the document the run was STARTED on. `_file` is the
+    // v2.4.0 cross-tab: the document the run was STARTED on. `_file` is the
     // run's CURRENT bind and moves with switch_document; this one never moves
     // and anchors the "is the run away from home?" question behind
     // decorateStepLabel(). Used for IDENTITY COMPARISON ONLY - after the

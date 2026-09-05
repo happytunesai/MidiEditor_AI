@@ -5417,7 +5417,7 @@ void MainWindow::fixFFXIVChannels() {
     // Analyze file and show tier selection dialog
     QJsonObject analysis = FFXIVChannelFixer::analyzeFile(file);
 
-    // v2.3.1 (review F066): the fixer's own eligibility gate decides whether
+    // v2.4.0 (review F066): the fixer's own eligibility gate decides whether
     // this is an FFXIV MIDI at all - one renamed track in a General MIDI file
     // no longer gets Rebuild past this point. Same gate, same reason text as
     // the AI tool; refused before any Protocol action is opened.

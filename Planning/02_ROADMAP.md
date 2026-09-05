@@ -13405,7 +13405,7 @@ midipilot-settings.html (+ help_db regen), CHANGELOG per the template.
 
 ## Post-2.3 candidates (docs QoL, scoped 2026-08-26)
 
-* **Cross-tab follow-ups (from the 2.3.1 sprint verification):** (a) extract the
+* **Cross-tab follow-ups (from the 2.4.0 sprint verification):** (a) extract the
   import engine into its own TU (src/midi/TrackImporter, TempoMapThinner-style seam
   `(MidiFile *src, MidiFile *dst, tracks, dryRun)`) so the full import round trip
   (undo restore, source byte-identical, tpq scaling) becomes unit-testable - today the
@@ -13418,7 +13418,7 @@ midipilot-settings.html (+ help_db regen), CHANGELOG per the template.
 
 * **Owner decisions left open by the full-codebase review (2026-09-02)** - confirmed
   defects whose correct fix changes forward behaviour or needs a redesign. Decided the
-  same day: items 3, 4 and 5 were approved and are DONE in 2.3.1 (per-file CollabService
+  same day: items 3, 4 and 5 were approved and are DONE in 2.4.0 (per-file CollabService
   state - live sessions survive tab switches; GM channel router for Guitar Pro port-2+
   tracks; QLockFile-based clipboard lock with a 2 s timeout and stale-lock recovery).
   Items 1 and 2 (the Channel Fixer) are DONE as well: the F066 eligibility gate ("is this

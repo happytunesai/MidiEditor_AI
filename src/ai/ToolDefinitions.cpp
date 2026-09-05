@@ -7,7 +7,7 @@
 #include "../MidiEvent/TempoChangeEvent.h"
 #include "../MidiEvent/OnEvent.h"
 #include "FfxivPlayabilityValidator.h"
-// v2.3.1 cross-tab tools: the document list lives on MainWindow. Real builds
+// v2.4.0 cross-tab tools: the document list lives on MainWindow. Real builds
 // only - test_tool_definitions ODR-stubs MidiPilotWidget as a non-QWidget, so
 // the qobject_cast/window() path (and this include) must never enter the stub
 // link; every exec* that uses it is #ifdef-stubbed like thin_tempo_map.
@@ -245,7 +245,7 @@ QJsonArray ToolDefinitions::toolSchemas(const ToolSchemaOptions &options) {
             makeParams(QJsonObject(), QJsonArray())));
     }
 
-    // --- v2.3.1 cross-tab tools (read-only half) ---
+    // --- v2.4.0 cross-tab tools (read-only half) ---
     // list_documents was MCP-only from v2.0; promoted to CORE so the MidiPilot
     // agent can see the other tabs too. The description is kept VERBATIM from
     // the old MCP-side append (McpServer::convertToolSchemas) so MCP clients
@@ -727,7 +727,7 @@ QJsonArray ToolDefinitions::toolSchemas(const ToolSchemaOptions &options) {
             makeParams(props, {"sourceTrackIndex", "targetTrackIndex", "startTick", "endTick"})));
     }
 
-    // --- v2.3.1 cross-tab tools (write half) ---
+    // --- v2.4.0 cross-tab tools (write half) ---
 
     // import_tracks_from_document
     {
@@ -1036,7 +1036,7 @@ QJsonObject ToolDefinitions::executeTool(const QString &toolName,
     if (toolName == "get_selection") {
         return execGetSelection(file);
     }
-    // v2.3.1 cross-tab reads - window-level, never re-bind anything
+    // v2.4.0 cross-tab reads - window-level, never re-bind anything
     if (toolName == "list_documents") {
         return execListDocuments(widget);
     }
@@ -1254,7 +1254,7 @@ QJsonObject ToolDefinitions::execGetSelection(MidiFile *file) {
 }
 
 // ---------------------------------------------------------------------------
-// v2.3.1 cross-tab tools: list_documents / get_document_overview /
+// v2.4.0 cross-tab tools: list_documents / get_document_overview /
 // import_tracks_from_document
 // ---------------------------------------------------------------------------
 
@@ -2194,7 +2194,7 @@ QJsonObject ToolDefinitions::execSetupChannelPattern(MidiFile *file,
         }
     }
 #ifndef TOOLDEFINITIONS_TEST_STUB_FFXIV
-    // v2.3.1 (review F066): the fixer's own eligibility gate - the SAME
+    // v2.4.0 (review F066): the fixer's own eligibility gate - the SAME
     // function fixChannels() runs before its first edit, so a file it refuses
     // (a note-carrying track that is not an FFXIV instrument, or no FFXIV
     // names at all) returns success=false with the gate's reason without an

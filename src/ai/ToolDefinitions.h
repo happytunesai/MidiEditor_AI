@@ -31,7 +31,7 @@ public:
         /// When false, omit `pitch_bend` from the `events.anyOf` of
         /// `insert_events`/`replace_events`.
         bool includePitchBend = true;
-        /// v2.3.1 cross-tab tools: when true, add the `switch_document`
+        /// v2.4.0 cross-tab tools: when true, add the `switch_document`
         /// definition to the schema. Default false so BOTH default-options
         /// consumers keep their contract: the MCP server appends its OWN
         /// switch_document (activate-the-tab + get_editor_state re-bind)
@@ -108,14 +108,14 @@ private:
     static QJsonObject execGetTrackInfo(const QJsonObject &args, MidiFile *file);
     static QJsonObject execQueryEvents(const QJsonObject &args, MidiFile *file);
     static QJsonObject execGetSelection(MidiFile *file);
-    // v2.3.1 cross-tab tools. These act on the WINDOW's document list (via
+    // v2.4.0 cross-tab tools. These act on the WINDOW's document list (via
     // the widget's MainWindow), not on the bound file, and never re-bind
     // anything: list_documents was promoted from MCP-only to CORE, and
     // get_document_overview reads ANOTHER open tab without touching it.
     static QJsonObject execListDocuments(MidiPilotWidget *widget);
     static QJsonObject execGetDocumentOverview(const QJsonObject &args,
                                                MidiPilotWidget *widget);
-    // v2.3.1: copy tracks from another open document INTO `file` (the bound
+    // v2.4.0: copy tracks from another open document INTO `file` (the bound
     // document) as ONE Protocol action - bulk channel-snapshot idiom, ticks
     // rescaled on ticksPerQuarter mismatch, tempo-map difference and channel
     // collisions REPORTED (never blocked). dryRun defaults to true like

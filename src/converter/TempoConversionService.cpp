@@ -387,7 +387,7 @@ TempoConversionResult TempoConversionService::convert(
             }
             // ScaleTempoMap: also rewrite the stored tempo - EXACTLY. Ticks are
             // scaled by the unrounded ratio, so writing a whole BPM here (the
-            // pre-2.3.1 setBeats path) silently drifted every passage by the
+            // pre-2.4.0 setBeats path) silently drifted every passage by the
             // rounding error (review R231-12). The event stores microseconds
             // per quarter, which represents any fractional BPM; only the 1-999
             // BPM range is still clamped (reported by preview()).

@@ -5,7 +5,7 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 
 ---
 
-## [2.3.1] - Unreleased
+## [2.4.0] - Unreleased
 
 > In progress after the 2.3.0 release. On release day: set the real date and a
 > title (here and in the <summary> line), write the Summary from the shipped
