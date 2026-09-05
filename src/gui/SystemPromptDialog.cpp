@@ -225,8 +225,9 @@ void SystemPromptDialog::onSave()
 
     // Write to a temporary file first and only rotate the backup once the new
     // content is safely on disk - moving the old file to .bak up front meant a
-    // failed write left no prompts file at all (and the .bak is swept by the
-    // startup backup cleanup).
+    // failed write left no prompts file at all. (The .bak is this file's own
+    // rollback copy; the updater's start-up cleanup only removes backups it
+    // created itself.)
     const QString tmpPath = path + QStringLiteral(".tmp");
     QFile::remove(tmpPath);
     const QByteArray json = doc.toJson(QJsonDocument::Indented);

@@ -492,25 +492,50 @@ void AutoUpdater::cleanupOldBackups()
     auto sPtr = AppPaths::settings();
     QSettings &s = *sPtr;
     const QStringList recorded = s.value(QLatin1String(kPendingBackupsKey)).toStringList();
+    QStringList stillPending;
     for (const QString &bakPath : recorded) {
-        if (QFile::exists(bakPath) && QFile::remove(bakPath)) {
+        if (!QFile::exists(bakPath)) continue;
+        if (QFile::remove(bakPath)) {
             qDebug() << "AutoUpdater: Cleaned up backup:" << dir.relativeFilePath(bakPath);
+        } else {
+            stillPending << bakPath; // still locked (old process exiting) - retry next start
         }
     }
-    s.remove(QLatin1String(kPendingBackupsKey));
+    if (stillPending.isEmpty()) {
+        s.remove(QLatin1String(kPendingBackupsKey));
+    } else {
+        s.setValue(QLatin1String(kPendingBackupsKey), stillPending);
+    }
 
-    // 2) Leftovers of updates made before that list existed: only the payload
-    //    types the updater ever renames (program, libraries, translations),
-    //    anywhere in the payload tree (platforms/, imageformats/, ...). Never a
-    //    "<document>.bak".
+    // 2) Leftovers of updates made before that list existed. A file type alone
+    //    proves nothing (a user may keep custom-synth.dll.bak in a plugin folder
+    //    of their own), so this sweep is confined to the deployment tree the
+    //    updater writes - the program folder and Qt's plugin / translation
+    //    folders, not their subfolders - and to backups whose original still
+    //    sits next to them (the updater renames a locked file and copies the
+    //    new one into its place).
+    static const QStringList deployDirs = {
+        QString(), QStringLiteral("generic"), QStringLiteral("iconengines"),
+        QStringLiteral("imageformats"), QStringLiteral("multimedia"),
+        QStringLiteral("networkinformation"), QStringLiteral("platforms"),
+        QStringLiteral("styles"), QStringLiteral("tls"), QStringLiteral("translations"),
+        QStringLiteral("plugins/generic"), QStringLiteral("plugins/iconengines"),
+        QStringLiteral("plugins/imageformats"), QStringLiteral("plugins/multimedia"),
+        QStringLiteral("plugins/networkinformation"), QStringLiteral("plugins/platforms"),
+        QStringLiteral("plugins/styles"), QStringLiteral("plugins/tls")};
     static const QStringList legacyPatterns = {
         QStringLiteral("*.exe.bak"), QStringLiteral("*.dll.bak"),
         QStringLiteral("*.qm.bak"),  QStringLiteral("*.pdb.bak")};
-    QDirIterator it(appDir, legacyPatterns, QDir::Files, QDirIterator::Subdirectories);
-    while (it.hasNext()) {
-        QString bakPath = it.next();
-        if (QFile::remove(bakPath)) {
-            qDebug() << "AutoUpdater: Cleaned up backup:" << dir.relativeFilePath(bakPath);
+    for (const QString &sub : deployDirs) {
+        QDir d = sub.isEmpty() ? dir : QDir(dir.filePath(sub));
+        if (!d.exists()) continue;
+        const QFileInfoList candidates = d.entryInfoList(legacyPatterns, QDir::Files);
+        for (const QFileInfo &fi : candidates) {
+            const QString bakPath = fi.filePath();
+            if (!QFile::exists(bakPath.chopped(4))) continue; // no original next to it
+            if (QFile::remove(bakPath)) {
+                qDebug() << "AutoUpdater: Cleaned up backup:" << dir.relativeFilePath(bakPath);
+            }
         }
     }
 }

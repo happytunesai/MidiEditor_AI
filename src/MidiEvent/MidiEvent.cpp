@@ -287,16 +287,34 @@ MidiEvent *MidiEvent::loadMidiEvent(QDataStream *content, bool *ok, bool *endEve
                     // message whose payload is longer than its first byte (e.g.
                     // "F0 01 02 03 F7", manufacturer id 01 read as length 1). The
                     // standard form is followed by a continuation packet:
-                    // <delta> F7 <len> <data bytes < 0x80, last may be F7>. Look
-                    // ahead for exactly that structure; anything else is the old
-                    // framing (whose F7 terminator we would otherwise misread as
-                    // that continuation status).
+                    // <delta> F7 <len> <data bytes < 0x80, last may be F7>, and
+                    // meta events (FF ...) may sit between the packets - they are
+                    // not MIDI data, so the SMF spec allows them there. Look ahead
+                    // for exactly that structure (skipping a bounded number of
+                    // meta events); anything else is the old framing, whose F7
+                    // terminator we would otherwise misread as the continuation
+                    // status.
                     if (!oldFraming && innerF7 < 0 && device && !content->atEnd()) {
                         const qint64 afterChunk = device->pos();
                         bool continuationOk = false;
-                        const int delta = MidiFile::variableLengthvalue(content);
-                        if (delta >= 0 && !content->atEnd()) {
+                        for (int skippedMeta = 0; skippedMeta <= 16; skippedMeta++) {
+                            const int delta = MidiFile::variableLengthvalue(content);
+                            if (delta < 0 || content->atEnd()) break;
                             (*content) >> tempByte;
+                            if (tempByte == 0xFF) {
+                                // <type> <len> <data>: skip and look at the next event
+                                if (content->atEnd()) break;
+                                (*content) >> tempByte;
+                                const int metaLen = MidiFile::variableLengthvalue(content);
+                                if (metaLen < 0 || metaLen > 65535) break;
+                                bool metaComplete = true;
+                                for (int i = 0; i < metaLen; i++) {
+                                    if (content->atEnd()) { metaComplete = false; break; }
+                                    (*content) >> tempByte;
+                                }
+                                if (!metaComplete) break;
+                                continue;
+                            }
                             if (tempByte == 0xF7) {
                                 const int escLen = MidiFile::variableLengthvalue(content);
                                 if (escLen > 0 && escLen <= 65535) {
@@ -312,6 +330,7 @@ MidiEvent *MidiEvent::loadMidiEvent(QDataStream *content, bool *ok, bool *endEve
                                     }
                                 }
                             }
+                            break;
                         }
                         if (!device->seek(afterChunk)) {
                             *ok = false;

@@ -810,6 +810,39 @@ private slots:
         s = loadShape(smfWithOneTrack(QByteArray::fromHex("00 F0 F7") + note));
         QCOMPARE(s.notes, 1);
         QCOMPARE(s.sysex, QList<QByteArray>{QByteArray()});
+
+        // Old framing directly followed by a text meta event: the look-ahead
+        // reads the real terminator as a continuation status, but the length
+        // that follows is the meta event's delta 0 - rejected, old framing.
+        s = loadShape(smfWithOneTrack(QByteArray::fromHex("00 F0 01 02 03 F7  00 FF 01 03 616263") + note));
+        QCOMPARE(s.notes, 1);
+        QVERIFY(s.notesPaired);
+        QCOMPARE(s.sysex, QList<QByteArray>{QByteArray::fromHex("010203")});
+
+        // Old framing whose misread length ends one byte before the terminator:
+        // the varlen swallows "F7 00", the meta event is skipped by the new loop
+        // and the note's status byte then settles it - old framing.
+        s = loadShape(smfWithOneTrack(QByteArray::fromHex("00 F0 03 01 02 03 F7  00 FF 01 03 616263") + note));
+        QCOMPARE(s.notes, 1);
+        QVERIFY(s.notesPaired);
+        QCOMPARE(s.sysex, QList<QByteArray>{QByteArray::fromHex("03010203")});
+
+        // Old framing whose first byte counts the payload bytes after it but not
+        // the terminator: the misread chunk stops right before F7, the varlen of
+        // the look-ahead swallows F7 plus the delta, the note's status settles
+        // it - old framing, full payload.
+        s = loadShape(smfWithOneTrack(QByteArray::fromHex("00 F0 02 0A 0B F7") + note));
+        QCOMPARE(s.notes, 1);
+        QVERIFY(s.notesPaired);
+        QCOMPARE(s.sysex, QList<QByteArray>{QByteArray::fromHex("020A0B")});
+
+        // Documented ambiguity: an old-framed message whose first byte equals
+        // the count of the bytes that follow it INCLUDING the terminator is
+        // byte-identical to a standard terminated packet and is read as one
+        // (payload without that first byte).
+        s = loadShape(smfWithOneTrack(QByteArray::fromHex("00 F0 03 0A 0B F7") + note));
+        QCOMPARE(s.notes, 1);
+        QCOMPARE(s.sysex, QList<QByteArray>{QByteArray::fromHex("0A0B")});
     }
 
     void loader_standardSysexFramingStillLoads() {
@@ -820,6 +853,12 @@ private slots:
         QCOMPARE(s.sysex, QList<QByteArray>{QByteArray::fromHex("7E7F0901")});
         // Multi-packet dump: first packet without F7, continuation as F7 escape.
         s = loadShape(smfWithOneTrack(QByteArray::fromHex("00 F0 03 41 10 42  0A F7 04 12 40 00 F7") + note));
+        QCOMPARE(s.notes, 1);
+        QVERIFY(s.notesPaired);
+        QCOMPARE(s.sysex, QList<QByteArray>{QByteArray::fromHex("411042")});
+        // The same dump with a text meta event between the packets (allowed by
+        // the SMF spec - meta events are not MIDI data) must read identically.
+        s = loadShape(smfWithOneTrack(QByteArray::fromHex("00 F0 03 41 10 42  00 FF 01 01 58  0A F7 04 12 40 00 F7") + note));
         QCOMPARE(s.notes, 1);
         QVERIFY(s.notesPaired);
         QCOMPARE(s.sysex, QList<QByteArray>{QByteArray::fromHex("411042")});
