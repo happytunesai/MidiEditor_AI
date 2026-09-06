@@ -13448,6 +13448,20 @@ midipilot-settings.html (+ help_db regen), CHANGELOG per the template.
   5. Shared clipboard (F222): lockMemory() has no timeout; RAII release is in, a bounded
      wait that reports "clipboard busy" instead of blocking is the remaining half.
 
+* **OpenGL wrapper teardown (deferred from the external system/performance review of
+  2026-09-06, its item 2; the other four items were fixed the same day):** OpenGLPaintWidget's
+  destructor cleans up with whatever GL context happens to be current - a foreign one included,
+  and calls doneCurrent() on it - has no aboutToBeDestroyed handler, and initializeGL()
+  overwrites an existing paint device; MainWindow reparents the two GL wrappers to nullptr
+  before deleting them, which already destroys their context, so the "while the context is
+  still valid" cleanup never sees one. Observed effect so far: leaks and warnings at exit, no
+  crash (reproduced with real contexts by the reviewer, no process abort). Fix shape: delete
+  without the reparent while the own context lives; cleanup on context()->aboutToBeDestroyed
+  and in the destructor through the widget's own makeCurrent() only, never touching a foreign
+  current context; delete the previous paint device in initializeGL(). It is the OpenGL path,
+  the weakest area - ship only with the owner's GL smoke afterwards: start, playback,
+  tab/split switch, exit.
+
 * **Mid-run agent steering (candidate, design-validated 2026-08-26):** today the input
   field is blocked while an agent run is active; the user cannot correct course until the
   run ends. Feasible without architecture change: the agent loop already has a natural

@@ -52,6 +52,7 @@ class MidiEvent;
 class MidiFile;
 class DocumentManager;
 class Document;
+class AutoSaveScheduler;
 
 #ifdef FLUIDSYNTH_SUPPORT
 struct ExportOptions;
@@ -128,6 +129,25 @@ public:
      * \brief Performs early cleanup of OpenGL resources to prevent shutdown issues.
      */
     void performEarlyCleanup();
+
+    /**
+     * \brief Puts the window into shutdown: no document may be activated from
+     *        here on, the MCP server is stopped and a running MidiPilot request
+     *        is aborted. Idempotent - closeEvent() calls it as soon as the close
+     *        is committed, performEarlyCleanup() calls it again for the
+     *        destructor path. See isShuttingDown().
+     */
+    void beginShutdown();
+
+    /**
+     * \brief True once beginShutdown() ran. performEarlyCleanup() destroys the
+     *        editor views, nulls their pointers and then pumps the event loop,
+     *        so a tab click, an MCP switch_document or an agent step dispatched
+     *        by that pump must refuse to bind a view: the tab slots and
+     *        activateDocumentByListIndex() check this, and a call that was
+     *        already queued sees it when it finally runs.
+     */
+    bool isShuttingDown() const { return _shuttingDown; }
 
     /**
      * \brief Sets the current MIDI file.
@@ -270,7 +290,13 @@ public slots:
     void updateAll();
 
     /**
-     * \brief Updates rendering mode when settings change.
+     * \brief Applies a changed rendering option at once: refreshes the render
+     *        hint caches of both editor views and repaints the (OpenGL)
+     *        containers. Connected to PerformanceSettingsWidget's
+     *        renderingModeChanged(), so it works no matter how the settings
+     *        dialog is closed afterwards (Esc and the window's X never emit
+     *        settingsChanged()). GPU acceleration and MSAA are startup
+     *        decisions and stay restart-only.
      */
     void updateRenderingMode();
 
@@ -1639,6 +1665,9 @@ private:
     /** \brief Phase 28: guards programmatic tab-bar edits from re-entrant slots. */
     bool _suppressTabSignals = false;
 
+    /** \brief Raised by beginShutdown(); read through isShuttingDown(). */
+    bool _shuttingDown = false;
+
     /** \brief Start directory and initialization file */
     QString startDirectory, _initFile;
 
@@ -1965,8 +1994,11 @@ private:
 
     // === Auto-Save ===
 
-    /** \brief Debounce timer for auto-save — resets on every edit */
-    QTimer *_autoSaveTimer = nullptr;
+    /** \brief Debounce behind auto-save: re-armed by every edit, fires only
+     *  while the setting is still on (it re-reads "autosave_enabled" at fire
+     *  time, so a backup scheduled before the option was switched off on the
+     *  Performance page is dropped). */
+    AutoSaveScheduler *_autoSave = nullptr;
 
     /** \brief Performs auto-save to a sidecar backup file */
     void performAutoSave();

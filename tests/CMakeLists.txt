@@ -1849,6 +1849,65 @@ target_link_libraries(test_app_paths PRIVATE
 )
 add_test(NAME AppPaths COMMAND test_app_paths)
 
+# -----------------------------------------------------------------------------
+# test_shutdown_guards / test_auto_save_scheduler / test_dpi_env_overrides
+# -----------------------------------------------------------------------------
+# External system/performance review (2026-09-06, SP-01/04/05): the shutdown
+# order and guards behind the close-while-MCP-switches crash (source-level -
+# MainWindow cannot be instantiated headless, same approach as
+# test_opengl_paint_guard), the auto-save debounce that re-reads its setting
+# at fire time, and the environment-override bookkeeping that keeps a
+# switched-off DPI option off across an in-app restart and brings external
+# values back.
+add_executable(test_shutdown_guards
+    test_shutdown_guards.cpp
+)
+target_compile_definitions(test_shutdown_guards PRIVATE
+    SHUTDOWN_REPO_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/.."
+)
+target_link_libraries(test_shutdown_guards PRIVATE
+    Qt6::Core
+    Qt6::Test
+)
+add_test(NAME ShutdownGuards COMMAND test_shutdown_guards)
+
+add_executable(test_auto_save_scheduler
+    test_auto_save_scheduler.cpp
+    ../src/gui/AutoSaveScheduler.cpp
+)
+target_link_libraries(test_auto_save_scheduler PRIVATE
+    Qt6::Core
+    Qt6::Test
+)
+add_test(NAME AutoSaveScheduler COMMAND test_auto_save_scheduler)
+
+add_executable(test_dpi_env_overrides
+    test_dpi_env_overrides.cpp
+    ../src/DpiEnvOverrides.cpp
+)
+target_link_libraries(test_dpi_env_overrides PRIVATE
+    Qt6::Core
+    Qt6::Test
+)
+add_test(NAME DpiEnvOverrides COMMAND test_dpi_env_overrides)
+
+# SP-06: the MCP session table with REAL Qt TCP sockets - the disconnected
+# handler locks the table from inside close(); the table never closes a
+# socket itself, so the shutdown / remove / expire / re-attach sequences must
+# return. A watchdog thread in the test (and the ctest timeout) turn a
+# regression into a failure instead of a hang.
+add_executable(test_mcp_session_table
+    test_mcp_session_table.cpp
+    ../src/ai/McpSessionTable.cpp
+)
+target_link_libraries(test_mcp_session_table PRIVATE
+    Qt6::Core
+    Qt6::Network
+    Qt6::Test
+)
+add_test(NAME McpSessionTable COMMAND test_mcp_session_table)
+set_tests_properties(McpSessionTable PROPERTIES TIMEOUT 60)
+
 # Make Qt DLLs visible to the tests at runtime on Windows.
 if(WIN32)
     get_target_property(_qmake_exe Qt6::qmake IMPORTED_LOCATION)
@@ -1910,6 +1969,10 @@ if(WIN32)
         SidCapture
         SidReconstruct
         SidMidiWriter
+        ShutdownGuards
+        AutoSaveScheduler
+        DpiEnvOverrides
+        McpSessionTable
         PROPERTIES
             ENVIRONMENT "PATH=${_qt_bin_dir};$ENV{PATH}"
     )

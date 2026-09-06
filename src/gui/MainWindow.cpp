@@ -89,6 +89,7 @@ Q_LOGGING_CATEGORY(memLog, "midieditor.memory")
 
 #include "Appearance.h"
 #include "AboutDialog.h"
+#include "AutoSaveScheduler.h"
 #ifdef MIDIEDITOR_COLLAB_ENABLED
 #include "../collab/CollabIdentity.h"
 #include "../collab/CollabService.h"
@@ -1306,10 +1307,11 @@ MainWindow::MainWindow(QString initFile)
     // Initialize shared clipboard immediately
     initializeSharedClipboard();
 
-    // Initialize auto-save debounce timer
-    _autoSaveTimer = new QTimer(this);
-    _autoSaveTimer->setSingleShot(true);
-    connect(_autoSaveTimer, &QTimer::timeout, this, &MainWindow::performAutoSave);
+    // Auto-save debounce: re-armed by every edit, fires only while the setting
+    // is still on (AutoSaveScheduler re-reads it at fire time - the Performance
+    // page writes the toggle without telling this window).
+    _autoSave = new AutoSaveScheduler(_settings, this);
+    connect(_autoSave, &AutoSaveScheduler::due, this, &MainWindow::performAutoSave);
 
     // Apply widget size constraints based on settings
     applyWidgetSizeConstraints();
@@ -1631,6 +1633,35 @@ MainWindow::~MainWindow() {
     qDebug() << "MainWindow: Destructor cleanup sequence completed";
 }
 
+void MainWindow::beginShutdown() {
+    // Idempotent: closeEvent() calls this as soon as the close is committed,
+    // the destructor path reaches it again through performEarlyCleanup().
+    if (_shuttingDown) {
+        return;
+    }
+    _shuttingDown = true;
+
+    // From here on nothing may activate a document. performEarlyCleanup()
+    // destroys the editor views, nulls their pointers and then pumps the event
+    // loop; a tab click, an MCP switch_document or an agent step dispatched by
+    // that pump used to run onDocumentTabChanged() -> activateDocument() ->
+    // bindPrimaryView() into the null primary view (SP-01, external review
+    // 2026-09-06). The tab slots and activateDocumentByListIndex() consult the
+    // flag, so a call that is already queued sees it when it finally runs.
+    //
+    // And stop the sources. McpServer::stop() closes the listener and drops
+    // every client socket; it waits on nothing - the server lives on this
+    // thread, so a stop() from here can never block against a tool call that
+    // sits in a BlockingQueuedConnection towards the GUI thread. The MidiPilot
+    // abort only cancels the reply in flight (no-op when nothing is running).
+    if (_mcpServer) {
+        _mcpServer->stop();
+    }
+    if (_midiPilotWidget) {
+        _midiPilotWidget->abortActiveRequest();
+    }
+}
+
 void MainWindow::performEarlyCleanup() {
     static bool cleanupPerformed = false;
     if (cleanupPerformed) {
@@ -1639,6 +1670,10 @@ void MainWindow::performEarlyCleanup() {
     cleanupPerformed = true;
 
     qDebug() << "MainWindow: Performing early OpenGL cleanup";
+
+    // Destructor path (closeEvent already did this): refuse document activation
+    // and stop the MCP server / MidiPilot request before the loop is pumped.
+    beginShutdown();
 
     // Set shutdown flag immediately to prevent any QPixmap creation during cleanup
     Appearance::setShuttingDown(true);
@@ -2385,9 +2420,10 @@ void MainWindow::bindPrimaryView(MidiFile *f) {
     // MatrixWidget, depending on the rendering mode) - no sidebar/active changes.
     if (OpenGLMatrixWidget *openglMatrix = qobject_cast<OpenGLMatrixWidget*>(_matrixWidgetContainer)) {
         openglMatrix->setFile(f);
-    } else {
+    } else if (mw_matrixWidget) {
         mw_matrixWidget->setFile(f);
     }
+    // Both null once performEarlyCleanup() has run: nothing left to bind.
 }
 
 void MainWindow::activateDocument(MidiFile *newFile) {
@@ -3208,7 +3244,10 @@ void MainWindow::openInNewTab(MidiFile *f, const QString &title) {
 }
 
 void MainWindow::onDocumentTabChanged(int index) {
-    if (_suppressTabSignals || !_documentManager) {
+    // _shuttingDown: the editor views are (about to be) gone while the event
+    // loop is still pumped - a tab click or an MCP switch_document dispatched
+    // now must not bind the primary view (SP-01, see beginShutdown()).
+    if (_suppressTabSignals || !_documentManager || _shuttingDown) {
         return;
     }
     Document *d = _documentManager->at(index);
@@ -3233,7 +3272,9 @@ void MainWindow::onDocumentTabChanged(int index) {
 }
 
 void MainWindow::onGroup1TabChanged(int index) {
-    if (_suppressGroup1TabSignals || !_group1Docs || !_compareMatrixWidget) {
+    // _shuttingDown: same rule as onDocumentTabChanged().
+    if (_suppressGroup1TabSignals || !_group1Docs || !_compareMatrixWidget
+        || _shuttingDown) {
         return;
     }
     Document *d = _group1Docs->at(index);
@@ -4004,7 +4045,9 @@ MidiFile *MainWindow::documentFileByListIndex(int index) const {
 }
 
 bool MainWindow::activateDocumentByListIndex(int index) {
-    if (index < 0) {
+    // Refused during shutdown: MCP's switch_document and a queued agent step
+    // land here while performEarlyCleanup() pumps the loop (SP-01).
+    if (index < 0 || _shuttingDown) {
         return false;
     }
     const int group0Count = _documentManager ? _documentManager->count() : 0;
@@ -5030,6 +5073,10 @@ void MainWindow::closeEvent(QCloseEvent *event) {
 
     // Only perform early cleanup if we're actually closing
     if (shouldClose) {
+        // First thing once the close is committed: no document may be activated
+        // any more, and the MCP server / MidiPilot request stop feeding the
+        // event loop that performEarlyCleanup() pumps after the views are gone.
+        beginShutdown();
         saveSession(); // persist open tabs/groups for next launch (before teardown)
         cleanupAutoSave();
         performEarlyCleanup();
@@ -8425,10 +8472,9 @@ void MainWindow::markEditedFor(MidiFile *editedFile) {
         setWindowModified(true);
     }
 
-    // Reset auto-save debounce timer (saves after a quiet period, not mid-editing)
-    if (_autoSaveTimer && _settings->value("autosave_enabled", true).toBool()) {
-        int intervalSec = _settings->value("autosave_interval", 120).toInt();
-        _autoSaveTimer->start(intervalSec * 1000);
+    // Re-arm the auto-save quiet period (saves after inactivity, not mid-edit).
+    if (_autoSave) {
+        _autoSave->noteEdit();
     }
 }
 
@@ -8494,8 +8540,8 @@ void MainWindow::performAutoSave() {
 }
 
 void MainWindow::cleanupAutoSave() {
-    if (_autoSaveTimer) {
-        _autoSaveTimer->stop();
+    if (_autoSave) {
+        _autoSave->stop();
     }
 
     if (!file) return;
@@ -8530,7 +8576,7 @@ void MainWindow::cleanupAutoSaveFor(MidiFile *f, const QString &pathBeforeSave) 
         QFile::remove(f->path() + ".autosave");
     }
 
-    if (!_autoSaveTimer) return;
+    if (!_autoSave) return;
     auto anyDirty = [](DocumentManager *m) {
         if (!m) return false;
         for (int i = 0; i < m->count(); ++i) {
@@ -8540,7 +8586,7 @@ void MainWindow::cleanupAutoSaveFor(MidiFile *f, const QString &pathBeforeSave) 
         return false;
     };
     if (!anyDirty(_documentManager) && !anyDirty(_group1Docs)) {
-        _autoSaveTimer->stop();
+        _autoSave->stop();
     }
 }
 
@@ -13567,6 +13613,12 @@ void MainWindow::updateAll() {
     // colours/render hints until something else repaints it.
     if (_compareMatrixWidget) _compareMatrixWidget->updateRenderingSettings();
 
+    // Auto-save switched off on the Performance page: drop a pending backup
+    // period right away (the scheduler would refuse at fire time as well).
+    if (_autoSave && !AutoSaveScheduler::enabledIn(_settings)) {
+        _autoSave->stop();
+    }
+
     // Update all widgets. The piano roll needs an explicit repaint of the
     // CONTAINER: updateRenderingSettings() ends in update() on the inner widget,
     // which is hidden (and therefore ignored) under hardware acceleration, so
@@ -13601,18 +13653,20 @@ void MainWindow::updateAll() {
 }
 
 void MainWindow::updateRenderingMode() {
-    // SIMPLIFIED: Hardware acceleration toggle - requires restart for now
-    bool hardwareAccelEnabled = _settings->value("rendering/hardware_acceleration", false).toBool();
-
-    qDebug() << "MainWindow::updateRenderingMode() called - Hardware acceleration" << (hardwareAccelEnabled ? "enabled" : "disabled");
-
-    // For now, just log the change - the new OpenGL widgets are created at startup
-    // Runtime switching can be implemented later if needed
-    if (hardwareAccelEnabled) {
-        qDebug() << "MainWindow: Hardware acceleration enabled - using direct OpenGL widgets";
-    } else {
-        qDebug() << "MainWindow: Hardware acceleration disabled - using software widgets";
-    }
+    // A rendering option changed on the Performance page. Anti-aliasing and
+    // smooth pixmap transforms are cached per MatrixWidget (refreshed here),
+    // hardware smooth transforms are read per GL frame - so a repaint of the
+    // CONTAINERS is all that is missing (hidden-inner-widget rule, see
+    // updateAll()). Doing it on the signal is what makes the change visible at
+    // once and independent of how the dialog is closed afterwards: Esc and the
+    // window's X never emit settingsChanged() (SP-03, external review
+    // 2026-09-06). GPU acceleration and MSAA are startup decisions
+    // (QSurfaceFormat, widget construction) and stay restart-only; the page
+    // labels both "Changes apply on restart".
+    if (mw_matrixWidget) mw_matrixWidget->updateRenderingSettings();
+    if (_compareMatrixWidget) _compareMatrixWidget->updateRenderingSettings();
+    refreshMatrixView();
+    refreshMiscView();
 }
 
 void MainWindow::rebuildToolbarFromSettings() {
