@@ -1415,6 +1415,23 @@ void MatrixWidget::setFile(MidiFile *f) {
         return;
     }
 
+    connect(file->protocol(), SIGNAL(actionFinished()), this, SLOT(registerRelayout()), Qt::UniqueConnection);
+    connect(file->protocol(), SIGNAL(actionFinished()), this, SLOT(update()), Qt::UniqueConnection);
+
+    // Bound again to the document it already shows - Sync switched on, Play
+    // with the other pane focused, an MCP switch_document to the current tab:
+    // keep zoom and viewport. The reset below is for a DIFFERENT document;
+    // running it here threw the left view back to the song start every time
+    // Sync was switched on, so the place to play from had to be found again
+    // (SYNC-JUMP-001, 2026-09-06). Sizes and the visible tick range are still
+    // recomputed - the widget may have been resized meanwhile.
+    if (previous == file) {
+        calcSizes();
+        startTick = file->tick(startTimeX);
+        endTick = file->tick(endTimeX);
+        return;
+    }
+
     scaleX = 1;
     scaleY = 1;
 
@@ -1422,9 +1439,6 @@ void MatrixWidget::setFile(MidiFile *f) {
     // Provisional default; refined below once we know whether the file has
     // any notes and how tall the viewport currently is.
     startLineY = 40;
-
-    connect(file->protocol(), SIGNAL(actionFinished()), this, SLOT(registerRelayout()), Qt::UniqueConnection);
-    connect(file->protocol(), SIGNAL(actionFinished()), this, SLOT(update()), Qt::UniqueConnection);
 
     calcSizes();
 

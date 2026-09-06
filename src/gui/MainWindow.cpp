@@ -3768,10 +3768,25 @@ void MainWindow::setSyncViews(bool on) {
         if (Document *a = _documentManager ? _documentManager->active() : nullptr) {
             activateDocument(a->file());
         }
-        // Snap the secondary to the primary's current scroll + cursor.
+        // Snap the secondary to the primary's current viewport + cursor. Read
+        // the LEFT view itself, not the shared scrollbars: those track whichever
+        // pane was focused, so switching Sync on with the right pane focused
+        // pushed the right pane's own position back onto itself. (The left
+        // view keeps its position through the re-activation above: setFile()
+        // no longer resets a view that is bound again to the same document.)
         _syncInProgress = true;
-        _compareMatrixWidget->scrollXChanged(hori->value());
-        _compareMatrixWidget->scrollYChanged(vert->value());
+        if (mw_matrixWidget) {
+            // Zoom first, then position: the mirroring works in ms / lines,
+            // which only lines the two panes up when they share the zoom. A
+            // fresh right pane sits at zoom 1 while the left may be zoomed
+            // out to the whole song; without this the right showed the first
+            // few seconds with the cursor far off-screen. (Before SYNC-JUMP-001
+            // the left was reset to zoom 1 here by accident, which hid this.)
+            _compareMatrixWidget->applyZoom(mw_matrixWidget->currentScaleX(),
+                                            mw_matrixWidget->currentScaleY());
+            _compareMatrixWidget->scrollXChanged(mw_matrixWidget->viewStartTimeMs());
+            _compareMatrixWidget->scrollYChanged(mw_matrixWidget->viewStartLine());
+        }
         if (_compareFile && file) {
             _compareFile->setCursorTick(file->cursorTick());
         }

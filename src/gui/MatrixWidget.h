@@ -285,6 +285,13 @@ public:
     /** \brief Current vertical (pitch-axis) zoom factor. */
     double currentScaleY() const { return scaleY; }
 
+    /** \brief First visible time (ms) and first visible line of the viewport -
+     *  what scrollXChanged() / scrollYChanged() set. The Sync snap reads the
+     *  left view through these instead of the shared scrollbars, which track
+     *  whichever pane happens to be focused. */
+    int viewStartTimeMs() const { return startTimeX; }
+    int viewStartLine() const { return startLineY; }
+
     /** \brief Apply a presenter's zoom level on a viewer. Re-runs
      *  calcSizes() so the matrix's internal line / time book-keeping
      *  matches the presenter's view, which in turn lets the follow-up
