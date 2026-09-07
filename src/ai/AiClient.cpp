@@ -92,6 +92,53 @@ bool AiClient::modelRequiresResponsesApi(const QString &provider, const QString 
     return proFamily.match(model.toLower()).hasMatch();
 }
 
+bool AiClient::modelUsesResponsesApiForTools(const QString &provider, const QString &model)
+{
+    const bool openAiNative = provider.isEmpty()
+                              || provider == QStringLiteral("openai");
+    if (!openAiNative) {
+        return false;
+    }
+    // gpt-5* and gpt-6* (gpt-6-astra, released 2026-09-03): function tools
+    // only on /v1/responses. Matching the gpt-5 prefix alone sent Astra's
+    // Agent requests to chat/completions, which answered HTTP 400 "Function
+    // tools with reasoning_effort are not supported for gpt-6-astra in
+    // /v1/chat/completions. To use function tools, use /v1/responses"
+    // (ASTRA-001, midipilot_api.log 2026-09-07).
+    const QString m = model.toLower();
+    return m.startsWith(QStringLiteral("gpt-5"))
+        || m.startsWith(QStringLiteral("gpt-6"));
+}
+
+bool AiClient::isOpenAiReasoningFamily(const QString &model)
+{
+    // Inherently reasoning-capable, no temperature / top_p, developer role.
+    const QString m = model.toLower();
+    return m.startsWith(QStringLiteral("o1"))
+        || m.startsWith(QStringLiteral("o3"))
+        || m.startsWith(QStringLiteral("o4"))
+        || m.startsWith(QStringLiteral("gpt-5"))
+        || m.startsWith(QStringLiteral("gpt-6"));
+}
+
+QString AiClient::reasoningEffortForModel(const QString &model, const QString &effort)
+{
+    const bool gpt6 = model.toLower().startsWith(QStringLiteral("gpt-6"));
+    if (gpt6) {
+        // gpt-6-astra: low / medium / high / xhigh / max; "none" and
+        // "minimal" are rejected - OpenAI's migration guide says start at low.
+        if (effort == QStringLiteral("none") || effort == QStringLiteral("minimal")) {
+            return QStringLiteral("low");
+        }
+        return effort;
+    }
+    // "max" exists only on gpt-6*; older reasoning models top out at xhigh.
+    if (effort == QStringLiteral("max")) {
+        return QStringLiteral("xhigh");
+    }
+    return effort;
+}
+
 AiClient::AiClient(QObject *parent)
     : QObject(parent),
       _manager(new QNetworkAccessManager(this)),
@@ -159,7 +206,9 @@ static QString promptCacheKeyForRequest(const QString &model, bool hasTools)
 {
     QString family = QStringLiteral("generic");
     const QString lower = model.toLower();
-    if (lower.startsWith(QStringLiteral("gpt-5")))
+    if (lower.startsWith(QStringLiteral("gpt-6")))
+        family = QStringLiteral("gpt-6");
+    else if (lower.startsWith(QStringLiteral("gpt-5")))
         family = QStringLiteral("gpt-5");
     else if (lower.startsWith(QStringLiteral("gpt-4.1")))
         family = QStringLiteral("gpt-4.1");
@@ -398,12 +447,9 @@ int AiClient::maxTokensLimit() const
 bool AiClient::isReasoningModel() const
 {
     // Models that are inherently reasoning-capable and don't support temperature.
-    // They require "developer" role instead of "system".
-    QString m = _model.toLower();
-    return m.startsWith(QStringLiteral("o1"))
-        || m.startsWith(QStringLiteral("o3"))
-        || m.startsWith(QStringLiteral("o4"))
-        || m.startsWith(QStringLiteral("gpt-5"));
+    // They require "developer" role instead of "system". One definition for
+    // every family (o-series, gpt-5*, gpt-6*): isOpenAiReasoningFamily().
+    return isOpenAiReasoningFamily(_model);
 }
 
 bool AiClient::isGeminiThinkingModel() const
@@ -467,6 +513,7 @@ int AiClient::contextWindowForModel(const QString &model) const
     QString m = idRaw.toLower();
 
     // Match by prefix — handles version variants like gpt-4o-2024-08-06
+    if (m.startsWith(QStringLiteral("gpt-6")))       return 1050000; // gpt-6-astra: 1.05M
     if (m.startsWith(QStringLiteral("gpt-5")))       return 1000000;
     if (m.startsWith(QStringLiteral("gpt-4o")))      return 128000;
     if (m.startsWith(QStringLiteral("gpt-4.1")))     return 1000000;
@@ -555,13 +602,12 @@ void AiClient::sendMessagesInternal(const QJsonArray &messages,
     bool reasoning = isReasoningModel();
     bool geminiThinking = isGeminiThinkingModel();
 
-    // GPT-5 reasoning models do not support reasoning_effort + tools on
+    // gpt-5* / gpt-6* do not support reasoning_effort + tools on
     // /v1/chat/completions; use /v1/responses for that combination
-    // (OpenAI-native only). Keep this family-wide so newly released
-    // versions such as gpt-5.5 inherit the same transport automatically.
+    // (OpenAI-native only). The family predicate keeps newly released
+    // versions on the same transport automatically.
     _useResponsesApi = (!tools.isEmpty()
-                        && _model.toLower().startsWith(QStringLiteral("gpt-5"))
-                        && (_provider.isEmpty() || _provider == QStringLiteral("openai")))
+                        && modelUsesResponsesApiForTools(_provider, _model))
                        || modelRequiresResponsesApi(_provider, _model);
 
     QJsonObject body;
@@ -656,7 +702,7 @@ void AiClient::sendMessagesInternal(const QJsonArray &messages,
         } else {
             effortToSend = QStringLiteral("medium");
         }
-        reasoningObj[QStringLiteral("effort")] = effortToSend;
+        reasoningObj[QStringLiteral("effort")] = reasoningEffortForModel(_model, effortToSend);
         // Ask the model to produce human-readable summaries of its
         // reasoning. These come back as `output[].type == "reasoning"`
         // items with a `summary[]` array of `{type:"summary_text", text:"..."}`
@@ -675,7 +721,7 @@ void AiClient::sendMessagesInternal(const QJsonArray &messages,
 
         if (reasoning) {
             if (_thinkingEnabled) {
-                body[QStringLiteral("reasoning_effort")] = _reasoningEffort;
+                body[QStringLiteral("reasoning_effort")] = reasoningEffortForModel(_model, _reasoningEffort);
             } else if (!tools.isEmpty()) {
                 body[QStringLiteral("reasoning_effort")] = QStringLiteral("medium");
             } else {
@@ -686,7 +732,7 @@ void AiClient::sendMessagesInternal(const QJsonArray &messages,
             // via OpenAI compat.  Without this, they default to high thinking
             // which makes responses extremely slow (40-200+ seconds).
             if (_thinkingEnabled) {
-                body[QStringLiteral("reasoning_effort")] = _reasoningEffort;
+                body[QStringLiteral("reasoning_effort")] = reasoningEffortForModel(_model, _reasoningEffort);
             } else {
                 body[QStringLiteral("reasoning_effort")] = QStringLiteral("low");
             }
@@ -1817,13 +1863,12 @@ void AiClient::sendStreamingMessages(const QJsonArray &messages, const QJsonArra
         return;
     }
 
-    // GPT-5 + tools requires the Responses API. We have a dedicated SSE
-    // handler for it (sendStreamingMessagesResponses) so the user gets
-    // live reasoning + text deltas just like Gemini. Keep this family-wide
-    // so new versions such as gpt-5.5 do not fall back to Chat Completions.
+    // gpt-5* / gpt-6* + tools require the Responses API. We have a dedicated
+    // SSE handler for it (sendStreamingMessagesResponses) so the user gets
+    // live reasoning + text deltas just like Gemini. The family predicate
+    // keeps new versions (gpt-6-astra) off the Chat Completions fallback.
     bool wouldUseResponses = !tools.isEmpty()
-        && _model.toLower().startsWith(QStringLiteral("gpt-5"))
-        && (_provider.isEmpty() || _provider == QStringLiteral("openai"));
+        && modelUsesResponsesApiForTools(_provider, _model);
     if (wouldUseResponses) {
         sendStreamingMessagesResponses(messages, tools);
         return;
@@ -1883,14 +1928,14 @@ void AiClient::sendStreamingMessages(const QJsonArray &messages, const QJsonArra
 
     if (reasoning) {
         if (_thinkingEnabled)
-            body[QStringLiteral("reasoning_effort")] = _reasoningEffort;
+            body[QStringLiteral("reasoning_effort")] = reasoningEffortForModel(_model, _reasoningEffort);
         else if (!tools.isEmpty())
             body[QStringLiteral("reasoning_effort")] = QStringLiteral("medium");
         else
             body[QStringLiteral("reasoning_effort")] = QStringLiteral("low");
     } else if (geminiThinking) {
         body[QStringLiteral("reasoning_effort")] = _thinkingEnabled
-            ? _reasoningEffort : QStringLiteral("low");
+            ? reasoningEffortForModel(_model, _reasoningEffort) : QStringLiteral("low");
     } else if (_provider == QStringLiteral("ollama")) {
         // Phase 26.2b reasoning lever, mirrored from the non-streaming path
         // (sendMessagesInternal). Streaming is the DEFAULT transport, so without
@@ -2122,9 +2167,11 @@ void AiClient::sendStreamingRequest(const QString &systemPrompt,
     body[QStringLiteral("stream_options")] = streamOpts;
 
     if (reasoning) {
-        body[QStringLiteral("reasoning_effort")] = _thinkingEnabled ? _reasoningEffort : QStringLiteral("low");
+        body[QStringLiteral("reasoning_effort")] = _thinkingEnabled
+            ? reasoningEffortForModel(_model, _reasoningEffort) : QStringLiteral("low");
     } else if (geminiThinking) {
-        body[QStringLiteral("reasoning_effort")] = _thinkingEnabled ? _reasoningEffort : QStringLiteral("low");
+        body[QStringLiteral("reasoning_effort")] = _thinkingEnabled
+            ? reasoningEffortForModel(_model, _reasoningEffort) : QStringLiteral("low");
     } else if (_provider == QStringLiteral("ollama")) {
         // Phase 26.2b reasoning lever, mirrored from the non-streaming path;
         // streaming is the default transport (see the agent streaming builder).
@@ -2798,7 +2845,7 @@ void AiClient::sendStreamingMessagesResponses(const QJsonArray &messages,
     } else {
         effortToSend = _thinkingEnabled ? _reasoningEffort : QStringLiteral("medium");
     }
-    reasoningObj[QStringLiteral("effort")] = effortToSend;
+    reasoningObj[QStringLiteral("effort")] = reasoningEffortForModel(_model, effortToSend);
     reasoningObj[QStringLiteral("summary")] = QStringLiteral("auto");
     body[QStringLiteral("reasoning")] = reasoningObj;
 

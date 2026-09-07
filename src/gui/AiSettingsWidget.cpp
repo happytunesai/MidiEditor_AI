@@ -325,6 +325,10 @@ AiSettingsWidget::AiSettingsWidget(QSettings *settings, QWidget *parent)
     _effortCombo->addItem("Medium (balanced)", "medium");
     _effortCombo->addItem("High (thorough, slower)", "high");
     _effortCombo->addItem("Extra High (most thorough)", "xhigh");
+    // "max" is a gpt-6 (Astra) level; every other model is sent Extra High
+    // instead (AiClient::reasoningEffortForModel), so the choice is safe to
+    // keep when switching models.
+    _effortCombo->addItem("Max (GPT-6 Astra; other models use Extra High)", "max");
     QString currentEffort = _settings->value("AI/reasoning_effort", "medium").toString();
     int effortIdx = _effortCombo->findData(currentEffort);
     if (effortIdx >= 0) _effortCombo->setCurrentIndex(effortIdx);

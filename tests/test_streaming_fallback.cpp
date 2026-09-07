@@ -523,6 +523,50 @@ private slots:
     }
 
     // ------------------------------------------------------------------
+    // ASTRA-001 (2026-09-07): gpt-6-astra's function tools are served only by
+    // /v1/responses; chat/completions answered HTTP 400 because the Agent
+    // transport was chosen by the "gpt-5" prefix alone. The family predicates
+    // are the single definition for both the streaming and the non-streaming
+    // send, the reasoning-model detection, and the effort clamp.
+    // ------------------------------------------------------------------
+    void responsesApiRouting_gpt6FamilyUsesResponsesForTools()
+    {
+        QVERIFY(AiClient::modelUsesResponsesApiForTools(QStringLiteral("openai"), QStringLiteral("gpt-6-astra")));
+        QVERIFY(AiClient::modelUsesResponsesApiForTools(QString(), QStringLiteral("gpt-6-astra")));
+        QVERIFY(AiClient::modelUsesResponsesApiForTools(QStringLiteral("openai"), QStringLiteral("GPT-6-ASTRA-2026-09-03")));
+        QVERIFY(AiClient::modelUsesResponsesApiForTools(QStringLiteral("openai"), QStringLiteral("gpt-5.6-sol")));
+        QVERIFY(AiClient::modelUsesResponsesApiForTools(QStringLiteral("openai"), QStringLiteral("gpt-5.5")));
+        // Chat-only families stay on chat/completions.
+        QVERIFY(!AiClient::modelUsesResponsesApiForTools(QStringLiteral("openai"), QStringLiteral("gpt-4o")));
+        QVERIFY(!AiClient::modelUsesResponsesApiForTools(QStringLiteral("openai"), QStringLiteral("gpt-4.1")));
+        // Never forced through a proxy provider.
+        QVERIFY(!AiClient::modelUsesResponsesApiForTools(QStringLiteral("openrouter"), QStringLiteral("openai/gpt-6-astra")));
+        QVERIFY(!AiClient::modelUsesResponsesApiForTools(QStringLiteral("custom"), QStringLiteral("gpt-6-astra")));
+
+        // Reasoning family: no temperature, developer role, reasoning_effort.
+        QVERIFY(AiClient::isOpenAiReasoningFamily(QStringLiteral("gpt-6-astra")));
+        QVERIFY(AiClient::isOpenAiReasoningFamily(QStringLiteral("gpt-5.6-terra")));
+        QVERIFY(AiClient::isOpenAiReasoningFamily(QStringLiteral("o3-pro")));
+        QVERIFY(!AiClient::isOpenAiReasoningFamily(QStringLiteral("gpt-4o")));
+        QVERIFY(!AiClient::isOpenAiReasoningFamily(QStringLiteral("gpt-4.1-mini")));
+        QVERIFY(!AiClient::isOpenAiReasoningFamily(QStringLiteral("gemini-2.5-pro")));
+    }
+
+    // "max" exists only on gpt-6*; "none"/"minimal" do not exist there.
+    void reasoningEffort_clampedPerFamily()
+    {
+        QCOMPARE(AiClient::reasoningEffortForModel(QStringLiteral("gpt-6-astra"), QStringLiteral("max")), QStringLiteral("max"));
+        QCOMPARE(AiClient::reasoningEffortForModel(QStringLiteral("gpt-6-astra"), QStringLiteral("xhigh")), QStringLiteral("xhigh"));
+        QCOMPARE(AiClient::reasoningEffortForModel(QStringLiteral("gpt-6-astra"), QStringLiteral("high")), QStringLiteral("high"));
+        QCOMPARE(AiClient::reasoningEffortForModel(QStringLiteral("gpt-6-astra"), QStringLiteral("none")), QStringLiteral("low"));
+        QCOMPARE(AiClient::reasoningEffortForModel(QStringLiteral("gpt-6-astra"), QStringLiteral("minimal")), QStringLiteral("low"));
+        QCOMPARE(AiClient::reasoningEffortForModel(QStringLiteral("gpt-5.6-sol"), QStringLiteral("max")), QStringLiteral("xhigh"));
+        QCOMPARE(AiClient::reasoningEffortForModel(QStringLiteral("gpt-5.5"), QStringLiteral("none")), QStringLiteral("none"));
+        QCOMPARE(AiClient::reasoningEffortForModel(QStringLiteral("o3"), QStringLiteral("high")), QStringLiteral("high"));
+        QCOMPARE(AiClient::reasoningEffortForModel(QStringLiteral("gemini-2.5-pro"), QStringLiteral("max")), QStringLiteral("xhigh"));
+    }
+
+    // ------------------------------------------------------------------
     // TOOLS-INCAPABLE-EXPIRY: the "this model cannot call tools" flag used to
     // be a permanent bool, so one misclassified error refused a model in Agent
     // mode forever. It must now (a) latch right after mark(), (b) expire once

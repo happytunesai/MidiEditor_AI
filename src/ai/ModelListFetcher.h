@@ -54,6 +54,19 @@ public:
      */
     static QJsonArray normaliseOllama(const QJsonArray &raw);
 
+    /**
+     * \brief Normalise OpenAI's /v1/models list into the cache schema. Public
+     *        for the same reason as normaliseOllama(): the family flags
+     *        (supportsReasoning for o-series / gpt-5* / gpt-6*) and the
+     *        context-window fallback are pinned by test_model_list_fetcher
+     *        (ASTRA-001). Uses no instance state.
+     */
+    QJsonArray normaliseOpenAi(const QJsonArray &raw) const;
+
+    /** Best-effort context-window guess from the model id (used as a fallback
+     *  when the provider response does not declare one). */
+    static int contextWindowFromId(const QString &id);
+
 signals:
     /**
      * \brief Emitted on success.
@@ -75,14 +88,9 @@ private slots:
     void onReplyFinished();
 
 private:
-    QJsonArray normaliseOpenAi(const QJsonArray &raw) const;
     QJsonArray normaliseOpenRouter(const QJsonArray &raw) const;
     QJsonArray normaliseGemini(const QJsonArray &raw) const;
     QJsonArray normaliseCustom(const QJsonArray &raw) const;
-
-    /** Best-effort context-window guess from the model id (used as a fallback
-     *  when the provider response does not declare one). */
-    static int contextWindowFromId(const QString &id);
 
     QNetworkAccessManager *_manager;
     QNetworkReply *_reply;

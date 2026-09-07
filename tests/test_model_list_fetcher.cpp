@@ -59,6 +59,28 @@ class TestModelListFetcher : public QObject {
 
 private slots:
 
+    // ASTRA-001 (2026-09-07): the OpenAI list must flag gpt-6-astra as a
+    // reasoning model (footer effort combo) with its 1.05M context; gpt-4o
+    // stays a plain chat model.
+    void openAi_gpt6Astra_reasoningWith1050kContext() {
+        QJsonArray raw{QJsonObject{{"id", "gpt-6-astra"}},
+                       QJsonObject{{"id", "gpt-4o"}},
+                       QJsonObject{{"id", "gpt-6-astra-realtime"}}}; // dropped: realtime
+        ModelListFetcher fetcher;
+        QJsonArray out = fetcher.normaliseOpenAi(raw);
+        QCOMPARE(out.size(), 2);
+        QJsonObject astra = byId(out, QStringLiteral("gpt-6-astra"));
+        QVERIFY(!astra.isEmpty());
+        QCOMPARE(astra.value("supportsReasoning").toBool(), true);
+        QCOMPARE(astra.value("supportsTools").toBool(), true);
+        QCOMPARE(astra.value("contextWindow").toInt(), 1050000);
+        QJsonObject gpt4o = byId(out, QStringLiteral("gpt-4o"));
+        QCOMPARE(gpt4o.value("supportsReasoning").toBool(), false);
+        QCOMPARE(gpt4o.value("contextWindow").toInt(), 128000);
+        QCOMPARE(ModelListFetcher::contextWindowFromId(QStringLiteral("gpt-6-astra")), 1050000);
+        QCOMPARE(ModelListFetcher::contextWindowFromId(QStringLiteral("gpt-5.6-sol")), 1000000);
+    }
+
     // capabilities present: tools + thinking -> flags set; completion kept.
     void capabilities_toolsAndThinking_flagged() {
         QStringList caps{"vision", "completion", "tools", "thinking"};

@@ -13462,6 +13462,16 @@ midipilot-settings.html (+ help_db regen), CHANGELOG per the template.
   the weakest area - ship only with the owner's GL smoke afterwards: start, playback,
   tab/split switch, exit.
 
+* **GPT-6 Astra follow-ups (after the 2026-09-07 routing fix that made gpt-6-astra work at
+  all):** OpenAI's 2026-09-03 release adds three Responses-API capabilities MidiPilot does not
+  use yet - (a) async tool calling (`async: true` on a tool: the model keeps reasoning or calls
+  other tools while the editor runs one), (b) mid-turn steering over a WebSocket connection,
+  which is exactly the seam the mid-run steering candidate below needs and could replace its
+  "queue the correction for the next request" design on that model, (c) `configuration_update`
+  input items to change reasoning effort mid-conversation without losing the prompt cache, and
+  `prompt_cache_options.ttl` ("30m") in place of `prompt_cache_retention`. Astra also rejects
+  temperature/top_p/logprobs and has no "none" effort - both handled in the client already.
+
 * **Mid-run agent steering (candidate, design-validated 2026-08-26):** today the input
   field is blocked while an agent run is active; the user cannot correct course until the
   run ends. Feasible without architecture change: the agent loop already has a natural

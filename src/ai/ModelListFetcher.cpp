@@ -213,7 +213,8 @@ QJsonArray ModelListFetcher::normaliseOpenAi(const QJsonArray &raw) const
         n.insert(QStringLiteral("contextWindow"), contextWindowFromId(id));
         n.insert(QStringLiteral("supportsTools"), true);
         n.insert(QStringLiteral("supportsReasoning"),
-                 id.startsWith(QStringLiteral("o")) || id.startsWith(QStringLiteral("gpt-5")));
+                 id.startsWith(QStringLiteral("o")) || id.startsWith(QStringLiteral("gpt-5"))
+                     || id.startsWith(QStringLiteral("gpt-6")));
         out.append(n);
     }
     return out;
@@ -381,6 +382,7 @@ QJsonArray ModelListFetcher::normaliseCustom(const QJsonArray &raw) const
 int ModelListFetcher::contextWindowFromId(const QString &id)
 {
     QString m = id.toLower();
+    if (m.contains(QStringLiteral("gpt-6")))     return 1050000; // gpt-6-astra: 1.05M
     if (m.contains(QStringLiteral("gpt-5")))     return 1000000;
     if (m.contains(QStringLiteral("gpt-4o")))    return 128000;
     if (m.contains(QStringLiteral("gpt-4.1")))   return 1000000;

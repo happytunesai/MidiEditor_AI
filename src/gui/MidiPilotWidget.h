@@ -6,6 +6,8 @@
 #include <QJsonObject>
 #include <QDateTime>
 
+class QSplitter;
+
 class QTimer;
 class QCheckBox;
 
@@ -421,6 +423,20 @@ private:
     // Agent steps UI
     QWidget *_agentStepsWidget;  // Actually AgentStepsWidget*, stored as QWidget* to avoid header dep
     QWidget *_agentDockArea;     // Anchored container below the chat scroll, holds the steps widget
+
+    /** Vertical splitter holding the chat scroll (top) and the agent steps
+     *  pane (bottom), so the pane height can be dragged. */
+    QSplitter *_chatSplitter = nullptr;
+
+    /** The steps pane grows with its content up to this height (px) - the old
+     *  fixed 220 px cap, now the last height the user dragged the pane to,
+     *  remembered in the settings. */
+    int _stepsPanelCap = 220;
+
+    /** Sizes the steps pane to its content, capped at _stepsPanelCap (header
+     *  only while collapsed); called when the run starts, when steps are added
+     *  or become active, and when the card is collapsed/expanded. */
+    void syncStepsPanelHeight();
 
     // Streaming bubble for incremental display
     QLabel *_streamBubble;

@@ -254,6 +254,36 @@ public:
                                               const QString &model);
 
         /**
+        * \brief True for OpenAI's reasoning families whose FUNCTION TOOLS are
+        *        served only by the Responses API: gpt-5* (gpt-5, 5.4, 5.5, the
+        *        5.6 line) and gpt-6* (gpt-6-astra). /v1/chat/completions answers
+        *        HTTP 400 "Function tools with reasoning_effort are not supported
+        *        ... use /v1/responses" for them, while chat without tools still
+        *        works. Native OpenAI only - other providers proxy through their
+        *        own chat endpoint. Decides the Agent-mode transport in both the
+        *        streaming and the non-streaming send.
+        */
+        static bool modelUsesResponsesApiForTools(const QString &provider,
+                                                  const QString &model);
+
+        /**
+        * \brief True for the OpenAI model families that reject sampling
+        *        parameters (temperature, top_p) and take reasoning_effort and
+        *        the developer role instead: o-series, gpt-5*, gpt-6*. The single
+        *        definition behind isReasoningModel().
+        */
+        static bool isOpenAiReasoningFamily(const QString &model);
+
+        /**
+        * \brief The reasoning effort to actually send for \a model. gpt-6* is
+        *        the only family that accepts "max" - every other model gets
+        *        "xhigh" instead - and gpt-6* rejects "none" / "minimal", which
+        *        become "low" there (OpenAI's own migration advice).
+        */
+        static QString reasoningEffortForModel(const QString &model,
+                                               const QString &effort);
+
+        /**
         * \brief True when \a provider needs an API key to talk to \a baseUrl.
         *
         *        The single definition of "is this endpoint keyless": Ollama

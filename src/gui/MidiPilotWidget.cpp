@@ -9,6 +9,8 @@
 #include <QStyle>
 #include <QScrollArea>
 #include <QScrollBar>
+#include <QSplitter>
+#include <QPainter>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
@@ -39,6 +41,7 @@
 
 #include <cmath>
 #include <algorithm>
+#include <functional>
 
 #include "MainWindow.h"
 #include "Appearance.h"
@@ -170,6 +173,44 @@ static QJsonObject buildMusicalSummary(const QList<MidiEvent *> &events) {
 }
 
 // ============================================================
+// Splitter with a grip mark on its handle (chat / Agent Steps divider)
+// ============================================================
+// A bare QSplitterHandle is an unmarked strip; three dots in the middle tell
+// the eye that the divider can be dragged (owner request 2026-09-07).
+class GripSplitterHandle : public QSplitterHandle {
+public:
+    using QSplitterHandle::QSplitterHandle;
+
+protected:
+    void paintEvent(QPaintEvent *event) override {
+        QSplitterHandle::paintEvent(event);
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing);
+        p.setPen(Qt::NoPen);
+        p.setBrush(QColor(Appearance::shouldUseDarkMode() ? "#8C8C8C" : "#767676"));
+        const QPointF centre(width() / 2.0, height() / 2.0);
+        const qreal radius = 1.5;
+        const qreal gap = 6.0;
+        for (int i = -1; i <= 1; ++i) {
+            const QPointF dot = orientation() == Qt::Vertical
+                ? QPointF(centre.x() + i * gap, centre.y())
+                : QPointF(centre.x(), centre.y() + i * gap);
+            p.drawEllipse(dot, radius, radius);
+        }
+    }
+};
+
+class GripSplitter : public QSplitter {
+public:
+    using QSplitter::QSplitter;
+
+protected:
+    QSplitterHandle *createHandle() override {
+        return new GripSplitterHandle(orientation(), this);
+    }
+};
+
+// ============================================================
 // Collapsible Agent Steps Widget (displayed in chat area)
 // ============================================================
 class AgentStepsWidget : public QWidget {
@@ -193,27 +234,36 @@ public:
             _collapsed = !_collapsed;
             _stepsScroll->setVisible(!_collapsed);
             updateHeader();
+            notifyContentChanged(); // the pane shrinks to the header / grows back
         });
         layout->addWidget(_headerBtn);
 
-        // Steps container - inside a HEIGHT-CAPPED scroll area. This widget
-        // is anchored in _agentDockArea, OUTSIDE the chat scroll, so its
-        // natural height goes straight into the panel's layout: a long agent
-        // run (90+ steps) would demand more height than the window has and
-        // shove the input bar - and half the editor - off screen. Long runs
-        // scroll in here instead; markActive() keeps the running step in view.
+        // Steps container inside a scroll area. While the run is live this
+        // widget sits in the steps pane of MidiPilotWidget's chat splitter,
+        // OUTSIDE the chat scroll: a long agent run (90+ steps) would
+        // otherwise demand more height than the window has and shove the
+        // input bar - and half the editor - off screen. The pane's height is
+        // decided by MidiPilotWidget::syncStepsPanelHeight() (content height
+        // up to a cap the user can drag); long runs scroll in here, and
+        // markActive() keeps the running step in view. Once the card moves
+        // into the chat history it caps itself (setHistoryMode()).
         _stepsContainer = new QWidget;
         _stepsLayout = new QVBoxLayout(_stepsContainer);
         _stepsLayout->setContentsMargins(4, 2, 0, 4);
         _stepsLayout->setSpacing(1);
+        // Trailing stretch: the pane can be dragged taller than the list, and
+        // widgetResizable makes the container fill the viewport - without the
+        // stretch the layout spread the extra height between the step rows
+        // ("Ziehharmonika", owner 2026-09-07). Steps are inserted before it.
+        _stepsLayout->addStretch(1);
 
         _stepsScroll = new QScrollArea(this);
         _stepsScroll->setWidgetResizable(true);
         _stepsScroll->setFrameShape(QFrame::NoFrame);
         _stepsScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-        // Shrink to the content while it is small, cap it when it is not.
+        // Shrink to the content while it is small; the pane / history cap
+        // bounds it when it is not.
         _stepsScroll->setSizeAdjustPolicy(QAbstractScrollArea::AdjustToContents);
-        _stepsScroll->setMaximumHeight(220);
         // Keep the card's rounded background visible through the scroll area.
         _stepsScroll->setStyleSheet(
             "QScrollArea { background: transparent; }");
@@ -238,12 +288,41 @@ public:
         lbl->setStyleSheet(
             QString("color: %1; font-size: 11px; padding: 1px 2px;")
                 .arg(dark ? "#CC9944" : "#CC7700"));
-        _stepsLayout->addWidget(lbl);
+        _stepsLayout->insertWidget(_stepsLayout->count() - 1, lbl); // before the stretch
         _stepLabels[step] = lbl;
         _stepNames[step] = label;
         _totalSteps++;
         updateHeader();
+        notifyContentChanged();
     }
+
+    /** Height the card wants: header plus, unless collapsed, the full step
+     *  list. The steps pane grows to this up to its cap. */
+    int preferredHeight() const {
+        return headerHeight()
+             + (_collapsed ? 0 : _stepsContainer->sizeHint().height() + 2);
+    }
+
+    /** Header row plus the card's own top/bottom margins. */
+    int headerHeight() const {
+        return _headerBtn->sizeHint().height() + 12;
+    }
+
+    bool collapsed() const { return _collapsed; }
+
+    /** The card leaves the live pane for the chat history: bound the list
+     *  height again so a 90-step run does not stretch the history. */
+    void setHistoryMode() {
+        _stepsScroll->setMaximumHeight(kHistoryMaxHeight);
+        contentChanged = nullptr;
+    }
+
+    /** Called after every change of the card's content height (steps added,
+     *  collapsed / expanded). No Q_OBJECT in this file-local class, so the
+     *  owner wires a callback instead of a signal. */
+    std::function<void()> contentChanged;
+
+    static constexpr int kHistoryMaxHeight = 220;
 
     void planSteps(int firstStep, const QStringList &labels) {
         for (int i = 0; i < labels.size(); ++i) {
@@ -270,9 +349,19 @@ public:
         label->setStyleSheet(
             QString("color: %1; font-weight: bold; font-size: 11px; padding: 1px 2px;")
                 .arg(dark ? "#55AAFF" : "#0066CC"));
-        // With the capped scroll area the running step can sit below the
-        // fold - follow it.
-        _stepsScroll->ensureWidgetVisible(label, 0, 12);
+        // The running step can sit below the fold - follow it. But a step
+        // planned a moment ago has no geometry until the layout has run, and
+        // ensureWidgetVisible() on such a label scrolled to (0,0), i.e. the
+        // TOP: every new step threw the list back to step 1 (owner report
+        // 2026-09-07). Let the pane resize and the layout settle first, then
+        // scroll on the next event-loop pass.
+        notifyContentChanged();
+        QPointer<QLabel> target(label);
+        QTimer::singleShot(0, this, [this, target]() {
+            if (target) {
+                _stepsScroll->ensureWidgetVisible(target, 0, 12);
+            }
+        });
     }
 
     void completeStep(int step, bool success, bool recoverable = false) {
@@ -307,6 +396,12 @@ public:
     }
 
 private:
+    void notifyContentChanged() {
+        if (contentChanged) {
+            contentChanged();
+        }
+    }
+
     void updateHeader() {
         QString arrow = _collapsed
             ? QString("\xE2\x96\xB6")    // ▶
@@ -519,8 +614,18 @@ void MidiPilotWidget::setupUi() {
     _contextLabel->setWordWrap(true);
     mainLayout->addWidget(_contextLabel);
 
-    // === Chat Area (takes most space) ===
-    _chatScroll = new QScrollArea(this);
+    // === Chat Area + anchored "Agent Steps" pane, in a vertical splitter ===
+    // The AgentStepsWidget lives in the lower splitter pane instead of inside
+    // _chatLayout so it stays pinned at the bottom of the chat area while the
+    // thoughts/messages scroll above it - and, as a splitter child, its height
+    // can be dragged (owner request 2026-09-07). syncStepsPanelHeight() grows
+    // the pane with the content up to the dragged / remembered cap, which is
+    // what the old fixed 220 px maximum did without the drag.
+    _chatSplitter = new GripSplitter(Qt::Vertical, this);
+    _chatSplitter->setChildrenCollapsible(false);
+    _chatSplitter->setHandleWidth(7); // room for the grip dots
+
+    _chatScroll = new QScrollArea(_chatSplitter);
     _chatScroll->setWidgetResizable(true);
     _chatScroll->setFrameShape(QFrame::NoFrame);
 
@@ -531,18 +636,32 @@ void MidiPilotWidget::setupUi() {
     _chatLayout->addStretch();
 
     _chatScroll->setWidget(_chatContainer);
-    mainLayout->addWidget(_chatScroll, 1);
+    _chatSplitter->addWidget(_chatScroll);
 
-    // === Anchored "Agent Steps" dock (between chat scroll and input) ===
-    // The AgentStepsWidget is placed here instead of inside _chatLayout so it
-    // stays pinned at the bottom of the chat area while the thoughts/messages
-    // scroll above it.
-    _agentDockArea = new QWidget(this);
+    _agentDockArea = new QWidget(_chatSplitter);
     QVBoxLayout *dockLayout = new QVBoxLayout(_agentDockArea);
     dockLayout->setContentsMargins(4, 0, 4, 0);
     dockLayout->setSpacing(0);
     _agentDockArea->setVisible(false);
-    mainLayout->addWidget(_agentDockArea);
+    _chatSplitter->addWidget(_agentDockArea);
+    _chatSplitter->setStretchFactor(0, 1);
+    _chatSplitter->setStretchFactor(1, 0);
+    mainLayout->addWidget(_chatSplitter, 1);
+
+    _stepsPanelCap = qMax(60, AppPaths::settings()
+                              ->value(QStringLiteral("MidiPilot/agent_steps_height"), 220).toInt());
+    connect(_chatSplitter, &QSplitter::splitterMoved, this, [this](int, int) {
+        // Dragged by hand: that height is the new cap, kept across runs and
+        // sessions. Only while the pane is up - a hidden pane reports 0.
+        if (!_agentDockArea || !_agentDockArea->isVisible() || !_chatSplitter) {
+            return;
+        }
+        const int h = _chatSplitter->sizes().value(1);
+        if (h > 0) {
+            _stepsPanelCap = h;
+            AppPaths::settings()->setValue(QStringLiteral("MidiPilot/agent_steps_height"), h);
+        }
+    });
 
     // === Setup Prompt (shown when no API key, replaces the chat area) ===
     // Takes _chatScroll's place in mainLayout via the same stretch=1, so the
@@ -887,6 +1006,7 @@ void MidiPilotWidget::setupUi() {
     _effortCombo->addItem(QString::fromUtf8("\xF0\x9F\x92\xAD med"), "medium");
     _effortCombo->addItem(QString::fromUtf8("\xF0\x9F\x92\xAD high"), "high");
     _effortCombo->addItem(QString::fromUtf8("\xF0\x9F\x92\xAD xhigh"), "xhigh");
+    _effortCombo->addItem(QString::fromUtf8("\xF0\x9F\x92\xAD max"), "max"); // gpt-6; others get xhigh
     _effortCombo->setFixedHeight(20);
     _effortCombo->setStyleSheet("font-size: 11px;");
     int effortIdx = _effortCombo->findData(_client->reasoningEffort());
@@ -1285,6 +1405,35 @@ void MidiPilotWidget::onFileChanged(MidiFile *f) {
     }
 }
 
+void MidiPilotWidget::syncStepsPanelHeight() {
+    if (!_chatSplitter || !_agentDockArea || !_agentDockArea->isVisible()
+        || !_agentStepsWidget) {
+        return;
+    }
+    auto *sw = static_cast<AgentStepsWidget *>(_agentStepsWidget);
+    const QList<int> sizes = _chatSplitter->sizes();
+    if (sizes.size() < 2) {
+        return;
+    }
+    const int total = sizes.at(0) + sizes.at(1);
+    if (total <= 0) {
+        return; // not laid out yet - the next step added syncs again
+    }
+    // Content height up to the cap (the user's dragged height), header only
+    // while collapsed, and the chat keeps at least a few lines of room.
+    int wanted = sw->preferredHeight();
+    if (!sw->collapsed()) {
+        wanted = qMin(wanted, _stepsPanelCap);
+    }
+    const int floor = sw->headerHeight();
+    const int ceiling = qMax(floor, total - 120);
+    wanted = qBound(floor, wanted, ceiling);
+    if (wanted == sizes.at(1)) {
+        return;
+    }
+    _chatSplitter->setSizes({total - wanted, wanted});
+}
+
 void MidiPilotWidget::abortActiveRequest() {
     // Phase 28 (editor groups): release the pinned edit target immediately on any
     // abort (user Stop, or MainWindow aborting because the origin tab is closing).
@@ -1620,8 +1769,10 @@ bool MidiPilotWidget::sendCurrentPrompt() {
         // and messages scroll above it.
         AgentStepsWidget *stepsWidget = new AgentStepsWidget(_agentDockArea);
         _agentStepsWidget = stepsWidget;
+        stepsWidget->contentChanged = [this]() { syncStepsPanelHeight(); };
         _agentDockArea->layout()->addWidget(stepsWidget);
         _agentDockArea->setVisible(true);
+        syncStepsPanelHeight();
 
         QString agentPrompt = EditorContext::agentSystemPrompt();
         // Phase 29: layer per-model prompt profile (e.g. GPT-5.5 Decisive)
@@ -2926,6 +3077,7 @@ void MidiPilotWidget::onAgentFinished(const QString &finalMessage) {
     if (_agentStepsWidget) {
         swToMove = static_cast<AgentStepsWidget *>(_agentStepsWidget);
         swToMove->setFinished(true);
+        swToMove->setHistoryMode();
         _agentDockArea->layout()->removeWidget(swToMove);
         swToMove->setParent(_chatContainer);
         _agentDockArea->setVisible(false);
@@ -3051,6 +3203,7 @@ void MidiPilotWidget::onAgentError(const QString &error) {
     if (_agentStepsWidget) {
         swToMove = static_cast<AgentStepsWidget *>(_agentStepsWidget);
         swToMove->setFinished(false);
+        swToMove->setHistoryMode();
         _agentDockArea->layout()->removeWidget(swToMove);
         swToMove->setParent(_chatContainer);
         _agentDockArea->setVisible(false);
