@@ -78,17 +78,34 @@ void McpServer::stop() {
 
     _cleanupTimer.stop();
 
-    // Close all SSE connections
-    QMutexLocker lock(&_sessionMutex);
-    for (auto &session : _sessions) {
-        if (session.sseSocket && session.sseSocket->isOpen()) {
-            session.sseSocket->close();
+    // Every session goes. The SSE streams come back to be closed HERE, with
+    // the table's lock already released: close() emits disconnected()
+    // synchronously, and that handler needs the table. Closing under the lock
+    // was a self-deadlock on the GUI thread - the editor never finished
+    // quitting (SP-06, external review 2026-09-06).
+    const QList<QTcpSocket *> streams = _sessions.clear();
+    for (QTcpSocket *stream : streams) {
+        if (stream->isOpen()) {
+            stream->close();
         }
     }
-    _sessions.clear();
-    lock.unlock();
 
     _server->close();
+
+    // Drop every client connection as well, not only the listener: a request
+    // that already sits in a socket buffer would otherwise still be dispatched
+    // by the next event-loop pass - and MainWindow pumps the loop during
+    // shutdown AFTER the editor views are gone (SP-01, external review
+    // 2026-09-06). abort() discards the buffer and the read notifier. Nothing
+    // in here waits: the server lives on the GUI thread, so a stop() from
+    // there can never deadlock against a tool call that is blocked in a
+    // BlockingQueuedConnection towards this very thread.
+    const QList<QTcpSocket *> clients = _server->findChildren<QTcpSocket *>();
+    for (QTcpSocket *client : clients) {
+        client->abort();
+    }
+    _pendingData.clear();
+
     _port = 0;
     emit stopped();
     emit logMessage("MCP Server stopped");
@@ -116,13 +133,7 @@ void McpServer::forgetFile(MidiFile *file) {
     if (_file == file) {
         _file = nullptr;
     }
-    QMutexLocker lock(&_sessionMutex);
-    for (auto &session : _sessions) {
-        if (session.boundFile == file) {
-            session.boundFile = nullptr;
-            session.boundFileClosed = true; // next tool call must re-read, not silently retarget
-        }
-    }
+    _sessions.forgetFile(file);
 }
 
 void McpServer::setWidget(MidiPilotWidget *widget) {
@@ -161,8 +172,7 @@ QString McpServer::clientConfigSnippet() const {
 }
 
 int McpServer::sessionCount() const {
-    QMutexLocker lock(&_sessionMutex);
-    return _sessions.size();
+    return _sessions.count();
 }
 
 // ---------------------------------------------------------------------------
@@ -177,18 +187,14 @@ void McpServer::onNewConnection() {
         });
         connect(socket, &QTcpSocket::disconnected, this, [this, socket]() {
             _pendingData.remove(socket);
-            // Remove any SSE session associated with this socket
-            QMutexLocker lock(&_sessionMutex);
-            for (auto it = _sessions.begin(); it != _sessions.end(); ++it) {
-                if (it->sseSocket == socket) {
-                    QString id = it.key();
-                    it->sseSocket = nullptr;
-                    emit clientDisconnected(id);
-                    emit logMessage(QString("SSE connection closed for session %1").arg(id));
-                    break;
-                }
+            // Forget the socket where it was a session's SSE stream. This
+            // runs synchronously from close() - which is why no caller may
+            // close a stream while holding the table's lock (SP-06).
+            const QString id = _sessions.detachSocket(socket);
+            if (!id.isEmpty()) {
+                emit clientDisconnected(id);
+                emit logMessage(QString("SSE connection closed for session %1").arg(id));
             }
-            lock.unlock();
             socket->deleteLater();
         });
     }
@@ -288,6 +294,10 @@ void McpServer::processHttpRequest(QTcpSocket *socket, const HttpRequest &req) {
         return;
     }
 
+    // Only an Origin that already passed validateOrigin() is ever reflected back
+    // in a CORS header; empty means a native client, which needs none.
+    const QString reqOrigin = req.headers.value("origin");
+
     if (req.method == "POST") {
         // JSON-RPC 2.0 request
         QJsonParseError parseErr;
@@ -295,7 +305,7 @@ void McpServer::processHttpRequest(QTcpSocket *socket, const HttpRequest &req) {
         if (parseErr.error != QJsonParseError::NoError || !doc.isObject()) {
             QJsonObject err = makeJsonRpcError(QJsonValue::Null, JSONRPC_PARSE_ERROR,
                                                "Parse error: " + parseErr.errorString());
-            sendJsonResponse(socket, 200, err);
+            sendJsonResponse(socket, 200, err, QString(), reqOrigin);
             return;
         }
 
@@ -305,7 +315,7 @@ void McpServer::processHttpRequest(QTcpSocket *socket, const HttpRequest &req) {
         if (rpcRequest["jsonrpc"].toString() != "2.0" || !rpcRequest.contains("method")) {
             QJsonObject err = makeJsonRpcError(rpcRequest["id"], JSONRPC_INVALID_REQUEST,
                                                "Invalid JSON-RPC 2.0 request");
-            sendJsonResponse(socket, 200, err);
+            sendJsonResponse(socket, 200, err, QString(), reqOrigin);
             return;
         }
 
@@ -324,11 +334,9 @@ void McpServer::processHttpRequest(QTcpSocket *socket, const HttpRequest &req) {
             QJsonObject result = handleInitialize(rpcRequest["params"].toObject(), newSession);
             QJsonObject response = makeJsonRpcResult(rpcRequest["id"], result);
 
-            QMutexLocker lock(&_sessionMutex);
-            _sessions[newSession.id] = newSession;
-            lock.unlock();
+            _sessions.insert(newSession);
 
-            sendJsonResponse(socket, 200, response, newSession.id);
+            sendJsonResponse(socket, 200, response, newSession.id, reqOrigin);
             emit clientConnected(newSession.id);
             emit logMessage(QString("New MCP session: %1").arg(newSession.id));
             return;
@@ -338,7 +346,7 @@ void McpServer::processHttpRequest(QTcpSocket *socket, const HttpRequest &req) {
         if (sessionId.isEmpty()) {
             QJsonObject err = makeJsonRpcError(rpcRequest["id"], JSONRPC_INVALID_REQUEST,
                                                "Missing Mcp-Session-Id header. Call initialize first.");
-            sendJsonResponse(socket, 200, err);
+            sendJsonResponse(socket, 200, err, QString(), reqOrigin);
             return;
         }
 
@@ -346,7 +354,7 @@ void McpServer::processHttpRequest(QTcpSocket *socket, const HttpRequest &req) {
         if (!session) {
             QJsonObject err = makeJsonRpcError(rpcRequest["id"], JSONRPC_INVALID_REQUEST,
                                                "Invalid or expired session. Call initialize again.");
-            sendJsonResponse(socket, 200, err);
+            sendJsonResponse(socket, 200, err, QString(), reqOrigin);
             return;
         }
 
@@ -362,7 +370,7 @@ void McpServer::processHttpRequest(QTcpSocket *socket, const HttpRequest &req) {
         }
 
         QJsonObject rpcResponse = handleJsonRpc(rpcRequest, *session);
-        sendJsonResponse(socket, 200, rpcResponse, sessionId);
+        sendJsonResponse(socket, 200, rpcResponse, sessionId, reqOrigin);
 
     } else if (req.method == "GET") {
         // SSE stream for server-initiated messages
@@ -378,23 +386,27 @@ void McpServer::processHttpRequest(QTcpSocket *socket, const HttpRequest &req) {
             return;
         }
 
-        // Close previous SSE socket if any (MCP-004)
-        if (session->sseSocket && session->sseSocket != socket
-            && session->sseSocket->isOpen()) {
-            session->sseSocket->close();
+        // Register the new stream first, then close the previous one (MCP-004)
+        // - outside the table's lock, and after the switch, so the old
+        // stream's disconnected handler finds it already replaced and emits no
+        // spurious clientDisconnected for a re-established stream.
+        QTcpSocket *previous = _sessions.attachSse(sessionId, socket);
+        if (previous && previous->isOpen()) {
+            previous->close();
         }
-
-        // Set up SSE connection
-        session->sseSocket = socket;
         session->lastActivity = QDateTime::currentDateTime();
 
         // Send SSE headers (keep-alive connection)
+        // Same reflection rule as sendJsonResponse - never "*".
         QByteArray headers = "HTTP/1.1 200 OK\r\n"
                              "Content-Type: text/event-stream\r\n"
                              "Cache-Control: no-cache\r\n"
-                             "Connection: keep-alive\r\n"
-                             "Access-Control-Allow-Origin: *\r\n"
-                             "\r\n";
+                             "Connection: keep-alive\r\n";
+        if (!reqOrigin.isEmpty()) {
+            headers.append(QString("Access-Control-Allow-Origin: %1\r\n").arg(reqOrigin).toUtf8());
+            headers.append("Vary: Origin\r\n");
+        }
+        headers.append("\r\n");
         socket->write(headers);
         socket->flush();
 
@@ -410,13 +422,16 @@ void McpServer::processHttpRequest(QTcpSocket *socket, const HttpRequest &req) {
         socket->flush();
 
     } else if (req.method == "OPTIONS") {
-        // CORS preflight
-        QByteArray resp = "HTTP/1.1 204 No Content\r\n"
-                          "Access-Control-Allow-Origin: *\r\n"
-                          "Access-Control-Allow-Methods: GET, POST, DELETE, OPTIONS\r\n"
-                          "Access-Control-Allow-Headers: Content-Type, Mcp-Session-Id, Authorization\r\n"
-                          "Access-Control-Max-Age: 86400\r\n"
-                          "\r\n";
+        // CORS preflight - reflect the validated origin, never "*".
+        QByteArray resp = "HTTP/1.1 204 No Content\r\n";
+        if (!reqOrigin.isEmpty()) {
+            resp.append(QString("Access-Control-Allow-Origin: %1\r\n").arg(reqOrigin).toUtf8());
+            resp.append("Vary: Origin\r\n");
+        }
+        resp.append("Access-Control-Allow-Methods: GET, POST, DELETE, OPTIONS\r\n"
+                    "Access-Control-Allow-Headers: Content-Type, Mcp-Session-Id, Authorization\r\n"
+                    "Access-Control-Max-Age: 86400\r\n"
+                    "\r\n");
         socket->write(resp);
         socket->flush();
     } else {
@@ -430,7 +445,8 @@ void McpServer::processHttpRequest(QTcpSocket *socket, const HttpRequest &req) {
 
 void McpServer::sendJsonResponse(QTcpSocket *socket, int statusCode,
                                   const QJsonObject &body,
-                                  const QString &sessionId) {
+                                  const QString &sessionId,
+                                  const QString &allowOrigin) {
     QByteArray json = QJsonDocument(body).toJson(QJsonDocument::Compact);
 
     QByteArray resp;
@@ -440,8 +456,15 @@ void McpServer::sendJsonResponse(QTcpSocket *socket, int statusCode,
     if (!sessionId.isEmpty()) {
         resp.append(QString("Mcp-Session-Id: %1\r\n").arg(sessionId).toUtf8());
     }
-    resp.append("Access-Control-Allow-Origin: *\r\n");
-    resp.append("Access-Control-Expose-Headers: Mcp-Session-Id\r\n");
+    // WHY: "Access-Control-Allow-Origin: *" plus the exposed Mcp-Session-Id let
+    // any browser page read the session id and every response body. Reflect only
+    // the origin that already passed validateOrigin(); native clients send no
+    // Origin, and then no CORS header is emitted at all.
+    if (!allowOrigin.isEmpty()) {
+        resp.append(QString("Access-Control-Allow-Origin: %1\r\n").arg(allowOrigin).toUtf8());
+        resp.append("Access-Control-Expose-Headers: Mcp-Session-Id\r\n");
+        resp.append("Vary: Origin\r\n");
+    }
     resp.append("\r\n");
     resp.append(json);
 
@@ -657,11 +680,18 @@ QJsonObject McpServer::handleToolsCall(const QJsonObject &params, Session &sessi
                          ? QStringLiteral("mcp")
                          : QStringLiteral("mcp:") + session.clientName;
 
-    // v2.0: MCP-only document/tab tools. They act on the WINDOW (which tabs
-    // exist / which one is active), not on the session's bound document, so
-    // they run BEFORE the bound-file resolution below. After switch_document
-    // the client must call get_editor_state to re-bind the session to the
-    // newly active document (the binding itself is deliberately untouched).
+    // v2.0 (naming updated v2.4.0): document/tab tools. They act on the
+    // WINDOW (which tabs exist / which one is active), not on the session's
+    // bound document, so they run BEFORE the bound-file resolution below.
+    // After switch_document the client must call get_editor_state to re-bind
+    // the session to the newly active document (the binding itself is
+    // deliberately untouched). list_documents became a CORE tool in v2.4.0;
+    // this intercept still answers it FIRST (shadowing the core executor,
+    // whose {success, documents} shape is identical) so it keeps working even
+    // while session.boundFileClosed would refuse stateful tools below.
+    // switch_document stays MCP's own (activate-the-tab contract) - the
+    // MidiPilot runner's rebind-only switch_document is gated out of the
+    // default schema and never reaches MCP.
     if (toolName == QStringLiteral("list_documents")
         || toolName == QStringLiteral("switch_document")) {
         QJsonObject toolResult;
@@ -672,6 +702,14 @@ QJsonObject McpServer::handleToolsCall(const QJsonObject &params, Session &sessi
             if (!mw) {
                 toolResult["success"] = false;
                 toolResult["error"] = QStringLiteral("Main window not available.");
+                return;
+            }
+            // A call that was queued before beginShutdown() still runs when the
+            // loop is pumped during teardown - refuse it here as well, the
+            // editor views it would activate are gone (SP-01).
+            if (mw->isShuttingDown()) {
+                toolResult["success"] = false;
+                toolResult["error"] = QStringLiteral("The editor is shutting down.");
                 return;
             }
             if (toolName == QStringLiteral("list_documents")) {
@@ -952,13 +990,15 @@ bool McpServer::validateOrigin(const HttpRequest &req) {
     if (origin.isEmpty())
         return true;
 
-    // "null" origin = sandboxed context - allow
-    if (origin == "null")
-        return true;
+    // WHY: browsers send the opaque origin "null" for sandboxed iframes, data:
+    // documents AND file:// pages, so allowing "null" (or the "file://" prefix)
+    // let any web page or downloaded .html reach the whole tool surface. Only a
+    // real local origin may pass; native clients send no Origin at all.
+    if (origin == "null" || origin.startsWith("file://"))
+        return false;
 
     // Allow vscode-webview and other IDE origins
-    if (origin.startsWith("vscode-webview://") ||
-        origin.startsWith("file://")) {
+    if (origin.startsWith("vscode-webview://")) {
         return true;
     }
 
@@ -1036,22 +1076,18 @@ QJsonArray McpServer::convertToolSchemas() {
         mcpTools.append(mcpTool);
     }
 
-    // v2.0: MCP-only document/tab tools - appended HERE (not in
-    // ToolDefinitions::toolSchemas()) so the MidiPilot agent does not get
-    // them; agent runs stay pinned to their run-origin document.
-    {
-        QJsonObject t;
-        t["name"] = QStringLiteral("list_documents");
-        t["description"] = QStringLiteral(
-            "List all documents (tabs) open in the editor across both editor "
-            "groups: index, title, file path, group (0 = left, 1 = right), "
-            "active and modified flags. Use the index with switch_document.");
-        QJsonObject schema;
-        schema["type"] = QStringLiteral("object");
-        schema["properties"] = QJsonObject();
-        t["inputSchema"] = schema;
-        mcpTools.append(t);
-    }
+    // v2.4.0: list_documents is a CORE tool now (promoted for MidiPilot's
+    // cross-tab abilities) and flows through the conversion above with the
+    // SAME description it had as an MCP-only append, so clients see one
+    // identical tool instead of two. The pre-dispatch intercept in
+    // handleToolCall (before bound-file resolution) still answers it - the
+    // core executor is byte-equivalent ({success, documents}) but the
+    // intercept keeps list_documents working even while the bound document
+    // is closed. Only switch_document stays MCP-appended: MCP's contract
+    // (activate the tab in the UI, then get_editor_state re-binds) is
+    // deliberately different from the MidiPilot runner's rebind-only
+    // switch_document, which is gated off in the default schema options so
+    // the two definitions never shadow each other here.
     {
         QJsonObject t;
         t["name"] = QStringLiteral("switch_document");
@@ -1086,11 +1122,13 @@ void McpServer::broadcastToolsChanged() {
     notification["jsonrpc"] = QString("2.0");
     notification["method"] = QString("notifications/tools/list_changed");
 
-    QMutexLocker lock(&_sessionMutex);
-    for (auto &session : _sessions) {
-        if (session.sseSocket && session.sseSocket->isOpen()) {
-            sendSseEvent(session.sseSocket, notification);
-        }
+    // Snapshot first, write outside the table's lock: a write to a stream
+    // whose peer is gone can fail and close the socket synchronously, and its
+    // disconnected handler needs the table (SP-06). sendSseEvent() skips
+    // streams that are no longer open.
+    const QList<QTcpSocket *> streams = _sessions.sseSockets();
+    for (QTcpSocket *stream : streams) {
+        sendSseEvent(stream, notification);
     }
 }
 
@@ -1103,45 +1141,31 @@ QString McpServer::createSession() {
 }
 
 McpServer::Session *McpServer::findSession(const QString &id) {
-    QMutexLocker lock(&_sessionMutex);
-    auto it = _sessions.find(id);
-    if (it == _sessions.end())
-        return nullptr;
-    return &it.value();
+    return _sessions.find(id);
 }
 
 void McpServer::removeSession(const QString &id) {
-    QMutexLocker lock(&_sessionMutex);
-    auto it = _sessions.find(id);
-    if (it != _sessions.end()) {
-        if (it->sseSocket && it->sseSocket->isOpen()) {
-            it->sseSocket->close();
-        }
-        _sessions.erase(it);
-        emit clientDisconnected(id);
-        emit logMessage(QString("Session removed: %1").arg(id));
+    // The table hands the SSE stream back; it is closed here, after the lock
+    // was released (SP-06).
+    McpSessionTable::Removed removed;
+    if (!_sessions.remove(id, removed)) {
+        return;
     }
+    if (removed.sseSocket && removed.sseSocket->isOpen()) {
+        removed.sseSocket->close();
+    }
+    emit clientDisconnected(id);
+    emit logMessage(QString("Session removed: %1").arg(id));
 }
 
 void McpServer::cleanupStaleSessions() {
-    QDateTime now = QDateTime::currentDateTime();
-    QMutexLocker lock(&_sessionMutex);
-    QStringList toRemove;
-
-    for (auto it = _sessions.begin(); it != _sessions.end(); ++it) {
-        if (it->lastActivity.secsTo(now) > SESSION_TIMEOUT_SECS) {
-            toRemove.append(it.key());
+    // Same discipline as removeSession(): expire under the lock, close after.
+    const QList<McpSessionTable::Removed> expired =
+        _sessions.expire(QDateTime::currentDateTime(), SESSION_TIMEOUT_SECS);
+    for (const McpSessionTable::Removed &session : expired) {
+        if (session.sseSocket && session.sseSocket->isOpen()) {
+            session.sseSocket->close();
         }
-    }
-
-    for (const QString &id : toRemove) {
-        auto it = _sessions.find(id);
-        if (it != _sessions.end()) {
-            if (it->sseSocket && it->sseSocket->isOpen()) {
-                it->sseSocket->close();
-            }
-            _sessions.erase(it);
-            emit logMessage(QString("Session expired: %1").arg(id));
-        }
+        emit logMessage(QString("Session expired: %1").arg(session.id));
     }
 }

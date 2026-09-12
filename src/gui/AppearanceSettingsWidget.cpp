@@ -79,9 +79,15 @@ AppearanceSettingsWidget::AppearanceSettingsWidget(QWidget *parent)
     bool isClassic = (Appearance::theme() == Appearance::ThemeNone);
     styleCombo->setEnabled(isClassic);
     styleLabel->setEnabled(isClassic);
+    // Drive this from the theme that is actually IN FORCE, not from the emitted
+    // index: themeChanged() runs first and rolls the combo back when the user
+    // cancels the restart prompt, but this receiver still fires with the
+    // rejected index and would enable/disable the style combo for a theme that
+    // was never applied.
     connect(themeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
         [styleCombo, styleLabel](int index) {
-            bool classic = (index == static_cast<int>(Appearance::ThemeNone));
+            Q_UNUSED(index)
+            bool classic = (Appearance::theme() == Appearance::ThemeNone);
             styleCombo->setEnabled(classic);
             styleLabel->setEnabled(classic);
         });
@@ -89,7 +95,8 @@ AppearanceSettingsWidget::AppearanceSettingsWidget(QWidget *parent)
 
     // Color preset
     layout->addWidget(new QLabel("Color Preset"), row, 0, 1, 1);
-    QComboBox *presetCombo = new QComboBox(content);
+    // Kept as a member so resetColors() can re-sync it (F272).
+    QComboBox *presetCombo = _presetCombo = new QComboBox(content);
     for (int i = 0; i < Appearance::PresetCount; i++) {
         presetCombo->addItem(Appearance::colorPresetName(
             static_cast<Appearance::ColorPreset>(i)));
@@ -298,6 +305,14 @@ void AppearanceSettingsWidget::trackColorChanged(int track, QColor c) {
 
 void AppearanceSettingsWidget::resetColors() {
     Appearance::reset();
+    // reset() puts Appearance back on PresetDefault; mirror that in the open
+    // dialog, otherwise the combo keeps naming the old preset and re-selecting
+    // it is a no-op (currentIndexChanged does not fire for an unchanged index).
+    // Signals blocked: applyColorPreset() must not run a second reset here.
+    if (_presetCombo) {
+        QSignalBlocker blocker(_presetCombo);
+        _presetCombo->setCurrentIndex(static_cast<int>(Appearance::colorPreset()));
+    }
     refreshColors();
 }
 
@@ -412,6 +427,10 @@ void NamedColorWidgetItem::mousePressEvent(QMouseEvent *event) {
     QColor newColor = QColorDialog::getColor(color, this);
     // Only apply the color if user didn't cancel (valid color returned)
     if (newColor.isValid()) {
+        // Keep the seed in sync: the picker is opened with `color`, so without
+        // this the next click reopens on the construction-time color and an
+        // untouched OK reverts the pick made here.
+        color = newColor;
         // Emit signal with raw color (Appearance::setChannelColor will apply opacity)
         emit colorChanged(_number, newColor);
 
@@ -427,6 +446,9 @@ void NamedColorWidgetItem::mousePressEvent(QMouseEvent *event) {
 void NamedColorWidgetItem::colorChanged(QColor color) {
     // This slot is called when refreshing colors from the appearance system
     // The color already has opacity applied, so display it as-is
+    // Same reason as in mousePressEvent(): the picker is seeded from `color`,
+    // so a reset / preset / opacity refresh has to move the seed too.
+    this->color = color;
     colored->setColor(color);
     update();
     // Don't emit signal here - this is for display updates only

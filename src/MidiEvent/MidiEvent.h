@@ -81,6 +81,16 @@ public:
                                     quint8 secondByte = 0);
 
     /**
+     * \brief Resets the running-status register used by loadMidiEvent().
+     *
+     * Running status must not cross a track boundary (SMF spec), and the
+     * register is a class static shared by every parse - including the parse of
+     * a previously loaded document - so it has to be cleared before reading a
+     * track, or a stray data byte gets turned into a fabricated event.
+     */
+    static void resetRunningStatus();
+
+    /**
      * \brief Gets the global event widget instance.
      * \return Pointer to the EventWidget used for editing events
      */

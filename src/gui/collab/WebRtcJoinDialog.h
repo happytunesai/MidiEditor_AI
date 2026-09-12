@@ -34,6 +34,13 @@ class WebRtcJoinDialog : public QDialog {
 public:
     explicit WebRtcJoinDialog(MidiFile *file = nullptr, QWidget *parent = nullptr);
 
+public slots:
+    /**
+     * \brief Cancel button, Escape and the window X all end up here, so the
+     *        in-flight join is torn down on every one of them.
+     */
+    void reject() override;
+
 private slots:
     void onConnect();
     void onJoined(const QString &hostName);

@@ -31,6 +31,15 @@ public:
         /// When false, omit `pitch_bend` from the `events.anyOf` of
         /// `insert_events`/`replace_events`.
         bool includePitchBend = true;
+        /// v2.4.0 cross-tab tools: when true, add the `switch_document`
+        /// definition to the schema. Default false so BOTH default-options
+        /// consumers keep their contract: the MCP server appends its OWN
+        /// switch_document (activate-the-tab + get_editor_state re-bind)
+        /// in convertToolSchemas() and must not see a second, shadowing
+        /// definition; and executeTool's required-gate walks the default
+        /// schema. Only the AgentRunner opts in - it intercepts the call
+        /// before dispatch and re-binds the run (no tab activation).
+        bool includeDocumentSwitch = false;
     };
 
     /**
@@ -67,8 +76,9 @@ public:
      * the widget (static \c protoPrefix in MidiPilotWidget.cpp, same three
      * forms) by passing \c _source along with the action. Tools that open their
      * own Protocol action - transpose_events, split_chords_to_tracks,
-     * copy_events_to_track, convert_tempo_preserve_duration,
-     * setup_channel_pattern - build their label with this helper instead, so
+     * copy_events_to_track, import_tracks_from_document,
+     * convert_tempo_preserve_duration, setup_channel_pattern - build their
+     * label with this helper instead, so
      * both paths produce ONE format. Public because the exact strings are
      * documented in manual/mcp-server.html and unit-tested.
      */
@@ -98,6 +108,22 @@ private:
     static QJsonObject execGetTrackInfo(const QJsonObject &args, MidiFile *file);
     static QJsonObject execQueryEvents(const QJsonObject &args, MidiFile *file);
     static QJsonObject execGetSelection(MidiFile *file);
+    // v2.4.0 cross-tab tools. These act on the WINDOW's document list (via
+    // the widget's MainWindow), not on the bound file, and never re-bind
+    // anything: list_documents was promoted from MCP-only to CORE, and
+    // get_document_overview reads ANOTHER open tab without touching it.
+    static QJsonObject execListDocuments(MidiPilotWidget *widget);
+    static QJsonObject execGetDocumentOverview(const QJsonObject &args,
+                                               MidiPilotWidget *widget);
+    // v2.4.0: copy tracks from another open document INTO `file` (the bound
+    // document) as ONE Protocol action - bulk channel-snapshot idiom, ticks
+    // rescaled on ticksPerQuarter mismatch, tempo-map difference and channel
+    // collisions REPORTED (never blocked). dryRun defaults to true like
+    // thin_tempo_map.
+    static QJsonObject execImportTracksFromDocument(const QJsonObject &args,
+                                                    MidiFile *file,
+                                                    MidiPilotWidget *widget,
+                                                    const QString &source);
 
     // Write tools (delegate to widget handlers)
     static QJsonObject execWriteAction(const QString &action,

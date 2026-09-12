@@ -9,6 +9,8 @@
 #include <QStyle>
 #include <QScrollArea>
 #include <QScrollBar>
+#include <QSplitter>
+#include <QPainter>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
@@ -17,6 +19,7 @@
 #include <QTime>
 #include <QTimer>
 #include <QPointer>
+#include <QSharedPointer>
 #include <QSet>
 #include <QSettings>
 #include <QKeyEvent>
@@ -38,6 +41,7 @@
 
 #include <cmath>
 #include <algorithm>
+#include <functional>
 
 #include "MainWindow.h"
 #include "Appearance.h"
@@ -169,6 +173,44 @@ static QJsonObject buildMusicalSummary(const QList<MidiEvent *> &events) {
 }
 
 // ============================================================
+// Splitter with a grip mark on its handle (chat / Agent Steps divider)
+// ============================================================
+// A bare QSplitterHandle is an unmarked strip; three dots in the middle tell
+// the eye that the divider can be dragged (owner request 2026-09-07).
+class GripSplitterHandle : public QSplitterHandle {
+public:
+    using QSplitterHandle::QSplitterHandle;
+
+protected:
+    void paintEvent(QPaintEvent *event) override {
+        QSplitterHandle::paintEvent(event);
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing);
+        p.setPen(Qt::NoPen);
+        p.setBrush(QColor(Appearance::shouldUseDarkMode() ? "#8C8C8C" : "#767676"));
+        const QPointF centre(width() / 2.0, height() / 2.0);
+        const qreal radius = 1.5;
+        const qreal gap = 6.0;
+        for (int i = -1; i <= 1; ++i) {
+            const QPointF dot = orientation() == Qt::Vertical
+                ? QPointF(centre.x() + i * gap, centre.y())
+                : QPointF(centre.x(), centre.y() + i * gap);
+            p.drawEllipse(dot, radius, radius);
+        }
+    }
+};
+
+class GripSplitter : public QSplitter {
+public:
+    using QSplitter::QSplitter;
+
+protected:
+    QSplitterHandle *createHandle() override {
+        return new GripSplitterHandle(orientation(), this);
+    }
+};
+
+// ============================================================
 // Collapsible Agent Steps Widget (displayed in chat area)
 // ============================================================
 class AgentStepsWidget : public QWidget {
@@ -190,17 +232,45 @@ public:
                 .arg(dark ? "#BBB" : "#555"));
         connect(_headerBtn, &QPushButton::clicked, this, [this]() {
             _collapsed = !_collapsed;
-            _stepsContainer->setVisible(!_collapsed);
+            _stepsScroll->setVisible(!_collapsed);
             updateHeader();
+            notifyContentChanged(); // the pane shrinks to the header / grows back
         });
         layout->addWidget(_headerBtn);
 
-        // Steps container
-        _stepsContainer = new QWidget(this);
+        // Steps container inside a scroll area. While the run is live this
+        // widget sits in the steps pane of MidiPilotWidget's chat splitter,
+        // OUTSIDE the chat scroll: a long agent run (90+ steps) would
+        // otherwise demand more height than the window has and shove the
+        // input bar - and half the editor - off screen. The pane's height is
+        // decided by MidiPilotWidget::syncStepsPanelHeight() (content height
+        // up to a cap the user can drag); long runs scroll in here, and
+        // markActive() keeps the running step in view. Once the card moves
+        // into the chat history it caps itself (setHistoryMode()).
+        _stepsContainer = new QWidget;
         _stepsLayout = new QVBoxLayout(_stepsContainer);
         _stepsLayout->setContentsMargins(4, 2, 0, 4);
         _stepsLayout->setSpacing(1);
-        layout->addWidget(_stepsContainer);
+        // Trailing stretch: the pane can be dragged taller than the list, and
+        // widgetResizable makes the container fill the viewport - without the
+        // stretch the layout spread the extra height between the step rows
+        // ("Ziehharmonika", owner 2026-09-07). Steps are inserted before it.
+        _stepsLayout->addStretch(1);
+
+        _stepsScroll = new QScrollArea(this);
+        _stepsScroll->setWidgetResizable(true);
+        _stepsScroll->setFrameShape(QFrame::NoFrame);
+        _stepsScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        // Shrink to the content while it is small; the pane / history cap
+        // bounds it when it is not.
+        _stepsScroll->setSizeAdjustPolicy(QAbstractScrollArea::AdjustToContents);
+        // Keep the card's rounded background visible through the scroll area.
+        _stepsScroll->setStyleSheet(
+            "QScrollArea { background: transparent; }");
+        _stepsScroll->viewport()->setAutoFillBackground(false);
+        _stepsContainer->setAutoFillBackground(false);
+        _stepsScroll->setWidget(_stepsContainer);
+        layout->addWidget(_stepsScroll);
 
         setStyleSheet(
             QString("AgentStepsWidget { background-color: %1; "
@@ -218,17 +288,56 @@ public:
         lbl->setStyleSheet(
             QString("color: %1; font-size: 11px; padding: 1px 2px;")
                 .arg(dark ? "#CC9944" : "#CC7700"));
-        _stepsLayout->addWidget(lbl);
+        _stepsLayout->insertWidget(_stepsLayout->count() - 1, lbl); // before the stretch
         _stepLabels[step] = lbl;
         _stepNames[step] = label;
         _totalSteps++;
         updateHeader();
+        notifyContentChanged();
     }
+
+    /** Height the card wants: header plus, unless collapsed, the full step
+     *  list. The steps pane grows to this up to its cap. */
+    int preferredHeight() const {
+        return headerHeight()
+             + (_collapsed ? 0 : _stepsContainer->sizeHint().height() + 2);
+    }
+
+    /** Header row plus the card's own top/bottom margins. */
+    int headerHeight() const {
+        return _headerBtn->sizeHint().height() + 12;
+    }
+
+    bool collapsed() const { return _collapsed; }
+
+    /** The card leaves the live pane for the chat history: bound the list
+     *  height again so a 90-step run does not stretch the history. */
+    void setHistoryMode() {
+        _stepsScroll->setMaximumHeight(kHistoryMaxHeight);
+        contentChanged = nullptr;
+    }
+
+    /** Called after every change of the card's content height (steps added,
+     *  collapsed / expanded). No Q_OBJECT in this file-local class, so the
+     *  owner wires a callback instead of a signal. */
+    std::function<void()> contentChanged;
+
+    static constexpr int kHistoryMaxHeight = 220;
 
     void planSteps(int firstStep, const QStringList &labels) {
         for (int i = 0; i < labels.size(); ++i) {
             addStep(firstStep + i, labels[i]);
         }
+    }
+
+    // v2.4.0 cross-tab: a step planned before a switch_document in the same
+    // tool batch was labeled for the OLD document; the label the runner sends
+    // when the step starts wins, so the panel names the document the step
+    // really ran in (review R231-16). markActive() re-renders the text.
+    void relabelStep(int step, const QString &label) {
+        if (!_stepLabels.contains(step) || _stepNames.value(step) == label) return;
+        _stepNames[step] = label;
+        _stepLabels[step]->setText(QString("\xE2\x8F\xB3 %1").arg(label));  // ⏳
     }
 
     void markActive(int step) {
@@ -240,6 +349,19 @@ public:
         label->setStyleSheet(
             QString("color: %1; font-weight: bold; font-size: 11px; padding: 1px 2px;")
                 .arg(dark ? "#55AAFF" : "#0066CC"));
+        // The running step can sit below the fold - follow it. But a step
+        // planned a moment ago has no geometry until the layout has run, and
+        // ensureWidgetVisible() on such a label scrolled to (0,0), i.e. the
+        // TOP: every new step threw the list back to step 1 (owner report
+        // 2026-09-07). Let the pane resize and the layout settle first, then
+        // scroll on the next event-loop pass.
+        notifyContentChanged();
+        QPointer<QLabel> target(label);
+        QTimer::singleShot(0, this, [this, target]() {
+            if (target) {
+                _stepsScroll->ensureWidgetVisible(target, 0, 12);
+            }
+        });
     }
 
     void completeStep(int step, bool success, bool recoverable = false) {
@@ -274,6 +396,12 @@ public:
     }
 
 private:
+    void notifyContentChanged() {
+        if (contentChanged) {
+            contentChanged();
+        }
+    }
+
     void updateHeader() {
         QString arrow = _collapsed
             ? QString("\xE2\x96\xB6")    // ▶
@@ -297,6 +425,7 @@ private:
 
     QPushButton *_headerBtn;
     QWidget *_stepsContainer;
+    QScrollArea *_stepsScroll;
     QVBoxLayout *_stepsLayout;
     QMap<int, QLabel*> _stepLabels;
     QMap<int, QString> _stepNames;
@@ -485,8 +614,18 @@ void MidiPilotWidget::setupUi() {
     _contextLabel->setWordWrap(true);
     mainLayout->addWidget(_contextLabel);
 
-    // === Chat Area (takes most space) ===
-    _chatScroll = new QScrollArea(this);
+    // === Chat Area + anchored "Agent Steps" pane, in a vertical splitter ===
+    // The AgentStepsWidget lives in the lower splitter pane instead of inside
+    // _chatLayout so it stays pinned at the bottom of the chat area while the
+    // thoughts/messages scroll above it - and, as a splitter child, its height
+    // can be dragged (owner request 2026-09-07). syncStepsPanelHeight() grows
+    // the pane with the content up to the dragged / remembered cap, which is
+    // what the old fixed 220 px maximum did without the drag.
+    _chatSplitter = new GripSplitter(Qt::Vertical, this);
+    _chatSplitter->setChildrenCollapsible(false);
+    _chatSplitter->setHandleWidth(7); // room for the grip dots
+
+    _chatScroll = new QScrollArea(_chatSplitter);
     _chatScroll->setWidgetResizable(true);
     _chatScroll->setFrameShape(QFrame::NoFrame);
 
@@ -497,18 +636,32 @@ void MidiPilotWidget::setupUi() {
     _chatLayout->addStretch();
 
     _chatScroll->setWidget(_chatContainer);
-    mainLayout->addWidget(_chatScroll, 1);
+    _chatSplitter->addWidget(_chatScroll);
 
-    // === Anchored "Agent Steps" dock (between chat scroll and input) ===
-    // The AgentStepsWidget is placed here instead of inside _chatLayout so it
-    // stays pinned at the bottom of the chat area while the thoughts/messages
-    // scroll above it.
-    _agentDockArea = new QWidget(this);
+    _agentDockArea = new QWidget(_chatSplitter);
     QVBoxLayout *dockLayout = new QVBoxLayout(_agentDockArea);
     dockLayout->setContentsMargins(4, 0, 4, 0);
     dockLayout->setSpacing(0);
     _agentDockArea->setVisible(false);
-    mainLayout->addWidget(_agentDockArea);
+    _chatSplitter->addWidget(_agentDockArea);
+    _chatSplitter->setStretchFactor(0, 1);
+    _chatSplitter->setStretchFactor(1, 0);
+    mainLayout->addWidget(_chatSplitter, 1);
+
+    _stepsPanelCap = qMax(60, AppPaths::settings()
+                              ->value(QStringLiteral("MidiPilot/agent_steps_height"), 220).toInt());
+    connect(_chatSplitter, &QSplitter::splitterMoved, this, [this](int, int) {
+        // Dragged by hand: that height is the new cap, kept across runs and
+        // sessions. Only while the pane is up - a hidden pane reports 0.
+        if (!_agentDockArea || !_agentDockArea->isVisible() || !_chatSplitter) {
+            return;
+        }
+        const int h = _chatSplitter->sizes().value(1);
+        if (h > 0) {
+            _stepsPanelCap = h;
+            AppPaths::settings()->setValue(QStringLiteral("MidiPilot/agent_steps_height"), h);
+        }
+    });
 
     // === Setup Prompt (shown when no API key, replaces the chat area) ===
     // Takes _chatScroll's place in mainLayout via the same stretch=1, so the
@@ -853,6 +1006,7 @@ void MidiPilotWidget::setupUi() {
     _effortCombo->addItem(QString::fromUtf8("\xF0\x9F\x92\xAD med"), "medium");
     _effortCombo->addItem(QString::fromUtf8("\xF0\x9F\x92\xAD high"), "high");
     _effortCombo->addItem(QString::fromUtf8("\xF0\x9F\x92\xAD xhigh"), "xhigh");
+    _effortCombo->addItem(QString::fromUtf8("\xF0\x9F\x92\xAD max"), "max"); // gpt-6; others get xhigh
     _effortCombo->setFixedHeight(20);
     _effortCombo->setStyleSheet("font-size: 11px;");
     int effortIdx = _effortCombo->findData(_client->reasoningEffort());
@@ -1251,6 +1405,35 @@ void MidiPilotWidget::onFileChanged(MidiFile *f) {
     }
 }
 
+void MidiPilotWidget::syncStepsPanelHeight() {
+    if (!_chatSplitter || !_agentDockArea || !_agentDockArea->isVisible()
+        || !_agentStepsWidget) {
+        return;
+    }
+    auto *sw = static_cast<AgentStepsWidget *>(_agentStepsWidget);
+    const QList<int> sizes = _chatSplitter->sizes();
+    if (sizes.size() < 2) {
+        return;
+    }
+    const int total = sizes.at(0) + sizes.at(1);
+    if (total <= 0) {
+        return; // not laid out yet - the next step added syncs again
+    }
+    // Content height up to the cap (the user's dragged height), header only
+    // while collapsed, and the chat keeps at least a few lines of room.
+    int wanted = sw->preferredHeight();
+    if (!sw->collapsed()) {
+        wanted = qMin(wanted, _stepsPanelCap);
+    }
+    const int floor = sw->headerHeight();
+    const int ceiling = qMax(floor, total - 120);
+    wanted = qBound(floor, wanted, ceiling);
+    if (wanted == sizes.at(1)) {
+        return;
+    }
+    _chatSplitter->setSizes({total - wanted, wanted});
+}
+
 void MidiPilotWidget::abortActiveRequest() {
     // Phase 28 (editor groups): release the pinned edit target immediately on any
     // abort (user Stop, or MainWindow aborting because the origin tab is closing).
@@ -1286,6 +1469,7 @@ void MidiPilotWidget::abortActiveRequest() {
         bool inputEnabled = !_showModeLocked;
         _inputField->setEnabled(inputEnabled);
         _sendButton->setEnabled(inputEnabled);
+        setConnectionControlsEnabled(true);
         _sendButton->setVisible(true);
         _stopButton->setVisible(false);
         // ANALYZE-LATCH-001: a Stop is a terminal outcome too. Simple mode gets
@@ -1300,6 +1484,19 @@ void MidiPilotWidget::abortActiveRequest() {
         // the chat already carries the "Stopped" status line.
         emit assistantReplied(tr("MidiPilot request was stopped."));
     }
+}
+
+void MidiPilotWidget::setConnectionControlsEnabled(bool enabled) {
+    // The footer pickers re-point the SHARED AiClient (setModel / provider +
+    // base URL + key). AgentRunner spins the event loop between steps, so a
+    // mid-run change would send the remaining steps of the run to a different
+    // model or endpoint with the accumulated tool_call history. Lock them for
+    // the duration of a request instead. (FFXIV mode stays switchable - that
+    // one is handled by applyFfxivModeChange on purpose.)
+    if (_providerCombo) _providerCombo->setEnabled(enabled);
+    if (_modelCombo) _modelCombo->setEnabled(enabled);
+    if (_refreshModelsButton) _refreshModelsButton->setEnabled(enabled);
+    if (_effortCombo) _effortCombo->setEnabled(enabled);
 }
 
 void MidiPilotWidget::setShowModeLocked(bool locked) {
@@ -1335,7 +1532,10 @@ void MidiPilotWidget::onNewChat() {
     // to _thoughtLabel, the streaming bubble and _agentStepsWidget. Deleting
     // them here is a use-after-free (BUG-MIDIPILOT-001). Abort first, bail,
     // let the user click New Chat again once it has settled.
-    if (_isAgentRunning || (_client && _client->isBusy())) {
+    // A simple-mode retry waiting on its backoff timer counts as in flight too:
+    // the client is NOT busy in that window, so without _simpleRetryPending the
+    // clear below would run and the timer would then send into the fresh chat.
+    if (_isAgentRunning || _simpleRetryPending || (_client && _client->isBusy())) {
         abortActiveRequest();
         setStatus(tr("Stopped the running request — click New Chat again to clear"),
                   "orange");
@@ -1510,6 +1710,7 @@ bool MidiPilotWidget::sendCurrentPrompt() {
     setStatus("Processing...", "orange");
     _inputField->setEnabled(false);
     _sendButton->setEnabled(false);
+    setConnectionControlsEnabled(false);
 
     if (currentMode() == "agent" || currentMode() == "agent_pr") {
 #ifdef MIDIEDITOR_COLLAB_ENABLED
@@ -1538,7 +1739,21 @@ bool MidiPilotWidget::sendCurrentPrompt() {
         // switching tabs while the agent generates can't redirect the applied
         // edits to the wrong file (the apply path reads activeEditFile()).
         _requestGeneration++;
+        // The bump orphans any pending simple-mode retry; clear its flag with it,
+        // or a later idle Stop still takes the "had work" path and emits a
+        // phantom terminal assistantReplied.
+        _simpleRetryPending = false;
         _runOriginFile = _file;
+        // v2.4.0 cross-tab: seed the run's document bookkeeping. The titles
+        // feed the per-step undo records (which tab holds a step's undo) and
+        // the run-end multi-document summary; rebindAgentRun() extends them
+        // when the agent switches its bind to another tab.
+        _runOriginDocTitle = documentTitleForFile(_file);
+        _runCurrentDocTitle = _runOriginDocTitle;
+        _runStartFile = _file;
+        _runDocs.clear();
+        if (_file)
+            _runDocs.append(_file);
         _sendButton->setVisible(false);
         _stopButton->setVisible(true);
 
@@ -1554,8 +1769,10 @@ bool MidiPilotWidget::sendCurrentPrompt() {
         // and messages scroll above it.
         AgentStepsWidget *stepsWidget = new AgentStepsWidget(_agentDockArea);
         _agentStepsWidget = stepsWidget;
+        stepsWidget->contentChanged = [this]() { syncStepsPanelHeight(); };
         _agentDockArea->layout()->addWidget(stepsWidget);
         _agentDockArea->setVisible(true);
+        syncStepsPanelHeight();
 
         QString agentPrompt = EditorContext::agentSystemPrompt();
         // Phase 29: layer per-model prompt profile (e.g. GPT-5.5 Decisive)
@@ -1659,8 +1876,10 @@ bool MidiPilotWidget::sendCurrentPrompt() {
         // Phase 28 (editor groups): pin the edit target for simple mode too, so a
         // tab switch during the streaming request can't redirect the applied edit.
         // Bumping the generation invalidates any retry still pending from a prior
-        // request so it can't fire after this new send.
+        // request so it can't fire after this new send - clear its flag here too,
+        // the orphaned timer never reaches the line that would clear it.
         _requestGeneration++;
+        _simpleRetryPending = false;
         _runOriginFile = _file;
         _client->sendStreamingRequest(simplePrompt,
                                        historyForApi, fullMessage);
@@ -1739,6 +1958,7 @@ void MidiPilotWidget::onResponseReceived(const QString &content, const QJsonObje
     // Phase 9.9c: respect the Show-mode viewer lock when re-enabling.
     _inputField->setEnabled(!_showModeLocked);
     _sendButton->setEnabled(!_showModeLocked);
+    setConnectionControlsEnabled(true);
     // Restore the send/stop button swap from the simple-mode send path
     // (BUG-MIDIPILOT-001). No-op for agent mode (already handled there).
     _sendButton->setVisible(true);
@@ -2070,6 +2290,7 @@ void MidiPilotWidget::onErrorOccurred(const QString &errorMessage) {
     // Phase 9.9c: respect the Show-mode viewer lock when re-enabling.
     _inputField->setEnabled(!_showModeLocked);
     _sendButton->setEnabled(!_showModeLocked);
+    setConnectionControlsEnabled(true);
     // Restore send/stop swap (BUG-MIDIPILOT-001).
     _sendButton->setVisible(true);
     _stopButton->setVisible(false);
@@ -2191,8 +2412,95 @@ bool MidiPilotWidget::isAgentRunning() const {
 }
 
 bool MidiPilotWidget::isAgentRunningOn(MidiFile *f) const {
-    // True if an in-flight request (agent or simple) was started against f.
+    // True if an in-flight request (agent or simple) was started against f -
+    // or, v2.4.0, re-bound onto f by an intercepted switch_document
+    // (rebindAgentRun moves _runOriginFile with the run's current target).
     return f && _runOriginFile == f;
+}
+
+MidiFile *MidiPilotWidget::documentFileByListIndex(int index) const {
+    return _mainWindow ? _mainWindow->documentFileByListIndex(index) : nullptr;
+}
+
+QString MidiPilotWidget::documentTitleForFile(MidiFile *f) const {
+    if (!_mainWindow || !f)
+        return QString();
+    // The list JSON carries titles but no pointers; resolve each listed index
+    // back to its file via the SAME flattening and match on identity. Open
+    // documents number in the tens at most, so the quadratic scan is fine.
+    const QJsonArray docs = _mainWindow->listOpenDocumentsJson();
+    for (const QJsonValue &v : docs) {
+        const QJsonObject o = v.toObject();
+        const int idx = o.value(QStringLiteral("index")).toInt(-1);
+        if (idx >= 0 && _mainWindow->documentFileByListIndex(idx) == f)
+            return o.value(QStringLiteral("title")).toString();
+    }
+    return QString();
+}
+
+void MidiPilotWidget::rebindAgentRun(MidiFile *target, const QString &title) {
+    // Only a live agent run has a bind to move. AgentRunner's intercept is
+    // the sole caller and runs strictly inside processToolCalls, but guard
+    // anyway - a stray call outside a run must not plant a stale
+    // _runOriginFile that would misdirect closeDocumentFile's abort check.
+    if (!_isAgentRunning || !target)
+        return;
+
+    // The closed-mid-run guard now watches the NEW target: closing ITS tab
+    // aborts the run (MainWindow::closeDocumentFile -> isAgentRunningOn),
+    // while closing the ORIGINAL document no longer does - the run continues
+    // on its current target and this panel-wide chat stays where it is.
+    _runOriginFile = target;
+
+    // Per-step undo bookkeeping: every step completed from now on records
+    // this title (see onAgentStepCompleted) so the user can tell which tab's
+    // Protocol holds a step's undo entry.
+    _runCurrentDocTitle = title;
+    if (!_runDocs.contains(target))
+        _runDocs.append(target);
+
+    // The unmissable, chat-visible announcement (same addChatBubble("system")
+    // channel as TOOLFAIL-SILENT-001). Title CONCATENATED, never
+    // .arg()-substituted - it comes from a file name and could contain '%N'.
+    addChatBubble(QStringLiteral("system"),
+                  QStringLiteral("\u21C4 Switched to '") + title
+                      + QStringLiteral("' \u2014 the agent now reads and edits that "
+                                       "tab. The view stays here; from now on its "
+                                       "edits (and their undo steps) are in '")
+                      + title + QStringLiteral("'."));
+}
+
+QStringList MidiPilotWidget::runDocumentLabels() const {
+    QStringList titles;
+    for (MidiFile *f : _runDocs)
+        titles << documentTitleForFile(f);
+    QStringList out;
+    for (int i = 0; i < _runDocs.size(); ++i) {
+        QString label = titles.at(i);
+        if (label.isEmpty()) {
+            // Not listed any more (closed between switch and summary; the
+            // pointer was dropped by forgetDocument, never dereference it).
+            out << QStringLiteral("(closed document)");
+            continue;
+        }
+        // The same title twice: add the folder so the two can be told apart.
+        if (titles.count(label) > 1) {
+            const QString path = _runDocs.at(i)->path();
+            const QString dir = path.isEmpty() ? QString() : QFileInfo(path).dir().dirName();
+            if (!dir.isEmpty())
+                label += QStringLiteral(" (") + dir + QLatin1Char(')');
+        }
+        out << label;
+    }
+    return out;
+}
+
+void MidiPilotWidget::forgetDocument(MidiFile *f) {
+    if (!f)
+        return;
+    _runDocs.removeAll(f);
+    if (_runStartFile == f)
+        _runStartFile = nullptr;
 }
 
 QJsonObject MidiPilotWidget::executeAction(const QJsonObject &actionObj) {
@@ -2647,6 +2955,7 @@ void MidiPilotWidget::onAgentStepStarted(int step, const QString &toolName) {
     if (_agentStepsWidget) {
         AgentStepsWidget *sw = static_cast<AgentStepsWidget *>(_agentStepsWidget);
         sw->addStep(step, toolName);  // No-op if already planned
+        sw->relabelStep(step, toolName);  // the started label carries the current document
         sw->markActive(step);
     }
 }
@@ -2712,6 +3021,22 @@ void MidiPilotWidget::onAgentStepCompleted(int step, const QString &toolName, co
     stepEntry[QStringLiteral("tool")] = toolName;
     stepEntry[QStringLiteral("success")] = success;
     if (recoverable) stepEntry[QStringLiteral("recoverable")] = true;
+    // v2.4.0 cross-tab: the DOCUMENT dimension of the undo bookkeeping. Each
+    // tool call opens its Protocol action on the run's current bind (Protocol
+    // is per-MidiFile, so undo automatically acts on the document the step
+    // edited - via that document's tab). Record the document only while the
+    // run is bound AWAY from the document it started on, so the persisted
+    // step list says which steps' undo entries live in another tab; unmarked
+    // steps are the run's own (origin) document as before.
+    // Decided on document identity, not on the title: two tabs may share one
+    // title and the mark must still say "another tab" (review R231-18).
+    if (_isAgentRunning && _runOriginFile && _runOriginFile != _runStartFile) {
+        const QString title = _runCurrentDocTitle.isEmpty()
+            ? documentTitleForFile(_runOriginFile) : _runCurrentDocTitle;
+        stepEntry[QStringLiteral("document")] = title;
+        if (!_runOriginFile->path().isEmpty())
+            stepEntry[QStringLiteral("documentPath")] = _runOriginFile->path();
+    }
     _turnSteps.append(stepEntry);
 
     // Check off the step in the checklist
@@ -2752,6 +3077,7 @@ void MidiPilotWidget::onAgentFinished(const QString &finalMessage) {
     if (_agentStepsWidget) {
         swToMove = static_cast<AgentStepsWidget *>(_agentStepsWidget);
         swToMove->setFinished(true);
+        swToMove->setHistoryMode();
         _agentDockArea->layout()->removeWidget(swToMove);
         swToMove->setParent(_chatContainer);
         _agentDockArea->setVisible(false);
@@ -2766,14 +3092,35 @@ void MidiPilotWidget::onAgentFinished(const QString &finalMessage) {
     // Phase 9.9c: respect the Show-mode viewer lock when re-enabling.
     _inputField->setEnabled(!_showModeLocked);
     _sendButton->setEnabled(!_showModeLocked);
+    setConnectionControlsEnabled(true);
 
     addChatBubble("assistant", finalMessage);
 
-    // Now drop the steps widget in below the freshly added assistant bubble,
-    // still before the trailing stretch so it sticks to the bottom of history.
+    // v2.4.0 cross-tab: when the run switched its bind, say WHERE the work
+    // went - undo lives in each edited document's own Protocol, and only the
+    // active tab reacts to Ctrl+Z, so the user needs the list. One line,
+    // only when more than one document was actually bound. Titles
+    // concatenated (file-name input, could contain '%N').
+    if (_runDocs.size() > 1) {
+        addChatBubble(QStringLiteral("system"),
+                      QStringLiteral("\u21C4 This run worked on %1 documents: ")
+                              .arg(_runDocs.size())
+                          + runDocumentLabels().join(QStringLiteral(", "))
+                          + QStringLiteral(". Undo steps live in the document "
+                                           "each edit was applied to - switch "
+                                           "to that tab to undo its steps."));
+    }
+    _runDocs.clear();
+    _runStartFile = nullptr;
+    _runOriginDocTitle.clear();
+    _runCurrentDocTitle.clear();
+
+    // Now drop the steps widget in below the freshly added assistant bubble.
+    // Append - the stretch sits at index 0 (setupUi), so count()-1 is the LAST
+    // bubble and inserting there landed the card between the reply's timestamp
+    // row and the reply itself.
     if (swToMove) {
-        int insertAt = _chatLayout->count() > 0 ? _chatLayout->count() - 1 : 0;
-        _chatLayout->insertWidget(insertAt, swToMove);
+        _chatLayout->addWidget(swToMove);
     }
 
     // Store in conversation history
@@ -2856,6 +3203,7 @@ void MidiPilotWidget::onAgentError(const QString &error) {
     if (_agentStepsWidget) {
         swToMove = static_cast<AgentStepsWidget *>(_agentStepsWidget);
         swToMove->setFinished(false);
+        swToMove->setHistoryMode();
         _agentDockArea->layout()->removeWidget(swToMove);
         swToMove->setParent(_chatContainer);
         _agentDockArea->setVisible(false);
@@ -2870,17 +3218,35 @@ void MidiPilotWidget::onAgentError(const QString &error) {
     // Phase 9.9c: respect the Show-mode viewer lock when re-enabling.
     _inputField->setEnabled(!_showModeLocked);
     _sendButton->setEnabled(!_showModeLocked);
+    setConnectionControlsEnabled(true);
 
     addChatBubble("system", "Agent error: " + error);
+    // v2.4.0 cross-tab: even an aborted multi-document run has already put
+    // undo steps into other tabs' Protocols - same disclosure as the success
+    // path so the user can find (and undo) what landed before the error.
+    if (_runDocs.size() > 1) {
+        addChatBubble(QStringLiteral("system"),
+                      QStringLiteral("\u21C4 This run worked on %1 documents: ")
+                              .arg(_runDocs.size())
+                          + runDocumentLabels().join(QStringLiteral(", "))
+                          + QStringLiteral(". Undo steps live in the document "
+                                           "each edit was applied to - switch "
+                                           "to that tab to undo its steps."));
+    }
+    _runDocs.clear();
+    _runStartFile = nullptr;
+    _runOriginDocTitle.clear();
+    _runCurrentDocTitle.clear();
     // ANALYZE-LATCH-001: same terminal-outcome contract as onErrorOccurred.
     emit assistantReplied(tr("MidiPilot request failed: %1").arg(error));
 
     finalizeTurn(error, QStringLiteral("error"));
     scheduleSave();
 
+    // Append (see onAgentFinished): the stretch is at index 0, so the card has
+    // to go last to end up BELOW the error bubble.
     if (swToMove) {
-        int insertAt = _chatLayout->count() > 0 ? _chatLayout->count() - 1 : 0;
-        _chatLayout->insertWidget(insertAt, swToMove);
+        _chatLayout->addWidget(swToMove);
     }
 }
 
@@ -2897,6 +3263,12 @@ void MidiPilotWidget::onAgentStepLimitReached(int currentStep, int maxSteps) {
     msgBox.addButton("Stop", QMessageBox::RejectRole);
     msgBox.setDefaultButton(continueBtn);
     msgBox.exec();
+
+    // The modal spun the event loop: the run may have been cancelled (panel Stop,
+    // tab close) while it was open and already delivered its terminal handler.
+    // Driving a dead runner would let stopAtLimit() emit finished() a second time.
+    if (!_isAgentRunning || !_agentRunner || !_agentRunner->isRunning())
+        return;
 
     if (msgBox.clickedButton() == continueBtn) {
         addChatBubble("system", QString("Step limit reached (%1 steps). Continuing...").arg(currentStep));
@@ -3132,10 +3504,12 @@ QJsonObject MidiPilotWidget::applyAiEdits(const QJsonObject &response, bool show
     }
 
     // Start protocol action for undo support (each tool call gets its own undo step)
+    // Multi-arg arg(): chaining rescans substituted text, so a '%N' inside a
+    // track name (file- or model-supplied) would swallow the next placeholder.
     QString protoMsg = QStringLiteral("%1: Agent insert events - %2 (%3)")
-                           .arg(protoPrefix(response))
-                           .arg(track->name())
-                           .arg(events.size());
+                           .arg(protoPrefix(response),
+                                track->name(),
+                                QString::number(events.size()));
     activeEditFile()->protocol()->startNewAction(protoMsg);
 
     // In simple mode, remove currently selected events (they will be replaced by AI output).
@@ -3228,7 +3602,7 @@ QJsonObject MidiPilotWidget::applyAiDeletes(const QJsonObject &response, bool sh
     }
 
     activeEditFile()->protocol()->startNewAction(
-        QStringLiteral("%1: Agent delete events (%2)").arg(protoPrefix(response)).arg(toDelete.size()));
+        QStringLiteral("%1: Agent delete events (%2)").arg(protoPrefix(response), QString::number(toDelete.size())));
 
     // Remove the specified events
     QList<MidiEvent *> remaining;
@@ -3273,7 +3647,8 @@ QJsonObject MidiPilotWidget::applyTrackAction(const QJsonObject &response, bool 
         int channel = response["channel"].toInt(-1);
 
         activeEditFile()->protocol()->startNewAction(
-            QStringLiteral("%1: Agent create track - %2").arg(protoPrefix(response)).arg(trackName));
+            QStringLiteral("%1: Agent create track - %2")
+                .arg(protoPrefix(response), trackName));
         activeEditFile()->addTrack();
         MidiTrack *newTrack = activeEditFile()->tracks()->at(activeEditFile()->numTracks() - 1);
         newTrack->setName(trackName);
@@ -3298,7 +3673,8 @@ QJsonObject MidiPilotWidget::applyTrackAction(const QJsonObject &response, bool 
         }
 
         activeEditFile()->protocol()->startNewAction(
-            QStringLiteral("%1: Agent rename track %2 - %3").arg(protoPrefix(response)).arg(trackIndex).arg(newName));
+            QStringLiteral("%1: Agent rename track %2 - %3")
+                .arg(protoPrefix(response), QString::number(trackIndex), newName));
         activeEditFile()->track(trackIndex)->setName(newName);
         activeEditFile()->protocol()->endAction();
 
@@ -3322,7 +3698,7 @@ QJsonObject MidiPilotWidget::applyTrackAction(const QJsonObject &response, bool 
         }
 
         activeEditFile()->protocol()->startNewAction(
-            QStringLiteral("%1: Agent set channel - Track %2 - Ch %3").arg(protoPrefix(response)).arg(trackIndex).arg(channel));
+            QStringLiteral("%1: Agent set channel - Track %2 - Ch %3").arg(protoPrefix(response), QString::number(trackIndex), QString::number(channel)));
         // Snapshot the track so the change is undoable - assignChannel() itself
         // records no ProtocolItem, which would leave this action empty (and
         // therefore discarded). MidiTrack::reloadState restores _assignedChannel.
@@ -3352,7 +3728,7 @@ QJsonObject MidiPilotWidget::applyTrackAction(const QJsonObject &response, bool 
         MidiTrack *track = activeEditFile()->track(trackIndex);
         QString removedName = track->name();
         activeEditFile()->protocol()->startNewAction(
-            QStringLiteral("%1: Agent remove track %2").arg(protoPrefix(response)).arg(trackIndex));
+            QStringLiteral("%1: Agent remove track %2").arg(protoPrefix(response), QString::number(trackIndex)));
         // Clear the selection first: any selected events on this track would be
         // dangling pointers once the track (and its events) are gone.
         activeEditSelection()->clearSelection();
@@ -3437,10 +3813,30 @@ QJsonObject MidiPilotWidget::applyMoveToTrack(const QJsonObject &response, bool 
 
     activeEditFile()->protocol()->startNewAction(
         QStringLiteral("%1: Agent move events - %2 (%3)")
-            .arg(protoPrefix(response)).arg(targetTrack->name()).arg(toMove.size()));
+            .arg(protoPrefix(response), targetTrack->name(),
+                 QString::number(toMove.size())));
 
+    // A note is a NoteOn/OffEvent PAIR and both halves must land on the same
+    // track: the selection carries NoteOns only and the tick-range scan can
+    // catch one half of a note that straddles the range. MidiEvent::setTrack
+    // re-parents a single event, so move the partner explicitly (as every
+    // MainWindow move-to-track path does); otherwise the split note is written
+    // into two chunks and dropped on reload, or hangs when one track is muted.
+    QSet<MidiEvent *> moved;
     for (MidiEvent *ev : toMove) {
+        if (moved.contains(ev)) continue;
+        moved.insert(ev);
         ev->setTrack(targetTrack, true); // toProtocol=true so the move is undoable
+        MidiEvent *partner = nullptr;
+        if (OnEvent *on = dynamic_cast<OnEvent *>(ev)) {
+            partner = on->offEvent();
+        } else if (OffEvent *off = dynamic_cast<OffEvent *>(ev)) {
+            partner = off->onEvent();
+        }
+        if (partner && !moved.contains(partner)) {
+            moved.insert(partner);
+            partner->setTrack(targetTrack, true);
+        }
     }
 
     activeEditFile()->protocol()->endAction();
@@ -3474,7 +3870,7 @@ QJsonObject MidiPilotWidget::applyTempoAction(const QJsonObject &response, bool 
     if (tick < 0) tick = 0;
 
     activeEditFile()->protocol()->startNewAction(
-        QStringLiteral("%1: Agent set tempo - %2 BPM").arg(protoPrefix(response)).arg(bpm));
+        QStringLiteral("%1: Agent set tempo - %2 BPM").arg(protoPrefix(response), QString::number(bpm)));
 
     // Check if there's already a tempo event at this tick
     QMultiMap<int, MidiEvent *> *tempoMap = activeEditFile()->tempoEvents();
@@ -3546,7 +3942,7 @@ QJsonObject MidiPilotWidget::applyTimeSignatureAction(const QJsonObject &respons
     if (tick < 0) tick = 0;
 
     activeEditFile()->protocol()->startNewAction(
-        QStringLiteral("%1: Agent set time sig - %2/%3").arg(protoPrefix(response)).arg(num).arg(denomActual));
+        QStringLiteral("%1: Agent set time sig - %2/%3").arg(protoPrefix(response), QString::number(num), QString::number(denomActual)));
 
     // Check if there's already a time signature event at this tick
     QMultiMap<int, MidiEvent *> *tsMap = activeEditFile()->timeSignatureEvents();
@@ -3619,7 +4015,8 @@ QJsonObject MidiPilotWidget::applySelectAndEdit(const QJsonObject &response, boo
 
     activeEditFile()->protocol()->startNewAction(
         QStringLiteral("%1: Agent edit events - %2 (%3)")
-            .arg(protoPrefix(response)).arg(targetTrack->name()).arg(events.size()));
+            .arg(protoPrefix(response), targetTrack->name(),
+                 QString::number(events.size())));
 
     // Find and remove existing events in the tick range on this track
     QList<MidiEvent *> *allEvents = activeEditFile()->eventsBetween(startTick, endTick);
@@ -3695,7 +4092,7 @@ QJsonObject MidiPilotWidget::applySelectAndDelete(const QJsonObject &response, b
 
     activeEditFile()->protocol()->startNewAction(
         QStringLiteral("%1: Agent delete events - %2")
-            .arg(protoPrefix(response)).arg(targetTrack->name()));
+            .arg(protoPrefix(response), targetTrack->name()));
 
     // Find and remove events in the tick range on this track
     QList<MidiEvent *> *allEvents = activeEditFile()->eventsBetween(startTick, endTick);
@@ -3753,7 +4150,9 @@ QJsonArray MidiPilotWidget::truncateHistory(const QJsonArray &history, int conte
     int estimatedTokens = totalChars / 4;
     // Subtract system prompt tokens from budget, then reserve 25% for new request + response
     int sysPromptTokens = systemPromptChars / 4;
-    int availableTokens = contextWindow - sysPromptTokens;
+    // Clamp: a system prompt larger than the window must not yield a negative
+    // budget (the arithmetic below multiplies it back into a char count).
+    int availableTokens = qMax(0, contextWindow - sysPromptTokens);
     int maxHistoryTokens = static_cast<int>(availableTokens * 0.75);
 
     if (estimatedTokens <= maxHistoryTokens)
@@ -3770,12 +4169,16 @@ QJsonArray MidiPilotWidget::truncateHistory(const QJsonArray &history, int conte
     }
 
     // Fill from the back with remaining budget
-    int budgetChars = maxHistoryTokens * 4 - frontChars;
+    int budgetChars = qMax(0, maxHistoryTokens * 4 - frontChars);
     QList<int> backIndices;
     int backChars = 0;
     for (int i = history.size() - 1; i >= keepFront; i--) {
         int msgChars = history[i].toObject()[QStringLiteral("content")].toString().length();
-        if (backChars + msgChars > budgetChars)
+        // The newest message is the CURRENT turn's instruction (agent mode builds
+        // the request from this history alone), so it is kept even when it does
+        // not fit - dropping it would make the agent re-execute the previous turn,
+        // and with nothing kept from the back the truncation marker was skipped too.
+        if (backChars + msgChars > budgetChars && !backIndices.isEmpty())
             break;
         backChars += msgChars;
         backIndices.prepend(i);
@@ -4002,8 +4405,12 @@ void MidiPilotWidget::showHistoryMenu()
 
         // Store rows so the search filter can show/hide them. Each row also
         // tracks its parent header so empty headers can be hidden.
-        struct Row { QWidget *widget; QLabel *headerLabel; QString hay; };
-        QList<Row> rows;
+        // The trash button deleteLater()s its row while the filter lambda keeps
+        // running for the popup's lifetime: the row pointer is a QPointer (nulls
+        // on destruction, skipped below) and the list is shared so the trash
+        // handler can re-run the header pass for its bucket.
+        struct Row { QPointer<QWidget> widget; QLabel *headerLabel; QString hay; };
+        auto rows = QSharedPointer<QList<Row>>::create();
         QList<QLabel *> allHeaders;
 
         for (const Bucket &b : buckets) {
@@ -4087,15 +4494,26 @@ void MidiPilotWidget::showHistoryMenu()
                     dlg->close();
                 });
                 QObject::connect(deleteBtn, &QPushButton::clicked, dlg,
-                                 [convId, row]() {
+                                 [convId, row, hdr, rows]() {
                     ConversationStore::deleteConversation(convId);
                     row->hide();
                     row->deleteLater();
+                    // Hide the bucket header when its last (still shown) row is gone;
+                    // the search filter only re-evaluates headers on a keystroke.
+                    bool anyVisible = false;
+                    for (const auto &r : *rows) {
+                        if (r.headerLabel == hdr && r.widget && r.widget != row
+                                && !r.widget->isHidden()) {
+                            anyVisible = true;
+                            break;
+                        }
+                    }
+                    hdr->setVisible(anyVisible);
                 });
 
                 listLayout->addWidget(row);
-                rows.append({ row, hdr,
-                              (convTitle + QStringLiteral(" ") + meta).toLower() });
+                rows->append({ row, hdr,
+                               (convTitle + QStringLiteral(" ") + meta).toLower() });
             }
         }
 
@@ -4108,7 +4526,8 @@ void MidiPilotWidget::showHistoryMenu()
             QString needle = q.trimmed().toLower();
             QHash<QLabel *, int> visibleCount;
             for (QLabel *h : allHeaders) visibleCount[h] = 0;
-            for (const auto &r : rows) {
+            for (const auto &r : *rows) {
+                if (!r.widget) continue; // row deleted via the trash button
                 bool match = needle.isEmpty() || r.hay.contains(needle);
                 r.widget->setVisible(match);
                 if (match) visibleCount[r.headerLabel]++;
@@ -4178,7 +4597,9 @@ void MidiPilotWidget::loadConversation(const QString &id)
     // still hold _thoughtLabel / _streamBubble / _agentStepsWidget pointers
     // (same hazard as onNewChat / BUG-MIDIPILOT-001). Abort first, then let the
     // user re-open the conversation once it has settled.
-    if (_isAgentRunning || (_client && _client->isBusy())) {
+    // Same for a pending simple-mode retry (client not busy during the backoff):
+    // without this the timer would append its turn to the conversation just loaded.
+    if (_isAgentRunning || _simpleRetryPending || (_client && _client->isBusy())) {
         abortActiveRequest();
         setStatus(tr("Stopped the running request — open the conversation again to load it"),
                   "orange");
@@ -4277,8 +4698,15 @@ void MidiPilotWidget::loadConversation(const QString &id)
                     for (const QJsonValue &sv : std::as_const(steps)) {
                         QJsonObject s = sv.toObject();
                         bool ok = s.value(QStringLiteral("success")).toBool(true);
-                        parts << QString::fromUtf8(ok ? "\xe2\x9c\x93 " : "\xe2\x9c\x97 ")
+                        QString part = QString::fromUtf8(ok ? "\xe2\x9c\x93 " : "\xe2\x9c\x97 ")
                                 + s.value(QStringLiteral("tool")).toString();
+                        // v2.4.0 cross-tab: a step that landed in ANOTHER
+                        // document than the run's own carries its tab title -
+                        // keep saying so after a reload (undo lives there).
+                        const QString doc = s.value(QStringLiteral("document")).toString();
+                        if (!doc.isEmpty())
+                            part += QStringLiteral(" [in ") + doc + QLatin1Char(']');
+                        parts << part;
                     }
                     bool dark = Appearance::shouldUseDarkMode();
                     QLabel *stepsLbl = new QLabel(_chatContainer);
@@ -4319,12 +4747,21 @@ void MidiPilotWidget::loadPresetForFile(const QString &midiPath) {
 
     QJsonObject obj = doc.object();
 
+    // Every tab switch lands here (MainWindow::setActiveDocument -> onFileChanged).
+    // While a request is in flight the panel's live controls must not be
+    // re-configured from the preset: the mode change would cancel the run via
+    // onModeChanged -> onNewChat, and provider/model/effort/FFXIV would re-point
+    // the shared client mid-run. The per-file instructions are still loaded -
+    // they are only read when the next request is built.
+    const bool requestInFlight =
+        _isAgentRunning || _simpleRetryPending || (_client && _client->isBusy());
+
     // Phase 50: a preset may NAME a provider profile (never a URL or key -
     // presets travel with the MIDI file). When that profile exists on this
     // machine it wins, because it also carries base URL and key; when it does
     // not, we fall back to the preset's own provider/model without erroring.
     bool profileApplied = false;
-    const QString profileName =
+    const QString profileName = requestInFlight ? QString() :
         obj.value(QStringLiteral("provider_profile")).toString().trimmed();
     if (!profileName.isEmpty()) {
         QString error;
@@ -4347,31 +4784,37 @@ void MidiPilotWidget::loadPresetForFile(const QString &midiPath) {
     // entry (that travels as "provider_profile" above). "custom" resolves only
     // while the ad-hoc Custom entry is listed - i.e. while a custom endpoint is
     // actually configured; without one there is no URL to switch to anyway.
-    if (!profileApplied && obj.contains(QStringLiteral("provider"))) {
+    if (!requestInFlight && !profileApplied && obj.contains(QStringLiteral("provider"))) {
         int idx = indexOfFixedProvider(obj[QStringLiteral("provider")].toString());
         if (idx >= 0)
             _providerCombo->setCurrentIndex(idx);
     }
 
     // Apply model
-    if (!profileApplied && obj.contains(QStringLiteral("model"))) {
+    if (!requestInFlight && !profileApplied && obj.contains(QStringLiteral("model"))) {
         QString model = obj[QStringLiteral("model")].toString();
         selectFooterModel(model);
     }
 
     // Apply mode
-    if (obj.contains(QStringLiteral("mode"))) {
+    if (!requestInFlight && obj.contains(QStringLiteral("mode"))) {
         int idx = _modeCombo->findData(obj[QStringLiteral("mode")].toString());
-        if (idx >= 0)
+        if (idx >= 0 && idx != _modeCombo->currentIndex()) {
+            // Set the combo silently and persist the mode here: onModeChanged's
+            // "start a new chat" side effect must not run inside a tab switch
+            // (it opens a modal QMessageBox re-entrantly from setActiveDocument).
+            const QSignalBlocker blocker(_modeCombo);
             _modeCombo->setCurrentIndex(idx);
+            AppPaths::settings()->setValue("AI/mode", currentMode());
+        }
     }
 
     // Apply FFXIV
-    if (obj.contains(QStringLiteral("ffxiv")))
+    if (!requestInFlight && obj.contains(QStringLiteral("ffxiv")))
         _ffxivCheck->setChecked(obj[QStringLiteral("ffxiv")].toBool());
 
     // Apply effort
-    if (obj.contains(QStringLiteral("effort"))) {
+    if (!requestInFlight && obj.contains(QStringLiteral("effort"))) {
         int idx = _effortCombo->findData(obj[QStringLiteral("effort")].toString());
         if (idx >= 0)
             _effortCombo->setCurrentIndex(idx);

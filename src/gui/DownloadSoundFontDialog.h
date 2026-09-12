@@ -88,6 +88,10 @@ private:
     QProgressDialog *_progressDialog;
     QFile *_downloadFile;
     QString _currentDownloadName;
+    // A failed write aborts the reply, which arrives as OperationCanceledError and
+    // would otherwise be indistinguishable from a user cancel - remember the cause.
+    bool _downloadWriteFailed;
+    QString _downloadWriteError;
 };
 
 #endif // FLUIDSYNTH_SUPPORT

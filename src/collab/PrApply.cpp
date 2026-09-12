@@ -27,8 +27,36 @@
 #include "../midi/MidiTrack.h"
 #include "../protocol/Protocol.h"
 #include "CollabService.h"
+#include "MidiDiff.h"
 
 Q_DECLARE_LOGGING_CATEGORY(lanLog)
+
+namespace {
+
+// True when ev serializes to exactly the payload je describes. Used to
+// tell apart events that share one identity tuple (see findMatchingEvent).
+// Display-only labels the serializer adds for the AI (programName from the
+// user's instrument definitions, controlName, noteName). They differ between
+// peers with different definition files, so they must not take part in the
+// identity comparison - otherwise nothing ever matched byte-for-byte and the
+// lookup silently fell back to first-match (review R231-07).
+QJsonObject withoutDisplayLabels(QJsonObject o) {
+    o.remove(QStringLiteral("programName"));
+    o.remove(QStringLiteral("controlName"));
+    o.remove(QStringLiteral("noteName"));
+    return o;
+}
+
+bool payloadMatches(MidiFile *file, MidiEvent *ev, const QJsonObject &je) {
+    QList<MidiEvent *> one;
+    one.append(ev);
+    QJsonArray serialized = MidiEventSerializer::serialize(one, file);
+    if (serialized.isEmpty()) return false;
+    return MidiDiff::eventsEqual(withoutDisplayLabels(serialized.first().toObject()),
+                                 withoutDisplayLabels(je));
+}
+
+}
 
 MidiEvent *PrApply::findMatchingEvent(MidiFile *file, const QJsonObject &je) {
     if (!file) return nullptr;
@@ -46,6 +74,13 @@ MidiEvent *PrApply::findMatchingEvent(MidiFile *file, const QJsonObject &je) {
     QMultiMap<int, MidiEvent *> *map = ch->eventMap();
     if (!map) return nullptr;
 
+    // Several events of the same type can legitimately share one identity
+    // tuple (GP imports stack program changes at tick 0, layered pitch
+    // bends, ...). Prefer the candidate whose payload matches the hunk
+    // exactly; fall back to the first tuple match only when nothing
+    // matches byte-for-byte (peer on an older build serializing slightly
+    // different fields) - that fallback is the previous behaviour.
+    MidiEvent *fallback = nullptr;
     auto it = map->find(tick);
     while (it != map->end() && it.key() == tick) {
         MidiEvent *ev = it.value();
@@ -53,43 +88,47 @@ MidiEvent *PrApply::findMatchingEvent(MidiFile *file, const QJsonObject &je) {
         if (!ev) continue;
         if (track >= 0 && ev->track() && ev->track()->number() != track) continue;
 
+        MidiEvent *candidate = nullptr;
         if (type == QLatin1String("note")) {
             NoteOnEvent *n = dynamic_cast<NoteOnEvent *>(ev);
             int targetNote = je.value(QStringLiteral("note")).toInt(-1);
-            if (n && n->note() == targetNote) return n;
+            if (n && n->note() == targetNote) candidate = n;
         } else if (type == QLatin1String("cc")) {
             ControlChangeEvent *c = dynamic_cast<ControlChangeEvent *>(ev);
             int targetCtrl = je.value(QStringLiteral("control")).toInt(-1);
-            if (c && c->control() == targetCtrl) return c;
+            if (c && c->control() == targetCtrl) candidate = c;
         } else if (type == QLatin1String("pitch_bend")) {
             PitchBendEvent *p = dynamic_cast<PitchBendEvent *>(ev);
-            if (p) return p;
+            if (p) candidate = p;
         } else if (type == QLatin1String("program_change")) {
             ProgChangeEvent *p = dynamic_cast<ProgChangeEvent *>(ev);
-            if (p) return p;
+            if (p) candidate = p;
         } else if (type == QLatin1String("tempo")) {
             TempoChangeEvent *t = dynamic_cast<TempoChangeEvent *>(ev);
-            if (t) return t;
+            if (t) candidate = t;
         } else if (type == QLatin1String("time_sig")) {
             TimeSignatureEvent *t = dynamic_cast<TimeSignatureEvent *>(ev);
-            if (t) return t;
+            if (t) candidate = t;
         } else if (type == QLatin1String("key_sig")) {
             KeySignatureEvent *k = dynamic_cast<KeySignatureEvent *>(ev);
-            if (k) return k;
+            if (k) candidate = k;
         } else if (type == QLatin1String("text")) {
             TextEvent *t = dynamic_cast<TextEvent *>(ev);
             int targetType = je.value(QStringLiteral("textType")).toInt(-1);
-            if (t && (targetType < 0 || t->type() == targetType)) return t;
+            if (t && (targetType < 0 || t->type() == targetType)) candidate = t;
         } else if (type == QLatin1String("chan_pressure")) {
             ChannelPressureEvent *c = dynamic_cast<ChannelPressureEvent *>(ev);
-            if (c) return c;
+            if (c) candidate = c;
         } else if (type == QLatin1String("key_pressure")) {
             KeyPressureEvent *k = dynamic_cast<KeyPressureEvent *>(ev);
             int targetNote = je.value(QStringLiteral("note")).toInt(-1);
-            if (k && k->note() == targetNote) return k;
+            if (k && k->note() == targetNote) candidate = k;
         }
+        if (!candidate) continue;
+        if (payloadMatches(file, candidate, je)) return candidate;
+        if (!fallback) fallback = candidate;
     }
-    return nullptr;
+    return fallback;
 }
 
 namespace {
@@ -225,7 +264,7 @@ PrApply::Result PrApply::apply(MidiFile *file,
             }
         }
 
-        // 2. Modifications — remove-old + insert-new (preserves NoteOn/Off
+        // 2. Modifications — insert-new + remove-old (preserves NoteOn/Off
         //    pairing semantics via the standard create/remove paths).
         QJsonArray modified = hunk.value(QStringLiteral("modified")).toArray();
         for (const QJsonValue &v : modified) {
@@ -240,11 +279,16 @@ PrApply::Result PrApply::apply(MidiFile *file,
                                   << "channel=" << before.value(QStringLiteral("channel")).toInt()
                                   << "tick=" << before.value(QStringLiteral("tick")).toInt();
             }
-            if (old) {
-                MidiChannel *ch = file->channel(old->channel());
-                if (ch) ch->removeEvent(old);
-            }
+            // Insert the replacement BEFORE dropping the original: insertEvent
+            // can legitimately refuse the after payload (unknown type from a
+            // newer peer, out-of-range channel/track in an imported bundle),
+            // and removing first destroyed the local event with nothing to put
+            // in its place - silently, in live mode.
             if (insertEvent(file, after, author, &r.warnings)) {
+                if (old) {
+                    MidiChannel *ch = file->channel(old->channel());
+                    if (ch) ch->removeEvent(old);
+                }
                 r.modifiedCount++;
             } else {
                 qCWarning(lanLog) << "PrApply: modify insertEvent FAILED for type=" << modType;
@@ -368,9 +412,12 @@ PrApply::Result PrApply::applyInverted(MidiFile *file,
                         .arg(after.value(QStringLiteral("tick")).toInt()));
                 continue;
             }
-            MidiChannel *ch = file->channel(cur->channel());
-            if (ch) ch->removeEvent(cur);
+            // Same ordering as apply(): drop the current event only once the
+            // before payload has actually been re-created, so a rejected
+            // payload cannot delete an event without replacing it.
             if (insertEvent(file, before, QString(), &r.warnings)) {
+                MidiChannel *ch = file->channel(cur->channel());
+                if (ch) ch->removeEvent(cur);
                 r.modifiedCount++;
             } else {
                 r.skippedCount++;

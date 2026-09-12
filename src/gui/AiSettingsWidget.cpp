@@ -325,6 +325,10 @@ AiSettingsWidget::AiSettingsWidget(QSettings *settings, QWidget *parent)
     _effortCombo->addItem("Medium (balanced)", "medium");
     _effortCombo->addItem("High (thorough, slower)", "high");
     _effortCombo->addItem("Extra High (most thorough)", "xhigh");
+    // "max" is a gpt-6 (Astra) level; every other model is sent Extra High
+    // instead (AiClient::reasoningEffortForModel), so the choice is safe to
+    // keep when switching models.
+    _effortCombo->addItem("Max (GPT-6 Astra; other models use Extra High)", "max");
     QString currentEffort = _settings->value("AI/reasoning_effort", "medium").toString();
     int effortIdx = _effortCombo->findData(currentEffort);
     if (effortIdx >= 0) _effortCombo->setCurrentIndex(effortIdx);
@@ -659,6 +663,25 @@ void AiSettingsWidget::onTestConnection() {
     _statusLabel->setStyleSheet("color: gray;");
     _statusLabel->setText("Testing connection...");
 
+    // Every AiClient setter below PERSISTS into the shared store, and the
+    // running client re-reads AI/api_key per request - so a mere test used to
+    // put the tested provider/endpoint/key/model in force even when the page
+    // was then closed with Cancel. Only accept() may commit a configuration:
+    // snapshot those four keys and put them back once the request is built.
+    // testConnection() reads everything it needs synchronously and a test
+    // request is never auto-retried, so the restore cannot race the probe.
+    const QStringList testedKeys{QStringLiteral("AI/provider"),
+                                 QStringLiteral("AI/api_base_url"),
+                                 QStringLiteral("AI/api_key"),
+                                 QStringLiteral("AI/model")};
+    QList<QVariant> savedValues;
+    savedValues.reserve(testedKeys.size());
+    for (const QString &k : testedKeys) {
+        // An invalid QVariant records "key was not there" - restoring it as an
+        // empty value would leave a written-but-blank setting behind.
+        savedValues.append(_settings->contains(k) ? _settings->value(k) : QVariant());
+    }
+
     AiClient *client = new AiClient(this);
     client->setProvider(provider);
     client->setApiBaseUrl(_baseUrlEdit->text().trimmed());
@@ -669,6 +692,13 @@ void AiSettingsWidget::onTestConnection() {
     connect(client, &AiClient::connectionTestResult, this, &AiSettingsWidget::onTestResult);
     connect(client, &AiClient::connectionTestResult, client, &QObject::deleteLater);
     client->testConnection();
+
+    for (int i = 0; i < testedKeys.size(); ++i) {
+        if (savedValues.at(i).isValid())
+            _settings->setValue(testedKeys.at(i), savedValues.at(i));
+        else
+            _settings->remove(testedKeys.at(i));
+    }
 }
 
 void AiSettingsWidget::onTestResult(bool success, const QString &message) {
@@ -1051,13 +1081,17 @@ void AiSettingsWidget::onModelsFetched(const QString &scope, const QJsonArray &m
     const QString provider = _providerCombo->currentData().toString();
     // Only refill when the fields still describe the endpoint we fetched for.
     if (modelScopeFor(provider) == scope) {
-        QString currentText = _modelCombo->currentText();
+        // findData() matches item DATA (the model ID), so keep the ID, not the
+        // display label: an Ollama/OpenRouter/streaming-blocked entry whose
+        // label differs from its ID used to miss and land as raw label text in
+        // the editable combo, which accept() then stored as AI/model.
+        const QString keepModel = currentModelId();
         populateModelsForProvider(provider);
-        int idx = _modelCombo->findData(currentText);
+        int idx = _modelCombo->findData(keepModel);
         if (idx >= 0)
             _modelCombo->setCurrentIndex(idx);
-        else
-            _modelCombo->setEditText(currentText);
+        else if (!keepModel.isEmpty())
+            _modelCombo->setEditText(keepModel);
         updateModelsStatusLabel(provider);
     }
 }

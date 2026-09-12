@@ -49,6 +49,15 @@ public:
     ProtocolItem(ProtocolEntry *oldObj, ProtocolEntry *newObj);
 
     /**
+     * \brief Destroys the item and frees the old-state snapshot it still owns.
+     *
+     * An item that was never released (discarded redo step, item entered
+     * outside an open action, protocol teardown) owns its old snapshot.
+     * The live new object is never touched.
+     */
+    ~ProtocolItem();
+
+    /**
      * \brief Releases the item by restoring the old state.
      * \return A new ProtocolItem with reversed state order for redo
      *

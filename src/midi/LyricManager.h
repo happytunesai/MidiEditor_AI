@@ -92,8 +92,13 @@ public:
     /** \brief Returns the lyric metadata (artist, title, album, etc.) */
     const LyricMetadata &metadata() const;
 
-    /** \brief Sets the lyric metadata */
-    void setMetadata(const LyricMetadata &meta);
+    /**
+     * \brief Sets the lyric metadata.
+     *        Persisted as LRC header TextEvents ([ar:], [ti:], [al:], [by:],
+     *        [offset:]) at tick 0 inside a Protocol action, so the values
+     *        survive save/reload and undo.
+     */
+    void setMetadata(const LyricMetadata &meta, bool ownAction = true);
 
     /** \brief Returns true if any metadata fields are filled */
     bool hasMetadata() const;
@@ -150,6 +155,7 @@ public:
     /**
      * \brief Imports lyrics from existing MIDI TextEvents (type 0x05 Lyric and 0x01 Text).
      *        Scans all channels and builds sorted LyricBlock list.
+     *        Tick-0 LRC header events are parsed into the metadata instead.
      *        Does NOT wrap in Protocol (read-only scan).
      */
     void importFromTextEvents();

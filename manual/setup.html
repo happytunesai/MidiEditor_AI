@@ -181,7 +181,9 @@
       or that the change waits for a restart.</li>
   <li><b>Software anti-aliasing and smooth pixmap transforms</b> shape the note grid in both renderers, so they
       stay available with GPU acceleration on. <b>MSAA</b>, <b>VSync</b> and <b>hardware smooth transforms</b>
-      only matter for the OpenGL renderer.</li>
+      only matter for the OpenGL renderer. Anti-aliasing, smooth pixmap transforms and hardware smooth
+      transforms take effect the moment you change them, however the settings dialog is closed afterwards;
+      MSAA and VSync apply on the next start.</li>
   <li><b>Editing is identical in both modes</b> - every tool, shortcut, context menu and tooltip works the same
       way; only the drawing path differs.</li>
 </ul>

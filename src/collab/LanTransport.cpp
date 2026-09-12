@@ -101,11 +101,26 @@ quint16 LanServer::startListening() {
 }
 
 void LanServer::stop() {
-    for (LanPeerSocket *p : _peers) {
+    // disconnectFromHost() emits disconnected() synchronously when the write
+    // buffer is empty, which re-enters onPeerDisconnected() and mutates
+    // _peers while we walk it - peers were skipped and the loop ran past the
+    // shrunk end. Snapshot and clear first (same precaution as
+    // LanLiveSession::onHeartbeatTick); the re-entrant removeAll() then
+    // becomes a harmless no-op.
+    const QList<LanPeerSocket *> peers = _peers;
+    _peers.clear();
+    for (LanPeerSocket *p : peers) {
+        if (!p) continue;
+        // Emit peerDisconnected() here, exactly once per peer, instead of
+        // relying on the socket signal: with a non-empty write buffer
+        // disconnectFromHost() defers disconnected() and deleteLater()
+        // destroys the socket before it fires, so LanLiveSession never
+        // pruned that peer's bookkeeping (same shape as WebRtcLiveServer).
+        disconnect(p, &IPeerLink::disconnected, this, &LanServer::onPeerDisconnected);
+        emit peerDisconnected(p);
         if (p->socket()) p->socket()->disconnectFromHost();
         p->deleteLater();
     }
-    _peers.clear();
     if (_server) {
         _server->close();
         _server->deleteLater();

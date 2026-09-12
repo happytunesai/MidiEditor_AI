@@ -31,6 +31,7 @@
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QMessageBox>
 #include <QPushButton>
 #include <QRadioButton>
 #include <QSettings>
@@ -369,6 +370,17 @@ void ExportDialog::updateEstimatedSize() {
 }
 
 void ExportDialog::onExportClicked() {
+    // A backwards custom range renders nothing at all - the render loop is
+    // already past endTick on its first iteration - yet still reports success,
+    // so reject it here instead of writing a silent file.
+    if (_customRangeRadio->isChecked() &&
+        _fromMeasure->value() > _toMeasure->value()) {
+        QMessageBox::warning(this, tr("Invalid Range"),
+            tr("The first measure of the export range must not be after the "
+               "last measure."));
+        return;
+    }
+
     // Build default path
     auto settings = AppPaths::settings();
     settings->beginGroup("Export");
@@ -534,7 +546,9 @@ double ExportDialog::rangeDurationSec() const {
         int endTick = _file->startTickOfMeasure(toMeasure + 1);
         double startMs = _file->msOfTick(startTick);
         double endMs = _file->msOfTick(endTick);
-        return (endMs - startMs) / 1000.0;
+        // A backwards range is rejected on Export; keep the live estimate at
+        // zero meanwhile rather than showing a negative file size.
+        return qMax(0.0, (endMs - startMs) / 1000.0);
     }
 
     // Full song

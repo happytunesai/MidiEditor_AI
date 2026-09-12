@@ -162,32 +162,40 @@ void PerformanceSettingsWidget::setupUI() {
     _multisamplingCombo->addItem(tr("2x MSAA"), 2);
     _multisamplingCombo->addItem(tr("4x MSAA"), 4);
     _multisamplingCombo->addItem(tr("8x MSAA"), 8);
-    _multisamplingCombo->setToolTip(tr("GPU-based anti-aliasing. Higher values provide smoother edges but reduces performance."));
+    _multisamplingCombo->setToolTip(tr("GPU-based anti-aliasing. Higher values provide smoother edges but reduces performance.\nChanges apply on restart."));
     connect(_multisamplingCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, &PerformanceSettingsWidget::multisamplingChanged);
     accelLayout->addWidget(_multisamplingCombo, 2, 1);
+
+    // MSAA is part of the surface format the OpenGL widgets are created with,
+    // so unlike the other options on this page it cannot change while they
+    // live - say so, like the GPU and VSync switches do.
+    QLabel *msaaDesc = new QLabel(tr("Changes apply on restart."), this);
+    msaaDesc->setWordWrap(true);
+    msaaDesc->setStyleSheet("color: gray; font-size: 11px; margin-left: 10px;");
+    accelLayout->addWidget(msaaDesc, 3, 0, 1, 2);
 
     // Hardware smooth transforms option
     _enableHardwareSmoothTransforms = new QCheckBox(tr("Enable hardware smooth transforms"), this);
     _enableHardwareSmoothTransforms->setToolTip(tr("GPU-based texture filtering for smoother scaling but reduces performance."));
     connect(_enableHardwareSmoothTransforms, &QCheckBox::toggled, this, &PerformanceSettingsWidget::enableHardwareSmoothTransformsChanged);
-    accelLayout->addWidget(_enableHardwareSmoothTransforms, 3, 0, 1, 2);
+    accelLayout->addWidget(_enableHardwareSmoothTransforms, 4, 0, 1, 2);
 
     // VSync option (only affects OpenGL hardware acceleration)
     _enableVSync = new QCheckBox(tr("Enable VSync"), this);
     connect(_enableVSync, &QCheckBox::toggled, this, &PerformanceSettingsWidget::enableVSyncChanged);
-    accelLayout->addWidget(_enableVSync, 4, 0, 1, 2);
+    accelLayout->addWidget(_enableVSync, 5, 0, 1, 2);
 
     // VSync description
     QLabel *vsyncDescription = new QLabel(tr("Synchronizes OpenGL rendering with display refresh rate. Prevents tearing but may reduce responsiveness.\nChanges apply on restart."), this);
     vsyncDescription->setWordWrap(true);
     vsyncDescription->setStyleSheet("color: gray; font-size: 11px; margin-left: 10px;");
-    accelLayout->addWidget(vsyncDescription, 5, 0, 1, 2);
+    accelLayout->addWidget(vsyncDescription, 6, 0, 1, 2);
 
     // States which renderer is actually live (filled by updateBackendInfoLabel()).
     _backendInfoLabel = new QLabel(this);
     _backendInfoLabel->setWordWrap(true);
     _backendInfoLabel->setStyleSheet("color: gray; font-size: 11px; margin-left: 10px;");
-    accelLayout->addWidget(_backendInfoLabel, 6, 0, 1, 2);
+    accelLayout->addWidget(_backendInfoLabel, 7, 0, 1, 2);
 
     mainLayout->addWidget(_hardwareAccelerationGroup);
 
@@ -417,15 +425,14 @@ void PerformanceSettingsWidget::multisamplingChanged(int index) {
     // Skip processing during loading to avoid unnecessary events
     if (_isLoading) return;
 
-    // MSAA setting changed - apply immediately
+    // MSAA is part of the QSurfaceFormat the OpenGL widgets are created with,
+    // so it cannot change while they live: the value is saved at once and
+    // takes effect on the next start (the page says so under the combo). No
+    // renderingModeChanged() here - there is nothing the main window could
+    // apply live (SP-03, external review 2026-09-06).
     int msaaSamples = _multisamplingCombo->currentData().toInt();
-    qDebug() << "PerformanceSettingsWidget: MSAA changed to" << msaaSamples << "samples - applying immediately";
-
-    // Save the setting immediately
+    qDebug() << "PerformanceSettingsWidget: MSAA set to" << msaaSamples << "samples - takes effect on restart";
     _settings->setValue("rendering/msaa_samples", msaaSamples);
-
-    // Notify the main window to update OpenGL widgets
-    emit renderingModeChanged();
 }
 
 void PerformanceSettingsWidget::enableHardwareSmoothTransformsChanged(bool enabled) {

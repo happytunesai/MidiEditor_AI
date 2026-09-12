@@ -213,6 +213,10 @@ QJsonObject MidiEventSerializer::serializeTempoEvent(MidiEvent *event)
     obj[QStringLiteral("channel")] = t->channel();
     if (t->track()) obj[QStringLiteral("track")] = t->track()->number();
     obj[QStringLiteral("bpm")] = t->beatsPerQuarter();
+    // Exact tempo: bpm above is the truncated whole number, but a scaled tempo
+    // map carries fractional tempi (128.5 BPM = 466926 us per quarter). Peers
+    // and PR bundles must not round them down to 128 (post-review finding).
+    obj[QStringLiteral("microsPerQuarter")] = t->microsPerQuarter();
     return obj;
 }
 
@@ -463,8 +467,18 @@ bool MidiEventSerializer::deserialize(const QJsonArray &eventsJson,
         // live on channels 0-15; only meta events (tempo=17, time_sig=18,
         // key_sig/text=16) may use 16-18. Without this, a malformed channel:17
         // note would land on the tempo meta channel and corrupt the saved file.
-        if (type != QStringLiteral("tempo") && type != QStringLiteral("time_sig")
-            && type != QStringLiteral("key_sig") && type != QStringLiteral("text")) {
+        // WHY: the reverse also holds - a meta object without "channel" used to
+        // inherit the caller's VOICE channel, so the tempo/time-sig landed on
+        // 0-15 where tempoEvents()/timeSignatureEvents() never look: the editor
+        // and playback ignored it until a save/reload re-routed it. Meta types
+        // therefore always go to their canonical meta channel.
+        if (type == QStringLiteral("tempo")) {
+            ch = 17;
+        } else if (type == QStringLiteral("time_sig")) {
+            ch = 18;
+        } else if (type == QStringLiteral("key_sig") || type == QStringLiteral("text")) {
+            ch = 16;
+        } else {
             ch = qMin(ch, 15);
         }
 
@@ -540,9 +554,16 @@ bool MidiEventSerializer::deserialize(const QJsonArray &eventsJson,
             createdEvents.append(pcEvent);
         } else if (type == QStringLiteral("tempo")) {
             // BPM ↔ microsPerQuarter conversion mirrors MidiPilotWidget's
-            // applyTempoAction so behavioural parity is exact.
+            // applyTempoAction so behavioural parity is exact. A payload that
+            // carries the exact microseconds (this build's serializer) wins, so
+            // fractional tempi survive live sync and PR bundles; older senders
+            // only provide the whole bpm.
             int bpm = qBound(1, obj[QStringLiteral("bpm")].toInt(), 999);
             int microsPerQuarter = 60000000 / bpm;
+            const int exactMicros = obj[QStringLiteral("microsPerQuarter")].toInt(0);
+            if (exactMicros >= 60000000 / 999 && exactMicros <= 60000000) {
+                microsPerQuarter = exactMicros;
+            }
             TempoChangeEvent *ev = new TempoChangeEvent(ch, microsPerQuarter, track);
             file->channel(ch)->insertEvent(ev, tick);
             createdEvents.append(ev);

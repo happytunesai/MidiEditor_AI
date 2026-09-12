@@ -205,6 +205,7 @@ MidiFile::~MidiFile() {
 
 bool MidiFile::readMidiFile(QDataStream *content, QStringList *log) {
     OffEvent::clearOnEvents();
+    _orphanOffEvents.clear();
 
     quint8 tempByte;
 
@@ -252,6 +253,13 @@ bool MidiFile::readMidiFile(QDataStream *content, QStringList *log) {
     quint16 basisVelocity;
     (*content) >> basisVelocity;
     timePerQuarter = (int) basisVelocity;
+    // A division of 0 is not a legal MThd value and every later tick/ms
+    // computation divides by it - fall back instead of loading a file that
+    // makes quantization() and the tempo math degenerate.
+    if (timePerQuarter <= 0) {
+        log->append(tr("Warning: header division is 0 - using the default resolution."));
+        timePerQuarter = MidiFile::defaultTimePerQuarter;
+    }
 
     bool ok;
     for (int num = 0; num < numTracks; num++) {
@@ -283,6 +291,33 @@ bool MidiFile::readMidiFile(QDataStream *content, QStringList *log) {
             }
         }
     }
+
+    // Note-Offs that found no Note-On while their track was read: pair them now
+    // against the still pending Note-Ons of LATER tracks (same channel and
+    // pitch, started at or before the Note-Off, earliest first) before those are
+    // dropped as corrupted below. Only a real track qualifies - the piano
+    // preview note registers with a null track. (Review R231-10)
+    for (const auto &orphan : _orphanOffEvents) {
+        OffEvent *off = orphan.first;
+        const int tick = orphan.second;
+        OnEvent *best = nullptr;
+        for (OnEvent *on : OffEvent::corruptedOnEvents()) {
+            if (!on || !on->track()) continue;
+            if (on->channel() != off->channel() || on->line() != off->line()) continue;
+            if (on->midiTime() > tick) continue;
+            if (!best || on->midiTime() < best->midiTime()) best = on;
+        }
+        if (!best) {
+            log->append(tr("Warning: detected offEvent without prior onEvent. Skipping!"));
+            delete off;
+            continue;
+        }
+        off->setOnEvent(best);
+        OffEvent::removeOnEvent(best);
+        off->setFile(this);
+        off->setMidiTime(tick, false); // also inserts into the channel map
+    }
+    _orphanOffEvents.clear();
 
     // find corrupted OnEvents (without OffEvent)
     QList<OnEvent*> corruptedEvents = OffEvent::corruptedOnEvents();
@@ -361,6 +396,10 @@ bool MidiFile::readTrack(QDataStream *content, int num, QStringList *log) {
         channelFrequency[i] = 0;
     }
 
+    // Running status must not cross a track boundary (SMF spec) - and because
+    // the register is a class static it would otherwise carry the last status
+    // byte of a previously loaded document into this parse. (Full-review F217)
+    MidiEvent::resetRunningStatus();
     while (!endEvent) {
         // Essential safety: prevent infinite loops from corrupted data
         if (content->atEnd()) {
@@ -376,9 +415,12 @@ bool MidiFile::readTrack(QDataStream *content, int num, QStringList *log) {
 
         OffEvent *offEvent = dynamic_cast<OffEvent *>(event);
         if (offEvent && !offEvent->onEvent()) {
-            log->append(tr("Warning: detected offEvent without prior onEvent. Skipping!"));
-            // Clean up the orphaned OffEvent to prevent memory leaks
-            delete offEvent;
+            // Its Note-On may sit in a LATER track (files written by MidiEditor
+            // 2.3.0 and earlier: move-to-track left the Note-Off in the source
+            // track and appended the target track with the Note-On). Keep the
+            // event and pair it after the last track (readMidiFile); whatever
+            // stays unpaired is dropped there (review R231-10).
+            _orphanOffEvents.append(qMakePair(offEvent, position));
             continue;
         }
 
@@ -1657,10 +1699,12 @@ bool MidiFile::channelMuted(int ch) {
         return false;
     }
 
-    // check solochannel
+    // check solochannel: the channel-list solo buttons are NOT exclusive, so
+    // as soon as ANY channel is soloed every soloed channel has to stay
+    // audible - returning on the first hit silenced all but the lowest one.
     for (int i = 0; i < 17; i++) {
         if (channel(i)->solo()) {
-            return i != ch;
+            return !channel(ch)->solo();
         }
     }
 
@@ -1740,7 +1784,8 @@ void MidiFile::setPauseTick(int tick) {
 }
 
 bool MidiFile::save(QString path, bool skipMutedTrackEvents,
-                    const QHash<QString, int> &drumProgramByTrackName) {
+                    const QHash<QString, int> &drumProgramByTrackName,
+                    bool markSaved) {
     QFile f(path);
 
     if (!f.open(QIODevice::WriteOnly)) {
@@ -1871,7 +1916,13 @@ bool MidiFile::save(QString path, bool skipMutedTrackEvents,
     // close the file
     f.close();
 
-    _saved = true;
+    // Only a save of the document itself may clear the dirty flag. A temp or
+    // backup write (audio export, auto-save, clone) that marks the document
+    // saved makes the close prompt and the auto-save skip it, so the pending
+    // edits are dropped without asking.
+    if (markSaved) {
+        _saved = true;
+    }
 
     return true;
 }
@@ -1924,23 +1975,45 @@ void MidiFile::setMaxLengthMs(int ms) {
     if (midiTicks < oldTicks) {
         // remove events after maxTick
         QList<MidiEvent *> *ev = eventsBetween(midiTicks, oldTicks);
+        // An OffEvent inside the cut tail whose OnEvent starts BEFORE the new
+        // end belongs to a surviving note: removeEvent() only cascades ON->OFF,
+        // so removing it would leave an unterminated note-on in the saved file.
+        // Shorten the note to the new end instead - same rule deleteMeasures()
+        // applies to its spanning offs.
+        QList<OffEvent *> spanningOffs;
+        QList<MidiEvent *> toRemove;
+        for (MidiEvent *event : *ev) {
+            OffEvent *offEvent = dynamic_cast<OffEvent *>(event);
+            if (offEvent && offEvent->onEvent()
+                && offEvent->onEvent()->midiTime() < midiTicks) {
+                spanningOffs.append(offEvent);
+            } else {
+                toRemove.append(event);
+            }
+        }
         // BULK-OP UNDO: snapshot every touched channel ONCE, then call
         // removeEvent with toProtocol=false. Otherwise each per-event call
         // deep-copies the channel's full QMultiMap and pushes a ProtocolItem
         // (O(events) channel clones -> multi-GB RAM on heavy files).
         // See FFXIVChannelFixer fix 2026-04-21 for the matching pattern.
         QSet<int> touchedChannels;
-        for (MidiEvent *event : *ev) touchedChannels.insert(event->channel());
+        for (MidiEvent *event : toRemove) touchedChannels.insert(event->channel());
         QHash<int, ProtocolEntry *> channelSnapshots;
         for (int ch : touchedChannels) {
             MidiChannel *c = channel(ch);
             if (c) channelSnapshots.insert(ch, c->copy());
         }
-        foreach(MidiEvent* event, *ev) {
+        foreach(MidiEvent* event, toRemove) {
             channel(event->channel())->removeEvent(event, false);
         }
         for (auto it = channelSnapshots.constBegin(); it != channelSnapshots.constEnd(); ++it) {
             channel(it.key())->protocol(it.value(), channel(it.key()));
+        }
+        // Clamped after the channel snapshots are committed, so each move gets
+        // its own protocol item (as in deleteMeasures()).
+        foreach (OffEvent *off, spanningOffs) {
+            if (off->midiTime() != midiTicks)
+                off->setMidiTime(midiTicks);
         }
         delete ev;
     }
@@ -2247,6 +2320,12 @@ QList<int> MidiFile::quantization(int fractionSize) {
     } else {
         // Fallback for unexpected values
         fractionTicks = ticksPerQuarter(); // Default to quarter notes
+    }
+
+    // Both grid loops below advance by fractionTicks - a step of 0 (tiny or
+    // broken header division) would append to the list forever.
+    if (fractionTicks <= 0) {
+        fractionTicks = qMax(1, ticksPerQuarter());
     }
 
     QList<int> list;

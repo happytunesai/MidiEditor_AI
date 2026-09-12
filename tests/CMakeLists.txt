@@ -1322,10 +1322,10 @@ add_test(NAME TextEvent COMMAND test_text_event)
 # -----------------------------------------------------------------------------
 # test_sysex_event
 # -----------------------------------------------------------------------------
-# Validates the F0/<data>/F7 framing of SysExEvent::save plus the empty-payload
-# guard, accessors and setData round-trip. Same ODR-shim approach as
-# test_text_event; SysExEvent.cpp does not call any MidiFile helper so even
-# the writeVariableLengthValue shim is unnecessary.
+# Validates the SMF framing of SysExEvent::save (F0 <varlen> <data> F7, length
+# counting the F7), the empty-payload guard, accessors and the setData round
+# trip. Same ODR-shim approach as test_text_event; save() derives its length
+# through MidiFile::writeVariableLengthValue, which the test shims itself.
 add_executable(test_sysex_event
     test_sysex_event.cpp
     ../src/MidiEvent/SysExEvent.cpp
@@ -1532,21 +1532,73 @@ add_test(NAME ThreeMleParser COMMAND test_three_mle_parser)
 # sidecarPathFor() path translation, tolerant field parsing in loadFromJson,
 # QSaveFile-based atomic save/load round-trip, appendCommit / ensureSessionId,
 # and compactHistory(N) hunk-stripping while preserving audit metadata.
-# Pure Qt (QJson + QSaveFile + QUuid) — no MidiFile dep, no network, no
-# QSettings. The test compiles only the single .cpp; QTemporaryDir scopes
-# all on-disk fixtures.
+# Since the full review (F106) the same binary also hosts TestCollabServicePerFile:
+# CollabService keeps per-document collab state, so the test drives real
+# MidiFile objects and needs the midi core + ODR shims (same list as
+# test_tempo_map_thinner). QSettings are sandboxed via
+# AppPaths::setSettingsScopeForTests; QTemporaryDir scopes all on-disk fixtures.
 add_executable(test_collab_history_file
     test_collab_history_file.cpp
     ../src/collab/CollabHistoryFile.cpp
+    ../src/collab/CollabService.cpp
+    ../src/collab/CollabIdentity.cpp
+    ../src/collab/MidiDiff.cpp
+    ../src/collab/MidiHash.cpp
+    ../src/collab/MidiSnapshot.cpp
+    ../src/ai/MidiEventSerializer.cpp
+    ../src/AppPaths.cpp
+    ../src/midi/MidiFile.cpp
+    ../src/midi/MidiChannel.cpp
+    ../src/midi/MidiTrack.cpp
+    ../src/midi/LyricManager.cpp
+    ../src/midi/InstrumentDefinitions.cpp
+    ../src/converter/SrtParser.cpp
+    ../src/protocol/Protocol.cpp
+    ../src/protocol/ProtocolEntry.cpp
+    ../src/protocol/ProtocolItem.cpp
+    ../src/protocol/ProtocolStep.cpp
+    ../src/gui/ChannelVisibilityManager.cpp
+    ../src/gui/GraphicObject.cpp
+    ../src/MidiEvent/MidiEvent.cpp
+    ../src/MidiEvent/NoteOnEvent.cpp
+    ../src/MidiEvent/OffEvent.cpp
+    ../src/MidiEvent/OnEvent.cpp
+    ../src/MidiEvent/ControlChangeEvent.cpp
+    ../src/MidiEvent/ProgChangeEvent.cpp
+    ../src/MidiEvent/PitchBendEvent.cpp
+    ../src/MidiEvent/ChannelPressureEvent.cpp
+    ../src/MidiEvent/KeyPressureEvent.cpp
+    ../src/MidiEvent/TempoChangeEvent.cpp
+    ../src/MidiEvent/TimeSignatureEvent.cpp
+    ../src/MidiEvent/KeySignatureEvent.cpp
+    ../src/MidiEvent/TextEvent.cpp
+    ../src/MidiEvent/SysExEvent.cpp
+    ../src/MidiEvent/UnknownEvent.cpp
 )
 target_include_directories(test_collab_history_file PRIVATE
+    ../src
     ../src/collab
+    ../src/ai
+    ../src/MidiEvent
+    ../src/midi
+    ../src/protocol
+    ../src/gui
+    ../src/converter
 )
 target_link_libraries(test_collab_history_file PRIVATE
     Qt6::Core
+    Qt6::Gui
+    Qt6::Widgets
     Qt6::Test
 )
 add_test(NAME CollabHistoryFile COMMAND test_collab_history_file)
+
+if(WIN32)
+    get_target_property(_qt_core_loc Qt6::Core LOCATION)
+    get_filename_component(_qt_bin_dir "${_qt_core_loc}" DIRECTORY)
+    set_tests_properties(CollabHistoryFile PROPERTIES
+        ENVIRONMENT "PATH=${_qt_bin_dir};$ENV{PATH}")
+endif()
 
 # -----------------------------------------------------------------------------
 # test_logging_config
@@ -1797,6 +1849,65 @@ target_link_libraries(test_app_paths PRIVATE
 )
 add_test(NAME AppPaths COMMAND test_app_paths)
 
+# -----------------------------------------------------------------------------
+# test_shutdown_guards / test_auto_save_scheduler / test_dpi_env_overrides
+# -----------------------------------------------------------------------------
+# External system/performance review (2026-09-06, SP-01/04/05): the shutdown
+# order and guards behind the close-while-MCP-switches crash (source-level -
+# MainWindow cannot be instantiated headless, same approach as
+# test_opengl_paint_guard), the auto-save debounce that re-reads its setting
+# at fire time, and the environment-override bookkeeping that keeps a
+# switched-off DPI option off across an in-app restart and brings external
+# values back.
+add_executable(test_shutdown_guards
+    test_shutdown_guards.cpp
+)
+target_compile_definitions(test_shutdown_guards PRIVATE
+    SHUTDOWN_REPO_ROOT="${CMAKE_CURRENT_SOURCE_DIR}/.."
+)
+target_link_libraries(test_shutdown_guards PRIVATE
+    Qt6::Core
+    Qt6::Test
+)
+add_test(NAME ShutdownGuards COMMAND test_shutdown_guards)
+
+add_executable(test_auto_save_scheduler
+    test_auto_save_scheduler.cpp
+    ../src/gui/AutoSaveScheduler.cpp
+)
+target_link_libraries(test_auto_save_scheduler PRIVATE
+    Qt6::Core
+    Qt6::Test
+)
+add_test(NAME AutoSaveScheduler COMMAND test_auto_save_scheduler)
+
+add_executable(test_dpi_env_overrides
+    test_dpi_env_overrides.cpp
+    ../src/DpiEnvOverrides.cpp
+)
+target_link_libraries(test_dpi_env_overrides PRIVATE
+    Qt6::Core
+    Qt6::Test
+)
+add_test(NAME DpiEnvOverrides COMMAND test_dpi_env_overrides)
+
+# SP-06: the MCP session table with REAL Qt TCP sockets - the disconnected
+# handler locks the table from inside close(); the table never closes a
+# socket itself, so the shutdown / remove / expire / re-attach sequences must
+# return. A watchdog thread in the test (and the ctest timeout) turn a
+# regression into a failure instead of a hang.
+add_executable(test_mcp_session_table
+    test_mcp_session_table.cpp
+    ../src/ai/McpSessionTable.cpp
+)
+target_link_libraries(test_mcp_session_table PRIVATE
+    Qt6::Core
+    Qt6::Network
+    Qt6::Test
+)
+add_test(NAME McpSessionTable COMMAND test_mcp_session_table)
+set_tests_properties(McpSessionTable PROPERTIES TIMEOUT 60)
+
 # Make Qt DLLs visible to the tests at runtime on Windows.
 if(WIN32)
     get_target_property(_qmake_exe Qt6::qmake IMPORTED_LOCATION)
@@ -1858,6 +1969,10 @@ if(WIN32)
         SidCapture
         SidReconstruct
         SidMidiWriter
+        ShutdownGuards
+        AutoSaveScheduler
+        DpiEnvOverrides
+        McpSessionTable
         PROPERTIES
             ENVIRONMENT "PATH=${_qt_bin_dir};$ENV{PATH}"
     )
@@ -1946,5 +2061,66 @@ if(WIN32)
     get_target_property(_qt_core_loc Qt6::Core LOCATION)
     get_filename_component(_qt_bin_dir "${_qt_core_loc}" DIRECTORY)
     set_tests_properties(ProviderProfileStore PROPERTIES
+        ENVIRONMENT "PATH=${_qt_bin_dir};$ENV{PATH}")
+endif()
+
+# -----------------------------------------------------------------------------
+# test_shared_clipboard_lock (full review F222)
+# -----------------------------------------------------------------------------
+# Bounded cross-process clipboard lock: a busy lock makes copy/paste report
+# false within lockTimeoutMs() instead of blocking, and a lock left behind by
+# a killed holder process is recovered. Same harness as test_midi_measure; the
+# binary doubles as its own lock-holding helper ("--hold-lock <path>").
+add_executable(test_shared_clipboard_lock
+    test_shared_clipboard_lock.cpp
+    ../src/tool/SharedClipboard.cpp
+    ../src/midi/MidiFile.cpp
+    ../src/midi/MidiChannel.cpp
+    ../src/midi/MidiTrack.cpp
+    ../src/midi/LyricManager.cpp
+    ../src/midi/InstrumentDefinitions.cpp
+    ../src/converter/SrtParser.cpp
+    ../src/protocol/Protocol.cpp
+    ../src/protocol/ProtocolEntry.cpp
+    ../src/protocol/ProtocolItem.cpp
+    ../src/protocol/ProtocolStep.cpp
+    ../src/gui/ChannelVisibilityManager.cpp
+    ../src/gui/GraphicObject.cpp
+    ../src/MidiEvent/MidiEvent.cpp
+    ../src/MidiEvent/NoteOnEvent.cpp
+    ../src/MidiEvent/OffEvent.cpp
+    ../src/MidiEvent/OnEvent.cpp
+    ../src/MidiEvent/ControlChangeEvent.cpp
+    ../src/MidiEvent/ProgChangeEvent.cpp
+    ../src/MidiEvent/PitchBendEvent.cpp
+    ../src/MidiEvent/ChannelPressureEvent.cpp
+    ../src/MidiEvent/KeyPressureEvent.cpp
+    ../src/MidiEvent/TempoChangeEvent.cpp
+    ../src/MidiEvent/TimeSignatureEvent.cpp
+    ../src/MidiEvent/KeySignatureEvent.cpp
+    ../src/MidiEvent/TextEvent.cpp
+    ../src/MidiEvent/SysExEvent.cpp
+    ../src/MidiEvent/UnknownEvent.cpp
+)
+target_include_directories(test_shared_clipboard_lock PRIVATE
+    ../src/tool
+    ../src/MidiEvent
+    ../src/midi
+    ../src/protocol
+    ../src/gui
+    ../src/converter
+)
+target_link_libraries(test_shared_clipboard_lock PRIVATE
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Widgets
+    Qt6::Test
+)
+add_test(NAME SharedClipboardLock COMMAND test_shared_clipboard_lock)
+
+if(WIN32)
+    get_target_property(_qt_core_loc Qt6::Core LOCATION)
+    get_filename_component(_qt_bin_dir "${_qt_core_loc}" DIRECTORY)
+    set_tests_properties(SharedClipboardLock PROPERTIES
         ENVIRONMENT "PATH=${_qt_bin_dir};$ENV{PATH}")
 endif()

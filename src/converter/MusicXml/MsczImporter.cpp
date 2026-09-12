@@ -249,7 +249,11 @@ private:
                 int measureStart = cursor;
                 int measureLen = currentMeasureTicks();
                 parseMeasure(xr, staffId, measureStart, measureLen, tupletStack);
-                cursor = measureStart + measureLen;
+                // A <TimeSig> in this measure (directly or inside a <voice>)
+                // takes effect from THIS measure on, so advance by the meter in
+                // force after parsing - using the pre-computed length would
+                // shift every following measure of the staff permanently.
+                cursor = measureStart + currentMeasureTicks();
             }
         }
     }
@@ -465,13 +469,20 @@ private:
             if (xr.name() == QStringLiteral("sigN")) n = std::max(1, xr.readElementText().toInt());
             else if (xr.name() == QStringLiteral("sigD")) d = std::max(1, xr.readElementText().toInt());
         }
+        _currentTimeSigNum = n;
+        _currentTimeSigDen = d;
+        // Every staff repeats the score-wide time signature at the same tick;
+        // appending each copy stacks identical FF 58 events and defeats the
+        // tick-0 anchor guard in MidiChannel::removeEvent (which only protects
+        // a time signature that is alone at tick 0).
+        for (const XmlTimeSigEvent& e : _timeSigs) {
+            if (e.tick == tick && e.numerator == n && e.denominator == d) return;
+        }
         XmlTimeSigEvent ts;
         ts.tick = tick;
         ts.numerator = n;
         ts.denominator = d;
         _timeSigs.append(ts);
-        _currentTimeSigNum = n;
-        _currentTimeSigDen = d;
     }
 
     void parseKeySig(QXmlStreamReader& xr, int tick) {
@@ -489,6 +500,10 @@ private:
                 if (xr.readElementText().compare("minor", Qt::CaseInsensitive) == 0)
                     minor = true;
             }
+        }
+        // Same per-staff duplication as the time signature above.
+        for (const XmlKeySigEvent& e : _keySigs) {
+            if (e.tick == tick && e.fifths == fifths && e.isMinor == minor) return;
         }
         XmlKeySigEvent k;
         k.tick = tick;

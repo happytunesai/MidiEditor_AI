@@ -106,6 +106,9 @@ private:
     int _selectedBlockIndex;
     QSet<int> _selectedBlockIndices;
     bool _dragActive;
+    /** True while the current drag holds an open "Edit Lyric Block" action
+     *  (only drags that move a TextEvent open one). */
+    bool _dragActionOpen = false;
     int _dragStartX;
     int _dragStartTick;
     int _dragOrigStartTick;

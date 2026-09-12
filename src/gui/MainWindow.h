@@ -52,6 +52,7 @@ class MidiEvent;
 class MidiFile;
 class DocumentManager;
 class Document;
+class AutoSaveScheduler;
 
 #ifdef FLUIDSYNTH_SUPPORT
 struct ExportOptions;
@@ -63,6 +64,7 @@ class ClickButton;
 class QTabWidget;
 class QSplitter;
 class QMenu;
+class QActionGroup;
 class TrackListWidget;
 class QComboBox;
 class MiscWidget;
@@ -129,6 +131,25 @@ public:
     void performEarlyCleanup();
 
     /**
+     * \brief Puts the window into shutdown: no document may be activated from
+     *        here on, the MCP server is stopped and a running MidiPilot request
+     *        is aborted. Idempotent - closeEvent() calls it as soon as the close
+     *        is committed, performEarlyCleanup() calls it again for the
+     *        destructor path. See isShuttingDown().
+     */
+    void beginShutdown();
+
+    /**
+     * \brief True once beginShutdown() ran. performEarlyCleanup() destroys the
+     *        editor views, nulls their pointers and then pumps the event loop,
+     *        so a tab click, an MCP switch_document or an agent step dispatched
+     *        by that pump must refuse to bind a view: the tab slots and
+     *        activateDocumentByListIndex() check this, and a call that was
+     *        already queued sees it when it finally runs.
+     */
+    bool isShuttingDown() const { return _shuttingDown; }
+
+    /**
      * \brief Sets the current MIDI file.
      * \param f The MidiFile to set as current
      */
@@ -155,6 +176,26 @@ public:
      * \return False when the index is out of range.
      */
     bool activateDocumentByListIndex(int index);
+
+    /**
+     * \brief v2.4.0 cross-tab tools: resolves the SAME flattened list index
+     *        (group 0 tabs first, then group 1 - identical skipping rules to
+     *        listOpenDocumentsJson()) to the document's MidiFile WITHOUT
+     *        activating, re-binding, or otherwise touching anything.
+     * \return The MidiFile at that index, or nullptr when out of range.
+     */
+    MidiFile *documentFileByListIndex(int index) const;
+
+    /**
+     * \brief True when \a f is an open document in EITHER editor group.
+     *
+     * The "is the document still open after the modal dialog?" guards must
+     * ask this, never _documentManager alone: a document shown in the second
+     * group is the active file while the right pane is focused, yet it lives
+     * only in _group1Docs - the group-0-only check made renames and lyric
+     * imports there silently do nothing (review R231-01/03).
+     */
+    bool isDocumentOpen(MidiFile *f) const;
 
     /**
      * \brief Gets the matrix widget for note editing.
@@ -249,7 +290,13 @@ public slots:
     void updateAll();
 
     /**
-     * \brief Updates rendering mode when settings change.
+     * \brief Applies a changed rendering option at once: refreshes the render
+     *        hint caches of both editor views and repaints the (OpenGL)
+     *        containers. Connected to PerformanceSettingsWidget's
+     *        renderingModeChanged(), so it works no matter how the settings
+     *        dialog is closed afterwards (Esc and the window's X never emit
+     *        settingsChanged()). GPU acceleration and MSAA are startup
+     *        decisions and stay restart-only.
      */
     void updateRenderingMode();
 
@@ -779,6 +826,12 @@ public slots:
      * \brief Marks the file as edited (unsaved changes).
      */
     void markEdited();
+
+    /**
+     * \brief Per-document variant of markEdited(): re-arms auto-save for any
+     * document, but sets the window-modified marker only for the active one.
+     */
+    void markEditedFor(MidiFile *editedFile);
 
     /**
      * \brief Sets coloring mode to color by MIDI channels.
@@ -1612,6 +1665,9 @@ private:
     /** \brief Phase 28: guards programmatic tab-bar edits from re-entrant slots. */
     bool _suppressTabSignals = false;
 
+    /** \brief Raised by beginShutdown(); read through isShuttingDown(). */
+    bool _shuttingDown = false;
+
     /** \brief Start directory and initialization file */
     QString startDirectory, _initFile;
 
@@ -1630,6 +1686,10 @@ private:
     QMenu *_recentPathsMenu, *_deleteChannelMenu, *_moveSelectedEventsToTrackMenu, *_moveSelectedEventsToChannelMenu,
     *_pasteToTrackMenu, *_pasteToChannelMenu, *_selectAllFromTrackMenu, *_selectAllFromChannelMenu, *_pasteOptionsMenu,
     *_copySelectedEventsToTrackMenu, *_copySelectedEventsToChannelMenu;
+
+    /** \brief Exclusive group for the paste-to-track entries, created once by
+     *  updateTrackMenu() (a per-refresh group was leaked). */
+    QActionGroup *_pasteTrackGroup = nullptr;
 
     /** \brief Lower tab widget for additional panels */
     QTabWidget *lowerTabWidget;
@@ -1804,6 +1864,9 @@ private:
     /** \brief When true, closeEvent skips all save dialogs (auto-update in progress) */
     bool _forceCloseForUpdate = false;
 
+    /** \brief Choice made for the update download currently in flight: true = "Update Now", false = "After Exit" */
+    bool _pendingUpdateNow = false;
+
     /** \brief MidiPilot AI sidebar widget */
     MidiPilotWidget *_midiPilotWidget = nullptr;
 
@@ -1832,6 +1895,11 @@ private:
     QMenu *_editMenuForShowLock = nullptr;
     QMenu *_toolsMenuForShowLock = nullptr;
     QMenu *_midiMenuForShowLock = nullptr;
+
+    /** \brief True while the local peer is a Show-mode VIEWER (editing locked).
+     *  Kept so a secondary editor group built after the lock was applied, and
+     *  the comparison sync-lock toggle, can honour the current lock state. */
+    bool _showModeViewerLocked = false;
 
     /** \brief Phase 9.9f §15.2 (follow-the-host): last viewport tuple
      *  captured from MatrixWidget::scrollChanged. Used by the
@@ -1926,8 +1994,11 @@ private:
 
     // === Auto-Save ===
 
-    /** \brief Debounce timer for auto-save — resets on every edit */
-    QTimer *_autoSaveTimer = nullptr;
+    /** \brief Debounce behind auto-save: re-armed by every edit, fires only
+     *  while the setting is still on (it re-reads "autosave_enabled" at fire
+     *  time, so a backup scheduled before the option was switched off on the
+     *  Performance page is dropped). */
+    AutoSaveScheduler *_autoSave = nullptr;
 
     /** \brief Performs auto-save to a sidecar backup file */
     void performAutoSave();
@@ -1940,8 +2011,15 @@ private:
      *  the active file (a background untitled would collide on it). */
     QString autoSavePathFor(MidiFile *f) const;
 
-    /** \brief Removes auto-save sidecar files and stops the timer */
+    /** \brief Removes auto-save sidecar files and stops the timer (application
+     *  shutdown: every document was save-prompted). */
     void cleanupAutoSave();
+
+    /** \brief Per-document cleanup after a successful save of \p f: removes the
+     *  backup written for the path the document had BEFORE the save (\p
+     *  pathBeforeSave, empty = untitled slot) and stops the shared timer only
+     *  when no other open document is still dirty. */
+    void cleanupAutoSaveFor(MidiFile *f, const QString &pathBeforeSave);
 
     /** \brief Checks for leftover auto-save files on startup and offers recovery.
      *  \return true if a document was actually recovered (and is now open), so

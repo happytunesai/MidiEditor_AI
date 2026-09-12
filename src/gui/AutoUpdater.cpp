@@ -43,6 +43,26 @@
 #include <unistd.h>
 #endif
 
+namespace {
+const char *kPendingBackupsKey = "Updater/pendingBackups";
+
+// Every ".bak" the updater creates is recorded here, so cleanupOldBackups()
+// removes exactly those files on the next start - and never a user's own
+// "<file>.bak" that happens to live below the program folder (a portable
+// install keeps its projects there).
+void recordBackupPath(const QString &bakPath)
+{
+    auto sPtr = AppPaths::settings();
+    QSettings &s = *sPtr;
+    QStringList pending = s.value(QLatin1String(kPendingBackupsKey)).toStringList();
+    if (!pending.contains(bakPath)) {
+        pending << bakPath;
+        s.setValue(QLatin1String(kPendingBackupsKey), pending);
+        s.sync();
+    }
+}
+} // namespace
+
 AutoUpdater::AutoUpdater(QWidget *parentWidget, QSettings *settings, QObject *parent)
     : QObject(parent),
       _parentWidget(parentWidget),
@@ -280,6 +300,7 @@ bool AutoUpdater::applyUpdate(const QString &zipPath, const QString &midiPath)
                "Make sure you have write permissions to:\n%1").arg(appDir));
         return false;
     }
+    recordBackupPath(bakPath);
     qDebug() << "  Step 1: Renamed EXE to .bak";
 
     // Step 2: Extract ZIP to a temp staging directory
@@ -339,6 +360,20 @@ bool AutoUpdater::applyUpdate(const QString &zipPath, const QString &midiPath)
         sourceDir = staging.filePath(subdirs.first());
         qDebug() << "  Step 3: Using nested subfolder:" << sourceDir;
     }
+    // The single-subdirectory rule misses every other layout (two top-level
+    // folders, an extra docs/ next to the payload). Copying such a tree
+    // verbatim would recreate the EXE one level DOWN and leave the install
+    // without one - the running EXE is a .bak from Step 1 on. Locate it
+    // instead and copy from the folder that really holds it.
+    if (!QFile::exists(QDir(sourceDir).filePath(exeName))) {
+        QDirIterator findExe(stagingDir, QStringList{exeName}, QDir::Files,
+                             QDirIterator::Subdirectories);
+        if (findExe.hasNext()) {
+            findExe.next();
+            sourceDir = findExe.fileInfo().absolutePath();
+            qDebug() << "  Step 3: Located" << exeName << "in:" << sourceDir;
+        }
+    }
 
     // Step 4: Copy new files from staging to app directory
     int filesCopied = 0;
@@ -365,6 +400,7 @@ bool AutoUpdater::applyUpdate(const QString &zipPath, const QString &midiPath)
                     filesSkipped++;
                     continue;
                 }
+                recordBackupPath(destBak);
             }
         }
 
@@ -378,6 +414,19 @@ bool AutoUpdater::applyUpdate(const QString &zipPath, const QString &midiPath)
 
     qDebug() << "  Step 4: Files copied:" << filesCopied << "skipped:" << filesSkipped;
 
+    // The install has had no executable since Step 1, so nothing may proceed
+    // past here without one: an unexpected archive layout or a copy the
+    // virus scanner blocked would otherwise end in a warning dialog and an
+    // install the user can never start again.
+    QString newExePath = QDir(appDir).filePath(exeName);
+    if (filesCopied == 0 || !QFile::exists(newExePath)) {
+        QFile::rename(bakPath, appPath); // put the running EXE back
+        QMessageBox::warning(_parentWidget, tr("Update Error"),
+            tr("The update package did not contain %1.\n\n"
+               "The previous version was restored.").arg(exeName));
+        return false;
+    }
+
     // Step 5: Cleanup temp files
     QFile::remove(zipPath);
     QDir(stagingDir).removeRecursively();
@@ -386,7 +435,6 @@ bool AutoUpdater::applyUpdate(const QString &zipPath, const QString &midiPath)
     // Step 6: Launch the new EXE
     // QProcess::startDetached works reliably for launching an EXE
     // (unlike batch files which had all the console/quoting problems)
-    QString newExePath = QDir(appDir).filePath(exeName);
     QStringList args;
     // NOTE: we deliberately do NOT pass "--open <midiPath>" here. The caller
     // persisted the full editor session (all tabs in both groups + the split)
@@ -408,6 +456,12 @@ bool AutoUpdater::applyUpdate(const QString &zipPath, const QString &midiPath)
     qDebug() << "  Launch result:" << launched;
 
     if (!launched) {
+        // Defensive: the copy check above proved the new EXE exists, but if it
+        // vanished since (installer, scanner quarantine) the install would be
+        // left with no executable at all - put the backup back first.
+        if (!QFile::exists(newExePath)) {
+            QFile::rename(bakPath, appPath);
+        }
         QMessageBox::warning(_parentWidget, tr("Update Error"),
             tr("Update extracted successfully but failed to restart.\n\n"
                "Please start %1 manually.").arg(exeName));
@@ -431,11 +485,57 @@ void AutoUpdater::cleanupOldBackups()
 {
     QString appDir = QCoreApplication::applicationDirPath();
     QDir dir(appDir);
-    QStringList bakFiles = dir.entryList({"*.bak"}, QDir::Files);
-    for (const QString &bakFile : bakFiles) {
-        QString bakPath = dir.filePath(bakFile);
+
+    // 1) Exactly the files applyUpdate() renamed (recorded there). A blanket
+    //    recursive "*.bak" sweep also deleted a user's own backups below the
+    //    program folder - e.g. projects/song.mid.bak in a portable install.
+    auto sPtr = AppPaths::settings();
+    QSettings &s = *sPtr;
+    const QStringList recorded = s.value(QLatin1String(kPendingBackupsKey)).toStringList();
+    QStringList stillPending;
+    for (const QString &bakPath : recorded) {
+        if (!QFile::exists(bakPath)) continue;
         if (QFile::remove(bakPath)) {
-            qDebug() << "AutoUpdater: Cleaned up backup:" << bakFile;
+            qDebug() << "AutoUpdater: Cleaned up backup:" << dir.relativeFilePath(bakPath);
+        } else {
+            stillPending << bakPath; // still locked (old process exiting) - retry next start
+        }
+    }
+    if (stillPending.isEmpty()) {
+        s.remove(QLatin1String(kPendingBackupsKey));
+    } else {
+        s.setValue(QLatin1String(kPendingBackupsKey), stillPending);
+    }
+
+    // 2) Leftovers of updates made before that list existed. A file type alone
+    //    proves nothing (a user may keep custom-synth.dll.bak in a plugin folder
+    //    of their own), so this sweep is confined to the deployment tree the
+    //    updater writes - the program folder and Qt's plugin / translation
+    //    folders, not their subfolders - and to backups whose original still
+    //    sits next to them (the updater renames a locked file and copies the
+    //    new one into its place).
+    static const QStringList deployDirs = {
+        QString(), QStringLiteral("generic"), QStringLiteral("iconengines"),
+        QStringLiteral("imageformats"), QStringLiteral("multimedia"),
+        QStringLiteral("networkinformation"), QStringLiteral("platforms"),
+        QStringLiteral("styles"), QStringLiteral("tls"), QStringLiteral("translations"),
+        QStringLiteral("plugins/generic"), QStringLiteral("plugins/iconengines"),
+        QStringLiteral("plugins/imageformats"), QStringLiteral("plugins/multimedia"),
+        QStringLiteral("plugins/networkinformation"), QStringLiteral("plugins/platforms"),
+        QStringLiteral("plugins/styles"), QStringLiteral("plugins/tls")};
+    static const QStringList legacyPatterns = {
+        QStringLiteral("*.exe.bak"), QStringLiteral("*.dll.bak"),
+        QStringLiteral("*.qm.bak"),  QStringLiteral("*.pdb.bak")};
+    for (const QString &sub : deployDirs) {
+        QDir d = sub.isEmpty() ? dir : QDir(dir.filePath(sub));
+        if (!d.exists()) continue;
+        const QFileInfoList candidates = d.entryInfoList(legacyPatterns, QDir::Files);
+        for (const QFileInfo &fi : candidates) {
+            const QString bakPath = fi.filePath();
+            if (!QFile::exists(bakPath.chopped(4))) continue; // no original next to it
+            if (QFile::remove(bakPath)) {
+                qDebug() << "AutoUpdater: Cleaned up backup:" << dir.relativeFilePath(bakPath);
+            }
         }
     }
 }

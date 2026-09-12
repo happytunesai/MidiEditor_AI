@@ -50,30 +50,57 @@ void CollabService::setEnabled(bool enabled) {
     QSettings &settings = *settingsPtr;
     settings.setValue("Collab/enabled", enabled);
     emit enabledChanged(_enabled);
-    // When the feature flips on, the current file might have a sidecar
-    // we did not pick up before. Re-evaluate so the menu state is right.
-    if (_enabled && !_currentPath.isEmpty()) {
-        _currentInitialized = _currentHistory.load(_currentPath);
+    // When the feature flips on, the open files might have sidecars we did
+    // not pick up before. Re-evaluate every document so the menu state is
+    // right whichever tab is active.
+    if (_enabled) {
+        for (auto it = _files.begin(); it != _files.end(); ++it) {
+            if (it->path.isEmpty()) continue;
+            it->initialized = it->history.load(it->path);
+        }
         emit currentFileStateChanged();
-    } else if (!_enabled) {
-        _lastSnapshot = QJsonArray();
+    } else {
+        for (auto it = _files.begin(); it != _files.end(); ++it) {
+            it->lastSnapshot = QJsonArray();
+        }
         emit currentFileStateChanged();
     }
 }
 
-void CollabService::onFileLoaded(MidiFile *file, const QString &path) {
-    _currentPath = path;
-    _currentHistory = CollabHistoryFile();
-    _currentInitialized = false;
-    _lastSnapshot = QJsonArray();
-    _eventAuthor.clear();  // session-only highlight tags don't survive file changes
+CollabService::FileState *CollabService::stateFor(MidiFile *file) {
+    if (!file) return nullptr;
+    auto it = _files.find(file);
+    return it == _files.end() ? nullptr : &it.value();
+}
 
-    if (_enabled && !path.isEmpty()) {
-        _currentInitialized = _currentHistory.load(path);
-        if (_currentInitialized && file) {
-            // Capture the in-memory state as our baseline. Subsequent
-            // saves will diff against this until they replace it.
-            _lastSnapshot = MidiSnapshot::ofFile(file);
+const CollabService::FileState *CollabService::stateFor(MidiFile *file) const {
+    if (!file) return nullptr;
+    auto it = _files.constFind(file);
+    return it == _files.constEnd() ? nullptr : &it.value();
+}
+
+void CollabService::onFileLoaded(MidiFile *file, const QString &path) {
+    _eventAuthor.clear();  // session-only highlight tags don't survive file changes
+    _activeFile = file;
+
+    if (file) {
+        // WHY: with several open documents this fires on every tab switch.
+        // Activation is a rebind, not a reload - a document we already know
+        // keeps its history and its save baseline; only a file we have not
+        // seen (or one whose path changed underneath us) gets a fresh record.
+        FileState *known = stateFor(file);
+        if (!known || known->path != path) {
+            FileState fresh;
+            fresh.path = path;
+            if (_enabled && !path.isEmpty()) {
+                fresh.initialized = fresh.history.load(path);
+                if (fresh.initialized) {
+                    // Capture the in-memory state as our baseline. Subsequent
+                    // saves will diff against this until they replace it.
+                    fresh.lastSnapshot = MidiSnapshot::ofFile(file);
+                }
+            }
+            _files.insert(file, fresh);
         }
     }
     // Phase 9.5i: a different file is now active; the known-sidecars
@@ -82,6 +109,19 @@ void CollabService::onFileLoaded(MidiFile *file, const QString &path) {
     if (_knownSidecarsLoaded) refreshKnownSidecars();
     emit activeFileChanged(file);
     emit currentFileStateChanged();
+}
+
+void CollabService::forgetFile(MidiFile *file) {
+    if (!file) return;
+    const bool known = _files.contains(file);
+    // Listeners (the live session) still see a valid MidiFile here; the
+    // record is dropped right after.
+    if (known) emit fileClosing(file);
+    _files.remove(file);
+    if (_activeFile == file) {
+        _activeFile = nullptr;
+        emit currentFileStateChanged();
+    }
 }
 
 void CollabService::onFileSaved(MidiFile *file, const QString &path) {
@@ -99,29 +139,38 @@ void CollabService::onFileSaved(MidiFile *file, const QString &path) {
     if (!_enabled) { clearPendingMerge(); return; }
     if (path.isEmpty()) { clearPendingMerge(); return; }
 
+    MidiFile *key = file ? file : _activeFile;
+    if (!key) { clearPendingMerge(); return; }
+    // A document saved before it was ever activated gets its record here.
+    FileState &st = _files[key];
+
     // The path may have changed (Save As to a different file). Refresh
-    // active state to follow the new path.
-    if (path != _currentPath) {
-        _currentPath = path;
-        _currentInitialized = _currentHistory.load(path);
+    // the document's state to follow the new path.
+    if (path != st.path) {
+        st.path = path;
+        st.initialized = st.history.load(path);
         // Reset baseline; whatever was here referred to the old file.
-        _lastSnapshot = QJsonArray();
+        st.lastSnapshot = QJsonArray();
     }
 
-    if (!_currentInitialized) { clearPendingMerge(); return; }  // file not opted in for collab
+    if (!st.initialized) { clearPendingMerge(); return; }  // file not opted in for collab
 
     QString hash = MidiHash::sha256OfFile(path);
-    if (hash.isEmpty()) return;
-    if (hash == _currentHistory.currentHead()) return;  // nothing changed
+    // BUG-COLLAB-013 (cont.): these two exits are ordinary "nothing to
+    // commit" cases, but they must still consume the marker - a no-op
+    // merge that hashes to the current head would otherwise leave it
+    // armed and mis-attribute the next unrelated save to the PR author.
+    if (hash.isEmpty()) { clearPendingMerge(); return; }
+    if (hash == st.history.currentHead()) { clearPendingMerge(); return; }  // nothing changed
 
     // Compute hunks: diff(last known snapshot, current in-memory state).
     QJsonArray newSnapshot = MidiSnapshot::ofFile(file);
     QJsonArray hunks;
-    if (file && !_lastSnapshot.isEmpty()) {
-        hunks = MidiDiff::compute(_lastSnapshot, newSnapshot, file->ticksPerQuarter());
+    if (file && !st.lastSnapshot.isEmpty()) {
+        hunks = MidiDiff::compute(st.lastSnapshot, newSnapshot, file->ticksPerQuarter());
     }
 
-    QString parentHash = _currentHistory.currentHead();
+    QString parentHash = st.history.currentHead();
 
     // Pending-merge marker (set by PrApply just before triggering this save):
     // attribute the resulting commit to the PR author with a "Merged from X:
@@ -140,7 +189,7 @@ void CollabService::onFileSaved(MidiFile *file, const QString &path) {
         commitMessage = QStringLiteral("Save");
     }
 
-    _currentHistory.appendCommit(
+    st.history.appendCommit(
         hash,
         parentHash,
         commitAuthor,
@@ -149,8 +198,8 @@ void CollabService::onFileSaved(MidiFile *file, const QString &path) {
         commitMessage,
         hunks);
 
-    _currentHistory.save(_currentPath);
-    _lastSnapshot = newSnapshot;
+    st.history.save(st.path);
+    st.lastSnapshot = newSnapshot;
     emit currentFileStateChanged();
 
     // NOTE: webhook posting is intentionally NOT triggered on every save —
@@ -167,8 +216,13 @@ void CollabService::markPendingMerge(const QString &author, const QString &messa
 }
 
 QJsonObject CollabService::currentSidecarJson() const {
-    if (!_currentInitialized) return QJsonObject();
-    return _currentHistory.toJson();
+    return currentSidecarJson(_activeFile);
+}
+
+QJsonObject CollabService::currentSidecarJson(MidiFile *file) const {
+    const FileState *st = stateFor(file);
+    if (!st || !st->initialized) return QJsonObject();
+    return st->history.toJson();
 }
 
 QString CollabService::findFileBySessionId(const QString &sessionId) {
@@ -182,14 +236,20 @@ void CollabService::refreshKnownSidecars() {
     _knownSidecarsLoaded = true;
 
     // Locations we scan, in priority order:
-    //  1. The currently-active file's folder (so a collab-init'd file
-    //     opened from anywhere is immediately discoverable).
+    //  1. The currently-active file's folder, then the folders of the
+    //     other open documents (so a collab-init'd file opened from
+    //     anywhere is immediately discoverable).
     //  2. Documents/MidiEditor_AI/shared/ — where LAN file-transfers land.
     QStringList scanDirs;
-    if (!_currentPath.isEmpty()) {
-        QFileInfo fi(_currentPath);
+    auto addDirOf = [&scanDirs](const QString &midiPath) {
+        if (midiPath.isEmpty()) return;
+        QFileInfo fi(midiPath);
         QString d = fi.absolutePath();
-        if (!d.isEmpty()) scanDirs.append(d);
+        if (!d.isEmpty() && !scanDirs.contains(d)) scanDirs.append(d);
+    };
+    if (const FileState *active = stateFor(_activeFile)) addDirOf(active->path);
+    for (auto it = _files.constBegin(); it != _files.constEnd(); ++it) {
+        addDirOf(it->path);
     }
     QString sharedRoot = QDir(QStandardPaths::writableLocation(
                                   QStandardPaths::DocumentsLocation))
@@ -247,7 +307,10 @@ bool CollabService::adoptRemoteSidecar(MidiFile *file, const QJsonObject &sideca
                       "sidecar JSON is empty (host sent nothing useful)";
         return false;
     }
-    if (_currentPath.isEmpty()) {
+    // The sidecar lands next to the file it was shipped for - the
+    // session's document - not next to whichever tab is active.
+    FileState *st = stateFor(file ? file : _activeFile);
+    if (!st || st->path.isEmpty()) {
         qWarning() << "CollabService::adoptRemoteSidecar refused — no current "
                       "file path is bound (file isn't open in CollabService yet); "
                       "incoming entries="
@@ -262,60 +325,76 @@ bool CollabService::adoptRemoteSidecar(MidiFile *file, const QJsonObject &sideca
         return false;
     }
 
-    _currentHistory = incoming;
-    if (!_currentHistory.save(_currentPath)) {
+    st->history = incoming;
+    if (!st->history.save(st->path)) {
         qWarning() << "CollabService::adoptRemoteSidecar — incoming sidecar "
-                      "valid but save to" << _currentPath
+                      "valid but save to" << st->path
                    << "failed (permissions / disk full?)";
         return false;
     }
-    _currentInitialized = true;
-    if (file) _lastSnapshot = MidiSnapshot::ofFile(file);
+    st->initialized = true;
+    if (file) st->lastSnapshot = MidiSnapshot::ofFile(file);
     // Phase 9.5i: peer just adopted a host's sidecar; the file is now
     // discoverable by its (host-assigned) sessionId.
     if (_knownSidecarsLoaded) refreshKnownSidecars();
     emit currentFileStateChanged();
     qInfo() << "CollabService::adoptRemoteSidecar OK — adopted"
             << sidecarJson.value(QStringLiteral("history")).toArray().size()
-            << "history entries into" << _currentPath;
+            << "history entries into" << st->path;
     return true;
 }
 
-void CollabService::recordRemoteLiveSync(MidiFile *file,
-                                          const QString &author,
-                                          const QString &machineId,
-                                          const QString &message,
-                                          const QJsonArray &hunks) {
-    if (!_enabled || !_currentInitialized || !file) return;
+QString CollabService::liveCommitHash(const QJsonArray &snapshot,
+                                      const QString &author,
+                                      qint64 tsMs) {
+    QByteArray seed = QJsonDocument(snapshot).toJson(QJsonDocument::Compact);
+    seed.append(QByteArray::number(tsMs));
+    seed.append(author.toUtf8());
+    return QString::fromUtf8(
+        QCryptographicHash::hash(seed, QCryptographicHash::Sha256).toHex());
+}
+
+QString CollabService::recordRemoteLiveSync(MidiFile *file,
+                                             const QString &author,
+                                             const QString &machineId,
+                                             const QString &message,
+                                             const QJsonArray &hunks,
+                                             const QString &commitHash) {
+    if (!_enabled || !file) return QString();
+    // Keyed by the file the hunks were applied to, so a live session on a
+    // background tab never writes into the active tab's sidecar.
+    FileState *st = stateFor(file);
+    if (!st || !st->initialized) return QString();
 
     QJsonArray currentSnapshot = MidiSnapshot::ofFile(file);
-    QByteArray snapshotBytes = QJsonDocument(currentSnapshot).toJson(QJsonDocument::Compact);
     qint64 ts = QDateTime::currentMSecsSinceEpoch();
-    QByteArray seed = snapshotBytes;
-    seed.append(QByteArray::number(ts));
-    seed.append(author.toUtf8());
-    QString hash = QString::fromUtf8(
-        QCryptographicHash::hash(seed, QCryptographicHash::Sha256).toHex());
+    // A host-assigned hash wins so every peer's chain matches the host's;
+    // a locally synthesized one is only for commits nobody else records.
+    QString hash = commitHash.isEmpty()
+        ? liveCommitHash(currentSnapshot, author, ts)
+        : commitHash;
 
-    _currentHistory.appendCommit(
+    st->history.appendCommit(
         hash,
-        _currentHistory.currentHead(),
+        st->history.currentHead(),
         author,
         machineId,
         ts / 1000,
         message,
         hunks);
 
-    _currentHistory.save(_currentPath);
-    _lastSnapshot = currentSnapshot;
+    st->history.save(st->path);
+    st->lastSnapshot = currentSnapshot;
     emit currentFileStateChanged();
+    return hash;
 }
 
 int CollabService::compactHistory(int keepLastN) {
-    if (!_currentInitialized || _currentPath.isEmpty()) return 0;
-    int n = _currentHistory.compactHistory(keepLastN);
+    FileState *st = stateFor(_activeFile);
+    if (!st || !st->initialized || st->path.isEmpty()) return 0;
+    int n = st->history.compactHistory(keepLastN);
     if (n > 0) {
-        _currentHistory.save(_currentPath);
+        st->history.save(st->path);
         emit currentFileStateChanged();
     }
     return n;
@@ -336,36 +415,47 @@ bool CollabService::hasAnyEventAuthors() const {
 }
 
 bool CollabService::isCurrentFileInitialized() const {
-    return _currentInitialized;
+    return isInitialized(_activeFile);
+}
+
+bool CollabService::isInitialized(MidiFile *file) const {
+    const FileState *st = stateFor(file);
+    return st && st->initialized;
 }
 
 bool CollabService::hasCurrentFile() const {
-    return !_currentPath.isEmpty();
+    const FileState *st = stateFor(_activeFile);
+    return st && !st->path.isEmpty();
 }
 
 bool CollabService::initializeCurrentFile(MidiFile *file, const QString &commitMessage) {
+    return initializeFile(file ? file : _activeFile, commitMessage);
+}
+
+bool CollabService::initializeFile(MidiFile *file, const QString &commitMessage) {
     if (!_enabled) return false;
-    if (_currentPath.isEmpty()) return false;
-    if (_currentInitialized) return false;
-    if (CollabHistoryFile::exists(_currentPath)) {
+    FileState *st = stateFor(file);
+    if (!st || st->path.isEmpty()) return false;
+    if (st->initialized) return false;
+    if (CollabHistoryFile::exists(st->path)) {
         // Sidecar exists on disk but we did not load it (e.g. previously
         // failed parse). Try to load it now and treat as initialized.
-        if (_currentHistory.load(_currentPath)) {
-            _currentInitialized = true;
-            if (file) _lastSnapshot = MidiSnapshot::ofFile(file);
+        if (st->history.load(st->path)) {
+            st->initialized = true;
+            st->lastSnapshot = MidiSnapshot::ofFile(file);
             emit currentFileStateChanged();
         }
         return false;
     }
 
-    QString hash = MidiHash::sha256OfFile(_currentPath);
+    QString hash = MidiHash::sha256OfFile(st->path);
     if (hash.isEmpty()) return false;
 
-    _currentHistory = CollabHistoryFile();
-    _currentHistory.setBranch(QStringLiteral("main"));
-    _currentHistory.ensureSessionId();  // assign a fresh UUID for this session
+    st->history = CollabHistoryFile();
+    st->history.setBranch(QStringLiteral("main"));
+    st->history.ensureSessionId();  // assign a fresh UUID for this session
     // Initial commit: no parent, no hunks (nothing to diff against).
-    _currentHistory.appendCommit(
+    st->history.appendCommit(
         hash,
         QString(),  // parentHash = empty for the initial commit
         CollabIdentity::displayName(),
@@ -374,9 +464,9 @@ bool CollabService::initializeCurrentFile(MidiFile *file, const QString &commitM
         commitMessage.isEmpty() ? QStringLiteral("Initialize for collaboration")
                                 : commitMessage);
 
-    if (!_currentHistory.save(_currentPath)) return false;
-    _currentInitialized = true;
-    if (file) _lastSnapshot = MidiSnapshot::ofFile(file);
+    if (!st->history.save(st->path)) return false;
+    st->initialized = true;
+    st->lastSnapshot = MidiSnapshot::ofFile(file);
     // Phase 9.5i: a freshly-init'd file should be discoverable by
     // sessionId immediately (e.g. for a peer joining shortly after).
     if (_knownSidecarsLoaded) refreshKnownSidecars();
@@ -385,28 +475,41 @@ bool CollabService::initializeCurrentFile(MidiFile *file, const QString &commitM
 }
 
 QString CollabService::currentHead() const {
-    return _currentInitialized ? _currentHistory.currentHead() : QString();
+    return currentHead(_activeFile);
+}
+
+QString CollabService::currentHead(MidiFile *file) const {
+    const FileState *st = stateFor(file);
+    return (st && st->initialized) ? st->history.currentHead() : QString();
 }
 
 QString CollabService::sessionId() const {
-    return _currentInitialized ? _currentHistory.sessionId() : QString();
+    return sessionId(_activeFile);
+}
+
+QString CollabService::sessionId(MidiFile *file) const {
+    const FileState *st = stateFor(file);
+    return (st && st->initialized) ? st->history.sessionId() : QString();
 }
 
 QJsonArray CollabService::history() const {
-    return _currentInitialized ? _currentHistory.history() : QJsonArray();
+    const FileState *st = stateFor(_activeFile);
+    return (st && st->initialized) ? st->history.history() : QJsonArray();
 }
 
 QString CollabService::lastSharedHead() const {
-    return _currentInitialized ? _currentHistory.lastSharedHead() : QString();
+    const FileState *st = stateFor(_activeFile);
+    return (st && st->initialized) ? st->history.lastSharedHead() : QString();
 }
 
 void CollabService::markCurrentAsShared() {
-    if (!_currentInitialized) return;
-    QString head = _currentHistory.currentHead();
+    FileState *st = stateFor(_activeFile);
+    if (!st || !st->initialized) return;
+    QString head = st->history.currentHead();
     if (head.isEmpty()) return;
-    if (head == _currentHistory.lastSharedHead()) return;  // no-op
+    if (head == st->history.lastSharedHead()) return;  // no-op
 
-    _currentHistory.setLastSharedHead(head);
-    _currentHistory.save(_currentPath);
+    st->history.setLastSharedHead(head);
+    st->history.save(st->path);
     emit currentFileStateChanged();
 }

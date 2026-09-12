@@ -9,7 +9,8 @@
 #include <QMap>
 #include <QDateTime>
 #include <QTimer>
-#include <QMutex>
+
+#include "McpSessionTable.h"
 
 class MidiFile;
 class MidiPilotWidget;
@@ -99,25 +100,10 @@ private:
         bool valid = false;
     };
 
-    struct Session {
-        QString id;
-        QString clientName;  // e.g. "VS Code Copilot 1.0"
-        QTcpSocket *sseSocket = nullptr;  // SSE connection (GET /mcp)
-        QDateTime created;
-        QDateTime lastActivity;
-        int toolCallCount = 0;
-        QDateTime rateLimitWindow;
-        // Phase 28 (editor groups): the document this session is working on. Like
-        // MidiPilot's run origin, tool calls act on THIS document even if the user
-        // switches tabs, so a read-then-write across a tab switch stays coherent.
-        // get_editor_state resyncs it to the active document; forgetFile() clears
-        // it when that document is closed. nullptr = bind to active on next use.
-        MidiFile *boundFile = nullptr;
-        // Set by forgetFile() when boundFile was the closed document, so the next
-        // non-get_editor_state tool returns an error ("re-read state") instead of
-        // silently rebinding to (and editing) whatever document is now active.
-        bool boundFileClosed = false;
-    };
+    // Session bookkeeping lives in McpSessionTable, which never touches a
+    // socket: closing a stream while holding the session lock re-entered the
+    // lock from the disconnected handler (SP-06).
+    using Session = McpSessionTable::Session;
 
     HttpRequest parseHttpRequest(const QByteArray &data);
     void handleClient(QTcpSocket *socket);
@@ -126,7 +112,8 @@ private:
     // HTTP responses
     void sendJsonResponse(QTcpSocket *socket, int statusCode,
                           const QJsonObject &body,
-                          const QString &sessionId = QString());
+                          const QString &sessionId = QString(),
+                          const QString &allowOrigin = QString());
     void sendErrorResponse(QTcpSocket *socket, int httpStatus,
                            const QString &message);
     void sendSseEvent(QTcpSocket *socket, const QJsonObject &data);
@@ -163,11 +150,10 @@ private:
     QString _authToken;
     quint16 _port = 0;
 
-    QMap<QString, Session> _sessions;
+    McpSessionTable _sessions;
     QMap<QTcpSocket *, QByteArray> _pendingData;
 
     QTimer _cleanupTimer;
-    mutable QMutex _sessionMutex;
 
     static const int MAX_RATE_PER_MINUTE = 100;
     static const int SESSION_TIMEOUT_SECS = 3600;  // 1 hour

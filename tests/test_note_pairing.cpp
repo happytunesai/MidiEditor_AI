@@ -178,6 +178,39 @@ private slots:
     }
 
     // -----------------------------------------------------------------
+    void offEvent_otherTrackSameChannel_thenPairsInSecondPass() {
+        // Review R231-10: files written by 2.3.0's move-to-track carry the
+        // Note-Off in another track than the Note-On. Only pointer identity
+        // is compared, so opaque non-null addresses stand in for tracks.
+        MidiTrack *trackA = reinterpret_cast<MidiTrack *>(0x1000);
+        MidiTrack *trackB = reinterpret_cast<MidiTrack *>(0x2000);
+        NoteOnEvent on(60, 100, 0, trackA);
+        OffEvent off(0, 127 - 60, trackB);
+
+        QCOMPARE(off.onEvent(), static_cast<OnEvent *>(&on));
+        QCOMPARE(OffEvent::corruptedOnEvents().size(), 0);
+    }
+
+    // -----------------------------------------------------------------
+    void offEvent_prefersSameTrack_andNeverAdoptsNullTrackPreviewNote() {
+        MidiTrack *trackA = reinterpret_cast<MidiTrack *>(0x1000);
+        MidiTrack *trackB = reinterpret_cast<MidiTrack *>(0x2000);
+        NoteOnEvent preview(60, 100, 0, nullptr);   // MatrixWidget's piano note
+        NoteOnEvent onOther(60, 100, 0, trackA);
+        NoteOnEvent onSame(60, 100, 0, trackB);
+
+        OffEvent off1(0, 127 - 60, trackB);
+        QCOMPARE(off1.onEvent(), static_cast<OnEvent *>(&onSame));   // pass 1: same track
+        OffEvent off2(0, 127 - 60, trackB);
+        QCOMPARE(off2.onEvent(), static_cast<OnEvent *>(&onOther));  // pass 2: another real track
+        OffEvent off3(0, 127 - 60, trackB);
+        QVERIFY(off3.onEvent() == nullptr);                           // never the preview note
+        QCOMPARE(OffEvent::corruptedOnEvents().size(), 1);
+        QCOMPARE(OffEvent::corruptedOnEvents().first(),
+                 static_cast<OnEvent *>(&preview));
+    }
+
+    // -----------------------------------------------------------------
     void offEvent_pairsByChannelEvenWhenLineEntryIsForeign_thenSkipsForeign() {
         // Two NoteOns on the same line but different channels. An
         // OffEvent for channel 1 must pair with the channel-1 NoteOn,

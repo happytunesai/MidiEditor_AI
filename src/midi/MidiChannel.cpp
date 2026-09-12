@@ -54,6 +54,12 @@ MidiChannel::MidiChannel(MidiChannel &other) {
     _num = other._num;
 }
 
+MidiChannel::~MidiChannel() {
+    // The container only - the events are the document's. A snapshot whose map
+    // reloadState() adopted has _events == nullptr by then (see below).
+    delete _events;
+}
+
 ProtocolEntry *MidiChannel::copy() {
     // v2.2 #3 (undo-memory instrumentation): this is the SINGLE heavy snapshot
     // factory of the undo system - every protocolled channel mutation clones
@@ -87,7 +93,21 @@ void MidiChannel::reloadState(ProtocolEntry *entry) {
         delete _events;
     }
     _events = other->_events;
+    // Ownership moved to this live channel: the snapshot is deleted right
+    // after this call (ProtocolItem::release) and must not free the map we
+    // just adopted (review R231-08).
+    if (other != this) {
+        other->_events = nullptr;
+    }
     _num = other->_num;
+
+    // visible() resolves through ChannelVisibilityManager, not through the
+    // _visible mirror restored above - so undo/redo of Hide/Show channel (and
+    // of Show all / Hide all) was a no-op on screen. Push the restored state
+    // into the manager for THIS document. (Full-review F185)
+    if (_num >= 0 && _num <= 18) {
+        ChannelVisibilityManager::instance().setChannelVisible(_num, _visible, _midiFile);
+    }
 
     // Phase 48: undo/redo swaps the whole event map in. If either side of the
     // swap is the tempo channel, MidiFile's tempo cache no longer describes
@@ -119,9 +139,12 @@ bool MidiChannel::visible() {
 
 void MidiChannel::setVisible(bool b) {
     if (_num < 0 || _num > 18) return;
+    // Snapshot BEFORE mutating (same order as setMute/setSolo): the snapshot is
+    // what undo restores, and the copy ctor carries _visible - taken after the
+    // write it held the NEW value, so undo of Hide/Show was a visible no-op.
+    ProtocolEntry *toCopy = copy();
     ChannelVisibilityManager::instance().setChannelVisible(_num, b, _midiFile);
     _visible = b;
-    ProtocolEntry *toCopy = copy();
     protocol(toCopy, this);
 }
 

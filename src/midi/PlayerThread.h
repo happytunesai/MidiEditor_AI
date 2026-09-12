@@ -20,6 +20,7 @@
 #define PLAYERTHREAD_H_
 
 // Qt includes
+#include <QHash>
 #include <QThread>
 #include <QTimer>
 #include <QElapsedTimer>
@@ -28,6 +29,8 @@
 // Forward declarations
 class MidiFile;
 class MidiEvent;
+class MidiTrack;
+class TimeSignatureEvent;
 
 /**
  * \class PlayerThread
@@ -82,8 +85,24 @@ public:
     /**
      * \brief Sets the MIDI file to play.
      * \param f The MidiFile to play
+     *
+     * Call on the document (GUI) thread before start(): it also snapshots
+     * each track's FFXIV drum program, the one per-track value the playback
+     * loop needs, so the worker never reads MidiTrack::name() itself.
      */
     void setFile(MidiFile *f);
+
+    /**
+     * \brief Starts playback.
+     * \param priority Thread priority to start with
+     *
+     * Hides QThread::start() on purpose: the stop request has to be cleared
+     * HERE, on the calling thread, before the worker exists. Clearing it inside
+     * run() swallowed a stop() that arrived while run() was still in its
+     * prologue, and MidiPlayer::stop()'s wait() then blocked the GUI until the
+     * song ended.
+     */
+    void start(Priority priority = InheritPriority);
 
     /**
      * \brief Stops playback.
@@ -178,6 +197,17 @@ private:
 
     /** \brief Current measure and position tracking */
     int measure, posInMeasure;
+
+    /** \brief Time signature events of the current measure, owned by this thread */
+    QList<TimeSignatureEvent *> *measureEvents;
+
+    /**
+     * \brief FFXIV drum program per track (-1 = none), resolved on the GUI
+     *  thread in setFile() before start(). Read-only while the thread runs,
+     *  so the playback loop never copies a track-name QString the GUI may be
+     *  rewriting (rename / undo) at the same time.
+     */
+    QHash<MidiTrack *, int> trackDrumPrograms;
 };
 
 #endif // PLAYERTHREAD_H_

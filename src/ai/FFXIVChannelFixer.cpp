@@ -5,6 +5,7 @@
 #include "../midi/MidiChannel.h"
 #include "../MidiEvent/MidiEvent.h"
 #include "../MidiEvent/NoteOnEvent.h"
+#include "../MidiEvent/OnEvent.h"
 #include "../MidiEvent/OffEvent.h"
 #include "../MidiEvent/ProgChangeEvent.h"
 #include "../MidiEvent/TextEvent.h"
@@ -75,13 +76,220 @@ QStringList FFXIVChannelFixer::instrumentNames() {
 }
 
 // ---------------------------------------------------------------------------
-// analyzeFile  â€” read-only scan for the tier selection dialog
+// checkEligibility - "is this an FFXIV MIDI at all?" (v2.4.0, review F066)
+// ---------------------------------------------------------------------------
+
+namespace {
+const char *kNoFfxivNamesText =
+    "No FFXIV instrument names detected. "
+    "Track names must match FFXIV instruments (e.g. Piano, Flute, "
+    "ElectricGuitarOverdriven, Snare Drum, etc.).";
+
+// True when `track` has at least one NoteOn on channel `ch`. Shared by the
+// Preserve program fallback in fixChannels() and analyzeFile()'s listing of
+// guitar tracks without a program, so the dialog never announces a fallback
+// the fixer will not perform (review R231-22).
+bool trackPlaysOnChannel(MidiFile *file, MidiTrack *track, int ch) {
+    if (!file || !track || ch < 0 || ch > 15) return false;
+    MidiChannel *channel = file->channel(ch);
+    if (!channel) return false;
+    QMultiMap<int, MidiEvent *> *map = channel->eventMap();
+    for (auto it = map->begin(); it != map->end(); ++it) {
+        if (it.value()->track() == track && dynamic_cast<NoteOnEvent *>(it.value()))
+            return true;
+    }
+    return false;
+}
+} // namespace
+
+QJsonObject FFXIVChannelFixer::checkEligibility(MidiFile *file) {
+    QJsonObject out;
+    out["eligible"]      = false;
+    out["tier2Eligible"] = false;
+    out["reason"]        = QString();
+    out["tier2Reason"]   = QString();
+    out["noteTrackCount"]           = 0;
+    out["ffxivNamedNoteTrackCount"] = 0;
+    out["nonFfxivNoteTracks"]       = QJsonArray();
+
+    if (!file) {
+        out["reason"] = QStringLiteral("No file loaded.");
+        return out;
+    }
+    const int trackCount = file->numTracks();
+    if (trackCount == 0) {
+        out["reason"] = QStringLiteral("No tracks in file.");
+        return out;
+    }
+
+    // One pass over every channel: NoteOn count per (track, channel). This
+    // is what decides "carries notes" and, for unmatched names, whether the
+    // track is a GM drum track parked on channel 9 (same rule Tier 2 applies
+    // via dominantNoteChannel(), computed here without a per-track rescan).
+    QHash<MidiTrack *, QHash<int, int>> notesPerTrack;
+    for (int ch = 0; ch < 16; ch++) {
+        MidiChannel *channel = file->channel(ch);
+        if (!channel) continue;
+        QMultiMap<int, MidiEvent *> *map = channel->eventMap();
+        for (auto it = map->begin(); it != map->end(); ++it) {
+            if (!dynamic_cast<NoteOnEvent *>(it.value())) continue;
+            notesPerTrack[it.value()->track()][ch]++;
+        }
+    }
+
+    int ffxivNameCount = 0;          // every track, notes or not (rule a)
+    int noteTrackCount = 0;
+    bool clampRisk = false;          // rule (c): a melodic note track at index > 15
+    QSet<QString> guitarVariantsWithin16; // guitar variants Tier 2 places by index <= 15
+    int ffxivNamedNoteTrackCount = 0;
+    QJsonArray nonFfxivNoteTracks;
+    QStringList offenders;
+
+    for (int t = 0; t < trackCount; t++) {
+        MidiTrack *track = file->track(t);
+        if (!track) continue;
+        const QString name = track->name();
+        const QString base = stripSuffix(name);
+        const bool isFfxivName = programNumber(base) >= 0;
+        if (isFfxivName) ffxivNameCount++;
+        // Tier 2 registers a guitar variant at its first occurrence (notes or
+        // not) and routes every later track of that variant onto its channel.
+        if (isGuitar(base) && t <= 15) guitarVariantsWithin16.insert(base);
+
+        auto notesIt = notesPerTrack.constFind(track);
+        if (notesIt == notesPerTrack.constEnd()) continue; // no notes: ignored
+        noteTrackCount++;
+        int bestCh = -1, bestCount = 0;
+        for (auto c = notesIt->constBegin(); c != notesIt->constEnd(); ++c) {
+            if (c.value() > bestCount) { bestCount = c.value(); bestCh = c.key(); }
+        }
+        // Rule (c) counts by TRACK INDEX, not by number of note tracks: Tier 2
+        // maps track t onto channel t and clamps t > 15 onto channel 15, so an
+        // idle track 0 plus 16 note tracks still loses the last one. Percussion
+        // (predominantly channel 9) is routed to channel 9 regardless of index.
+        // ...and mirrors Tier 2's routing (review R231-21): a percussion NAME
+        // goes to channel 9 whatever its notes' channel, an unmatched name
+        // stays on channel 9 only when its notes are predominantly there, and
+        // every other track (FFXIV melodic names, guitars) is renumbered.
+        {
+            const bool unmatched = !isGuitar(base) && programNumber(base) < 0;
+            // A guitar variant already placed within the first 16 tracks is
+            // routed onto that first occurrence's channel - no clamp either.
+            const bool duplicateGuitar = isGuitar(base) && guitarVariantsWithin16.contains(base);
+            if (t > 15 && !isPercussion(base) && !duplicateGuitar
+                && !(unmatched && bestCh == 9))
+                clampRisk = true;
+        }
+        if (isFfxivName) {
+            ffxivNamedNoteTrackCount++;
+            continue;
+        }
+
+        // Unmatched name: a track whose notes are predominantly on channel 9
+        // is a GM drum track (e.g. the "Drums" leftover of the FFXIV drum
+        // split). Tier 2 keeps it on channel 9 instead of renumbering it, so
+        // it is part of a legitimate FFXIV file and must not block the gate.
+        if (bestCh == 9) continue;
+
+        const QString shown = name.trimmed().isEmpty()
+            ? QStringLiteral("(unnamed)") : name.trimmed();
+        QJsonObject entry;
+        entry["index"] = t;
+        entry["name"]  = shown;
+        nonFfxivNoteTracks.append(entry);
+        offenders << QStringLiteral("%1 %2").arg(t).arg(shown);
+    }
+
+    out["noteTrackCount"]           = noteTrackCount;
+    out["ffxivNamedNoteTrackCount"] = ffxivNamedNoteTrackCount;
+    out["nonFfxivNoteTracks"]       = nonFfxivNoteTracks;
+
+    // (c) is reported independently of (a)/(b) so the dialog can grey out
+    // Rebuild while Preserve stays available.
+    if (clampRisk) {
+        out["tier2Reason"] = QStringLiteral(
+            "This file has melodic tracks with notes beyond track 16 (MIDI has "
+            "only 16 channels) - Rebuild (Full Reassignment) would merge them "
+            "onto channel 15. Use Preserve (Minimal Changes) instead, or merge "
+            "tracks first. (%1 tracks with notes)").arg(noteTrackCount);
+    } else {
+        out["tier2Eligible"] = true;
+    }
+
+    // (a) zero FFXIV names anywhere - the long-standing message stays.
+    if (ffxivNameCount == 0) {
+        out["reason"] = QString::fromLatin1(kNoFfxivNamesText);
+        return out;
+    }
+
+    // (b) note-carrying tracks that are not FFXIV instruments.
+    if (!offenders.isEmpty()) {
+        const int kMaxListed = 12;
+        QStringList listed = offenders.mid(0, kMaxListed);
+        QString list = listed.join(QStringLiteral(", "));
+        if (offenders.size() > kMaxListed)
+            list += QStringLiteral(" and %1 more").arg(offenders.size() - kMaxListed);
+        out["reason"] = (offenders.size() == 1)
+            ? QStringLiteral("Track %1 is not an FFXIV instrument - rename it first.").arg(list)
+            : QStringLiteral("Tracks %1 are not FFXIV instruments - rename them first.").arg(list);
+        return out;
+    }
+
+    out["eligible"] = true;
+    return out;
+}
+
+// ---------------------------------------------------------------------------
+// autoTier - the tier fixChannels() picks when none is forced (read-only,
+// same rules as its TIER DETECTION block)
+// ---------------------------------------------------------------------------
+
+int FFXIVChannelFixer::autoTier(MidiFile *file) {
+    if (!file || file->numTracks() == 0) return 2;
+    const int trackCount = file->numTracks();
+    QVector<QString> baseNames(trackCount);
+    bool hasGuitar = false;
+    for (int t = 0; t < trackCount; t++) {
+        baseNames[t] = stripSuffix(file->track(t)->name());
+        if (isGuitar(baseNames[t])) hasGuitar = true;
+    }
+    if (!hasGuitar) return 2;
+
+    // (A) a guitar program at tick 0 on any channel -> already configured
+    for (int ch = 0; ch < 16; ch++) {
+        MidiChannel *channel = file->channel(ch);
+        if (!channel) continue;
+        const int prog = channel->progAtTick(0);
+        if (prog >= 27 && prog <= 31) return 3;
+    }
+
+    // (B) a guitar track with notes on more than one guitar channel
+    QSet<int> knownGuitarChs;
+    for (int t = 0; t < trackCount; t++) {
+        if (!isGuitar(baseNames[t])) continue;
+        const int aCh = file->track(t)->assignedChannel();
+        if (aCh >= 0) knownGuitarChs.insert(aCh);
+    }
+    for (int t = 0; t < trackCount; t++) {
+        if (!isGuitar(baseNames[t])) continue;
+        int chsWithNotes = 0;
+        for (int ch : knownGuitarChs) {
+            if (trackPlaysOnChannel(file, file->track(t), ch)) chsWithNotes++;
+        }
+        if (chsWithNotes > 1) return 3;
+    }
+    return 2;
+}
+
+// ---------------------------------------------------------------------------
+// analyzeFile  - read-only scan for the tier selection dialog
 // ---------------------------------------------------------------------------
 
 QJsonObject FFXIVChannelFixer::analyzeFile(MidiFile *file) {
     QJsonObject result;
     if (!file || file->numTracks() == 0) {
         result["valid"] = false;
+        result["eligibility"] = checkEligibility(file);
         return result;
     }
 
@@ -123,6 +331,32 @@ QJsonObject FFXIVChannelFixer::analyzeFile(MidiFile *file) {
         }
     }
 
+    // v2.4.0 (review F065): guitar tracks that play on a channel whose tick-0
+    // program is not a guitar program (27-31) - e.g. a Viola track renamed to
+    // ElectricGuitarOverdriven. Preserve gives such a channel the program of
+    // the track's own variant; the dialog lists them so the user sees why.
+    QJsonArray guitarTracksWithoutProgram;
+    QSet<int> listedChannels;
+    for (int t = 0; t < trackCount; t++) {
+        MidiTrack *track = file->track(t);
+        if (!isGuitar(stripSuffix(track->name()))) continue;
+        // Same channel and the same "plays there" test as the Preserve
+        // fallback in fixChannels() - the two must agree (review R231-22), and
+        // like the fallback one entry per CHANNEL (its first guitar track).
+        int ch = track->assignedChannel();
+        if (ch < 0 || ch > 15) ch = qMin(t, 15);
+        if (listedChannels.contains(ch)) continue;
+        if (!trackPlaysOnChannel(file, track, ch)) continue;
+        const int prog = file->channel(ch)->progAtTick(0);
+        if (prog >= 27 && prog <= 31) continue;
+        listedChannels.insert(ch);
+        QJsonObject entry;
+        entry["index"]   = t;
+        entry["name"]    = track->name();
+        entry["channel"] = ch;
+        guitarTracksWithoutProgram.append(entry);
+    }
+
     // Auto-detect tier
     int autoTier = (ffxivTrackCount > 0) ? 2 : 1;
     if (autoTier == 2 && hasGuitar && hasGuitarPCs)
@@ -137,6 +371,15 @@ QJsonObject FFXIVChannelFixer::analyzeFile(MidiFile *file) {
     result["guitarVariants"]      = QJsonArray::fromStringList(guitarVariants);
     result["percussionTracks"]    = QJsonArray::fromStringList(percussionTracks);
     result["melodicTracks"]       = QJsonArray::fromStringList(melodicTracks);
+    result["guitarTracksWithoutProgram"] = guitarTracksWithoutProgram;
+
+    // v2.4.0 eligibility gate (review F066) - the fields above are unchanged,
+    // the dialog and MainWindow read the gate from here.
+    const QJsonObject gate = checkEligibility(file);
+    result["noteTrackCount"]           = gate["noteTrackCount"];
+    result["ffxivNamedNoteTrackCount"] = gate["ffxivNamedNoteTrackCount"];
+    result["nonFfxivNoteTracks"]       = gate["nonFfxivNoteTracks"];
+    result["eligibility"]              = gate;
     return result;
 }
 
@@ -210,27 +453,27 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
     reportProgress(5, QStringLiteral("Scanning tracks..."));
 
     QVector<QString> baseNames(trackCount);
-    int ffxivTrackCount = 0;
     bool hasGuitar = false;
     QSet<QString> guitarVariantsPresent;
 
     for (int t = 0; t < trackCount; t++) {
         QString base = stripSuffix(file->track(t)->name());
         baseNames[t] = base;
-        if (programNumber(base) >= 0)
-            ffxivTrackCount++;
         if (isGuitar(base)) {
             hasGuitar = true;
             guitarVariantsPresent.insert(base);
         }
     }
 
-    // TIER 1 â€” Not an FFXIV MIDI
-    if (ffxivTrackCount == 0) {
+    // TIER 1 - Not an FFXIV MIDI. v2.4.0 (review F066): the shared
+    // eligibility gate replaces the bare "zero names" test, so one renamed
+    // track in a General MIDI file no longer lets Rebuild loose on the other
+    // eleven. Read-only; a refused file is returned before the first edit.
+    const QJsonObject gate = checkEligibility(file);
+    if (!gate["eligible"].toBool()) {
         result["success"] = false;
-        result["error"] = QStringLiteral("No FFXIV instrument names detected. "
-            "Track names must match FFXIV instruments (e.g. Piano, Flute, "
-            "ElectricGuitarOverdriven, Snare Drum, etc.).");
+        result["error"] = gate["reason"].toString();
+        result["eligibility"] = gate;
         result["tier"] = 1;
         return result;
     }
@@ -292,16 +535,11 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
                 MidiTrack *track = file->track(t);
                 QSet<int> chsWithNotes;
                 for (int ch : knownGuitarChs) {
-                    MidiChannel *channel = file->channel(ch);
-                    if (!channel) continue;
-                    QMultiMap<int, MidiEvent *> *map = channel->eventMap();
-                    for (auto it = map->begin(); it != map->end(); ++it) {
-                        if (it.value()->track() != track) continue;
-                        if (dynamic_cast<NoteOnEvent *>(it.value())) {
-                            chsWithNotes.insert(ch);
-                            break;
-                        }
-                    }
+                    // The helper autoTier() uses as well, so the two detections
+                    // cannot drift - and an assignedChannel above 15 no longer
+                    // reads MidiFile::channel()'s fallback channel (R231-17).
+                    if (trackPlaysOnChannel(file, track, ch))
+                        chsWithNotes.insert(ch);
                 }
                 if (chsWithNotes.size() > 1) {
                     isPreserveMode = true;
@@ -315,6 +553,17 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
     if (forcedTier == 2) isPreserveMode = false;
     else if (forcedTier == 3) isPreserveMode = true;
 
+    // Gate rule (c): Rebuild renumbers tracks onto channels by index, and a
+    // file with more than 16 note-carrying tracks would have the rest merged
+    // onto channel 15. Still read-only at this point; Preserve is unaffected.
+    if (!isPreserveMode && !gate["tier2Eligible"].toBool()) {
+        result["success"] = false;
+        result["error"] = gate["tier2Reason"].toString();
+        result["eligibility"] = gate;
+        result["tier"] = 2;
+        return result;
+    }
+
     // -----------------------------------------------------------------------
     // Build channel assignment map + guitarChannelMap
     // -----------------------------------------------------------------------
@@ -324,6 +573,8 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
     QVector<int> channelFor(trackCount, -1);
     QSet<int> usedChannels;
     QHash<QString, int> guitarChannelMap;
+    QSet<int> idleGuitarTracks;             // Tier 3: guitar tracks without notes on their channel
+    QJsonArray guitarProgramFallbackLog;    // Tier 3: channels that took the program from the track name
 
     if (isPreserveMode) {
         // TIER 3 -- minimal-invasive: assignedChannel() is the ONLY source of truth.
@@ -338,6 +589,35 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
                 int aCh = track->assignedChannel();
                 if (aCh < 0 || aCh > 15) aCh = qMin(t, 15);
                 channelFor[t] = aCh;
+
+                // v2.4.0 (review F065): a guitar track on a channel that has
+                // no guitar program at tick 0 - typically a track the user just
+                // renamed from a melodic instrument (Viola -> Overdriven) - used
+                // to lose the channel's only program change in CLEAN and get
+                // nothing back, so the editor played it as program 0 (piano).
+                //   * The track plays on that channel: the channel takes the
+                //     program of the track's own variant.
+                //   * The track is idle there: the channel is not a guitar
+                //     channel at all - leave it and its owner's program alone.
+                // Configured files carry a 27-31 program on every guitar
+                // channel, so neither branch fires for them and the frozen
+                // Tier-3 result stays byte-identical.
+                if (!guitarChToProgram.contains(aCh)) {
+                    if (!trackPlaysOnChannel(file, track, aCh)) {
+                        idleGuitarTracks.insert(t);
+                        continue;
+                    }
+                    const int prog = programNumber(baseNames[t]);
+                    if (prog >= 0) {
+                        guitarChToProgram[aCh] = prog;
+                        QJsonObject entry;
+                        entry["track"]     = t;
+                        entry["trackName"] = track->name();
+                        entry["channel"]   = aCh;
+                        entry["program"]   = prog;
+                        guitarProgramFallbackLog.append(entry);
+                    }
+                }
                 usedChannels.insert(aCh);
 
                 // Register first-seen variant (for chToVariant fallback)
@@ -423,7 +703,8 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
     if (hasGuitar) {
         // Include ALL guitar track channels (not just first occurrence per variant)
         for (int t = 0; t < trackCount; t++) {
-            if (isGuitar(baseNames[t]) && channelFor[t] >= 0) {
+            if (isGuitar(baseNames[t]) && channelFor[t] >= 0
+                && !idleGuitarTracks.contains(t)) {
                 allGuitarChs.insert(channelFor[t]);
                 guitarChsFromTracks.insert(channelFor[t]);
             }
@@ -441,6 +722,15 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
                 allGuitarChs.insert(it.key());
         }
     }
+
+    // Deterministic iteration order for the two passes below. QSet<int>
+    // iterates in QHash order, which depends on the per-process hash seed, so
+    // a tie (two guitar channels whose earliest NoteOn share a tick) would
+    // resolve differently across app restarts and rename the track / emit the
+    // switch program changes differently for the same file. Lowest channel
+    // number wins, in every run.
+    QList<int> sortedGuitarChs = allGuitarChs.values();
+    std::sort(sortedGuitarChs.begin(), sortedGuitarChs.end());
 
     // -----------------------------------------------------------------------
     // 1b. RESYNC PLAN (Tier 3 opt-in, v2.0) — non-guitar channels whose
@@ -678,7 +968,23 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
 
             for (const auto &info : trackEvents) {
                 if (info.currentCh == targetCh) continue;
+                // WHY: the bulk channel snapshot is a clone of the POINTER map,
+                // so it restores channel membership but not the event's own
+                // numChannel field. Without this small per-event ProtocolItem
+                // undo leaves the event in the old map while it still reports
+                // the new channel (wrong save output, dead delete, duplicated
+                // map entry on the next time edit). The paired OffEvent moves
+                // with its OnEvent and needs the same item.
+                OffEvent *off = nullptr;
+                ProtocolEntry *beforeOff = nullptr;
+                if (OnEvent *on = dynamic_cast<OnEvent *>(info.ev)) {
+                    off = on->offEvent();
+                    if (off) beforeOff = off->copy();
+                }
+                ProtocolEntry *beforeEv = info.ev->copy();
                 info.ev->moveToChannel(targetCh, false);
+                info.ev->protocol(beforeEv, info.ev);
+                if (off) off->protocol(beforeOff, off);
             }
 
             track->assignChannel(targetCh);
@@ -723,7 +1029,7 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
                 // rule — Bug #4 revisit 2026-04-17.)
                 int firstCh = -1;
                 int firstTick = INT_MAX;
-                for (int ch : allGuitarChs) {
+                for (int ch : sortedGuitarChs) {
                     MidiChannel *channel = file->channel(ch);
                     if (!channel) continue;
                     QMultiMap<int, MidiEvent *> *map = channel->eventMap();
@@ -851,7 +1157,7 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
             struct NoteInfo { int tick; int channel; };
             QList<NoteInfo> notes;
 
-            for (int ch : allGuitarChs) {
+            for (int ch : sortedGuitarChs) {
                 MidiChannel *channel = file->channel(ch);
                 if (!channel) continue;
                 QMultiMap<int, MidiEvent *> *map = channel->eventMap();
@@ -862,9 +1168,14 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
                 }
             }
 
+            // (tick, channel) is a total order: comparing the tick alone
+            // leaves equal-tick notes from different channels in an
+            // unspecified order (std::sort is not stable), which changes the
+            // switch program changes emitted below from run to run.
             std::sort(notes.begin(), notes.end(),
                       [](const NoteInfo &a, const NoteInfo &b) {
-                          return a.tick < b.tick;
+                          if (a.tick != b.tick) return a.tick < b.tick;
+                          return a.channel < b.channel;
                       });
 
             int lastCh = -1;
@@ -900,7 +1211,13 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
         for (auto it = map->begin(); it != map->end(); ++it) {
             NoteOnEvent *noteOn = dynamic_cast<NoteOnEvent *>(it.value());
             if (noteOn && noteOn->velocity() > 0 && noteOn->velocity() != 127) {
+                // WHY: the channel snapshot clones only the pointer map and
+                // therefore shares these very NoteOnEvents - mutating
+                // _velocity mutates the snapshot too. A small per-event
+                // ProtocolItem is what actually makes the change undoable.
+                ProtocolEntry *before = noteOn->copy();
                 noteOn->setVelocity(127, false);
+                noteOn->protocol(before, noteOn);
                 velocityChangedCount++;
             }
         }
@@ -959,6 +1276,10 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
     result["resyncedNonGuitarChannels"] = resyncPlan.size();
     if (!resyncLog.isEmpty())
         result["nonGuitarResyncs"] = resyncLog;
+
+    result["guitarProgramFallbacks"] = guitarProgramFallbackLog.size();
+    if (!guitarProgramFallbackLog.isEmpty())
+        result["guitarProgramFallbackLog"] = guitarProgramFallbackLog;
 
     result["success"] = true;
     result["tier"] = tier;

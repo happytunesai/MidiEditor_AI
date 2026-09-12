@@ -81,6 +81,7 @@ ReturningPeerDialog::ReturningPeerDialog(const QString &peerName,
 }
 
 void ReturningPeerDialog::onAcceptAll() {
+    _resolved = true;
     LanLiveSession::instance()->acceptReturningPeerMerge(
         _peerToken, _bundle.hunks, /*rejectedHunks=*/QJsonArray(),
         /*rejectedCommitHashes=*/QStringList());
@@ -104,6 +105,7 @@ void ReturningPeerDialog::onReview() {
     for (const QJsonObject &h : accepted) acceptedArr.append(h);
     QJsonArray rejectedArr;
     for (const QJsonObject &h : rejected) rejectedArr.append(h);
+    _resolved = true;
     LanLiveSession::instance()->acceptReturningPeerMerge(
         _peerToken, acceptedArr, rejectedArr, /*rejectedCommitHashes=*/QStringList());
     accept();
@@ -116,6 +118,20 @@ void ReturningPeerDialog::onReject() {
         tr("Reason (optional, shown to %1):").arg(_peerName),
         QLineEdit::Normal, QString(), &ok);
     if (!ok) return;
+    _resolved = true;
     LanLiveSession::instance()->rejectReturningPeer(_peerToken, reason);
     reject();
+}
+
+void ReturningPeerDialog::reject() {
+    // Escape and the window X land here without passing any of the buttons.
+    // The dialog is delete-on-close and cannot be reopened, so answer the peer
+    // once from here as well - otherwise its merge is never reconciled and the
+    // host keeps a stale pending-merge entry for the rest of the session.
+    if (!_resolved) {
+        _resolved = true;
+        LanLiveSession::instance()->rejectReturningPeer(
+            _peerToken, tr("Host dismissed the merge prompt."));
+    }
+    QDialog::reject();
 }

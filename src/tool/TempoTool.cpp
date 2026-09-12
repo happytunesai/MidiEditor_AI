@@ -14,7 +14,10 @@ TempoTool::TempoTool()
     _startX = -1;
 }
 
-TempoTool::TempoTool(TempoTool &other) : TempoTool() {
+TempoTool::TempoTool(TempoTool &other)
+    : EventTool(other) {
+    // copy like the other tools instead of delegating to the default constructor, which
+    // allocated a fresh icon per snapshot that nothing freed
     _startX = other._startX;
 }
 
@@ -37,12 +40,16 @@ bool TempoTool::press(bool leftClick) {
 }
 
 bool TempoTool::release() {
+    // WHY: MatrixWidget delivers release() for any release inside the tool area, even when the
+    // matching press never reached this tool (piano column / ruler). _startX is the press
+    // sentinel; without a press there is no gesture, and msOfXPos(-1) would otherwise turn the
+    // release into a range edit from the left viewport edge.
+    if (_startX < 0) {
+        return true;
+    }
     int endTick;
     rasteredX(mouseX, &endTick);
-    int startTick = endTick;
-    if (startTick > -1) {
-        startTick = file()->tick(matrixWidget->msOfXPos(_startX));
-    }
+    int startTick = file()->tick(matrixWidget->msOfXPos(_startX));
 
     // Make sure order is correct
     if (endTick < startTick) {

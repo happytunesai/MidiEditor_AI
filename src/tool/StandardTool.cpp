@@ -70,10 +70,6 @@ bool StandardTool::press(bool leftClick) {
         foreach(MidiEvent* ev, *(matrixWidget->activeEvents())) {
             if (pointInRect(mouseX, mouseY, ev->x() - 2, ev->y(), ev->x() + ev->width() + 2,
                             ev->y() + ev->height())) {
-                if (Selection::instance()->selectedEvents().contains(ev)) {
-                    onSelectedEvent = true;
-                }
-
                 int diffToMousePos = 0;
                 int currentAction = NO_ACTION;
 
@@ -128,6 +124,11 @@ bool StandardTool::press(bool leftClick) {
                 }
             }
         }
+
+        // WHY: the flag must describe the event that won the distance contest, not any event whose
+        // hit rect contains the cursor - otherwise grabbing an unselected note next to a selected
+        // one never selects it and the drag operates on the old selection.
+        onSelectedEvent = event && Selection::instance()->selectedEvents().contains(event);
 
         if (event) {
             switch (action) {

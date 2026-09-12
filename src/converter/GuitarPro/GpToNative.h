@@ -143,9 +143,14 @@ public:
     // Per-instance channel availability (thread-safe; replaces C# static)
     bool availableChannels[16] = {};
 
+    // Non-fatal import notes (e.g. two tracks forced onto one MIDI channel),
+    // for the importer to surface with its other warnings.
+    const std::vector<std::string>& importWarnings() const { return warnings_; }
+
 private:
     GpFile* gpFile_;
     std::string title_, subtitle_, artist_, album_, words_, music_;
+    std::vector<std::string> warnings_;
 
     struct NativeTempo {
         int position = 0;
@@ -163,6 +168,7 @@ private:
     std::vector<NativeNote> retrieveNotes(const GpTrack& track,
         const std::vector<int>& tuning, NativeTrack& myTrack);
 
+    void routeChannels();
     void updateAvailableChannels();
     std::unique_ptr<GpMidiTrack> getMidiHeader();
 

@@ -104,9 +104,28 @@ public:
      */
     void setBeats(int beats);
 
+    /**
+     * \brief Exact tempo as stored in the file, in microseconds per quarter
+     *        note (beatsPerQuarter() truncates this to a whole BPM).
+     */
+    int microsPerQuarter() const;
+
+    /**
+     * \brief Sets the exact tempo in microseconds per quarter note (undoable).
+     *
+     * Unlike setBeats() this keeps fractional BPM: the tempo-map scaling of
+     * Convert Tempo writes the exactly scaled tempo instead of a rounded one.
+     */
+    void setMicrosPerQuarter(int value);
+
 private:
-    /** \brief Tempo value in microseconds per quarter note */
+    /** \brief Tempo in whole beats per minute (truncated, display/timing value) */
     int _beats;
+
+    /** \brief Exact tempo in microseconds per quarter note, as read from or
+     *  written to the file. _beats truncates this to whole BPM, so save()
+     *  uses this value to keep a load/save round trip lossless. */
+    int _microsPerQuarter;
 };
 
 #endif // TEMPOCHANGEEVENT_H_

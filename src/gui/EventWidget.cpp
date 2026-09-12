@@ -1110,7 +1110,13 @@ QVariant EventWidget::fieldContent(EditorField field) {
             if (key < 0) {
                 return QVariant("");
             }
-            return QVariant(keyStrings().at(key));
+            // A file may carry any sf byte and keyIndex() is unbounded, so bound the
+            // index - indexing the key list directly ran off its end for large sf.
+            QStringList keys = keyStrings();
+            if (key >= keys.size()) {
+                return QVariant("");
+            }
+            return QVariant(keys.at(key));
         }
         case TimeSignatureNum: {
             int n = -1;
@@ -1232,33 +1238,50 @@ QVariant EventWidget::fieldContent(EditorField field) {
     return QVariant("");
 }
 
-QStringList EventWidget::keyStrings() {
-    QStringList list;
-    for (int i = -6; i <= 6; i++) {
-        list.append(KeySignatureEvent::toString(i, false));
+// SMF allows sf = -7..+7, but KeySignatureEvent::toString() only names -6..+6 and
+// would return a rootless " major"/" minor" for the outer two - name them here so
+// every entry of the key list stays unique and selectable.
+static QString keySignatureName(int tonality, bool minor) {
+    if (tonality == 7) {
+        return minor ? QStringLiteral("a sharp minor") : QStringLiteral("C sharp major");
     }
-    for (int i = -6; i <= 6; i++) {
-        list.append(KeySignatureEvent::toString(i, true));
+    if (tonality == -7) {
+        return minor ? QStringLiteral("a flat minor") : QStringLiteral("C flat major");
+    }
+    return KeySignatureEvent::toString(tonality, minor);
+}
+
+QStringList EventWidget::keyStrings() {
+    // 15 major entries (tonality -7..7), then 15 minor ones. The list used to stop at
+    // +-6, so the legal outer keys had no entry at all and keyIndex() ran past its end.
+    QStringList list;
+    for (int i = -7; i <= 7; i++) {
+        list.append(keySignatureName(i, false));
+    }
+    for (int i = -7; i <= 7; i++) {
+        list.append(keySignatureName(i, true));
     }
     return list;
 }
 
 int EventWidget::keyIndex(int tonality, bool minor) {
-    int center = 6;
+    int center = 7;
     if (minor) {
-        center = 19;
+        center = 22;
     }
     return center + tonality;
 }
 
 void EventWidget::getKey(int index, int *tonality, bool *minor) {
-    if (index > 13) {
+    // The first minor entry is index 15, so the boundary is >= - a strict > decoded
+    // it as a major key and silently rewrote the chosen key signature.
+    if (index >= 15) {
         *minor = true;
-        index -= 13;
+        index -= 15;
     } else {
         *minor = false;
     }
-    *tonality = index - 6;
+    *tonality = index - 7;
 }
 
 QString EventWidget::dataToString(QByteArray data) {

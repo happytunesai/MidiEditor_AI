@@ -74,6 +74,21 @@ MidiEvent *MidiEvent::loadMidiEvent(QDataStream *content, bool *ok, bool *endEve
 
     quint8 prevStartByte = _startByte;
 
+    // The running-status register is a class static shared by every parse, so a
+    // failed event must not leave it pointing at the byte that failed: that value
+    // survived into the next track - and into the next document - where the
+    // running-status retry below could turn a stray data byte into a fabricated
+    // event. Restore it whenever this call reports failure.
+    struct RunningStatusGuard {
+        quint8 saved;
+        const bool *okFlag;
+        ~RunningStatusGuard() {
+            if (!*okFlag) {
+                _startByte = saved;
+            }
+        }
+    } runningStatusGuard{prevStartByte, ok};
+
     if (!startByte) {
         (*content) >> tempByte;
     } else {
@@ -217,20 +232,167 @@ MidiEvent *MidiEvent::loadMidiEvent(QDataStream *content, bool *ok, bool *endEve
 
             switch (tempByte & 0x0F) {
                 case 0x00: {
-                    // SysEx
-                    QByteArray array;
-                    while (tempByte != 0xF7) {
-                        if (content->atEnd()) {
+                    // SysEx: SMF stores F0 <varlen length> <bytes> with the length
+                    // covering the terminating F7. Reading by length instead of
+                    // scanning for F7 keeps the length prefix out of the payload
+                    // (save() re-derives it) and stops an unterminated chunk from
+                    // swallowing the rest of the track.
+                    QIODevice *device = content->device();
+                    const qint64 lengthPos = device ? device->pos() : -1;
+                    // MidiEditor 2.3.0 and earlier saved an EMPTY sysex as the
+                    // bare "F0 F7": a terminator where the length would be.
+                    if (device && lengthPos >= 0 && !content->atEnd()) {
+                        (*content) >> tempByte;
+                        if (tempByte == 0xF7) {
+                            *ok = true;
+                            return new SysExEvent(channel, QByteArray(), track);
+                        }
+                        if (!device->seek(lengthPos)) {
                             *ok = false;
-                            return nullptr;
+                            return 0;
+                        }
+                    }
+                    int sysExLength = MidiFile::variableLengthvalue(content);
+                    if (sysExLength < 0 || sysExLength > 65535) {
+                        *ok = false;
+                        return 0;
+                    }
+                    QByteArray array;
+                    array.reserve(sysExLength);
+                    bool truncated = false;
+                    for (int i = 0; i < sysExLength; i++) {
+                        if (content->atEnd()) {
+                            truncated = true;
+                            break;
                         }
                         (*content) >> tempByte;
-                        if (tempByte != 0xF7) {
+                        array.append((char) tempByte);
+                    }
+                    // Compatibility (review R231-13): MidiEditor 2.3.0 and earlier
+                    // wrote "F0 <data> F7" WITHOUT the length field, so the first
+                    // data byte (a manufacturer id such as 7E) was just read as a
+                    // length. Sysex data bytes are all below 0x80, so an F7 INSIDE
+                    // the chunk (or a chunk running past the track) can only mean
+                    // the old framing: rewind and scan to the terminator instead.
+                    // A length-framed packet that merely lacks the trailing F7 is a
+                    // legitimate multi-packet dump and is kept as read.
+                    const int innerF7 = array.indexOf((char) 0xF7);
+                    // A length of 0 never occurs in a standard file either: it is
+                    // the first byte of an extended manufacturer id (00 xx yy).
+                    bool oldFraming = (innerF7 >= 0 && innerF7 != array.size() - 1)
+                                      || truncated
+                                      || (sysExLength == 0 && !content->atEnd());
+                    // No F7 inside the chunk and not at the end: EITHER the first
+                    // packet of a standard multi-packet dump OR an old-framed
+                    // message whose payload is longer than its first byte (e.g.
+                    // "F0 01 02 03 F7", manufacturer id 01 read as length 1). The
+                    // standard form is followed by a continuation packet:
+                    // <delta> F7 <len> <data bytes < 0x80, last may be F7>, and
+                    // meta events (FF ...) may sit between the packets - they are
+                    // not MIDI data, so the SMF spec allows them there. Look ahead
+                    // for exactly that structure (skipping a bounded number of
+                    // meta events). Exhausting that look-ahead is inconclusive:
+                    // keep the standard framing rather than treating a search
+                    // limit as evidence of an old-framed message.
+                    if (!oldFraming && innerF7 < 0 && device && !content->atEnd()) {
+                        const qint64 afterChunk = device->pos();
+                        bool continuationOk = false;
+                        bool lookaheadLimitReached = false;
+                        constexpr int kMaxLookaheadMetaEvents = 16;
+                        for (int skippedMeta = 0; skippedMeta <= kMaxLookaheadMetaEvents; skippedMeta++) {
+                            const int delta = MidiFile::variableLengthvalue(content);
+                            if (delta < 0 || content->atEnd()) break;
+                            (*content) >> tempByte;
+                            if (tempByte == 0xFF) {
+                                if (skippedMeta == kMaxLookaheadMetaEvents) {
+                                    lookaheadLimitReached = true;
+                                    break;
+                                }
+                                // <type> <len> <data>: skip and look at the next event
+                                if (content->atEnd()) break;
+                                (*content) >> tempByte;
+                                const int metaLen = MidiFile::variableLengthvalue(content);
+                                if (metaLen < 0 || metaLen > 65535) break;
+                                bool metaComplete = true;
+                                for (int i = 0; i < metaLen; i++) {
+                                    if (content->atEnd()) { metaComplete = false; break; }
+                                    (*content) >> tempByte;
+                                }
+                                if (!metaComplete) break;
+                                continue;
+                            }
+                            if (tempByte == 0xF7) {
+                                const int escLen = MidiFile::variableLengthvalue(content);
+                                if (escLen > 0 && escLen <= 65535) {
+                                    continuationOk = true;
+                                    for (int i = 0; i < escLen; i++) {
+                                        if (content->atEnd()) { continuationOk = false; break; }
+                                        (*content) >> tempByte;
+                                        if (tempByte >= 0x80
+                                            && !(tempByte == 0xF7 && i == escLen - 1)) {
+                                            continuationOk = false;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                            break;
+                        }
+                        if (!device->seek(afterChunk)) {
+                            *ok = false;
+                            return 0;
+                        }
+                        oldFraming = !continuationOk && !lookaheadLimitReached;
+                    }
+                    if (oldFraming) {
+                        if (!device || lengthPos < 0 || !device->seek(lengthPos)) {
+                            *ok = false;
+                            return 0;
+                        }
+                        array.clear();
+                        while (true) {
+                            if (content->atEnd() || array.size() > 65535) {
+                                *ok = false;
+                                return 0;
+                            }
+                            (*content) >> tempByte;
+                            if (tempByte == 0xF7) {
+                                break;
+                            }
                             array.append((char) tempByte);
                         }
+                    } else if (!array.isEmpty() && (quint8) array.at(array.size() - 1) == 0xF7) {
+                        array.chop(1);
                     }
                     *ok = true;
                     return new SysExEvent(channel, array, track);
+                }
+
+                case 0x07: {
+                    // SMF escape / sysex continuation: F7 <varlen length> <bytes>.
+                    // Without this case control fell out of both switches into the
+                    // running-status retry below, which re-read the F7 status byte
+                    // as a data byte, set *ok = false and made readTrack() discard
+                    // every remaining event of the track. The payload is kept as an
+                    // UnknownEvent so it survives a save round trip as an ignorable
+                    // meta event, rather than as a live F0 sysex message.
+                    int escLength = MidiFile::variableLengthvalue(content);
+                    if (escLength < 0 || escLength > 65535) {
+                        *ok = false;
+                        return 0;
+                    }
+                    QByteArray escData;
+                    escData.reserve(escLength);
+                    for (int i = 0; i < escLength; i++) {
+                        if (content->atEnd()) {
+                            *ok = false;
+                            return 0;
+                        }
+                        (*content) >> tempByte;
+                        escData.append((char) tempByte);
+                    }
+                    *ok = true;
+                    return new UnknownEvent(channel, (char) 0xF7, escData, track);
                 }
 
                 case 0x0F: {
@@ -385,6 +547,15 @@ MidiEvent *MidiEvent::loadMidiEvent(QDataStream *content, bool *ok, bool *endEve
                         }
                     }
                 }
+
+                default: {
+                    // F1..F6 and F8..FE are not legal inside an SMF track and can
+                    // never be a data byte either, so the running-status retry
+                    // below could only fabricate an event (a CC or ProgChange with
+                    // a bogus payload) out of this status byte. Fail here instead.
+                    *ok = false;
+                    return 0;
+                }
             }
         }
     }
@@ -397,12 +568,19 @@ MidiEvent *MidiEvent::loadMidiEvent(QDataStream *content, bool *ok, bool *endEve
     // previous status byte and this isn't already a recursive call
     // (startByte == 0 means this is a fresh call, not recursive)
     if (startByte != 0 || prevStartByte == 0) {
-        // Already in a recursive call or no valid running status — give up
+        // Already in a recursive call or no valid running status - give up
         *ok = false;
         return nullptr;
     }
     _startByte = prevStartByte;
     return loadMidiEvent(content, ok, endEvent, track, _startByte, tempByte);
+}
+
+void MidiEvent::resetRunningStatus() {
+    // Running status must not cross a track boundary (SMF spec) and must not
+    // cross a document boundary either - the register is a class static shared
+    // by every parse, including MIDI input.
+    _startByte = 0;
 }
 
 void MidiEvent::setTrack(MidiTrack *track, bool toProtocol) {
@@ -526,11 +704,20 @@ void MidiEvent::reloadState(ProtocolEntry *entry) {
         return;
     }
     _track = other->_track;
-    file()->channelEvents(numChannel)->remove(timePos, this);
+    // A channel-level snapshot restored earlier in the same undo/redo step may
+    // already hold this event at its target key (or still at the stale one):
+    // unmap it at BOTH keys, in both channels, before re-inserting, so no map
+    // ever holds the event twice and a stale entry never survives (review
+    // R231-11 - Delete Overlaps redo doubled shortened notes).
+    QMultiMap<int, MidiEvent *> *current = file()->channelEvents(numChannel);
+    current->remove(timePos, this);
+    current->remove(other->timePos, this);
     numChannel = other->numChannel;
-    file()->channelEvents(numChannel)->remove(timePos, this);
+    QMultiMap<int, MidiEvent *> *target = file()->channelEvents(numChannel);
+    target->remove(timePos, this);
+    target->remove(other->timePos, this);
     timePos = other->timePos;
-    file()->channelEvents(numChannel)->insert(timePos, this);
+    target->insert(timePos, this);
     midiFile = other->midiFile;
 }
 

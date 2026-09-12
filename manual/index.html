@@ -179,7 +179,7 @@
     "description": "AI-powered MIDI editor with intelligent copilot, Guitar Pro import, FFXIV bard mode, and FluidSynth playback.",
     "url": "https://midieditor-ai.de",
     "downloadUrl": "https://github.com/happytunesai/MidiEditor_AI/releases/latest",
-    "softwareVersion": "2.3.0",
+    "softwareVersion": "2.4.0",
     "license": "https://github.com/happytunesai/MidiEditor_AI/blob/main/LICENSE",
     "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
 }
@@ -243,7 +243,7 @@
              onerror="this.parentElement.style.display='none';">
     </div>
 
-    <span class="hero-badge">v2.3.0 &middot; Open Source &middot; Windows</span>
+    <span class="hero-badge">v2.4.0 &middot; Open Source &middot; Windows</span>
 
     <h1 class="hero-title">
         The <span class="text-gradient">AI-Powered</span> MIDI Editor
@@ -255,7 +255,7 @@
 
     <div class="hero-actions">
         <a href="download.html" class="btn btn-primary">
-            &#x2B07; Download v2.3.0
+            &#x2B07; Download v2.4.0
         </a>
         <a href="docs-index.html" class="btn btn-secondary" target="_blank" rel="noopener noreferrer">
             &#x1F4D6; Documentation
@@ -651,13 +651,14 @@
     </div>
     <div class="whats-new reveal">
         <span class="latest-badge">Latest</span>
-        <h3>v2.3.0 - August 2026</h3>
-        <p class="whats-new-subtitle">A tempo map that behaves, and AI endpoints you can save by name</p>
+        <h3>v2.4.0 - September 2026</h3>
+        <p class="whats-new-subtitle">A stability pass across the whole editor, MidiPilot across tabs, and GPT-6 Astra</p>
         <ul>
-            <li><strong>Dense tempo maps no longer freeze the editor</strong> - a song carrying thousands of tempo changes (a tempo ramp exported from a DAW) took about ten seconds to start playing and dragged while scrolling. Timing lookups no longer scale with the size of the tempo map: playback starts instantly and the view stays smooth.</li>
-            <li><strong>Thin Tempo Map</strong> - reduce that exported ramp to the events that actually carry the timing. You choose how far the music may move (the default 2 ms is far below anything you can hear), the preview shows kept, removed and the largest shift before anything changes, and the whole thinning is one undo step. Under <em>Tools &rarr; Tempo Tools</em>, on the measure ruler's right-click menu, as a <strong>Check FFXIV Playability</strong> repair - its new Tempo map check names the count and shape - and as the <code>thin_tempo_map</code> tool for MidiPilot and MCP.</li>
-            <li><strong>Provider profiles</strong> - save several AI endpoints (provider, base URL, API key, model) under a name and switch with one click from the Provider dropdown, in Settings and in the MidiPilot footer. A Hugging Face router and a local llama.cpp finally coexist; every custom endpoint keeps its own model list and favourites; a server on your own machine needs no API key; per-file presets can name a profile without ever carrying a URL or a key.</li>
-            <li><strong>Small things that add up</strong> - error messages are stripped of API keys and tokens before they are shown, closing Manage favourites keeps the model you had chosen, and Sync Lyrics is readable in dark themes again.</li>
+            <li><strong>More than 200 fixes for defects present in every release so far</strong> - crashes when closing a tab or switching the MIDI output during playback, undo steps that restored nothing after Fix X|V Channels or a track reorder, Guitar Pro and MusicXML imports that wrote wrong notes and meters, sysex dumps that cut a file short, MidiPilot runs that lost their tool calls on streaming providers, and an editor that could hang invisibly on quit while an MCP client kept its event stream open.</li>
+            <li><strong>MidiPilot sees across tabs</strong> - the agent lists every open document, reads another tab's overview, imports whole tracks from another tab as one undoable step, and - when you explicitly ask - re-points a running agent at another tab. Every step taken elsewhere is labeled with that document's name.</li>
+            <li><strong>GPT-6 Astra</strong> - OpenAI's new model needs its tool calls on the Responses API and has no temperature; MidiPilot routes it accordingly in both modes, knows its 1.05M context and offers its new <em>Max</em> reasoning effort.</li>
+            <li><strong>The Agent Steps panel behaves</strong> - it scrolls in a pane of its own below the chat, follows the step that is running, and the divider can be dragged to the height you like.</li>
+            <li><strong>Small things that add up</strong> - Fix X|V Channels gives a renamed guitar track its program in Preserve mode, live sessions keep one shared history, rendering options apply the moment you change them, and a split view keeps its place when Sync is switched on.</li>
         </ul>
         <a href="changelog.html" class="changelog-link">View Full Changelog &rarr;</a>
     </div>
@@ -716,7 +717,7 @@
     </div>
     <div class="hero-actions reveal" style="margin-bottom: 1.5rem;">
         <a href="download.html" class="btn btn-primary" style="font-size: 1.15rem; padding: 1rem 2.5rem;">
-            &#x2B07; Download MidiEditor AI v2.3.0
+            &#x2B07; Download MidiEditor AI v2.4.0
         </a>
     </div>
     <p class="reveal" style="color: var(--text-muted); font-size: .9rem;">

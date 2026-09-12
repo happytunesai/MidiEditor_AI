@@ -24,7 +24,9 @@
 
 // Qt includes
 #include <QHash>
+#include <QList>
 #include <QMultiMap>
+#include <QPair>
 #include <QMutex>
 #include <QObject>
 
@@ -39,6 +41,7 @@ class TempoChangeEvent;
 class Protocol;
 class MidiChannel;
 class MidiTrack;
+class OffEvent;
 class LyricManager;
 
 /**
@@ -165,10 +168,16 @@ public:
      *        for each drum track that the live MidiOutput injects per
      *        NoteOn — without this a Snare Drum track whose hits land
      *        on a non-GM key would fall through to the bongo preset.
+     * \param markSaved When true (the default) a successful write clears the
+     *        document dirty flag. Pass false for every write that is not the
+     *        document itself - audio-export temp files, auto-save backups,
+     *        clones - otherwise the close prompt is skipped and the pending
+     *        edits are discarded without asking.
      * \return True if save was successful, false otherwise
      */
     bool save(QString path, bool skipMutedTrackEvents = false,
-              const QHash<QString, int> &drumProgramByTrackName = QHash<QString, int>());
+              const QHash<QString, int> &drumProgramByTrackName = QHash<QString, int>(),
+              bool markSaved = true);
 
     /**
      * \brief Writes a delta time value to a byte array.
@@ -853,28 +862,37 @@ private:
     quint64 _tempoCacheRevision = 0;
     int _tempoCacheEventCount = -1;
 
+    // These in-class initializers are load-bearing, not style: the loading
+    // constructor returns early when the file cannot be opened or parsed, and
+    // the callers then delete the half-built object - ~MidiFile must see null
+    // pointers there, not whatever the fresh heap block happened to hold.
     /** \brief Ticks per quarter note resolution */
-    int timePerQuarter;
+    int timePerQuarter = defaultTimePerQuarter;
 
     /** \brief Array of MIDI channels (0-15 standard, 16-18 special) */
-    MidiChannel *channels[19];
+    MidiChannel *channels[19] = {};
+
+    /** \brief Loading only: Note-Offs (with their tick) whose Note-On was not
+     *  pending while their track was read - paired against later tracks' Note-Ons
+     *  at the end of readMidiFile(), dropped if still unpaired. */
+    QList<QPair<OffEvent *, int>> _orphanOffEvents;
 
     /** \brief File path and basic properties */
     QString _path;
-    int midiTicks, maxTimeMS, _cursorTick, _pauseTick, _midiFormat;
+    int midiTicks = 0, maxTimeMS = 0, _cursorTick = 0, _pauseTick = -1, _midiFormat = 1;
 
     /** \brief Protocol system for undo/redo */
-    Protocol *prot;
+    Protocol *prot = nullptr;
 
     /** \brief Lyric manager for lyric block operations */
-    LyricManager *_lyricManager;
+    LyricManager *_lyricManager = nullptr;
 
     /** \brief Player data and state */
-    QMultiMap<int, MidiEvent *> *playerMap;
-    bool _saved;
+    QMultiMap<int, MidiEvent *> *playerMap = nullptr;
+    bool _saved = true;
 
     /** \brief Track management */
-    QList<MidiTrack *> *_tracks;
+    QList<MidiTrack *> *_tracks = nullptr;
     QMap<MidiFile *, QMap<MidiTrack *, MidiTrack *> > pasteTracks;
 };
 

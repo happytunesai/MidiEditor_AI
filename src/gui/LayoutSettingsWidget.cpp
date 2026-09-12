@@ -112,7 +112,11 @@ LayoutSettingsWidget::LayoutSettingsWidget(QWidget *parent)
     loadSettings();
     populateActionsList();
 
-    // Connect item change signals for both lists
+    // Connect item change signals for both lists - exactly once, here.
+    // String-based connect() never de-duplicates, so the populate* helpers must
+    // not connect again: every extra copy makes one checkbox click run
+    // itemCheckStateChanged() once more (a settings flush plus a full,
+    // synchronous toolbar rebuild each time).
     connect(_actionsList, SIGNAL(itemChanged(QListWidgetItem*)), this, SLOT(itemCheckStateChanged(QListWidgetItem*)));
     connect(_secondRowList, SIGNAL(itemChanged(QListWidgetItem*)), this, SLOT(itemCheckStateChanged(QListWidgetItem*)));
 
@@ -409,13 +413,10 @@ void LayoutSettingsWidget::populateActionsList(bool forceRepopulation) {
             }
         }
     }
-    // Unblock signals and connect item change handlers
+    // Unblock signals - itemChanged stays connected once from the constructor;
+    // reconnecting here would duplicate the handler on every repopulation.
     _actionsList->blockSignals(false);
     _secondRowList->blockSignals(false);
-
-    // Connect signals for item changes
-    connect(_actionsList, SIGNAL(itemChanged(QListWidgetItem*)), this, SLOT(itemCheckStateChanged(QListWidgetItem*)));
-    connect(_secondRowList, SIGNAL(itemChanged(QListWidgetItem*)), this, SLOT(itemCheckStateChanged(QListWidgetItem*)));
 }
 
 void LayoutSettingsWidget::populateActionsListFromSaved() {
@@ -467,11 +468,26 @@ void LayoutSettingsWidget::populateActionsListFromSaved() {
     for (const QString &id : row2Actions)
         addItem(id, _secondRowList);
 
+    // Orders persisted by older versions may lack actions that were added to
+    // getComprehensiveActionOrder() later (paste, transpose, ...). An action
+    // that is in neither list can never be switched on and would be dropped
+    // again by the next saveSettings(), so append the missing ids unchecked
+    // (they are not in savedEnabled) to the row the default distribution uses.
+    QStringList row1Defaults, row2Defaults;
+    getDefaultRowDistribution(row1Defaults, row2Defaults);
+    for (const QString &id : getComprehensiveActionOrder()) {
+        if (row1Actions.contains(id) || row2Actions.contains(id))
+            continue;
+        if (_twoRowMode && row2Defaults.contains(id) && !row1Defaults.contains(id))
+            addItem(id, _secondRowList);
+        else
+            addItem(id, _actionsList);
+    }
+
+    // itemChanged stays connected once from the constructor; reconnecting here
+    // would duplicate the handler on every repopulation.
     _actionsList->blockSignals(false);
     _secondRowList->blockSignals(false);
-
-    connect(_actionsList, SIGNAL(itemChanged(QListWidgetItem*)), this, SLOT(itemCheckStateChanged(QListWidgetItem*)));
-    connect(_secondRowList, SIGNAL(itemChanged(QListWidgetItem*)), this, SLOT(itemCheckStateChanged(QListWidgetItem*)));
 }
 
 
@@ -949,14 +965,19 @@ void LayoutSettingsWidget::getDefaultRowDistribution(QStringList &row1Actions, Q
     // Must match getDefaultToolbarRowDistribution() below so the customize UI
     // shows the same arrangement that createCustomToolbar() actually renders
     // on first launch (TOOLBAR-DEFAULT-001 follow-up).
+    // Entries that the curated default toolbar does not ship (paste, transpose,
+    // ...) are listed here as well but stay unchecked, because an action that is
+    // missing from both rows can never be switched on in two-row mode and is
+    // dropped from the stored order by saveSettings().
     row1Actions.clear();
     row2Actions.clear();
 
     // Row 1: Editing / tools / AI / FFXIV-control toggles
     row1Actions << "standard_tool" << "select_left" << "select_right" << "select_single" << "select_box" << "separator3"
-            << "new_note" << "remove_notes" << "copy" << "separator4"
-            << "glue" << "scissors" << "delete_overlaps" << "separator5"
-            << "move_all" << "move_lr" << "move_ud"
+            << "new_note" << "remove_notes" << "copy" << "paste" << "separator4"
+            << "glue" << "glue_all_channels" << "scissors" << "delete_overlaps" << "separator5"
+            << "move_all" << "move_lr" << "move_ud" << "size_change"
+            << "transpose" << "transpose_up" << "transpose_down"
             << "align_left" << "equalize" << "align_right" << "separator6"
             << "quantize" << "magnet" << "separator7"
             << "measure" << "time_signature" << "tempo"
@@ -970,6 +991,16 @@ void LayoutSettingsWidget::getDefaultRowDistribution(QStringList &row1Actions, Q
             << "zoom_hor_in" << "zoom_hor_out" << "zoom_ver_in" << "zoom_ver_out"
             << "lock" << "separator11" << "thru" << "panic"
             << "ffxiv_voice_gauge" << "midi_visualizer" << "lyric_visualizer" << "time_display";
+
+    // Safety net: anything added to getComprehensiveActionOrder() later must
+    // still show up somewhere in the two-row customize UI, so append the
+    // leftovers (spare separators today) to Row 2. They are unchecked unless
+    // getDefaultToolbarEnabledActions() lists them, so the rendered toolbar is
+    // unaffected.
+    for (const QString &actionId : getComprehensiveActionOrder()) {
+        if (!row1Actions.contains(actionId) && !row2Actions.contains(actionId))
+            row2Actions << actionId;
+    }
 }
 
 QStringList LayoutSettingsWidget::getEssentialActionIds() {

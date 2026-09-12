@@ -222,12 +222,30 @@ ChannelListWidget::ChannelListWidget(QWidget *parent)
 }
 
 void ChannelListWidget::setFile(MidiFile *f) {
+    // Editor groups (Phase 28): this dock is shared across documents and is
+    // re-bound on every pane/tab switch. Drop the previous file's protocol
+    // connection and use UniqueConnection so we don't stack a fresh
+    // actionFinished->update() on each switch - every duplicate re-runs the
+    // 17-item refresh (a progAtTick scan each) for one edit. Mirrors the
+    // disconnect+UniqueConnection treatment in TrackListWidget::setFile.
+    if (file && file != f && file->protocol()) {
+        disconnect(file->protocol(), SIGNAL(actionFinished()), this, SLOT(update()));
+    }
     file = f;
-    connect(file->protocol(), SIGNAL(actionFinished()), this, SLOT(update()));
+    if (file && file->protocol()) {
+        connect(file->protocol(), SIGNAL(actionFinished()), this, SLOT(update()),
+                Qt::UniqueConnection);
+    }
     update();
 }
 
 void ChannelListWidget::update() {
+    // Every row resolves through midiFile(); with no document bound there is
+    // nothing to refresh (setFile(nullptr) is a legal state).
+    if (!file) {
+        QListWidget::update();
+        return;
+    }
     foreach(ChannelListItem* item, items) {
         item->onBeforeUpdate();
     }

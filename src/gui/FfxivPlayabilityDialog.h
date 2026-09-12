@@ -161,6 +161,12 @@ private:
 
     FfxivPlayabilityReport _report;
 
+    /** Bumped by every refresh(). The tree's context menu runs a nested
+     *  event loop, so it compares this before and after menu.exec() to tell
+     *  whether the note pointers it captured still belong to the report the
+     *  user right-clicked on. */
+    int _reportGeneration = 0;
+
     QCheckBox *_checkSimultaneous = nullptr;
     QCheckBox *_checkDuplicates = nullptr;
     QCheckBox *_checkRange = nullptr;

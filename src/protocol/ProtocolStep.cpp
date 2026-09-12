@@ -25,7 +25,14 @@
 ProtocolStep::ProtocolStep(QString description, QImage *img) {
     _stepDescription = description;
     _itemStack = new QStack<ProtocolItem *>;
-    _image = img;
+    // WHY: the pointer is borrowed at some call sites (a tool's own icon) and
+    // heap-allocated at others, and releaseStep() handed the same raw pointer
+    // to the reverse step, so the step could neither own nor free it. Copying
+    // the (implicitly shared) image gives every step its own safe reference.
+    _hasImage = (img != nullptr);
+    if (_hasImage) {
+        _image = *img;
+    }
 }
 
 ProtocolStep::~ProtocolStep() {
@@ -39,7 +46,7 @@ void ProtocolStep::addItem(ProtocolItem *item) {
 
 ProtocolStep *ProtocolStep::releaseStep() {
     // create the invere Step
-    ProtocolStep *step = new ProtocolStep(_stepDescription, _image);
+    ProtocolStep *step = new ProtocolStep(_stepDescription, _hasImage ? &_image : nullptr);
 
     // Copy the Single steps and release them
     while (!_itemStack->isEmpty()) {
@@ -59,5 +66,5 @@ QString ProtocolStep::description() {
 }
 
 QImage *ProtocolStep::image() {
-    return _image;
+    return _hasImage ? &_image : nullptr;
 }

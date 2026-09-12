@@ -184,6 +184,14 @@ const QStringList kCoreToolNames = {
     QStringLiteral("copy_events_to_track"),    // Phase 46 pt 3 (octet #2)
     QStringLiteral("search_help"),             // Phase 44 manual bot
     QStringLiteral("get_help_section"),        // Phase 44 manual bot
+    // v2.4.0 cross-tab tools. list_documents was MCP-only from v2.0 and is
+    // now CORE (the MCP server no longer appends its own copy); the other two
+    // are new. switch_document is deliberately NOT here - its definition is
+    // gated behind ToolSchemaOptions::includeDocumentSwitch (AgentRunner opts
+    // in; the MCP server appends its OWN activate-the-tab variant instead).
+    QStringLiteral("list_documents"),
+    QStringLiteral("get_document_overview"),
+    QStringLiteral("import_tracks_from_document"),
 };
 
 // Extra tools added when FFXIV mode is ON.
@@ -674,6 +682,255 @@ private slots:
     }
 
     // -----------------------------------------------------------------
+    // v2.4.0 cross-tab tools: list_documents / get_document_overview /
+    // import_tracks_from_document are CORE; switch_document is opt-in.
+    // The generic strict-mode sweep above already covers their shape - the
+    // slots below pin each tool's OWN contract so a later edit cannot
+    // quietly change it.
+
+    // list_documents was appended by McpServer::convertToolSchemas from v2.0
+    // to v2.3.0; the core definition replaced that append, and existing MCP
+    // clients must see a byte-identical tool. Full-string compare, not
+    // contains(): the description IS the MCP compatibility surface.
+    void crossTab_listDocuments_isParameterlessWithVerbatimMcpDescription() {
+        const QJsonObject fn = findTool(QStringLiteral("list_documents"));
+        QVERIFY2(!fn.isEmpty(), "list_documents is not in the CORE tool list");
+        QCOMPARE(fn.value(QStringLiteral("description")).toString(),
+                 QStringLiteral(
+                     "List all documents (tabs) open in the editor across both "
+                     "editor groups: index, title, file path, group (0 = left, "
+                     "1 = right), active and modified flags. Use the index with "
+                     "switch_document."));
+        const QJsonObject params = fn.value(QStringLiteral("parameters")).toObject();
+        QVERIFY(params.value(QStringLiteral("properties")).toObject().isEmpty());
+        QVERIFY(params.value(QStringLiteral("required")).toArray().isEmpty());
+    }
+
+    void crossTab_getDocumentOverview_requiresIndexAndPromisesNoRebind() {
+        const QJsonObject fn = findTool(QStringLiteral("get_document_overview"));
+        QVERIFY2(!fn.isEmpty(), "get_document_overview is not in the CORE tool list");
+
+        const QJsonObject params = fn.value(QStringLiteral("parameters")).toObject();
+        const QJsonObject props = params.value(QStringLiteral("properties")).toObject();
+        QCOMPARE(props.size(), 1);
+        // documentIndex is truly mandatory: a plain integer, NO null branch -
+        // the required-gate in executeTool must reject its omission.
+        QCOMPARE(props.value(QStringLiteral("documentIndex")).toObject()
+                     .value(QStringLiteral("type")).toString(),
+                 QStringLiteral("integer"));
+        const QJsonArray required = params.value(QStringLiteral("required")).toArray();
+        QCOMPARE(required.size(), 1);
+        QCOMPARE(required.first().toString(), QStringLiteral("documentIndex"));
+
+        // The read-only promise is the tool's whole point (v1.9 binding
+        // invariant: reads of another tab must never move the run).
+        const QString desc = fn.value(QStringLiteral("description")).toString();
+        QVERIFY2(desc.contains(QStringLiteral("Does NOT switch, activate, or re-bind")),
+                 qPrintable(desc));
+        QVERIFY2(desc.contains(QStringLiteral("Read-only")), qPrintable(desc));
+    }
+
+    // Same STRICT-SCHEMA-001 idiom as thin_tempo_map: every property in
+    // `required`, optionality = anyOf[<type>, null], dryRun defaulting true.
+    void crossTab_importTracks_schemaIsStrictWithOptionalNullBranches() {
+        const QJsonObject fn = findTool(QStringLiteral("import_tracks_from_document"));
+        QVERIFY2(!fn.isEmpty(), "import_tracks_from_document is not in the CORE tool list");
+
+        const QJsonObject params = fn.value(QStringLiteral("parameters")).toObject();
+        const QJsonObject props = params.value(QStringLiteral("properties")).toObject();
+        QStringList required;
+        for (const QJsonValue &rv : params.value(QStringLiteral("required")).toArray())
+            required << rv.toString();
+        QCOMPARE(required.size(), props.size());
+        for (const QString &key : {QStringLiteral("documentIndex"),
+                                   QStringLiteral("trackIndexes"),
+                                   QStringLiteral("dryRun")}) {
+            QVERIFY2(props.contains(key), qPrintable(key));
+            QVERIFY2(required.contains(key), qPrintable(key));
+        }
+
+        // documentIndex is mandatory (no null branch)...
+        QCOMPARE(props.value(QStringLiteral("documentIndex")).toObject()
+                     .value(QStringLiteral("type")).toString(),
+                 QStringLiteral("integer"));
+        // ...the other two are optional in substance: null branch present, so
+        // executeTool's allowsNull escape lets callers omit them.
+        for (const QString &key : {QStringLiteral("trackIndexes"),
+                                   QStringLiteral("dryRun")}) {
+            bool nullBranch = false;
+            for (const QJsonValue &b : props.value(key).toObject()
+                                           .value(QStringLiteral("anyOf")).toArray()) {
+                if (b.toObject().value(QStringLiteral("type")).toString()
+                    == QStringLiteral("null"))
+                    nullBranch = true;
+            }
+            QVERIFY2(nullBranch,
+                     qPrintable(QStringLiteral("%1 has no null branch, so the "
+                                               "model cannot omit it").arg(key)));
+        }
+
+        // The description carries the whole cross-tab contract the model works
+        // from: dry-run-confirm gate, source untouched, collisions and tempo
+        // difference reported (never remapped/blocked), tick rescaling.
+        const QString desc = fn.value(QStringLiteral("description")).toString();
+        QVERIFY2(desc.contains(QStringLiteral("dryRun=true")), qPrintable(desc));
+        QVERIFY2(desc.contains(QStringLiteral("dryRun=false")), qPrintable(desc));
+        QVERIFY2(desc.contains(QStringLiteral("source document is not modified")),
+                 qPrintable(desc));
+        QVERIFY2(desc.contains(QStringLiteral("reported")), qPrintable(desc));
+        QVERIFY2(desc.contains(QStringLiteral("rescaled")), qPrintable(desc));
+        QVERIFY2(desc.contains(QStringLiteral("One undoable step")), qPrintable(desc));
+    }
+
+    // switch_document's DEFINITION exists only behind
+    // ToolSchemaOptions::includeDocumentSwitch. Both default-options consumers
+    // depend on its absence: the MCP server appends its OWN switch_document
+    // (activate-the-tab contract) and must not see a shadowing second
+    // definition, and executeTool's required-gate walks the default schema.
+    void switchDocument_definitionIsOptInOnly() {
+        setFfxivMode(true); // prove the gate composes with the FFXIV gate too
+
+        const QJsonArray defaults = ToolDefinitions::toolSchemas();
+        QVERIFY2(findToolIn(defaults, QStringLiteral("switch_document")).isEmpty(),
+                 "switch_document leaked into the default (MCP-facing) schema");
+        QCOMPARE(defaults.size(), kCoreToolNames.size() + kFfxivToolNames.size());
+
+        ToolDefinitions::ToolSchemaOptions opts;
+        opts.includeDocumentSwitch = true;
+        const QJsonArray withSwitch = ToolDefinitions::toolSchemas(opts);
+        QCOMPARE(withSwitch.size(), defaults.size() + 1);
+
+        const QJsonObject fn = findToolIn(withSwitch, QStringLiteral("switch_document"));
+        QVERIFY2(!fn.isEmpty(), "includeDocumentSwitch=true did not add switch_document");
+        QCOMPARE(fn.value(QStringLiteral("strict")).toBool(), true);
+
+        const QJsonObject params = fn.value(QStringLiteral("parameters")).toObject();
+        const QJsonObject props = params.value(QStringLiteral("properties")).toObject();
+        QCOMPARE(props.size(), 1);
+        QCOMPARE(props.value(QStringLiteral("index")).toObject()
+                     .value(QStringLiteral("type")).toString(),
+                 QStringLiteral("integer"));
+        const QJsonArray required = params.value(QStringLiteral("required")).toArray();
+        QCOMPARE(required.size(), 1);
+        QCOMPARE(required.first().toString(), QStringLiteral("index"));
+
+        // The MidiPilot variant's UI semantics live in this description: the
+        // visible tab stays put (deliberate difference to MCP's variant), the
+        // model must re-read state after switching, and the tool is reserved
+        // for explicit user requests.
+        const QString desc = fn.value(QStringLiteral("description")).toString();
+        QVERIFY2(desc.contains(QStringLiteral("visible tab does NOT change")),
+                 qPrintable(desc));
+        QVERIFY2(desc.contains(QStringLiteral("get_editor_state")), qPrintable(desc));
+        QVERIFY2(desc.contains(QStringLiteral("ONLY when the user explicitly asks")),
+                 qPrintable(desc));
+        QVERIFY2(desc.contains(QStringLiteral("undo steps land")), qPrintable(desc));
+
+        // The opted-in schema ships to real providers - it has to satisfy the
+        // same strict-mode contract as the default set (one violation rejects
+        // the whole request).
+        QStringList problems;
+        for (const QJsonValue &v : withSwitch) {
+            const QJsonObject f = v.toObject().value(QStringLiteral("function")).toObject();
+            checkStrictObject(f.value(QStringLiteral("parameters")).toObject(),
+                              f.value(QStringLiteral("name")).toString(),
+                              QStringLiteral("parameters"), problems);
+        }
+        QVERIFY2(problems.isEmpty(),
+                 qPrintable(problems.join(QStringLiteral("\n  "))));
+        clearFfxivMode();
+    }
+
+    // Reaching the generic dispatcher with switch_document means a caller ran
+    // it without a runner (the AgentRunner intercepts it pre-dispatch to
+    // re-bind the run; the MCP server intercepts it pre-bound-file-resolution
+    // to activate the tab). The refusal must be structured and must say that
+    // nothing was switched - never a success, never the generic "Unknown
+    // tool" (which would read as a wiring bug rather than a contract).
+    void executeTool_switchDocument_isRefusedByGenericDispatch() {
+        for (const QJsonObject &args :
+             {QJsonObject{{QStringLiteral("index"), 1}}, QJsonObject{}}) {
+            const QJsonObject r = ToolDefinitions::executeTool(
+                QStringLiteral("switch_document"), args, nullptr, nullptr);
+            QCOMPARE(r.value(QStringLiteral("success")).toBool(true), false);
+            QCOMPARE(r.value(QStringLiteral("handledBy")).toString(),
+                     QStringLiteral("runtime"));
+            const QString err = r.value(QStringLiteral("error")).toString();
+            QVERIFY2(err.contains(QStringLiteral("No document was switched.")),
+                     qPrintable(err));
+            QVERIFY2(!err.contains(QStringLiteral("Unknown tool")), qPrintable(err));
+        }
+    }
+
+    // list_documents takes no arguments and needs neither a file nor (at the
+    // validation layer) a widget: the call must get past the required-gate
+    // and reach its own read executor. (This build stubs the executor out, so
+    // the "Stub build" error text is the proof of arrival - same trick as
+    // thinTempoMap_acceptsNullAndOmittedArgs.)
+    void executeTool_listDocuments_acceptsEmptyArgsAndDispatchesToItsExecutor() {
+        const QJsonObject r = ToolDefinitions::executeTool(
+            QStringLiteral("list_documents"), QJsonObject{}, nullptr, nullptr);
+        const QString err = r.value(QStringLiteral("error")).toString();
+        QVERIFY2(err.contains(QStringLiteral("Stub build: list_documents")),
+                 qPrintable(err));
+    }
+
+    void executeTool_getDocumentOverview_gatesOnDocumentIndex() {
+        // Missing documentIndex fails fast at the schema-derived gate...
+        QJsonObject r = ToolDefinitions::executeTool(
+            QStringLiteral("get_document_overview"), QJsonObject{}, nullptr, nullptr);
+        QCOMPARE(r.value(QStringLiteral("success")).toBool(), false);
+        QString err = r.value(QStringLiteral("error")).toString();
+        QVERIFY2(err.contains(QStringLiteral("missing required")), qPrintable(err));
+        QVERIFY2(err.contains(QStringLiteral("documentIndex")), qPrintable(err));
+
+        // ...and with it, the call reaches the (stubbed) read executor.
+        r = ToolDefinitions::executeTool(
+            QStringLiteral("get_document_overview"),
+            QJsonObject{{QStringLiteral("documentIndex"), 1}}, nullptr, nullptr);
+        err = r.value(QStringLiteral("error")).toString();
+        QVERIFY2(err.contains(QStringLiteral("Stub build: get_document_overview")),
+                 qPrintable(err));
+    }
+
+    // The required-gate must demand ONLY documentIndex: trackIndexes and
+    // dryRun carry null branches, so the allowsNull escape has to let both an
+    // explicit null and a plain omission through (that escape breaking is
+    // exactly how auto_fit_voice_load once rejected valid calls).
+    void executeTool_importTracks_gatesOnlyOnDocumentIndex() {
+        const QJsonObject r = ToolDefinitions::executeTool(
+            QStringLiteral("import_tracks_from_document"), QJsonObject{},
+            nullptr, nullptr);
+        QCOMPARE(r.value(QStringLiteral("success")).toBool(), false);
+        const QString err = r.value(QStringLiteral("error")).toString();
+        QVERIFY2(err.contains(QStringLiteral("documentIndex")), qPrintable(err));
+        QVERIFY2(!err.contains(QStringLiteral("trackIndexes")), qPrintable(err));
+        QVERIFY2(!err.contains(QStringLiteral("dryRun")), qPrintable(err));
+    }
+
+    void executeTool_importTracks_acceptsNullAndOmittedOptionals() {
+        QJsonObject nulls;
+        nulls[QStringLiteral("documentIndex")] = 1;
+        nulls[QStringLiteral("trackIndexes")] = QJsonValue::Null;
+        nulls[QStringLiteral("dryRun")] = QJsonValue::Null;
+        QJsonObject omitted;
+        omitted[QStringLiteral("documentIndex")] = 1;
+        for (const QJsonObject &args : {nulls, omitted}) {
+            const QJsonObject r = ToolDefinitions::executeTool(
+                QStringLiteral("import_tracks_from_document"), args,
+                nullptr, nullptr);
+            const QString err = r.value(QStringLiteral("error")).toString();
+            QVERIFY2(!err.contains(QStringLiteral("missing required")), qPrintable(err));
+            // Past the gate = the (stubbed) executor answered, proving the
+            // tool dispatches to its OWN Protocol-action path, not to
+            // widget->executeAction.
+            QVERIFY2(err.contains(QStringLiteral(
+                         "Stub build: import_tracks_from_document")),
+                     qPrintable(err));
+        }
+    }
+
+    // -----------------------------------------------------------------
     // Phase 31 — public isPitchBendOnlyPayload helper used by AgentRunner.
     void isPitchBendOnlyPayload_detectsAllPitchBend() {
         QJsonArray evs;
@@ -836,6 +1093,22 @@ private slots:
     }
 
 private:
+    // Find one tool's "function" object in a schema array; empty when absent.
+    static QJsonObject findToolIn(const QJsonArray &tools, const QString &name) {
+        for (const QJsonValue &v : tools) {
+            const QJsonObject fn =
+                v.toObject().value(QStringLiteral("function")).toObject();
+            if (fn.value(QStringLiteral("name")).toString() == name)
+                return fn;
+        }
+        return QJsonObject();
+    }
+
+    // Same, over the default (no-options) schema.
+    static QJsonObject findTool(const QString &name) {
+        return findToolIn(ToolDefinitions::toolSchemas(), name);
+    }
+
     // Recursive strict-mode check: every object schema must require all of its
     // properties and forbid extra ones. Descends into properties, anyOf/oneOf
     // branches and array items, because a nested event schema is validated just

@@ -31,6 +31,7 @@ SelectTool::SelectTool(int type)
     stool_type = type;
     x_rect = 0;
     y_rect = 0;
+    _pressed = false;
     switch (stool_type) {
         case SELECTION_TYPE_BOX: {
             setImage(":/run_environment/graphics/tool/select_box.png");
@@ -60,6 +61,7 @@ SelectTool::SelectTool(SelectTool &other)
     stool_type = other.stool_type;
     x_rect = 0;
     y_rect = 0;
+    _pressed = false;
 }
 
 void SelectTool::draw(QPainter *painter) {
@@ -87,6 +89,7 @@ void SelectTool::draw(QPainter *painter) {
 
 bool SelectTool::press(bool leftClick) {
     Q_UNUSED(leftClick);
+    _pressed = true;
     if (stool_type == SELECTION_TYPE_BOX) {
         y_rect = mouseY;
         x_rect = mouseX;
@@ -96,6 +99,9 @@ bool SelectTool::press(bool leftClick) {
 
 bool SelectTool::release() {
     if (!file()) {
+        // The gesture is over either way - a stale flag would let the next
+        // press-less release (right-click) fall through into the main action.
+        _pressed = false;
         return false;
     }
     file()->protocol()->startNewAction("Selection changed", image());
@@ -155,7 +161,10 @@ bool SelectTool::release() {
             end = file()->endTick();
             start = tick;
         }
-        foreach(MidiEvent* event, *(file()->eventsBetween(start, end))) {
+        // eventsBetween() heap-allocates the list and hands ownership over;
+        // iterating the dereferenced pointer directly leaked it on every click.
+        QList<MidiEvent *> *between = file()->eventsBetween(start, end);
+        foreach(MidiEvent* event, *between) {
             if (dynamic_cast<OffEvent *>(event) || event->track()->hidden()) {
                 continue;
             }
@@ -165,12 +174,14 @@ bool SelectTool::release() {
                 newSelection.append(event);
             }
         }
+        delete between;
     }
 
     Selection::instance()->setSelection(newSelection);
 
     x_rect = 0;
     y_rect = 0;
+    _pressed = false;
 
     protocol(toCopy, this);
     file()->protocol()->endAction();
@@ -207,10 +218,27 @@ void SelectTool::reloadState(ProtocolEntry *entry) {
     EventTool::reloadState(entry);
     x_rect = 0;
     y_rect = 0;
+    _pressed = false;
     stool_type = other->stool_type;
 }
 
 bool SelectTool::releaseOnly() {
+    // releaseOnly() is the "do NOT run the main action" hook. MatrixWidget also
+    // routes a plain right-click release here, and the matching press was
+    // suppressed - running release() then wiped the selection and rebuilt it
+    // from a box anchored at the widget origin, which the context menu that
+    // follows would act on. Only a release that belongs to our own press may
+    // finish the gesture (a box dragged out of the tool area still completes).
+    if (!_pressed) {
+        x_rect = 0;
+        y_rect = 0;
+        if (_standardTool) {
+            Tool::setCurrentTool(_standardTool);
+            _standardTool->move(mouseX, mouseY);
+            _standardTool->release();
+        }
+        return true;
+    }
     return release();
 }
 

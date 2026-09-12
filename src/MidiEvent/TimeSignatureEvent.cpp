@@ -56,9 +56,19 @@ int TimeSignatureEvent::num32In4() {
 int TimeSignatureEvent::ticksPerMeasure() {
     if (!file() || numerator <= 0 || denominator < 0)
         return 1;
+    // Both inputs arrive unvalidated from the file: the 0x58 denominator byte is
+    // read as a full 0..255 value and the MThd division word may be 0. A shift of
+    // 12 or more already truncates the division below to 0 - the old `denom == 0`
+    // check could never catch that - and callers use the result raw, so a 0 here
+    // means an integer division by zero (MidiFile::startTickOfMeasure) or a paint
+    // loop that never advances (MatrixWidget). Keep the result strictly positive.
+    if (denominator > 15) {
+        int fallback = 4 * file()->ticksPerQuarter();
+        return fallback > 0 ? fallback : 1;
+    }
     int denom = 1 << denominator;
-    if (denom == 0) return 1;
-    return (4 * numerator * file()->ticksPerQuarter()) / denom;
+    int tpm = (4 * numerator * file()->ticksPerQuarter()) / denom;
+    return tpm > 0 ? tpm : 1;
 }
 
 int TimeSignatureEvent::measures(int ticks, int *ticksLeft) {

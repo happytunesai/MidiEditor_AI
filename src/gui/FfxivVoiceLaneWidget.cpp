@@ -40,6 +40,18 @@ void FfxivVoiceLaneWidget::setFile(MidiFile *file) {
     if (_file) {
         disconnect(_file, SIGNAL(cursorPositionChanged()), this, SLOT(update()));
     }
+    if (file != _file) {
+        // Both cached curves belong to the OLD document; the visible-share
+        // cache is only keyed by the set of hidden track numbers, which is
+        // easily identical in the next tab, so without this reset the first
+        // repaints after a tab switch paint the previous song's voice load
+        // (the analyzer only refreshes it ~100 ms later, debounced).
+        _visibleShareValid = false;
+        _hiddenTracksCache.clear();
+        _visibleShareSamples.clear();
+        _previewSamples.clear();
+        _previewActive = false;
+    }
     _file = file;
     if (file) {
         FfxivVoiceAnalyzer::instance()->watchFile(file);

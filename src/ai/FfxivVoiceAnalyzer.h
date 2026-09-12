@@ -135,7 +135,10 @@ private:
     QHash<MidiFile *, Result> _cache;
     QHash<MidiFile *, QMetaObject::Connection> _protocolConns;
     QTimer _debounce;
-    QPointer<MidiFile> _pendingRebuild;
+    // Every file scheduled inside the current debounce window. A single slot
+    // dropped all but the last one, so re-enabling the analyser left the other
+    // open documents with no cache at all.
+    QList<QPointer<MidiFile>> _pendingRebuilds;
     bool _enabled = true;
 };
 

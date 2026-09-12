@@ -38,7 +38,11 @@ Tool::Tool() {
 }
 
 Tool::Tool(Tool &other) {
-    _image = other._image ? new QImage(*other._image) : nullptr;
+    // WHY: snapshots made for the protocol share the live tool's icon instead of deep-copying it.
+    // Nothing ever freed those copies (Tool has no destructor and reloadState() aliases _image
+    // back), so every protocolled selection leaked one QImage; the live tool owns the icon and
+    // outlives every snapshot and every ProtocolStep that stores the pointer.
+    _image = other._image;
     _imagePath = other._imagePath;
     _button = other._button;
     _toolTip = other._toolTip;

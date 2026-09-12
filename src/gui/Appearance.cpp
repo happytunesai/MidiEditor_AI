@@ -578,6 +578,9 @@ void Appearance::reset() {
     forceResetAllColors();
     customChannelColors.clear(); // Clear custom color tracking - all colors are now "default"
     customTrackColors.clear(); // Clear custom color tracking - all colors are now "default"
+    // WHY: the default palette is in effect now, so the remembered preset must follow -
+    // otherwise the combo keeps naming (and persisting) a palette that is not applied.
+    _colorPreset = PresetDefault;
 }
 
 void Appearance::autoResetDefaultColors() {
@@ -697,7 +700,9 @@ void Appearance::applyColorPreset(ColorPreset preset) {
     _colorPreset = preset;
 
     if (preset == PresetDefault) {
-        forceResetAllColors();
+        // WHY: reset() also clears the custom-colour flags the previous preset set;
+        // forceResetAllColors() alone froze the palette at the current theme defaults.
+        reset();
         return;
     }
 
@@ -844,7 +849,9 @@ void Appearance::applyColorPreset(ColorPreset preset) {
         colors[i].setAlpha(alpha);
         setChannelColor(i, colors[i]);
     }
-    for (int i = 0; i < 16; i++) {
+    // WHY: trackToColorIndex() maps track i to slot (i - 1) mod 17, so 17 iterations
+    // are needed to reach every slot - stopping at 16 left slot 15 unwritten.
+    for (int i = 0; i < 17; i++) {
         setTrackColor(i, colors[i]);
     }
 }
@@ -926,17 +933,30 @@ QString Appearance::applicationStyle() {
 }
 
 void Appearance::setApplicationStyle(const QString &style) {
-    // Prevent rapid successive theme changes that might cause crashes
-    QDateTime now = QDateTime::currentDateTime();
-    if (lastThemeChange.isValid() && lastThemeChange.msecsTo(now) < 500) {
-        return;
-    }
-    lastThemeChange = now;
-
+    // WHY: store the requested style BEFORE the rate limiter - dropping it here left
+    // the combo, the rendered style and the persisted setting disagreeing.
     _applicationStyle = style;
 
     // Invalidate cache when style changes
     cachedStyle = "";
+
+    // Prevent rapid successive theme changes that might cause crashes.  A throttled
+    // request is not discarded but re-applied once the throttle window has passed.
+    QDateTime now = QDateTime::currentDateTime();
+    if (lastThemeChange.isValid() && lastThemeChange.msecsTo(now) < 500) {
+        static QTimer *s_pendingStyleTimer = nullptr;
+        if (!s_pendingStyleTimer) {
+            s_pendingStyleTimer = new QTimer();
+            s_pendingStyleTimer->setSingleShot(true);
+            QObject::connect(s_pendingStyleTimer, &QTimer::timeout, []() {
+                Appearance::setApplicationStyle(Appearance::applicationStyle());
+            });
+        }
+        s_pendingStyleTimer->stop();
+        s_pendingStyleTimer->start(500);
+        return;
+    }
+    lastThemeChange = now;
 
     applyStyle();
 

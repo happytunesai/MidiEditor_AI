@@ -24,6 +24,7 @@
 #include <QList>
 #include <QPair>
 #include <QPointer>
+#include <QSet>
 
 // Forward declarations
 class MidiEvent;
@@ -207,8 +208,11 @@ public:
     /**
      * \brief Recalculates existing note positions after tempo/time signature changes.
      * \param tempoEvents List of tempo/time signature events that were pasted
+     * \param newlyPastedEvents Events the paste has just inserted; they are already
+     *        positioned correctly and must be left alone.
      */
-    static void recalculateExistingNotesAfterTempoChange(const QList<MidiEvent *> &tempoEvents);
+    static void recalculateExistingNotesAfterTempoChange(const QList<MidiEvent *> &tempoEvents,
+                                                         const QSet<MidiEvent *> &newlyPastedEvents = QSet<MidiEvent *>());
 
     /**
      * \brief Returns whether this tool shows selection highlights.

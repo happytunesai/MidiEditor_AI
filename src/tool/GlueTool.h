@@ -101,8 +101,9 @@ private:
     /**
      * \brief Merges a group of notes into a single note.
      * \param noteGroup List of notes to merge (sorted by start time)
+     * \return True if the group was merged, false if it was skipped
      */
-    void mergeNoteGroup(const QList<NoteOnEvent *> &noteGroup);
+    bool mergeNoteGroup(const QList<NoteOnEvent *> &noteGroup);
 };
 
 #endif // GLUETOOL_H_

@@ -94,12 +94,30 @@ void OpenGLPaintWidget::initializeGL() {
     f->glHint(GL_POINT_SMOOTH_HINT, GL_FASTEST);
     f->glHint(GL_LINE_SMOOTH_HINT, GL_FASTEST);
 
+    // initializeGL() runs again whenever Qt recreates the context (the widget
+    // was moved to another top-level window). A device from the previous
+    // context must not simply be overwritten (SP-02): its context is gone, so
+    // plain delete is all that is left to do - normally aboutToBeDestroyed
+    // released it already and this is a no-op.
+    if (_paintDevice) {
+        delete _paintDevice;
+        _paintDevice = nullptr;
+    }
+
     // Create OpenGL paint device for QPainter acceleration
     _paintDevice = new QOpenGLPaintDevice();
     if (!_paintDevice) {
         qWarning() << "OpenGLPaintWidget: Failed to create QOpenGLPaintDevice";
         return;
     }
+
+    // Release the device while THIS context is still alive - the hook Qt
+    // documents for QOpenGLWidget resources. Direct connection: the handler
+    // must run before the native context goes away. (`context` is the local
+    // above = the widget's own context, current during initializeGL().)
+    connect(context, &QOpenGLContext::aboutToBeDestroyed,
+            this, &OpenGLPaintWidget::releaseGlResources,
+            Qt::DirectConnection);
 
     // Configure the paint device in DEVICE pixels plus the real device pixel
     // ratio (see glPaintDeviceSize()); QPainter's logical coordinates are then
@@ -447,57 +465,38 @@ void OpenGLPaintWidget::setRepaintOnMouseRelease(bool b) {
     repaintOnMouseRelease = b;
 }
 
-OpenGLPaintWidget::~OpenGLPaintWidget() {
-    // Ensure proper OpenGL resource cleanup to prevent QRhi resource leaks
-    qDebug() << "OpenGLPaintWidget: Starting destructor cleanup";
-
-    // Check if we still have a valid OpenGL context
-    QOpenGLContext *context = QOpenGLContext::currentContext();
-    bool hadContext = (context != nullptr);
-
-    if (!hadContext) {
-        // Try to make our context current for cleanup
-        try {
-            makeCurrent();
-            context = QOpenGLContext::currentContext();
-        } catch (...) {
-            // makeCurrent() failed, context is likely already destroyed
-            context = nullptr;
-        }
+void OpenGLPaintWidget::releaseGlResources() {
+    if (!_paintDevice) {
+        return;
     }
-
-    if (context) {
-        qDebug() << "OpenGLPaintWidget: Cleaning up with valid OpenGL context";
-
-        // Clean up OpenGL resources while context is valid
-        if (_paintDevice) {
-            // Force the paint device to release all its resources
-            _paintDevice->setSize(QSize(1, 1)); // Minimize size to reduce resource usage
-            delete _paintDevice;
-            _paintDevice = nullptr;
-        }
-
-        // Ensure all OpenGL operations are completed and flush all commands
-        QOpenGLFunctions *f = context->functions();
-        if (f) {
-            f->glFlush();  // Flush all commands
-            f->glFinish(); // Wait for all OpenGL commands to complete
-        }
-
-        // Force Qt to clean up any cached OpenGL resources
-        context->doneCurrent();
-
-        // Release the context
+    // Only OUR context, made current through QOpenGLWidget::makeCurrent()
+    // (which pairs the context with the widget's own offscreen surface).
+    // The previous cleanup took QOpenGLContext::currentContext() - whatever
+    // context another widget had left current - deleted the device against
+    // it and even called doneCurrent() on that foreign context.
+    QOpenGLContext *own = context();
+    const bool ownContextAlive = own && own->isValid();
+    if (ownContextAlive) {
+        makeCurrent();
+    }
+    delete _paintDevice;
+    _paintDevice = nullptr;
+    if (ownContextAlive) {
         doneCurrent();
-    } else {
-        qDebug() << "OpenGLPaintWidget: No valid OpenGL context for cleanup (normal during application shutdown)";
-
-        // Clean up what we can without OpenGL context
-        if (_paintDevice) {
-            delete _paintDevice;
-            _paintDevice = nullptr;
-        }
     }
+}
 
-    qDebug() << "OpenGLPaintWidget: Destructor cleanup completed";
+OpenGLPaintWidget::~OpenGLPaintWidget() {
+    // QOpenGLWidget's destructor (which runs AFTER this body) destroys the
+    // context and emits aboutToBeDestroyed - by then the derived part of this
+    // object is gone, so the slot must not fire any more.
+    if (QOpenGLContext *own = context()) {
+        disconnect(own, &QOpenGLContext::aboutToBeDestroyed,
+                   this, &OpenGLPaintWidget::releaseGlResources);
+    }
+    // The context is still alive here (Qt tears it down in the base class
+    // destructor), so the device is released on its own context. When
+    // aboutToBeDestroyed already ran (context recreated earlier), this is a
+    // no-op.
+    releaseGlResources();
 }

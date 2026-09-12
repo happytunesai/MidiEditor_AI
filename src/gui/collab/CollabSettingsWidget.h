@@ -24,6 +24,7 @@ class CollabSettingsWidget : public SettingsWidget {
 
 public:
     explicit CollabSettingsWidget(QSettings *settings, QWidget *parent = nullptr);
+    ~CollabSettingsWidget() override;
 
     bool accept() override;
 
@@ -69,6 +70,11 @@ private:
     QLabel *_connectionTestLight = nullptr;
     QLabel *_connectionTestDetails = nullptr;
     WanConnectionTest *_runningTest = nullptr;
+
+    // "Test connection" temporarily persists the typed URL; this records
+    // whether that override is still in place and what to put back.
+    bool _testUrlRestorePending = false;
+    QString _testUrlRestoreValue;
 
     // Plan §11.10h connection-quality knobs.
     QSpinBox *_iceTimeoutSpin = nullptr;

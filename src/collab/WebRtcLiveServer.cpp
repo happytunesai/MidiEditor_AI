@@ -118,14 +118,24 @@ bool WebRtcLiveServer::broadcastExcept(const QByteArray &payload, IPeerLink *exc
 }
 
 void WebRtcLiveServer::stop() {
-    for (auto *t : _transports) {
+    // Snapshot and clear the maps FIRST, then announce the losses: consumers
+    // purge their per-peer state on peerDisconnected (a teardown that stays
+    // silent leaves them holding pointers to the transports deleted below),
+    // and a slot that re-enters stop() must not invalidate the iteration.
+    const QList<WebRtcTransport *> all = _transports.values();
+    const QList<WebRtcTransport *> wasConnected = _connected.values();
+    _transports.clear();
+    _connected.clear();
+
+    for (auto *t : wasConnected) {
+        if (t) emit peerDisconnected(t);
+    }
+    for (auto *t : all) {
         if (t) {
             t->closeConnection();
             t->deleteLater();
         }
     }
-    _transports.clear();
-    _connected.clear();
 }
 
 #endif // MIDIEDITOR_WEBRTC_ENABLED

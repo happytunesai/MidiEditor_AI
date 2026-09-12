@@ -108,6 +108,17 @@ private:
     /** \brief Index of the second selected measure (for range selection) */
     int _secondSelectedMeasure;
 
+    /** \brief The document the measure selection above was made in */
+    MidiFile *_selectionFile;
+
+    /**
+     * \brief Drops the measure selection if it belongs to another document.
+     *
+     * The tool is a single process-wide instance shared by all open documents,
+     * so a range picked in one file must not stay armed in another.
+     */
+    void dropMeasureSelectionOfOtherFile();
+
     /**
      * \brief Finds the closest measure start position to the given coordinates.
      * \param distX Pointer to store the distance to the closest measure

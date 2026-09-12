@@ -21,8 +21,10 @@
 #include <QPushButton>
 #include <QSettings>
 #include <QStandardPaths>
+#include <QTimer>
 #include <QVBoxLayout>
 
+#include "../../collab/CollabIdentity.h"
 #include "../../collab/CollabService.h"
 #include "../../collab/PrBundle.h"
 #include "../../collab/WebhookClient.h"
@@ -96,23 +98,25 @@ AggregateResult aggregateUnshared() {
     return r;
 }
 
-PrBundle bundleFromAggregate(const QString &userMessage) {
+PrBundle bundleFromAggregate(const QString &userMessage, AggregateResult *outAgg = nullptr) {
     PrBundle b;
     CollabService *svc = CollabService::instance();
     QJsonArray hist = svc->history();
     if (hist.isEmpty()) return b;
 
     AggregateResult agg = aggregateUnshared();
+    if (outAgg) *outAgg = agg;  // caller reuses it instead of walking the history twice
     if (agg.commitCount == 0) return b;  // nothing unshared
 
     // Author + machineId come from the local user (the one creating
     // the PR), not from any historical entry. The PR author is the
     // person sharing the changes, even if the underlying commits had
     // mixed authors (e.g. local edits + previously merged PRs).
-    QJsonObject head = hist.last().toObject();
+    // Taking them from the head history entry stamped a PR made right after a
+    // merged one with the PEER's name (that commit carries the remote author).
     b.sessionId = svc->sessionId();
-    b.author = head.value(QStringLiteral("author")).toString();
-    b.machineId = head.value(QStringLiteral("machineId")).toString();
+    b.author = CollabIdentity::displayName();
+    b.machineId = CollabIdentity::machineId();
     b.parentHash = agg.parentHash;
     b.timestamp = QDateTime::currentSecsSinceEpoch();
     b.message = userMessage;
@@ -174,6 +178,15 @@ PrCreateDialog::PrCreateDialog(QWidget *parent)
     connect(_postButton, &QPushButton::clicked, this, &PrCreateDialog::onPostWebhook);
     layout->addWidget(box);
 
+    // rebuildSummary() re-aggregates the whole unshared history and zlib-9
+    // compresses the full bundle - far too heavy to run per keystroke, and the
+    // typed message only changes one string in it. Coalesce the typing into one
+    // rebuild after a short pause; the share buttons read the live text anyway.
+    _rebuildTimer = new QTimer(this);
+    _rebuildTimer->setSingleShot(true);
+    _rebuildTimer->setInterval(300);
+    connect(_rebuildTimer, &QTimer::timeout, this, &PrCreateDialog::rebuildSummary);
+
     connect(_messageEdit, &QLineEdit::textEdited, this, &PrCreateDialog::onMessageEdited);
 
     // Prefill message from the most recent unshared commit so the dialog
@@ -190,12 +203,13 @@ PrCreateDialog::PrCreateDialog(QWidget *parent)
 }
 
 void PrCreateDialog::onMessageEdited() {
-    rebuildSummary();
+    _rebuildTimer->start();  // debounced: see the ctor comment
 }
 
 void PrCreateDialog::rebuildSummary() {
-    PrBundle b = bundleFromAggregate(_messageEdit->text());
-    AggregateResult agg = aggregateUnshared();
+    _rebuildTimer->stop();  // a direct rebuild supersedes a pending debounce
+    AggregateResult agg;
+    PrBundle b = bundleFromAggregate(_messageEdit->text(), &agg);
     _commitsCount = agg.commitCount;
     bool hasContent = b.isValid() && agg.commitCount > 0;
 

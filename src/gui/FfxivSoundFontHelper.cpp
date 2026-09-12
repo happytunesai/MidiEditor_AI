@@ -129,8 +129,9 @@ bool requestEnable(QWidget *parent) {
     // silently leave the user on a different MIDI output (BUG-CORE-003;
     // mirrors the C64 helper's abortRestoringOutput / BUG-C64-001).
     auto abortRestoringOutput = [&]() -> bool {
-        if (outputSwitched) {
-            MidiOutput::setOutputPort(previousPort);
+        // Only persist the port we actually managed to open: a failed
+        // restore leaves us on FluidSynth, and out_port must say so.
+        if (outputSwitched && MidiOutput::setOutputPort(previousPort)) {
             persistValue(QStringLiteral("out_port"), previousPort);
         }
         return false;
@@ -311,14 +312,27 @@ void requestDisable(QWidget *parent) {
         const QString msPort = preferredMicrosoftSynthPort();
         const QString currentPort = MidiOutput::outputPort();
         if (!msPort.isEmpty() && currentPort != msPort) {
-            MidiOutput::setOutputPort(msPort);
-            persistValue(QStringLiteral("out_port"), msPort);
-            if (parent) {
-                QMessageBox::information(
+            // The port can be enumerated yet fail to open (held by another
+            // application): persist and announce the switch only when it
+            // really happened, otherwise the next start would also try a
+            // port it cannot open while the message claimed success.
+            if (MidiOutput::setOutputPort(msPort)) {
+                persistValue(QStringLiteral("out_port"), msPort);
+                if (parent) {
+                    QMessageBox::information(
+                        parent,
+                        QObject::tr("FFXIV SoundFont Mode"),
+                        QObject::tr("No SoundFonts are loaded. Switched MIDI output "
+                                    "to \"%1\" so playback keeps working.").arg(msPort));
+                }
+            } else if (parent) {
+                QMessageBox::warning(
                     parent,
                     QObject::tr("FFXIV SoundFont Mode"),
-                    QObject::tr("No SoundFonts are loaded. Switched MIDI output "
-                                "to \"%1\" so playback keeps working.").arg(msPort));
+                    QObject::tr("No SoundFonts are loaded and the MIDI output "
+                                "could not be switched to \"%1\". Playback will "
+                                "be silent until you pick another MIDI output "
+                                "or enable a SoundFont in the settings.").arg(msPort));
             }
         }
     }

@@ -128,8 +128,8 @@ Configure your AI connection from <b>Settings &rarr; MidiPilot AI</b>. Select a 
 <tr><td><b>Manage favourites&hellip;</b></td><td>Pick the models that should stay visible per provider, and per <a href="#provider-profiles">custom provider profile</a>. If no favourites are selected, all cached chat-capable models are shown.</td></tr>
 <tr><td><b>Streaming OK</b> / <b>Force Streaming</b></td><td>The button below the model row. It reads <b>Streaming OK</b> and stays greyed out while nothing is blocked; once the selected provider/model has failed live streaming during this app session it becomes clickable and names the blocked path - <b>Force Streaming (Simple Mode blocked)</b>, <b>(Agent Mode blocked)</b> or <b>(Simple + Agent blocked)</b>. Clicking it clears the mark so the next request tries live streaming again.</td></tr>
 <tr><td><b>Token Limit</b></td><td>Optional cap on output tokens to control costs</td></tr>
-<tr><td><b>Thinking</b></td><td>Enable reasoning for o-series and GPT-5.x models</td></tr>
-<tr><td><b>Reasoning Effort</b></td><td>None / Low / Medium / High / Extra High</td></tr>
+<tr><td><b>Thinking</b></td><td>Enable reasoning for o-series, GPT-5.x and GPT-6 models. These models take no temperature; with tools (Agent Mode) their requests go through OpenAI's Responses API automatically.</td></tr>
+<tr><td><b>Reasoning Effort</b></td><td>None / Low / Medium / High / Extra High / Max. <b>Max</b> is accepted by GPT-6 (Astra); every other model is sent Extra High instead. GPT-6 has no <b>None</b> level - it runs at Low when None is selected.</td></tr>
 <tr><td><b>Live Streaming</b></td><td>Streams both Simple and Agent responses live (text, reasoning summaries, and tool-call arguments) when the provider supports it. Failed paths automatically fall back to non-streaming for the rest of the session.</td></tr>
 <tr><td><b>Prompt Profiles&hellip;</b></td><td>Open the <a href="#prompt-profiles">Prompt Profiles</a> dialog to attach custom system prompts to specific provider/model combinations.</td></tr>
 <tr><td><b>Context Range</b></td><td>Measures before/after cursor sent as musical context (0-50)</td></tr>
@@ -452,7 +452,7 @@ Different MIDI files may need different AI settings. A 16-track orchestral arran
 <li><b>Provider profile name</b> - the name of the active <a href="#provider-profiles">provider profile</a>, if one is in use. Only the name is stored, never a URL or an API key; a machine that has a profile of that name reconnects to the same endpoint, and every other machine uses the provider and model above.</li>
 <li><b>Mode</b> - Simple or Agent</li>
 <li><b>FFXIV mode</b> - On or off</li>
-<li><b>Reasoning effort</b> - None / Low / Medium / High / Extra High</li>
+<li><b>Reasoning effort</b> - None / Low / Medium / High / Extra High / Max</li>
 <li><b>Custom instructions</b> - Free-text notes appended to the system prompt (e.g., &ldquo;This is a jazz arrangement, keep swing feel&rdquo;)</li>
 </ul>
 

@@ -94,7 +94,6 @@ void TimeSignatureDialog::accept() {
     }
     int denum = _beatType->currentIndex();
     MidiTrack *generalTrack = _file->track(0);
-    _file->protocol()->startNewAction("Change Time Signature");
 
     QMultiMap<int, MidiEvent *> *timeSignatureEvents = _file->timeSignatureEvents();
     bool hasTimeSignatureChangesAfter = false;
@@ -109,17 +108,14 @@ void TimeSignatureDialog::accept() {
     newEvent->setFile(_file);
     QList<MidiEvent *> eventsToDelete;
 
-    if (_endOfPiece->isChecked() || (_untilNextMeterChange->isChecked() && !hasTimeSignatureChangesAfter)) {
-        // We delete all events after and insert a single new one.
-        QMultiMap<int, MidiEvent *>::Iterator it = timeSignatureEvents->begin();
-        while (it != timeSignatureEvents->end()) {
-            if (it.key() >= _startTickOfMeasure) {
-                eventsToDelete.append(it.value());
-            }
-            it++;
-        }
-    } else if (_untilNextMeterChange->isChecked()) {
-        // until next meter change and we have change events after.
+    const bool replaceAllAfter = _endOfPiece->isChecked() ||
+        (_untilNextMeterChange->isChecked() && !hasTimeSignatureChangesAfter);
+    const bool untilNextChange = !replaceAllAfter && _untilNextMeterChange->isChecked();
+
+    // The downbeat check runs BEFORE startNewAction(): bailing out afterwards
+    // left the protocol action open (so later unrelated edits landed in a stale
+    // "Change Time Signature" undo step) and leaked the unused event.
+    if (untilNextChange) {
         int tickFromNextChangeEvent = -1;
         foreach(int tick, timeSignatureEvents->keys()) {
             if (tick > _startTickOfMeasure && (tickFromNextChangeEvent < 0 || tickFromNextChangeEvent > tick)) {
@@ -129,8 +125,24 @@ void TimeSignatureDialog::accept() {
         if ((tickFromNextChangeEvent - _startTickOfMeasure) % newEvent->ticksPerMeasure() != 0) {
             // alert
             QMessageBox::information(this, "Error", "The next Time Signature Event would not be on Downbeat.");
+            delete newEvent;
             return;
         }
+    }
+
+    _file->protocol()->startNewAction("Change Time Signature");
+
+    if (replaceAllAfter) {
+        // We delete all events after and insert a single new one.
+        QMultiMap<int, MidiEvent *>::Iterator it = timeSignatureEvents->begin();
+        while (it != timeSignatureEvents->end()) {
+            if (it.key() >= _startTickOfMeasure) {
+                eventsToDelete.append(it.value());
+            }
+            it++;
+        }
+    } else if (untilNextChange) {
+        // until next meter change and we have change events after.
         // Remove time signature in the same measure
         if (timeSignatureEvents->value(_startTickOfMeasure) != 0) {
             eventsToDelete.append(timeSignatureEvents->value(_startTickOfMeasure));

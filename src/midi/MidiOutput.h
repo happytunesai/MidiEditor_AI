@@ -23,6 +23,7 @@
 #include <QMap>
 #include <QMutex>
 #include <QObject>
+#include <QReadWriteLock>
 
 #include <atomic>
 
@@ -77,8 +78,23 @@ public:
     /**
      * \brief Sends a MIDI event immediately.
      * \param e The MidiEvent to send
+     *
+     * Resolves the FFXIV drum program from the live track name, so this is
+     * for callers on the document (GUI) thread only - e.g. note preview.
      */
     static void sendCommand(MidiEvent *e);
+
+    /**
+     * \brief Sends a MIDI event with its FFXIV drum program already resolved.
+     * \param e The MidiEvent to send
+     * \param trackDrumProgram FFXIV percussion preset of e's track, or -1
+     *        (falls back to the GM-key mapping for CH9 NoteOns)
+     *
+     * Player-thread variant: same output as sendCommand(MidiEvent*), but it
+     * never touches MidiTrack::name() - PlayerThread resolves the program per
+     * track on the GUI thread when playback starts (see PlayerThread::setFile).
+     */
+    static void sendCommand(MidiEvent *e, int trackDrumProgram);
 
     /**
      * \brief Sends a raw MIDI command through the queue.
@@ -176,6 +192,16 @@ private:
 
     /** \brief Standard/default MIDI channel */
     static int _stdChannel;
+
+    /**
+     * \brief Guards the send path against output teardown.
+     *
+     * sendEnqueuedCommand() runs on the player thread and on RtMidi's input
+     * callback thread (MIDI Thru), while setOutputPort() closes/reopens the
+     * RtMidi port and shuts the FluidSynth engine down from the GUI thread.
+     * Senders take the read side, the port switch takes the write side.
+     */
+    static QReadWriteLock _outputLock;
 };
 
 #endif // MIDIOUTPUT_H_

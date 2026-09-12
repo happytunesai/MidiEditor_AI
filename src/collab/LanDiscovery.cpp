@@ -15,6 +15,30 @@
 
 Q_LOGGING_CATEGORY(lanLog, "midieditor.collab.lan")
 
+namespace {
+
+// The announce datagram is pipe-delimited and read back by fixed index, but
+// the display name is free user text: a bare '|' in it would shift the port
+// and code fields so every joiner drops the packet as a code mismatch.
+// Escape the separator (and the escape character itself) on the wire.
+QString escapeField(const QString &value) {
+    QString out = value;
+    out.replace(QLatin1Char('%'), QLatin1String("%25"));
+    out.replace(QLatin1Char('|'), QLatin1String("%7C"));
+    return out;
+}
+
+QString unescapeField(const QString &value) {
+    QString out = value;
+    // '|' first, then '%', so an escaped literal '%' cannot form a false pipe.
+    out.replace(QLatin1String("%7C"), QLatin1String("|"));
+    out.replace(QLatin1String("%7c"), QLatin1String("|"));
+    out.replace(QLatin1String("%25"), QLatin1String("%"));
+    return out;
+}
+
+}  // namespace
+
 LanDiscovery::LanDiscovery(QObject *parent)
     : QObject(parent) {}
 
@@ -74,8 +98,8 @@ void LanDiscovery::emitAnnouncement() {
     QByteArray pkt = QStringLiteral("%1|%2|%3|%4|%5|%6")
                          .arg(QString::fromLatin1(kProtocolMagic),
                               QString::fromLatin1(kProtocolVersion),
-                              _sessionId,
-                              _displayName,
+                              escapeField(_sessionId),
+                              escapeField(_displayName),
                               QString::number(_tcpPort),
                               _pairingCode)
                          .toUtf8();
@@ -221,9 +245,12 @@ void LanDiscovery::readPendingDatagrams() {
             qCWarning(lanLog) << "listen: bad port in datagram:" << parts[4];
             continue;
         }
+        // Undo the sender-side escaping of the free-text fields (see escapeField).
+        const QString sessionId = unescapeField(parts[2]);
+        const QString displayName = unescapeField(parts[3]);
         qCInfo(lanLog) << "listen: matched code" << _listenCode
-                       << "from" << parts[3] << "@" << dg.senderAddress() << ":" << port;
-        emit peerFound(parts[2], parts[3], dg.senderAddress(), port);
+                       << "from" << displayName << "@" << dg.senderAddress() << ":" << port;
+        emit peerFound(sessionId, displayName, dg.senderAddress(), port);
     }
 }
 

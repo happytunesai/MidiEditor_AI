@@ -37,7 +37,52 @@ public:
      */
     static QJsonObject analyzeFile(MidiFile *file);
 
-    /// Progress callback: (percent 0-100, phase description)
+    /**
+     * \brief Eligibility gate (v2.4.0, review F066): decides whether the
+     *        file IS an FFXIV MIDI before either tier is allowed to run.
+     *
+     * A single renamed track used to be enough to let Rebuild loose on a
+     * plain General MIDI file (every other track got its channel/program
+     * rebuilt, tracks beyond index 15 were clamped onto channel 15). The
+     * gate looks at the tracks that actually carry notes:
+     *   (a) no track name matches an FFXIV instrument  -> not eligible;
+     *   (b) a note-carrying track whose name is not an FFXIV instrument
+     *       -> not eligible, the reason lists them by index and name.
+     *       Tracks without notes (conductor, title, empty) are ignored, and
+     *       so is a GM drum track whose notes live on channel 9 - Tier 2
+     *       keeps such a track on channel 9 by design (drum-split leftover);
+     *   (c) more than 16 note-carrying tracks -> Tier 2 (Rebuild) is not
+     *       eligible, Tier 3 (Preserve) still is.
+     * Name matching is programNumber(stripSuffix(name)) - nothing wider.
+     *
+     * This is the ONE implementation: analyzeFile() embeds it (dialog +
+     * MainWindow warning), fixChannels() runs it before its first edit, and
+     * the AI/MCP setup_channel_pattern tool consults it before opening a
+     * Protocol action. Read-only.
+     *
+     * \return {eligible, reason, tier2Eligible, tier2Reason, noteTrackCount,
+     *          ffxivNamedNoteTrackCount, nonFfxivNoteTracks:[{index,name}]}
+     */
+    static QJsonObject checkEligibility(MidiFile *file);
+
+    /**
+     * \brief The tier fixChannels() auto-detects for this file (2 = Rebuild,
+     *        3 = Preserve), computed read-only with the same rules: Preserve
+     *        when a guitar program sits at tick 0 on any channel or a guitar
+     *        track plays on more than one guitar channel. Lets callers know
+     *        BEFORE opening an undo action whether a Rebuild-only refusal
+     *        (eligibility rule c) would make the run a no-op (review R231-17).
+     */
+    static int autoTier(MidiFile *file);
+
+    /// Progress callback: (percent 0-100, phase description).
+    ///
+    /// Called while the file is mid-edit, with the caller's Protocol
+    /// action open and the bulk undo snapshots held. It must NOT re-enter
+    /// the Qt event loop: a processEvents() here can dispatch a queued
+    /// MidiPilot/MCP tool step that calls startNewAction() on the same
+    /// file, which commits this fixer's half-finished action and splits
+    /// the fix across two undo steps.
     using ProgressCallback = std::function<void(int, const QString &)>;
 
     /**

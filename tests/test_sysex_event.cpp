@@ -5,23 +5,20 @@
  *
  * What the production code actually does
  * --------------------------------------
- *   QByteArray SysExEvent::save() emits exactly:  F0 <data...> F7
+ *   QByteArray SysExEvent::save() emits the SMF form:
+ *       F0 <varlen length> <data...> F7   (the length counts the F7)
  *
- * Notable absence (documented, not patched here): the production save()
- * does NOT prepend an SMF variable-length data-length field. The full
- * SMF spec for an in-track SysEx event is `F0 <varlen> <data...> F7`
- * (or `F7 <varlen> <data...>` for the "escape" form). The MidiEditor
- * tree appears to add the var-int length elsewhere when serialising the
- * full file rather than inside SysExEvent itself; SysExEvent::save()
- * returns only the F0/F7-framed payload.
+ * _data holds the payload only; the length is re-derived on every save()
+ * through MidiFile::writeVariableLengthValue, so setData() can never write
+ * back a stale prefix and a load/save round trip stays byte-identical.
+ * (The loader reads SysEx by that length as well; the wire form
+ * F0 <data> F7 is produced by MidiOutput for playback and re-framed by
+ * MidiInput for recording.)
  *
- * These tests therefore verify the *current* contract:
- *   - leading byte is 0xF0
- *   - trailing byte is 0xF7
- *   - the user-supplied bytes appear verbatim between the framing bytes
- *   - empty data still emits the two framing bytes
- * and document the missing var-int length prefix as a known gap rather
- * than failing on it.
+ * These tests verify:
+ *   - leading byte is 0xF0, then the var-int length, trailing byte 0xF7
+ *   - the user-supplied bytes appear verbatim between length and F7
+ *   - empty data emits F0 01 F7
  *
  * Strategy
  * --------
@@ -98,6 +95,19 @@ MidiTrack *MidiEvent::track() { return _track; }
 // ---- ODR shims: MidiFile (never constructed) ----------------------------
 class MidiFile;
 #include "../src/midi/MidiFile.h"
+// SysExEvent::save() derives its SMF length prefix through this helper;
+// the target links no MidiFile.cpp, so mirror the standard var-int writer.
+QByteArray MidiFile::writeVariableLengthValue(int value) {
+    QList<quint8> groups;
+    do {
+        groups.prepend(static_cast<quint8>(value & 0x7F));
+        value >>= 7;
+    } while (value > 0);
+    QByteArray out;
+    for (int i = 0; i < groups.size(); ++i)
+        out.append(char(groups[i] | (i < groups.size() - 1 ? 0x80 : 0x00)));
+    return out;
+}
 
 // =========================================================================
 
@@ -113,44 +123,45 @@ private slots:
         QCOMPARE(ev.line(), int(MidiEvent::SYSEX_LINE));
     }
 
-    void save_emptyPayload_thenEmitsOnlyTheTwoFramingBytes() {
-        // Guard against the empty-payload edge case: save() must still
-        // emit valid F0/F7 framing.
+    void save_emptyPayload_thenEmitsFramingAndLengthOnly() {
+        // Empty payload: F0, a length of 1 (the F7 alone), F7.
         SysExEvent ev(0, QByteArray(), nullptr);
         QByteArray expected;
         expected.append(char(0xF0));
+        expected.append(char(0x01));
         expected.append(char(0xF7));
         QCOMPARE(ev.save(), expected);
-        QCOMPARE(ev.save().size(), 2);
+        QCOMPARE(ev.save().size(), 3);
     }
 
-    void save_singleBytePayload_thenF0PayloadF7() {
+    void save_singleBytePayload_thenF0LengthPayloadF7() {
         SysExEvent ev(0, QByteArray(1, char(0x42)), nullptr);
         QByteArray expected;
         expected.append(char(0xF0));
+        expected.append(char(0x02));
         expected.append(char(0x42));
         expected.append(char(0xF7));
         QCOMPARE(ev.save(), expected);
     }
 
     void save_realisticGmReset_thenExactByteSequence() {
-        // Common GM Reset SysEx: F0 7E 7F 09 01 F7 (the manufacturer +
-        // device + sub-id + value bytes appear verbatim between the
-        // framing bytes).
+        // Common GM Reset SysEx as stored in an SMF: F0 05 7E 7F 09 01 F7
+        // (length 5 = four payload bytes plus the F7).
         const QByteArray inner = QByteArray::fromHex("7E7F0901");
         SysExEvent ev(0, inner, nullptr);
         QByteArray expected;
         expected.append(char(0xF0));
+        expected.append(char(0x05));
         expected.append(inner);
         expected.append(char(0xF7));
         QCOMPARE(ev.save(), expected);
         QCOMPARE(ev.save().toHex().toUpper(),
-                 QByteArray("F07E7F0901F7"));
+                 QByteArray("F0057E7F0901F7"));
     }
 
     void save_largePayload_thenAllBytesPreservedVerbatim() {
-        // Stress: 256-byte payload. The current save() does not insert
-        // a length prefix, so we expect F0 + 256 bytes + F7 = 258 total.
+        // Stress: 256-byte payload. Length 257 needs two var-int bytes
+        // (82 01), so we expect F0 + 82 01 + 256 bytes + F7 = 260 total.
         QByteArray payload;
         payload.reserve(256);
         for (int i = 0; i < 256; ++i) {
@@ -158,10 +169,11 @@ private slots:
         }
         SysExEvent ev(0, payload, nullptr);
         const QByteArray bytes = ev.save();
-        QCOMPARE(bytes.size(), 258);
+        QCOMPARE(bytes.size(), 260);
         QCOMPARE(bytes.at(0), char(0xF0));
+        QCOMPARE(bytes.mid(1, 2), QByteArray::fromHex("8201"));
         QCOMPARE(bytes.at(bytes.size() - 1), char(0xF7));
-        QCOMPARE(bytes.mid(1, 256), payload);
+        QCOMPARE(bytes.mid(3, 256), payload);
     }
 
     void save_payloadContainingF7Byte_thenStillEmittedVerbatim() {
@@ -173,6 +185,7 @@ private slots:
         SysExEvent ev(0, payload, nullptr);
         QByteArray expected;
         expected.append(char(0xF0));
+        expected.append(char(0x04));
         expected.append(payload);
         expected.append(char(0xF7));
         QCOMPARE(ev.save(), expected);
@@ -184,7 +197,7 @@ private slots:
         const QByteArray replacement = QByteArray::fromHex("DEADBEEF");
         ev.setData(replacement);
         QCOMPARE(ev.data(), replacement);
-        QCOMPARE(ev.save().mid(1, 4), replacement);
+        QCOMPARE(ev.save().mid(2, 4), replacement); // after F0 and the 1-byte length
     }
 
     void typeString_isConstantHumanReadableLabel() {

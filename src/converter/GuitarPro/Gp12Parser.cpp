@@ -283,7 +283,9 @@ long Gp1Parser::readBeat(GpTrack* track, GpMeasure* measure, long start, long la
 Duration Gp1Parser::readDuration() {
     Duration d;
     int8_t val = reader.readSignedByte(1)[0];
-    d.value = static_cast<int>(std::pow(2.0, val + 4) / 4.0);
+    // Clamp the exponent like Gp3Parser::readDuration does: an out-of-range duration
+    // byte from a corrupt file made the former float-to-int conversion undefined.
+    d.value = 1 << std::clamp(val + 2, 0, 7);
     return d;
 }
 

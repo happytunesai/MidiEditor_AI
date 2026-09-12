@@ -193,6 +193,14 @@ Result computeFromEdges(const QVector<NoteEdge> &edgesIn,
     std::deque<int> noteOnTicksByChannel[16];
     QVector<RateHotspot> hotspots;
 
+    // WHY: kNoteRateCeilingPerChannel is a per-SECOND ceiling, but the deques
+    // below only hold the NoteOns inside a kNoteRateWindowMs window. Comparing
+    // that window COUNT against the per-second number meant nothing fired below
+    // 15 notes per 250 ms, i.e. 60 notes/sec, so the whole 15-56 notes/sec band
+    // went unreported. Scale the ceiling to the window instead.
+    constexpr int kNoteRateWindowCeiling =
+        (kNoteRateCeilingPerChannel * kNoteRateWindowMs + 999) / 1000;
+
     int active = 0;
     int peak = 0;
     int peakTick = 0;
@@ -207,7 +215,7 @@ Result computeFromEdges(const QVector<NoteEdge> &edgesIn,
                 int windowStartMs = msAtTick(d.tick) - kNoteRateWindowMs;
                 while (!q.empty() && msAtTick(q.front()) < windowStartMs)
                     q.pop_front();
-                if (static_cast<int>(q.size()) > kNoteRateCeilingPerChannel) {
+                if (static_cast<int>(q.size()) > kNoteRateWindowCeiling) {
                     int notesInWindow = static_cast<int>(q.size());
                     double secs = double(kNoteRateWindowMs) / 1000.0;
                     double nps = notesInWindow / secs;

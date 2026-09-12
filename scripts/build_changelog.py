@@ -153,6 +153,10 @@ def _parse_details(block: str) -> str:
         badge = badge_for_category(cat_cls)
 
         items_html = _parse_section_content(content.strip())
+        # A heading without bullets (an empty "### Changed" left in the
+        # template) must not become an empty category card on the website.
+        if not items_html.strip():
+            continue
 
         # The badge carries its own label ("🔄 Changed"); when the section
         # heading is that exact word, rendering both gives "Changed Changed",

@@ -49,7 +49,8 @@ DownloadSoundFontDialog::DownloadSoundFontDialog(QWidget *parent)
       _networkManager(new QNetworkAccessManager(this)),
       _downloadReply(nullptr),
       _progressDialog(nullptr),
-      _downloadFile(nullptr)
+      _downloadFile(nullptr),
+      _downloadWriteFailed(false)
 {
     // Define available high-quality SoundFonts
     _items = {
@@ -157,7 +158,11 @@ DownloadSoundFontDialog::DownloadSoundFontDialog(QWidget *parent)
 
 DownloadSoundFontDialog::~DownloadSoundFontDialog() {
     if (_downloadReply) {
+        // abort() delivers finished() synchronously, and soundFontDownloadFinished()
+        // already releases the reply and the file and nulls both members.
         _downloadReply->abort();
+    }
+    if (_downloadReply) {
         _downloadReply->deleteLater();
     }
     if (_downloadFile) {
@@ -270,6 +275,9 @@ void DownloadSoundFontDialog::onDownloadButtonClicked() {
         return;
     }
 
+    _downloadWriteFailed = false;
+    _downloadWriteError.clear();
+
     _downloadFile = new QFile(destPath);
     if (!_downloadFile->open(QIODevice::WriteOnly)) {
         QMessageBox::critical(this, tr("Error"), tr("Could not create file for writing:\n%1").arg(destPath));
@@ -289,6 +297,10 @@ void DownloadSoundFontDialog::onDownloadButtonClicked() {
         if (_downloadFile && _downloadReply) {
             QByteArray data = _downloadReply->readAll();
             if (_downloadFile->write(data) != data.size()) {
+                // abort() surfaces as OperationCanceledError, which is indistinguishable
+                // from a user cancel - remember the disk error so it can be reported.
+                _downloadWriteFailed = true;
+                _downloadWriteError = _downloadFile->errorString();
                 _downloadReply->abort();
             }
         }
@@ -297,6 +309,11 @@ void DownloadSoundFontDialog::onDownloadButtonClicked() {
     _progressDialog = new QProgressDialog(tr("Downloading %1...").arg(item.name), tr("Cancel"), 0, 100, this);
     _progressDialog->setWindowTitle(tr("Download"));
     _progressDialog->setWindowModality(Qt::WindowModal);
+    // Same reason as in AutoUpdater: with the defaults, reaching 100% resets and hides
+    // the dialog - dropping its modality while the reply is still in flight - so it is
+    // closed explicitly in soundFontDownloadFinished() instead.
+    _progressDialog->setAutoReset(false);
+    _progressDialog->setAutoClose(false);
     _progressDialog->setMinimumDuration(0);
     _progressDialog->setValue(0);
 
@@ -312,6 +329,7 @@ void DownloadSoundFontDialog::soundFontDownloadProgress(qint64 bytesReceived, qi
 
 void DownloadSoundFontDialog::soundFontDownloadFinished() {
     if (_progressDialog) {
+        _progressDialog->close();
         _progressDialog->deleteLater();
         _progressDialog = nullptr;
     }
@@ -322,13 +340,25 @@ void DownloadSoundFontDialog::soundFontDownloadFinished() {
 
     // Flush any remaining buffered data
     if (_downloadReply->bytesAvailable() > 0) {
-        _downloadFile->write(_downloadReply->readAll());
+        QByteArray rest = _downloadReply->readAll();
+        if (_downloadFile->write(rest) != rest.size()) {
+            _downloadWriteFailed = true;
+            _downloadWriteError = _downloadFile->errorString();
+        }
+    }
+    // close() cannot report an error, so flush first - a failure here means the file on
+    // disk is truncated and must not be announced as a successful download.
+    if (!_downloadFile->flush()) {
+        _downloadWriteFailed = true;
+        _downloadWriteError = _downloadFile->errorString();
     }
     _downloadFile->close();
     QString destPath = _downloadFile->fileName();
 
-    if (_downloadReply->error() != QNetworkReply::NoError) {
-        if (_downloadReply->error() != QNetworkReply::OperationCanceledError) {
+    if (_downloadWriteFailed || _downloadReply->error() != QNetworkReply::NoError) {
+        if (_downloadWriteFailed) {
+            QMessageBox::critical(this, tr("Download Failed"), tr("Could not write to file:\n%1\n\n%2").arg(destPath, _downloadWriteError));
+        } else if (_downloadReply->error() != QNetworkReply::OperationCanceledError) {
             QMessageBox::critical(this, tr("Download Failed"), tr("Failed to download SoundFont: %1").arg(_downloadReply->errorString()));
         }
         _downloadFile->remove(); // delete partial file

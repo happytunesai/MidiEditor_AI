@@ -31,6 +31,7 @@
 #include "ai/EditorContext.h"
 #include "LoggingConfig.h"
 #include "AppPaths.h"
+#include "DpiEnvOverrides.h"
 
 #include <QDateTime>
 #include <QFile>
@@ -267,17 +268,26 @@ int main(int argc, char *argv[]) {
     qDebug() << "VSync enabled:" << enableVSync;
     qDebug() << "Hardware acceleration:" << useHardwareAcceleration;
 
+    // An in-app restart (theme change, updater relaunch) hands this process the
+    // QT_* overrides its predecessor set from these very settings. Put the
+    // inherited environment back FIRST, so an option switched off since then
+    // is really off and a value configured outside the editor comes back; the
+    // current settings are then applied fresh below (SP-04, external review
+    // 2026-09-06). Every override below goes through DpiEnvOverrides::set() so
+    // the next instance can undo it the same way.
+    DpiEnvOverrides::restoreInherited();
+
     // High DPI scaling is always enabled in Qt 6, so we only need to configure the scaling policy
     if (ignoreSystemScaling) {
         // For Qt 6, we need to be more aggressive to truly ignore system scaling
         qDebug() << "Setting aggressive scaling override to ignore system scaling";
 
         // Set multiple environment variables to force 1.0 scaling
-        qputenv("QT_SCALE_FACTOR", "1.0");
-        qputenv("QT_AUTO_SCREEN_SCALE_FACTOR", "0");
-        qputenv("QT_ENABLE_HIGHDPI_SCALING", "0");
-        qputenv("QT_DEVICE_PIXEL_RATIO", "1.0");
-        qputenv("QT_SCREEN_SCALE_FACTORS", "1.0");
+        DpiEnvOverrides::set("QT_SCALE_FACTOR", "1.0");
+        DpiEnvOverrides::set("QT_AUTO_SCREEN_SCALE_FACTOR", "0");
+        DpiEnvOverrides::set("QT_ENABLE_HIGHDPI_SCALING", "0");
+        DpiEnvOverrides::set("QT_DEVICE_PIXEL_RATIO", "1.0");
+        DpiEnvOverrides::set("QT_SCREEN_SCALE_FACTORS", "1.0");
     } else {
         if (useRoundedScaling) {
             // Use rounded scaling behavior for sharper rendering
@@ -286,11 +296,11 @@ int main(int argc, char *argv[]) {
             QApplication::setHighDpiScaleFactorRoundingPolicy(Qt::HighDpiScaleFactorRoundingPolicy::Round);
 
             // Enable high DPI scaling with rounding
-            qputenv("QT_ENABLE_HIGHDPI_SCALING", "1");
-            qputenv("QT_SCALE_FACTOR_ROUNDING_POLICY", "Round");
+            DpiEnvOverrides::set("QT_ENABLE_HIGHDPI_SCALING", "1");
+            DpiEnvOverrides::set("QT_SCALE_FACTOR_ROUNDING_POLICY", "Round");
 
             // Use integer-based DPI awareness
-            qputenv("QT_AUTO_SCREEN_SCALE_FACTOR", "1");
+            DpiEnvOverrides::set("QT_AUTO_SCREEN_SCALE_FACTOR", "1");
         } else {
             // Use Qt6 default behavior (PassThrough with fractional scaling)
             qDebug() << "Using Qt6 default PassThrough scaling policy";
@@ -302,8 +312,8 @@ int main(int argc, char *argv[]) {
     if (ignoreFontScaling) {
         qDebug() << "Setting font scaling override to ignore font scaling";
         // Disable font DPI scaling to keep fonts at their original sizes
-        qputenv("QT_FONT_DPI", "96"); // Force standard 96 DPI for fonts
-        qputenv("QT_USE_PHYSICAL_DPI", "0"); // Don't use physical DPI for font sizing
+        DpiEnvOverrides::set("QT_FONT_DPI", "96"); // Force standard 96 DPI for fonts
+        DpiEnvOverrides::set("QT_USE_PHYSICAL_DPI", "0"); // Don't use physical DPI for font sizing
     }
 
     // Add application directory plugins path before QApplication construction.
@@ -441,10 +451,14 @@ int main(int argc, char *argv[]) {
     QString openFilePath;
     bool openSettings = false;
     QString updatedFromVersion;
-    for (int i = 1; i < argc; ++i) {
-        QString arg = QString::fromLocal8Bit(argv[i]);
-        if (arg == "--open" && i + 1 < argc) {
-            openFilePath = QString::fromLocal8Bit(argv[++i]);
+    // Read the arguments through QCoreApplication, not raw argv: argv is
+    // ANSI-mangled on Windows, so a path with non-ASCII characters would not
+    // survive (the same hazard AppPaths::exeDir() documents for argv[0]).
+    const QStringList appArgs = a.arguments();
+    for (int i = 1; i < appArgs.size(); ++i) {
+        QString arg = appArgs.at(i);
+        if (arg == "--open" && i + 1 < appArgs.size()) {
+            openFilePath = appArgs.at(++i);
         } else if (arg == "--open-settings") {
             openSettings = true;
         } else if (arg.startsWith("--updated-from=")) {
@@ -456,7 +470,9 @@ int main(int argc, char *argv[]) {
 
     MainWindow *w;
     if (!openFilePath.isEmpty())
-        w = new MainWindow(openFilePath.toLocal8Bit().data());
+        // MainWindow takes a QString - the old toLocal8Bit().data() round-trip
+        // re-decoded the ANSI bytes as UTF-8 and destroyed non-ASCII paths.
+        w = new MainWindow(openFilePath);
     else
         w = new MainWindow();
     w->showMaximized();

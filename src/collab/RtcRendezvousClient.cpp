@@ -28,6 +28,7 @@
 #include <QTimer>
 #include <QUrl>
 
+#include <memory>
 #include <utility>
 
 namespace {
@@ -407,20 +408,24 @@ void RtcRendezvousClient::ping(int timeoutMs) {
     req.setAttribute(QNetworkRequest::Http2AllowedAttribute, false);
     QNetworkReply *reply = _net->get(req);
 
-    auto *clock = new QElapsedTimer;
+    // Owned by shared_ptr, not raw new/delete: the helpers below are
+    // captured by every lambda, so if the client is destroyed while the
+    // probe is in flight (~QObject severs the connections and no handler
+    // ever runs) they are released with the lambdas instead of leaking -
+    // and the logging handlers can no longer touch a freed clock after
+    // cleanup().
+    auto clock = std::make_shared<QElapsedTimer>();
     clock->start();
 
     auto *timeout = new QTimer(this);
     timeout->setSingleShot(true);
     timeout->setInterval(qMax(500, timeoutMs));
 
-    auto *fired = new bool(false);
+    auto fired = std::make_shared<bool>(false);
 
-    auto cleanup = [reply, clock, timeout, fired]() {
-        delete clock;
+    auto cleanup = [reply, timeout]() {
         timeout->deleteLater();
         if (reply) reply->deleteLater();
-        delete fired;
     };
 
     // Surface TLS / cert errors immediately as they happen, even if the

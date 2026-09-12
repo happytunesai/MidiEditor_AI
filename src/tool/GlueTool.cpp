@@ -117,16 +117,21 @@ void GlueTool::performGlueOperation(bool respectChannels) {
 
         // In Cubase, all selected notes of the same pitch get merged into one note
         // No need to check for adjacency - just merge all notes in the group
-        mergeNoteGroup(notes);
-        anyNotesGlued = true;
+        // Only a group that really merged may claim the selection wipe below:
+        // mergeNoteGroup() bails out on a group whose first note has no off event.
+        if (mergeNoteGroup(notes)) {
+            anyNotesGlued = true;
+        }
+    }
+
+    if (anyNotesGlued) {
+        // Clear selection since some notes were deleted. This has to run BEFORE
+        // endAction(): with no step open the Protocol drops the item (leaking
+        // its Selection copy) and the clear becomes invisible to undo.
+        Selection::instance()->clearSelection();
     }
 
     currentProtocol()->endAction();
-
-    if (anyNotesGlued) {
-        // Clear selection since some notes were deleted
-        Selection::instance()->clearSelection();
-    }
 }
 
 QMap<QString, QList<NoteOnEvent *> > GlueTool::groupNotes(const QList<MidiEvent *> &events, bool respectChannels) {
@@ -151,11 +156,11 @@ QMap<QString, QList<NoteOnEvent *> > GlueTool::groupNotes(const QList<MidiEvent 
 }
 
 
-void GlueTool::mergeNoteGroup(const QList<NoteOnEvent *> &noteGroup) {
-    if (noteGroup.size() < 2) return;
+bool GlueTool::mergeNoteGroup(const QList<NoteOnEvent *> &noteGroup) {
+    if (noteGroup.size() < 2) return false;
 
     NoteOnEvent *firstNote = noteGroup.first();
-    if (!firstNote->offEvent()) return;
+    if (!firstNote->offEvent()) return false;
 
     // The merged note ends at the LATEST off across the whole group - not the
     // last note by start order. A long note followed by a shorter one would
@@ -176,11 +181,11 @@ void GlueTool::mergeNoteGroup(const QList<NoteOnEvent *> &noteGroup) {
         // Remove from selection if selected
         deselectEvent(noteToRemove);
 
-        // Remove the note and its off event from the channel
+        // Remove the note from the channel. MidiChannel::removeEvent() cascades
+        // from the OnEvent to its paired OffEvent, so removing the off event a
+        // second time only buys another full channel-map undo snapshot.
         MidiChannel *channel = file()->channel(noteToRemove->channel());
         channel->removeEvent(noteToRemove);
-        if (noteToRemove->offEvent()) {
-            channel->removeEvent(noteToRemove->offEvent());
-        }
     }
+    return true;
 }

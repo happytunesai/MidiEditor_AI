@@ -231,6 +231,7 @@ bool FfxivPlayabilityDialog::voiceLoadEnabled() const {
 
 void FfxivPlayabilityDialog::refresh(const FfxivPlayabilityReport &report) {
     _report = report;
+    ++_reportGeneration;
     rebuildTree();
 }
 
@@ -437,6 +438,7 @@ void FfxivPlayabilityDialog::onTreeContextMenu(const QPoint &pos) {
     const QList<int> selection = selectedIssueIndices();
     const QList<MidiEvent *> events = eventsOf(selection);
     const QList<MidiEvent *> victims = collisionVictimsFor(selection);
+    const int generation = _reportGeneration;
 
     QMenu menu(this);
     QAction *selectAction = menu.addAction(tr("Select these notes in editor"));
@@ -450,6 +452,16 @@ void FfxivPlayabilityDialog::onTreeContextMenu(const QPoint &pos) {
 
     QAction *chosen = menu.exec(_tree->viewport()->mapToGlobal(pos));
     if (!chosen) return;
+    // menu.exec() ran a nested event loop: an agent / MCP edit can finish a
+    // protocol action and refresh() us while the popup is open, which makes
+    // the note pointers captured above belong to the PREVIOUS report -
+    // selecting or deleting them would work on notes the file no longer has
+    // (a stale selection resurrects removed notes on the next edit). The
+    // rebuilt tree is on screen, so the user can simply repeat the command.
+    if ((chosen == selectAction || chosen == deleteAction)
+        && generation != _reportGeneration) {
+        return;
+    }
     if (chosen == selectAction) {
         emit selectEventsRequested(events);
     } else if (chosen == deleteAction) {

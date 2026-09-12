@@ -198,7 +198,20 @@ void StartTimeTweakTarget::offset(int amount) {
 
             foreach(MidiEvent* e, selectedEvents) {
                 int newTime = e->midiTime() + amount;
-                if (newTime >= 0) e->setMidiTime(newTime);
+                if (newTime >= 0) {
+                    e->setMidiTime(newTime);
+
+                    // Same clamp largeIncrease() applies: without it a repeated
+                    // start-time increase pushes the NoteOn past its NoteOff and
+                    // the inverted note is dropped on the next load.
+                    OnEvent *onEvent = dynamic_cast<OnEvent *>(e);
+                    if (onEvent) {
+                        MidiEvent *offEvent = onEvent->offEvent();
+                        if (offEvent && newTime > offEvent->midiTime()) {
+                            offEvent->setMidiTime(newTime);
+                        }
+                    }
+                }
             }
 
             protocol->endAction();

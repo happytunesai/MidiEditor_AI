@@ -14,14 +14,29 @@ MeasureTool::MeasureTool()
     setToolTipText("Insert or delete measures");
     _firstSelectedMeasure = -1;
     _secondSelectedMeasure = -1;
+    _selectionFile = nullptr;
 }
 
 MeasureTool::MeasureTool(MeasureTool &other) : MeasureTool() {
     _firstSelectedMeasure = other._firstSelectedMeasure;
     _secondSelectedMeasure = other._secondSelectedMeasure;
+    _selectionFile = other._selectionFile;
+}
+
+void MeasureTool::dropMeasureSelectionOfOtherFile() {
+    // Tabs: this tool is one process-wide instance and nothing resets it when
+    // the active document changes, so a range picked in document A stayed armed
+    // in document B - where Delete removed B's bar at A's index. Measure indices
+    // are only meaningful for the file they were computed in.
+    if (_firstSelectedMeasure > -1 && _selectionFile != file()) {
+        _firstSelectedMeasure = -1;
+        _secondSelectedMeasure = -1;
+        _selectionFile = nullptr;
+    }
 }
 
 void MeasureTool::draw(QPainter *painter) {
+    dropMeasureSelectionOfOtherFile();
     if (_firstSelectedMeasure > -1) {
         painter->setOpacity(0.3);
         fillMeasures(painter, _firstSelectedMeasure, _secondSelectedMeasure);
@@ -75,6 +90,7 @@ bool MeasureTool::press(bool leftClick) {
 }
 
 bool MeasureTool::release() {
+    dropMeasureSelectionOfOtherFile();
     if (_firstSelectedMeasure > -1 && QApplication::keyboardModifiers().testFlag(Qt::ShiftModifier)) {
         int ms = matrixWidget->msOfXPos(mouseX);
         int tick = file()->tick(ms);
@@ -89,14 +105,20 @@ bool MeasureTool::release() {
         if (measure < 2) {
             return true;
         }
+        // The dialog spins a nested event loop. Anything that switches the
+        // active document while it is up (an MCP/collab file open) retargets
+        // Tool::file(), so the insert is bound to the document the measure
+        // index was computed on and abandoned if that is no longer the target.
+        MidiFile *targetFile = file();
         int num = QInputDialog::getInt(matrixWidget, "Insert Measures",
                                        "Number of measures:", 1, 1, 100000, 1, &ok);
-        if (ok) {
-            file()->protocol()->startNewAction("Insert measures", image());
-            file()->insertMeasures(measure - 1, num);
+        if (ok && targetFile && targetFile == file()) {
+            targetFile->protocol()->startNewAction("Insert measures", image());
+            targetFile->insertMeasures(measure - 1, num);
             _firstSelectedMeasure = -1;
             _secondSelectedMeasure = -1;
-            file()->protocol()->endAction();
+            _selectionFile = nullptr;
+            targetFile->protocol()->endAction();
         }
         return true;
     } else {
@@ -105,6 +127,7 @@ bool MeasureTool::release() {
         int measureStartTick, measureEndTick;
         _firstSelectedMeasure = file()->measure(tick, &measureStartTick, &measureEndTick);
         _secondSelectedMeasure = _firstSelectedMeasure;
+        _selectionFile = file();
         return true;
     }
 
@@ -116,10 +139,12 @@ bool MeasureTool::release() {
 bool MeasureTool::releaseOnly() {
     _firstSelectedMeasure = -1;
     _secondSelectedMeasure = -1;
+    _selectionFile = nullptr;
     return false;
 }
 
 bool MeasureTool::releaseKey(int key) {
+    dropMeasureSelectionOfOtherFile();
     if (key == Qt::Key_Delete && _firstSelectedMeasure > -1) {
         file()->protocol()->startNewAction("Remove measures", image());
         if (_secondSelectedMeasure == -1) {
@@ -133,6 +158,7 @@ bool MeasureTool::releaseKey(int key) {
         file()->deleteMeasures(_firstSelectedMeasure, _secondSelectedMeasure);
         _firstSelectedMeasure = -1;
         _secondSelectedMeasure = -1;
+        _selectionFile = nullptr;
         file()->protocol()->endAction();
         return true;
     }

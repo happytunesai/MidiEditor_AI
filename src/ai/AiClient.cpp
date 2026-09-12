@@ -92,6 +92,53 @@ bool AiClient::modelRequiresResponsesApi(const QString &provider, const QString 
     return proFamily.match(model.toLower()).hasMatch();
 }
 
+bool AiClient::modelUsesResponsesApiForTools(const QString &provider, const QString &model)
+{
+    const bool openAiNative = provider.isEmpty()
+                              || provider == QStringLiteral("openai");
+    if (!openAiNative) {
+        return false;
+    }
+    // gpt-5* and gpt-6* (gpt-6-astra, released 2026-09-03): function tools
+    // only on /v1/responses. Matching the gpt-5 prefix alone sent Astra's
+    // Agent requests to chat/completions, which answered HTTP 400 "Function
+    // tools with reasoning_effort are not supported for gpt-6-astra in
+    // /v1/chat/completions. To use function tools, use /v1/responses"
+    // (ASTRA-001, midipilot_api.log 2026-09-07).
+    const QString m = model.toLower();
+    return m.startsWith(QStringLiteral("gpt-5"))
+        || m.startsWith(QStringLiteral("gpt-6"));
+}
+
+bool AiClient::isOpenAiReasoningFamily(const QString &model)
+{
+    // Inherently reasoning-capable, no temperature / top_p, developer role.
+    const QString m = model.toLower();
+    return m.startsWith(QStringLiteral("o1"))
+        || m.startsWith(QStringLiteral("o3"))
+        || m.startsWith(QStringLiteral("o4"))
+        || m.startsWith(QStringLiteral("gpt-5"))
+        || m.startsWith(QStringLiteral("gpt-6"));
+}
+
+QString AiClient::reasoningEffortForModel(const QString &model, const QString &effort)
+{
+    const bool gpt6 = model.toLower().startsWith(QStringLiteral("gpt-6"));
+    if (gpt6) {
+        // gpt-6-astra: low / medium / high / xhigh / max; "none" and
+        // "minimal" are rejected - OpenAI's migration guide says start at low.
+        if (effort == QStringLiteral("none") || effort == QStringLiteral("minimal")) {
+            return QStringLiteral("low");
+        }
+        return effort;
+    }
+    // "max" exists only on gpt-6*; older reasoning models top out at xhigh.
+    if (effort == QStringLiteral("max")) {
+        return QStringLiteral("xhigh");
+    }
+    return effort;
+}
+
 AiClient::AiClient(QObject *parent)
     : QObject(parent),
       _manager(new QNetworkAccessManager(this)),
@@ -159,7 +206,9 @@ static QString promptCacheKeyForRequest(const QString &model, bool hasTools)
 {
     QString family = QStringLiteral("generic");
     const QString lower = model.toLower();
-    if (lower.startsWith(QStringLiteral("gpt-5")))
+    if (lower.startsWith(QStringLiteral("gpt-6")))
+        family = QStringLiteral("gpt-6");
+    else if (lower.startsWith(QStringLiteral("gpt-5")))
         family = QStringLiteral("gpt-5");
     else if (lower.startsWith(QStringLiteral("gpt-4.1")))
         family = QStringLiteral("gpt-4.1");
@@ -398,12 +447,9 @@ int AiClient::maxTokensLimit() const
 bool AiClient::isReasoningModel() const
 {
     // Models that are inherently reasoning-capable and don't support temperature.
-    // They require "developer" role instead of "system".
-    QString m = _model.toLower();
-    return m.startsWith(QStringLiteral("o1"))
-        || m.startsWith(QStringLiteral("o3"))
-        || m.startsWith(QStringLiteral("o4"))
-        || m.startsWith(QStringLiteral("gpt-5"));
+    // They require "developer" role instead of "system". One definition for
+    // every family (o-series, gpt-5*, gpt-6*): isOpenAiReasoningFamily().
+    return isOpenAiReasoningFamily(_model);
 }
 
 bool AiClient::isGeminiThinkingModel() const
@@ -467,6 +513,7 @@ int AiClient::contextWindowForModel(const QString &model) const
     QString m = idRaw.toLower();
 
     // Match by prefix — handles version variants like gpt-4o-2024-08-06
+    if (m.startsWith(QStringLiteral("gpt-6")))       return 1050000; // gpt-6-astra: 1.05M
     if (m.startsWith(QStringLiteral("gpt-5")))       return 1000000;
     if (m.startsWith(QStringLiteral("gpt-4o")))      return 128000;
     if (m.startsWith(QStringLiteral("gpt-4.1")))     return 1000000;
@@ -555,13 +602,12 @@ void AiClient::sendMessagesInternal(const QJsonArray &messages,
     bool reasoning = isReasoningModel();
     bool geminiThinking = isGeminiThinkingModel();
 
-    // GPT-5 reasoning models do not support reasoning_effort + tools on
+    // gpt-5* / gpt-6* do not support reasoning_effort + tools on
     // /v1/chat/completions; use /v1/responses for that combination
-    // (OpenAI-native only). Keep this family-wide so newly released
-    // versions such as gpt-5.5 inherit the same transport automatically.
+    // (OpenAI-native only). The family predicate keeps newly released
+    // versions on the same transport automatically.
     _useResponsesApi = (!tools.isEmpty()
-                        && _model.toLower().startsWith(QStringLiteral("gpt-5"))
-                        && (_provider.isEmpty() || _provider == QStringLiteral("openai")))
+                        && modelUsesResponsesApiForTools(_provider, _model))
                        || modelRequiresResponsesApi(_provider, _model);
 
     QJsonObject body;
@@ -656,7 +702,7 @@ void AiClient::sendMessagesInternal(const QJsonArray &messages,
         } else {
             effortToSend = QStringLiteral("medium");
         }
-        reasoningObj[QStringLiteral("effort")] = effortToSend;
+        reasoningObj[QStringLiteral("effort")] = reasoningEffortForModel(_model, effortToSend);
         // Ask the model to produce human-readable summaries of its
         // reasoning. These come back as `output[].type == "reasoning"`
         // items with a `summary[]` array of `{type:"summary_text", text:"..."}`
@@ -675,7 +721,7 @@ void AiClient::sendMessagesInternal(const QJsonArray &messages,
 
         if (reasoning) {
             if (_thinkingEnabled) {
-                body[QStringLiteral("reasoning_effort")] = _reasoningEffort;
+                body[QStringLiteral("reasoning_effort")] = reasoningEffortForModel(_model, _reasoningEffort);
             } else if (!tools.isEmpty()) {
                 body[QStringLiteral("reasoning_effort")] = QStringLiteral("medium");
             } else {
@@ -686,7 +732,7 @@ void AiClient::sendMessagesInternal(const QJsonArray &messages,
             // via OpenAI compat.  Without this, they default to high thinking
             // which makes responses extremely slow (40-200+ seconds).
             if (_thinkingEnabled) {
-                body[QStringLiteral("reasoning_effort")] = _reasoningEffort;
+                body[QStringLiteral("reasoning_effort")] = reasoningEffortForModel(_model, _reasoningEffort);
             } else {
                 body[QStringLiteral("reasoning_effort")] = QStringLiteral("low");
             }
@@ -1817,13 +1863,12 @@ void AiClient::sendStreamingMessages(const QJsonArray &messages, const QJsonArra
         return;
     }
 
-    // GPT-5 + tools requires the Responses API. We have a dedicated SSE
-    // handler for it (sendStreamingMessagesResponses) so the user gets
-    // live reasoning + text deltas just like Gemini. Keep this family-wide
-    // so new versions such as gpt-5.5 do not fall back to Chat Completions.
+    // gpt-5* / gpt-6* + tools require the Responses API. We have a dedicated
+    // SSE handler for it (sendStreamingMessagesResponses) so the user gets
+    // live reasoning + text deltas just like Gemini. The family predicate
+    // keeps new versions (gpt-6-astra) off the Chat Completions fallback.
     bool wouldUseResponses = !tools.isEmpty()
-        && _model.toLower().startsWith(QStringLiteral("gpt-5"))
-        && (_provider.isEmpty() || _provider == QStringLiteral("openai"));
+        && modelUsesResponsesApiForTools(_provider, _model);
     if (wouldUseResponses) {
         sendStreamingMessagesResponses(messages, tools);
         return;
@@ -1883,14 +1928,14 @@ void AiClient::sendStreamingMessages(const QJsonArray &messages, const QJsonArra
 
     if (reasoning) {
         if (_thinkingEnabled)
-            body[QStringLiteral("reasoning_effort")] = _reasoningEffort;
+            body[QStringLiteral("reasoning_effort")] = reasoningEffortForModel(_model, _reasoningEffort);
         else if (!tools.isEmpty())
             body[QStringLiteral("reasoning_effort")] = QStringLiteral("medium");
         else
             body[QStringLiteral("reasoning_effort")] = QStringLiteral("low");
     } else if (geminiThinking) {
         body[QStringLiteral("reasoning_effort")] = _thinkingEnabled
-            ? _reasoningEffort : QStringLiteral("low");
+            ? reasoningEffortForModel(_model, _reasoningEffort) : QStringLiteral("low");
     } else if (_provider == QStringLiteral("ollama")) {
         // Phase 26.2b reasoning lever, mirrored from the non-streaming path
         // (sendMessagesInternal). Streaming is the DEFAULT transport, so without
@@ -2027,10 +2072,18 @@ void AiClient::sendStreamingMessages(const QJsonArray &messages, const QJsonArra
             .arg(_streamContent.size()).arg(toolCalls.size()));
 
         clearStreamingRetryContext();
-        emit responseReceived(_streamContent, responseObj);
 
+        // WHY: responseReceived is a direct connection into AgentRunner, which
+        // may start the next turn's request synchronously from inside this
+        // emit. Reset the per-request stream state BEFORE emitting, or these
+        // lines would clobber the already in-flight follow-up request (they
+        // would switch its tool-call parsing off). _streamContent is copied
+        // out for the same reason: the nested send clears the member.
+        const QString finalContent = _streamContent;
         _streamHasTools = false;
         _streamToolCalls.clear();
+        emit responseReceived(finalContent, responseObj);
+
         reply->deleteLater();
     });
 }
@@ -2114,9 +2167,11 @@ void AiClient::sendStreamingRequest(const QString &systemPrompt,
     body[QStringLiteral("stream_options")] = streamOpts;
 
     if (reasoning) {
-        body[QStringLiteral("reasoning_effort")] = _thinkingEnabled ? _reasoningEffort : QStringLiteral("low");
+        body[QStringLiteral("reasoning_effort")] = _thinkingEnabled
+            ? reasoningEffortForModel(_model, _reasoningEffort) : QStringLiteral("low");
     } else if (geminiThinking) {
-        body[QStringLiteral("reasoning_effort")] = _thinkingEnabled ? _reasoningEffort : QStringLiteral("low");
+        body[QStringLiteral("reasoning_effort")] = _thinkingEnabled
+            ? reasoningEffortForModel(_model, _reasoningEffort) : QStringLiteral("low");
     } else if (_provider == QStringLiteral("ollama")) {
         // Phase 26.2b reasoning lever, mirrored from the non-streaming path;
         // streaming is the default transport (see the agent streaming builder).
@@ -2257,20 +2312,31 @@ void AiClient::onStreamDataAvailable()
 
     _streamBuffer += _currentReply->readAll();
 
-    // Process complete SSE events (separated by \n\n)
+    // Process complete SSE events (separated by a blank line).
+    // WHY: be tolerant of \r\n vs \n like onResponsesStreamDataAvailable().
+    // An endpoint that terminates SSE lines with CRLF never produces a bare
+    // \n\n, so an LF-only split found no event and the whole response was
+    // discarded as an "empty stream".
     while (true) {
         int idx = _streamBuffer.indexOf("\n\n");
+        int sep = 2;
+        int crIdx = _streamBuffer.indexOf("\r\n\r\n");
+        if (crIdx >= 0 && (idx < 0 || crIdx < idx)) {
+            idx = crIdx;
+            sep = 4;
+        }
         if (idx < 0) break;
 
         QByteArray chunk = _streamBuffer.left(idx);
-        _streamBuffer.remove(0, idx + 2);
+        _streamBuffer.remove(0, idx + sep);
 
         // Parse SSE lines — may have multiple "data:" lines per event
         for (const QByteArray &line : chunk.split('\n')) {
             QByteArray trimmed = line.trimmed();
-            if (!trimmed.startsWith("data: ")) continue;
+            // The space after "data:" is optional in the SSE grammar.
+            if (!trimmed.startsWith("data:")) continue;
 
-            QByteArray payload = trimmed.mid(6);
+            QByteArray payload = trimmed.mid(5).trimmed();
             if (payload == "[DONE]") {
                 // Stream complete — finished handler will fire
                 continue;
@@ -2310,23 +2376,47 @@ void AiClient::onStreamDataAvailable()
                 if (_streamHasTools && delta.contains(QStringLiteral("tool_calls"))) {
                     for (const QJsonValue &tcVal : delta[QStringLiteral("tool_calls")].toArray()) {
                         QJsonObject tc = tcVal.toObject();
-                        // index identifies the call across deltas; some providers
-                        // (Ollama OpenAI-compat, see ollama#15457) always send 0
-                        // — we still keyed by index because id-based correlation
-                        // would require lookahead. The first chunk for an index
-                        // carries id + function.name; subsequent chunks only carry
-                        // function.arguments fragments.
-                        int idx = tc[QStringLiteral("index")].toInt(0);
-                        StreamToolCall &acc = _streamToolCalls[idx];
-                        if (tc.contains(QStringLiteral("id"))) {
-                            QString id = tc[QStringLiteral("id")].toString();
-                            if (!id.isEmpty()) acc.id = id;
-                        }
+                        // index identifies the call across deltas. The first
+                        // chunk for an index carries id + function.name;
+                        // subsequent chunks only carry function.arguments
+                        // fragments.
+                        const QString incomingId = tc[QStringLiteral("id")].toString();
                         QJsonObject fn = tc[QStringLiteral("function")].toObject();
-                        if (fn.contains(QStringLiteral("name"))) {
-                            QString name = fn[QStringLiteral("name")].toString();
-                            if (!name.isEmpty()) acc.name = name;
+                        const QString incomingName = fn[QStringLiteral("name")].toString();
+
+                        int slot = tc[QStringLiteral("index")].toInt(0);
+                        // WHY: some providers (Ollama OpenAI-compat, see
+                        // ollama#15457) report index 0 for EVERY call, which
+                        // merged parallel calls into one slot with
+                        // concatenated, unparseable arguments. Follow the
+                        // split chain for this wire index, then move to a
+                        // fresh slot as soon as the delta contradicts the
+                        // current one (different id, or a different function
+                        // name after arguments already arrived).
+                        while (_streamToolCalls.contains(slot)
+                               && _streamToolCalls[slot].nextSlot >= 0)
+                            slot = _streamToolCalls[slot].nextSlot;
+                        if (_streamToolCalls.contains(slot)) {
+                            const StreamToolCall &cur = _streamToolCalls[slot];
+                            const bool isNewCall =
+                                (!incomingId.isEmpty() && !cur.id.isEmpty()
+                                 && incomingId != cur.id)
+                                || (!incomingName.isEmpty() && !cur.name.isEmpty()
+                                    && incomingName != cur.name
+                                    && !cur.arguments.isEmpty());
+                            if (isNewCall) {
+                                int freeSlot = 0;
+                                for (auto it = _streamToolCalls.constBegin();
+                                     it != _streamToolCalls.constEnd(); ++it)
+                                    freeSlot = qMax(freeSlot, it.key() + 1);
+                                _streamToolCalls[slot].nextSlot = freeSlot;
+                                slot = freeSlot;
+                            }
                         }
+
+                        StreamToolCall &acc = _streamToolCalls[slot];
+                        if (!incomingId.isEmpty()) acc.id = incomingId;
+                        if (!incomingName.isEmpty()) acc.name = incomingName;
                         if (!acc.started && !acc.id.isEmpty() && !acc.name.isEmpty()) {
                             acc.started = true;
                             emit streamToolCallStarted(acc.id, acc.name);
@@ -2728,14 +2818,34 @@ void AiClient::sendStreamingMessagesResponses(const QJsonArray &messages,
     }
     body[QStringLiteral("tools")] = responsesTools;
 
+    // WHY: streaming is the default transport for gpt-5.5 agent runs, so the
+    // Phase 31 sequential-tools policy has to be applied here as well - it was
+    // only honoured by the non-streaming Responses builder and therefore never
+    // reached the request that actually goes out.
+    if (_nextForceSequentialTools) {
+        body[QStringLiteral("parallel_tool_calls")] = false;
+    }
+
     // Same cache routing hint as the non-streaming Responses path. The
     // dynamic editor snapshot is at the end of the input, while the stable
     // developer prompt and tool schemas stay at the front for prefix hits.
     body[QStringLiteral("prompt_cache_key")] = promptCacheKeyForRequest(_model, !tools.isEmpty());
 
     QJsonObject reasoningObj;
-    reasoningObj[QStringLiteral("effort")] = _thinkingEnabled
-        ? _reasoningEffort : QStringLiteral("medium");
+    // WHY: same reason as parallel_tool_calls above - the Phase 31 one-shot
+    // effort override wins over _thinkingEnabled and the configured effort,
+    // and must be applied on the streaming path too.
+    QString effortToSend;
+    if (!_nextReasoningEffortOverride.isEmpty()) {
+        effortToSend = _nextReasoningEffortOverride;
+        qInfo().noquote() << QStringLiteral(
+            "[POLICY] reasoning_effort overridden: %1 -> %2 (per-request override)")
+            .arg(_thinkingEnabled ? _reasoningEffort : QStringLiteral("medium"),
+                 effortToSend);
+    } else {
+        effortToSend = _thinkingEnabled ? _reasoningEffort : QStringLiteral("medium");
+    }
+    reasoningObj[QStringLiteral("effort")] = reasoningEffortForModel(_model, effortToSend);
     reasoningObj[QStringLiteral("summary")] = QStringLiteral("auto");
     body[QStringLiteral("reasoning")] = reasoningObj;
 
@@ -2866,12 +2976,17 @@ void AiClient::sendStreamingMessagesResponses(const QJsonArray &messages,
         }
 
         clearStreamingRetryContext();
-        emit responseReceived(_streamContent, responseObj);
 
+        // WHY: see sendStreamingMessages() - the emit re-enters AgentRunner,
+        // which may send the next turn synchronously, so per-request stream
+        // state must be reset (and the content copied out) before emitting.
+        const QString finalContent = _streamContent;
         _streamHasTools = false;
         _streamToolCalls.clear();
         _responsesStreamItems.clear();
         _responsesStreamUsage = QJsonObject();
+        emit responseReceived(finalContent, responseObj);
+
         reply->deleteLater();
     });
 }
@@ -3101,6 +3216,11 @@ void AiClient::sendStreamingMessagesGemini(const QJsonArray &messages,
         .arg(isThinkingModel && _thinkingEnabled ? QStringLiteral("on") : QStringLiteral("off"),
              QString::fromUtf8(data.left(4000))));
 
+    // WHY: every other sender clears this before posting. Without it a Stop
+    // pressed during a stream leaves _userCancelled true forever (nothing
+    // consumes it once the reply is disconnected), and emitStreamTransferTimeout()
+    // then swallows the next genuine stall - the silent hang STREAMSILENT-001 fixed.
+    _userCancelled = false; // a new request supersedes any earlier Stop
     _currentReply = _manager->post(request, data);
     disconnect(_manager, &QNetworkAccessManager::finished,
                this, &AiClient::onReplyFinished);
@@ -3282,10 +3402,15 @@ void AiClient::sendStreamingMessagesGemini(const QJsonArray &messages,
         }
 
         clearStreamingRetryContext();
-        emit responseReceived(_streamContent, responseObj);
 
+        // WHY: see sendStreamingMessages() - the emit re-enters AgentRunner,
+        // which may send the next turn synchronously, so per-request stream
+        // state must be reset (and the content copied out) before emitting.
+        const QString finalContent = _streamContent;
         _streamHasTools = false;
         _streamToolCalls.clear();
+        emit responseReceived(finalContent, responseObj);
+
         reply->deleteLater();
     });
 }

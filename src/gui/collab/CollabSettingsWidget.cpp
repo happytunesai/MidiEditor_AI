@@ -443,6 +443,9 @@ bool CollabSettingsWidget::accept() {
     // storing so accidental whitespace doesn't break URL parsing.
     if (_rendezvousUrlEdit) {
         RtcRendezvousClient::setConfiguredUrl(_rendezvousUrlEdit->text().trimmed());
+        // OK just persisted the field: a connection test still running must
+        // not "restore" the old URL over it when it finishes later.
+        _testUrlRestorePending = false;
     }
     // Plan §11.10h connection-quality knobs.
     {
@@ -520,6 +523,17 @@ void CollabSettingsWidget::refreshIdentitySectionEnabled() {
 #endif
 }
 
+CollabSettingsWidget::~CollabSettingsWidget() {
+#ifdef MIDIEDITOR_WEBRTC_ENABLED
+    // A test still running at teardown must not leave its temporary URL
+    // override behind in the persistent settings.
+    if (_testUrlRestorePending) {
+        _testUrlRestorePending = false;
+        RtcRendezvousClient::setConfiguredUrl(_testUrlRestoreValue);
+    }
+#endif
+}
+
 #ifdef MIDIEDITOR_WEBRTC_ENABLED
 void CollabSettingsWidget::onRunConnectionTest() {
     if (_runningTest) return;  // already running; click is a no-op
@@ -531,6 +545,13 @@ void CollabSettingsWidget::onRunConnectionTest() {
     QString url = _rendezvousUrlEdit ? _rendezvousUrlEdit->text().trimmed() : QString();
     QString prevUrl = RtcRendezvousClient::configuredUrl();
     if (!url.isEmpty() && url != prevUrl) {
+        // An effective URL equal to the built-in default means no override
+        // was stored, so restore the empty value later instead of pinning
+        // this build's default into the settings as an explicit URL.
+        QString defaultUrl = RtcRendezvousClient::defaultUrl().trimmed();
+        while (defaultUrl.endsWith(QLatin1Char('/'))) defaultUrl.chop(1);
+        _testUrlRestoreValue = (prevUrl == defaultUrl) ? QString() : prevUrl;
+        _testUrlRestorePending = true;
         RtcRendezvousClient::setConfiguredUrl(url);
     }
 
@@ -551,13 +572,14 @@ void CollabSettingsWidget::onRunConnectionTest() {
             });
 
     connect(_runningTest, &WanConnectionTest::finished,
-            this, [this, prevUrl](const WanConnectionTest::Result &r) {
-                // Restore the previously-saved URL if we temporarily
-                // overrode it for this test run.
-                QString currentUrl = _rendezvousUrlEdit
-                    ? _rendezvousUrlEdit->text().trimmed() : QString();
-                if (!currentUrl.isEmpty() && currentUrl != prevUrl) {
-                    RtcRendezvousClient::setConfiguredUrl(prevUrl);
+            this, [this](const WanConnectionTest::Result &r) {
+                // Restore the previously-saved URL only while the temporary
+                // override is still pending - accept() clears the flag once
+                // OK has persisted the field, so a test finishing after the
+                // Settings dialog closed no longer clobbers the saved URL.
+                if (_testUrlRestorePending) {
+                    _testUrlRestorePending = false;
+                    RtcRendezvousClient::setConfiguredUrl(_testUrlRestoreValue);
                 }
 
                 QString lightColor;

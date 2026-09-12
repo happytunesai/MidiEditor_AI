@@ -28,6 +28,10 @@ constexpr const char *kPongPayload = "midieditor-pong";
 WanConnectionTest::WanConnectionTest(QObject *parent) : QObject(parent) {}
 
 WanConnectionTest::~WanConnectionTest() {
+    // Mark the test finished first: cleanup() closes the transports, whose
+    // synchronous close callback would otherwise still run the failure path
+    // and emit finished() into an already half-destroyed listener.
+    _finished = true;
     cleanup();
 }
 
@@ -295,30 +299,40 @@ void WanConnectionTest::emitFailure(const QString &stage, const QString &reason)
 }
 
 void WanConnectionTest::cleanup() {
-    if (_safety) {
-        _safety->stop();
-        _safety->deleteLater();
-        _safety = nullptr;
+    // Detach every member BEFORE tearing it down. closeConnection() drives the
+    // libdatachannel Closed callback synchronously, which re-enters cleanup()
+    // through emitFailure(); the outer frame would then call deleteLater() on
+    // members the inner frame has already nulled.
+    QTimer *safety = _safety;
+    _safety = nullptr;
+    RtcRendezvousClient *hostRdv = _hostRdv;
+    _hostRdv = nullptr;
+    RtcRendezvousClient *peerRdv = _peerRdv;
+    _peerRdv = nullptr;
+    WebRtcTransport *hostTransport = _hostTransport;
+    _hostTransport = nullptr;
+    WebRtcTransport *peerTransport = _peerTransport;
+    _peerTransport = nullptr;
+
+    if (safety) {
+        safety->stop();
+        safety->deleteLater();
     }
-    if (_hostRdv) {
-        _hostRdv->cancelPolling();
-        _hostRdv->deleteLater();
-        _hostRdv = nullptr;
+    if (hostRdv) {
+        hostRdv->cancelPolling();
+        hostRdv->deleteLater();
     }
-    if (_peerRdv) {
-        _peerRdv->cancelPolling();
-        _peerRdv->deleteLater();
-        _peerRdv = nullptr;
+    if (peerRdv) {
+        peerRdv->cancelPolling();
+        peerRdv->deleteLater();
     }
-    if (_hostTransport) {
-        _hostTransport->closeConnection();
-        _hostTransport->deleteLater();
-        _hostTransport = nullptr;
+    if (hostTransport) {
+        hostTransport->closeConnection();
+        hostTransport->deleteLater();
     }
-    if (_peerTransport) {
-        _peerTransport->closeConnection();
-        _peerTransport->deleteLater();
-        _peerTransport = nullptr;
+    if (peerTransport) {
+        peerTransport->closeConnection();
+        peerTransport->deleteLater();
     }
 }
 

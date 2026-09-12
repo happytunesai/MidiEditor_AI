@@ -17,6 +17,7 @@
  */
 
 #include "SysExEvent.h"
+#include "../midi/MidiFile.h"
 
 SysExEvent::SysExEvent(int channel, QByteArray data, MidiTrack *track)
     : MidiEvent(channel, track) {
@@ -37,8 +38,12 @@ int SysExEvent::line() {
 }
 
 QByteArray SysExEvent::save() {
+    // SMF sysex is F0 <varlen length> <data> F7, the length counting the F7.
+    // _data holds the payload only, so the length is re-derived here and stays
+    // correct after setData() instead of writing back a stale prefix.
     QByteArray s;
     s.append(char(0xF0));
+    s.append(MidiFile::writeVariableLengthValue(_data.size() + 1));
     s.append(_data);
     s.append(char(0xF7));
     return s;

@@ -66,7 +66,11 @@ void GpUnzip::parseEntries() {
         std::memcpy(&localHeaderOffset, &data_[pos + 42], 4);
 
         if (pos + 46 + filenameLen > data_.size()) break;
-        entry.filename = std::string(reinterpret_cast<const char*>(&data_[pos + 46]), filenameLen);
+        // Zero-length filename with the record ending exactly at EOF: pos + 46 ==
+        // data_.size(), so &data_[pos + 46] would be an out-of-range subscript.
+        if (filenameLen > 0) {
+            entry.filename = std::string(reinterpret_cast<const char*>(&data_[pos + 46]), filenameLen);
+        }
 
         // Calculate actual data offset from local file header
         if (localHeaderOffset + 30 <= data_.size()) {
@@ -103,7 +107,16 @@ std::vector<uint8_t> GpUnzip::extract(const std::string& entryPath) {
                     data_.begin() + entry.dataOffset,
                     data_.begin() + end);
             } else if (entry.compressionMethod == 8) {
-                // Deflated
+                // Deflated. Short-circuit an empty deflate stream before taking the
+                // address: a zero-length entry can resolve to dataOffset ==
+                // data_.size(), where &data_[dataOffset] is an out-of-range
+                // subscript (UB, and a hard assert in a debug CRT). Returning empty
+                // matches what inflateData produced for avail_in == 0 and keeps
+                // callers without a try/catch (.mxl/.mscz) on their existing
+                // empty-result path instead of an uncaught exception.
+                if (entry.compressedSize == 0) {
+                    return std::vector<uint8_t>();
+                }
                 return inflateData(&data_[entry.dataOffset],
                                entry.compressedSize, entry.uncompressedSize);
             } else {

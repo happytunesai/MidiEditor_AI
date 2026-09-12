@@ -19,6 +19,7 @@
 #include "MidiSettingsWidget.h"
 #include "../AppPaths.h"
 #include "Appearance.h"
+#include "C64Mode.h"
 #include "../ai/FfxivVoiceAnalyzer.h"
 
 #include "../Terminal.h"
@@ -50,7 +51,6 @@
 #include "../midi/FluidSynthEngine.h"
 #include "../midi/MidiOutput.h"
 #include "../midi/SidAudioPlayer.h"
-#include "C64Mode.h"
 #include "C64SoundFontHelper.h"
 #include "DownloadSoundFontDialog.h"
 #include "FfxivSoundFontHelper.h"
@@ -136,6 +136,26 @@ AdditionalMidiSettingsWidget::AdditionalMidiSettingsWidget(QSettings *settings, 
     layout->setRowStretch(3, 1);
 }
 
+AdditionalMidiSettingsWidget::~AdditionalMidiSettingsWidget() {
+    // The console is the Terminal singleton's widget and only borrowed by this
+    // page (layout->addWidget() re-parented it to us). The Settings dialog is
+    // deleted on close since v2.4.0, which took the console down with it and
+    // left Terminal::console() - and therefore the NEXT Settings dialog -
+    // holding a freed widget: access violation in QWidget::setParent on the
+    // second "Settings" click. Detach it before our children are destroyed so
+    // it survives, log text included.
+    Terminal *terminal = Terminal::terminal();
+    if (!terminal) return;
+    QTextEdit *console = terminal->console();
+    if (console && console->parentWidget() == this) {
+        // No explicit hide() here: Qt keeps an explicitly hidden state across
+        // re-parenting, so the console would never show again in the next
+        // dialog (review R231-05). setParent(nullptr) alone makes it an
+        // implicitly hidden top-level that the next page's layout shows.
+        console->setParent(nullptr);
+    }
+}
+
 void AdditionalMidiSettingsWidget::manualModeToggled(bool enable) {
     MidiOutput::isAlternativePlayer = enable;
 }
@@ -190,10 +210,9 @@ void AdditionalMidiSettingsWidget::refreshColors() {
 }
 
 bool AdditionalMidiSettingsWidget::accept() {
-    QString text = startCmd->text();
-    if (!text.isEmpty()) {
-        _settings->setValue("start_cmd", text);
-    }
+    // Write unconditionally: skipping the empty string left a configured start
+    // command stored forever, so clearing the field could never disable it.
+    _settings->setValue("start_cmd", startCmd->text());
     return true;
 }
 
@@ -540,6 +559,14 @@ void MidiSettingsWidget::inputChanged(QListWidgetItem *item) {
 
 void MidiSettingsWidget::outputChanged(QListWidgetItem *item) {
     if (item->checkState() == Qt::Checked) {
+        // Stop the transport before handing the backend over: setOutputPort()
+        // runs FluidSynthEngine::shutdown() (delete_fluid_synth) / RtMidi
+        // closePort while the player thread is still calling sendCommand() -
+        // a use-after-free on the freed synth (0xc0000005). The settings dialog
+        // is modeless, so this list is reachable mid-playback. Same guard the
+        // C64/FFXIV SoundFont helpers take before their setOutputPort() calls.
+        C64Mode::stopPlaybackForEngineChange();
+
         bool success = MidiOutput::setOutputPort(item->text());
 
         if (!success) {
@@ -607,8 +634,19 @@ void MidiSettingsWidget::addSoundFont() {
 
     FluidSynthEngine *engine = FluidSynthEngine::instance();
     if (engine->isInitialized()) {
+        // loadSoundFont() returns -1 for an unreadable/undecodable file and the
+        // path never reaches the list - without this the dialog just closed and
+        // nothing happened, leaving the user with no idea why.
+        QStringList failed;
         for (const QString &file : files) {
-            engine->loadSoundFont(file);
+            if (engine->loadSoundFont(file) < 0) {
+                failed << QFileInfo(file).fileName();
+            }
+        }
+        if (!failed.isEmpty()) {
+            QMessageBox::warning(this, tr("SoundFont Error"),
+                tr("The following SoundFonts could not be loaded:\n\n%1")
+                    .arg(failed.join("\n")));
         }
     } else {
         // Engine not yet initialized — add to pending paths so they load
@@ -830,6 +868,12 @@ void MidiSettingsWidget::updateFfxivModeFromSoundFonts() {
     _ffxivModeCheckBox->blockSignals(true);
     _ffxivModeCheckBox->setChecked(anyFfxivEnabled);
     _ffxivModeCheckBox->blockSignals(false);
+    // blockSignals also suppressed the toggled() -> setEnabled connection that
+    // drives the equalizer button, so mirror the state explicitly here
+    // (BUG-CORE-010 - it otherwise stayed stale in both directions).
+    if (_ffxivEqualizerBtn) {
+        _ffxivEqualizerBtn->setEnabled(anyFfxivEnabled);
+    }
 }
 
 #endif

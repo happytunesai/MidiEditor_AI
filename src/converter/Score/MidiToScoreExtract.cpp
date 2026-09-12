@@ -32,8 +32,13 @@ ScoreInput extractInput(MidiFile *file) {
     {
         QMultiMap<int, MidiEvent *> *map = file->timeSignatureEvents();
         for (auto it = map->begin(); it != map->end(); ++it) {
+            // denom() is the SMF power-of-two EXPONENT (4/4 stores 2), while
+            // MetaTimeSig::denominator is a real note value - convert here or
+            // the engraved meter and measure length are both wrong. Clamped to
+            // 0..6 (whole .. 64th), the range MusicXML <beat-type> allows.
             if (auto *ts = dynamic_cast<TimeSignatureEvent *>(it.value()))
-                in.timeSigs.append({ ts->midiTime(), ts->num(), ts->denom() });
+                in.timeSigs.append({ ts->midiTime(), ts->num(),
+                                     1 << qBound(0, ts->denom(), 6) });
         }
     }
     // Tempos.

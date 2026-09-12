@@ -128,6 +128,12 @@ private:
     bool _isPlaying;
     int _currentMs;
     int _fileDurationMs;
+
+    // Playback generation: bumped on every start so a playerStopped that the
+    // ABORTED run queued (stop + restart inside onSeek) is ignored instead of
+    // flipping _isPlaying back to false while the new run is audible.
+    int _playGeneration;
+    QMetaObject::Connection _stopConnection;
 };
 
 #endif // LYRICSYNCDIALOG_H

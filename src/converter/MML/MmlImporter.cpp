@@ -51,7 +51,14 @@ MidiFile* MmlImporter::loadFile(QString path, bool* ok) {
     if (!tempFile.open())
         return nullptr;
 
-    tempFile.write(midiBytes);
+    // A short write (full volume, locked temp dir) would leave a truncated
+    // .mid that MidiFile cannot parse - bail before constructing it.
+    if (tempFile.write(midiBytes) != midiBytes.size()) {
+        QString badPath = tempFile.fileName();
+        tempFile.close();
+        QFile::remove(badPath);
+        return nullptr;
+    }
     QString tempPath = tempFile.fileName();
     tempFile.close();
 
@@ -60,6 +67,10 @@ MidiFile* MmlImporter::loadFile(QString path, bool* ok) {
     QFile::remove(tempPath);
 
     if (!midiOk || !midiFile) {
+        // A MidiFile whose ctor reported failure is half-built; MidiFile.h's
+        // in-class initializers exist exactly so that callers can delete it
+        // safely (the other importers do). Deleting it frees the Protocol, the
+        // track list and the channels the early return left behind (R231-24).
         delete midiFile;
         return nullptr;
     }

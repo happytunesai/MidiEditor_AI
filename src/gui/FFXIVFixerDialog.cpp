@@ -32,16 +32,52 @@ void FFXIVFixerDialog::setupUI(const QJsonObject &analysis) {
     int autoTier         = analysis["autoDetectedTier"].toInt(2);
     QJsonArray guitarArr = analysis["guitarVariants"].toArray();
     QJsonArray percArr   = analysis["percussionTracks"].toArray();
+    // v2.4.0 eligibility facts (review F066) - same numbers the gate used.
+    const QJsonObject eligibility = analysis["eligibility"].toObject();
+    int noteTrackCount   = analysis["noteTrackCount"].toInt();
+    QJsonArray nonFfxivArr = analysis["nonFfxivNoteTracks"].toArray();
+    const bool tier2Eligible = eligibility.isEmpty()
+        || eligibility["tier2Eligible"].toBool();
 
     QString infoText = QString(
         "<b>%1</b> tracks detected, <b>%2</b> FFXIV instruments recognized<br>"
-        "Existing program changes: <b>%3</b>")
-        .arg(trackCount).arg(ffxivTrackCount).arg(totalPCs);
+        "<b>%3</b> tracks with notes, <b>%4</b> of them not FFXIV instruments<br>"
+        "Existing program changes: <b>%5</b>")
+        .arg(trackCount).arg(ffxivTrackCount)
+        .arg(noteTrackCount).arg(nonFfxivArr.size()).arg(totalPCs);
+
+    if (!nonFfxivArr.isEmpty()) {
+        // Track names come from the file and land in rich text - escape them.
+        QStringList nv;
+        for (const auto &v : nonFfxivArr) {
+            QJsonObject e = v.toObject();
+            nv << QString("%1 %2").arg(e["index"].toInt())
+                                  .arg(e["name"].toString().toHtmlEscaped());
+        }
+        infoText += QString("<br>Not FFXIV: <b>%1</b>").arg(nv.join(", "));
+    }
 
     if (hasGuitar) {
         QStringList gv;
         for (const auto &v : guitarArr) gv << v.toString();
         infoText += QString("<br>Guitar variants: <b>%1</b>").arg(gv.join(", "));
+
+        // Guitar tracks playing on a channel without a guitar program (e.g. a
+        // Viola track renamed to a guitar): Preserve takes the program from
+        // the track name instead of leaving the channel on program 0.
+        const QJsonArray noProgArr = analysis["guitarTracksWithoutProgram"].toArray();
+        if (!noProgArr.isEmpty()) {
+            QStringList np;
+            for (const auto &v : noProgArr) {
+                const QJsonObject e = v.toObject();
+                np << QString("%1 %2 (CH%3)").arg(e["index"].toInt())
+                        .arg(e["name"].toString().toHtmlEscaped())
+                        .arg(e["channel"].toInt());
+            }
+            infoText += QString("<br>Guitar tracks without a guitar program: <b>%1</b>"
+                                " - the program is taken from the track name")
+                            .arg(np.join(", "));
+        }
     }
     if (!percArr.isEmpty()) {
         QStringList pv;
@@ -55,6 +91,10 @@ void FFXIVFixerDialog::setupUI(const QJsonObject &analysis) {
         default: tierLabel = tr("Rebuild (Full Reassignment)");  break;
     }
     infoText += QString("<br><br>Auto-detected: <b>%1</b>").arg(tierLabel);
+    if (!tier2Eligible) {
+        infoText += QString("<br><span style='color:#c62828;'>%1</span>")
+            .arg(eligibility["tier2Reason"].toString().toHtmlEscaped());
+    }
 
     QLabel *infoLabel = new QLabel(infoText, infoGroup);
     infoLabel->setWordWrap(true);
@@ -136,8 +176,16 @@ void FFXIVFixerDialog::setupUI(const QJsonObject &analysis) {
     connect(_continueButton, &QPushButton::clicked, this, &QDialog::accept);
     connect(_abortButton,    &QPushButton::clicked, this, &QDialog::reject);
 
+    // Gate rule (c): more than 16 note-carrying tracks - Rebuild would merge
+    // the rest onto channel 15, so only Preserve is offered.
+    if (!tier2Eligible) {
+        _tier2Radio->setEnabled(false);
+        _tier2Radio->setToolTip(eligibility["tier2Reason"].toString());
+        tier2Desc->setEnabled(false);
+    }
+
     // Pre-select the auto-detected tier
-    if (autoTier == 3)
+    if (autoTier == 3 || !tier2Eligible)
         _tier3Radio->setChecked(true);
     else
         _tier2Radio->setChecked(true);

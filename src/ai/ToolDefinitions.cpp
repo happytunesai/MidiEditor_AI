@@ -5,7 +5,13 @@
 #include "../converter/TempoConversionService.h"
 #include "../midi/TempoMapThinner.h"
 #include "../MidiEvent/TempoChangeEvent.h"
+#include "../MidiEvent/OnEvent.h"
 #include "FfxivPlayabilityValidator.h"
+// v2.4.0 cross-tab tools: the document list lives on MainWindow. Real builds
+// only - test_tool_definitions ODR-stubs MidiPilotWidget as a non-QWidget, so
+// the qobject_cast/window() path (and this include) must never enter the stub
+// link; every exec* that uses it is #ifdef-stubbed like thin_tempo_map.
+#include "../gui/MainWindow.h"
 #endif
 #include "HelpDatabase.h" // pure QtCore - fine in the schema-test stub build too
 #include "../AppPaths.h"  // Phase 45: settings scope decided in ONE place
@@ -26,12 +32,15 @@
 #include "../tool/Selection.h"
 
 #include <QJsonDocument>
+#include <QPair>
 #include <QSettings>
 #include <QSet>
 #include <QStringList>
 #include <QRegularExpression>
 #include <algorithm>
 #include <climits>
+#include <cmath>
+#include <functional>
 
 // ---------------------------------------------------------------------------
 // Helper: create a tool schema object in OpenAI format (strict mode)
@@ -234,6 +243,40 @@ QJsonArray ToolDefinitions::toolSchemas(const ToolSchemaOptions &options) {
             "specific ones (e.g. only the high notes, or every second). Returns an empty "
             "list when nothing is selected.",
             makeParams(QJsonObject(), QJsonArray())));
+    }
+
+    // --- v2.4.0 cross-tab tools (read-only half) ---
+    // list_documents was MCP-only from v2.0; promoted to CORE so the MidiPilot
+    // agent can see the other tabs too. The description is kept VERBATIM from
+    // the old MCP-side append (McpServer::convertToolSchemas) so MCP clients
+    // see an identical tool; McpServer no longer appends its own copy.
+
+    // list_documents (no parameters)
+    {
+        tools.append(makeTool(
+            "list_documents",
+            "List all documents (tabs) open in the editor across both editor "
+            "groups: index, title, file path, group (0 = left, 1 = right), "
+            "active and modified flags. Use the index with switch_document.",
+            makeParams(QJsonObject(), QJsonArray())));
+    }
+
+    // get_document_overview - read ANOTHER tab without binding to it
+    {
+        QJsonObject props;
+        props["documentIndex"] = QJsonObject{
+            {"type", "integer"},
+            {"description", "Document index from list_documents."}};
+        tools.append(makeTool(
+            "get_document_overview",
+            "Read-only overview of ANY open document (tab) by its list_documents index, "
+            "including one that is not the document being edited: track list with names, "
+            "note/event counts and channels, channels in use, duration, ticksPerQuarter, "
+            "and tempo/time-signature event counts. Does NOT switch, activate, or re-bind "
+            "anything - use it to inspect another tab (e.g. before "
+            "import_tracks_from_document) while all edits keep landing on the current "
+            "document.",
+            makeParams(props, {"documentIndex"})));
     }
 
     // --- Write tools ---
@@ -684,6 +727,71 @@ QJsonArray ToolDefinitions::toolSchemas(const ToolSchemaOptions &options) {
             makeParams(props, {"sourceTrackIndex", "targetTrackIndex", "startTick", "endTick"})));
     }
 
+    // --- v2.4.0 cross-tab tools (write half) ---
+
+    // import_tracks_from_document
+    {
+        QJsonObject props;
+        props["documentIndex"] = QJsonObject{
+            {"type", "integer"},
+            {"description", "Source document index from list_documents. Must be a "
+                            "DIFFERENT document than the one being edited."}};
+        props["trackIndexes"] = QJsonObject{
+            {"anyOf", QJsonArray{
+                 QJsonObject{{"type", "array"},
+                             {"items", QJsonObject{{"type", "integer"}}}},
+                 QJsonObject{{"type", "null"}}}},
+            {"description", "Zero-based track indexes IN THE SOURCE document to import. "
+                            "null = every source track that contains events."}};
+        props["dryRun"] = QJsonObject{
+            {"anyOf", QJsonArray{QJsonObject{{"type", "boolean"}}, QJsonObject{{"type", "null"}}}},
+            {"description", "true = report what would be imported WITHOUT modifying the file. "
+                            "ALWAYS run with dryRun=true first, show the user the summary "
+                            "and ask for confirmation before running with dryRun=false. "
+                            "null = true."}};
+        tools.append(makeTool(
+            "import_tracks_from_document",
+            "Copy whole tracks from ANOTHER open document (tab) into the document being "
+            "edited: they are appended as new tracks with their names preserved, and the "
+            "source document is not modified. Events keep their source channels - "
+            "collisions with channels this document already uses are reported, not "
+            "remapped. Ticks are rescaled automatically when the two files' "
+            "ticksPerQuarter differ. The source's tempo map is NOT imported: imported "
+            "material follows THIS document's tempo, and when the two tempo maps differ "
+            "the timing will audibly differ from the source (reported, never blocked). "
+            "One undoable step. MUST be confirmed by the user: call with dryRun=true, "
+            "present the summary, and only call with dryRun=false after explicit user "
+            "approval.",
+            // STRICT-SCHEMA-001: every property listed in `required`;
+            // optionality via anyOf[<type>, null].
+            makeParams(props, {"documentIndex", "trackIndexes", "dryRun"})));
+    }
+
+    // switch_document - DEFINITION only, opt-in (includeDocumentSwitch).
+    // The call itself never reaches executeTool: the AgentRunner intercepts
+    // it before generic dispatch and re-binds the run atomically (file +
+    // selection context + closed-mid-run guard), WITHOUT activating the tab
+    // in the UI - MidiPilot's chat stays where it is. The MCP server keeps
+    // its OWN switch_document (appended in convertToolSchemas) with the
+    // different, deliberate contract of activating the tab; default options
+    // omit this one so the two definitions never shadow each other.
+    if (options.includeDocumentSwitch) {
+        QJsonObject props;
+        props["index"] = QJsonObject{
+            {"type", "integer"},
+            {"description", "Document index from list_documents."}};
+        tools.append(makeTool(
+            "switch_document",
+            "Re-bind this agent run to another open document (tab): from the next tool "
+            "call on, every read and write acts on that document, and undo steps land "
+            "there. The editor's visible tab does NOT change - the user keeps seeing "
+            "this chat; the switch is announced as a step instead. Call "
+            "get_editor_state right after switching to learn the new document's state "
+            "before editing it. Use ONLY when the user explicitly asks you to work on "
+            "another tab/document; otherwise stay on the document the run started on.",
+            makeParams(props, {"index"})));
+    }
+
     // --- FFXIV tools (only when FFXIV mode is active) ---
     if (AppPaths::settings()->value("AI/ffxiv_mode", false).toBool()) {
 
@@ -928,6 +1036,13 @@ QJsonObject ToolDefinitions::executeTool(const QString &toolName,
     if (toolName == "get_selection") {
         return execGetSelection(file);
     }
+    // v2.4.0 cross-tab reads - window-level, never re-bind anything
+    if (toolName == "list_documents") {
+        return execListDocuments(widget);
+    }
+    if (toolName == "get_document_overview") {
+        return execGetDocumentOverview(args, widget);
+    }
 
     // Write tools — delegate to widget handlers via executeAction
     if (toolName == "create_track" || toolName == "rename_track"
@@ -1057,6 +1172,26 @@ QJsonObject ToolDefinitions::executeTool(const QString &toolName,
     if (toolName == "copy_events_to_track") {
         return execCopyEventsToTrack(args, file, source);
     }
+    if (toolName == "import_tracks_from_document") {
+        return execImportTracksFromDocument(args, file, widget, source);
+    }
+    if (toolName == "switch_document") {
+        // Never executed here by design: the AgentRunner intercepts it before
+        // generic dispatch (re-binds the run), and the MCP server intercepts
+        // it before bound-file resolution (activates the tab). Reaching this
+        // branch means a caller dispatched it without a runner - refuse with
+        // a structured error instead of the generic "Unknown tool", exactly
+        // like the MCP-only guard style, so nothing pretends a switch
+        // happened.
+        QJsonObject result;
+        result["success"] = false;
+        result["handledBy"] = QStringLiteral("runtime");
+        result["error"] = QStringLiteral(
+            "switch_document is intercepted by its runtime (the MidiPilot agent "
+            "runner re-binds the run; the MCP server activates the tab) and is "
+            "never dispatched here. No document was switched.");
+        return result;
+    }
 
     // FFXIV tools
     if (toolName == "validate_ffxiv") {
@@ -1116,6 +1251,537 @@ QJsonObject ToolDefinitions::execGetSelection(MidiFile *file) {
     result["count"] = selected.size();
     result["selectedEvents"] = events;
     return result;
+}
+
+// ---------------------------------------------------------------------------
+// v2.4.0 cross-tab tools: list_documents / get_document_overview /
+// import_tracks_from_document
+// ---------------------------------------------------------------------------
+
+#ifndef TOOLDEFINITIONS_TEST_STUB_FFXIV
+// The document list lives on MainWindow. Both callers (AgentRunner and
+// McpServer) hand in the ONE MidiPilotWidget instance, whose top-level window
+// is the MainWindow - the same resolution the MCP pre-dispatch intercept has
+// used since v2.0. Real builds only: test_tool_definitions ODR-stubs
+// MidiPilotWidget as a non-QWidget, so window()/qobject_cast must never enter
+// the stub link (each exec* below is #ifdef-stubbed like thin_tempo_map).
+static MainWindow *mainWindowOf(MidiPilotWidget *widget) {
+    if (!widget)
+        return nullptr;
+    if (MainWindow *mw = qobject_cast<MainWindow *>(widget->window()))
+        return mw;
+    // The MidiPilot panel lives in a floatable QDockWidget (MainWindow.cpp,
+    // default QDockWidget features). While the dock FLOATS it is itself the
+    // panel's top-level window, so window() no longer reaches the MainWindow;
+    // the parent chain still does (a floating dock keeps its parent). Without
+    // this, the cross-tab tools would fail with "Main window not available"
+    // whenever the panel is undocked. (The MCP pre-dispatch intercept in
+    // McpServer.cpp has the same window()-only resolution since v2.0 and is
+    // left untouched for byte-compatibility - reported instead.)
+    for (QWidget *p = widget->parentWidget(); p; p = p->parentWidget()) {
+        if (MainWindow *mw = qobject_cast<MainWindow *>(p))
+            return mw;
+    }
+    return nullptr;
+}
+
+// Meta entry (title/path/group/active/modified) for one flattened list index,
+// taken from the SAME array list_documents returns - indexes and titles can
+// never disagree between the cross-tab tools.
+static QJsonObject documentMetaByListIndex(MainWindow *mw, int index) {
+    const QJsonArray docs = mw->listOpenDocumentsJson();
+    for (const QJsonValue &v : docs) {
+        const QJsonObject o = v.toObject();
+        if (o.value(QStringLiteral("index")).toInt(-1) == index)
+            return o;
+    }
+    return QJsonObject();
+}
+#endif // TOOLDEFINITIONS_TEST_STUB_FFXIV
+
+QJsonObject ToolDefinitions::execListDocuments(MidiPilotWidget *widget) {
+#ifdef TOOLDEFINITIONS_TEST_STUB_FFXIV
+    Q_UNUSED(widget);
+    QJsonObject result;
+    result["success"] = false;
+    result["error"] = QStringLiteral("Stub build: list_documents is unavailable.");
+    return result;
+#else
+    QJsonObject result;
+    MainWindow *mw = mainWindowOf(widget);
+    if (!mw) {
+        result["success"] = false;
+        result["error"] = QStringLiteral("Main window not available.");
+        return result;
+    }
+    // Same result shape the MCP pre-dispatch intercept has returned since
+    // v2.0 ({success, documents}) so both runtimes report identically.
+    result["success"] = true;
+    result["documents"] = mw->listOpenDocumentsJson();
+    return result;
+#endif // TOOLDEFINITIONS_TEST_STUB_FFXIV
+}
+
+QJsonObject ToolDefinitions::execGetDocumentOverview(const QJsonObject &args,
+                                                     MidiPilotWidget *widget) {
+#ifdef TOOLDEFINITIONS_TEST_STUB_FFXIV
+    Q_UNUSED(args);
+    Q_UNUSED(widget);
+    QJsonObject result;
+    result["success"] = false;
+    result["error"] = QStringLiteral("Stub build: get_document_overview is unavailable.");
+    return result;
+#else
+    QJsonObject result;
+    MainWindow *mw = mainWindowOf(widget);
+    if (!mw) {
+        result["success"] = false;
+        result["error"] = QStringLiteral("Main window not available.");
+        return result;
+    }
+    const int documentIndex = args.value("documentIndex").toInt(-1);
+    MidiFile *doc = mw->documentFileByListIndex(documentIndex);
+    if (!doc) {
+        result["success"] = false;
+        result["error"] = QStringLiteral("Invalid documentIndex %1 - call "
+                                         "list_documents for the current list.")
+                              .arg(documentIndex);
+        return result;
+    }
+    const QJsonObject meta = documentMetaByListIndex(mw, documentIndex);
+
+    // One pass over the playable channels (0-15). Meta channels (16 general,
+    // 17 tempo, 18 time signature) are summarized as counts only, and the
+    // active-file-scoped singletons (ChannelVisibilityManager, NewNoteTool)
+    // are deliberately not consulted - this may be a background tab.
+    const int trackCount = doc->numTracks();
+    QHash<MidiTrack *, int> trackIndexOf;
+    for (int t = 0; t < trackCount; ++t)
+        trackIndexOf.insert(doc->track(t), t);
+    QVector<int> noteCounts(trackCount, 0);
+    QVector<int> eventCounts(trackCount, 0);
+    QVector<QSet<int>> trackChannels(trackCount);
+    QSet<int> channelsUsed;
+    for (int ch = 0; ch < 16; ++ch) {
+        MidiChannel *channel = doc->channel(ch);
+        if (!channel) continue;
+        QMultiMap<int, MidiEvent *> *map = channel->eventMap();
+        for (auto it = map->begin(); it != map->end(); ++it) {
+            MidiEvent *ev = it.value();
+            if (dynamic_cast<OffEvent *>(ev))
+                continue; // count each note once (via its note-on)
+            channelsUsed.insert(ch);
+            const int t = trackIndexOf.value(ev->track(), -1);
+            if (t < 0) continue;
+            ++eventCounts[t];
+            if (dynamic_cast<NoteOnEvent *>(ev))
+                ++noteCounts[t];
+            trackChannels[t].insert(ch);
+        }
+    }
+
+    QJsonArray tracks;
+    int totalNotes = 0;
+    int totalEvents = 0;
+    for (int t = 0; t < trackCount; ++t) {
+        MidiTrack *track = doc->track(t);
+        QJsonObject o;
+        o["index"] = t;
+        o["name"] = track ? track->name() : QString();
+        o["noteCount"] = noteCounts[t];
+        o["eventCount"] = eventCounts[t]; // playable events; note-offs not counted
+        QList<int> chans = trackChannels[t].values();
+        std::sort(chans.begin(), chans.end());
+        QJsonArray chArr;
+        for (int c : chans) chArr.append(c);
+        o["channels"] = chArr;
+        tracks.append(o);
+        totalNotes += noteCounts[t];
+        totalEvents += eventCounts[t];
+    }
+    QList<int> used = channelsUsed.values();
+    std::sort(used.begin(), used.end());
+    QJsonArray usedArr;
+    for (int c : used) usedArr.append(c);
+
+    result["success"] = true;
+    result["documentIndex"] = documentIndex;
+    result["title"] = meta.value(QStringLiteral("title")).toString();
+    result["path"] = meta.value(QStringLiteral("path")).toString();
+    result["group"] = meta.value(QStringLiteral("group")).toInt();
+    result["active"] = meta.value(QStringLiteral("active")).toBool();
+    result["modified"] = meta.value(QStringLiteral("modified")).toBool();
+    result["ticksPerQuarter"] = doc->ticksPerQuarter();
+    result["durationMs"] = doc->maxTime();
+    result["endTick"] = doc->endTick();
+    result["totalMeasures"] = doc->measureCount();
+    result["trackCount"] = trackCount;
+    result["noteCount"] = totalNotes;
+    result["eventCount"] = totalEvents;
+    result["channelsUsed"] = usedArr;
+    result["tempoEventCount"] = doc->tempoEvents() ? doc->tempoEvents()->size() : 0;
+    result["timeSignatureEventCount"] =
+        doc->timeSignatureEvents() ? doc->timeSignatureEvents()->size() : 0;
+    result["tracks"] = tracks;
+    // Title CONCATENATED, never .arg()-substituted - a tab title comes from a
+    // file name and could contain '%N' (same rule as the protocol labels).
+    result["summary"] = QStringLiteral(
+        "Document %1 ('").arg(documentIndex)
+        + meta.value(QStringLiteral("title")).toString()
+        + QStringLiteral("'): %1 track(s), %2 note(s), %3 measure(s), %4 ms. "
+                         "Read-only overview - the run still edits its own document.")
+              .arg(trackCount)
+              .arg(totalNotes)
+              .arg(doc->measureCount())
+              .arg(doc->maxTime());
+    return result;
+#endif // TOOLDEFINITIONS_TEST_STUB_FFXIV
+}
+
+QJsonObject ToolDefinitions::execImportTracksFromDocument(const QJsonObject &args,
+                                                          MidiFile *file,
+                                                          MidiPilotWidget *widget,
+                                                          const QString &source) {
+#ifdef TOOLDEFINITIONS_TEST_STUB_FFXIV
+    Q_UNUSED(args);
+    Q_UNUSED(file);
+    Q_UNUSED(widget);
+    Q_UNUSED(source);
+    QJsonObject result;
+    result["success"] = false;
+    result["error"] = QStringLiteral("Stub build: import_tracks_from_document is unavailable.");
+    return result;
+#else
+    QJsonObject result;
+    if (!file) {
+        result["success"] = false;
+        result["error"] = QStringLiteral("No MIDI file is open.");
+        return result;
+    }
+    MainWindow *mw = mainWindowOf(widget);
+    if (!mw) {
+        result["success"] = false;
+        result["error"] = QStringLiteral("Main window not available.");
+        return result;
+    }
+    const int documentIndex = args.value("documentIndex").toInt(-1);
+    MidiFile *src = mw->documentFileByListIndex(documentIndex);
+    if (!src) {
+        result["success"] = false;
+        result["error"] = QStringLiteral("Invalid documentIndex %1 - call "
+                                         "list_documents for the current list.")
+                              .arg(documentIndex);
+        return result;
+    }
+    if (src == file) {
+        result["success"] = false;
+        result["error"] = QStringLiteral(
+            "documentIndex %1 is the document being edited - "
+            "import_tracks_from_document copies FROM a different open document.")
+                              .arg(documentIndex);
+        return result;
+    }
+
+    // Strict schemas send every optional as an explicit null - .isNull() is
+    // the check, never .contains() alone. Safe default: dry run.
+    bool dryRun = true;
+    if (args.contains("dryRun") && !args.value("dryRun").isNull()) {
+        dryRun = args.value("dryRun").toBool(true);
+    }
+    QList<int> wanted;
+    const bool explicitTracks =
+        args.contains("trackIndexes") && !args.value("trackIndexes").isNull();
+    if (explicitTracks) {
+        for (const QJsonValue &v : args.value("trackIndexes").toArray()) {
+            const int t = v.toInt(-1);
+            if (t < 0 || t >= src->numTracks()) {
+                result["success"] = false;
+                result["error"] = QStringLiteral(
+                    "Invalid source trackIndex %1 (source document has %2 tracks).")
+                                      .arg(v.toInt(-1)).arg(src->numTracks());
+                return result;
+            }
+            if (!wanted.contains(t))
+                wanted.append(t);
+        }
+        if (wanted.isEmpty()) {
+            result["success"] = false;
+            result["error"] = QStringLiteral(
+                "trackIndexes is an empty array - pass null to import every "
+                "source track that contains events.");
+            return result;
+        }
+    }
+
+    // Plan: per source track, the playable events (channels 0-15) to clone.
+    // Note-offs travel with their note-ons (skipped here, cloned alongside).
+    // Meta channels (16 general, 17 tempo, 18 time signature) are never
+    // imported - the tempo-map DIFFERENCE is reported below instead.
+    const int srcTrackCount = src->numTracks();
+    QHash<MidiTrack *, int> srcIndexOf;
+    for (int t = 0; t < srcTrackCount; ++t)
+        srcIndexOf.insert(src->track(t), t);
+    QVector<QList<MidiEvent *>> planned(srcTrackCount);
+    QVector<int> plannedNotes(srcTrackCount, 0);
+    for (int ch = 0; ch < 16; ++ch) {
+        MidiChannel *channel = src->channel(ch);
+        if (!channel) continue;
+        QMultiMap<int, MidiEvent *> *map = channel->eventMap();
+        for (auto it = map->begin(); it != map->end(); ++it) {
+            MidiEvent *ev = it.value();
+            if (dynamic_cast<OffEvent *>(ev)) continue;
+            const int t = srcIndexOf.value(ev->track(), -1);
+            if (t < 0) continue;
+            if (explicitTracks && !wanted.contains(t)) continue;
+            planned[t].append(ev);
+            if (dynamic_cast<NoteOnEvent *>(ev))
+                ++plannedNotes[t];
+        }
+    }
+
+    // Which tracks get created: the explicit list as given (empty ones too -
+    // the caller asked for them by index, the name still carries meaning), or
+    // every non-empty source track in file order.
+    QList<int> importList;
+    if (explicitTracks) {
+        importList = wanted;
+    } else {
+        for (int t = 0; t < srcTrackCount; ++t) {
+            if (!planned[t].isEmpty())
+                importList.append(t);
+        }
+    }
+    const QJsonObject meta = documentMetaByListIndex(mw, documentIndex);
+    const QString srcTitle = meta.value(QStringLiteral("title")).toString();
+    if (importList.isEmpty()) {
+        result["success"] = true;
+        result["dryRun"] = dryRun;
+        result["sourceDocumentIndex"] = documentIndex;
+        result["tracksImported"] = 0;
+        result["eventsImported"] = 0;
+        result["summary"] = QStringLiteral(
+            "The source document has no events on channels 0-15 - nothing to import.");
+        return result;
+    }
+
+    // ticksPerQuarter mismatch -> scale ticks (EventTool paste idiom).
+    const int srcTpq = src->ticksPerQuarter();
+    const int dstTpq = file->ticksPerQuarter();
+    const double tickscale = (srcTpq > 0 && dstTpq != srcTpq)
+                                 ? static_cast<double>(dstTpq) / static_cast<double>(srcTpq)
+                                 : 1.0;
+    auto scaledTick = [&](int tick) {
+        return static_cast<int>(std::lround(tickscale * tick));
+    };
+
+    // Channel collisions: source channels kept, so report every imported
+    // channel the target already uses (non-empty eventMap) - report, never
+    // remap or block.
+    QSet<int> importChannels;
+    for (int t : importList) {
+        for (MidiEvent *ev : planned[t])
+            importChannels.insert(ev->channel());
+    }
+    QList<int> importChannelList = importChannels.values();
+    std::sort(importChannelList.begin(), importChannelList.end());
+    QStringList collisionStrings;
+    QJsonArray collisions;
+    for (int ch : importChannelList) {
+        MidiChannel *channel = file->channel(ch);
+        if (channel && channel->eventMap() && !channel->eventMap()->isEmpty()) {
+            collisions.append(ch);
+            collisionStrings << QString::number(ch);
+        }
+    }
+
+    // Tempo-map difference: compare (tick, bpm) sequences, source ticks
+    // brought into target resolution first. Reported, never blocked.
+    bool tempoMapsDiffer = false;
+    {
+        QList<QPair<int, int>> srcTempo, dstTempo;
+        auto collectTempo = [](QMultiMap<int, MidiEvent *> *map,
+                               QList<QPair<int, int>> &out,
+                               const std::function<int(int)> &tickMap) {
+            if (!map) return;
+            for (auto it = map->begin(); it != map->end(); ++it) {
+                auto *tempo = dynamic_cast<TempoChangeEvent *>(it.value());
+                if (tempo)
+                    out.append(qMakePair(tickMap(it.key()), tempo->beatsPerQuarter()));
+            }
+        };
+        collectTempo(src->tempoEvents(), srcTempo, scaledTick);
+        collectTempo(file->tempoEvents(), dstTempo, [](int t) { return t; });
+        tempoMapsDiffer = (srcTempo != dstTempo);
+    }
+
+    // Channel the new track is assigned (review R231-04): the channel most of
+    // its events use, else the source track's own assignment. addTrack() alone
+    // left it at (trackNumber - 1), so the track metadata disagreed with its
+    // events and a follow-up insert_events with channel:null landed elsewhere.
+    auto importChannelFor = [&](int t) {
+        QHash<int, int> counts;
+        for (MidiEvent *ev : planned[t])
+            counts[ev->channel()]++;
+        int best = -1, bestCount = 0;
+        for (auto it = counts.constBegin(); it != counts.constEnd(); ++it) {
+            if (it.value() > bestCount || (it.value() == bestCount && it.key() < best)) {
+                bestCount = it.value();
+                best = it.key();
+            }
+        }
+        if (best < 0) {
+            MidiTrack *s = src->track(t);
+            best = s ? s->assignedChannel() : 0;
+        }
+        return qBound(0, best, 15);
+    };
+
+    // Per-track report + totals (shared by dry run and apply).
+    const int firstNewIndex = file->numTracks();
+    QJsonArray trackReport;
+    int totalEvents = 0;
+    int totalNotes = 0;
+    for (int i = 0; i < importList.size(); ++i) {
+        const int t = importList[i];
+        MidiTrack *srcTrack = src->track(t);
+        QJsonObject o;
+        o["sourceTrackIndex"] = t;
+        o["name"] = srcTrack ? srcTrack->name() : QString();
+        o["targetTrackIndex"] = firstNewIndex + i;
+        o["channel"] = importChannelFor(t);
+        o["noteCount"] = plannedNotes[t];
+        o["eventCount"] = static_cast<int>(planned[t].size());
+        trackReport.append(o);
+        totalEvents += planned[t].size();
+        totalNotes += plannedNotes[t];
+    }
+
+    if (!dryRun) {
+        // ONE Protocol action: track creation + one snapshot per touched
+        // target channel (documented bulk pattern - per-event snapshots cost
+        // ~1 MB each on dense channels). Label concatenated, never
+        // .arg()-substituted after the title (remote-ish input).
+        file->protocol()->startNewAction(
+            protocolActorPrefix(source)
+            + QStringLiteral(": Agent import ")
+            + QString::number(importList.size())
+            + QStringLiteral(" track(s) from ") + srcTitle);
+
+        QVector<MidiTrack *> dstTracks;
+        dstTracks.reserve(importList.size());
+        for (int t : importList) {
+            file->addTrack();
+            MidiTrack *dst = file->tracks()->last();
+            MidiTrack *srcTrack = src->track(t);
+            if (srcTrack)
+                dst->setName(srcTrack->name()); // preserve the name
+            dst->assignChannel(importChannelFor(t));
+            dstTracks.append(dst);
+        }
+
+        // Group by target channel so each channel is snapshotted exactly once.
+        QMap<int, QList<QPair<MidiEvent *, MidiTrack *>>> byChannel;
+        for (int i = 0; i < importList.size(); ++i) {
+            for (MidiEvent *ev : planned[importList[i]])
+                byChannel[ev->channel()].append(qMakePair(ev, dstTracks[i]));
+        }
+        for (auto it = byChannel.begin(); it != byChannel.end(); ++it) {
+            MidiChannel *channel = file->channel(it.key());
+            ProtocolEntry *snapshot = channel->copy();
+            for (const auto &pair : it.value()) {
+                MidiEvent *orig = pair.first;
+                MidiTrack *dst = pair.second;
+                // Clone-and-insert idiom from EventTool::copyAction/pasteAction:
+                // clone the event, pair a cloned note-off to a cloned note-on,
+                // re-home both (file/channel/track), insert at the scaled tick.
+                MidiEvent *ev = dynamic_cast<MidiEvent *>(orig->copy());
+                if (!ev) continue;
+                OffEvent *offClone = nullptr;
+                int offTick = 0;
+                OnEvent *onOrig = dynamic_cast<OnEvent *>(orig);
+                OnEvent *onClone = dynamic_cast<OnEvent *>(ev);
+                if (onOrig && onClone && onOrig->offEvent()) {
+                    offClone = dynamic_cast<OffEvent *>(onOrig->offEvent()->copy());
+                    if (offClone) {
+                        offClone->setOnEvent(onClone); // links both directions
+                        offTick = scaledTick(onOrig->offEvent()->midiTime());
+                    }
+                }
+                ev->setFile(file);
+                ev->setChannel(it.key(), false);
+                ev->setTrack(dst, false);
+                channel->insertEvent(ev, scaledTick(orig->midiTime()), false);
+                if (offClone) {
+                    offClone->setFile(file);
+                    offClone->setChannel(it.key(), false);
+                    offClone->setTrack(dst, false);
+                    channel->insertEvent(offClone, offTick, false);
+                }
+            }
+            channel->protocol(snapshot, channel);
+        }
+        file->calcMaxTime();
+        file->protocol()->endAction();
+    }
+
+    result["success"] = true;
+    result["dryRun"] = dryRun;
+    result["sourceDocumentIndex"] = documentIndex;
+    result["sourceTitle"] = srcTitle;
+    result["tracksImported"] = static_cast<int>(importList.size());
+    result["firstNewTrackIndex"] = firstNewIndex;
+    result["eventsImported"] = totalEvents;
+    result["notesImported"] = totalNotes;
+    result["ticksRescaled"] = (tickscale != 1.0);
+    result["tickScaleFactor"] = tickscale;
+    result["channelCollisions"] = collisions;
+    result["tempoMapsDiffer"] = tempoMapsDiffer;
+    result["tracks"] = trackReport;
+
+    // Honest summary, thin_tempo_map style: dry runs instruct the model to
+    // confirm with the user first. Title concatenated, never .arg()'d.
+    QString summary =
+        QStringLiteral("%1 %2 track(s) (%3 event(s), %4 note(s)) from '")
+            .arg(dryRun ? QStringLiteral("Would import") : QStringLiteral("Imported"))
+            .arg(importList.size())
+            .arg(totalEvents)
+            .arg(totalNotes)
+        + srcTitle
+        + QStringLiteral("' as new track(s) %1-%2, names preserved; the source "
+                         "document is untouched.")
+              .arg(firstNewIndex)
+              .arg(firstNewIndex + importList.size() - 1);
+    if (tickscale != 1.0) {
+        summary += QStringLiteral(" Ticks rescaled x%1 (source %2 -> target %3 "
+                                  "ticksPerQuarter).")
+                       .arg(tickscale, 0, 'g', 6)
+                       .arg(srcTpq)
+                       .arg(dstTpq);
+    }
+    if (!collisionStrings.isEmpty()) {
+        summary += QStringLiteral(" Channel collision(s): imported events keep "
+                                  "source channel(s) %1, which this document "
+                                  "already uses - existing material stays "
+                                  "untouched but shares those channels.")
+                       .arg(collisionStrings.join(QStringLiteral(", ")));
+    }
+    if (tempoMapsDiffer) {
+        summary += QStringLiteral(" The two documents' tempo maps differ and the "
+                                  "tempo map is NOT imported: the imported "
+                                  "material follows THIS document's tempo, so "
+                                  "its timing will audibly differ from the "
+                                  "source document.");
+    }
+    if (dryRun) {
+        summary += QStringLiteral(" Present this to the user and ask for "
+                                  "confirmation before calling again with "
+                                  "dryRun=false.");
+    } else {
+        summary += QStringLiteral(" One undo step restores everything.");
+    }
+    result["summary"] = summary;
+    return result;
+#endif // TOOLDEFINITIONS_TEST_STUB_FFXIV
 }
 
 QJsonObject ToolDefinitions::execGetTrackInfo(const QJsonObject &args, MidiFile *file) {
@@ -1503,6 +2169,49 @@ QJsonObject ToolDefinitions::execSetupChannelPattern(MidiFile *file,
     // The interactive MainWindow path wraps in startNewAction/endAction, but
     // this AI-tool entry point previously did not. Wrap here so the fix runs
     // under a Protocol action regardless of caller.
+    //
+    // WHY: startNewAction() wipes the redo stack and endAction() flags the file
+    // modified even when the step stays empty, so a fixer that bails before
+    // touching anything (no file, no tracks, no FFXIV instrument names) used to
+    // cost the user Redo and a bogus save prompt. Mirror the fixer's own pure
+    // precondition checks and only open the action once it is known to mutate;
+    // on those bail-out paths fixChannels() returns before its first edit, so
+    // running it without an action is safe and its result is unchanged.
+    // ffxivProgramNumber() (this TU) strips the same [+-]N suffix and carries
+    // the same instrument table as FFXIVChannelFixer::programNumber(); it is
+    // used here instead of the fixer's helpers because test_tool_definitions
+    // ODR-stubs FFXIVChannelFixer with fixChannels() only. Keep the two tables
+    // in sync, or a name only the fixer knows would run outside an action.
+    bool fixerWillEdit = file && file->numTracks() > 0;
+    if (fixerWillEdit) {
+        fixerWillEdit = false;
+        for (int t = 0; t < file->numTracks(); ++t) {
+            MidiTrack *track = file->track(t);
+            if (track && ffxivProgramNumber(track->name()) >= 0) {
+                fixerWillEdit = true;
+                break;
+            }
+        }
+    }
+#ifndef TOOLDEFINITIONS_TEST_STUB_FFXIV
+    // v2.4.0 (review F066): the fixer's own eligibility gate - the SAME
+    // function fixChannels() runs before its first edit, so a file it refuses
+    // (a note-carrying track that is not an FFXIV instrument, or no FFXIV
+    // names at all) returns success=false with the gate's reason without an
+    // action being opened. Rule (c) refuses REBUILD only: when Rebuild is what
+    // auto-detection would pick, fixChannels() refuses before its first edit
+    // as well, so that run stays outside an action too (review R231-17) - an
+    // empty action wiped the redo stack and dirtied the untouched file.
+    if (fixerWillEdit) {
+        const QJsonObject gate = FFXIVChannelFixer::checkEligibility(file);
+        fixerWillEdit = gate.value(QStringLiteral("eligible")).toBool()
+            && (gate.value(QStringLiteral("tier2Eligible")).toBool()
+                || FFXIVChannelFixer::autoTier(file) == 3);
+    }
+#endif
+    if (!fixerWillEdit)
+        return FFXIVChannelFixer::fixChannels(file);
+
     if (file && file->protocol())
         file->protocol()->startNewAction(
             protocolActorPrefix(source)

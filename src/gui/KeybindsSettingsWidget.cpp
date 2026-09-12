@@ -364,6 +364,15 @@ bool KeybindsSettingsWidget::accept() {
 
             if (isDefault) {
                 settings->remove(id);
+            } else if (seqs.isEmpty()) {
+                // A cleared shortcut on an action WITH a default must survive
+                // a restart. An empty QStringList is written by the INI backend
+                // as @Invalid() (Qt 6 reads it back as an empty list, older Qt
+                // as an invalid QVariant), which applyStoredShortcuts() treated
+                // as "nothing stored" - so the default came back on the next
+                // start. An empty string is a valid, present value that resolves
+                // to "no sequences"; the reader must apply that, not skip it.
+                settings->setValue(id, QString());
             } else {
                 QStringList list;
                 for (const QKeySequence &s: seqs) list << keySeqToString(s);

@@ -150,6 +150,34 @@ private:
     QJsonArray messagesForNextRequest() const;
     void processToolCalls(const QJsonObject &assistantMessage);
     static QString buildStepLabel(const QString &toolName, const QJsonObject &args);
+
+    /**
+     * \brief v2.4.0 cross-tab: appends " [in <tab title>]" to a step label
+     *        while the run is bound to a document OTHER than the one it was
+     *        started on, so the steps dock says where each edit (and its undo
+     *        step) landed. Empty-suffix (= no-op) on the origin document.
+     */
+    QString decorateStepLabel(const QString &label) const;
+
+    /**
+     * \brief v2.4.0 cross-tab: handles a `switch_document` tool call BEFORE
+     *        generic dispatch (mirroring the MCP server's pre-dispatch
+     *        intercept) and re-binds the run ATOMICALLY - `_file`, the
+     *        widget-side closed-mid-run guard (`_runOriginFile`) and the
+     *        chat-visible announcement all move in one synchronous step on
+     *        the main thread, so there is no stale-bind window. Deliberately
+     *        does NOT activate the tab in the UI: MidiPilot's chat stays
+     *        visible on the current tab (the MCP variant keeps activating
+     *        the tab - that difference is by design and documented).
+     *        Selection context needs no explicit move: every tool call
+     *        resolves Selection::forFile()/EditorContext from the per-call
+     *        file, which is `_file`.
+     *
+     *        An invalid/closed index returns a structured error result and
+     *        the run continues on its current document.
+     */
+    QJsonObject interceptSwitchDocument(const QJsonObject &args);
+
     void cleanup();
 
     /**
@@ -190,6 +218,18 @@ private:
     MidiFile *_file;
     MidiPilotWidget *_widget;
 
+    // v2.4.0 cross-tab: the document the run was STARTED on. `_file` is the
+    // run's CURRENT bind and moves with switch_document; this one never moves
+    // and anchors the "is the run away from home?" question behind
+    // decorateStepLabel(). Used for IDENTITY COMPARISON ONLY - after the
+    // origin tab is closed mid-run (which, post-switch, no longer aborts the
+    // run) the pointer dangles and must never be dereferenced; a comparison
+    // against a reused address could at worst drop the cosmetic label suffix.
+    MidiFile *_originFile = nullptr;
+    // Tab title of the CURRENT bind while it differs from the origin document,
+    // empty while the run is on its origin. Feeds decorateStepLabel().
+    QString _boundDocTitle;
+
     QJsonArray _messages;
     QJsonArray _tools;
     AgentWorkingState _workingState;
@@ -198,6 +238,10 @@ private:
     int _currentStep;
     bool _running;
     bool _cancelled;
+    // Monotonic id of the current run. Bumped by run() and cleanup() so a
+    // queued retry timer can tell whether the run it belongs to is still the
+    // live one (see onApiError's backoff).
+    quint64 _runGeneration = 0;
 
     // Self-healing retry state — reset on every successful API response.
     int _retryCount;

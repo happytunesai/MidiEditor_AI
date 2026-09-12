@@ -162,9 +162,13 @@ void WebRtcSmokeTest::runLoopback() {
     // host candidates (loopback / local LAN), so there's nothing to
     // ask STUN about. Skipping STUN makes gathering complete in
     // milliseconds instead of waiting for network round-trips.
+    // useDefaultIceServersIfEmpty=false is what makes the empty list mean "no
+    // STUN"; without it start() falls back to the default STUN pool.
     QStringList noStun;
-    responder->start(noStun, /*gatheringTimeoutMs=*/2000);
-    initiator->start(noStun, /*gatheringTimeoutMs=*/2000);
+    responder->start(noStun, /*gatheringTimeoutMs=*/2000,
+                     /*useDefaultIceServersIfEmpty=*/false);
+    initiator->start(noStun, /*gatheringTimeoutMs=*/2000,
+                     /*useDefaultIceServersIfEmpty=*/false);
 }
 
 #endif // MIDIEDITOR_WEBRTC_ENABLED

@@ -70,6 +70,11 @@ MatrixWidget::MatrixWidget(QSettings *settings, QWidget *parent)
     startLineY = 40;
     endTimeX = 0;
     endLineY = 0;
+    // The visible tick range is only assigned in paintEvent, but setFile() reads
+    // it (through eventInWidget) before the first paint ever runs - so give it a
+    // defined start value instead of an indeterminate one.
+    startTick = 0;
+    endTick = 0;
     file = 0;
     scaleX = 1;
     pianoEvent = new NoteOnEvent(0, 100, 0, 0);
@@ -105,6 +110,20 @@ MatrixWidget::MatrixWidget(QSettings *settings, QWidget *parent)
 
     // Cache appearance colors to avoid expensive theme checks on every paint event
     updateCachedAppearanceColors();
+}
+
+MatrixWidget::~MatrixWidget() {
+    // Phase 28: a view is created per editor group and destroyed again when the
+    // group is collapsed, so these raw allocations have to be freed here - none
+    // of them is a QObject child. The lists only borrow event pointers (the
+    // MidiFile owns the events), so deleting the containers is correct.
+    delete pixmap;
+    pixmap = 0;
+    delete objects;
+    delete velocityObjects;
+    delete currentTempoEvents;
+    delete currentTimeSignatureEvents;
+    delete pianoEvent;
 }
 
 void MatrixWidget::setScreenLocked(bool b) {
@@ -477,8 +496,13 @@ void MatrixWidget::paintEvent(QPaintEvent *event) {
             return;
         }
         int tick = currentEvent->midiTime();
-        while (tick + currentEvent->ticksPerMeasure() <= startTick) {
-            tick += currentEvent->ticksPerMeasure();
+        // Guarantee loop progress: ticksPerMeasure() truncates to 0 for a
+        // degenerate time signature (a file whose FF 58 denominator outweighs
+        // the numerator * PPQ product), which would spin these loops forever
+        // inside paintEvent. Same floor as the division raster below.
+        int ticksPerMeasure = qMax(1, currentEvent->ticksPerMeasure());
+        while (tick + ticksPerMeasure <= startTick) {
+            tick += ticksPerMeasure;
         }
         while (tick < endTick) {
             TimeSignatureEvent *measureEvent = currentTimeSignatureEvents->at(i);
@@ -486,12 +510,13 @@ void MatrixWidget::paintEvent(QPaintEvent *event) {
             currentDivs.append(QPair<int, int>(xfrom, tick));
             measure++;
             int measureStartTick = tick;
-            tick += currentEvent->ticksPerMeasure();
+            tick += ticksPerMeasure;
             if (i < currentTimeSignatureEvents->length() - 1) {
                 if (currentTimeSignatureEvents->at(i + 1)->midiTime() <= tick) {
                     currentEvent = currentTimeSignatureEvents->at(i + 1);
                     tick = currentEvent->midiTime();
                     i++;
+                    ticksPerMeasure = qMax(1, currentEvent->ticksPerMeasure());
                 }
             }
             int xto = xPosOfMs(msOfTick(tick));
@@ -613,12 +638,21 @@ void MatrixWidget::paintEvent(QPaintEvent *event) {
     painter->drawPixmap(0, 0, *pixmap);
 
     painter->setRenderHint(QPainter::Antialiasing);
+    // Collect the selected lines ONCE per paint: paintPianoKey used to scan the
+    // whole selection for every visible key, so a large selection cost
+    // O(visible lines x selection) on every repaint (mouse move / playback tick).
+    QSet<int> selectedLines;
+    if (Selection *fileSel = Selection::forFile(file)) {
+        foreach(MidiEvent *selEvent, fileSel->selectedEvents()) {
+            selectedLines.insert(selEvent->line());
+        }
+    }
     // draw the piano / linenames
     for (int i = startLineY; i <= endLineY; i++) {
         int startLine = yPosOfLine(i);
         if (i >= 0 && i <= 127) {
             paintPianoKey(painter, 127 - i, 0, startLine,
-                          lineNameWidth, lineHeight());
+                          lineNameWidth, lineHeight(), selectedLines);
         } else {
             QString text = "";
             switch (i) {
@@ -1163,7 +1197,8 @@ void MatrixWidget::setShowVoiceLoadOverlay(bool on) {
 }
 
 void MatrixWidget::paintPianoKey(QPainter *painter, int number, int x, int y,
-                                 int width, int height) {
+                                 int width, int height,
+                                 const QSet<int> &selectedLines) {
     int borderRight = 10;
     width = width - borderRight;
     if (number >= 0 && number <= 127) {
@@ -1261,13 +1296,10 @@ void MatrixWidget::paintPianoKey(QPainter *painter, int number, int x, int y,
         }
 
         bool selected = mouseY >= y && mouseY <= y + height && mouseX > lineNameWidth && mouseOver;
-        if (Selection *fileSel = Selection::forFile(file)) {
-            foreach(MidiEvent* event, fileSel->selectedEvents()) {
-                if (event->line() == 127 - number) {
-                    selected = true;
-                    break;
-                }
-            }
+        // The caller collected the selected lines once for this paint - a set
+        // lookup here instead of a full rescan of the selection per key.
+        if (!selected && selectedLines.contains(127 - number)) {
+            selected = true;
         }
 
         QPolygon keyPolygon;
@@ -1383,6 +1415,23 @@ void MatrixWidget::setFile(MidiFile *f) {
         return;
     }
 
+    connect(file->protocol(), SIGNAL(actionFinished()), this, SLOT(registerRelayout()), Qt::UniqueConnection);
+    connect(file->protocol(), SIGNAL(actionFinished()), this, SLOT(update()), Qt::UniqueConnection);
+
+    // Bound again to the document it already shows - Sync switched on, Play
+    // with the other pane focused, an MCP switch_document to the current tab:
+    // keep zoom and viewport. The reset below is for a DIFFERENT document;
+    // running it here threw the left view back to the song start every time
+    // Sync was switched on, so the place to play from had to be found again
+    // (SYNC-JUMP-001, 2026-09-06). Sizes and the visible tick range are still
+    // recomputed - the widget may have been resized meanwhile.
+    if (previous == file) {
+        calcSizes();
+        startTick = file->tick(startTimeX);
+        endTick = file->tick(endTimeX);
+        return;
+    }
+
     scaleX = 1;
     scaleY = 1;
 
@@ -1391,10 +1440,14 @@ void MatrixWidget::setFile(MidiFile *f) {
     // any notes and how tall the viewport currently is.
     startLineY = 40;
 
-    connect(file->protocol(), SIGNAL(actionFinished()), this, SLOT(registerRelayout()), Qt::UniqueConnection);
-    connect(file->protocol(), SIGNAL(actionFinished()), this, SLOT(update()), Qt::UniqueConnection);
-
     calcSizes();
+
+    // eventInWidget() below filters against the visible TICK range, which is
+    // otherwise only assigned in paintEvent: before the first paint it holds
+    // nothing meaningful, and on a tab switch it still holds the previously
+    // shown document's range. Derive it for this file first.
+    startTick = file->tick(startTimeX);
+    endTick = file->tick(endTimeX);
 
     // scroll down to see events
     int maxNote = -1;
@@ -1486,7 +1539,9 @@ void MatrixWidget::mouseMoveEvent(QMouseEvent *event) {
         return;
     }
 
-    if (!MidiPlayer::isPlaying() && Tool::currentTool()) {
+    // Only feed the tool coordinates from the pane that is the active tool AND
+    // document target (see toolTargetMatchesDocument).
+    if (!MidiPlayer::isPlaying() && Tool::currentTool() && toolTargetMatchesDocument()) {
         Tool::currentTool()->move(qRound(event->position().x()), qRound(event->position().y()));
     }
 
@@ -1563,6 +1618,16 @@ void MatrixWidget::leaveEvent(QEvent *event) {
     }
 }
 
+bool MatrixWidget::toolTargetMatchesDocument() const {
+    // Phase 28: a pane claims the static tool target on click, but the host may
+    // REFUSE to make that pane's document active (onViewFocused returns early
+    // while a live collab session runs). The tool would then resolve ticks and
+    // lines through THIS viewport while writing to Tool::currentFile() - another
+    // document, inside another document's Protocol, where the undo entry is
+    // dropped. Input is only dispatched while both statics point here.
+    return EditorTool::currentMatrixWidget() == this && file && Tool::currentFile() == file;
+}
+
 void MatrixWidget::claimAsActiveView() {
     // Phase 28: make this view the active tool/document target programmatically.
     // Used by the velocity lane (MiscWidget), which is bound to ONE pane: a click
@@ -1613,8 +1678,16 @@ void MatrixWidget::mousePressEvent(QMouseEvent *event) {
     // Phase 9.9c §15.2 (Show Mode viewer): tool press is suppressed
     // while editing is locked. Piano-key preview (the else-if below)
     // still works because audio playback stays local per the design.
-    if (!_editingLocked && !MidiPlayer::isPlaying() && Tool::currentTool() && mouseInRect(ToolArea)
-        && (!isRightClick || ctrlHeld)) {
+    // toolTargetMatchesDocument(): a pane whose document the host refused to
+    // activate must not drive the tool - it would edit the OTHER document.
+    if (!_editingLocked && toolTargetMatchesDocument() && !MidiPlayer::isPlaying() && Tool::currentTool()
+        && mouseInRect(ToolArea) && (!isRightClick || ctrlHeld)) {
+        // mouseMoveEvent feeds the tool only while this pane already IS the
+        // target, so a press that follows a pointer crossing from another pane
+        // (the claim above made this pane the target just now) must carry its
+        // own coordinates - otherwise the tool would hit-test with the other
+        // pane's last position.
+        Tool::currentTool()->move(qRound(event->position().x()), qRound(event->position().y()));
         if (Tool::currentTool()->press(event->buttons() == Qt::LeftButton)) {
             if (enabled) {
                 update();
@@ -1641,14 +1714,14 @@ void MatrixWidget::mouseReleaseEvent(QMouseEvent *event) {
     // pending state to release — but the conditional guards against a
     // press-while-unlocked → lock-flipped → release-while-locked race
     // (e.g. host yanks the hat mid-drag).
-    if (!_editingLocked && !MidiPlayer::isPlaying() && Tool::currentTool() && mouseInRect(ToolArea)
-        && (!isRightRelease || ctrlHeld)) {
+    if (!_editingLocked && toolTargetMatchesDocument() && !MidiPlayer::isPlaying() && Tool::currentTool()
+        && mouseInRect(ToolArea) && (!isRightRelease || ctrlHeld)) {
         if (Tool::currentTool()->release()) {
             if (enabled) {
                 update();
             }
         }
-    } else if (Tool::currentTool() && !_editingLocked) {
+    } else if (Tool::currentTool() && !_editingLocked && toolTargetMatchesDocument()) {
         if (Tool::currentTool()->releaseOnly()) {
             if (enabled) {
                 update();
@@ -2154,6 +2227,24 @@ void MatrixWidget::contextMenuEvent(QContextMenuEvent *event) {
     // Suppress context menu when Ctrl+Right-click was used (note placement mode)
     if (_ctrlRightClickInProgress) {
         _ctrlRightClickInProgress = false;
+        event->accept();
+        return;
+    }
+
+    // Phase 9.9c 15.2: the context menu is an edit pathway like the tools, so it
+    // follows the same locks - a Show-Mode viewer or the read-only sync pane must
+    // not reach delete / transpose / quantize / the whole-file tempo rewrites,
+    // and a pane that is not the active tool+document target would run them
+    // against the OTHER document (see toolTargetMatchesDocument). Accept, don't
+    // ignore: an ignored event bounces back from the OpenGL wrapper (see below).
+    // The menu below is populated from THIS pane's file (track/channel indexes
+    // in action->data()) but every action runs on the host's active file, so
+    // the two must be the same document - checked directly, not only via the
+    // tool statics (an index of B's 12 tracks applied to A's 3 gave a null
+    // MidiTrack that crashed the next repaint).
+    MainWindow *hostWindow = qobject_cast<MainWindow *>(window());
+    if (_editingLocked || !toolTargetMatchesDocument()
+            || !hostWindow || hostWindow->getFile() != file) {
         event->accept();
         return;
     }

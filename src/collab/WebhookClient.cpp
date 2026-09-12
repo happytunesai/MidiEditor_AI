@@ -25,6 +25,25 @@ WebhookClient *s_instance = nullptr;
 
 constexpr int kDiscordDescriptionLimit = 4000;       // safe under the 4096 hard limit
 constexpr int kInlineTokenSafeLimit = 3000;          // leaves room for the rest of the description
+constexpr int kDiscordTitleLimit = 256;              // Discord rejects longer embed titles with HTTP 400
+
+/**
+ * Make a free-text display name safe inside a quoted Content-Disposition
+ * filename parameter: a double quote, backslash, separator or control
+ * character there would terminate the quoted string early and inject extra
+ * multipart parameters.
+ */
+QString sanitizeFileNamePart(const QString &value) {
+    QString out;
+    out.reserve(value.size());
+    for (const QChar &c : value) {
+        const bool unsafe = c == QLatin1Char('"') || c == QLatin1Char('\\') ||
+                            c == QLatin1Char('/') || c == QLatin1Char(';') ||
+                            c.unicode() < 0x20 || c.unicode() == 0x7F;
+        out.append(unsafe ? QLatin1Char('_') : c);
+    }
+    return out.trimmed();
+}
 
 /**
  * Stable per-user color for Discord embeds. Hash the author display name
@@ -96,6 +115,14 @@ QJsonObject buildEmbed(const PrBundle &bundle, const QString &fileLabel) {
     if (!bundle.message.isEmpty() && bundle.message != QStringLiteral("Save")) {
         title = QStringLiteral("🎵 %1 — %2").arg(bundle.author, bundle.message);
     }
+    // The author name and the commit message are unbounded user text; an
+    // over-long title is rejected by Discord with HTTP 400.
+    if (title.size() > kDiscordTitleLimit) {
+        int cut = kDiscordTitleLimit - 1;
+        if (title.at(cut - 1).isHighSurrogate()) --cut;  // never split a surrogate pair
+        title.truncate(cut);
+        title += QStringLiteral("…");
+    }
 
     QJsonObject embed;
     embed.insert(QStringLiteral("title"), title);
@@ -147,8 +174,9 @@ void WebhookClient::postPr(const QString &webhookUrl,
 
     // Attachment: full bundle JSON. Fallback for recipients who don't
     // copy the inline token (or for tokens too large for the embed).
+    const QString safeAuthor = sanitizeFileNamePart(bundle.author);
     QString bundleFileName = QStringLiteral("%1-%2%3")
-        .arg(bundle.author.isEmpty() ? QStringLiteral("anon") : bundle.author)
+        .arg(safeAuthor.isEmpty() ? QStringLiteral("anon") : safeAuthor)
         .arg(bundle.timestamp)
         .arg(QString::fromLatin1(PrBundle::kBundleFileExtension));
     QHttpPart filePart;
@@ -173,7 +201,15 @@ void WebhookClient::postPr(const QString &webhookUrl,
                 ? tr("Posted to Discord webhook (HTTP %1).").arg(httpStatus)
                 : tr("Discord webhook returned HTTP %1.").arg(httpStatus);
         } else {
-            msg = tr("Webhook error: %1").arg(reply->errorString());
+            // QNetworkReply::errorString() quotes the full request URL, and the
+            // last path segment of a Discord webhook URL is the secret token -
+            // report the status/error code and the bare host instead.
+            int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            QString host = reply->url().host();
+            msg = httpStatus > 0
+                ? tr("Webhook error: %1 returned HTTP %2.").arg(host).arg(httpStatus)
+                : tr("Webhook error: could not reach %1 (network error %2).")
+                      .arg(host).arg(static_cast<int>(reply->error()));
         }
         emit postFinished(ok, msg);
         reply->deleteLater();
