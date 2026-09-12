@@ -5,20 +5,20 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 
 ---
 
-## [2.4.0] - Unreleased
-
-> In progress after the 2.3.0 release. On release day: set the real date and a
-> title (here and in the <summary> line), write the Summary from the shipped
-> content, delete this note, then run scripts/build_changelog.py - the website
-> generator skips entries whose date starts with "Unreleased".
+## [2.4.0] - 2026-09-12 - Stability Pass, Cross-Tab MidiPilot, GPT-6 Astra
 
 ### Summary
 * **A stability pass across the whole editor** - more than 200 fixes for defects that were present in every release so far: crashes when closing a tab or switching the MIDI output during playback, undo steps that restored nothing after Fix X|V Channels or a track reorder, Guitar Pro and MusicXML imports that wrote wrong notes and meters, MidiPilot runs that lost their tool calls on streaming providers, and an MCP origin check that let a web page drive the editor.
-* **MidiPilot sees across tabs** - the agent can list every open document, read another tab's overview, import whole tracks from another tab as one undoable step, and - when you explicitly ask - re-point a running agent at another tab.
-* **A very long agent run no longer pushes MidiPilot off screen** - the pinned Steps panel now scrolls inside a capped area instead of growing past the window.
+* **[MidiPilot sees across tabs](https://midieditor-ai.de/midipilot-modes.html#cross-tab)** - the agent can list every open document, read another tab's overview, import whole tracks from another tab as one undoable step, and - when you explicitly ask - re-point a running agent at another tab.
+* **[GPT-6 Astra works in MidiPilot](https://midieditor-ai.de/midipilot-settings.html#settings)** - OpenAI's new model needs its tool calls on the Responses API; MidiPilot routes it accordingly in both modes, knows its 1.05M context and offers its new Max reasoning effort.
+* **The Agent Steps panel behaves** - it scrolls in a pane of its own below the chat instead of pushing MidiPilot off screen, follows the step that is running, and the divider can be dragged to the height you like.
+* **Quitting is reliable again** - an MCP client with an open event stream could leave the editor hanging invisibly after its window had closed, a tab switch arriving during the teardown could crash it, and the GPU views cleaned up against the wrong OpenGL context. All three are fixed.
+* **Files that used to lose notes now load completely** - sysex dumps split into packets, files whose sysex was written by an earlier version of this editor, and notes whose note-off sat in another track.
+* **Live sessions keep one history** - every participant's edits are committed under the host's ids, so histories agree when a peer rejoins, and the host no longer re-sends its whole history after every edit.
+* **Small things that add up** - Fix X|V Channels gives a renamed guitar track its program in Preserve mode, rendering options apply the moment you change them, switching auto-save off really stops it, and DPI overrides no longer survive an in-app restart after being switched off.
 
 <details>
-<summary>Full Changelog - (title at release)</summary>
+<summary>Full Changelog - Stability Pass, Cross-Tab MidiPilot, GPT-6 Astra</summary>
 
 ### New Features
 * **[MidiPilot can see across tabs](https://midieditor-ai.de/midipilot-modes.html#cross-tab)** - new `list_documents` and `get_document_overview` tools let the AI inspect every open document (both editor groups) without leaving the one it is working on. Until now only external MCP clients could do this; asked to merge files from several tabs, the agent had to decline.
@@ -105,6 +105,7 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 * **Editing a document in a background tab marked the active tab as modified** - an edit made by MidiPilot or an MCP tool in another tab put the modified marker on the active, already-saved tab's title. The marker now only reflects the active document.
 * **Splitting, collapsing and switching tabs slowly cost memory and speed** - closing a group leaked its render buffer and event lists, and every tab switch stacked up another refresh connection in the Channels panel, so each edit got slower the longer a session ran. The memory is now released and the panel re-binds cleanly on each switch.
 * **A crashed editor could freeze copy and paste in every other running editor** - the shared clipboard lock had no timeout, so a crash or kill in the middle of a copy left every other instance blocked on its next Copy or Paste until all of them were closed. The lock now waits at most two seconds and then falls back to the local clipboard, and a lock left behind by a crashed editor is cleared automatically.
+* **After Split, the file moved into the new group could appear without its tab** - the new group's tab strip was filled before it had been laid out once, so its first tab could stay unpainted. The strip is now re-synced as soon as it is on screen.
 * **Switching Sync on threw the left view back to the start of the song** - so did Play while the right pane was focused: binding the left view again to the document it was already showing reset its zoom and scroll position, and the place you wanted to play from had to be found again every time. A view now keeps its position when it is bound again to the same document, and switching Sync on gives the right pane the left view's zoom and position, so both show the same passage from the first moment.
 
 #### MidiPilot & MCP
@@ -166,6 +167,7 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 * **Color presets and the color picker did not do what you chose** - after using a preset and switching back to "Default", the colors stayed pinned to one theme's defaults and no longer followed later Light/Dark theme changes; track 16 (and 33, 50, ...) kept its old color when a preset was applied; and clicking a channel or track color a second time opened the picker on the previous color, so simply confirming it silently reverted the color you had just chosen. "Default" now hands the colors back to the theme, presets recolor every slot, and the picker opens on the color currently in use.
 * **Customize Toolbar was slow and hid several actions** - ticking an action on or off rebuilt the toolbar and wrote the settings file several times over (once more for every layout switch made while the dialog was open), causing stalls and flicker; and with the default double-row layout, Paste, Transpose Selection, Transpose Up/Down, Size Change and Glue Notes (All Channels) were missing from both row lists, so they could not be put on the toolbar at all, and enabling them in single-row mode lost them again after switching back. Each change is now applied exactly once, and every action is offered in both layouts.
 * **Settings dialog housekeeping** - each time the dialog was opened it was rebuilt from scratch while the old one was only hidden, so a long session accumulated hidden copies of every settings page; and leaving the Keybinds page with a duplicate shortcut assigned jumped the category list to the new category while the panel stayed on Keybinds, and clicking that category again did nothing. The dialog is now released when it is closed, and the selection stays on the page that is actually shown.
+* **Quitting with GPU acceleration on could log OpenGL errors and leave GPU resources behind** - the editor views released their resources against whatever OpenGL context happened to be current, and the teardown re-parented them first, which had already destroyed their own context. They now clean up on their own context, also when Qt recreates it.
 * **Rendering options only took effect when the settings dialog was closed with its Close button** - anti-aliasing, smooth pixmap transforms and hardware smooth transforms were saved at once, but the editor kept drawing with the old values until the dialog was closed with Close (Esc or the window's X left them stale), and the MSAA level looked like a live option although it can only change on the next start. The options now apply the moment they are changed, and MSAA says that it applies on restart.
 * **Switching "Ignore system UI scaling" (or the font and rounded-scaling options) off did not take effect after an in-app restart** - the restart after a theme change and the relaunch after an update inherited the scaling overrides of the previous instance, so the editor stayed unscaled until it was started fresh from the Explorer; a scaling value configured outside the editor was also lost once the option had been used. The inherited overrides are now undone on start, and an external value is put back.
 
@@ -319,6 +321,14 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 * `src/gui/PerformanceSettingsWidget.cpp` - MSAA marked as a restart option; the other rendering hints applied live through `MainWindow::updateRenderingMode()`
 * `tests/test_shutdown_guards.cpp`, `tests/test_auto_save_scheduler.cpp`, `tests/test_dpi_env_overrides.cpp`, `tests/test_mcp_session_table.cpp` (new)
 * `manual/setup.html` - which rendering options apply at once and which on the next start
+* `src/gui/OpenGLPaintWidget.h/.cpp`, `src/gui/MainWindow.cpp` - the GPU views release their resources on their own OpenGL context (aboutToBeDestroyed + destructor), no re-parenting before the teardown
+
+#### MidiPilot and editor groups (2026-09-07)
+* `src/ai/AiClient.h/.cpp`, `src/ai/ModelListFetcher.h/.cpp`, `src/gui/AiSettingsWidget.cpp` - GPT-6 Astra: family predicates for the Responses-API transport, the reasoning family and the effort clamp; 1.05M context; "Max" effort in both combos
+* `src/gui/MidiPilotWidget.h/.cpp` - the Agent Steps pane in a draggable splitter with a grip mark, following the running step, height remembered; "Max" effort in the footer
+* `src/gui/MatrixWidget.h/.cpp`, `src/gui/MainWindow.cpp` - a view keeps zoom and position when it is bound again to the same document; Sync gives the right pane the left view's zoom and position
+* `tests/test_streaming_fallback.cpp`, `tests/test_model_list_fetcher.cpp` - GPT-6 family cases
+* `manual/midipilot-settings.html`, `manual/midipilot.html`, `manual/midipilot-modes.html` - reasoning effort levels, the resizable steps pane
 
 </details>
 

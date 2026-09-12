@@ -4,6 +4,7 @@
 > MIDI events, editor context, and can actively edit MIDI data via the OpenAI API.
 > All UI and code must be in **English**.
 
+
 ---
 
 ## Architecture Overview
@@ -13403,7 +13404,13 @@ per-provider key memory (switching provider then back must not clobber a profile
 preset-name fallback when the profile is missing. Manual: providers section of
 midipilot-settings.html (+ help_db regen), CHANGELOG per the template.
 
-## Post-2.3 candidates (docs QoL, scoped 2026-08-26)
+# v2.4 preparation and follow-up candidates
+
+Current branch: `feature/v2.4.0`; release status: **Unreleased**. The candidate list
+started on 2026-08-26 after 2.3 and is carried forward here. DONE entries record work
+already included in the 2.4 preparation; remaining candidates need separate scoping.
+
+## v2.4+ candidates (carried forward from 2026-08-26)
 
 * **Cross-tab follow-ups (from the 2.4.0 sprint verification):** (a) extract the
   import engine into its own TU (src/midi/TrackImporter, TempoMapThinner-style seam
@@ -13448,8 +13455,9 @@ midipilot-settings.html (+ help_db regen), CHANGELOG per the template.
   5. Shared clipboard (F222): lockMemory() has no timeout; RAII release is in, a bounded
      wait that reports "clipboard busy" instead of blocking is the remaining half.
 
-* **OpenGL wrapper teardown (deferred from the external system/performance review of
-  2026-09-06, its item 2; the other four items were fixed the same day):** OpenGLPaintWidget's
+* **OpenGL wrapper teardown (from the external system/performance review of 2026-09-06, its
+  item 2; DONE 2026-09-07 - own-context release on aboutToBeDestroyed + destructor, no reparent
+  before delete; kept here for the record):** OpenGLPaintWidget's
   destructor cleans up with whatever GL context happens to be current - a foreign one included,
   and calls doneCurrent() on it - has no aboutToBeDestroyed handler, and initializeGL()
   overwrites an existing paint device; MainWindow reparents the two GL wrappers to nullptr
@@ -13488,12 +13496,15 @@ midipilot-settings.html (+ help_db regen), CHANGELOG per the template.
   seam drain, MidiPilotWidget input-enable + pending marker, tests for the queue/drain
   order, manual note.
 
-* **MidiPilot cross-tab awareness (scoped 2026-08-26, real use case: merge per-track Suno
-  stem MIDIs open as tabs into one file - MCP can, MidiPilot cannot).** Today
-  `list_documents` / `switch_document` are MCP-ONLY tools (handled in McpServer.cpp:662ff
+* **MidiPilot cross-tab awareness (DONE in the v2.4.0 feature branch; original scope
+  2026-08-26).** The design below records the pre-implementation problem and plan;
+  list/overview/import/switch are now implemented, as documented in CHANGELOG.md.
+  Original use case: merge per-track Suno stem MIDIs open as tabs into one file.
+  Before this work,
+  `list_documents` / `switch_document` were MCP-ONLY tools (handled in McpServer.cpp:662ff
   BEFORE bound-file resolution, via MainWindow::listOpenDocumentsJson()); MidiPilot's
-  AgentRunner routes every tool to its bound `_file` only, so the agent truthfully reports
-  it cannot see other tabs. Plan, in the order that keeps the v1.9 binding invariant
+  AgentRunner routed every tool to its bound `_file` only, so the agent truthfully reported
+  it could not see other tabs. Original plan, in the order that keeps the v1.9 binding invariant
   ("AI edits land on the document the run started on") intact:
   1. `list_documents` becomes a CORE read-only tool (reuse listOpenDocumentsJson; no file
      access, so it is safe under the binding rule).
@@ -13536,7 +13547,7 @@ midipilot-settings.html (+ help_db regen), CHANGELOG per the template.
   -> ffxiv-playability.html); older entries opportunistically. Add the link step to the
   CHANGELOG entry template (outside the repo) and to 11_RELEASE_CHECKLIST section 2.
 
-## Further 2.3 candidates (carry-over, all LOW, decide at scoping)
+## Further v2.4+ candidates (carry-over, all LOW, decide at scoping)
 * startTickOfMeasure(): ceil() on integer division miscounts when a meter change is off
   the bar grid (03_bugs.md, deferred - any fix changes bar numbering, wants its own pass)
 * Octet ledger leftovers: #7 analyze_voice_load tick args optional like auto_fit,
@@ -13560,3 +13571,136 @@ midipilot-settings.html (+ help_db regen), CHANGELOG per the template.
   github.com/asigalov61/midi-gen (standalone "MIDI Generator Piano Roll", PySide) shows
   the intended UX; UI reference only.
 
+---
+
+## Phase 51: MCP workflow completeness and API precision (candidate, 2026-09-08)
+
+**Status:** recorded during `feature/v2.4.0` preparation; **not implemented or committed
+to a release**. Scope this block for a subsequent release decision. This extends Phase
+46's arrangement work, including its deliberately deferred save-tool decision.
+
+**Scope:** extend MCP access beyond event editing to document creation, precise timing
+metadata, native file delivery and audio preview. The existing editing and FFXIV
+validation tools provide the foundation. Missing operations currently require clients
+to combine MCP with direct file access, custom serialization or UI interaction.
+The items below distinguish API capability gaps, documentation requirements and
+integration behavior that needs investigation.
+
+### 51.1 - Save As / MIDI export (P1, owner decision)
+
+**Finding:** MCP does not expose native MIDI saving or export. Clients can modify a
+document but cannot complete its native save workflow or update its path and saved
+state through MCP. External serialization duplicates editor functionality and requires
+separate handling of metadata and format details. This is the deliberately deferred
+capability from Phase 46 #9; GUI saving is outside this finding.
+
+**Candidate:** expose the existing native MIDI serializer through a document-bound
+Save As / export operation. Distinguish Save As (updates the tab path and saved state)
+from export-copy (leaves them alone); report the resolved path, document identity,
+result and resulting modified state. Decide overwrite policy explicitly; a new output
+path must not silently overwrite a reference file. Reuse the normal serializer rather
+than introducing a second MIDI writer for AI clients.
+
+**Acceptance:** edit one document while other documents are open, save to a new path, reopen and
+compare notes, channels, programs, tempo/meter/meta events and PPQ. Check both Save As
+and export-copy semantics, unwritable destinations, existing-file handling and a
+closed target document. A failed write must not mark a document saved.
+
+### 51.2 - Exact tempo and complete timing metadata (P1)
+
+**Finding:** `set_tempo` declares integer BPM; `MidiPilotWidget::applyTempoAction()`
+reads it with `toInt()`. The ordinary editor state also exposes integer BPM, while
+MIDI tempo events store integer microseconds per quarter. Reconstructing a tempo from
+rounded BPM can change playback duration. The existing TempoChangeEvent storage can
+retain exact microseconds, but the tool interface does not provide equivalent access.
+State and overview queries also do not provide a complete timing-metadata snapshot
+for reproducing a document's tempo and meter maps.
+
+**Candidate:** add an exact microseconds-per-quarter input, keeping existing integer
+BPM calls compatible, and a read operation for the complete tempo and meter maps.
+Expose PPQ plus key signatures and supported text/marker metadata, including event
+ticks, rather than only map counts or the cursor's current display value. Keep exact
+integer timing values authoritative if a derived decimal BPM is also returned.
+
+**Acceptance:** round-trip tempo values whose BPM representation is fractional through
+read -> create in another document -> save/reopen without changing their microseconds
+values; also cover multiple tempo/meter changes, tick-0 anchors and undo/redo.
+Note times and end duration must not change through a display-BPM round trip. Preserve
+the existing distinction between setting musical tempo and converting event timing.
+
+### 51.3 - New-document resolution and PPQ control (P2)
+
+**Finding:** MCP exposes document PPQ but does not provide document creation or
+resolution configuration. When source and destination resolutions differ, clients
+generating or selectively transferring events must scale their timing themselves.
+Whole-track import already rescales PPQ; it does not cover all workflows involving
+selected events or newly composed material.
+
+**Candidate:** expose document creation with a requested PPQ or source timing settings.
+Define the empty-document case first. Changing PPQ on an existing populated document
+needs an explicit timing-preserving contract covering every supported event type,
+paired note-offs and the shared metadata channels, as one undoable operation.
+
+**Acceptance:** create a document at a requested PPQ; test conversions between
+resolutions with non-divisible note ends, tempo/meter changes and undo. No cumulative rounding drift,
+zero-length notes or silent metadata loss; report any unavoidable rounding.
+
+### 51.4 - Audio preview / render through MCP (P2)
+
+**Finding:** MCP does not expose the editor's audio-render or preview functionality.
+Clients can inspect events and structural validation results but cannot obtain a
+render using the editor's active sound configuration through MCP. This limits
+automated preview generation and auditory review of instrument assignments,
+articulation and guitar variant changes.
+
+**Candidate:** expose the existing audio-export engine for a bounded tick range or
+whole document. Return the output path, duration, render configuration and actual
+SoundFont/FFXIV mode used; support progress/cancellation. This is access to an existing
+engine, not a new synthesizer or a promise of in-game acoustic equivalence.
+
+**Acceptance:** render a short two-guitar switch passage plus percussion; verify
+range, tempo, output completion and source immutability. Report missing SoundFonts,
+unsupported output formats and cancellation without returning a partial file as a
+successful preview.
+
+### 51.5 - Channel-fixer side effects in the tool contract (P2)
+
+**Finding:** `setup_channel_pattern` performs velocity normalization in addition to
+channel assignment and program-change management. Its result reports the number of
+normalized events through `velocityNormalized`, but the tool description does not
+clearly announce this effect before invocation.
+
+**Candidate:** document all intentional effects before invocation and retain their
+counts in the result. Decide whether velocity preservation should be an explicit
+option; do not silently change current FFXIV normalization semantics. This finding
+does not by itself establish that normalization is wrong for FFXIV playback.
+
+**Acceptance:** a mixed-velocity fixture exposes the documented normalization result;
+an optional preserve mode, if approved, preserves velocities exactly. Guitar variants
+and unrelated non-guitar channels remain correctly mapped in either case.
+
+### 51.6 - Dynamic tool discovery and validation guidance (P2, integration investigation)
+
+**Integration concern:** FFXIV mode changes the available tool set. Clients that cache
+tool definitions need to refresh their catalog when the mode changes; otherwise the
+client-visible tools can differ from the server's current `tools/list` response.
+The server already supports `notifications/tools/list_changed` from Phase 46.
+Notification delivery and client refresh behavior need separate verification before
+classifying a stale catalog as a server defect.
+
+**Candidate:** add an integration check for enabling/disabling FFXIV mode with an
+already initialized session: notification emitted/delivered, refreshed schema and tool
+availability agree. Document explicit `tools/list` refresh as the fallback for clients
+that cache definitions. Keep MCP's current `switch_document` -> `get_editor_state`
+binding contract explicit so document activation and session binding remain unambiguous.
+
+**Validation contract:** `analyze_voice_load` evaluates short rate bursts using a
+250-ms window. A client-side average over a longer interval is not equivalent. Keep
+the window size and ceiling semantics explicit in results/help, and distinguish raw
+concurrency from release-tail display peaks. A passed note/range check alone does not
+establish compliance with voice-load and rate limits.
+
+**Implementation order if selected:** 51.1 and 51.2 first; 51.3 and 51.4 next; 51.5
+documentation can be a small independent change; 51.6 needs client/server evidence
+before assigning a bug. Expose shared editing capabilities to MidiPilot and MCP with
+matching schemas where appropriate; update the manual/tool contracts with each change.
