@@ -235,6 +235,15 @@ protected:
     void initializeGL() override;
 
     /**
+     * \brief Frees the paint device with THIS widget's context current.
+     *        Connected to the context's aboutToBeDestroyed (Qt recreates the
+     *        context when the widget moves to another top-level window) and
+     *        called from the destructor - never with whatever context happens
+     *        to be current at the time (SP-02, external review 2026-09-06).
+     */
+    void releaseGlResources();
+
+    /**
      * \brief Handles OpenGL rendering.
      */
     void paintGL() override;

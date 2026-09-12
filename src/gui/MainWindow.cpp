@@ -1733,10 +1733,14 @@ void MainWindow::performEarlyCleanup() {
 
     // Clean up OpenGL widgets explicitly while OpenGL context is still valid.
     // The misc lane goes FIRST: its internal MiscWidget holds the matrix widget
-    // that the block below destroys.
+    // that the block below destroys. Deleted IN PLACE: the setParent(nullptr)
+    // that used to precede the delete moved the widget to its own top-level
+    // window, which makes Qt destroy and recreate its OpenGL context - so the
+    // "still valid" context was already gone when the destructor ran (SP-02).
+    // The widget releases its GPU resources on its own context (see
+    // OpenGLPaintWidget::releaseGlResources).
     if (_miscWidgetContainer && _miscWidgetContainer != _miscWidget) {
         qDebug() << "MainWindow: Early cleanup of OpenGL misc widget";
-        _miscWidgetContainer->setParent(nullptr);
         delete _miscWidgetContainer;
         _miscWidgetContainer = nullptr;
         _miscWidget = nullptr;
@@ -1744,7 +1748,6 @@ void MainWindow::performEarlyCleanup() {
 
     if (OpenGLMatrixWidget *openglMatrix = qobject_cast<OpenGLMatrixWidget*>(_matrixWidgetContainer)) {
         qDebug() << "MainWindow: Early cleanup of OpenGL matrix widget";
-        openglMatrix->setParent(nullptr);
         delete openglMatrix;
         _matrixWidgetContainer = nullptr;
         mw_matrixWidget = nullptr;
@@ -2639,6 +2642,19 @@ void MainWindow::ensureGroup1() {
     // Phase 28: give the new (right) pane its own velocity / controller lane,
     // aligned under it in the velocity area.
     buildCompareVelocityLane();
+
+    // The caller fills the group's tab bar right after this returns - before
+    // the freshly added strip has been laid out once. As in the startup case
+    // (the constructor's singleShot), the QTabBar can then cache a zero
+    // geometry for that first tab and never paint it: the pane showed the
+    // split file with no tab card above it (owner report 2026-09-12, not
+    // reproducible at will). Re-sync the bar from its manager once the event
+    // loop has laid the strip out.
+    QTimer::singleShot(0, this, [this] {
+        if (_group1TabBar && _group1Docs && _group1Docs->count() > 0) {
+            rebuildTabBar(_group1TabBar, _group1Docs);
+        }
+    });
 }
 
 void MainWindow::toggleCompareView() {
