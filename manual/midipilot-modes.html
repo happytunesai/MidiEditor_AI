@@ -395,12 +395,14 @@ MidiPilot automatically saves every conversation as a JSON file. You can browse,
 <li><b>Turn metadata</b> - Agent reasoning, executed steps, latency, provider, model, and token counts are stored with each assistant turn</li>
 <li><b>Resume</b> - Click any past conversation to load it back into the chat and continue where you left off</li>
 <li><b>Persistent across sessions</b> - Conversations survive app restarts</li>
+<li><b>Attachments</b> - Files sent with a message (see <a href="midipilot.html#attachments">Attachments</a>) are saved with the conversation and come back when you resume it; deleting a conversation deletes them too</li>
 </ul>
 
 <h3>Conversation File Format</h3>
 
 <p>
 Each conversation is stored as a single JSON file containing the full message history, model/provider info, token usage, per-turn metadata, and the associated MIDI file path. Files are human-readable and can be exported or shared.
+Attachments are stored as separate files in a folder named after the conversation, next to its JSON file; the JSON only refers to them by name.
 </p>
 
 <div class="screenshot-single">

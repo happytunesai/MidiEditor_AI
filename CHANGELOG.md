@@ -5,7 +5,7 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 
 ---
 
-## [2.5.0] - Unreleased - Document Tools for MidiPilot and MCP
+## [2.5.0] - Unreleased - Document Tools and Attachments for MidiPilot and MCP
 
 ### Summary
 * **[MidiPilot and MCP clients save, open, create and close documents](https://midieditor-ai.de/midipilot-tools.html#files)** - five new tools finish a workflow without the GUI, silently and without a dialog (Phase 51).
@@ -13,9 +13,10 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 * **[Exact tempos](https://midieditor-ai.de/mcp-server.html#tools)** - `set_tempo` takes fractional BPM or the exact microseconds per quarter note MIDI files store, and the new `get_timing_map` reads every tempo, meter, key signature and marker with exact values (51.2).
 * **Stricter tool arguments** - a tool call with a parameter the tool does not have is refused and names the real parameters, and `delete_events` / `query_events` can act on one event kind only, e.g. just the program change at tick 0 (MCP-ARGS-001).
 * **MCP calls show up in the status bar** - one short line per tool call with the client name, the path of a file operation or the error of a failed call.
+* **[Attachments in MidiPilot](https://midieditor-ai.de/midipilot.html#attachments)** - send pictures, PDFs and text files with a message, for example sheet music for the AI to write into the editor: paperclip, drag & drop or Ctrl+V of a screenshot; saved with the conversation (Phase 52).
 
 <details>
-<summary>Full Changelog - Document Tools for MidiPilot and MCP</summary>
+<summary>Full Changelog - Document Tools and Attachments for MidiPilot and MCP</summary>
 
 ### New Features
 * **[Document tools](https://midieditor-ai.de/midipilot-tools.html#files)** - `save_document`, `save_document_as`, `new_document`, `open_document` and `close_document` for MidiPilot's agent and for MCP clients. None of them opens a dialog, so an MCP call never waits on the user. Saving writes a marked copy (`<name>.midipilot.mid` from MidiPilot, `<name>.mcp.mid` over MCP; always `.mid`, also for an imported Guitar Pro, MusicXML, MuseScore or MML file) next to the source; the only file the AI saves in place is its own marked working copy, a taken name gets a counter, and an existing file is never written over. The tab continues on the copy, so a later Ctrl+S lands there too. An untitled document takes a short name from the request - the agent asks when there is nothing to go on. A tab with unsaved changes is never closed by the AI. Saving is not an undo step; it shows in the tab title, the status bar and - for MidiPilot - a chat line with the saved path. File -> Save and Save As keep their dialogs.
@@ -23,11 +24,15 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 * **[Exact tempo](https://midieditor-ai.de/mcp-server.html#tools)** - `set_tempo` accepts fractional BPM or `microsecondsPerQuarter`, returns the stored value and writes it unrounded (a 120.5 BPM tempo used to become 120). `get_timing_map` returns the resolution, every tempo change (microseconds per quarter note, derived BPM, time in ms), every time and key signature, and marker, text and cue events with their ticks.
 * **Event-kind filter** - `delete_events` and `query_events` take an optional `types` list (`note`, `cc`, `pitch_bend`, `program_change`).
 * **Status-bar line per MCP tool call** - client name and tool, plus the path of a file operation or the error of a failed call.
+* **[Attachments in MidiPilot](https://midieditor-ai.de/midipilot.html#attachments)** - the paperclip in the input bar, drag & drop onto the panel and Ctrl+V of a screenshot or of copied files add attachments to the next message; they show as chips above the input (thumbnail or icon, name, remove button) with a rough token estimate, and the sent bubble lists them. Pictures are sent as images (BMP and other formats converted to PNG), PDFs and other files as files, text files (.txt, .md, .csv, .json, .xml, .musicxml, .abc, .mml, .lrc, .srt, .log) inline as text. The same message works over Chat Completions, OpenAI's Responses API and Gemini's native endpoint; whether a model can read a file is up to the model, and its provider's answer is shown when it cannot. Limits: 10 MB per file, 14 MB and 10 files per message, 512 KB per text file. Attachments are saved as files in a folder next to the saved conversation (the conversation JSON only refers to them), come back when the conversation is reopened and are deleted with it.
 
 ### Changed
 * **Unknown tool arguments are refused (MCP-ARGS-001)** - an argument a tool does not declare used to be ignored: a `types` filter sent to `delete_events` was dropped and the call deleted every event in the range. Such a call is now refused with the tool's real parameter list, and nothing is changed.
 * **`setup_channel_pattern` announces its velocity normalisation** - the tool description now says that every note is set to velocity 127 and that the count comes back as `velocityNormalized`; the behaviour itself is unchanged.
 * A save that fails while writing (a full disk, a vanished network drive) no longer marks the document saved.
+
+### Bug Fixes
+* **New Chat could drop the last reply from the saved conversation** - the conversation is saved two seconds after each reply, and New Chat cleared it before its own final save, so a reply that arrived within those two seconds was missing when the conversation was reopened from the history. New Chat now saves first.
 
 ### Files Modified
 * `src/ai/AiFileNaming.h/.cpp` (new) - the naming rules for AI saves: marks, counter, never overwrite
@@ -37,7 +42,12 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 * `src/ai/McpServer.h/.cpp` - window-level new/open/close, tool-call signal with client, result and detail
 * `src/ai/AgentRunner.cpp`, `src/gui/MidiPilotWidget.cpp`, `src/ai/EditorContext.cpp` - step labels, saved-path chat line, exact tempo, agent prompt
 * `src/midi/MidiFile.h/.cpp` - resolution of a new document; a failed write is not a save
-* `tests/test_ai_file_naming.cpp` (new), `tests/test_tool_definitions.cpp`
+* `src/ai/ChatAttachments.h/.cpp` (new) - attachment parts per file kind and transport, limits, token estimate, storage references
+* `src/ai/AiClient.h/.cpp` - user message as text or part array; Responses and native Gemini translations; attachment summary in the API log
+* `src/ai/ConversationStore.h/.cpp` - attachment folder per conversation, removed with it
+* `src/gui/MidiPilotWidget.h/.cpp` - paperclip, chips, drag & drop, paste; attachments in send, retry, budget, save and reload; New Chat saves before clearing
+* `run_environment/graphics/tool/attach.png` (new), `resources.qrc`
+* `tests/test_ai_file_naming.cpp` (new), `tests/test_chat_attachments.cpp` (new), `tests/test_document_timing.cpp` (new), `tests/test_tool_definitions.cpp`, `tests/test_conversation_store.cpp`, `tests/test_streaming_fallback.cpp`
 * `manual/midipilot-tools.html`, `manual/mcp-server.html`, `manual/midipilot.html`, `manual/midipilot-modes.html`, `manual/docs-index.html`, `README.md`
 
 </details>

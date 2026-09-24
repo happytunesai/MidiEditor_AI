@@ -885,6 +885,7 @@ option(MIDIPILOT_ENABLE_LIVE_API_TESTS "Register live provider API smoke tests" 
 add_executable(test_provider_matrix
     test_provider_matrix.cpp
     ../src/ai/AiClient.cpp
+    ../src/ai/ChatAttachments.cpp # Phase 52: attachment parts per transport
     ../src/ai/ModelListCache.cpp
     ../src/AppPaths.cpp # Phase 45: AiClient's API-log path
 )
@@ -914,6 +915,7 @@ endif()
 add_executable(test_streaming_fallback
     test_streaming_fallback.cpp
     ../src/ai/AiClient.cpp
+    ../src/ai/ChatAttachments.cpp # Phase 52: attachment parts per transport
     ../src/ai/ModelListCache.cpp
     ../src/AppPaths.cpp # Phase 45: AiClient's API-log path
 )
@@ -1926,6 +1928,24 @@ target_link_libraries(test_ai_file_naming PRIVATE
 )
 add_test(NAME AiFileNaming COMMAND test_ai_file_naming)
 
+# -----------------------------------------------------------------------------
+# test_chat_attachments
+# -----------------------------------------------------------------------------
+# Phase 52 (v2.5.0): MidiPilot attachments as content parts - one part per
+# file kind (image data URL, PDF/other file part, text inlined), the
+# Responses API and native Gemini translations, limits, the token estimate,
+# and the storage round trip (files next to the conversation, references in
+# the JSON, a missing file reloads as a text line). Pure Qt Core.
+add_executable(test_chat_attachments
+    test_chat_attachments.cpp
+    ../src/ai/ChatAttachments.cpp
+)
+target_link_libraries(test_chat_attachments PRIVATE
+    Qt6::Core
+    Qt6::Test
+)
+add_test(NAME ChatAttachments COMMAND test_chat_attachments)
+
 # Make Qt DLLs visible to the tests at runtime on Windows.
 if(WIN32)
     get_target_property(_qmake_exe Qt6::qmake IMPORTED_LOCATION)
@@ -1992,6 +2012,7 @@ if(WIN32)
         DpiEnvOverrides
         McpSessionTable
         AiFileNaming
+        ChatAttachments
         PROPERTIES
             ENVIRONMENT "PATH=${_qt_bin_dir};$ENV{PATH}"
     )

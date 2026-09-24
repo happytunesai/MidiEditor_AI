@@ -4,6 +4,7 @@
 #include <QObject>
 #include <QJsonObject>
 #include <QJsonArray>
+#include <QJsonValue>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QSettings>
@@ -31,11 +32,13 @@ public:
      * \brief Sends a chat completion request to the OpenAI API.
      * \param systemPrompt The system prompt defining the AI's behavior
      * \param conversationHistory Previous messages in the conversation
-     * \param userMessage The current user message (appended to history)
+     * \param userMessage The current user message (appended to history): a
+     *        string, or - Phase 52, attachments - a content-part array built
+     *        by ChatAttachments::chatContent()
      */
     void sendRequest(const QString &systemPrompt,
                      const QJsonArray &conversationHistory,
-                     const QString &userMessage);
+                     const QJsonValue &userMessage);
 
     /**
      * \brief Sends a raw messages array (with optional tools) to the API.
@@ -176,11 +179,12 @@ public:
      *        via the streamDelta signal. Only for Simple mode text responses (no tools).
      * \param systemPrompt The system prompt
      * \param conversationHistory Previous messages
-     * \param userMessage Current user message
+     * \param userMessage Current user message: a string or a content-part
+     *        array (Phase 52 attachments)
      */
     void sendStreamingRequest(const QString &systemPrompt,
                               const QJsonArray &conversationHistory,
-                              const QString &userMessage);
+                              const QJsonValue &userMessage);
 
     /**
      * \brief Streaming variant of sendMessages — used by AgentRunner.
@@ -265,6 +269,18 @@ public:
         */
         static bool modelUsesResponsesApiForTools(const QString &provider,
                                                   const QString &model);
+
+        /**
+        * \brief The native Gemini request's `contents` and systemInstruction,
+        *        converted from a Chat-Completions message array (system ->
+        *        systemInstruction, assistant tool calls -> functionCall, tool
+        *        results -> functionResponse, a user message with attachments ->
+        *        text + inline_data parts). The conversion the Gemini agent path
+        *        sends; public so its mapping is unit-tested.
+        */
+        static void geminiContentsFromMessages(const QJsonArray &messages,
+                                               QJsonArray &outContents,
+                                               QJsonObject &outSystemInstruction);
 
         /**
         * \brief True for the OpenAI model families that reject sampling
@@ -689,7 +705,7 @@ private:
     QJsonArray _streamRetryTools;
     QString _streamRetrySystemPrompt;
     QJsonArray _streamRetryHistory;
-    QString _streamRetryUserMessage;
+    QJsonValue _streamRetryUserMessage;
     QString _streamRetryProvider;
     QString _streamRetryModel;
     QString _streamRetryApiBaseUrl;
@@ -739,7 +755,7 @@ private:
     void armStreamingRetryAgent(const QJsonArray &messages, const QJsonArray &tools);
     void armStreamingRetrySimple(const QString &systemPrompt,
                                   const QJsonArray &history,
-                                  const QString &userMessage);
+                                  const QJsonValue &userMessage);
     void clearStreamingRetryContext();
     // Returns true when the just-finished stream looks broken enough to
     // justify a one-shot non-streaming retry. `httpStatus` is 0 when the

@@ -2,11 +2,19 @@
 #define MIDIPILOTWIDGET_H
 
 #include <QWidget>
+#include <QHash>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QJsonValue>
 #include <QDateTime>
 
+#include "../ai/ChatAttachments.h" // Phase 52: pending attachments (Qt Core only)
+
 class QSplitter;
+class QMimeData;
+class QImage;
+class QDragEnterEvent;
+class QDropEvent;
 
 class QTimer;
 class QCheckBox;
@@ -286,7 +294,39 @@ private:
      *  \ref assistantReplied; it must never be inferred from side effects such
      *  as the input field having been cleared.
      */
-    bool sendCurrentPrompt();
+    bool sendCurrentPrompt(bool withAttachments = true);
+    // Phase 52: withAttachments sends the pending attachment chips with the
+    // message; submitPrompt() passes false - a programmatic prompt must not
+    // take the user's half-composed attachments along.
+
+    // === Phase 52: attachments ============================================
+    /** Adds files from disk (paperclip, drag & drop, pasted file URLs). A
+     *  refused file is reported in the chat; the others are still added. */
+    void addAttachmentFiles(const QStringList &paths);
+    /** Adds a picture from the clipboard or a drop as a PNG attachment. */
+    void addAttachmentImage(const QImage &image, const QString &fileName);
+    /** Adds one prepared attachment, enforcing the per-message limits. */
+    bool addAttachment(const ChatAttachments::Attachment &attachment, QString *error);
+    /** Rebuilds the chip row above the input from \ref _pendingAttachments. */
+    void rebuildAttachmentBar();
+    /** Opens the file dialog behind the paperclip button. */
+    void onAttachClicked();
+    /** Characters a history message counts for the context budget - its text,
+     *  or for a message with attachments their token estimate x 4. */
+    static int messageBudgetChars(const QJsonObject &message);
+
+protected:
+    // Phase 52: files and pictures dropped anywhere on the panel are attached.
+    void dragEnterEvent(QDragEnterEvent *event) override;
+    void dropEvent(QDropEvent *event) override;
+
+public:
+    /** Phase 52: takes files or a picture out of pasted / dropped data.
+     *  \return true when the data was consumed as attachments (then nothing
+     *  is inserted as text). Public for the chat input field's paste path. */
+    bool attachFromMimeData(const QMimeData *mime);
+
+private:
 
     void setupUi();
     void setupSetupPrompt();
@@ -447,7 +487,10 @@ private:
     // stream, MAX_TOKENS, etc.). Reset on successful response.
     QString _lastSimpleSystemPrompt;
     QJsonArray _lastSimpleHistory;
-    QString _lastSimpleMessage;
+    /// The user message of the pending simple-mode request: a string, or a
+    /// content-part array when it carries attachments (Phase 52). Undefined
+    /// when there is nothing to retry.
+    QJsonValue _lastSimpleMessage;
     int _simpleRetryCount;
     int _simpleMaxRetries;
     // Phase 28: makes the simple-mode self-healing retry (a QTimer::singleShot)
@@ -482,6 +525,18 @@ private:
     QPushButton *_stopButton;
     QComboBox *_modeCombo;
     QLabel *_tokenLabel;
+
+    // Phase 52: attachments of the message being composed. The chip row sits
+    // above the input and is hidden while the list is empty.
+    QList<ChatAttachments::Attachment> _pendingAttachments;
+    QPushButton *_attachButton = nullptr;
+    QWidget *_attachmentBar = nullptr;
+    QHBoxLayout *_attachmentChips = nullptr;
+    QLabel *_attachmentInfo = nullptr;
+    /// Image file names by content hash. Image parts carry no file name (the
+    /// providers reject extra fields), so the saved references and the
+    /// reloaded bubbles look the names up here. Per conversation.
+    QHash<QString, QString> _attachmentImageNames;
 
     // Phase 9.9c §15.2: Show-mode viewer lock. When true the input
     // field is disabled with an explanatory placeholder; setupSetupPrompt

@@ -13824,6 +13824,18 @@ AI's own working copy, renaming = a new marked copy, 51.2 included in 2.5.
 
 ## Phase 52: Attachments in MidiPilot - images, PDFs and other files - CONFIRMED for 2.5
 
+**Status (2026-09-24): implemented on `feature/v2.5.0`, in test.** `src/ai/ChatAttachments` builds the
+parts (canonical Chat form, Responses and native Gemini translations, limits 10 MB/file,
+14 MB and 10 files/message, 512 KB/text file, token estimate, storage references) - unit test
+`test_chat_attachments`. MidiPilotWidget: paperclip, chips with thumbnail/estimate, drag & drop on
+the panel, Ctrl+V (text wins over a rendered picture), attachments-only messages, the message
+payload lists the file names (image parts carry none). Converted text-only sites: AiClient
+(QJsonValue user message, streaming retry, both Responses conversions, the Gemini builder, a
+per-request attachment line in the API log), the context budget (token estimate), the simple-mode
+retry comparison, the title, save/load (`MidiPilotHistory/<id>/`, references in the JSON, removed
+with the conversation). Programmatic prompts (`submitPrompt`) never take pending chips. Side fix:
+New Chat saved the old conversation only after clearing it.
+
 **Goal.** Attach sheet music (image or PDF) or other files to a MidiPilot message and let the
 model work with them, for example write the notes. Most current models read images and PDFs.
 No new transcription tool: MCP clients such as ChatGPT or Claude already turn a sheet into a

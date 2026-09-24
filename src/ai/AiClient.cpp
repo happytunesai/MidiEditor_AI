@@ -1,4 +1,5 @@
 #include "AiClient.h"
+#include "ChatAttachments.h"
 #include "ModelListCache.h"
 #include "SecretRedactor.h"
 #include "../AppPaths.h"
@@ -181,6 +182,26 @@ static void logApi(const QString &entry)
         QTextStream s(&f);
         s << QDateTime::currentDateTime().toString(Qt::ISODate) << " " << entry << "\n";
     }
+}
+
+// Phase 52: one line per request that carries attachments - their names only.
+// The body log next to it is cut at a few KB, so the base64 data never lands
+// in the log, but a provider error about an unreadable file needs to be
+// traceable to the files that were sent. Names concatenated, never
+// .arg()-substituted (file-name input).
+static void logAttachmentSummary(const QString &tag, const QJsonArray &messages)
+{
+    QStringList names;
+    for (const QJsonValue &value : messages) {
+        const QJsonValue content = value.toObject().value(QStringLiteral("content"));
+        if (ChatAttachments::hasAttachments(content))
+            names << ChatAttachments::attachmentNames(content);
+    }
+    if (names.isEmpty())
+        return;
+    logApi(QStringLiteral("[") + tag + QStringLiteral("-ATTACHMENTS] count=")
+           + QString::number(names.size()) + QStringLiteral(" names=")
+           + names.join(QStringLiteral(", ")));
 }
 
 static void logInstructionProfileState(const QString &tag, const QString &model,
@@ -531,7 +552,7 @@ int AiClient::contextWindowForModel(const QString &model) const
 
 void AiClient::sendRequest(const QString &systemPrompt,
                             const QJsonArray &conversationHistory,
-                            const QString &userMessage)
+                            const QJsonValue &userMessage)
 {
     // Build messages array
     QJsonArray messages;
@@ -650,7 +671,12 @@ void AiClient::sendMessagesInternal(const QJsonArray &messages,
                 item[QStringLiteral("output")] = m[QStringLiteral("content")];
                 input.append(item);
             } else {
-                // developer, user — pass through
+                // developer, user — pass through. Phase 52: a user message
+                // with attachments carries Chat-shaped parts; the Responses
+                // API wants input_text / input_image / input_file.
+                if (m.value(QStringLiteral("content")).isArray())
+                    m[QStringLiteral("content")] =
+                        ChatAttachments::toResponsesContent(m.value(QStringLiteral("content")));
                 input.append(m);
             }
         }
@@ -775,6 +801,7 @@ void AiClient::sendMessagesInternal(const QJsonArray &messages,
     request.setTransferTimeout(requestTimeoutMs(reasoning || geminiThinking));
 
     logInstructionProfileState(QStringLiteral("REQUEST"), _model, messages);
+    logAttachmentSummary(QStringLiteral("REQUEST"), messages);
     logApi(QStringLiteral("[REQUEST] model=%1 reasoning=%2 tools=%3 api=%4 body=%5")
            .arg(_model,
                 reasoning ? QStringLiteral("yes") : QStringLiteral("no"),
@@ -1744,7 +1771,7 @@ void AiClient::armStreamingRetryAgent(const QJsonArray &messages,
     _streamRetryTools = tools;
     _streamRetrySystemPrompt.clear();
     _streamRetryHistory = QJsonArray();
-    _streamRetryUserMessage.clear();
+    _streamRetryUserMessage = QJsonValue();
     _streamRetryProvider = _provider;
     _streamRetryModel = _model;
     _streamRetryApiBaseUrl = _apiBaseUrl;
@@ -1752,7 +1779,7 @@ void AiClient::armStreamingRetryAgent(const QJsonArray &messages,
 
 void AiClient::armStreamingRetrySimple(const QString &systemPrompt,
                                         const QJsonArray &history,
-                                        const QString &userMessage)
+                                        const QJsonValue &userMessage)
 {
     _streamRetryArmed = true;
     _streamRetrySimpleMode = true;
@@ -1774,7 +1801,7 @@ void AiClient::clearStreamingRetryContext()
     _streamRetryTools = QJsonArray();
     _streamRetrySystemPrompt.clear();
     _streamRetryHistory = QJsonArray();
-    _streamRetryUserMessage.clear();
+    _streamRetryUserMessage = QJsonValue();
     _streamRetryProvider.clear();
     _streamRetryModel.clear();
     _streamRetryApiBaseUrl.clear();
@@ -1808,7 +1835,7 @@ bool AiClient::tryStreamingFallback(const QString &reason, bool transient)
     QJsonArray tools = _streamRetryTools;
     QString systemPrompt = _streamRetrySystemPrompt;
     QJsonArray history = _streamRetryHistory;
-    QString userMessage = _streamRetryUserMessage;
+    QJsonValue userMessage = _streamRetryUserMessage;
     QString retryProvider = _streamRetryProvider;
     QString retryModel = _streamRetryModel;
     QString retryApiBaseUrl = _streamRetryApiBaseUrl;
@@ -1960,6 +1987,7 @@ void AiClient::sendStreamingMessages(const QJsonArray &messages, const QJsonArra
     request.setTransferTimeout(requestTimeoutMs(reasoning || geminiThinking));
 
     logInstructionProfileState(QStringLiteral("STREAM-AGENT"), _model, messages);
+    logAttachmentSummary(QStringLiteral("STREAM-AGENT-REQ"), messages);
     logApi(QStringLiteral("[STREAM-AGENT-REQ] model=%1 tools=%2 body=%3")
         .arg(_model, QString::number(tools.size()), QString::fromUtf8(data.left(2000))));
 
@@ -2090,7 +2118,7 @@ void AiClient::sendStreamingMessages(const QJsonArray &messages, const QJsonArra
 
 void AiClient::sendStreamingRequest(const QString &systemPrompt,
                                      const QJsonArray &conversationHistory,
-                                     const QString &userMessage)
+                                     const QJsonValue &userMessage)
 {
     if (!isConfigured()) {
         emit errorOccurred(tr("No API key configured. Please set your API key in Settings."));
@@ -2192,6 +2220,7 @@ void AiClient::sendStreamingRequest(const QString &systemPrompt,
     applyAuthHeader(request);
     request.setTransferTimeout(requestTimeoutMs(reasoning || geminiThinking));
 
+    logAttachmentSummary(QStringLiteral("STREAM-REQ"), messages);
     logApi(QStringLiteral("[STREAM-REQ] model=%1 body=%2").arg(_model, QString::fromUtf8(data.left(2000))));
 
     _userCancelled = false; // a new request supersedes any earlier Stop
@@ -2578,11 +2607,21 @@ void buildGeminiContents(const QJsonArray &messages,
         }
 
         // role == "user" (default)
-        QJsonObject p;
-        p[QStringLiteral("text")] = m.value(QStringLiteral("content")).toString();
+        const QJsonValue userContent = m.value(QStringLiteral("content"));
+        QJsonArray userParts;
+        if (userContent.isArray()) {
+            // Phase 52: attachments become inline_data parts.
+            userParts = ChatAttachments::toGeminiParts(userContent);
+        }
+        if (userParts.isEmpty()) {
+            QJsonObject p;
+            p[QStringLiteral("text")] = userContent.isArray()
+                ? ChatAttachments::plainText(userContent) : userContent.toString();
+            userParts.append(p);
+        }
         QJsonObject c;
         c[QStringLiteral("role")] = QStringLiteral("user");
-        c[QStringLiteral("parts")] = QJsonArray{ p };
+        c[QStringLiteral("parts")] = userParts;
         outContents.append(c);
     }
 
@@ -2712,6 +2751,13 @@ int geminiThinkingBudget(const QString &effort, bool thinkingEnabled)
 
 } // namespace
 
+void AiClient::geminiContentsFromMessages(const QJsonArray &messages,
+                                          QJsonArray &outContents,
+                                          QJsonObject &outSystemInstruction)
+{
+    buildGeminiContents(messages, outContents, outSystemInstruction);
+}
+
 // =============================================================================
 // OpenAI /v1/responses streaming
 // =============================================================================
@@ -2799,6 +2845,10 @@ void AiClient::sendStreamingMessagesResponses(const QJsonArray &messages,
             item[QStringLiteral("output")] = m[QStringLiteral("content")];
             input.append(item);
         } else {
+            // Phase 52: attachment parts in Responses form (see sendMessages).
+            if (m.value(QStringLiteral("content")).isArray())
+                m[QStringLiteral("content")] =
+                    ChatAttachments::toResponsesContent(m.value(QStringLiteral("content")));
             input.append(m);
         }
     }
@@ -2858,6 +2908,7 @@ void AiClient::sendStreamingMessagesResponses(const QJsonArray &messages,
     request.setTransferTimeout(600000); // reasoning models can take minutes
 
     logInstructionProfileState(QStringLiteral("STREAM-RESPONSES"), _model, messages);
+    logAttachmentSummary(QStringLiteral("STREAM-RESPONSES-REQ"), messages);
     logApi(QStringLiteral("[STREAM-RESPONSES-REQ] model=%1 tools=%2 body=%3")
         .arg(_model, QString::number(tools.size()), QString::fromUtf8(data.left(2000))));
 
@@ -3209,6 +3260,7 @@ void AiClient::sendStreamingMessagesGemini(const QJsonArray &messages,
                       QStringLiteral("application/json"));
     request.setTransferTimeout(600000);
 
+    logAttachmentSummary(QStringLiteral("STREAM-GEMINI-REQ"), messages);
     logApi(QStringLiteral("[STREAM-GEMINI-REQ] model=%1 contents=%2 tools=%3 thinking=%4 body=%5")
         .arg(_model)
         .arg(contents.size())

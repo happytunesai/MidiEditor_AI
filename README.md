@@ -64,6 +64,8 @@ MidiPilot is the AI brain embedded directly in MidiEditor AI. Open the sidebar, 
 | 🎯 **Agent Mode** | Multi-step agentic loop - AI calls tools iteratively, with granular per-tool-call undo |
 | 💬 **Simple Mode** | Single request/response with real-time SSE streaming for quick edits and small tasks |
 | 📜 **Conversation History** | Auto-saved conversations as JSON - browse, resume, and reload past chats across sessions |
+| 📎 **Attachments** | Send pictures, PDFs and text files with a message - e.g. sheet music for the AI to write into the editor; drop, paste or pick them, saved with the conversation |
+| 💾 **AI Document Tools** | MidiPilot and MCP clients create, open, save and close documents - always as marked copies (`name.midipilot.mid` / `name.mcp.mid`), never over an existing file |
 | 🌊 **Response Streaming** | Server-Sent Events (SSE) streaming in Simple and Agent mode - thoughts, text, and tool progress appear live |
 | 🔄 **Dynamic Model Lists** | Refresh provider model lists, cache context windows, filter non-chat models, and manage per-provider favourites |
 | 💾 **Per-File AI Presets** | Save provider, model, mode, FFXIV, effort, and custom instructions per MIDI file as a sidecar `.midipilot.json` |
