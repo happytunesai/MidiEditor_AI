@@ -167,15 +167,32 @@ bool fromBytes(const QString &fileName, const QByteArray &data, Attachment *out,
         return false;
     }
     const Kind kind = kindForFileName(name);
+    QByteArray bytes = data;
     if (kind == Kind::Text) {
-        if (data.size() > kMaxTextBytes) {
+        // A byte-order mark names the encoding (UTF-16 from older editors,
+        // for example); such text is sent as UTF-8 like everything else.
+        // Stateless: a sequence cut off at the end of the file is an error,
+        // not a remainder waiting for more data.
+        const auto encoding = QStringConverter::encodingForData(data);
+        if (encoding && *encoding != QStringConverter::Utf8) {
+            QStringDecoder decoder(*encoding, QStringConverter::Flag::Stateless);
+            const QString text = decoder(data);
+            if (decoder.hasError()) {
+                *error = QStringLiteral("\"") + name + QStringLiteral("\" could not be read as text.");
+                return false;
+            }
+            bytes = text.toUtf8();
+        } else if (bytes.startsWith("\xEF\xBB\xBF")) {
+            bytes = bytes.mid(3); // UTF-8 with BOM: the BOM is not part of the text
+        }
+        if (bytes.size() > kMaxTextBytes) {
             *error = QStringLiteral("\"") + name + QStringLiteral("\" is larger than %1 KB - "
                                                                   "text files go into the message itself.")
                          .arg(kMaxTextBytes / 1024);
             return false;
         }
-        QStringDecoder utf8(QStringDecoder::Utf8);
-        const QString decoded = utf8(data);
+        QStringDecoder utf8(QStringDecoder::Utf8, QStringConverter::Flag::Stateless);
+        const QString decoded = utf8(bytes);
         Q_UNUSED(decoded);
         if (utf8.hasError()) {
             *error = QStringLiteral("\"") + name + QStringLiteral("\" is not UTF-8 text.");
@@ -185,8 +202,8 @@ bool fromBytes(const QString &fileName, const QByteArray &data, Attachment *out,
     out->fileName = name;
     out->kind = kind;
     out->mimeType = mimeForFileName(name);
-    out->data = data;
-    out->sha256 = hashOf(data);
+    out->data = bytes;
+    out->sha256 = hashOf(bytes);
     return true;
 }
 

@@ -18,6 +18,7 @@
 #include <QDir>
 #include <QFile>
 #include <QJsonDocument>
+#include <QStringEncoder>
 #include <QTemporaryDir>
 
 #include "../src/ai/ChatAttachments.h"
@@ -74,11 +75,34 @@ private slots:
         QVERIFY(error.contains(QStringLiteral("empty")));
         QVERIFY(!fromBytes(QStringLiteral("x.png"), QByteArray(kMaxFileBytes + 1, 'x'), &a, &error));
         QVERIFY(!fromBytes(QStringLiteral("x.txt"), QByteArray(kMaxTextBytes + 1, 'x'), &a, &error));
-        QVERIFY(!fromBytes(QStringLiteral("x.txt"), QByteArray("\xff\xfe\xfa", 3), &a, &error));
+        // Invalid UTF-8 without a byte-order mark (FF FE would announce UTF-16).
+        QVERIFY(!fromBytes(QStringLiteral("x.txt"), QByteArray("abc\xc3\x28", 5), &a, &error));
         QVERIFY(error.contains(QStringLiteral("UTF-8")));
+        // A multi-byte character cut off at the end is invalid too.
+        QVERIFY(!fromBytes(QStringLiteral("x.txt"), QByteArray("abc\xc3", 4), &a, &error));
         QVERIFY(fromBytes(QStringLiteral("C:/some/dir/x.txt"), QByteArray("hello"), &a, &error));
         QCOMPARE(a.fileName, QStringLiteral("x.txt")); // name only, no folder
         QCOMPARE(a.sha256, hashOf(QByteArray("hello")));
+    }
+
+    // Text with a byte-order mark in another encoding (UTF-16 from older
+    // editors) is converted to UTF-8 instead of being refused.
+    void fromBytes_convertsBomMarkedUtf16TextToUtf8() {
+        const QString lyrics = QStringLiteral("[00:01.00] Ein kleines Lied \u00e4\u00f6\u00fc");
+        QStringEncoder toUtf16(QStringEncoder::Utf16LE, QStringEncoder::Flag::WriteBom);
+        const QByteArray utf16 = toUtf16(lyrics);
+        QVERIFY(utf16.startsWith("\xff\xfe"));
+        Attachment a;
+        QString error;
+        QVERIFY2(fromBytes(QStringLiteral("song.lrc"), utf16, &a, &error), qPrintable(error));
+        QCOMPARE(QString::fromUtf8(a.data), lyrics);
+        const QJsonArray parts = chatContent(QStringLiteral("hi"), {a});
+        QVERIFY(parts[1].toObject()[QStringLiteral("text")].toString().endsWith(lyrics));
+
+        // UTF-8 with a BOM: the BOM does not become part of the text.
+        QVERIFY2(fromBytes(QStringLiteral("notes.txt"), QByteArray("\xEF\xBB\xBFhello"), &a, &error),
+                 qPrintable(error));
+        QCOMPARE(a.data, QByteArray("hello"));
     }
 
     void messageLimits() {
