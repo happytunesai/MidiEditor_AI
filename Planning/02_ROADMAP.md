@@ -8448,7 +8448,10 @@ Today's state ([`AiClient::sendStreamingRequest`](../src/ai/AiClient.cpp), Agent
   > 🔧 Steps: ✓ create_track, ✓ insert_events · via Together
 * Helps the user understand *why* a request was slow / cheap / failed.
 
-**28.6 — Long-timeout awareness for reasoning models** — **TODO**
+**28.6 — Long-timeout awareness for reasoning models** — **DROPPED 2026-09-24.** The
+timeout half is done (`AiClient::requestTimeoutMs`: 10 min of inactivity for reasoning and local
+models, 3 min otherwise); the status hint is obsolete - current reasoning models answer within
+seconds (owner decision at the 2.5 scoping).
 * OpenAI Responses API + OpenRouter both expose long-running reasoning
   models (`o1`, `o3`, `gpt-5.x-pro`) that legitimately take 5–10 minutes.
   Confirm `QNetworkAccessManager` per-reply timeout is **disabled** (or
@@ -13406,9 +13409,9 @@ midipilot-settings.html (+ help_db regen), CHANGELOG per the template.
 
 # v2.4 preparation and follow-up candidates
 
-Current branch: `feature/v2.4.0`; release status: **Unreleased**. The candidate list
-started on 2026-08-26 after 2.3 and is carried forward here. DONE entries record work
-already included in the 2.4 preparation; remaining candidates need separate scoping.
+2.4.0 was released on 2026-09-12 (tag v2.4.0). The candidate list started on 2026-08-26
+after 2.3 and is carried forward here. DONE entries record work included in 2.4.0; the
+remaining candidates are carried into the v2.5 scoping at the end of this file.
 
 ## v2.4+ candidates (carried forward from 2026-08-26)
 
@@ -13704,3 +13707,212 @@ establish compliance with voice-load and rate limits.
 documentation can be a small independent change; 51.6 needs client/server evidence
 before assigning a bug. Expose shared editing capabilities to MidiPilot and MCP with
 matching schemas where appropriate; update the manual/tool contracts with each change.
+
+---
+
+# v2.5 PLAN (scoped 2026-09-24)
+
+2.4.0 shipped on 2026-09-12. The 2.5.0 scope was fixed with the owner on 2026-09-24: document
+and file tools for MidiPilot and MCP (Phase 51, extended), attachments in MidiPilot (Phase 52)
+and two small items - see "2.5 scope" at the end of this section, followed by everything
+deliberately left for later.
+
+Decided the same day, NOT planned: a MidiPilot provider that drives a locally installed Codex
+or Claude Code so users could work on a ChatGPT/Claude plan instead of an API key. Users with
+such a plan already reach the editor through MCP from their own client; a second route would be
+duplication. (Research 2026-09-24: Anthropic does not permit Claude subscription login in
+third-party apps; ChatGPT plans are reachable for third parties only through Codex.)
+
+## Phase 51 (extended): document and file tools - CONFIRMED for 2.5
+
+**Goal.** MidiPilot and MCP can complete a workflow without the GUI: create, open, save and
+close documents, not only edit events. 51.1 (saving) is the core; the empty-document half of
+51.3 and 51.2 (exact tempo, confirmed for 2.5) serve the same goal.
+
+**Owner rules (2026-09-24): no dialog inside a tool call, and the AI gate.** Saving through
+MidiPilot or MCP is silent and made visible afterwards. The AI never overwrites existing data;
+it writes copies that carry its mark and works on those:
+* **Marked names, always .mid.** Every file the AI writes is named `<name>.midipilot.mid`
+  (MidiPilot) or `<name>.mcp.mid` (MCP), so it is obvious which files the AI made. The tool
+  enforces mark and extension whatever name the AI passes; a mark or extension already in the
+  passed name is stripped first, so marks never stack. The caller is known from the `source`
+  argument every tool call already carries (the same test `protocolActorPrefix` uses).
+* **AI gate: existing files are never overwritten.** The only file the AI may write over is the
+  bound document's own file when that file already carries an AI mark - its own working copy,
+  so repeated saves need no new names. Every other existing file stays untouched; if the target
+  name is taken, a counter is added (`mozart.midipilot.2.mid`). There is no `overwrite` switch.
+* **Names.** A document with a source file takes its name from the source, and the copy goes
+  next to it: `mozart.mid` or `mozart.gp5` -> `mozart.midipilot.mid`. An untitled document gets
+  a short descriptive name from the request or from the user; with nothing to go on, the AI
+  asks in the chat. A bare name without a source lands in the folder the editor last used for
+  Open/Save (`startDirectory`, persisted as `open_path`); a full path the user gave is used as
+  given - mark and extension still apply.
+
+Resulting behaviour:
+* Saving a user file (no mark): writes the marked copy next to it and the tab continues on the
+  copy (Save As semantics); the original on disk is untouched.
+* Saving an AI copy that is the bound document: saved in place.
+* Keeping the original while changing a lot ("turn mozart.mid into an FFXIV octet, keep the
+  original"): the AI saves the copy FIRST and edits afterwards, so a later Ctrl+S by the user
+  lands in the copy, never in the original. The tool descriptions and the agent prompt say so.
+* Save As and "rename": a new marked file; the previous file stays where it is.
+* Imported non-MIDI sources (`ImportFormats::isImportOnly`: Guitar Pro, MuseScore, MusicXML,
+  SID, ...): the same rule - the marked .mid copy next to the original.
+* Closing a document with unsaved changes: the tool refuses; the AI never discards anything.
+* The menu (Ctrl+S, Save As) keeps its dialogs and its behaviour; the gate applies to the AI
+  tools only.
+
+**Tools** (both registries, strict schemas, MCP parity; names provisional):
+* `save_document(name)` - saves the bound document per the rules; the nullable `name` only
+  matters for an untitled document.
+* `save_document_as(name)` - a new marked copy on explicit request, also used for "rename".
+* `new_document(ppq)` - empty untitled document in a new tab (51.3, empty case only).
+* `open_document(path)` - opens a .mid/.midi or an importable file into a new tab and returns
+  its document list index; opening never writes anything.
+* `close_document(documentIndex)` - closes a saved document; refuses one with unsaved changes.
+Each returns the resolved path and the saved state. Dropped from 51.1: a separate export-copy
+tool - every AI save is a copy already.
+
+**Visibility.** A save is not an undo step (and must not insert an empty protocol step - the
+2.4.0 auto-save lesson), so it is shown elsewhere: the tab title follows the new name, a
+status-bar message names the file, MidiPilot shows a step line, and an MCP client gets the path
+in its result. Today the editor shows MCP calls only as entries in the Protocol panel -
+`McpServer::toolCalled` and `logMessage` are emitted but connected to nothing - so 2.5 adds a
+short status-bar line per MCP tool call. The tool descriptions state that file operations
+cannot be undone.
+
+**Implementation notes:**
+* `MainWindow::save()` / `saveas()` act on the ACTIVE document (`file`) and carry the menu's
+  dialogs and message boxes. Split them: a per-document core (serializer, saved state,
+  `cleanupAutoSaveFor`, `CollabService::onFileSaved`, the window-modified marker when it is the
+  active tab) used by the menu and the tools alike, with the dialogs only in the menu layer. The
+  muted-channel notice becomes a warning field in the tool result.
+* Bound-document semantics stay: `new_document` / `open_document` do not silently re-bind an
+  MCP session (it calls `get_editor_state`, as after `switch_document`); MidiPilot re-binds
+  only on explicit request.
+* The Show-mode viewer lock and the collab tab lock block these tools wherever they block the
+  menu actions.
+* No modal UI anywhere in these tools, so an MCP call never waits on the user.
+* MCP-ARGS-001 in the same pass: reject unknown top-level arguments for every tool and add
+  the `types` filter to `delete_events` / `query_events`.
+* 51.2 (confirmed): exact microseconds-per-quarter tempo input and a full timing-metadata read,
+  as specified in its own section above.
+
+**Acceptance:** in a cross-tab run, edit and save one of several open documents - only that
+document's copy is written; saving `mozart.mid` writes `mozart.midipilot.mid` next to it
+(`mozart.mcp.mid` over MCP) and leaves `mozart.mid` byte-identical; a second save goes into the
+same copy; an existing `mozart.midipilot.mid` that is not the bound document -> `.2` counter,
+not overwritten; names passed as `x.mid`, `x.midi` or `x.midipilot.mid` all end as
+`x.midipilot.mid`; an import-only source -> marked .mid next to it, original byte-identical;
+untitled with nothing to go on -> refusal; a failed write never marks the document saved; dirty
+close -> refusal; no dialog opens in any tool path; a status-bar line per MCP call; 51.2's round
+trips; tool-count contract in test_tool_definitions; midipilot-tools.html + mcp-server.html
+counts; help_db regen.
+
+**Decisions:** resolved on 2026-09-24 - silent saving (owner proposal) behind the AI gate: marked
+copies `<name>.midipilot.mid` / `<name>.mcp.mid`, existing files never overwritten except the
+AI's own working copy, renaming = a new marked copy, 51.2 included in 2.5.
+
+## Phase 52: Attachments in MidiPilot - images, PDFs and other files - CONFIRMED for 2.5
+
+**Goal.** Attach sheet music (image or PDF) or other files to a MidiPilot message and let the
+model work with them, for example write the notes. Most current models read images and PDFs.
+No new transcription tool: MCP clients such as ChatGPT or Claude already turn a sheet into a
+MIDI through the existing editing tools (owner decision 2026-09-24).
+
+**Owner rule: attaching is always possible.** MidiPilot does not gate attachments by model.
+If the chosen model cannot process a file, the provider's error is shown plainly - picking a
+capable model is the user's call, not a MidiPilot defect. No PDF-to-image rendering (no Qt PDF
+module).
+
+**UI.** Paperclip button in the input bar, drag & drop onto the chat, Ctrl+V of a
+screenshot. Attachments show as chips above the input (thumbnail or file icon with name, remove
+button); the sent bubble keeps them. A size limit per file and in total, with a clear message.
+
+**Transport (AiClient).** A user message with attachments becomes a content-part array:
+* Images: Chat Completions `{type:"image_url", image_url:{url:"data:<mime>;base64,...",
+  detail:"high"}}`; Responses API `input_image`.
+* PDFs and other binary files: Chat Completions `{type:"file", file:{filename,
+  file_data:"data:<mime>;base64,..."}}` (OpenAI; OpenRouter for any model through its PDF
+  parser; Gemini's OpenAI-compatible endpoint); Responses API `input_file`.
+* Text files (.txt, .md, .csv, .json, .xml/.musicxml, .abc, .mml, .lrc, .srt): inlined as a
+  text part under a filename header - works with every model.
+* Ollama and custom endpoints get the same parts; whatever they do not support comes back as
+  their error.
+* The existing chat-to-responses conversion in AiClient must translate the parts.
+
+**Sites that assume text-only content** (convert these first, per the whole-picture rule):
+AiClient request logging, the chat-to-responses conversion and the streaming builders that
+read `content` as a string; MidiPilotWidget's context budget (counts characters - an
+attachment must count as its token estimate), the retry comparison, the conversation title,
+and conversation save/load in ConversationStore.
+
+**Cost.** The agent loop resends the whole history on every step, so an image attached to the
+first message is sent again each step (prompt caching softens this on OpenAI and Gemini). The
+footer token counter includes the attachment estimate; the manual says so.
+
+**Storage (resolved 2026-09-24: separate files next to the conversation).** Attachments are
+stored as files beside the saved conversation - `MidiPilotHistory/<conversation id>/` next to
+`<conversation id>.json` - and the message JSON keeps only a reference (file name, type, size,
+hash), never base64. Reason, verified in the code: `ConversationStore::listConversations()`
+reads and parses every conversation file each time the history list opens, so inline data would
+slow that list down. `deleteConversation()` / `deleteAll()` remove the folder too; a missing
+file reopens as a placeholder line; a size cap per file and per conversation, set against the
+providers' request limits at implementation. A reopened chat still has the sheet for follow-up
+questions. For comparison: Claude Code in the IDE keeps pasted images inline as base64 in its
+session transcript (one long session measured 29 MB of images in a 145 MB transcript) and, in
+newer versions, also as numbered files in a temp folder.
+
+**Optional.** A short transcription hint in the agent prompt: read clef, key, meter and tempo
+first, work measure by measure, respect C3-C6 in FFXIV mode.
+
+**Acceptance.** Unit tests for content-part building per provider (chat and responses) and
+per file kind (image, PDF, text, other), budget counting with attachments, a conversation round
+trip with attachments (save, reopen, continue, delete); manual section in midipilot.html
+(+ help_db regen); CHANGELOG.
+
+**Decisions:** all resolved on 2026-09-24 - no PDF rendering, no notation tool, attachments
+stored as separate files next to the conversation.
+
+## 2.5 scope (fixed 2026-09-24)
+
+* **Phase 51 (extended)** - document and file tools behind the AI gate (marked copies, no
+  overwrite of existing files), including 51.2 (exact tempo), MCP-ARGS-001 and the status-bar
+  line per MCP tool call.
+* **Phase 52** - attachments in MidiPilot.
+* **Small items:**
+  * 51.5 - announce `setup_channel_pattern`'s velocity normalisation in the tool description
+    and keep its count in the result. No behaviour change: a preserve option only on request,
+    the Tier-3 forward result stays frozen.
+  * 51.6 - integration check that an FFXIV mode switch reaches an initialised MCP session
+    (`notifications/tools/list_changed`, refreshed `tools/list`); document the explicit
+    `tools/list` refresh as the fallback for clients that cache the tool list.
+* **Housekeeping first:** a status sweep of the stale "Planned" / "TODO" phase headers in this
+  file (Phase 24 MusicXML import, Phase 26 Local AI in 1.8.2, Phase 35 Auto-Fit in 2.1.0, the
+  v2.0 section).
+
+## Later (not in 2.5)
+
+**From Phase 51 and the v2.4+ lists**
+* 51.4 audio render through MCP.
+* Mid-run agent steering (design validated 2026-08-26).
+* Cross-tab follow-ups: (a) import engine as its own TU for round-trip tests, (b) MCP's
+  document intercept still lacks the floating-dock fallback, (c) null
+  `AgentRunner::_originFile` on close.
+* GPT-6 Astra follow-ups: async tools, WebSocket steering, `configuration_update`, cache ttl.
+* LOW carry-over: `startTickOfMeasure()` ceil() on off-grid meter changes,
+  `analyze_voice_load` optional tick args (#7), `create_track` program (#8); "MidiCreator"
+  stays playground-only.
+
+**Older, never scheduled**
+* Phase 27 prompt block builder (musician-friendly system-prompt editor).
+* OpenRouter 28.3 capability cache, 28.4 provider pinning, 28.5 provider attribution in the
+  steps line.
+* Parked since 2.2: MusicXML tuplet detection + .mxl export, conversation "Compact"
+  summarisation, `analyze_mix_balance`, the Trim Start tool, the rainbow octave strip.
+* Collaboration, parked: encrypted LAN wire (9.7b), host auto-promotion (9.7c), AI as PR
+  creator (9.3).
+* Qt upgrade from 6.5.3 - the durable fix behind the pinned CI runner.
+
+**Owner-side:** the Channel Fixer observation (03_bugs.md OBS entry); the media lists in
+04_WEBSITE_ROADMAP.md and 10_DOCUMENTATION.md.
