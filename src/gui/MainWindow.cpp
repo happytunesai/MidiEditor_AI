@@ -9003,7 +9003,10 @@ void MainWindow::cleanupAutoSaveFor(MidiFile *f, const QString &pathBeforeSave) 
 
     if (!pathBeforeSave.isEmpty()) {
         QFile::remove(pathBeforeSave + ".autosave");
-    } else {
+    } else if (f == file) {
+        // The untitled slot belongs to the ACTIVE untitled document only
+        // (autoSavePathFor); an AI save of an untitled document in a
+        // background tab must not delete the active one's backup.
         QFile::remove(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
                       + "/autosave/untitled.autosave.mid");
     }
