@@ -23,6 +23,7 @@
 #include <QCloseEvent>
 #include <QDialog>
 #include <QJsonArray>
+#include <QJsonObject>
 #include <QMainWindow>
 #include <QPointer>
 #include <QScrollBar>
@@ -196,6 +197,43 @@ public:
      * imports there silently do nothing (review R231-01/03).
      */
     bool isDocumentOpen(MidiFile *f) const;
+
+    /**
+     * \brief The list index (see listOpenDocumentsJson()) of \a f, or -1 when
+     *        it is not open.
+     */
+    int documentListIndexOf(MidiFile *f) const;
+
+    // === Phase 51 (v2.5.0): document tools for MidiPilot and MCP ==========
+    // The AI half of New / Open / Save / Close. None of these opens a dialog
+    // or a message box - an MCP call must never wait on the user - and every
+    // failure comes back as text in the result's "error" field, addressed to
+    // the model. Saving goes through the AI gate (AiFileNaming): the AI writes
+    // marked copies (<name>.midipilot.mid / <name>.mcp.mid) and never writes
+    // over an existing file except the document's own marked file. The menu
+    // commands keep their dialogs; only the tools use these.
+    // \a source is the tool call's source ("" = MidiPilot, "mcp[:client]").
+
+    /** \brief Saves \a f per the AI gate. \a asNewCopy = save_document_as
+     *  (always a new file); otherwise the document's own marked file is
+     *  written in place and any other document gets its marked copy. The tab
+     *  continues on the written file (Save As semantics). */
+    QJsonObject aiSaveDocument(MidiFile *f, const QString &name,
+                               const QString &source, bool asNewCopy);
+
+    /** \brief Opens an empty untitled document in a new tab of the focused
+     *  group. \a ticksPerQuarter <= 0 = the configured default. */
+    QJsonObject aiNewDocument(int ticksPerQuarter, const QString &source);
+
+    /** \brief Opens a MIDI or importable file in a new tab. Never writes;
+     *  refuses SID (its import asks questions); a file that is already open
+     *  is reported with its index instead of a second tab. */
+    QJsonObject aiOpenDocument(const QString &path, const QString &source);
+
+    /** \brief Closes the document at list index \a index. Refuses unsaved
+     *  changes, the last tab of the left group, and the document a MidiPilot
+     *  run is working on. */
+    QJsonObject aiCloseDocument(int index, const QString &source);
 
     /**
      * \brief Gets the matrix widget for note editing.
@@ -2020,6 +2058,34 @@ private:
      *  pathBeforeSave, empty = untitled slot) and stops the shared timer only
      *  when no other open document is still dirty. */
     void cleanupAutoSaveFor(MidiFile *f, const QString &pathBeforeSave);
+
+    /** \brief Phase 51: the per-document save core shared by the menu (save /
+     *  saveas) and the AI tools - writes \p f to \p path and does the
+     *  bookkeeping: path + tab title + recent list when the path changes, the
+     *  window's modified marker when \p f is the active document, the
+     *  document's auto-save backup, the collab notification. No dialogs.
+     *  \return false when the write failed; the document then stays dirty. */
+    bool writeDocumentTo(MidiFile *f, const QString &path);
+
+    /** \brief Moves \p path to the top of the recent-files list and rebuilds
+     *  the menu (updateRecentPathsList() is this for the active file). */
+    void addRecentPath(const QString &path);
+
+    /** \brief True when channels or tracks of \p f are muted or hidden by
+     *  the user - they are audible in a saved file anyway (Save As notice). */
+    bool hasSilencedParts(MidiFile *f) const;
+
+    /** \brief Phase 51: folder for an AI save of an untitled document given a
+     *  bare name - the last Open folder, else the user's Documents folder. */
+    QString aiDefaultFolder() const;
+
+    /** \brief Phase 51: true when \p path is the path of an open document
+     *  (case-insensitive on Windows). */
+    bool isOpenDocumentPath(const QString &path) const;
+
+    /** \brief Phase 51: "MidiPilot", "MCP" or "MCP (<client>)" for status
+     *  messages about an AI document operation. */
+    static QString aiActorLabel(const QString &source);
 
     /** \brief Checks for leftover auto-save files on startup and offers recovery.
      *  \return true if a document was actually recovered (and is now open), so

@@ -5,6 +5,45 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 
 ---
 
+## [2.5.0] - Unreleased - Document Tools for MidiPilot and MCP
+
+### Summary
+* **[MidiPilot and MCP clients save, open, create and close documents](https://midieditor-ai.de/midipilot-tools.html#files)** - five new tools finish a workflow without the GUI, silently and without a dialog (Phase 51).
+* **[The AI never overwrites your files](https://midieditor-ai.de/midipilot-tools.html#files)** - every file it saves is a marked copy next to the source (`mozart.mid` -> `mozart.midipilot.mid`, over MCP `mozart.mcp.mid`), a taken name gets a counter, and the tab continues on the copy while the original stays untouched.
+* **[Exact tempos](https://midieditor-ai.de/mcp-server.html#tools)** - `set_tempo` takes fractional BPM or the exact microseconds per quarter note MIDI files store, and the new `get_timing_map` reads every tempo, meter, key signature and marker with exact values (51.2).
+* **Stricter tool arguments** - a tool call with a parameter the tool does not have is refused and names the real parameters, and `delete_events` / `query_events` can act on one event kind only, e.g. just the program change at tick 0 (MCP-ARGS-001).
+* **MCP calls show up in the status bar** - one short line per tool call with the client name, the path of a file operation or the error of a failed call.
+
+<details>
+<summary>Full Changelog - Document Tools for MidiPilot and MCP</summary>
+
+### New Features
+* **[Document tools](https://midieditor-ai.de/midipilot-tools.html#files)** - `save_document`, `save_document_as`, `new_document`, `open_document` and `close_document` for MidiPilot's agent and for MCP clients. None of them opens a dialog, so an MCP call never waits on the user. Saving writes a marked copy (`<name>.midipilot.mid` from MidiPilot, `<name>.mcp.mid` over MCP; always `.mid`, also for an imported Guitar Pro, MusicXML, MuseScore or MML file) next to the source; the only file the AI saves in place is its own marked working copy, a taken name gets a counter, and an existing file is never written over. The tab continues on the copy, so a later Ctrl+S lands there too. An untitled document takes a short name from the request - the agent asks when there is nothing to go on. A tab with unsaved changes is never closed by the AI. Saving is not an undo step; it shows in the tab title, the status bar and - for MidiPilot - a chat line with the saved path. File -> Save and Save As keep their dialogs.
+* **New documents at a chosen resolution** - `new_document` creates an empty document with the requested ticks per quarter note.
+* **[Exact tempo](https://midieditor-ai.de/mcp-server.html#tools)** - `set_tempo` accepts fractional BPM or `microsecondsPerQuarter`, returns the stored value and writes it unrounded (a 120.5 BPM tempo used to become 120). `get_timing_map` returns the resolution, every tempo change (microseconds per quarter note, derived BPM, time in ms), every time and key signature, and marker, text and cue events with their ticks.
+* **Event-kind filter** - `delete_events` and `query_events` take an optional `types` list (`note`, `cc`, `pitch_bend`, `program_change`).
+* **Status-bar line per MCP tool call** - client name and tool, plus the path of a file operation or the error of a failed call.
+
+### Changed
+* **Unknown tool arguments are refused (MCP-ARGS-001)** - an argument a tool does not declare used to be ignored: a `types` filter sent to `delete_events` was dropped and the call deleted every event in the range. Such a call is now refused with the tool's real parameter list, and nothing is changed.
+* **`setup_channel_pattern` announces its velocity normalisation** - the tool description now says that every note is set to velocity 127 and that the count comes back as `velocityNormalized`; the behaviour itself is unchanged.
+* A save that fails while writing (a full disk, a vanished network drive) no longer marks the document saved.
+
+### Files Modified
+* `src/ai/AiFileNaming.h/.cpp` (new) - the naming rules for AI saves: marks, counter, never overwrite
+* `src/ai/EventKindFilter.h` (new) - the `types` filter
+* `src/ai/ToolDefinitions.h/.cpp` - the new tools, `set_tempo` exact input, unknown-argument check, `types` filter
+* `src/gui/MainWindow.h/.cpp` - per-document save core shared by the menu and the tools; the AI document operations; MCP status-bar line
+* `src/ai/McpServer.h/.cpp` - window-level new/open/close, tool-call signal with client, result and detail
+* `src/ai/AgentRunner.cpp`, `src/gui/MidiPilotWidget.cpp`, `src/ai/EditorContext.cpp` - step labels, saved-path chat line, exact tempo, agent prompt
+* `src/midi/MidiFile.h/.cpp` - resolution of a new document; a failed write is not a save
+* `tests/test_ai_file_naming.cpp` (new), `tests/test_tool_definitions.cpp`
+* `manual/midipilot-tools.html`, `manual/mcp-server.html`, `manual/midipilot.html`, `manual/midipilot-modes.html`, `manual/docs-index.html`, `README.md`
+
+</details>
+
+---
+
 ## [2.4.0] - 2026-09-12 - Stability Pass, Cross-Tab MidiPilot, GPT-6 Astra
 
 ### Summary

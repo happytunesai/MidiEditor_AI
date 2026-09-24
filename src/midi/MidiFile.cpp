@@ -1004,6 +1004,24 @@ int MidiFile::ticksPerQuarter() {
     return timePerQuarter;
 }
 
+bool MidiFile::initTicksPerQuarter(int tpq) {
+    if (tpq < 1 || tpq > 32767) {
+        return false;
+    }
+    // Only the tick-0 meta events a new file starts with (tempo, meter) may
+    // exist: every tick is 0, so the new resolution retimes nothing.
+    for (int i = 0; i < 19; i++) {
+        const QMultiMap<int, MidiEvent *> *map = channels[i]->eventMap();
+        if (!map->isEmpty() && map->lastKey() != 0) {
+            return false;
+        }
+    }
+    timePerQuarter = tpq;
+    invalidateTempoCache();
+    calcMaxTime();
+    return true;
+}
+
 QMultiMap<int, MidiEvent *> *MidiFile::channelEvents(int channel) {
     // Add bounds checking to prevent crashes
     if (channel < 0 || channel >= 19) {
@@ -1915,6 +1933,12 @@ bool MidiFile::save(QString path, bool skipMutedTrackEvents,
 
     // close the file
     f.close();
+
+    // A full disk or a vanished network share fails the write or the final
+    // flush; that is not a save, so the document must stay dirty.
+    if (stream.status() != QDataStream::Ok || f.error() != QFileDevice::NoError) {
+        return false;
+    }
 
     // Only a save of the document itself may clear the dirty flag. A temp or
     // backup write (audio export, auto-save, clone) that marks the document

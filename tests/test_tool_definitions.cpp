@@ -192,6 +192,23 @@ const QStringList kCoreToolNames = {
     QStringLiteral("list_documents"),
     QStringLiteral("get_document_overview"),
     QStringLiteral("import_tracks_from_document"),
+    // v2.5.0 (Phase 51): document and file tools behind the AI gate, and
+    // 51.2's exact timing read.
+    QStringLiteral("save_document"),
+    QStringLiteral("save_document_as"),
+    QStringLiteral("new_document"),
+    QStringLiteral("open_document"),
+    QStringLiteral("close_document"),
+    QStringLiteral("get_timing_map"),
+};
+
+// The Phase 51 document tools, for the contract slots below.
+const QStringList kDocumentFileToolNames = {
+    QStringLiteral("save_document"),
+    QStringLiteral("save_document_as"),
+    QStringLiteral("new_document"),
+    QStringLiteral("open_document"),
+    QStringLiteral("close_document"),
 };
 
 // Extra tools added when FFXIV mode is ON.
@@ -928,6 +945,200 @@ private slots:
                          "Stub build: import_tracks_from_document")),
                      qPrintable(err));
         }
+    }
+
+    // -----------------------------------------------------------------
+    // v2.5.0 (Phase 51): document and file tools. The gate itself is unit-
+    // tested in test_ai_file_naming; these slots pin what the MODEL sees -
+    // the gate has to be in the descriptions, because the model cannot see it
+    // before it runs into it - and the argument contract.
+
+    void documentTools_descriptionsCarryTheAiGate() {
+        for (const QString &name : kDocumentFileToolNames) {
+            const QJsonObject fn = findTool(name);
+            QVERIFY2(!fn.isEmpty(), qPrintable(name + QStringLiteral(" is not a CORE tool")));
+        }
+        for (const QString &name : {QStringLiteral("save_document"),
+                                    QStringLiteral("save_document_as")}) {
+            const QString desc = findTool(name).value(QStringLiteral("description")).toString();
+            QVERIFY2(desc.contains(QStringLiteral(".midipilot.mid")), qPrintable(desc));
+            QVERIFY2(desc.contains(QStringLiteral(".mcp.mid")), qPrintable(desc));
+            QVERIFY2(desc.contains(QStringLiteral("counter")), qPrintable(desc));
+            QVERIFY2(desc.contains(QStringLiteral("undone")), qPrintable(desc));
+        }
+        // "Keep the original": copy first, then edit - so a user Ctrl+S never
+        // hits the original.
+        const QString save = findTool(QStringLiteral("save_document"))
+                                 .value(QStringLiteral("description")).toString();
+        QVERIFY2(save.contains(QStringLiteral("save FIRST")), qPrintable(save));
+        QVERIFY2(save.contains(QStringLiteral("ask the user")), qPrintable(save));
+        // Neither caller is re-bound silently by new/open.
+        for (const QString &name : {QStringLiteral("new_document"),
+                                    QStringLiteral("open_document")}) {
+            const QString desc = findTool(name).value(QStringLiteral("description")).toString();
+            QVERIFY2(desc.contains(QStringLiteral("switch_document")), qPrintable(desc));
+            QVERIFY2(desc.contains(QStringLiteral("get_editor_state")), qPrintable(desc));
+        }
+        const QString close = findTool(QStringLiteral("close_document"))
+                                  .value(QStringLiteral("description")).toString();
+        QVERIFY2(close.contains(QStringLiteral("unsaved changes")), qPrintable(close));
+    }
+
+    void documentTools_argumentContract() {
+        auto nullable = [](const QJsonObject &prop) {
+            for (const QJsonValue &b : prop.value(QStringLiteral("anyOf")).toArray()) {
+                if (b.toObject().value(QStringLiteral("type")).toString() == QStringLiteral("null"))
+                    return true;
+            }
+            return false;
+        };
+        auto propsOf = [](const QString &tool) {
+            return findTool(tool).value(QStringLiteral("parameters")).toObject()
+                .value(QStringLiteral("properties")).toObject();
+        };
+        // save_document(_as): one optional name.
+        for (const QString &name : {QStringLiteral("save_document"),
+                                    QStringLiteral("save_document_as")}) {
+            const QJsonObject props = propsOf(name);
+            QCOMPARE(props.size(), 1);
+            QVERIFY(nullable(props.value(QStringLiteral("name")).toObject()));
+        }
+        // new_document: optional ppq.
+        QCOMPARE(propsOf(QStringLiteral("new_document")).size(), 1);
+        QVERIFY(nullable(propsOf(QStringLiteral("new_document"))
+                             .value(QStringLiteral("ppq")).toObject()));
+        // open_document / close_document: one mandatory argument each.
+        QCOMPARE(propsOf(QStringLiteral("open_document")).value(QStringLiteral("path"))
+                     .toObject().value(QStringLiteral("type")).toString(),
+                 QStringLiteral("string"));
+        QCOMPARE(propsOf(QStringLiteral("close_document")).value(QStringLiteral("documentIndex"))
+                     .toObject().value(QStringLiteral("type")).toString(),
+                 QStringLiteral("integer"));
+    }
+
+    // The required-gate demands exactly the mandatory arguments; past it the
+    // call reaches the document executor (stubbed here - its "Stub build"
+    // text is the proof of arrival).
+    void executeTool_documentTools_gateAndDispatch() {
+        for (const QString &name : {QStringLiteral("save_document"),
+                                    QStringLiteral("save_document_as"),
+                                    QStringLiteral("new_document")}) {
+            const QJsonObject r = ToolDefinitions::executeTool(name, QJsonObject{},
+                                                               nullptr, nullptr);
+            const QString err = r.value(QStringLiteral("error")).toString();
+            QVERIFY2(err.contains(QStringLiteral("Stub build: ") + name), qPrintable(err));
+        }
+        QJsonObject r = ToolDefinitions::executeTool(QStringLiteral("open_document"),
+                                                     QJsonObject{}, nullptr, nullptr);
+        QVERIFY2(r.value(QStringLiteral("error")).toString().contains(QStringLiteral("path")),
+                 qPrintable(r.value(QStringLiteral("error")).toString()));
+        r = ToolDefinitions::executeTool(QStringLiteral("close_document"), QJsonObject{},
+                                         nullptr, nullptr);
+        QVERIFY2(r.value(QStringLiteral("error")).toString()
+                     .contains(QStringLiteral("documentIndex")),
+                 qPrintable(r.value(QStringLiteral("error")).toString()));
+        r = ToolDefinitions::executeTool(QStringLiteral("close_document"),
+                                         QJsonObject{{QStringLiteral("documentIndex"), 1}},
+                                         nullptr, nullptr);
+        QVERIFY2(r.value(QStringLiteral("error")).toString()
+                     .contains(QStringLiteral("Stub build: close_document")),
+                 qPrintable(r.value(QStringLiteral("error")).toString()));
+    }
+
+    // -----------------------------------------------------------------
+    // MCP-ARGS-001: an undeclared argument is refused and named - never
+    // silently dropped (a dropped "types" once made delete_events remove
+    // every event in the range).
+    void executeTool_unknownArgument_isRefusedAndNamed() {
+        QJsonObject args;
+        args[QStringLiteral("trackIndex")] = 0;
+        args[QStringLiteral("startTick")] = 0;
+        args[QStringLiteral("endTick")] = 10;
+        args[QStringLiteral("kinds")] = QJsonArray{QStringLiteral("program_change")};
+        QJsonObject r = ToolDefinitions::executeTool(QStringLiteral("delete_events"), args,
+                                                     nullptr, nullptr);
+        QCOMPARE(r.value(QStringLiteral("success")).toBool(true), false);
+        QString err = r.value(QStringLiteral("error")).toString();
+        QVERIFY2(err.contains(QStringLiteral("does not accept")), qPrintable(err));
+        QVERIFY2(err.contains(QStringLiteral("kinds")), qPrintable(err));
+        QVERIFY2(err.contains(QStringLiteral("types")), qPrintable(err)); // the real name is listed
+        QVERIFY2(err.contains(QStringLiteral("Nothing was changed")), qPrintable(err));
+
+        // A parameterless tool says so.
+        r = ToolDefinitions::executeTool(QStringLiteral("get_editor_state"),
+                                         QJsonObject{{QStringLiteral("verbose"), true}},
+                                         nullptr, nullptr);
+        err = r.value(QStringLiteral("error")).toString();
+        QVERIFY2(err.contains(QStringLiteral("verbose")), qPrintable(err));
+        QVERIFY2(err.contains(QStringLiteral("parameters are: none")), qPrintable(err));
+
+        // Missing and unknown together: both named in one answer.
+        r = ToolDefinitions::executeTool(QStringLiteral("remove_track"),
+                                         QJsonObject{{QStringLiteral("track"), 1}},
+                                         nullptr, nullptr);
+        err = r.value(QStringLiteral("error")).toString();
+        QVERIFY2(err.contains(QStringLiteral("missing required")), qPrintable(err));
+        QVERIFY2(err.contains(QStringLiteral("trackIndex")), qPrintable(err));
+        QVERIFY2(err.contains(QStringLiteral("does not accept parameter(s): track ")),
+                 qPrintable(err));
+    }
+
+    // MCP-ARGS-001 part 2: query_events / delete_events filter by the kinds
+    // insert_events writes; null = every kind (the old behaviour).
+    void queryAndDeleteEvents_offerNullableTypesFilter() {
+        for (const QString &name : {QStringLiteral("query_events"),
+                                    QStringLiteral("delete_events")}) {
+            const QJsonObject params = findTool(name).value(QStringLiteral("parameters")).toObject();
+            const QJsonObject types = params.value(QStringLiteral("properties")).toObject()
+                                          .value(QStringLiteral("types")).toObject();
+            QVERIFY2(!types.isEmpty(), qPrintable(name));
+            QStringList kinds;
+            bool nullBranch = false;
+            for (const QJsonValue &b : types.value(QStringLiteral("anyOf")).toArray()) {
+                const QJsonObject branch = b.toObject();
+                if (branch.value(QStringLiteral("type")).toString() == QStringLiteral("null"))
+                    nullBranch = true;
+                for (const QJsonValue &k : branch.value(QStringLiteral("items")).toObject()
+                                               .value(QStringLiteral("enum")).toArray())
+                    kinds << k.toString();
+            }
+            QVERIFY2(nullBranch, qPrintable(name));
+            QCOMPARE(QSet<QString>(kinds.begin(), kinds.end()),
+                     (QSet<QString>{QStringLiteral("note"), QStringLiteral("cc"),
+                                    QStringLiteral("pitch_bend"),
+                                    QStringLiteral("program_change")}));
+            bool listed = false;
+            for (const QJsonValue &rv : params.value(QStringLiteral("required")).toArray())
+                listed = listed || rv.toString() == QStringLiteral("types");
+            QVERIFY2(listed, qPrintable(name)); // strict mode: optional = listed + null
+        }
+    }
+
+    // 51.2: set_tempo takes an exact microseconds value or a fractional BPM;
+    // both nullable, so a call with only one of them passes the gate.
+    void setTempo_acceptsExactMicrosecondsOrFractionalBpm() {
+        const QJsonObject params = findTool(QStringLiteral("set_tempo"))
+                                       .value(QStringLiteral("parameters")).toObject();
+        const QJsonObject props = params.value(QStringLiteral("properties")).toObject();
+        auto branchTypes = [&](const QString &key) {
+            QStringList t;
+            for (const QJsonValue &b : props.value(key).toObject()
+                                           .value(QStringLiteral("anyOf")).toArray())
+                t << b.toObject().value(QStringLiteral("type")).toString();
+            return t;
+        };
+        QCOMPARE(branchTypes(QStringLiteral("bpm")),
+                 (QStringList{QStringLiteral("number"), QStringLiteral("null")}));
+        QCOMPARE(branchTypes(QStringLiteral("microsecondsPerQuarter")),
+                 (QStringList{QStringLiteral("integer"), QStringLiteral("null")}));
+        QCOMPARE(params.value(QStringLiteral("required")).toArray().size(), 3);
+
+        // The timing read is parameterless and dispatches to its executor.
+        const QJsonObject r = ToolDefinitions::executeTool(
+            QStringLiteral("get_timing_map"), QJsonObject{}, nullptr, nullptr);
+        QVERIFY2(r.value(QStringLiteral("error")).toString()
+                     .contains(QStringLiteral("Stub build: get_timing_map")),
+                 qPrintable(r.value(QStringLiteral("error")).toString()));
     }
 
     // -----------------------------------------------------------------

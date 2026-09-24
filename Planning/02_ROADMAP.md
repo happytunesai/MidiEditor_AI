@@ -13725,6 +13725,15 @@ third-party apps; ChatGPT plans are reachable for third parties only through Cod
 
 ## Phase 51 (extended): document and file tools - CONFIRMED for 2.5
 
+**Status (2026-09-24): implemented on `feature/v2.5.0`, in test.** Tools `save_document`,
+`save_document_as`, `new_document`, `open_document`, `close_document` and `get_timing_map` (51.2),
+exact `set_tempo`, MCP-ARGS-001 (unknown arguments refused, `types` filter), the status-bar line per
+MCP call, 51.5 (velocity note in the `setup_channel_pattern` description) and the 51.6 documentation
+of the `tools/list` refresh. The gate lives in `src/ai/AiFileNaming` (unit test
+`test_ai_file_naming`), the per-document save core in `MainWindow::writeDocumentTo()`, the AI
+operations in `MainWindow::ai*Document()`. New/open/close also work over MCP after the session's own
+document was closed. Open: the live 51.6 check with a connected MCP client.
+
 **Goal.** MidiPilot and MCP can complete a workflow without the GUI: create, open, save and
 close documents, not only edit events. 51.1 (saving) is the core; the empty-document half of
 51.3 and 51.2 (exact tempo, confirmed for 2.5) serve the same goal.

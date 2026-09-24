@@ -108,6 +108,8 @@ private:
     static QJsonObject execGetTrackInfo(const QJsonObject &args, MidiFile *file);
     static QJsonObject execQueryEvents(const QJsonObject &args, MidiFile *file);
     static QJsonObject execGetSelection(MidiFile *file);
+    // 51.2 (v2.5.0): complete timing metadata in exact stored units
+    static QJsonObject execGetTimingMap(MidiFile *file);
     // v2.4.0 cross-tab tools. These act on the WINDOW's document list (via
     // the widget's MainWindow), not on the bound file, and never re-bind
     // anything: list_documents was promoted from MCP-only to CORE, and
@@ -124,6 +126,15 @@ private:
                                                     MidiFile *file,
                                                     MidiPilotWidget *widget,
                                                     const QString &source);
+
+    // v2.5.0 (Phase 51): save_document, save_document_as, new_document,
+    // open_document, close_document. Window-level like the cross-tab tools;
+    // the AI gate and the tab plumbing live in MainWindow::ai*Document().
+    static QJsonObject execDocumentFileTool(const QString &toolName,
+                                            const QJsonObject &args,
+                                            MidiFile *file,
+                                            MidiPilotWidget *widget,
+                                            const QString &source);
 
     // Write tools (delegate to widget handlers)
     static QJsonObject execWriteAction(const QString &action,

@@ -11,7 +11,9 @@
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QDebug>
+#include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QRegularExpression>
 #include <QSettings>
 #include <QTextStream>
@@ -272,7 +274,16 @@ void AgentRunner::updateWorkingStateFromToolResult(AgentWorkingState &state,
         const QString name = args.value(QStringLiteral("trackName")).toString(result.value(QStringLiteral("trackName")).toString());
         appendFact(state, QStringLiteral("Created track %1 \"%2\"").arg(index).arg(name));
     } else if (toolName == QStringLiteral("set_tempo")) {
-        appendFact(state, QStringLiteral("Tempo set to %1 BPM").arg(args.value(QStringLiteral("bpm")).toInt()));
+        // 51.2: the executor reports the exact stored value; older/stub
+        // results carry only success, so fall back to the requested bpm.
+        double bpm = result.value(QStringLiteral("bpm")).toDouble(0);
+        if (bpm <= 0)
+            bpm = args.value(QStringLiteral("bpm")).toDouble(0);
+        const int micros = result.value(QStringLiteral("microsecondsPerQuarter")).toInt(0);
+        QString fact = QStringLiteral("Tempo set to %1 BPM").arg(QString::number(bpm, 'g', 6));
+        if (micros > 0)
+            fact += QStringLiteral(" (%1 us/quarter)").arg(micros);
+        appendFact(state, fact);
     } else if (toolName == QStringLiteral("insert_events") || toolName == QStringLiteral("replace_events")) {
         const int track = args.value(QStringLiteral("trackIndex")).toInt(result.value(QStringLiteral("trackIndex")).toInt(-1));
         const int count = args.value(QStringLiteral("events")).toArray().size();
@@ -323,6 +334,21 @@ void AgentRunner::updateWorkingStateFromToolResult(AgentWorkingState &state,
         // what it is confirming - same idiom as convert_tempo/thin_tempo_map.
         appendFact(state, result.value(QStringLiteral("summary")).toString(
                               QStringLiteral("Track import completed")));
+    } else if (toolName == QStringLiteral("save_document")
+               || toolName == QStringLiteral("save_document_as")) {
+        // Path concatenated, never .arg()-substituted (file-name input).
+        appendFact(state, QStringLiteral("Document saved as ")
+                              + result.value(QStringLiteral("path")).toString()
+                              + QStringLiteral(" - the tab now works on that file"));
+    } else if (toolName == QStringLiteral("new_document")
+               || toolName == QStringLiteral("open_document")) {
+        appendFact(state, QStringLiteral("%1 opened document #%2 (the run is still bound to "
+                                         "its previous document)")
+                              .arg(toolName)
+                              .arg(result.value(QStringLiteral("documentIndex")).toInt(-1)));
+    } else if (toolName == QStringLiteral("close_document")) {
+        appendFact(state, QStringLiteral("Closed document #%1 - later indexes moved down")
+                              .arg(result.value(QStringLiteral("closedIndex")).toInt(-1)));
     } else if (toolName == QStringLiteral("switch_document")) {
         if (!result.value(QStringLiteral("alreadyBound")).toBool(false)) {
             // Title concatenated, never .arg()-substituted (file-name input).
@@ -1021,6 +1047,16 @@ void AgentRunner::processToolCalls(const QJsonObject &assistantMessage)
         if (result.isEmpty())
             result = ToolDefinitions::executeTool(toolName, args, _file, _widget);
 
+        // v2.5.0: a save continues the bound tab on the written file (Save
+        // As semantics), which renames it - keep the "[in ...]" step suffix
+        // on the current name.
+        if ((toolName == QStringLiteral("save_document")
+             || toolName == QStringLiteral("save_document_as"))
+            && result.value(QStringLiteral("success")).toBool(false)
+            && !_boundDocTitle.isEmpty() && _widget) {
+            _boundDocTitle = _widget->documentTitleForFile(_file);
+        }
+
         // Phase 46 follow-up: a set_ffxiv_mode call has to take effect INSIDE
         // the run that made it. Only remember it here - the re-derivation
         // appends a message, and an assistant message carrying tool_calls must
@@ -1230,9 +1266,15 @@ QString AgentRunner::buildStepLabel(const QString &toolName, const QJsonObject &
         return QStringLiteral("Read selection");
     }
     if (toolName == "set_tempo") {
-        int bpm = args["bpm"].toInt(0);
-        return bpm > 0 ? QStringLiteral("Set tempo \u2014 %1 BPM").arg(bpm)
+        const int micros = args["microsecondsPerQuarter"].toInt(0);
+        if (micros > 0)
+            return QStringLiteral("Set tempo \u2014 %1 \u00b5s/quarter").arg(micros);
+        const double bpm = args["bpm"].toDouble(0);
+        return bpm > 0 ? QStringLiteral("Set tempo \u2014 %1 BPM").arg(QString::number(bpm, 'g', 6))
                        : QStringLiteral("Set tempo");
+    }
+    if (toolName == "get_timing_map") {
+        return QStringLiteral("Read timing map");
     }
     if (toolName == "set_time_signature") {
         int num = args["numerator"].toInt(0);
@@ -1318,6 +1360,28 @@ QString AgentRunner::buildStepLabel(const QString &toolName, const QJsonObject &
         if (!dry.isBool() || dry.toBool())
             label += QStringLiteral(" (dry run)");
         return label;
+    }
+    // v2.5.0 (Phase 51) document tools. File names are CONCATENATED, never
+    // .arg()-substituted (model/file-name input could contain '%N').
+    if (toolName == "save_document") {
+        return QStringLiteral("Save document");
+    }
+    if (toolName == "save_document_as") {
+        const QString name = args["name"].toString();
+        return name.isEmpty() ? QStringLiteral("Save as new file")
+                              : QStringLiteral("Save as — ") + name.left(60);
+    }
+    if (toolName == "new_document") {
+        return QStringLiteral("New document");
+    }
+    if (toolName == "open_document") {
+        const QString path = args["path"].toString();
+        const QString shown = QFileInfo(QDir::fromNativeSeparators(path)).fileName();
+        return shown.isEmpty() ? QStringLiteral("Open document")
+                               : QStringLiteral("Open document — ") + shown.left(60);
+    }
+    if (toolName == "close_document") {
+        return QStringLiteral("Close document — #%1").arg(args["documentIndex"].toInt(-1));
     }
     if (toolName == "switch_document") {
         // Deliberately distinct from every other step label (guard rail):

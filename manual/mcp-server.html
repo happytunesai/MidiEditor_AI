@@ -101,7 +101,7 @@ can plug into MidiEditor AI and control it.
 </p>
 
 <p>
-MidiEditor AI&rsquo;s MCP server exposes the <b>26 core tools</b> that the built-in MidiPilot AI uses, plus a
+MidiEditor AI&rsquo;s MCP server exposes the <b>32 core tools</b> that the built-in MidiPilot AI uses, plus a
 <code>switch_document</code> tool of its own - and the five FFXIV tools whenever FFXIV mode is enabled.
 The difference is that with MCP, <i>you choose</i> which AI client and model to use.
 </p>
@@ -312,11 +312,18 @@ everywhere. Without a token the <code>headers</code> block is simply absent.
 <h2 id="tools">Available Tools</h2>
 
 <p>
-All 26 core tools from MidiEditor AI&rsquo;s built-in MidiPilot are exposed via MCP - including the
+All 32 core tools from MidiEditor AI&rsquo;s built-in MidiPilot are exposed via MCP - including the
 document tools <code>list_documents</code>, <code>get_document_overview</code> and
-<code>import_tracks_from_document</code> - plus MCP&rsquo;s own <code>switch_document</code>, and the
-five FFXIV tools below when FFXIV mode is on. The AI client discovers them automatically via
-<code>tools/list</code>.
+<code>import_tracks_from_document</code> and the file tools that create, open, save and close
+documents - plus MCP&rsquo;s own <code>switch_document</code>, and the five FFXIV tools below when
+FFXIV mode is on. The AI client discovers them automatically via <code>tools/list</code>. A client
+that keeps its own copy of the tool list refreshes it by calling <code>tools/list</code> again after
+FFXIV mode was switched.
+</p>
+
+<p>
+A tool call that names a parameter the tool does not have is refused with an error that lists the
+tool's parameters, and nothing is changed.
 </p>
 
 <p>
@@ -334,7 +341,8 @@ session at whichever document is currently active, or use <code>list_documents</
     <tr><th>Tool</th><th>Description</th></tr>
     <tr><td><code>get_editor_state</code></td><td>Get file info, tracks, cursor position, tempo, time signature, and the selected-event count</td></tr>
     <tr><td><code>get_track_info</code></td><td>Get details about a specific track: name, assigned channel, total event count, and how many of those are notes</td></tr>
-    <tr><td><code>query_events</code></td><td>Query MIDI events in a tick range on a track</td></tr>
+    <tr><td><code>query_events</code></td><td>Query MIDI events in a tick range on a track; opt. <code>types</code> reads only some kinds (<code>note</code>, <code>cc</code>, <code>pitch_bend</code>, <code>program_change</code>)</td></tr>
+    <tr><td><code>get_timing_map</code></td><td>The complete timing data with exact values: <code>ticksPerQuarter</code>, every tempo change as <code>microsecondsPerQuarter</code> (plus the derived BPM and its time in ms), every time signature and key signature, and marker/text/cue events with their ticks; lyrics are counted</td></tr>
     <tr><td><code>get_selection</code></td><td>Get the user's current selection as full events, each with a 0-based index (the index <code>delete_events_by_index</code> expects)</td></tr>
     <tr><td><code>search_help</code></td><td>Search the built-in manual (title/keyword/body scoring) - for questions about the editor itself</td></tr>
     <tr><td><code>get_help_section</code></td><td>Read one manual section's full plain text, found via <code>search_help</code></td></tr>
@@ -347,12 +355,31 @@ session at whichever document is currently active, or use <code>list_documents</
 <table>
     <tr><th>Tool</th><th>Parameters</th><th>Description</th></tr>
     <tr><td><code>switch_document</code></td><td><code>index</code></td><td>Make another open tab the active document (the index from <code>list_documents</code>). Call <code>get_editor_state</code> afterwards to bind the session to it - stateful tools keep acting on the previously bound document until then</td></tr>
+    <tr><td><code>save_document</code></td><td>opt. <code>name</code></td><td>Save the bound document as a marked copy next to its source (<code>mozart.mid</code> &rarr; <code>mozart.mcp.mid</code>); the tab continues on the copy, and saving again writes into it. <code>name</code> is only used for an untitled document. Returns the written <code>path</code></td></tr>
+    <tr><td><code>save_document_as</code></td><td>opt. <code>name</code></td><td>Save the bound document as a new marked file under another name; the tab continues on it and the previous file stays where it is</td></tr>
+    <tr><td><code>new_document</code></td><td>opt. <code>ppq</code></td><td>Create an empty untitled document in a new tab (optionally with a chosen resolution) and return its index</td></tr>
+    <tr><td><code>open_document</code></td><td><code>path</code></td><td>Open a MIDI or importable file (Guitar Pro, MusicXML, MuseScore, MML) in a new tab and return its index; a file that is already open is reported with its index</td></tr>
+    <tr><td><code>close_document</code></td><td><code>documentIndex</code></td><td>Close a tab without unsaved changes; a tab with changes stays open and the call returns an error</td></tr>
 </table>
 
 <p>
 The built-in MidiPilot agent has its own variant of <code>switch_document</code> that re-binds its run
 without changing the visible tab; the MCP tool described here always brings the chosen tab to the front
 in the editor window.
+</p>
+
+<p>
+<code>new_document</code> and <code>open_document</code> bring the new tab to the front but leave the
+session bound to its document; call <code>get_editor_state</code> to work on the new one. They and
+<code>close_document</code> also work after the session&rsquo;s own document was closed.
+</p>
+
+<p>
+<b>Saving:</b> an MCP client never writes over an existing file. Every file it saves carries the mark
+<code>.mcp</code> and the extension <code>.mid</code>, whatever name it passes; a taken name gets a
+counter (<code>mozart.mcp.2.mid</code>); the only file it saves in place is its own marked working copy.
+Saving is not an undo step. The full rules are on
+<a href="midipilot-tools.html#files">Saving and opening documents</a>.
 </p>
 
 <h3>Write Tools <span class="tool-badge badge-write">WRITE</span></h3>
@@ -365,9 +392,9 @@ in the editor window.
     <tr><td><code>remove_track</code></td><td><code>trackIndex</code></td><td>Delete a track and all its events (cannot remove the file's last track)</td></tr>
     <tr><td><code>insert_events</code></td><td><code>trackIndex</code>, <code>events</code></td><td>Insert MIDI events (notes, program changes, CCs)</td></tr>
     <tr><td><code>replace_events</code></td><td><code>trackIndex</code>, <code>startTick</code>, <code>endTick</code>, <code>events</code></td><td>Replace events in a tick range</td></tr>
-    <tr><td><code>delete_events</code></td><td><code>trackIndex</code>, <code>startTick</code>, <code>endTick</code></td><td>Delete events in a tick range</td></tr>
+    <tr><td><code>delete_events</code></td><td><code>trackIndex</code>, <code>startTick</code>, <code>endTick</code>, opt. <code>types</code></td><td>Delete events in a tick range - all of them, or only the kinds listed in <code>types</code> (<code>note</code>, <code>cc</code>, <code>pitch_bend</code>, <code>program_change</code>)</td></tr>
     <tr><td><code>delete_events_by_index</code></td><td><code>indices</code></td><td>Delete specific events from the current selection by 0-based index (e.g. every second selected note)</td></tr>
-    <tr><td><code>set_tempo</code></td><td><code>bpm</code>, <code>tick</code></td><td>Set tempo at a tick position</td></tr>
+    <tr><td><code>set_tempo</code></td><td><code>tick</code> and either <code>bpm</code> or <code>microsecondsPerQuarter</code></td><td>Set tempo at a tick position - in BPM (fractions allowed) or exactly in microseconds per quarter note, the unit MIDI files store (500000 = 120 BPM). The result returns the stored <code>microsecondsPerQuarter</code></td></tr>
     <tr><td><code>set_time_signature</code></td><td><code>numerator</code>, <code>denominator</code>, <code>tick</code></td><td>Set time signature at a tick position</td></tr>
     <tr><td><code>move_events_to_track</code></td><td><code>sourceTrackIndex</code>, <code>targetTrackIndex</code>, <code>startTick</code>, <code>endTick</code></td><td>Move events between tracks</td></tr>
     <tr><td><code>convert_tempo_preserve_duration</code></td><td><code>targetBpm</code>, <code>scope</code>, <code>dryRun</code>, opt. <code>sourceBpm</code>, <code>trackIds</code>, <code>channelIds</code>, <code>tempoMode</code></td><td>Re-tempo material while keeping its real-time duration: scales event ticks and updates the tempo map so e.g. a 90&nbsp;BPM vocal fits a 180&nbsp;BPM project. Defaults to a dry run; the live pass converts as one undo step</td></tr>
@@ -392,7 +419,7 @@ so connected clients refresh their tool list automatically.
     <tr><th>Tool</th><th>Description</th></tr>
     <tr><td><code>validate_ffxiv</code></td><td>Check if the file meets FFXIV Bard Performance constraints - every same-tick note collision and stacked duplicate with its tick, range and instrument-name problems; the legal instrument spellings are returned when a name is rejected. Same engine as the editor's <a href="ffxiv-playability.html">Check FFXIV Playability</a></td></tr>
     <tr><td><code>convert_drums_ffxiv</code></td><td>Convert a GM drum track into FFXIV drum instrument tracks</td></tr>
-    <tr><td><code>setup_channel_pattern</code></td><td>Fix FFXIV channel assignments and program_change events</td></tr>
+    <tr><td><code>setup_channel_pattern</code></td><td>Fix FFXIV channel assignments and program_change events, and set every note's velocity to 127 (FFXIV plays no dynamics; the result reports the count as <code>velocityNormalized</code>)</td></tr>
     <tr><td><code>analyze_voice_load</code></td><td>Analyse simultaneous-voice count against the FFXIV 16-voice ceiling</td></tr>
     <tr><td><code>auto_fit_voice_load</code></td><td>Thin overloaded moments and over-dense passages (a write tool - defaults to a dry run; the live pass removes notes as one undo step). See <a href="auto-fit-voice-load.html#ai-tool">Auto-Fit Voice Load</a></td></tr>
 </table>
@@ -435,6 +462,12 @@ Protocol panel:
 <p>
 This makes it easy to see which actions came from where - especially useful when both the built-in MidiPilot
 and an external MCP client are used on the same file. Every MCP action supports <b>Ctrl+Z undo</b>, just like built-in actions.
+</p>
+
+<p>
+Every MCP tool call also shows a short line in the status bar with the client name and the tool - for a
+file operation with the path, for a failed call with the error. Reads and file operations appear there
+even though they add nothing to the Protocol panel.
 </p>
 
 <div class="screenshot-single">

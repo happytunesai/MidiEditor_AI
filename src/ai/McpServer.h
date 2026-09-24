@@ -84,7 +84,12 @@ signals:
     void stopped();
     void clientConnected(const QString &sessionId);
     void clientDisconnected(const QString &sessionId);
-    void toolCalled(const QString &sessionId, const QString &toolName);
+    /** Emitted after every tools/call on the GUI thread. \a client is the
+     *  client's name from initialize (may be empty); \a detail is the written
+     *  or opened path for the document tools, else the error of a failed
+     *  call. v2.5.0: MainWindow shows it as a status-bar line. */
+    void toolCalled(const QString &sessionId, const QString &client,
+                    const QString &toolName, bool success, const QString &detail);
     void logMessage(const QString &message);
 
 private slots:

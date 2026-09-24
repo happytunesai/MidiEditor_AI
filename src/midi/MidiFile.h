@@ -361,6 +361,15 @@ public:
      */
     int ticksPerQuarter();
 
+    /**
+     * \brief Sets the resolution of a NEW, still empty document (Phase 51,
+     *        new_document). Refused once any event sits after tick 0: changing
+     *        the resolution of a populated file would retime everything.
+     * \param tpq Ticks per quarter note, 1-32767 (bit 15 would mean SMPTE).
+     * \return False when refused or out of range.
+     */
+    bool initTicksPerQuarter(int tpq);
+
     // === Channel and Protocol Access ===
 
     /**

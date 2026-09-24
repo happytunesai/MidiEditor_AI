@@ -48,6 +48,7 @@
 #include "../ai/AiClient.h"
 #include "../ai/AgentRunner.h"
 #include "../ai/EditorContext.h"
+#include "../ai/EventKindFilter.h"
 #include "../ai/ToolDefinitions.h"
 #include "../ai/MidiEventSerializer.h"
 #include "../ai/ConversationStore.h"
@@ -3001,6 +3002,27 @@ void MidiPilotWidget::onAgentStepCompleted(int step, const QString &toolName, co
         }
     }
 
+    // v2.5.0 (Phase 51): a save is not an undo step, so the written file is
+    // announced in the chat - the one place the user reliably looks during a
+    // run (the status bar says it too, briefly). Path concatenated, never
+    // .arg()-substituted (file-name input).
+    if (success && (toolName == QStringLiteral("save_document")
+                    || toolName == QStringLiteral("save_document_as"))) {
+        const QString path = result.value(QStringLiteral("path")).toString();
+        if (!path.isEmpty()) {
+            addChatBubble(QStringLiteral("system"),
+                          QStringLiteral("\U0001F4BE Saved ") + path
+                              + (result.value(QStringLiteral("previousPath")).toString().isEmpty()
+                                     ? QString()
+                                     : QStringLiteral(" — the tab continues on this file, "
+                                                      "the previous file is unchanged.")));
+        }
+        // The bound tab was renamed with the file: keep the per-step
+        // document label current.
+        if (_isAgentRunning && _runOriginFile && _runOriginFile != _runStartFile)
+            _runCurrentDocTitle = documentTitleForFile(_runOriginFile);
+    }
+
     // For a successful step, the green flash is informational — if the
     // agent loop is still in flight, return to the orange "Thinking…"
     // status after a short delay so the user sees the cycling messages
@@ -3858,19 +3880,55 @@ QJsonObject MidiPilotWidget::applyTempoAction(const QJsonObject &response, bool 
         return result;
     }
 
-    int bpm = response["bpm"].toInt(-1);
-    if (bpm <= 0 || bpm > 999) {
-        if (showBubbles) addChatBubble("system", "Invalid BPM value (must be 1-999).");
+    // 51.2 (v2.5.0): the tempo is stored as whole microseconds per quarter
+    // note. Callers pass either that exact value or a BPM that may be
+    // fractional; an integer-only BPM made every non-integral tempo drift
+    // when a model copied a tempo map (120.5 BPM became 120).
+    const QJsonValue usValue = response.value(QStringLiteral("microsecondsPerQuarter"));
+    const QJsonValue bpmValue = response.value(QStringLiteral("bpm"));
+    const bool hasUs = !usValue.isUndefined() && !usValue.isNull();
+    const bool hasBpm = !bpmValue.isUndefined() && !bpmValue.isNull();
+    // 24-bit tempo field; the lower bound is the 999 BPM ceiling below.
+    constexpr int kMinMicros = 60060;
+    constexpr int kMaxMicros = 16777215;
+    QString tempoError;
+    int micros = -1;
+    if (hasUs && hasBpm) {
+        tempoError = QStringLiteral("Pass either bpm or microsecondsPerQuarter, not both.");
+    } else if (hasUs) {
+        micros = usValue.toInt(-1); // -1 for a non-integral value
+        if (micros < kMinMicros || micros > kMaxMicros) {
+            tempoError = QStringLiteral("Invalid microsecondsPerQuarter (must be an integer "
+                                        "60060-16777215; 500000 = 120 BPM).");
+        }
+    } else if (hasBpm) {
+        const double bpm = bpmValue.toDouble(-1);
+        if (!bpmValue.isDouble() || bpm < 1 || bpm > 999) {
+            tempoError = QStringLiteral("Invalid BPM value (must be 1-999).");
+        } else {
+            micros = qRound(60000000.0 / bpm);
+            if (micros > kMaxMicros) {
+                tempoError = QStringLiteral("A tempo below 3.58 BPM cannot be stored in a "
+                                            "MIDI file.");
+            }
+        }
+    } else {
+        tempoError = QStringLiteral("Give the tempo as bpm or as microsecondsPerQuarter.");
+    }
+    if (!tempoError.isEmpty()) {
+        if (showBubbles) addChatBubble("system", tempoError);
         result["success"] = false;
-        result["error"] = QString("Invalid BPM value (must be 1-999).");
+        result["error"] = tempoError;
         return result;
     }
+    const double exactBpm = 60000000.0 / micros;
+    const QString bpmText = QString::number(exactBpm, 'g', 6);
 
     int tick = response["tick"].toInt(0);
     if (tick < 0) tick = 0;
 
     activeEditFile()->protocol()->startNewAction(
-        QStringLiteral("%1: Agent set tempo - %2 BPM").arg(protoPrefix(response), QString::number(bpm)));
+        QStringLiteral("%1: Agent set tempo - %2 BPM").arg(protoPrefix(response), bpmText));
 
     // Check if there's already a tempo event at this tick
     QMultiMap<int, MidiEvent *> *tempoMap = activeEditFile()->tempoEvents();
@@ -3883,13 +3941,12 @@ QJsonObject MidiPilotWidget::applyTempoAction(const QJsonObject &response, bool 
     }
 
     if (existing) {
-        // Modify existing tempo event
-        existing->setBeats(bpm);
+        // Modify existing tempo event - exact value, setBeats() would round
+        existing->setMicrosPerQuarter(micros);
     } else {
         // Create new tempo event
-        int microsPerQuarter = 60000000 / bpm;
         MidiTrack *track = activeEditFile()->track(0);
-        TempoChangeEvent *ev = new TempoChangeEvent(17, microsPerQuarter, track);
+        TempoChangeEvent *ev = new TempoChangeEvent(17, micros, track);
         activeEditFile()->channel(17)->insertEvent(ev, tick);
     }
 
@@ -3899,7 +3956,9 @@ QJsonObject MidiPilotWidget::applyTempoAction(const QJsonObject &response, bool 
     emit requestRepaint();
 
     result["success"] = true;
-    result["bpm"] = bpm;
+    result["microsecondsPerQuarter"] = micros; // authoritative
+    result["bpm"] = exactBpm;                   // derived, for display
+    result["tick"] = tick;
     return result;
 }
 
@@ -4088,6 +4147,16 @@ QJsonObject MidiPilotWidget::applySelectAndDelete(const QJsonObject &response, b
         return result;
     }
 
+    // MCP-ARGS-001: optional event-kind filter (null = every kind), checked
+    // before the protocol action opens so a bad filter leaves no empty step.
+    QSet<QString> kindFilter;
+    QString kindError;
+    if (!EventKindFilter::parse(response.value(QStringLiteral("types")), &kindFilter, &kindError)) {
+        result["success"] = false;
+        result["error"] = kindError;
+        return result;
+    }
+
     MidiTrack *targetTrack = activeEditFile()->track(trackIndex);
 
     activeEditFile()->protocol()->startNewAction(
@@ -4102,6 +4171,7 @@ QJsonObject MidiPilotWidget::applySelectAndDelete(const QJsonObject &response, b
             if (dynamic_cast<OffEvent *>(ev)) continue;
             if (ev->channel() >= 16) continue;
             if (ev->track() != targetTrack) continue;
+            if (!EventKindFilter::matches(ev, kindFilter)) continue;
 
             MidiChannel *ch = activeEditFile()->channel(ev->channel());
             if (ch) {
@@ -4117,9 +4187,12 @@ QJsonObject MidiPilotWidget::applySelectAndDelete(const QJsonObject &response, b
     activeEditFile()->protocol()->endAction();
 
     if (deletedCount == 0) {
-        if (showBubbles) addChatBubble("system", "No events found in the specified range.");
+        const QString none = kindFilter.isEmpty()
+            ? QStringLiteral("No events found in the specified range.")
+            : QStringLiteral("No events of the requested types found in the specified range.");
+        if (showBubbles) addChatBubble("system", none);
         result["success"] = false;
-        result["error"] = QString("No events found in the specified range.");
+        result["error"] = none;
     } else {
         result["success"] = true;
         result["eventsDeleted"] = deletedCount;

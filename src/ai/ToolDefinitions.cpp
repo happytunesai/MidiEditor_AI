@@ -5,6 +5,9 @@
 #include "../converter/TempoConversionService.h"
 #include "../midi/TempoMapThinner.h"
 #include "../MidiEvent/TempoChangeEvent.h"
+#include "../MidiEvent/TimeSignatureEvent.h"
+#include "../MidiEvent/KeySignatureEvent.h"
+#include "../MidiEvent/TextEvent.h"
 #include "../MidiEvent/OnEvent.h"
 #include "FfxivPlayabilityValidator.h"
 // v2.4.0 cross-tab tools: the document list lives on MainWindow. Real builds
@@ -14,6 +17,7 @@
 #include "../gui/MainWindow.h"
 #endif
 #include "HelpDatabase.h" // pure QtCore - fine in the schema-test stub build too
+#include "EventKindFilter.h" // header-only: kind names + dynamic_cast only
 #include "../AppPaths.h"  // Phase 45: settings scope decided in ONE place
 #ifndef TOOLDEFINITIONS_TEST_STUB_FFXIV
 #include "FfxivVoiceAnalyzer.h"
@@ -188,6 +192,19 @@ QJsonArray ToolDefinitions::toolSchemas(const ToolSchemaOptions &options) {
         ? QStringLiteral("New events to insert after removing existing ones in the range. For melody/composition edits, include program_change plus note events. Do not send pitch_bend-only arrays; they are rejected unless pitch automation was explicitly requested.")
         : QStringLiteral("New events to insert after removing existing ones in the range. For melody/composition edits, include program_change plus note objects with explicit pitch, velocity, duration, and tick.");
 
+    // MCP-ARGS-001: optional event-kind filter shared by query_events and
+    // delete_events - the kinds insert_events writes (EventKindFilter).
+    QJsonArray kindEnum;
+    for (const QString &k : EventKindFilter::kinds())
+        kindEnum.append(k);
+    const QJsonObject typesFilterSchema{
+        {"anyOf", QJsonArray{
+             QJsonObject{{"type", "array"},
+                         {"items", QJsonObject{{"type", "string"}, {"enum", kindEnum}}}},
+             QJsonObject{{"type", "null"}}}},
+        {"description", "Only these event kinds (e.g. [\"program_change\"]). null = every "
+                        "kind on the track."}};
+
     QJsonArray tools;
 
     // --- Read-only tools ---
@@ -226,10 +243,12 @@ QJsonArray ToolDefinitions::toolSchemas(const ToolSchemaOptions &options) {
         props["endTick"] = QJsonObject{
             {"type", "integer"},
             {"description", "End tick of the range (inclusive)."}};
+        props["types"] = typesFilterSchema;
         tools.append(makeTool(
             "query_events",
-            "Query MIDI events in a tick range on a specific track. Returns serialized events.",
-            makeParams(props, {"trackIndex", "startTick", "endTick"})));
+            "Query MIDI events in a tick range on a specific track. Returns serialized events. "
+            "Optionally only some event kinds (types).",
+            makeParams(props, {"trackIndex", "startTick", "endTick", "types"})));
     }
 
     // get_selection (no parameters)
@@ -405,10 +424,13 @@ QJsonArray ToolDefinitions::toolSchemas(const ToolSchemaOptions &options) {
         props["endTick"] = QJsonObject{
             {"type", "integer"},
             {"description", "End tick of the range to delete (inclusive)."}};
+        props["types"] = typesFilterSchema;
         tools.append(makeTool(
             "delete_events",
-            "Delete all MIDI events in a tick range on a specific track.",
-            makeParams(props, {"trackIndex", "startTick", "endTick"})));
+            "Delete MIDI events in a tick range on a specific track - all of them, or only "
+            "the kinds listed in types (e.g. only the program change, keeping the controllers "
+            "at the same tick). One undoable step.",
+            makeParams(props, {"trackIndex", "startTick", "endTick", "types"})));
     }
 
     // delete_events_by_index
@@ -433,19 +455,47 @@ QJsonArray ToolDefinitions::toolSchemas(const ToolSchemaOptions &options) {
             makeParams(props, {"indices"})));
     }
 
-    // set_tempo
+    // set_tempo - 51.2 (v2.5.0): exact tempo. bpm became a nullable NUMBER
+    // (integer calls stay valid) and microsecondsPerQuarter is the exact
+    // value MIDI files store; exactly one of the two is given.
     {
         QJsonObject props;
         props["bpm"] = QJsonObject{
-            {"type", "integer"},
-            {"description", "Tempo in beats per minute (1-999)."}};
+            {"anyOf", QJsonArray{QJsonObject{{"type", "number"}}, QJsonObject{{"type", "null"}}}},
+            {"description", "Tempo in beats per minute (1-999); fractions allowed, e.g. "
+                            "117.5. null when microsecondsPerQuarter is given."}};
+        props["microsecondsPerQuarter"] = QJsonObject{
+            {"anyOf", QJsonArray{QJsonObject{{"type", "integer"}}, QJsonObject{{"type", "null"}}}},
+            {"description", "Exact tempo as MIDI files store it, in microseconds per quarter "
+                            "note (60060-16777215; 500000 = 120 BPM). Use it to reproduce a "
+                            "tempo exactly, e.g. one read with get_timing_map. null when bpm "
+                            "is given."}};
         props["tick"] = QJsonObject{
             {"type", "integer"},
             {"description", "Tick position for the tempo change (0 = beginning)."}};
         tools.append(makeTool(
             "set_tempo",
-            "Set the tempo (BPM) at a specific tick position.",
-            makeParams(props, {"bpm", "tick"})));
+            "Set the tempo at a specific tick position - as BPM or, exactly, as microseconds "
+            "per quarter note (give one of the two, the other null). Changes the musical "
+            "tempo only: events keep their ticks, so the music plays faster or slower (to "
+            "keep the real-time duration, use convert_tempo_preserve_duration). The result "
+            "returns the stored microsecondsPerQuarter. One undoable step.",
+            makeParams(props, {"bpm", "microsecondsPerQuarter", "tick"})));
+    }
+
+    // get_timing_map - 51.2 (v2.5.0): the complete timing metadata in exact
+    // stored units, so a client can reproduce it (the editor state carries
+    // only the tempo at the cursor, rounded, and counts).
+    {
+        tools.append(makeTool(
+            "get_timing_map",
+            "Read the document's complete timing metadata with exact stored values: "
+            "ticksPerQuarter, every tempo change (tick, microsecondsPerQuarter - the exact "
+            "value - plus a derived bpm and its time in ms), every time signature, every key "
+            "signature, and marker/text/cue meta events with their ticks (lyrics are only "
+            "counted). Use it before rebuilding a tempo or meter map in another document; "
+            "pass microsecondsPerQuarter to set_tempo to keep tempos exact.",
+            makeParams(QJsonObject(), QJsonArray())));
     }
 
     // set_time_signature
@@ -767,6 +817,110 @@ QJsonArray ToolDefinitions::toolSchemas(const ToolSchemaOptions &options) {
             makeParams(props, {"documentIndex", "trackIndexes", "dryRun"})));
     }
 
+    // --- v2.5.0 (Phase 51): document and file tools ---
+    // Silent (no dialog - an MCP call never waits on the user) and behind the
+    // AI gate: every file the AI writes is a MARKED copy, <name>.midipilot.mid
+    // from MidiPilot or <name>.mcp.mid over MCP, and an existing file is never
+    // written over except the document's own marked working copy
+    // (AiFileNaming). The descriptions carry that contract because the model
+    // cannot see the gate before it runs into it.
+
+    // save_document
+    {
+        QJsonObject props;
+        props["name"] = QJsonObject{
+            {"anyOf", QJsonArray{QJsonObject{{"type", "string"}}, QJsonObject{{"type", "null"}}}},
+            {"description", "Only used for an UNTITLED document: a short descriptive name "
+                            "taken from the user's request (e.g. \"moonlight-octet\") or a "
+                            "full path the user gave. Extension and mark are added "
+                            "automatically. null for a document that already has a file."}};
+        tools.append(makeTool(
+            "save_document",
+            "Save the document being edited - silently, without a dialog. You never "
+            "overwrite existing files: a document that has a source file is saved as a "
+            "MARKED copy next to it (mozart.mid or mozart.gp5 -> mozart.midipilot.mid from "
+            "MidiPilot, mozart.mcp.mid over MCP), the tab continues on that copy, and the "
+            "original stays untouched. Saving again writes into the same copy. A taken name "
+            "gets a counter (mozart.midipilot.2.mid). An untitled document needs a name: "
+            "take it from the user's request, and ask the user when there is nothing to go "
+            "on. To keep the user's original while changing a lot, save FIRST and edit "
+            "afterwards, so a later Ctrl+S by the user lands in the copy. A file operation "
+            "is not an undo step and cannot be undone. Returns the written path.",
+            makeParams(props, {"name"})));
+    }
+
+    // save_document_as
+    {
+        QJsonObject props;
+        props["name"] = QJsonObject{
+            {"anyOf", QJsonArray{QJsonObject{{"type", "string"}}, QJsonObject{{"type", "null"}}}},
+            {"description", "New name (e.g. \"mozart-octet\") or a full path the user gave. "
+                            "Extension and mark are added automatically; a bare name goes "
+                            "next to the current file (untitled: the folder last used for "
+                            "Open). null = the current name with a counter."}};
+        tools.append(makeTool(
+            "save_document_as",
+            "Save the document being edited as a NEW file - also the way to 'rename' it: a "
+            "new marked file is written (<name>.midipilot.mid from MidiPilot, "
+            "<name>.mcp.mid over MCP) and the tab continues on it; the previous file stays "
+            "where it is. Never overwrites an existing file - a taken name gets a counter. "
+            "Only on the user's request; for a normal save use save_document. Cannot be "
+            "undone. Returns the written path.",
+            makeParams(props, {"name"})));
+    }
+
+    // new_document
+    {
+        QJsonObject props;
+        props["ppq"] = QJsonObject{
+            {"anyOf", QJsonArray{QJsonObject{{"type", "integer"}}, QJsonObject{{"type", "null"}}}},
+            {"description", "Ticks per quarter note of the new document, 1-32767 (common: "
+                            "96, 192, 480, 960). null = the editor's default."}};
+        tools.append(makeTool(
+            "new_document",
+            "Create a new, empty, untitled document in a new tab; it becomes the visible "
+            "tab. Returns its list_documents index. The MidiPilot agent stays on its "
+            "current document until it calls switch_document with that index; an MCP "
+            "session binds to it with get_editor_state. Save it later with save_document "
+            "and a name.",
+            makeParams(props, {"ppq"})));
+    }
+
+    // open_document
+    {
+        QJsonObject props;
+        props["path"] = QJsonObject{
+            {"type", "string"},
+            {"description", "Full path of a .mid/.midi file or of an importable file "
+                            "(Guitar Pro, MusicXML, MuseScore, MML). A bare file name is "
+                            "looked up in the folder last used for Open."}};
+        tools.append(makeTool(
+            "open_document",
+            "Open a file in a new tab; it becomes the visible tab. Returns its "
+            "list_documents index. Opening never writes anything. A file that is already "
+            "open is reported with its index instead of a second tab. SID tunes are opened "
+            "by the user from the menu. The MidiPilot agent stays on its current document "
+            "until it calls switch_document with the index; an MCP session binds to it with "
+            "get_editor_state.",
+            makeParams(props, {"path"})));
+    }
+
+    // close_document
+    {
+        QJsonObject props;
+        props["documentIndex"] = QJsonObject{
+            {"type", "integer"},
+            {"description", "Document index from list_documents."}};
+        tools.append(makeTool(
+            "close_document",
+            "Close an open document (tab). Only a document WITHOUT unsaved changes is "
+            "closed; with changes the call is refused - save it first or ask the user, you "
+            "never discard work. The last tab of the left editor group and the document a "
+            "running MidiPilot agent works on stay open. Indexes after the closed one move "
+            "down by one. Cannot be undone.",
+            makeParams(props, {"documentIndex"})));
+    }
+
     // switch_document - DEFINITION only, opt-in (includeDocumentSwitch).
     // The call itself never reaches executeTool: the AgentRunner intercepts
     // it before generic dispatch and re-binds the run atomically (file +
@@ -833,6 +987,9 @@ QJsonArray ToolDefinitions::toolSchemas(const ToolSchemaOptions &options) {
                 "Moves events to the correct channel (track N → channel N, percussion → CH9), "
                 "removes old program_change at tick 0, inserts correct program_change for every "
                 "used channel on every track, and configures guitar switch channels. "
+                "It also sets the velocity of EVERY note to 127 - FFXIV plays no dynamics - "
+                "and reports how many notes changed as velocityNormalized; tell the user "
+                "when the file had dynamics worth keeping elsewhere. "
                 "Call once after all tracks are created/renamed.",
                 makeParams(QJsonObject(), QJsonArray())));
         }
@@ -1012,11 +1169,37 @@ QJsonObject ToolDefinitions::executeTool(const QString &toolName,
                     continue; // optional in substance - the handler defaults it
                 missing << key;
             }
-            if (!missing.isEmpty()) {
+            // MCP-ARGS-001: an argument the tool does not declare is refused,
+            // not ignored. The strict schema promises this
+            // (additionalProperties: false), but only providers enforce it -
+            // an MCP client's `"types": [...]` on delete_events was dropped
+            // silently and the call deleted EVERY event in the range.
+            QStringList unknown;
+            for (auto it = args.constBegin(); it != args.constEnd(); ++it) {
+                if (!props.contains(it.key()))
+                    unknown << it.key();
+            }
+            if (!missing.isEmpty() || !unknown.isEmpty()) {
+                QString error;
+                if (!missing.isEmpty()) {
+                    error = QString("Tool '%1' is missing required parameter(s): %2.")
+                                .arg(toolName, missing.join(QStringLiteral(", ")));
+                }
+                if (!unknown.isEmpty()) {
+                    const QStringList accepted = props.keys();
+                    if (!error.isEmpty())
+                        error += QLatin1Char(' ');
+                    // Multi-arg arg(): one pass, so client-supplied key names
+                    // containing '%1' stay literal.
+                    error += QString("Tool '%1' does not accept parameter(s): %2 - its "
+                                     "parameters are: %3. Nothing was changed.")
+                                 .arg(toolName, unknown.join(QStringLiteral(", ")),
+                                      accepted.isEmpty() ? QStringLiteral("none")
+                                                         : accepted.join(QStringLiteral(", ")));
+                }
                 QJsonObject result;
                 result["success"] = false;
-                result["error"] = QString("Tool '%1' is missing required parameter(s): %2.")
-                                      .arg(toolName, missing.join(QStringLiteral(", ")));
+                result["error"] = error;
                 return result;
             }
             break; // schema found and satisfied
@@ -1035,6 +1218,9 @@ QJsonObject ToolDefinitions::executeTool(const QString &toolName,
     }
     if (toolName == "get_selection") {
         return execGetSelection(file);
+    }
+    if (toolName == "get_timing_map") {
+        return execGetTimingMap(file);
     }
     // v2.4.0 cross-tab reads - window-level, never re-bind anything
     if (toolName == "list_documents") {
@@ -1110,6 +1296,8 @@ QJsonObject ToolDefinitions::executeTool(const QString &toolName,
         actionObj["trackIndex"] = args["trackIndex"];
         actionObj["startTick"] = args["startTick"];
         actionObj["endTick"] = args["endTick"];
+        if (args.contains(QStringLiteral("types")))
+            actionObj["types"] = args["types"]; // MCP-ARGS-001 kind filter
         actionObj["explanation"] = QString("Agent: delete events");
         if (!source.isEmpty()) actionObj["_source"] = source;
         return widget->executeAction(actionObj);
@@ -1174,6 +1362,11 @@ QJsonObject ToolDefinitions::executeTool(const QString &toolName,
     }
     if (toolName == "import_tracks_from_document") {
         return execImportTracksFromDocument(args, file, widget, source);
+    }
+    if (toolName == "save_document" || toolName == "save_document_as"
+        || toolName == "new_document" || toolName == "open_document"
+        || toolName == "close_document") {
+        return execDocumentFileTool(toolName, args, file, widget, source);
     }
     if (toolName == "switch_document") {
         // Never executed here by design: the AgentRunner intercepts it before
@@ -1784,6 +1977,227 @@ QJsonObject ToolDefinitions::execImportTracksFromDocument(const QJsonObject &arg
 #endif // TOOLDEFINITIONS_TEST_STUB_FFXIV
 }
 
+// ---------------------------------------------------------------------------
+// 51.2 (v2.5.0): get_timing_map
+// ---------------------------------------------------------------------------
+QJsonObject ToolDefinitions::execGetTimingMap(MidiFile *file) {
+#ifdef TOOLDEFINITIONS_TEST_STUB_FFXIV
+    Q_UNUSED(file);
+    QJsonObject result;
+    result["success"] = false;
+    result["error"] = QStringLiteral("Stub build: get_timing_map not linked.");
+    return result;
+#else
+    QJsonObject result;
+    if (!file) {
+        result["success"] = false;
+        result["error"] = QString("No file loaded.");
+        return result;
+    }
+    // A DAW tempo ramp can carry thousands of tempo events; beyond this the
+    // list is cut (and says so) - thin_tempo_map is the answer there.
+    constexpr int kMaxTempoEntries = 2000;
+    constexpr int kMaxTextEntries = 500;
+
+    QJsonArray tempos;
+    int tempoCount = 0;
+    if (QMultiMap<int, MidiEvent *> *map = file->tempoEvents()) {
+        for (auto it = map->constBegin(); it != map->constEnd(); ++it) {
+            auto *t = dynamic_cast<TempoChangeEvent *>(it.value());
+            if (!t) continue;
+            ++tempoCount;
+            if (tempos.size() >= kMaxTempoEntries) continue;
+            const int us = t->microsPerQuarter();
+            QJsonObject o;
+            o["tick"] = it.key();
+            o["microsecondsPerQuarter"] = us; // authoritative
+            // Derived for reading only; 4 decimals are enough to recognise
+            // a tempo, the integer above is what reproduces it.
+            o["bpm"] = us > 0 ? qRound64(60000000.0 / us * 10000.0) / 10000.0 : 0.0;
+            o["ms"] = file->msOfTick(it.key());
+            tempos.append(o);
+        }
+    }
+
+    QJsonArray meters;
+    if (QMultiMap<int, MidiEvent *> *map = file->timeSignatureEvents()) {
+        for (auto it = map->constBegin(); it != map->constEnd(); ++it) {
+            auto *ts = dynamic_cast<TimeSignatureEvent *>(it.value());
+            if (!ts) continue;
+            QJsonObject o;
+            o["tick"] = it.key();
+            o["numerator"] = ts->num();
+            o["denominator"] = 1 << qBound(0, ts->denom(), 6); // stored as a power of 2
+            meters.append(o);
+        }
+    }
+
+    QJsonArray keys;
+    QJsonArray texts;
+    int lyricCount = 0;
+    int textCount = 0;
+    if (MidiChannel *meta = file->channel(16)) {
+        QMultiMap<int, MidiEvent *> *map = meta->eventMap();
+        for (auto it = map->constBegin(); it != map->constEnd(); ++it) {
+            if (auto *ks = dynamic_cast<KeySignatureEvent *>(it.value())) {
+                QJsonObject o;
+                o["tick"] = it.key();
+                o["tonality"] = ks->tonality(); // -7 (7 flats) .. 7 (7 sharps)
+                o["minor"] = ks->minor();
+                o["name"] = KeySignatureEvent::toString(ks->tonality(), ks->minor());
+                keys.append(o);
+                continue;
+            }
+            auto *te = dynamic_cast<TextEvent *>(it.value());
+            if (!te) continue;
+            QString kind;
+            switch (te->type()) {
+            case TextEvent::TEXT:      kind = QStringLiteral("text"); break;
+            case TextEvent::COPYRIGHT: kind = QStringLiteral("copyright"); break;
+            case TextEvent::MARKER:    kind = QStringLiteral("marker"); break;
+            case TextEvent::COMMENT:   kind = QStringLiteral("cue"); break;
+            case TextEvent::LYRIK:     ++lyricCount; continue;
+            default:                   continue; // track/instrument names: see the track list
+            }
+            ++textCount;
+            if (texts.size() >= kMaxTextEntries) continue;
+            QJsonObject o;
+            o["tick"] = it.key();
+            o["kind"] = kind;
+            o["text"] = te->text();
+            texts.append(o);
+        }
+    }
+
+    result["success"] = true;
+    result["ticksPerQuarter"] = file->ticksPerQuarter();
+    result["endTick"] = file->endTick();
+    result["durationMs"] = file->maxTime();
+    result["tempos"] = tempos;
+    result["tempoEventCount"] = tempoCount;
+    result["timeSignatures"] = meters;
+    result["keySignatures"] = keys;
+    result["textEvents"] = texts;
+    result["lyricEventCount"] = lyricCount;
+    if (tempos.size() < tempoCount) {
+        result["temposTruncated"] = true;
+        result["note"] = QStringLiteral("Only the first %1 of %2 tempo events are listed. A map "
+                                        "this dense is usually a DAW ramp; thin_tempo_map "
+                                        "reduces it without moving the music.")
+                             .arg(kMaxTempoEntries).arg(tempoCount);
+    }
+    if (texts.size() < textCount) {
+        result["textEventsTruncated"] = true;
+    }
+    return result;
+#endif // TOOLDEFINITIONS_TEST_STUB_FFXIV
+}
+
+// ---------------------------------------------------------------------------
+// v2.5.0 (Phase 51): save_document / save_document_as / new_document /
+// open_document / close_document
+// ---------------------------------------------------------------------------
+// The work - and the AI gate - lives in MainWindow's ai*Document() methods
+// (per-document save core, tab plumbing, no dialogs). This layer reads the
+// arguments and adds the caller-specific next step: the MidiPilot agent moves
+// to another document only through switch_document, an MCP session only
+// through get_editor_state (bound-document contract, unchanged).
+QJsonObject ToolDefinitions::execDocumentFileTool(const QString &toolName,
+                                                  const QJsonObject &args,
+                                                  MidiFile *file,
+                                                  MidiPilotWidget *widget,
+                                                  const QString &source) {
+#ifdef TOOLDEFINITIONS_TEST_STUB_FFXIV
+    Q_UNUSED(args);
+    Q_UNUSED(file);
+    Q_UNUSED(widget);
+    Q_UNUSED(source);
+    QJsonObject result;
+    result["success"] = false;
+    result["error"] = QStringLiteral("Stub build: ") + toolName + QStringLiteral(" not linked.");
+    return result;
+#else
+    QJsonObject result;
+    MainWindow *mw = mainWindowOf(widget);
+    if (!mw) {
+        result["success"] = false;
+        result["error"] = QStringLiteral("Main window not available.");
+        return result;
+    }
+    const bool mcp = source.startsWith(QLatin1String("mcp"));
+
+    if (toolName == QStringLiteral("save_document")
+        || toolName == QStringLiteral("save_document_as")) {
+        if (!file) {
+            result["success"] = false;
+            result["error"] = QStringLiteral("No file loaded.");
+            return result;
+        }
+        const QJsonValue name = args.value(QStringLiteral("name"));
+        if (!name.isUndefined() && !name.isNull() && !name.isString()) {
+            result["success"] = false;
+            result["error"] = QStringLiteral("name must be a string or null.");
+            return result;
+        }
+        return mw->aiSaveDocument(file, name.toString(), source,
+                                  toolName == QStringLiteral("save_document_as"));
+    }
+
+    if (toolName == QStringLiteral("close_document")) {
+        const QJsonValue index = args.value(QStringLiteral("documentIndex"));
+        if (!index.isDouble()) {
+            result["success"] = false;
+            result["error"] = QStringLiteral("documentIndex must be an integer from "
+                                             "list_documents.");
+            return result;
+        }
+        result = mw->aiCloseDocument(index.toInt(-1), source);
+        if (mcp && result.value(QStringLiteral("success")).toBool()) {
+            result["next"] = QStringLiteral("If this was the document this session works "
+                                            "on, call get_editor_state to bind to the "
+                                            "active document before editing.");
+        }
+        return result;
+    }
+
+    if (toolName == QStringLiteral("new_document")) {
+        const QJsonValue ppq = args.value(QStringLiteral("ppq"));
+        int tpq = 0; // 0 = the editor's default
+        if (!ppq.isUndefined() && !ppq.isNull()) {
+            if (!ppq.isDouble() || ppq.toInt(0) < 1) {
+                result["success"] = false;
+                result["error"] = QStringLiteral("ppq must be an integer between 1 and 32767, "
+                                                 "or null for the default.");
+                return result;
+            }
+            tpq = ppq.toInt();
+        }
+        result = mw->aiNewDocument(tpq, source);
+    } else { // open_document
+        const QJsonValue path = args.value(QStringLiteral("path"));
+        if (!path.isString()) {
+            result["success"] = false;
+            result["error"] = QStringLiteral("path must be a string.");
+            return result;
+        }
+        result = mw->aiOpenDocument(path.toString(), source);
+    }
+
+    // new_document / open_document: the new tab is VISIBLE, but neither caller
+    // is re-bound silently - say how to move there.
+    if (result.value(QStringLiteral("success")).toBool()) {
+        const QString index = QString::number(result.value(QStringLiteral("documentIndex")).toInt(-1));
+        result["next"] = mcp
+            ? QStringLiteral("The document is the active tab now. Call get_editor_state to "
+                             "bind this session to it before editing.")
+            : QStringLiteral("This run is still bound to its previous document. To read or "
+                             "edit the new one, call switch_document with index ") + index
+                  + QStringLiteral(".");
+    }
+    return result;
+#endif // TOOLDEFINITIONS_TEST_STUB_FFXIV
+}
+
 QJsonObject ToolDefinitions::execGetTrackInfo(const QJsonObject &args, MidiFile *file) {
     QJsonObject result;
     if (!file) {
@@ -1852,6 +2266,14 @@ QJsonObject ToolDefinitions::execQueryEvents(const QJsonObject &args, MidiFile *
         return result;
     }
 
+    QSet<QString> kindFilter;
+    QString kindError;
+    if (!EventKindFilter::parse(args.value(QStringLiteral("types")), &kindFilter, &kindError)) {
+        result["success"] = false;
+        result["error"] = kindError;
+        return result;
+    }
+
     MidiTrack *track = file->track(trackIndex);
     QList<MidiEvent *> *allEvents = file->eventsBetween(startTick, endTick);
 
@@ -1861,6 +2283,7 @@ QJsonObject ToolDefinitions::execQueryEvents(const QJsonObject &args, MidiFile *
             if (dynamic_cast<OffEvent *>(ev)) continue;
             if (ev->channel() >= 16) continue;
             if (ev->track() != track) continue;
+            if (!EventKindFilter::matches(ev, kindFilter)) continue;
             filtered.append(ev);
         }
         delete allEvents;
