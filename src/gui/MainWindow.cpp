@@ -6025,11 +6025,30 @@ void MainWindow::fixFFXIVChannels() {
                          QString::number(fb["program"].toInt()));
             }
         }
+        // Preserve: guitar notes on a channel that is no guitar channel get no
+        // switch program change - point the user at them.
+        const QJsonArray offChannel = result["guitarNotesOnOtherChannels"].toArray();
+        if (!offChannel.isEmpty()) {
+            html += QStringLiteral("<br><span style='color:#c62828;'>&#x26A0; Guitar notes on a channel "
+                                   "without a guitar program - no switch was written for them; move them "
+                                   "onto a guitar channel:</span>");
+            for (const auto &v : offChannel) {
+                const QJsonObject e = v.toObject();
+                const QString shared = e["sharedWith"].toString();
+                html += QString("<br>&nbsp;&nbsp;&nbsp;T%1 %2: %3 note(s) on CH%4%5")
+                    .arg(QString::number(e["track"].toInt()),
+                         e["trackName"].toString().toHtmlEscaped(),
+                         QString::number(e["notes"].toInt()),
+                         QString::number(e["channel"].toInt()),
+                         shared.isEmpty() ? QString()
+                                          : QStringLiteral(" (%1)").arg(shared.toHtmlEscaped()));
+            }
+        }
         html += QStringLiteral("</p>");
         html += QStringLiteral("<p style='font-size:10px; color:gray; margin-top:8px;'>Press Ctrl+Z to undo all changes.</p>");
 
         QMessageBox infoBox(this);
-        infoBox.setWindowTitle(tr("Fix X|V Channels â€” Result"));
+        infoBox.setWindowTitle(tr("Fix X|V Channels - Result"));
         infoBox.setTextFormat(Qt::RichText);
         infoBox.setText(html);
         infoBox.setIcon(QMessageBox::Information);

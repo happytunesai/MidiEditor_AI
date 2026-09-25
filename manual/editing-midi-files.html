@@ -548,10 +548,19 @@ the instrument can be chosen from a list of instruments. Press
 <p>
 You can specify the instrument from the given list. Accepting the dialog
 will set the channel's instrument in the beginning of the file to the
-instrument from the list. Later in the file there may be Program Change
+instrument from the list - every Program Change Event of the channel at
+the very beginning gets it (files set up by Fix X|V Channels carry one per
+track there). Later in the file there may be Program Change
 Events changing the channel's instrument. To prevent this, you can select
 &quot;Remove other Program Change Events&quot; before accepting the
 dialog. All other Program Change Events of the channel will be removed.
+</p>
+
+<p>
+When several Program Change Events of a channel sit at the same position,
+the one added last decides the instrument - in the channel list, during
+playback and in the saved file. A Program Change Event is always played and
+saved before the notes of its channel that start at the same position.
 </p>
 
 <h3 id="tweaking-event-properties">Tweaking Event Properties</h3>

@@ -282,14 +282,26 @@ void MidiChannel::deleteAllEvents() {
 int MidiChannel::progAtTick(int tick) {
     if (_events->count() == 0)
         return 0;
-    // search for the last ProgChangeEvent at or before tick
+    // search for the last ProgChangeEvent at or before tick. Several program
+    // changes can share that tick (the FFXIV fixer writes one per track). The
+    // one in effect is the most recently inserted: QMultiMap keeps it FIRST
+    // among equal keys, and playback and the saved file apply it last. Walking
+    // backwards reaches it last, so keep going to the start of that tick - the
+    // old early return answered with the OLDEST one, and the channel view then
+    // named another instrument than the one that played (fixer review CF-03).
     QMultiMap<int, MidiEvent *>::iterator it = _events->upperBound(tick);
+    int foundTick = -1;
+    int program = 0;
     while (it != _events->begin()) {
         --it;
+        if (foundTick >= 0 && it.key() != foundTick) {
+            break;
+        }
         ProgChangeEvent *ev = dynamic_cast<ProgChangeEvent *>(it.value());
         if (ev && it.key() <= tick) {
-            return ev->program();
+            foundTick = it.key();
+            program = ev->program();
         }
     }
-    return 0;
+    return program;
 }

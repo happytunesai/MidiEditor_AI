@@ -40,8 +40,32 @@
  *  16. An idle guitar track parked on the Viola's channel leaves that
  *      channel's program alone.
  *
+ * 2.5.0 fixer review (CF-01 .. CF-10, the scenarios the review ran on the real
+ * fixer):
+ *  17. Preserve keeps the octave suffix when it renames a guitar track, and one
+ *      undo step restores the old name (CF-01).
+ *  18. Guitar switch program changes on reserved guitar channels are written
+ *      anew on every Preserve run instead of piling up - also when the track
+ *      was re-pointed by the toolbar channel box - and follow a reserved
+ *      channel that got another variant (CF-02, CF-04).
+ *  19. One rule for several program changes at one tick - the most recently
+ *      inserted wins - in the channel view, the player's start program, the
+ *      instrument dialog (every tick-0 program changes), the saved file and
+ *      the next Preserve run (CF-03).
+ *  20. The loader assigns a track the channel of its notes; program changes
+ *      no longer decide (CF-04).
+ *  21. Rebuild keeps channel 9 for percussion (CF-05).
+ *  22. Preserve leaves a channel another instrument plays on to that
+ *      instrument and reports the guitar notes there, like any guitar notes
+ *      on a non-guitar channel (CF-06, CF-09).
+ *  23. The dialog's pre-selected mode is the mode fixChannels() picks (CF-07).
+ *  24. Program changes are written and played before the notes of their
+ *      channel at the same tick (CF-08).
+ *  25. Preserve keeps a percussion track's channel (CF-10).
+ *
  * Harness: compiles the REAL FFXIVChannelFixer + MidiFile/MidiChannel/
- * MidiTrack/Protocol/MidiEvent stack; only the GUI periphery is ODR-shimmed
+ * MidiTrack/Protocol/MidiEvent stack and InstrumentChooser (its applyProgram()
+ * only - no dialog is shown); only the GUI periphery is ODR-shimmed
  * (Appearance colors, EventWidget), same approach as test_midi_event.
  */
 
@@ -55,10 +79,12 @@
 #include <QTemporaryFile>
 
 #include "../src/ai/FFXIVChannelFixer.h"
+#include "../src/gui/InstrumentChooser.h"
 #include "../src/midi/MidiFile.h"
 #include "../src/midi/MidiChannel.h"
 #include "../src/midi/MidiTrack.h"
 #include "../src/protocol/Protocol.h"
+#include "../src/MidiEvent/ControlChangeEvent.h"
 #include "../src/MidiEvent/MidiEvent.h"
 #include "../src/MidiEvent/NoteOnEvent.h"
 #include "../src/MidiEvent/OffEvent.h"
@@ -161,6 +187,119 @@ private:
             QList<QPair<int, int>> chState = allPcs(f, ch);
             chState.prepend({-1, f->channel(ch)->eventMap()->size()});
             out.append(chState);
+        }
+        return out;
+    }
+
+    // ---- 2.5.0 fixer review helpers --------------------------------------
+
+    static int pcCountAt(MidiFile *f, int ch, int tick) {
+        int n = 0;
+        const QList<MidiEvent *> atTick = f->channel(ch)->eventMap()->values(tick);
+        for (MidiEvent *ev : atTick) {
+            if (dynamic_cast<ProgChangeEvent *>(ev)) ++n;
+        }
+        return n;
+    }
+
+    // First channel other than 9 whose program at tick 0 is `program` - the
+    // reserved guitar channel of a variant after a Rebuild.
+    static int channelWithProgram(MidiFile *f, int program) {
+        for (int ch = 0; ch < 16; ++ch) {
+            if (ch != 9 && f->channel(ch)->progAtTick(0) == program) return ch;
+        }
+        return -1;
+    }
+
+    static int notesOf(MidiFile *f, int track, int ch) {
+        int n = 0;
+        QMultiMap<int, MidiEvent *> *map = f->channel(ch)->eventMap();
+        for (auto it = map->begin(); it != map->end(); ++it) {
+            if (it.value()->track() == f->track(track) && dynamic_cast<NoteOnEvent *>(it.value())) ++n;
+        }
+        return n;
+    }
+
+    static void setInstrument(MidiFile *f, int ch, int program, bool removeOthers) {
+        f->protocol()->startNewAction("instrument");
+        InstrumentChooser::applyProgram(f, ch, program, removeOthers);
+        f->protocol()->endAction();
+    }
+
+    // The program the player sends ahead of playback started at `tick`.
+    static int prerollProgram(MidiFile *f, int ch, int tick) {
+        f->preparePlayerData(tick);
+        const QList<MidiEvent *> pre = f->playerData()->values(f->msOfTick(tick) - 1);
+        for (MidiEvent *ev : pre) {
+            auto *pc = dynamic_cast<ProgChangeEvent *>(ev);
+            if (pc && pc->channel() == ch) return pc->program();
+        }
+        return -1;
+    }
+
+    static MidiFile *saveReload(MidiFile *f, QString *pathOut = nullptr) {
+        QTemporaryFile tmp(QDir::tempPath() + QStringLiteral("/fixer_XXXXXX.mid"));
+        tmp.setAutoRemove(false);
+        if (!tmp.open()) return nullptr;
+        const QString path = tmp.fileName();
+        tmp.close();
+        if (!f->save(path)) return nullptr;
+        bool ok = false;
+        MidiFile *g = new MidiFile(path, &ok);
+        if (pathOut) *pathOut = path;
+        else QFile::remove(path);
+        if (!ok) {
+            delete g;
+            return nullptr;
+        }
+        return g;
+    }
+
+    // Channel messages of one track of a saved SMF at one tick, in file
+    // order: "PC(ch1,p27)", "NoteOn(ch1)", "NoteOff(ch1)", "CC(ch1)".
+    static QStringList rawChannelMessages(const QString &path, int trackIndex, int atTick) {
+        QStringList out;
+        QFile file(path);
+        if (!file.open(QIODevice::ReadOnly)) return out;
+        const QByteArray b = file.readAll();
+        auto u8 = [&](int i) { return static_cast<int>(static_cast<unsigned char>(b.at(i))); };
+        int p = 14;
+        for (int t = 0; p + 8 <= b.size(); ++t) {
+            const int len = (u8(p + 4) << 24) | (u8(p + 5) << 16) | (u8(p + 6) << 8) | u8(p + 7);
+            int q = p + 8;
+            const int end = q + len;
+            if (t == trackIndex) {
+                int tick = 0;
+                int running = 0;
+                auto varlen = [&]() {
+                    int v = 0;
+                    while (true) {
+                        const int c = u8(q++);
+                        v = (v << 7) | (c & 0x7F);
+                        if (!(c & 0x80)) break;
+                    }
+                    return v;
+                };
+                while (q < end) {
+                    tick += varlen();
+                    int st = u8(q);
+                    if (st < 0x80) st = running; else ++q;
+                    if (st == 0xFF) { ++q; q += varlen(); continue; }
+                    if (st == 0xF0 || st == 0xF7) { q += varlen(); continue; }
+                    running = st;
+                    const int hi = st & 0xF0, ch = st & 0x0F;
+                    const int d1 = u8(q++);
+                    int d2 = 0;
+                    if (hi != 0xC0 && hi != 0xD0) d2 = u8(q++);
+                    if (tick != atTick) continue;
+                    if (hi == 0xC0) out << QStringLiteral("PC(ch%1,p%2)").arg(ch).arg(d1);
+                    else if (hi == 0x90 && d2 > 0) out << QStringLiteral("NoteOn(ch%1)").arg(ch);
+                    else if (hi == 0x80 || hi == 0x90) out << QStringLiteral("NoteOff(ch%1)").arg(ch);
+                    else if (hi == 0xB0) out << QStringLiteral("CC(ch%1)").arg(ch);
+                }
+                return out;
+            }
+            p = end;
         }
         return out;
     }
@@ -957,6 +1096,398 @@ private slots:
         QCOMPARE(occurrences(n), 1);
         QCOMPARE(keyOf(n), 300);
         QCOMPARE(n->midiTime(), 300);
+        delete f;
+    }
+
+    // ---- 2.5.0 fixer review CF-01: octave suffix on a Preserve rename --------
+
+    void tier3_renameKeepsOctaveSuffix_undoRestoresName() {
+        MidiFile *f = makeFile("ElectricGuitarClean+1", 1);
+        addNote(f, 1, f->track(1), 60, 480, 900);
+        QCOMPARE(runTier(f, 2)["tier"].toInt(), 2);
+        const int od = channelWithProgram(f, 29); // reserved Overdriven channel
+        QVERIFY(od >= 0);
+        addNote(f, od, f->track(1), 55, 100, 400); // the track now starts there
+
+        QJsonObject r = runTier(f, 3);
+        QCOMPARE(f->track(1)->name(), QString("ElectricGuitarOverdriven+1"));
+        const QJsonArray renames = r["trackRenames"].toArray();
+        QCOMPARE(renames.size(), 1);
+        QCOMPARE(renames.first().toObject()["oldName"].toString(), QString("ElectricGuitarClean+1"));
+        QCOMPARE(renames.first().toObject()["newName"].toString(), QString("ElectricGuitarOverdriven+1"));
+
+        // The next run finds the name right and changes nothing.
+        const auto after1 = pcFingerprint(f);
+        QJsonObject r2 = runTier(f, 3);
+        QVERIFY(!r2.contains("trackRenames"));
+        QCOMPARE(pcFingerprint(f), after1);
+
+        f->protocol()->undo(); // the second, empty-handed run
+        f->protocol()->undo(); // the renaming run
+        QCOMPARE(f->track(1)->name(), QString("ElectricGuitarClean+1"));
+        delete f;
+    }
+
+    // ---- CF-02 / CF-04: switch program changes on reserved guitar channels ----
+
+    void tier3_reservedChannelSwitches_doNotPileUp() {
+        // The daily workflow: Rebuild once, draw a switch onto the reserved
+        // Overdriven channel and back, then Preserve again and again.
+        MidiFile *f = makeFile("ElectricGuitarClean", 1);
+        addNote(f, 1, f->track(1), 60, 0, 400);
+        addNote(f, 1, f->track(1), 62, 480, 900);
+        addNoteTrack(f, "Flute", 2);
+        addNoteTrack(f, "Snare Drum", 9);
+        QCOMPARE(runTier(f, 0)["tier"].toInt(), 2);
+        const int od = channelWithProgram(f, 29);
+        QVERIFY(od >= 0);
+        addNote(f, od, f->track(1), 64, 960, 1400); // switch to Overdriven
+        addNote(f, 1, f->track(1), 65, 1440, 1800); // and back
+
+        QList<QList<QPair<int, int>>> after2;
+        for (int run = 1; run <= 3; ++run) {
+            QJsonObject r = runTier(f, 0);
+            QCOMPARE(r["tier"].toInt(), 3);
+            QCOMPARE(r["guitarSwitchProgramChanges"].toInt(), 2);
+            QVERIFY(!r.contains("guitarNotesOnOtherChannels"));
+            QCOMPARE(pcCountAt(f, od, 960), 1);
+            QCOMPARE(pcCountAt(f, 1, 1440), 1);
+            QCOMPARE(f->channel(od)->progAtTick(1000), 29);
+            QCOMPARE(f->channel(1)->progAtTick(1500), 27);
+            if (run == 2) after2 = pcFingerprint(f);
+            if (run == 3) QCOMPARE(pcFingerprint(f), after2);
+        }
+        delete f;
+    }
+
+    void tier3_trackRepointedByChannelBox_switchesDoNotPileUp() {
+        // Choosing the reserved channel in the toolbar's channel box to draw
+        // the switch re-assigns the edit track to it (MainWindow::editChannel).
+        MidiFile *f = makeFile("ElectricGuitarClean", 1);
+        addNote(f, 1, f->track(1), 60, 0, 400);
+        runTier(f, 2);
+        const int od = channelWithProgram(f, 29);
+        QVERIFY(od >= 0);
+        addNote(f, od, f->track(1), 64, 960, 1400);
+        addNote(f, 1, f->track(1), 65, 1440, 1800);
+        f->track(1)->assignChannel(od);
+
+        QList<QList<QPair<int, int>>> after1;
+        for (int run = 1; run <= 2; ++run) {
+            runTier(f, 3);
+            QCOMPARE(pcCountAt(f, 1, 1440), 1);
+            QCOMPARE(pcCountAt(f, od, 960), 1);
+            QCOMPARE(f->channel(1)->progAtTick(0), 27);
+            QCOMPARE(f->channel(od)->progAtTick(0), 29);
+            QCOMPARE(f->track(1)->assignedChannel(), od); // Preserve re-points nothing
+            QCOMPARE(f->track(1)->name(), QString("ElectricGuitarClean"));
+            if (run == 1) after1 = pcFingerprint(f);
+            else QCOMPARE(pcFingerprint(f), after1);
+        }
+        delete f;
+    }
+
+    void tier3_reprogrammedReservedChannel_switchesFollow() {
+        MidiFile *f = makeFile("ElectricGuitarClean", 1);
+        addNote(f, 1, f->track(1), 60, 0, 400);
+        runTier(f, 2);
+        const int od = channelWithProgram(f, 29);
+        QVERIFY(od >= 0);
+        addNote(f, od, f->track(1), 64, 960, 1400);
+        addNote(f, 1, f->track(1), 65, 1440, 1800);
+        addNote(f, od, f->track(1), 66, 2000, 2400);
+        runTier(f, 3);
+        QCOMPARE(f->channel(od)->progAtTick(2100), 29);
+
+        // The user turns the reserved channel into Special with the dialog.
+        setInstrument(f, od, 31, false);
+        QCOMPARE(f->channel(od)->progAtTick(0), 31);
+
+        runTier(f, 3);
+        QCOMPARE(f->channel(od)->progAtTick(1000), 31);
+        QCOMPARE(f->channel(od)->progAtTick(2100), 31);
+        for (const auto &pc : allPcs(f, od)) QCOMPARE(pc.second, 31); // no stale 29 left
+        delete f;
+    }
+
+    // ---- CF-03: one "which program change wins" rule ------------------------
+
+    void sameTickPrograms_mostRecentlyInsertedWinsEverywhere() {
+        MidiFile *f = makeFile("Violin", 2);
+        addNote(f, 2, f->track(1), 60, 0, 100);
+        addPc(f, 2, 40, f->track(1), 0);
+        addPc(f, 2, 41, f->track(0), 0); // inserted later: the one in effect
+        QCOMPARE(f->channel(2)->progAtTick(0), 41);
+        QCOMPARE(f->channel(2)->progAtTick(5000), 41);
+        QCOMPARE(prerollProgram(f, 2, 480), 41); // playback from the middle
+
+        // Program changes at a later tick still take over from there on.
+        addPc(f, 2, 42, f->track(1), 1000);
+        QCOMPARE(f->channel(2)->progAtTick(999), 41);
+        QCOMPARE(f->channel(2)->progAtTick(1000), 42);
+        QCOMPARE(prerollProgram(f, 2, 1200), 42);
+        delete f;
+    }
+
+    void instrumentDialog_setsEveryTickZeroProgram() {
+        // After Rebuild every track carries the channel's program change.
+        MidiFile *f = makeFile("ElectricGuitarClean", 1);
+        addNote(f, 1, f->track(1), 60, 0, 400);
+        addNote(f, 1, f->track(1), 62, 480, 900);
+        addNoteTrack(f, "Violin", 2);
+        runTier(f, 2);
+        QCOMPARE(tickZeroPrograms(f, 2), (QList<int>{40, 40, 40}));
+
+        setInstrument(f, 2, 41, false); // Violin channel -> Viola
+        QCOMPARE(tickZeroPrograms(f, 2), (QList<int>{41, 41, 41}));
+        QCOMPARE(f->channel(2)->progAtTick(0), 41);
+        QCOMPARE(prerollProgram(f, 2, 480), 41);
+        MidiFile *g = saveReload(f);
+        QVERIFY(g);
+        QCOMPARE(g->channel(2)->progAtTick(0), 41);
+        delete g;
+
+        // "Remove other Program Change Events" leaves exactly one.
+        setInstrument(f, 1, 29, true);
+        QCOMPARE(allPcs(f, 1), (QList<QPair<int, int>>{qMakePair(0, 29)}));
+
+        f->protocol()->undo();
+        QCOMPARE(tickZeroPrograms(f, 1), (QList<int>{27, 27, 27}));
+        f->protocol()->undo();
+        QCOMPARE(tickZeroPrograms(f, 2), (QList<int>{40, 40, 40}));
+        delete f;
+    }
+
+    void tier3_keepsGuitarProgramChosenInTheDialog() {
+        // Rebuild, then the user makes the guitar channel Overdriven: Preserve
+        // takes the channel's program as the truth instead of reverting it,
+        // and names the track after it.
+        MidiFile *f = makeFile("ElectricGuitarClean", 1);
+        addNote(f, 1, f->track(1), 60, 0, 400);
+        runTier(f, 2);
+        setInstrument(f, 1, 29, false);
+
+        runTier(f, 3);
+        QCOMPARE(f->channel(1)->progAtTick(0), 29);
+        QCOMPARE(prerollProgram(f, 1, 200), 29);
+        QCOMPARE(f->track(1)->name(), QString("ElectricGuitarOverdriven"));
+        delete f;
+    }
+
+    // ---- CF-04: the loader assigns a track the channel of its notes ---------
+
+    void loader_assignsTrackToItsNoteChannel() {
+        // A guitar track with one note next to four drum tracks: after Rebuild
+        // every track carries four program changes on channel 9 and one on its
+        // own channel, which used to decide the assignment on the next load.
+        MidiFile *f = makeFile("ElectricGuitarClean", 1);
+        addNote(f, 1, f->track(1), 60, 480, 900);
+        for (const QString &drum : {QStringLiteral("Bass Drum"), QStringLiteral("Snare Drum"),
+                                    QStringLiteral("Cymbal"), QStringLiteral("Bongo")})
+            addNoteTrack(f, drum, 9);
+        runTier(f, 2);
+
+        MidiFile *g = saveReload(f);
+        QVERIFY(g);
+        QCOMPARE(g->track(1)->assignedChannel(), 1);
+        for (int t = 2; t <= 5; ++t) QCOMPARE(g->track(t)->assignedChannel(), 9);
+
+        QJsonObject r = runTier(g, 0);
+        QCOMPARE(r["tier"].toInt(), 3);
+        QCOMPARE(g->track(1)->assignedChannel(), 1);
+        QCOMPARE(g->channel(1)->progAtTick(0), 27);
+        delete g;
+        delete f;
+    }
+
+    // ---- CF-05: Rebuild keeps channel 9 for percussion ----------------------
+
+    void tier2_neverPutsAReservedGuitarVariantOnChannel9() {
+        const QStringList octet = {"Piano", "Harp", "Flute", "Oboe", "Clarinet", "Trumpet", "Violin"};
+        MidiFile *f = makeFile(octet.first(), 1);
+        addNote(f, 1, f->track(1), 60, 0, 100);
+        for (int i = 1; i < octet.size(); ++i) addNoteTrack(f, octet.at(i), i + 1);
+        addNoteTrack(f, "ElectricGuitarClean", 8); // tracks 0..8 use channels 0..8
+
+        QJsonObject r = runTier(f, 2);
+        QVERIFY2(r["success"].toBool(), qPrintable(r["error"].toString()));
+        QList<int> reserved;
+        for (const auto &v : r["reservedGuitarChannels"].toArray())
+            reserved << v.toObject()["channel"].toInt();
+        QCOMPARE(reserved, (QList<int>{10, 11, 12, 13}));
+        QVERIFY(allPcs(f, 9).isEmpty());
+        delete f;
+    }
+
+    void tier2_movesAMelodicTrackAtIndex9OffTheDrumChannel() {
+        MidiFile *f = makeFile("Piano", 1);
+        addNote(f, 1, f->track(1), 60, 0, 100);
+        const QStringList more = {"Harp", "Flute", "Oboe", "Clarinet", "Trumpet",
+                                  "Violin", "Viola", "Timpani", "Bass Drum"};
+        for (int i = 0; i < more.size(); ++i)
+            addNoteTrack(f, more.at(i), more.at(i) == QLatin1String("Bass Drum") ? 9 : i + 2);
+        QCOMPARE(f->track(9)->name(), QString("Timpani"));
+        QCOMPARE(f->track(10)->name(), QString("Bass Drum"));
+
+        QJsonObject r = runTier(f, 2);
+        QVERIFY2(r["success"].toBool(), qPrintable(r["error"].toString()));
+        QCOMPARE(f->track(9)->assignedChannel(), 10);  // first free channel
+        QCOMPARE(f->track(10)->assignedChannel(), 9);
+        QCOMPARE(notesOf(f, 9, 10), 1);                // the Timpani notes moved along
+        QCOMPARE(notesOf(f, 9, 9), 0);
+        QCOMPARE(f->channel(10)->progAtTick(0), 47);
+        for (int prog : tickZeroPrograms(f, 9)) QCOMPARE(prog, 117); // drums only
+        QCOMPARE(r["channelMap"].toArray().at(9).toObject()["channel"].toInt(), 10);
+        delete f;
+    }
+
+    // ---- CF-06 / CF-09: guitar notes on another instrument's channel --------
+
+    void tier3_guitarTrackOnAnotherInstrumentsChannel_leavesItAlone() {
+        MidiFile *f = makeFile("ElectricGuitarClean", 1);
+        addNote(f, 1, f->track(1), 60, 0, 100);
+        const int flute = addNoteTrack(f, "Flute", 2);
+        addNote(f, 2, f->track(flute), 74, 5000, 5100);
+        runTier(f, 2);
+        addPc(f, 2, 75, f->track(flute), 3000); // the user's mid-song Flute -> Panpipes
+        // A new guitar track created while the Flute's channel was the edit channel.
+        const int muted = addNoteTrack(f, "ElectricGuitarMuted", 2);
+        addNote(f, 2, f->track(muted), 50, 1000, 1100);
+        const auto flutePcs = allPcs(f, 2);
+
+        const QJsonObject a = FFXIVChannelFixer::analyzeFile(f);
+        QCOMPARE(a["guitarTracksWithoutProgram"].toArray().size(), 0);
+        const QJsonArray shared = a["guitarTracksOnSharedChannel"].toArray();
+        QCOMPARE(shared.size(), 1);
+        QCOMPARE(shared.first().toObject()["index"].toInt(), muted);
+        QCOMPARE(shared.first().toObject()["channel"].toInt(), 2);
+        QCOMPARE(shared.first().toObject()["sharedWith"].toString(), QString("Flute"));
+
+        QJsonObject r = runTier(f, 0);
+        QCOMPARE(r["tier"].toInt(), 3);
+        QCOMPARE(r["guitarProgramFallbacks"].toInt(), 0);
+        QCOMPARE(allPcs(f, 2), flutePcs); // the Flute keeps its channel as it was
+        const QJsonArray off = r["guitarNotesOnOtherChannels"].toArray();
+        QCOMPARE(off.size(), 1);
+        QCOMPARE(off.first().toObject()["track"].toInt(), muted);
+        QCOMPARE(off.first().toObject()["channel"].toInt(), 2);
+        QCOMPARE(off.first().toObject()["notes"].toInt(), 2);
+        QCOMPARE(off.first().toObject()["sharedWith"].toString(), QString("Flute"));
+        delete f;
+    }
+
+    void tier3_reportsGuitarNotesOnANonGuitarChannel() {
+        MidiFile *f = makeFile("ElectricGuitarClean", 1);
+        addNote(f, 1, f->track(1), 60, 0, 100);
+        addNoteTrack(f, "Flute", 2);
+        runTier(f, 2);
+        addNote(f, 2, f->track(1), 61, 2000, 2100); // one guitar note on the Flute's channel
+
+        QJsonObject r = runTier(f, 3);
+        QCOMPARE(pcCountAt(f, 2, 2000), 0); // no switch into the Flute's channel
+        const QJsonArray off = r["guitarNotesOnOtherChannels"].toArray();
+        QCOMPARE(off.size(), 1);
+        const QJsonObject e = off.first().toObject();
+        QCOMPARE(e["track"].toInt(), 1);
+        QCOMPARE(e["trackName"].toString(), QString("ElectricGuitarClean"));
+        QCOMPARE(e["channel"].toInt(), 2);
+        QCOMPARE(e["notes"].toInt(), 1);
+        QCOMPARE(e["sharedWith"].toString(), QString("Flute"));
+        delete f;
+    }
+
+    // ---- CF-07: the dialog pre-selects the mode fixChannels() runs ----------
+
+    void analyzeFile_autoDetectedTierIsTheFixersTier() {
+        // A guitar program only in the middle of the song: not set up yet.
+        MidiFile *f = makeFile("ElectricGuitarClean", 1);
+        addNote(f, 1, f->track(1), 60, 480, 900);
+        addPc(f, 1, 27, f->track(1), 480);
+        QCOMPARE(FFXIVChannelFixer::analyzeFile(f)["autoDetectedTier"].toInt(), 2);
+        QCOMPARE(FFXIVChannelFixer::autoTier(f), 2);
+        QCOMPARE(runTier(f, 0)["tier"].toInt(), 2);
+
+        // Guitar notes switching between two guitar channels, no programs yet.
+        MidiFile *g = makeFile("ElectricGuitarClean", 2);
+        addNote(g, 2, g->track(1), 60, 0, 100);
+        addNoteTrack(g, "ElectricGuitarOverdriven", 3);
+        addNote(g, 3, g->track(1), 64, 200, 300);
+        QCOMPARE(FFXIVChannelFixer::analyzeFile(g)["autoDetectedTier"].toInt(), 3);
+        QCOMPARE(FFXIVChannelFixer::autoTier(g), 3);
+        QCOMPARE(runTier(g, 0)["tier"].toInt(), 3);
+        delete f;
+        delete g;
+    }
+
+    // ---- CF-08: program changes before the notes of their tick --------------
+
+    void save_writesProgramChangesBeforeTheirNotes() {
+        // Notes first, program changes added afterwards - the order the fixer
+        // produces for the tick-0 programs and the guitar switches.
+        MidiFile *f = makeFile("ElectricGuitarClean", 1);
+        addNote(f, 1, f->track(1), 60, 0, 400);
+        addPc(f, 1, 27, f->track(1), 0);
+        addNote(f, 3, f->track(1), 64, 960, 1400);
+        addPc(f, 3, 29, f->track(1), 960);
+
+        QString path;
+        MidiFile *g = saveReload(f, &path);
+        QVERIFY(g);
+        QCOMPARE(rawChannelMessages(path, 1, 0), (QStringList{"PC(ch1,p27)", "NoteOn(ch1)"}));
+        QCOMPARE(rawChannelMessages(path, 1, 960), (QStringList{"PC(ch3,p29)", "NoteOn(ch3)"}));
+
+        // Loaded and saved again the order holds.
+        QString path2;
+        MidiFile *h = saveReload(g, &path2);
+        QVERIFY(h);
+        QCOMPARE(rawChannelMessages(path2, 1, 0), (QStringList{"PC(ch1,p27)", "NoteOn(ch1)"}));
+        QCOMPARE(rawChannelMessages(path2, 1, 960), (QStringList{"PC(ch3,p29)", "NoteOn(ch3)"}));
+        QFile::remove(path);
+        QFile::remove(path2);
+        delete h;
+        delete g;
+        delete f;
+    }
+
+    void programChangesBeforeNotes_keepsEverythingElseInOrder() {
+        MidiFile *f = makeFile("Piano", 1);
+        MidiTrack *t = f->track(1);
+        auto place = [&](MidiEvent *ev, int tick) {
+            ev->setFile(f);
+            ev->setMidiTime(tick, false);
+            return ev;
+        };
+        MidiEvent *on = place(new NoteOnEvent(60, 100, 1, t), 0);
+        MidiEvent *off = place(new OffEvent(1, 127 - 60, t), 0);   // zero-length note
+        MidiEvent *bank = place(new ControlChangeEvent(1, 0, 5, t), 0);
+        MidiEvent *prg = place(new ProgChangeEvent(1, 29, t), 0);
+        MidiEvent *other = place(new NoteOnEvent(62, 100, 2, t), 0); // other channel
+        MidiEvent *later = place(new NoteOnEvent(64, 100, 1, t), 5); // other tick
+        QCOMPARE(static_cast<OffEvent *>(off)->onEvent(), static_cast<OnEvent *>(on));
+
+        QList<MidiEvent *> events{on, off, bank, prg, other, later};
+        MidiFile::programChangesBeforeNotes(events);
+        QCOMPARE(events, (QList<MidiEvent *>{bank, prg, on, off, other, later}));
+
+        // Nothing to do without a program change behind a note of its channel.
+        QList<MidiEvent *> untouched{prg, on, off, later};
+        MidiFile::programChangesBeforeNotes(untouched);
+        QCOMPARE(untouched, (QList<MidiEvent *>{prg, on, off, later}));
+        delete f;
+    }
+
+    // ---- CF-10: Preserve keeps a percussion track's channel -----------------
+
+    void tier3_keepsPercussionTracksChannel() {
+        MidiFile *f = makeFile("ElectricGuitarClean", 1);
+        addNote(f, 1, f->track(1), 60, 0, 100);
+        runTier(f, 2);
+        const int cymbal = addNoteTrack(f, "Cymbal", 7); // drawn on channel 7
+
+        QJsonObject r = runTier(f, 3);
+        QCOMPARE(f->track(cymbal)->assignedChannel(), 7);
+        QCOMPARE(notesOf(f, cymbal, 7), 1);
+        QCOMPARE(r["channelMap"].toArray().at(cymbal).toObject()["channel"].toInt(), 7);
         delete f;
     }
 };

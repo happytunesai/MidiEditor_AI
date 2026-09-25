@@ -392,8 +392,10 @@ bool MidiFile::readTrack(QDataStream *content, int num, QStringList *log) {
     connect(track, SIGNAL(trackChanged()), this, SIGNAL(trackChanged()));
 
     int channelFrequency[16];
+    int noteFrequency[16];
     for (int i = 0; i < 16; i++) {
         channelFrequency[i] = 0;
+        noteFrequency[i] = 0;
     }
 
     // Running status must not cross a track boundary (SMF spec) - and because
@@ -451,6 +453,9 @@ bool MidiFile::readTrack(QDataStream *content, int num, QStringList *log) {
 
         if (event->channel() < 16) {
             channelFrequency[event->channel()]++;
+            if (dynamic_cast<NoteOnEvent *>(event)) {
+                noteFrequency[event->channel()]++;
+            }
         }
     }
 
@@ -482,10 +487,26 @@ bool MidiFile::readTrack(QDataStream *content, int num, QStringList *log) {
         invalidateTempoCache();
     }
 
-    // assign channel
+    // assign channel: the channel that carries most of the track's notes. Only
+    // a track without notes falls back to its other channel events. Counting
+    // every event let program changes decide - a file set up by the FFXIV
+    // fixer carries a program change for EVERY channel on every track, and a
+    // track with a few notes came back assigned to channel 9 because several
+    // drum tracks had put more program changes there (fixer review CF-04).
+    const int *frequency = noteFrequency;
+    bool hasNotes = false;
+    for (int i = 0; i < 16; i++) {
+        if (noteFrequency[i] > 0) {
+            hasNotes = true;
+            break;
+        }
+    }
+    if (!hasNotes) {
+        frequency = channelFrequency;
+    }
     int assignedChannel = 0;
     for (int i = 1; i < 16; i++) {
-        if (channelFrequency[i] > channelFrequency[assignedChannel]) {
+        if (frequency[i] > frequency[assignedChannel]) {
             assignedChannel = i;
         }
     }
@@ -1731,16 +1752,21 @@ bool MidiFile::channelMuted(int ch) {
 
 void MidiFile::preparePlayerData(int tickFrom) {
     playerMap->clear();
-    QList<MidiEvent *> *prgList;
 
     for (int i = 0; i < 19; i++) {
         if (channelMuted(i)) {
             continue;
         }
 
-        // prgList saves all ProgramChangeEvents before cursorPosition. The last
-        // will be sent when playing
-        prgList = new QList<MidiEvent *>;
+        // The program change in effect just before the start position is
+        // sent ahead of playback: the one at the latest tick before tickFrom
+        // and, among several at that tick, the most recently inserted. The map
+        // holds that one FIRST among equal keys, so the first program change
+        // seen at a new tick is kept (the old "last in the list" picked the
+        // oldest one - playback from the middle of a song then used another
+        // instrument than playback from the start, fixer review CF-03).
+        MidiEvent *program = nullptr;
+        int programTick = -1;
 
         QMultiMap<int, MidiEvent *> *channelEvents = channels[i]->eventMap();
         QMultiMap<int, MidiEvent *>::iterator it = channelEvents->begin();
@@ -1756,10 +1782,9 @@ void MidiFile::preparePlayerData(int tickFrom) {
                 }
             } else {
                 ProgChangeEvent *prg = dynamic_cast<ProgChangeEvent *>(event);
-                if (prg) {
-                    // save ProgramChenges in the list, the last will be added
-                    // to the playerMap later
-                    prgList->append(prg);
+                if (prg && tick != programTick) {
+                    program = prg;
+                    programTick = tick;
                 }
                 ControlChangeEvent *ctrl = dynamic_cast<ControlChangeEvent *>(event);
                 if (ctrl) {
@@ -1770,18 +1795,57 @@ void MidiFile::preparePlayerData(int tickFrom) {
             it++;
         }
 
-        if (prgList->count() > 0) {
+        if (program) {
             // set the program of the channel
-            playerMap->insert(msOfTick(tickFrom) - 1, prgList->last());
+            playerMap->insert(msOfTick(tickFrom) - 1, program);
         }
-
-        delete prgList;
-        prgList = 0;
     }
 }
 
 QMultiMap<int, MidiEvent *> *MidiFile::playerData() {
     return playerMap;
+}
+
+void MidiFile::programChangesBeforeNotes(QList<MidiEvent *> &events) {
+    // (channel, tick) -> index of the last program change there
+    QHash<QPair<int, int>, int> lastProgram;
+    for (int i = 0; i < events.size(); i++) {
+        if (ProgChangeEvent *prg = dynamic_cast<ProgChangeEvent *>(events.at(i))) {
+            lastProgram.insert(qMakePair(prg->channel(), prg->midiTime()), i);
+        }
+    }
+    if (lastProgram.isEmpty()) {
+        return;
+    }
+
+    QList<MidiEvent *> ordered;
+    ordered.reserve(events.size());
+    QHash<QPair<int, int>, QList<MidiEvent *>> held;
+    for (int i = 0; i < events.size(); i++) {
+        MidiEvent *event = events.at(i);
+        const QPair<int, int> key(event->channel(), event->midiTime());
+        const auto prgIt = lastProgram.constFind(key);
+        if (prgIt != lastProgram.constEnd() && i < prgIt.value()) {
+            if (dynamic_cast<NoteOnEvent *>(event)) {
+                held[key].append(event);
+                continue;
+            }
+            OffEvent *off = dynamic_cast<OffEvent *>(event);
+            if (off && off->onEvent()) {
+                const auto heldIt = held.constFind(key);
+                if (heldIt != held.constEnd()
+                    && heldIt->contains(static_cast<MidiEvent *>(off->onEvent()))) {
+                    held[key].append(event);
+                    continue;
+                }
+            }
+        }
+        ordered.append(event);
+        if (prgIt != lastProgram.constEnd() && i == prgIt.value()) {
+            ordered.append(held.take(key));
+        }
+    }
+    events = ordered;
 }
 
 int MidiFile::cursorTick() {
@@ -1864,11 +1928,21 @@ bool MidiFile::save(QString path, bool skipMutedTrackEvents,
         int currentTick = 0;
         QMultiMap<int, MidiEvent *>::iterator it = allEvents.begin();
         while (it != allEvents.end()) {
-            MidiEvent *event = it.value();
-            int tick = it.key();
+            // This track's events at one tick, in map order - then program
+            // changes ahead of the notes of their channel (see
+            // programChangesBeforeNotes()).
+            const int tick = it.key();
+            QList<MidiEvent *> atTick;
+            for (; it != allEvents.end() && it.key() == tick; ++it) {
+                MidiEvent *event = it.value();
+                if (_tracks->at(num) == event->track() &&
+                    !(skipMutedTrackEvents && _tracks->at(num)->muted())) {
+                    atTick.append(event);
+                }
+            }
+            programChangesBeforeNotes(atTick);
 
-            if (_tracks->at(num) == event->track() &&
-                !(skipMutedTrackEvents && _tracks->at(num)->muted())) {
+            for (MidiEvent *event : atTick) {
                 // Inject a CH9 Program Change before the very first
                 // CH9 NoteOn from a known-percussion track so offline
                 // FluidSynth resolves the right FFXIV drum preset
@@ -1879,14 +1953,14 @@ bool MidiFile::save(QString path, bool skipMutedTrackEvents,
                     NoteOnEvent *noteOn = dynamic_cast<NoteOnEvent *>(event);
                     if (noteOn && noteOn->channel() == 9 && noteOn->velocity() > 0) {
                         const QString tname = _tracks->at(num)->name();
-                        auto it = drumProgramByTrackName.constFind(tname);
-                        if (it != drumProgramByTrackName.constEnd() && it.value() >= 0) {
+                        auto drumIt = drumProgramByTrackName.constFind(tname);
+                        if (drumIt != drumProgramByTrackName.constEnd() && drumIt.value() >= 0) {
                             // delta-time 0 PC right before the NoteOn
                             QByteArray dt = writeDeltaTime(tick - currentTick);
                             numBytes += dt.size();
                             data.append(dt);
                             data.append(static_cast<char>(0xC9));
-                            data.append(static_cast<char>(it.value() & 0x7F));
+                            data.append(static_cast<char>(drumIt.value() & 0x7F));
                             numBytes += 2;
                             currentTick = tick;
                         }
@@ -1906,8 +1980,6 @@ bool MidiFile::save(QString path, bool skipMutedTrackEvents,
                 // save this tick as last time
                 currentTick = tick;
             }
-
-            it++;
         }
 
         // write the endEvent

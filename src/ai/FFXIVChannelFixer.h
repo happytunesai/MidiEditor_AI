@@ -20,11 +20,13 @@ class MidiTrack;
  * Performance MIDI files. Can be invoked from the UI (Tools menu) or
  * from the AI tool call (setup_channel_pattern).
  *
- * Rules:
+ * Rules (Rebuild; Preserve keeps the channels and refreshes guitar programs):
  *  1. Track N → Channel N  (T0→CH0, T1→CH1, …)
  *  2. Percussion tracks (Bass Drum, Snare Drum, Cymbal, Bongo) → CH9.
- *     Timpani follows Rule 1 (it is tonal).
- *  3. Guitar tracks follow Rule 1; extra variants get free channels.
+ *     Timpani follows Rule 1 (it is tonal). CH9 is kept for percussion: a
+ *     melodic or guitar track at index 9 takes the first free channel.
+ *  3. Guitar tracks follow Rule 1; extra variants get free channels (never
+ *     CH9).
  *  4. program_change at tick 0 for every used channel on every track.
  *  5. All events migrated to the correct channel via moveToChannel().
  */
@@ -33,7 +35,11 @@ public:
     /**
      * \brief Analyze the file and return scan info for the tier selection dialog.
      * \param file  The loaded MidiFile
-     * \return JSON with trackCount, ffxivTrackCount, autoDetectedTier, etc.
+     * \return JSON with trackCount, ffxivTrackCount, autoDetectedTier (the
+     *         autoTier() of the file), guitarTracksWithoutProgram (Preserve
+     *         takes their channel's program from the track name),
+     *         guitarTracksOnSharedChannel (Preserve leaves those channels to
+     *         the other instrument), etc.
      */
     static QJsonObject analyzeFile(MidiFile *file);
 
@@ -97,7 +103,9 @@ public:
      *        channel is written, and mid-song PCs are preserved - a second
      *        consecutive run is a no-op. Default off: plain Tier 3 leaves
      *        non-guitar channels byte-identical, as before.
-     * \return JSON result with success, channelMap, summary
+     * \return JSON result with success, channelMap, summary; in Preserve also
+     *         guitarNotesOnOtherChannels [{track, trackName, channel, notes,
+     *         sharedWith?}] - guitar notes the switch logic cannot cover
      */
     static QJsonObject fixChannels(MidiFile *file, int forcedTier = 0,
                                    ProgressCallback progress = nullptr,

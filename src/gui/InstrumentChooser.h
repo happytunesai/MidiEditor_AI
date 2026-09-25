@@ -56,6 +56,17 @@ public:
      */
     InstrumentChooser(MidiFile *f, int channel, QWidget *parent = 0);
 
+    /**
+     * \brief Sets the instrument of a channel from tick 0 on - what Accept
+     *        does, without the dialog. The caller holds the protocol action.
+     *
+     * Every program change at tick 0 of the channel takes \a program (one is
+     * inserted when there is none); \a removeOthers deletes all other program
+     * changes of the channel, later ones included.
+     */
+    static void applyProgram(MidiFile *file, int channel, int program,
+                             bool removeOthers);
+
 public slots:
     /**
      * \brief Accepts the dialog and applies the selected instrument.

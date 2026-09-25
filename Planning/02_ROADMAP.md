@@ -13908,6 +13908,21 @@ stored as separate files next to the conversation.
   * 51.6 - integration check that an FFXIV mode switch reaches an initialised MCP session
     (`notifications/tools/list_changed`, refreshed `tools/list`); document the explicit
     `tools/list` refresh as the fallback for clients that cache the tool list.
+  * **Fix X|V Channels review - added 2026-09-25, implemented on `feature/v2.5.0`, in test.**
+    A full failure-mode review of the fixer (scenarios run on the real fixer and MIDI core),
+    all eleven findings accepted for 2.5; Tier 3 changes for exactly these points, the harmless
+    non-guitar quirk stays. CF-01 octave suffix kept on a Preserve rename; CF-02 switch program
+    changes on reserved guitar channels written anew instead of piling up; CF-03 one rule for
+    several program changes at a tick (the newest wins in the channel view, the player's start
+    program and the fixer; the instrument dialog changes every tick-0 program change); CF-04
+    the loader assigns a track the channel of its notes; CF-05 Rebuild keeps channel 9 for
+    percussion; CF-06 Preserve leaves a channel another instrument plays on alone; CF-07 the
+    dialog pre-selects the mode MidiPilot/MCP run; CF-08 program changes saved and played
+    before the notes of their tick; CF-09 guitar notes on non-guitar channels reported
+    (`guitarNotesOnOtherChannels`); CF-10 Preserve keeps drum tracks on their channel; CF-11
+    `setup_channel_pattern` describes both modes. Regression tests in
+    `test_ffxiv_fixer_resync` (+ `test_midi_channel`). Open: comparison run against 2.4 on real
+    files, in-game check of CF-08.
 * **Housekeeping first - DONE 2026-09-24:** status sweep of the stale "Planned" / "TODO"
   markers in this file, each checked against the CHANGELOG: Phase 24 (1.4.0), Phase 25 and 27
   (1.5.0), Phase 26 Local AI (1.8.2), Phase 35 Auto-Fit (2.1.0), Phase 39 (1.6.1), the v2.0

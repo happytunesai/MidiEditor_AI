@@ -419,7 +419,7 @@ so connected clients refresh their tool list automatically.
     <tr><th>Tool</th><th>Description</th></tr>
     <tr><td><code>validate_ffxiv</code></td><td>Check if the file meets FFXIV Bard Performance constraints - every same-tick note collision and stacked duplicate with its tick, range and instrument-name problems; the legal instrument spellings are returned when a name is rejected. Same engine as the editor's <a href="ffxiv-playability.html">Check FFXIV Playability</a></td></tr>
     <tr><td><code>convert_drums_ffxiv</code></td><td>Convert a GM drum track into FFXIV drum instrument tracks</td></tr>
-    <tr><td><code>setup_channel_pattern</code></td><td>Fix FFXIV channel assignments and program_change events, and set every note's velocity to 127 (FFXIV plays no dynamics; the result reports the count as <code>velocityNormalized</code>)</td></tr>
+    <tr><td><code>setup_channel_pattern</code></td><td>Fix FFXIV channel assignments and program_change events like Fix X|V Channels (Rebuild or Preserve, chosen by the same rules), and set every note's velocity to 127 (FFXIV plays no dynamics; the result reports the count as <code>velocityNormalized</code>). In Preserve, <code>guitarNotesOnOtherChannels</code> lists guitar notes on channels without a guitar program, which get no switch</td></tr>
     <tr><td><code>analyze_voice_load</code></td><td>Analyse simultaneous-voice count against the FFXIV 16-voice ceiling</td></tr>
     <tr><td><code>auto_fit_voice_load</code></td><td>Thin overloaded moments and over-dense passages (a write tool - defaults to a dry run; the live pass removes notes as one undo step). See <a href="auto-fit-voice-load.html#ai-tool">Auto-Fit Voice Load</a></td></tr>
 </table>

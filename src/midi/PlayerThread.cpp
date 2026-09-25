@@ -222,6 +222,11 @@ void PlayerThread::timeout() {
                 it++;
             } while (it != events->end() && it.key() == sendPosition);
 
+            // A program change reaches the synth before the notes of its
+            // channel that start at the same tick - the same order save()
+            // writes (fixer review CF-08).
+            MidiFile::programChangesBeforeNotes(onEv);
+
             foreach(MidiEvent* ev, offEv) {
                 MidiOutput::sendCommand(ev, trackDrumPrograms.value(ev->track(), -1));
             }

@@ -412,6 +412,21 @@ public:
      */
     QMultiMap<int, MidiEvent *> *playerData();
 
+    /**
+     * \brief Orders events that are sent or written together so every Note-On
+     *        follows the program changes of its channel at the same tick.
+     *
+     * Events of one tick leave the channel maps in insertion-dependent order,
+     * so a program change added after the notes (the FFXIV fixer's tick-0 and
+     * guitar switch programs) came out behind them and the first note played
+     * the old instrument. The Note-Ons in front of a channel's last program
+     * change at their tick move right behind it (a zero-length note keeps its
+     * note-off behind its note-on); everything else keeps its order, so a bank
+     * select still precedes its program change. Used by save() per track and
+     * tick and by the player per sending batch.
+     */
+    static void programChangesBeforeNotes(QList<MidiEvent *> &events);
+
     // === Static Utility Methods ===
 
     /**

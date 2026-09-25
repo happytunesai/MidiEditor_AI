@@ -1651,10 +1651,12 @@ add_test(NAME DrumKitPreset COMMAND test_drum_kit_preset)
 # (FFXIVChannelFixer). Compiles the REAL fixer + MidiFile/MidiChannel/
 # MidiTrack/Protocol/MidiEvent stack; only the GUI periphery (Appearance
 # colors, EventWidget) is ODR-shimmed in the test TU - same approach as
-# test_midi_event, extended to the full midi core.
+# test_midi_event, extended to the full midi core. InstrumentChooser is linked
+# for its dialog-free applyProgram() (2.5.0 fixer review CF-03).
 add_executable(test_ffxiv_fixer_resync
     test_ffxiv_fixer_resync.cpp
     ../src/ai/FFXIVChannelFixer.cpp
+    ../src/gui/InstrumentChooser.cpp
     ../src/midi/MidiFile.cpp
     ../src/midi/MidiChannel.cpp
     ../src/midi/MidiTrack.cpp

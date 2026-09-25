@@ -983,10 +983,16 @@ QJsonArray ToolDefinitions::toolSchemas(const ToolSchemaOptions &options) {
         {
             tools.append(makeTool(
                 "setup_channel_pattern",
-                "Fix FFXIV channel assignments and program_change events for all tracks. "
-                "Moves events to the correct channel (track N → channel N, percussion → CH9), "
-                "removes old program_change at tick 0, inserts correct program_change for every "
-                "used channel on every track, and configures guitar switch channels. "
+                "Fix FFXIV channel assignments and program_change events for all tracks - "
+                "the same as Fix X|V Channels, with its automatic mode choice (result field tier). "
+                "Rebuild (tier 2, files without guitar programs yet): moves events to the correct "
+                "channel (track N → channel N, percussion → CH9), removes all program_change, CC "
+                "and pitch bend events, inserts a program_change for every used channel on every "
+                "track and reserves channels for the five guitar variants. Preserve (tier 3, files "
+                "already set up): keeps every channel and all non-guitar program changes, refreshes "
+                "the guitar programs at tick 0 and at guitar switch points and renames a guitar "
+                "track after the variant its first note plays. guitarNotesOnOtherChannels lists "
+                "guitar notes on non-guitar channels that got no switch - tell the user. "
                 "It also sets the velocity of EVERY note to 127 - FFXIV plays no dynamics - "
                 "and reports how many notes changed as velocityNormalized; tell the user "
                 "when the file had dynamics worth keeping elsewhere. "

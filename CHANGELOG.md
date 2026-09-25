@@ -14,6 +14,8 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 * **Stricter tool arguments** - a tool call with a parameter the tool does not have is refused and names the real parameters, and `delete_events` / `query_events` can act on one event kind only, e.g. just the program change at tick 0 (MCP-ARGS-001).
 * **MCP calls show up in the status bar** - one short line per tool call with the client name, the path of a file operation or the error of a failed call.
 * **[Attachments in MidiPilot](https://midieditor-ai.de/midipilot.html#attachments)** - send pictures, PDFs and text files with a message, for example sheet music for the AI to write into the editor: paperclip, drag & drop or Ctrl+V of a screenshot; saved with the conversation (Phase 52).
+* **[Fix X|V Channels, sharpened](https://midieditor-ai.de/ffxiv-channel-fixer.html)** - Preserve no longer stacks guitar switch program changes with every run, keeps the octave suffix when it renames a guitar track, keeps drum tracks on their channel and leaves a channel to the instrument that plays there; Rebuild keeps channel 9 for percussion; the dialog proposes the mode MidiPilot and MCP run.
+* **One instrument per channel and tick** - with several program changes at one tick, the channel list, playback and the saved file agree on the one in effect, the instrument dialog changes all of them at the start of the song, and a program change is saved and played before the notes that start with it.
 
 <details>
 <summary>Full Changelog - Document Tools and Attachments for MidiPilot and MCP</summary>
@@ -28,27 +30,41 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 
 ### Changed
 * **Unknown tool arguments are refused (MCP-ARGS-001)** - an argument a tool does not declare used to be ignored: a `types` filter sent to `delete_events` was dropped and the call deleted every event in the range. Such a call is now refused with the tool's real parameter list, and nothing is changed.
-* **`setup_channel_pattern` announces its velocity normalisation** - the tool description now says that every note is set to velocity 127 and that the count comes back as `velocityNormalized`; the behaviour itself is unchanged.
+* **`setup_channel_pattern` describes what it does** - the tool description now names both modes it chooses between (Rebuild for files not set up yet, Preserve for files already set up), says that every note is set to velocity 127 and that the count comes back as `velocityNormalized`, and points at the new `guitarNotesOnOtherChannels` list.
 * A save that fails while writing (a full disk, a vanished network drive) no longer marks the document saved.
 
 ### Bug Fixes
 * **New Chat could drop the last reply from the saved conversation** - the conversation is saved two seconds after each reply, and New Chat cleared it before its own final save, so a reply that arrived within those two seconds was missing when the conversation was reopened from the history. New Chat now saves first.
+* **[Fix X|V Channels: guitar switches no longer pile up](https://midieditor-ai.de/ffxiv-channel-fixer.html#guitar)** - Preserve wrote the switch program changes on a reserved guitar channel again on every run without removing the old ones, so each run added another copy, and once the channel had been given another variant the old switches still played the old one. They are now written anew on every run, like on the other guitar channels.
+* **Fix X|V Channels keeps the octave suffix** - Preserve renamed `ElectricGuitarClean+1` to `ElectricGuitarOverdriven` and dropped the `+1` the game reads as the octave; the suffix now stays.
+* **[Fix X|V Channels keeps channel 9 for the drums](https://midieditor-ai.de/ffxiv-channel-fixer.html#modes)** - Rebuild put a melodic track at track index 9 on the percussion channel (next to drum tracks the channel got two different programs, and the editor played the track as a drum) and could reserve a guitar variant there. Such a track now takes the next free channel, and no guitar variant is reserved on channel 9.
+* **Fix X|V Channels leaves another instrument's channel alone** - a guitar track playing on a channel another instrument plays on (for example one created while the Flute's channel was the edit channel) made Preserve replace the Flute's program with a guitar program and delete its later program changes. The channel now keeps its instrument, and the dialog and the result name the guitar track.
+* **Fix X|V Channels reports guitar notes it cannot switch** - guitar notes on a channel without a guitar program get no switch program change; Preserve now lists them with track, channel and the instrument playing there, in the result window and for MidiPilot and MCP (`guitarNotesOnOtherChannels`).
+* **Fix X|V Channels keeps drum tracks on their channel in Preserve** - Preserve re-pointed every percussion track at channel 9 without moving its notes.
+* **The Fix X|V Channels dialog proposes the mode MidiPilot and MCP run** - its pre-selection treated a guitar program anywhere in the song as "already set up" and ignored guitar notes spread over several guitar channels; it now follows the rules `setup_channel_pattern` uses.
+* **Several program changes at one tick** - Fix X|V Channels writes one per track. The channel list and the instrument dialog showed the oldest of them while playback and the saved file used the newest, and playback started in the middle of the song used the oldest again. The newest now counts everywhere, and the instrument dialog changes every program change at the start of the channel instead of only one - so Preserve keeps the instrument you chose there instead of reverting it.
+* **Program changes come before their notes** - a program change added after the notes of the same tick (Fix X|V Channels' programs at tick 0 and its guitar switches) was saved and played behind them, and the first note sounded with the previous instrument. It now comes first; a bank select keeps its place in front of its program change.
+* **Tracks load with the channel of their notes** - a loaded track was assigned the channel with the most events of any kind, so program changes could outvote the notes: after Fix X|V Channels a track with few notes came back assigned to the drum channel, and new notes drawn on it landed there. Tracks without notes keep the old rule.
+* The title of the Fix X|V Channels result window showed garbled characters.
 
 ### Files Modified
 * `src/ai/AiFileNaming.h/.cpp` (new) - the naming rules for AI saves: marks, counter, never overwrite
 * `src/ai/EventKindFilter.h` (new) - the `types` filter
-* `src/ai/ToolDefinitions.h/.cpp` - the new tools, `set_tempo` exact input, unknown-argument check, `types` filter
-* `src/gui/MainWindow.h/.cpp` - per-document save core shared by the menu and the tools; the AI document operations; MCP status-bar line
+* `src/ai/ToolDefinitions.h/.cpp` - the new tools, `set_tempo` exact input, unknown-argument check, `types` filter, `setup_channel_pattern` description
+* `src/gui/MainWindow.h/.cpp` - per-document save core shared by the menu and the tools; the AI document operations; MCP status-bar line; Fix X|V Channels result warnings and title
 * `src/ai/McpServer.h/.cpp` - window-level new/open/close, tool-call signal with client, result and detail
 * `src/ai/AgentRunner.cpp`, `src/gui/MidiPilotWidget.cpp`, `src/ai/EditorContext.cpp` - step labels, saved-path chat line, exact tempo, agent prompt
-* `src/midi/MidiFile.h/.cpp` - resolution of a new document; a failed write is not a save
+* `src/midi/MidiFile.h/.cpp` - resolution of a new document; a failed write is not a save; channel assignment on load, the player's start program, program changes before their notes
+* `src/midi/MidiChannel.h/.cpp`, `src/midi/PlayerThread.cpp` - the program change in effect at a tick; program changes played before their notes
+* `src/ai/FFXIVChannelFixer.h/.cpp`, `src/gui/FFXIVFixerDialog.cpp`, `src/gui/InstrumentChooser.h/.cpp` - the Fix X|V Channels fixes; the instrument dialog changes every program change at the start of the channel
+* `src/ai/FfxivVoiceAnalyzer.cpp` - the FFXIV voice load analysis applies the program changes of a tick the same way
 * `src/ai/ChatAttachments.h/.cpp` (new) - attachment parts per file kind and transport, limits, token estimate, storage references
 * `src/ai/AiClient.h/.cpp` - user message as text or part array; Responses and native Gemini translations; attachment summary in the API log
 * `src/ai/ConversationStore.h/.cpp` - attachment folder per conversation, removed with it
 * `src/gui/MidiPilotWidget.h/.cpp` - paperclip, chips, drag & drop, paste; attachments in send, retry, budget, save and reload; New Chat saves before clearing
 * `run_environment/graphics/tool/attach.png` (new), `resources.qrc`
-* `tests/test_ai_file_naming.cpp` (new), `tests/test_chat_attachments.cpp` (new), `tests/test_document_timing.cpp` (new), `tests/test_tool_definitions.cpp`, `tests/test_conversation_store.cpp`, `tests/test_streaming_fallback.cpp`
-* `manual/midipilot-tools.html`, `manual/mcp-server.html`, `manual/midipilot.html`, `manual/midipilot-modes.html`, `manual/docs-index.html`, `README.md`
+* `tests/test_ai_file_naming.cpp` (new), `tests/test_chat_attachments.cpp` (new), `tests/test_document_timing.cpp` (new), `tests/test_tool_definitions.cpp`, `tests/test_conversation_store.cpp`, `tests/test_streaming_fallback.cpp`, `tests/test_ffxiv_fixer_resync.cpp`, `tests/test_midi_channel.cpp`
+* `manual/midipilot-tools.html`, `manual/mcp-server.html`, `manual/midipilot.html`, `manual/midipilot-modes.html`, `manual/docs-index.html`, `manual/ffxiv-channel-fixer.html`, `manual/editing-midi-files.html`, `README.md`
 
 </details>
 
