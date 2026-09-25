@@ -2341,6 +2341,15 @@ void MainWindow::setActiveDocument(MidiFile *newFile) {
         // dirty the title of a clean active document (markEditedFor checks).
         connect(newFile->protocol(), &Protocol::actionFinished, this,
                 [this, newFile]() { markEditedFor(newFile); });
+        // The track menus, the "Add new events to" track box and the edit track
+        // follow any change of the track order - Clone, the split tools and the
+        // MidiPilot/MCP track tools rearrange the list without a trackChanged()
+        // (track-order review TR-01). One pointer-list compare per action.
+        connect(newFile->protocol(), &Protocol::actionFinished, this, [this, newFile]() {
+            if (file == newFile && _trackMenuOrder != *newFile->tracks()) {
+                updateTrackMenu();
+            }
+        });
         connect(newFile->protocol(), SIGNAL(actionFinished()), eventWidget(), SLOT(reload()));
         connect(newFile->protocol(), SIGNAL(actionFinished()), this, SLOT(checkEnableActionsForSelection()));
         connect(newFile->protocol(), SIGNAL(actionFinished()), this, SLOT(updateStatusBar()));
@@ -6419,8 +6428,10 @@ void MainWindow::updateTrackMenu() {
     _selectAllFromTrackMenu->clear();
 
     if (!file) {
+        _trackMenuOrder.clear();
         return;
     }
+    _trackMenuOrder = *file->tracks();
 
     // The edit track and the paste target are stored as POSITIONS. After a
     // reorder (drag, Move Up/Down, their undo) they have to follow their

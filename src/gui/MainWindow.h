@@ -1737,6 +1737,12 @@ private:
     QPointer<MidiTrack> _editTrackRef;
     QPointer<MidiTrack> _pasteTrackRef;
 
+    /** \brief The track order the track menus were last built for. After every
+     *  finished action of the active document the menus are rebuilt when the
+     *  order differs - Clone, the split tools and MidiPilot/MCP track tools
+     *  rearrange the list without a trackChanged() (track-order review TR-01). */
+    QList<MidiTrack *> _trackMenuOrder;
+
     /** \brief Lower tab widget for additional panels */
     QTabWidget *lowerTabWidget;
 

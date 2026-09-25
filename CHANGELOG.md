@@ -51,9 +51,9 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 * The title of the Fix X|V Channels result window showed garbled characters.
 * **Removing the first track kept only the first tempo** - its later tempo changes, time and key signatures and markers were deleted with it, without a warning. They now move to the new first track; the same goes for any other track that held a tempo change.
 * **Files with the tempo map in a later track played at 120 BPM** - the loader added a default 120 BPM and 4/4 at the start before it reached the file's own, and the default won. The default is now only added when the file has none.
-* **New notes went into the wrong track after reordering** - the track chosen for new events (and a "Paste to track" target) was kept by position, so after a drag, Move Track or its undo the next notes landed in whatever track had moved into that place. Both now follow their track.
+* **New notes went into the wrong track after reordering** - the track chosen for new events (and a "Paste to track" target) was kept by position, so after a drag, Move Track, Clone Track, the split tools, a MidiPilot or MCP track change or an undo the next notes landed in whatever track had moved into that place. Both now follow their track.
 * **A dragged track landed next to the insertion line** - in half of the drops the track ended one place above or below the line the list showed, and dropping it right below the first track did nothing. It now lands exactly at the line, and a drop below the last track moves it to the end.
-* **Move Track Up/Down left the track menus in the old order** - the "Add new events to" track box and the move/copy/select-by-track menus now follow at once.
+* **Track menus kept the old track order** - after Move Track Up/Down, Clone Track, the split tools or a MidiPilot/MCP track change, the "Add new events to" track box and the move/copy/select-by-track menus showed the previous order; they now follow at once.
 * **Audio export with a muted first track rendered at 120 BPM** - an export of the audible tracks left out the tempo map when the track holding it was muted.
 * **Clone Track doubled the tempo map** - cloning the first track copied every tempo change, time and key signature and marker onto the clone.
 
