@@ -16,6 +16,7 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 * **[Attachments in MidiPilot](https://midieditor-ai.de/midipilot.html#attachments)** - send pictures, PDFs and text files with a message, for example sheet music for the AI to write into the editor: paperclip, drag & drop or Ctrl+V of a screenshot; saved with the conversation (Phase 52).
 * **[Fix X|V Channels, sharpened](https://midieditor-ai.de/ffxiv-channel-fixer.html)** - Preserve no longer stacks guitar switch program changes with every run, keeps the octave suffix when it renames a guitar track, keeps drum tracks on their channel and leaves a channel to the instrument that plays there; Rebuild keeps channel 9 for percussion; the dialog proposes the mode MidiPilot and MCP run.
 * **One instrument per channel and tick** - with several program changes at one tick, the channel list, playback and the saved file agree on the one in effect, the instrument dialog changes all of them at the start of the song, and a program change is saved and played before the notes that start with it.
+* **[Every track can be moved, the first one too](https://midieditor-ai.de/editor-and-components.html#track_editor)** - drag any track anywhere in the list; the first track keeps the song-wide data (tempo, time and key signatures, markers) and hands it on when another track takes its place. Removing, merging or cloning tracks no longer loses or doubles that data.
 
 <details>
 <summary>Full Changelog - Document Tools and Attachments for MidiPilot and MCP</summary>
@@ -32,6 +33,8 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 * **Unknown tool arguments are refused (MCP-ARGS-001)** - an argument a tool does not declare used to be ignored: a `types` filter sent to `delete_events` was dropped and the call deleted every event in the range. Such a call is now refused with the tool's real parameter list, and nothing is changed.
 * **`setup_channel_pattern` describes what it does** - the tool description now names both modes it chooses between (Rebuild for files not set up yet, Preserve for files already set up), says that every note is set to velocity 127 and that the count comes back as `velocityNormalized`, and points at the new `guitarNotesOnOtherChannels` list.
 * A save that fails while writing (a full disk, a vanished network drive) no longer marks the document saved.
+* **[The first track can be moved](https://midieditor-ai.de/editor-and-components.html#track_editor)** - dragging and Move Track work for every track. The first track holds the song-wide data - tempo changes, time and key signatures, markers, cue points, copyright - and when another track takes the first place it takes that data over; notes, program changes, controllers, the name and lyrics stay with their track. Merge, Remove Events and Move Events to Channel are available for the first track as well, since none of them touches the song-wide data any more.
+* Saved files keep the song-wide data in their first track whichever track holds it, as the MIDI file convention and most programs expect.
 
 ### Bug Fixes
 * **New Chat could drop the last reply from the saved conversation** - the conversation is saved two seconds after each reply, and New Chat cleared it before its own final save, so a reply that arrived within those two seconds was missing when the conversation was reopened from the history. New Chat now saves first.
@@ -46,15 +49,23 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 * **Program changes come before their notes** - a program change added after the notes of the same tick (Fix X|V Channels' programs at tick 0 and its guitar switches) was saved and played behind them, and the first note sounded with the previous instrument. It now comes first; a bank select keeps its place in front of its program change.
 * **Tracks load with the channel of their notes** - a loaded track was assigned the channel with the most events of any kind, so program changes could outvote the notes: after Fix X|V Channels a track with few notes came back assigned to the drum channel, and new notes drawn on it landed there. Tracks without notes keep the old rule.
 * The title of the Fix X|V Channels result window showed garbled characters.
+* **Removing the first track kept only the first tempo** - its later tempo changes, time and key signatures and markers were deleted with it, without a warning. They now move to the new first track; the same goes for any other track that held a tempo change.
+* **Files with the tempo map in a later track played at 120 BPM** - the loader added a default 120 BPM and 4/4 at the start before it reached the file's own, and the default won. The default is now only added when the file has none.
+* **New notes went into the wrong track after reordering** - the track chosen for new events (and a "Paste to track" target) was kept by position, so after a drag, Move Track or its undo the next notes landed in whatever track had moved into that place. Both now follow their track.
+* **A dragged track landed next to the insertion line** - in half of the drops the track ended one place above or below the line the list showed, and dropping it right below the first track did nothing. It now lands exactly at the line, and a drop below the last track moves it to the end.
+* **Move Track Up/Down left the track menus in the old order** - the "Add new events to" track box and the move/copy/select-by-track menus now follow at once.
+* **Audio export with a muted first track rendered at 120 BPM** - an export of the audible tracks left out the tempo map when the track holding it was muted.
+* **Clone Track doubled the tempo map** - cloning the first track copied every tempo change, time and key signature and marker onto the clone.
 
 ### Files Modified
 * `src/ai/AiFileNaming.h/.cpp` (new) - the naming rules for AI saves: marks, counter, never overwrite
 * `src/ai/EventKindFilter.h` (new) - the `types` filter
 * `src/ai/ToolDefinitions.h/.cpp` - the new tools, `set_tempo` exact input, unknown-argument check, `types` filter, `setup_channel_pattern` description
-* `src/gui/MainWindow.h/.cpp` - per-document save core shared by the menu and the tools; the AI document operations; MCP status-bar line; Fix X|V Channels result warnings and title
+* `src/gui/MainWindow.h/.cpp` - per-document save core shared by the menu and the tools; the AI document operations; MCP status-bar line; Fix X|V Channels result warnings and title; edit and paste track follow their track, Merge/Clone keep the song-wide data
+* `src/gui/TrackListWidget.cpp`, `src/gui/TrackDropTarget.h` (new) - drops land at the insertion line; the first track can be moved, its context menu entries enabled
 * `src/ai/McpServer.h/.cpp` - window-level new/open/close, tool-call signal with client, result and detail
 * `src/ai/AgentRunner.cpp`, `src/gui/MidiPilotWidget.cpp`, `src/ai/EditorContext.cpp` - step labels, saved-path chat line, exact tempo, agent prompt
-* `src/midi/MidiFile.h/.cpp` - resolution of a new document; a failed write is not a save; channel assignment on load, the player's start program, program changes before their notes
+* `src/midi/MidiFile.h/.cpp` - resolution of a new document; a failed write is not a save; channel assignment on load, the player's start program, program changes before their notes; song-wide data kept in the first track on load, move, removal and save, loader defaults only when the file has none
 * `src/midi/MidiChannel.h/.cpp`, `src/midi/PlayerThread.cpp` - the program change in effect at a tick; program changes played before their notes
 * `src/ai/FFXIVChannelFixer.h/.cpp`, `src/gui/FFXIVFixerDialog.cpp`, `src/gui/InstrumentChooser.h/.cpp` - the Fix X|V Channels fixes; the instrument dialog changes every program change at the start of the channel
 * `src/ai/FfxivVoiceAnalyzer.cpp` - the FFXIV voice load analysis applies the program changes of a tick the same way
@@ -63,8 +74,8 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 * `src/ai/ConversationStore.h/.cpp` - attachment folder per conversation, removed with it
 * `src/gui/MidiPilotWidget.h/.cpp` - paperclip, chips, drag & drop, paste; attachments in send, retry, budget, save and reload; New Chat saves before clearing
 * `run_environment/graphics/tool/attach.png` (new), `resources.qrc`
-* `tests/test_ai_file_naming.cpp` (new), `tests/test_chat_attachments.cpp` (new), `tests/test_document_timing.cpp` (new), `tests/test_tool_definitions.cpp`, `tests/test_conversation_store.cpp`, `tests/test_streaming_fallback.cpp`, `tests/test_ffxiv_fixer_resync.cpp`, `tests/test_midi_channel.cpp`
-* `manual/midipilot-tools.html`, `manual/mcp-server.html`, `manual/midipilot.html`, `manual/midipilot-modes.html`, `manual/docs-index.html`, `manual/ffxiv-channel-fixer.html`, `manual/editing-midi-files.html`, `README.md`
+* `tests/test_ai_file_naming.cpp` (new), `tests/test_chat_attachments.cpp` (new), `tests/test_document_timing.cpp` (new), `tests/test_tool_definitions.cpp`, `tests/test_conversation_store.cpp`, `tests/test_streaming_fallback.cpp`, `tests/test_ffxiv_fixer_resync.cpp`, `tests/test_midi_channel.cpp`, `tests/test_track_order.cpp` (new)
+* `manual/midipilot-tools.html`, `manual/mcp-server.html`, `manual/midipilot.html`, `manual/midipilot-modes.html`, `manual/docs-index.html`, `manual/ffxiv-channel-fixer.html`, `manual/editing-midi-files.html`, `manual/editor-and-components.html`, `README.md`
 
 </details>
 

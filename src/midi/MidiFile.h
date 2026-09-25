@@ -530,6 +530,9 @@ public:
 
     /**
      * \brief Removes a track from the file.
+     *
+     * The track's own events go with it; its song-wide events
+     * (isSongWideEvent) are handed to the first remaining track instead.
      * \param track The MidiTrack to remove
      * \return True if the track was successfully removed
      */
@@ -539,9 +542,27 @@ public:
      * \brief Moves a track one slot up/down (delta -1 / +1) in the track list
      *        and renumbers all tracks, as one protocolled operation (the file
      *        snapshot restores the LIST ORDER on undo, not just the numbers).
+     *
+     * Any track may move, the first one included: when another track becomes
+     * the first, the song-wide events of the previous first track move to it,
+     * so tempo, meter, key and markers always stay in the first track.
      * \return False when the move is out of range.
      */
     bool moveTrack(MidiTrack *track, int delta);
+
+    /**
+     * \brief True for the song-wide ("conductor") events: tempo changes, time
+     *        and key signatures, markers, cue points and the copyright notice.
+     *
+     * They belong to the song rather than to one instrument. The first track
+     * holds them: loading gathers them there, moving or removing the first
+     * track hands them to the next first track, saving writes them into the
+     * first track chunk (the SMF convention - many readers look for the tempo
+     * map nowhere else), and they are never dropped with a muted or removed
+     * track. Everything else - notes, program changes, controllers, the track
+     * name, lyrics and plain text - belongs to its track and moves with it.
+     */
+    static bool isSongWideEvent(MidiEvent *event);
 
     // === File Structure Modification ===
 
@@ -900,6 +921,16 @@ private:
      *  pending while their track was read - paired against later tracks' Note-Ons
      *  at the end of readMidiFile(), dropped if still unpaired. */
     QList<QPair<OffEvent *, int>> _orphanOffEvents;
+
+    /** \brief Loading only: the default 4/4 and 120 BPM readTrack() put at tick
+     *  0 when a track left them missing. The file may still carry its own in a
+     *  later track; readMidiFile() drops a default that got superseded. */
+    MidiEvent *_loaderDefaultTimeSig = nullptr;
+    MidiEvent *_loaderDefaultTempo = nullptr;
+
+    /** \brief Moves the song-wide events (isSongWideEvent) owned by \a from to
+     *  \a to, one protocolled setTrack() per event. */
+    void handOverSongWideEvents(MidiTrack *from, MidiTrack *to);
 
     /** \brief File path and basic properties */
     QString _path;

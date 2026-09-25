@@ -6422,6 +6422,25 @@ void MainWindow::updateTrackMenu() {
         return;
     }
 
+    // The edit track and the paste target are stored as POSITIONS. After a
+    // reorder (drag, Move Up/Down, their undo) they have to follow their
+    // TRACK - otherwise new notes silently went into whatever track moved into
+    // the old position, on the previous track's channel (track-order review
+    // TR-01). A track of another document or one no longer in the list keeps
+    // the position as before.
+    if (_editTrackRef) {
+        const int idx = file->tracks()->indexOf(_editTrackRef.data());
+        if (idx >= 0) {
+            NewNoteTool::setEditTrack(idx);
+        }
+    }
+    if (_pasteTrackRef && EventTool::pasteTrack() >= 0) {
+        const int idx = file->tracks()->indexOf(_pasteTrackRef.data());
+        if (idx >= 0) {
+            EventTool::setPasteTrack(idx);
+        }
+    }
+
     for (int i = 0; i < file->numTracks(); i++) {
         QVariant variant(i);
         // PHASE36-016: parent QAction to the menu, not to MainWindow,
@@ -8307,6 +8326,10 @@ void MainWindow::cloneTrack(MidiTrack *track) {
             // would leave TWO TRACKNAME events on the clone (last one wins
             // on save/reload, renaming the clone back to the source name).
             if (ev == track->nameEvent()) continue;
+            // The song-wide events (tempo, meter, key, markers) exist once
+            // per song - cloning the first track doubled the whole tempo map
+            // and every marker (track-order review TR-08).
+            if (MidiFile::isSongWideEvent(ev)) continue;
             if (NoteOnEvent *on = dynamic_cast<NoteOnEvent *>(ev)) {
                 if (on->offEvent())
                     channel->insertNote(on->note(), on->midiTime(),
@@ -8353,6 +8376,11 @@ void MainWindow::mergeTrack(MidiTrack *source, MidiTrack *destination) {
                 // the destination TWO TRACKNAME events (last one wins on
                 // save/reload, renaming the destination to the source name).
                 if (ev == source->nameEvent()) continue;
+                // Song-wide events (tempo, meter, key, markers) stay behind
+                // too: removeTrack() hands them to the first track, which
+                // keeps the tempo map in slot 0 when the first track is
+                // merged away (track-order review TR-09).
+                if (MidiFile::isSongWideEvent(ev)) continue;
                 ev->setTrack(destination, true);
             }
         }
@@ -8373,6 +8401,10 @@ void MainWindow::moveTrackUp(MidiTrack *track) {
     f->moveTrack(track, -1); // protocolled list reorder (undo restores order)
     f->protocol()->endAction();
     updateAll();
+    // The track menus and the "Add new events to" track box list the tracks
+    // by position; nothing else rebuilds them after a reorder, and the edit
+    // track has to follow its track (track-order review TR-06).
+    updateTrackMenu();
 }
 
 void MainWindow::moveTrackDown(MidiTrack *track) {
@@ -8383,6 +8415,7 @@ void MainWindow::moveTrackDown(MidiTrack *track) {
     f->moveTrack(track, +1); // protocolled list reorder (undo restores order)
     f->protocol()->endAction();
     updateAll();
+    updateTrackMenu(); // see moveTrackUp()
 }
 
 void MainWindow::quantizeTrack(MidiTrack *track) {
@@ -9138,6 +9171,7 @@ void MainWindow::editChannel(int i, bool assign) {
 
 void MainWindow::editTrack(int i, bool assign) {
     NewNoteTool::setEditTrack(i);
+    _editTrackRef = (file && i >= 0) ? file->track(i) : nullptr;
 
     // assign channel to track
     if (assign && file && file->track(i)) {
@@ -11826,7 +11860,10 @@ void MainWindow::pasteToChannel(QAction *action) {
 }
 
 void MainWindow::pasteToTrack(QAction *action) {
-    EventTool::setPasteTrack(action->data().toInt());
+    const int track = action->data().toInt();
+    EventTool::setPasteTrack(track);
+    // -1 / -2 are the "keep track" / "same as new events" modes, not a track.
+    _pasteTrackRef = (file && track >= 0) ? file->track(track) : nullptr;
 }
 
 void MainWindow::divChanged(QAction *action) {

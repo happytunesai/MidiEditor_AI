@@ -13923,6 +13923,18 @@ stored as separate files next to the conversation.
     `setup_channel_pattern` describes both modes. Regression tests in
     `test_ffxiv_fixer_resync` (+ `test_midi_channel`). Open: comparison run against 2.4 on real
     files, in-game check of CF-08.
+  * **Track order review - added 2026-09-25, implemented on `feature/v2.5.0`, in test.** Moving
+    tracks in the track list checked end to end; the first track can now be moved as well. The
+    rule behind it: the first track holds the song-wide data (tempo, meter, key signatures,
+    markers, cue points, copyright) - moving or removing the first track hands it to the next
+    first track, loading gathers it there, saving writes it into the first chunk and a muted
+    track never drops it. Fixed on the way: TR-01 edit and paste track kept by position (notes
+    went into another track after a reorder), TR-02 drops landed one place off the insertion
+    line, TR-03 removing the first track deleted the tempo map beyond tick 0, TR-04 a tempo map
+    in a later chunk loaded next to a default 120 BPM that won, TR-06 Move Up/Down left the track
+    menus stale, TR-07 audio export with a muted first track lost the tempo map, TR-08 Clone
+    Track doubled the tempo map. Collab live sync (TR-05) carries the order as content per track
+    index - no change needed. Regression tests in `test_track_order`.
 * **Housekeeping first - DONE 2026-09-24:** status sweep of the stale "Planned" / "TODO"
   markers in this file, each checked against the CHANGELOG: Phase 24 (1.4.0), Phase 25 and 27
   (1.5.0), Phase 26 Local AI (1.8.2), Phase 35 Auto-Fit (2.1.0), Phase 39 (1.6.1), the v2.0

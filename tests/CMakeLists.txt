@@ -1702,6 +1702,59 @@ target_link_libraries(test_ffxiv_fixer_resync PRIVATE
 add_test(NAME FfxivFixerResync COMMAND test_ffxiv_fixer_resync)
 
 # -----------------------------------------------------------------------------
+# test_track_order
+# -----------------------------------------------------------------------------
+# Track order and the song-wide events (tempo, meter, key, markers): moving or
+# removing the first track hands them to the next first track, saving writes
+# them into the first chunk, loading gathers them there without doubled
+# defaults, and a drag lands at the drop indicator (track-order review, 2.5.0).
+# Same harness as test_ffxiv_fixer_resync, without the fixer.
+add_executable(test_track_order
+    test_track_order.cpp
+    ../src/midi/MidiFile.cpp
+    ../src/midi/MidiChannel.cpp
+    ../src/midi/MidiTrack.cpp
+    ../src/midi/LyricManager.cpp
+    ../src/midi/InstrumentDefinitions.cpp
+    ../src/converter/SrtParser.cpp
+    ../src/protocol/Protocol.cpp
+    ../src/protocol/ProtocolEntry.cpp
+    ../src/protocol/ProtocolItem.cpp
+    ../src/protocol/ProtocolStep.cpp
+    ../src/gui/ChannelVisibilityManager.cpp
+    ../src/gui/GraphicObject.cpp
+    ../src/MidiEvent/MidiEvent.cpp
+    ../src/MidiEvent/NoteOnEvent.cpp
+    ../src/MidiEvent/OffEvent.cpp
+    ../src/MidiEvent/OnEvent.cpp
+    ../src/MidiEvent/ControlChangeEvent.cpp
+    ../src/MidiEvent/ProgChangeEvent.cpp
+    ../src/MidiEvent/PitchBendEvent.cpp
+    ../src/MidiEvent/ChannelPressureEvent.cpp
+    ../src/MidiEvent/KeyPressureEvent.cpp
+    ../src/MidiEvent/TempoChangeEvent.cpp
+    ../src/MidiEvent/TimeSignatureEvent.cpp
+    ../src/MidiEvent/KeySignatureEvent.cpp
+    ../src/MidiEvent/TextEvent.cpp
+    ../src/MidiEvent/SysExEvent.cpp
+    ../src/MidiEvent/UnknownEvent.cpp
+)
+target_include_directories(test_track_order PRIVATE
+    ../src/MidiEvent
+    ../src/midi
+    ../src/protocol
+    ../src/gui
+    ../src/converter
+)
+target_link_libraries(test_track_order PRIVATE
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Widgets
+    Qt6::Test
+)
+add_test(NAME TrackOrder COMMAND test_track_order)
+
+# -----------------------------------------------------------------------------
 # test_midi_measure
 # -----------------------------------------------------------------------------
 # Pins the 1-BASED bar-numbering contract of MidiFile::measure() and
@@ -1987,6 +2040,7 @@ if(WIN32)
         ThreeMleParser
         DrumKitPreset
         FfxivFixerResync
+        TrackOrder
         MidiMeasure
         FfxivPlayability
         HelpDatabase

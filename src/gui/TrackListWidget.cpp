@@ -20,6 +20,7 @@
 #include "ColoredWidget.h"
 #include "Appearance.h"
 #include "MainWindow.h"
+#include "TrackDropTarget.h"
 
 #include "../midi/MidiFile.h"
 #include "../midi/MidiTrack.h"
@@ -282,20 +283,27 @@ void TrackListWidget::dropEvent(QDropEvent *event) {
         
         // Get source position BEFORE Qt processes the drop
         int from = row(selected.first());
-        
-        // Get the item at the drop position
+
+        // The track lands where the drop indicator is drawn: above or below
+        // the row under the cursor, or at the end below the last row
+        // (track-order review TR-02). Every track may move, the first one
+        // included - MidiFile::moveTrack() keeps the song-wide data in slot 0.
         QListWidgetItem *dropItem = itemAt(event->position().toPoint());
-        if (!dropItem) {
+        TrackDropTarget::Indicator indicator = TrackDropTarget::OnViewport;
+        switch (dropIndicatorPosition()) {
+        case QAbstractItemView::AboveItem: indicator = TrackDropTarget::AboveItem; break;
+        case QAbstractItemView::BelowItem: indicator = TrackDropTarget::BelowItem; break;
+        case QAbstractItemView::OnItem:    indicator = TrackDropTarget::OnItem;    break;
+        case QAbstractItemView::OnViewport:
+        default:                           indicator = TrackDropTarget::OnViewport; break;
+        }
+        if (!dropItem && indicator != TrackDropTarget::OnViewport) {
             event->ignore();
             return;
         }
-        
-        int to = row(dropItem);
-        
-        // from/to == 0 is refused by reorderTracks() (the tempo/meta track
-        // stays in slot 0) - bail out here too so the drop does not move the
-        // selection to a row that never changed.
-        if (from == to || from <= 0 || to <= 0) {
+        const int to = TrackDropTarget::finalIndex(from, dropItem ? row(dropItem) : -1,
+                                                   indicator, trackorder.size());
+        if (to < 0) {
             event->ignore();
             return;
         }
@@ -330,13 +338,9 @@ void TrackListWidget::reorderTracks(int fromIndex, int toIndex) {
         return;
     }
 
-    // Slot 0 is the conventional tempo/meta track and the destructive context
-    // menu ops guard BY POSITION (number() == 0), so it has to stay in slot 0 -
-    // the same rule Move Up/Down already enforces. A drag must not be the one
-    // path that can push another track into slot 0.
-    if (fromIndex == 0 || toIndex == 0) {
-        return;
-    }
+    // Slot 0 is no longer fixed: MidiFile::moveTrack() hands the song-wide
+    // data (tempo, meter, key, markers) to whichever track becomes the first,
+    // so the tempo map stays in the first track (track-order review TR-09).
 
     // Get the track being moved
     MidiTrack *track = trackorder.at(fromIndex);
@@ -426,9 +430,12 @@ void TrackListWidget::contextMenuEvent(QContextMenuEvent *event) {
     }
     QMenu menu(this);
     const int trackNumber = track->number();
-    // Track 0 is the conventional tempo/meta track - guard the destructive ops
-    // so its tempo / time-signature data can't be merged away or wiped.
-    const bool isTempoTrack = (trackNumber == 0);
+    // No op here can damage the song-wide data (tempo, meter, key, markers)
+    // any more, so the first track is no longer fenced off: Remove Events and
+    // Move Events to Channel only touch channels 0-15, Merge leaves the
+    // song-wide events behind and removeTrack() hands them to the first track,
+    // and moving the first track hands them to the next first track
+    // (track-order review TR-09).
     const int trackCount = file->tracks() ? file->tracks()->size() : 0;
 
     // --- structural ---
@@ -443,16 +450,14 @@ void TrackListWidget::contextMenuEvent(QContextMenuEvent *event) {
             connect(a, &QAction::triggered, mw, [mw, track, other]() { mw->mergeTrack(track, other); });
         }
     }
-    mergeMenu->setEnabled(!isTempoTrack && !mergeMenu->actions().isEmpty());
+    mergeMenu->setEnabled(!mergeMenu->actions().isEmpty());
 
     QMenu *moveMenu = menu.addMenu(tr("Move Track"));
     QAction *upAct = moveMenu->addAction(tr("Up"));
-    // Track 1 can't move up and track 0 can't move down: the tempo/meta
-    // track stays in slot 0 (the number()==0 guards protect BY POSITION).
-    upAct->setEnabled(trackNumber > 1);
+    upAct->setEnabled(trackNumber > 0);
     connect(upAct, &QAction::triggered, mw, [mw, track]() { mw->moveTrackUp(track); });
     QAction *downAct = moveMenu->addAction(tr("Down"));
-    downAct->setEnabled(trackNumber > 0 && trackNumber < trackCount - 1);
+    downAct->setEnabled(trackNumber < trackCount - 1);
     connect(downAct, &QAction::triggered, mw, [mw, track]() { mw->moveTrackDown(track); });
 
     menu.addSeparator();
@@ -481,7 +486,6 @@ void TrackListWidget::contextMenuEvent(QContextMenuEvent *event) {
     connect(selectAct, &QAction::triggered, mw, [mw, track]() { mw->selectTrackEvents(track); });
 
     QMenu *moveChanMenu = menu.addMenu(tr("Move Events to Channel"));
-    moveChanMenu->setEnabled(!isTempoTrack);
     for (int ch = 0; ch < 16; ++ch) {
         // 0-based to match the Channels panel and the Tools menu.
         QString label = (ch == 9) ? tr("Channel %1 (Drums)").arg(ch)
@@ -491,7 +495,6 @@ void TrackListWidget::contextMenuEvent(QContextMenuEvent *event) {
     }
 
     QAction *removeAct = menu.addAction(tr("Remove Events"));
-    removeAct->setEnabled(!isTempoTrack);
     connect(removeAct, &QAction::triggered, mw, [mw, track]() { mw->clearTrackEvents(track); });
 
     menu.addSeparator();

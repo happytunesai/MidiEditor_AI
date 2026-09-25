@@ -335,6 +335,18 @@ See the <a href="playback.html">Playback &amp; Recording</a> page for full detai
   New tracks can be added to the Midi file by clicking <img src="tools/add.png" width="12px" height="12px"/>.
 </p>
 <p>
+  To change the order of the tracks, drag a track to a new place in the list - it lands where the
+  insertion line is drawn, or at the end when you drop it below the last track. Any track can be moved,
+  the first one included.
+</p>
+<p>
+  <b>The first track holds the song-wide data:</b> tempo changes, time and key signatures, markers,
+  cue points and the copyright notice. When another track becomes the first one - because you move it
+  up, move the first track down or remove the first track - it takes this data over, and everything that
+  belongs to an instrument (notes, program changes, controllers, the track name, lyrics) stays with its
+  track. Saved files keep the song-wide data in their first track, as other programs expect it there.
+</p>
+<p>
   In order to mute or hide all tracks at once, the according actions above the track list can be used.
 </p>
 
@@ -350,20 +362,20 @@ See the <a href="playback.html">Playback &amp; Recording</a> page for full detai
   under the cursor:
 </p>
 <ul>
-  <li><b>Clone Track</b> - duplicates the track including all of its events, placed right below the original</li>
-  <li><b>Merge Track Into</b> - moves all of the track's events onto another track and removes the source track</li>
+  <li><b>Clone Track</b> - duplicates the track including all of its events, placed right below the original (the song-wide data of the first track is not duplicated)</li>
+  <li><b>Merge Track Into</b> - moves all of the track's events onto another track and removes the source track (song-wide data stays with the first track)</li>
   <li><b>Move Track</b> - moves the track one slot up or down in the list</li>
   <li><b>Quantize Track</b> - quantizes every note of the track to the current quantization grid</li>
   <li><b>Transpose Track</b> - transposes all notes of the track by a chosen interval, or a whole octave up/down</li>
   <li><b>Explode Chords to Tracks</b> / <b>Split Channels to Tracks</b> - runs the split tools on this track</li>
   <li><b>Select All Events</b> - selects every event of the track</li>
   <li><b>Move Events to Channel</b> - moves all of the track's events onto a chosen MIDI channel</li>
-  <li><b>Remove Events</b> - clears all of the track's events (the track itself stays)</li>
+  <li><b>Remove Events</b> - clears the track's notes and its other channel events such as program changes, controllers and pitch bends (the track itself, its name and the song-wide data stay)</li>
   <li><b>Convert Tempo, Preserve Duration</b> - opens the <a href="tempo-conversion.html">tempo conversion</a> scoped to this track</li>
 </ul>
 <p>
-  Every operation is a single undo step. Entries that would damage the tempo track (Merge, Remove Events,
-  Move Events to Channel, moving it out of the first slot) are disabled for it.
+  Every operation is a single undo step, and none of them damages the song-wide data, so all of them
+  work on the first track as well.
 </p>
 
 <p>

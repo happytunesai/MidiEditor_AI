@@ -1729,6 +1729,14 @@ private:
      *  updateTrackMenu() (a per-refresh group was leaked). */
     QActionGroup *_pasteTrackGroup = nullptr;
 
+    /** \brief The TRACKS chosen for new events and for "Paste to track": the
+     *  tool statics hold only positions, so after a reorder, an undo of one or
+     *  a removed track updateTrackMenu() re-finds these tracks by identity
+     *  instead of silently switching to whatever sits at the old position
+     *  (track-order review TR-01). Null when none was chosen in this file. */
+    QPointer<MidiTrack> _editTrackRef;
+    QPointer<MidiTrack> _pasteTrackRef;
+
     /** \brief Lower tab widget for additional panels */
     QTabWidget *lowerTabWidget;
 

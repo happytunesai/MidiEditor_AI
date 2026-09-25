@@ -343,6 +343,43 @@ bool MidiFile::readMidiFile(QDataStream *content, QStringList *log) {
 
     OffEvent::clearOnEvents();
 
+    // The default 4/4 and 120 BPM a track without them got at tick 0 only
+    // stay when no LATER track brought the file's own. Files that keep the
+    // tempo map in their second track otherwise loaded with two tempos at
+    // tick 0 - and the default one won (track-order review TR-04).
+    auto dropSupersededDefault = [this, log](MidiEvent *&def, int ch, const QString &warning) {
+        if (!def) {
+            return;
+        }
+        if (channel(ch)->eventMap()->count(0) > 1) {
+            channel(ch)->eventMap()->remove(0, def);
+            delete def;
+        } else {
+            log->append(warning);
+        }
+        def = nullptr;
+    };
+    dropSupersededDefault(_loaderDefaultTimeSig, 18,
+        tr("Warning: no TimeSignatureEvent detected at tick 0. Adding default value."));
+    dropSupersededDefault(_loaderDefaultTempo, 17,
+        QStringLiteral("Warning: no TempoChangeEvent detected at tick 0. Adding default value."));
+    invalidateTempoCache();
+
+    // The song-wide events belong to the first track, wherever the file kept
+    // them: saving writes them into the first chunk anyway, and moving or
+    // removing tracks hands them on from the first track (isSongWideEvent).
+    if (!_tracks->isEmpty()) {
+        MidiTrack *first = _tracks->first();
+        for (int ch = 16; ch < 19; ch++) {
+            QMultiMap<int, MidiEvent *> *map = channel(ch)->eventMap();
+            for (auto it = map->begin(); it != map->end(); ++it) {
+                if (it.value()->track() != first && isSongWideEvent(it.value())) {
+                    it.value()->setTrack(first, false);
+                }
+            }
+        }
+    }
+
     return true;
 }
 
@@ -469,21 +506,24 @@ bool MidiFile::readTrack(QDataStream *content, int num, QStringList *log) {
 
     // check whether TimeSignature at tick 0 is given. If not, create one.
     // this will be done after reading the first track
+    // (A later track may still bring the file's own - readMidiFile() drops the
+    // default then; keeping one here gives the tempo math of the following
+    // tracks a tempo map to work with.)
     if (!channel(18)->eventMap()->contains(0)) {
-        log->append(tr("Warning: no TimeSignatureEvent detected at tick 0. Adding default value."));
         TimeSignatureEvent *timeSig = new TimeSignatureEvent(18, 4, 2, 24, 8, track);
         timeSig->setFile(this);
         timeSig->setTrack(track, false);
         channel(18)->eventMap()->insert(0, timeSig);
+        _loaderDefaultTimeSig = timeSig;
     }
 
     // check whether TempoChangeEvent at tick 0 is given. If not, create one.
     if (!channel(17)->eventMap()->contains(0)) {
-        log->append("Warning: no TempoChangeEvent detected at tick 0. Adding default value.");
         TempoChangeEvent *tempoEv = new TempoChangeEvent(17, 500000, track);
         tempoEv->setFile(this);
         tempoEv->setTrack(track, false);
         channel(17)->eventMap()->insert(0, tempoEv);
+        _loaderDefaultTempo = tempoEv;
         invalidateTempoCache();
     }
 
@@ -1935,8 +1975,19 @@ bool MidiFile::save(QString path, bool skipMutedTrackEvents,
             QList<MidiEvent *> atTick;
             for (; it != allEvents.end() && it.key() == tick; ++it) {
                 MidiEvent *event = it.value();
-                if (_tracks->at(num) == event->track() &&
-                    !(skipMutedTrackEvents && _tracks->at(num)->muted())) {
+                // Song-wide events go into the FIRST chunk whichever track
+                // owns them (a tempo map in a later chunk made the loader add
+                // a default 120 BPM next to it), and a muted track never
+                // takes them along - an audio export with the first track
+                // muted rendered at 120 BPM (track-order review TR-07).
+                bool inChunk;
+                if (isSongWideEvent(event)) {
+                    inChunk = (num == 0);
+                } else {
+                    inChunk = _tracks->at(num) == event->track() &&
+                              !(skipMutedTrackEvents && _tracks->at(num)->muted());
+                }
+                if (inChunk) {
                     atTick.append(event);
                 }
             }
@@ -2163,6 +2214,36 @@ void MidiFile::addTrack() {
     connect(track, SIGNAL(trackChanged()), this, SIGNAL(trackChanged()));
 }
 
+bool MidiFile::isSongWideEvent(MidiEvent *event) {
+    if (!event) {
+        return false;
+    }
+    if (dynamic_cast<TempoChangeEvent *>(event) || dynamic_cast<TimeSignatureEvent *>(event)
+        || dynamic_cast<KeySignatureEvent *>(event)) {
+        return true;
+    }
+    TextEvent *text = dynamic_cast<TextEvent *>(event);
+    return text && (text->type() == TextEvent::MARKER || text->type() == TextEvent::COMMENT
+                    || text->type() == TextEvent::COPYRIGHT);
+}
+
+void MidiFile::handOverSongWideEvents(MidiTrack *from, MidiTrack *to) {
+    if (!from || !to || from == to) {
+        return;
+    }
+    // Song-wide events live on the meta channels only (16 text/key, 17 tempo,
+    // 18 meter). One protocolled setTrack() per event: a channel snapshot
+    // would share these very event objects and restore nothing of _track.
+    for (int ch = 16; ch < 19; ch++) {
+        const QList<MidiEvent *> events = channels[ch]->eventMap()->values();
+        for (MidiEvent *event : events) {
+            if (event->track() == from && isSongWideEvent(event)) {
+                event->setTrack(to, true);
+            }
+        }
+    }
+}
+
 bool MidiFile::moveTrack(MidiTrack *track, int delta) {
     if (!track || !_tracks) {
         return false;
@@ -2177,10 +2258,18 @@ bool MidiFile::moveTrack(MidiTrack *track, int delta) {
     // it, undo reverts the numbers but keeps the swapped order - positional
     // track(int) lookups then disagree with the displayed list.
     ProtocolEntry *toCopy = copy();
+    MidiTrack *firstBefore = _tracks->first();
     _tracks->swapItemsAt(idx, to);
     int n = 0;
     foreach(MidiTrack* t, *_tracks) {
         t->setNumber(n++);
+    }
+    // The first track holds the song-wide data. When the first slot changes
+    // hands - the first track moves down, or another track moves up into
+    // slot 0 - that data goes to the new first track and everything else
+    // stays with the track that owns it (track-order review TR-09).
+    if (_tracks->first() != firstBefore) {
+        handOverSongWideEvents(firstBefore, _tracks->first());
     }
     ProtocolEntry::protocol(toCopy, this);
     return true;
@@ -2220,12 +2309,19 @@ bool MidiFile::removeTrack(MidiTrack *track) {
 
     _tracks->removeAll(track);
 
+    // The removed track's song-wide events (tempo, meter, key, markers) are
+    // not its own: they go to the first remaining track - the new first one
+    // when the first track is removed. Deleting them with the track cut the
+    // song's tempo map down to its tick-0 entry (track-order review TR-03).
+    MidiTrack *heir = _tracks->first();
     QMultiMap<int, MidiEvent *>::iterator it = allEvents.begin();
     while (it != allEvents.end()) {
         MidiEvent *event = it.value();
         if (event->track() == track) {
-            if (!channels[event->channel()]->removeEvent(event, false)) {
-                event->setTrack(_tracks->first());
+            if (isSongWideEvent(event)) {
+                event->setTrack(heir, true);
+            } else if (!channels[event->channel()]->removeEvent(event, false)) {
+                event->setTrack(heir);
             }
         }
         it++;
