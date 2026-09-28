@@ -13950,8 +13950,13 @@ stored as separate files next to the conversation.
     editor group and dies with the document) and restores them when the document returns; a tab
     dragged to the other group hands its current view over first. The position is kept as time
     and tick: the exact time while the tempo map is unchanged, the tick after a tempo edit made in
-    the background. Live-checked pixel-identical for zoom and both scroll axes. Not across a
-    restart - the session restores the tabs only.
+    the background. Live-checked pixel-identical for zoom and both scroll axes. Across a
+    restart only when the editor restarts itself (Update Now, theme change): saveSession(true)
+    writes `session/views` (per file path: view state, cursor and pause tick), restoreSession
+    reads it once and applies it after the window is shown. A normal quit restores the tabs at
+    the default view (owner's choice); live-checked over two theme restarts (active and background
+    tab pixel-identical, cursor back). A view no longer stores a state before the window is
+    shown, so the startup tab switching of the session restore pins no pre-layout viewport.
 * **Housekeeping first - DONE 2026-09-24:** status sweep of the stale "Planned" / "TODO"
   markers in this file, each checked against the CHANGELOG: Phase 24 (1.4.0), Phase 25 and 27
   (1.5.0), Phase 26 Local AI (1.8.2), Phase 35 Auto-Fit (2.1.0), Phase 39 (1.6.1), the v2.0

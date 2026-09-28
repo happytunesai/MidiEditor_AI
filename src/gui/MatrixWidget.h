@@ -32,6 +32,7 @@
 #include <QMouseEvent>
 #include <QPainter>
 #include <QSet>
+#include <QVariantMap>
 #include <QWidget>
 
 // Forward declarations
@@ -118,6 +119,20 @@ public:
      *        while this view still shows it.
      */
     void rememberViewState();
+
+    /**
+     * \brief Applies the zoom and scroll position stored on the shown document -
+     *        for a state put there after the document was bound (a restart
+     *        restoring the session).
+     */
+    void applyStoredViewState();
+
+    /** \brief The zoom and scroll position stored on \p f (empty if none). */
+    static QVariantMap storedViewState(MidiFile *f);
+
+    /** \brief Stores a zoom and scroll position on \p f; the next view that
+     *         shows the document starts there. */
+    static void setStoredViewState(MidiFile *f, const QVariantMap &state);
 
     // === Event Access ===
 

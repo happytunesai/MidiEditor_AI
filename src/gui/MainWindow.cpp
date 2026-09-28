@@ -2751,7 +2751,7 @@ void MainWindow::toggleCompareView() {
     updateActiveGroupHighlight();
 }
 
-void MainWindow::saveSession() {
+void MainWindow::saveSession(bool withViewState) {
     // Persist each group's open documents (by path) + active tab, so the session
     // can be reopened after a restart. Untitled docs (no path) are skipped - on a
     // proper close/restart they were already save-prompted (saved -> get a path,
@@ -2783,6 +2783,25 @@ void MainWindow::saveSession() {
     collect(_documentManager, g0, a0, a0path);
     collect(_group1Docs, g1, a1, a1path);
 
+    // Per file path: the tab's zoom and scroll position (what the views keep on
+    // the document) and its cursor and pause position.
+    QVariantMap views;
+    if (withViewState) {
+        for (MatrixWidget *view : {mw_matrixWidget, _compareMatrixWidget}) {
+            if (view) view->rememberViewState(); // the shown tabs' live view
+        }
+        for (DocumentManager *m : {_documentManager, _group1Docs}) {
+            for (int i = 0; m && i < m->count(); ++i) {
+                MidiFile *f = m->at(i)->file();
+                if (!f || f->path().isEmpty()) continue;
+                QVariantMap state = MatrixWidget::storedViewState(f);
+                state.insert(QStringLiteral("cursorTick"), f->cursorTick());
+                state.insert(QStringLiteral("pauseTick"), f->pauseTick());
+                views.insert(f->path(), state);
+            }
+        }
+    }
+
     _settings->beginGroup("session");
     _settings->setValue("g0paths", g0);
     _settings->setValue("g0active", a0);
@@ -2792,6 +2811,11 @@ void MainWindow::saveSession() {
     _settings->setValue("g1activePath", a1path);
     _settings->setValue("g1collapsed", _group1Collapsed);
     _settings->setValue("focusGroup", (_activeView == _compareMatrixWidget) ? 1 : 0);
+    if (views.isEmpty()) {
+        _settings->remove("views");
+    } else {
+        _settings->setValue("views", views);
+    }
     _settings->endGroup();
 }
 
@@ -2805,6 +2829,9 @@ bool MainWindow::restoreSession() {
     const QString a1path = _settings->value("g1activePath").toString();
     const bool g1collapsed = _settings->value("g1collapsed", false).toBool();
     const int focusGroup = _settings->value("focusGroup", 0).toInt();
+    // Only written by a restart the editor made itself - used once.
+    const QVariantMap views = _settings->value("views").toMap();
+    _settings->remove("views");
     _settings->endGroup();
 
     if (g0.isEmpty() && g1.isEmpty()) {
@@ -2873,6 +2900,27 @@ bool MainWindow::restoreSession() {
     } else {
         _activeView = mw_matrixWidget;
         if (Document *a = _documentManager->active()) activateDocument(a->file());
+    }
+
+    // ----- every tab where it was left (after an update or theme restart) --
+    if (!views.isEmpty()) {
+        for (DocumentManager *m : {_documentManager, _group1Docs}) {
+            for (int i = 0; m && i < m->count(); ++i) {
+                MidiFile *f = m->at(i)->file();
+                const QVariantMap state = f ? views.value(f->path()).toMap() : QVariantMap();
+                if (state.isEmpty()) continue;
+                MatrixWidget::setStoredViewState(f, state);
+                f->setCursorTick(state.value(QStringLiteral("cursorTick")).toInt());
+                f->setPauseTick(state.value(QStringLiteral("pauseTick"), -1).toInt());
+            }
+        }
+        // The other tabs pick their state up when they are opened; the shown
+        // ones once the window has its real size (it is not shown yet here).
+        QTimer::singleShot(0, this, [this]() {
+            for (MatrixWidget *view : {mw_matrixWidget, _compareMatrixWidget}) {
+                if (view) view->applyStoredViewState();
+            }
+        });
     }
     return true;
 }
@@ -12029,7 +12077,7 @@ void MainWindow::checkForUpdates(bool silent) {
                                     _forceCloseForUpdate = false;
                                     return;
                                 }
-                                saveSession();
+                                saveSession(true); // the tabs come back as they are
                                 _settings->sync(); // flush: executeUpdateNow ExitProcess()es, no dtors run
                                 _forceCloseForUpdate = true;
                                 _autoUpdater->executeUpdateNow(file ? file->path() : QString());
@@ -12142,9 +12190,9 @@ void MainWindow::restartForThemeChange() {
         return; // user cancelled - abort restart
     }
 
-    // Persist the open tabs/groups so the restarted instance restores them, plus
-    // all settings.
-    saveSession();
+    // Persist the open tabs/groups so the restarted instance restores them - each
+    // with its zoom, scroll position and cursor - plus all settings.
+    saveSession(true);
     Appearance::writeSettings(_settings);
     _settings->sync();
 

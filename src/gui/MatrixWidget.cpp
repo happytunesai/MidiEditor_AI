@@ -49,7 +49,6 @@
 
 #include <QList>
 #include <QSettings>
-#include <QVariantMap>
 #include <QMenu>
 #include <QContextMenuEvent>
 #include <cmath>
@@ -1546,8 +1545,28 @@ void MatrixWidget::rememberViewState() {
     storeViewState(file);
 }
 
+void MatrixWidget::applyStoredViewState() {
+    if (file) {
+        restoreViewState();
+    }
+}
+
+QVariantMap MatrixWidget::storedViewState(MidiFile *f) {
+    return f ? f->property(kViewStateProperty).toMap() : QVariantMap();
+}
+
+void MatrixWidget::setStoredViewState(MidiFile *f, const QVariantMap &state) {
+    if (f) {
+        f->setProperty(kViewStateProperty, state);
+    }
+}
+
 void MatrixWidget::storeViewState(MidiFile *target) {
-    if (!target) {
+    // Before the window is shown (the session restore at startup switches
+    // through every tab) the view has no real size yet: a state stored then
+    // would pin that tiny viewport instead of the default the document gets
+    // at the real size when its tab is first opened.
+    if (!target || !window()->isVisible()) {
         return;
     }
     QVariantMap state;

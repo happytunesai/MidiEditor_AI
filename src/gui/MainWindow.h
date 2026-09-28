@@ -1686,8 +1686,11 @@ private:
      * (paths + active tab + split/collapse state) to QSettings, so the session
      * can be restored after a restart (e.g. a theme change). Only documents with
      * a real file path are saved (untitled docs cannot be reopened by path).
+     * \param withViewState also keep every tab's zoom, scroll position and
+     *        cursor - for a restart the editor makes itself (update, theme
+     *        change); a normal quit starts the next session at the default view.
      */
-    void saveSession();
+    void saveSession(bool withViewState = false);
 
     /**
      * \brief Phase 28 (editor groups): reopen the documents/groups persisted by
