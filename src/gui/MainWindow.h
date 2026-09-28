@@ -1196,6 +1196,14 @@ public slots:
     void restartForThemeChange();
 
     /**
+     * \brief Puts the window back on the monitor and at the position of the
+     *        last session, maximized if it was (saved by saveSession()).
+     * \return false on the first start (nothing saved) - the caller then
+     *         shows the window maximized
+     */
+    bool restoreWindowPlacement();
+
+    /**
      * \brief Opens the settings dialog and navigates to the Appearance tab.
      *
      * Called after a theme-change restart to return the user to where they were.

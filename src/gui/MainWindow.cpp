@@ -2811,12 +2811,20 @@ void MainWindow::saveSession(bool withViewState) {
     _settings->setValue("g1activePath", a1path);
     _settings->setValue("g1collapsed", _group1Collapsed);
     _settings->setValue("focusGroup", (_activeView == _compareMatrixWidget) ? 1 : 0);
+    // The window's monitor, position and maximized state (restoreWindowPlacement).
+    _settings->setValue("windowGeometry", saveGeometry());
     if (views.isEmpty()) {
         _settings->remove("views");
     } else {
         _settings->setValue("views", views);
     }
     _settings->endGroup();
+}
+
+bool MainWindow::restoreWindowPlacement() {
+    // Qt moves a window whose monitor has gone onto one that exists.
+    const QByteArray geometry = _settings->value("session/windowGeometry").toByteArray();
+    return !geometry.isEmpty() && restoreGeometry(geometry);
 }
 
 bool MainWindow::restoreSession() {

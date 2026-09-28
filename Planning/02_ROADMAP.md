@@ -13957,6 +13957,10 @@ stored as separate files next to the conversation.
     the default view (owner's choice); live-checked over two theme restarts (active and background
     tab pixel-identical, cursor back). A view no longer stores a state before the window is
     shown, so the startup tab switching of the session restore pins no pre-layout viewport.
+    Also: the main window had no saved geometry at all and always opened maximized wherever
+    Windows put it; saveSession now stores saveGeometry() and main.cpp restores it before
+    showing (maximized only on a first start). Live-checked on three monitors with 100 % and
+    125 % scaling, windowed and maximized.
 * **Housekeeping first - DONE 2026-09-24:** status sweep of the stale "Planned" / "TODO"
   markers in this file, each checked against the CHANGELOG: Phase 24 (1.4.0), Phase 25 and 27
   (1.5.0), Phase 26 Local AI (1.8.2), Phase 35 Auto-Fit (2.1.0), Phase 39 (1.6.1), the v2.0

@@ -475,7 +475,12 @@ int main(int argc, char *argv[]) {
         w = new MainWindow(openFilePath);
     else
         w = new MainWindow();
-    w->showMaximized();
+    // Back on the monitor and at the position of the last session; the first
+    // start opens maximized wherever Windows places the window.
+    if (w->restoreWindowPlacement())
+        w->show();
+    else
+        w->showMaximized();
 
     // After startup, reopen settings dialog on Appearance tab if requested
     if (openSettings) {
