@@ -13974,6 +13974,21 @@ stored as separate files next to the conversation.
 
 ## Later (not in 2.5)
 
+**From the 2.5 review (2026-09-28, verified, deferred)**
+* Same-tick order after undo/redo: `MidiEvent::reloadState` re-inserts an event at the front of
+  its equal-key range, so with two program changes of different programs (or two tempo events)
+  at one tick on one channel, an undo/redo can change which one the editor applies while the
+  saved file keeps chunk order. Fix: define the winner by a stable key (track index, then map
+  order) in one helper, or skip the re-insert when channel and tick are unchanged.
+* Attachments: a size cap over the whole conversation that is sent (today 14 MB per message).
+* Tempo lane: a drawn tempo belongs to the edit track in the editor but to the first track in
+  the saved file - assign the first track when it is created.
+* PDF token estimate for PDFs with compressed page objects (counts 1 page).
+* Fix X|V Channels niche cases: Preserve removes hand-placed guitar switches on reserved
+  channels of non-guitar tracks (CF-02); Rebuild keeps an unnamed track at index 9 on channel 9
+  (CF-05 name condition).
+* Window geometry saved in one DPI mode and restored in the other (Performance settings).
+
 **From Phase 51 and the v2.4+ lists**
 * 51.4 audio render through MCP.
 * Mid-run agent steering (design validated 2026-08-26).
