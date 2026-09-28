@@ -620,7 +620,23 @@ QJsonObject McpServer::handleToolsList(const QJsonObject &params) {
 // v2.5.0: the short text that goes with the status-bar line for one tool call
 // (toolCalled): the path a document tool wrote or opened, the error of a
 // failed call, nothing otherwise.
+// A result that waits for the user's decision (save_document's "overwrite or
+// copy?") saved nothing - success stays false so no model reports a save - but
+// it is no error either: the client gets no isError and the status bar says
+// what the AI is asking.
+static bool awaitsUserDecision(const QJsonObject &toolResult) {
+    return toolResult.contains(QStringLiteral("decisionNeeded"));
+}
+
+static bool isToolError(const QJsonObject &toolResult) {
+    return toolResult.contains(QStringLiteral("success"))
+        && !toolResult.value(QStringLiteral("success")).toBool()
+        && !awaitsUserDecision(toolResult);
+}
+
 static QString toolCallDetail(const QJsonObject &toolResult) {
+    if (awaitsUserDecision(toolResult))
+        return QStringLiteral("asks the user: ") + toolResult.value(QStringLiteral("question")).toString();
     if (!toolResult.value(QStringLiteral("success")).toBool(true))
         return toolResult.value(QStringLiteral("error")).toString();
     return toolResult.value(QStringLiteral("path")).toString();
@@ -851,7 +867,7 @@ QJsonObject McpServer::handleToolsCall(const QJsonObject &params, Session &sessi
     // A tool that reports no "success" field at all counts as succeeded (same
     // rule as the isError mapping below).
     emit toolCalled(session.id, session.clientName, toolName,
-                    toolResult.value(QStringLiteral("success")).toBool(true),
+                    !isToolError(toolResult),
                     toolCallDetail(toolResult));
 
     // Convert tool result to MCP content format
@@ -863,7 +879,7 @@ QJsonObject McpServer::handleToolsCall(const QJsonObject &params, Session &sessi
     content.append(textContent);
     result["content"] = content;
 
-    if (toolResult.contains("success") && !toolResult["success"].toBool()) {
+    if (isToolError(toolResult)) {
         result["isError"] = true;
     }
 

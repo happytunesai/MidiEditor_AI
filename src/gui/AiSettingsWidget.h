@@ -230,6 +230,10 @@ private:
     QSpinBox *_contextMeasuresSpin;
     QLabel *_contextEstimateLabel;
     QSpinBox *_agentMaxStepsSpin;
+    /** \brief AI/existing_file_save - what an AI save does with a file the
+     *  user opened: ask (default), always copy, always overwrite. Shared by
+     *  MidiPilot and MCP clients. */
+    QComboBox *_existingFileSaveCombo;
     QCheckBox *_ffxivCheck;
     QPushButton *_editPromptsButton;
     QLabel *_promptsStatusLabel;

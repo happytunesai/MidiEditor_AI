@@ -3327,6 +3327,18 @@ void MidiPilotWidget::onAgentStepStarted(int step, const QString &toolName) {
 void MidiPilotWidget::onAgentStepCompleted(int step, const QString &toolName, const QJsonObject &result) {
     bool success = result["success"].toBool(true);
     bool recoverable = result["recoverable"].toBool(false);
+    // save_document waiting for the user's "overwrite or copy?" saved nothing,
+    // but the step did its job - it produced the question. Shown as a question,
+    // not as a failed step; the agent asks it in its reply.
+    const bool awaitsUser = result.contains(QStringLiteral("decisionNeeded"));
+    if (awaitsUser) {
+        success = true;
+        const QString question = result.value(QStringLiteral("question")).toString();
+        if (!question.isEmpty()) {
+            // Concatenated, never .arg()-substituted (file names are input).
+            addChatBubble(QStringLiteral("system"), QStringLiteral("❓ ") + question);
+        }
+    }
     // Color-code the footer status to match the step outcome:
     //   OK       → green   (matches the green check in the Steps widget)
     //   retrying → orange  (still in progress)
@@ -3373,12 +3385,15 @@ void MidiPilotWidget::onAgentStepCompleted(int step, const QString &toolName, co
                     || toolName == QStringLiteral("save_document_as"))) {
         const QString path = result.value(QStringLiteral("path")).toString();
         if (!path.isEmpty()) {
+            QString tail;
+            if (result.value(QStringLiteral("overwritten")).toBool(false)) {
+                tail = QStringLiteral(" — the file was overwritten, as you chose for this tab.");
+            } else if (!result.value(QStringLiteral("previousPath")).toString().isEmpty()) {
+                tail = QStringLiteral(" — the tab continues on this file, the previous file "
+                                      "is unchanged.");
+            }
             addChatBubble(QStringLiteral("system"),
-                          QStringLiteral("\U0001F4BE Saved ") + path
-                              + (result.value(QStringLiteral("previousPath")).toString().isEmpty()
-                                     ? QString()
-                                     : QStringLiteral(" — the tab continues on this file, "
-                                                      "the previous file is unchanged.")));
+                          QStringLiteral("\U0001F4BE Saved ") + path + tail);
         }
         // The bound tab was renamed with the file: keep the per-step
         // document label current.

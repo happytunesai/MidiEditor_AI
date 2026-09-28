@@ -13750,6 +13750,14 @@ it writes copies that carry its mark and works on those:
   bound document's own file when that file already carries an AI mark - its own working copy,
   so repeated saves need no new names. Every other existing file stays untouched; if the target
   name is taken, a counter is added (`mozart.midipilot.2.mid`). There is no `overwrite` switch.
+  **Revised 2026-09-28 (owner, after trying the tools):** a document opened from a MIDI file
+  may be overwritten, but only on the user's decision - save_document answers `decisionNeeded`
+  with a question the AI asks in its chat, then saves with `mode` "overwrite" or "copy"; the
+  answer is remembered per tab (until it closes), and the setting "AI saves your file" (Ask each
+  time / Always save a copy / Always overwrite, shared by MidiPilot and MCP) can settle it for
+  good. Imports that cannot be written back, save_document_as and every other file keep the
+  rules above. No MCP elicitation - the question travels in the tool result, so every client
+  works.
 * **Names.** A document with a source file takes its name from the source, and the copy goes
   next to it: `mozart.mid` or `mozart.gp5` -> `mozart.midipilot.mid`. An untitled document gets
   a short descriptive name from the request or from the user; with nothing to go on, the AI

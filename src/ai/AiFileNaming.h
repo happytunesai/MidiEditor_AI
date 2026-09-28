@@ -3,9 +3,11 @@
  *
  * The "AI gate": every file MidiPilot or an MCP client writes is a MARKED copy -
  * <name>.midipilot.mid (MidiPilot) or <name>.mcp.mid (MCP) - and an existing
- * file is never written over. The only exception is the document's own file
- * when it already carries the caller's mark: that is the AI's working copy, so
- * repeated saves go into the same file. A taken name gets a counter
+ * file is never written over. Two exceptions: the document's own file when it
+ * already carries the caller's mark (the AI's working copy, so repeated saves
+ * go into the same file), and the document's own MIDI file when the USER chose
+ * "overwrite" (asked by the AI, remembered per tab, or set in the settings -
+ * MainWindow::aiSaveDocument). A taken name gets a counter
  * (mozart.midipilot.2.mid).
  *
  * Pure Qt Core, no file-system access of its own: whether a candidate name is
@@ -46,6 +48,13 @@ bool hasMark(const QString &path, const QString &mark);
 /// "<base>.<mark>.mid" for counter <= 1, "<base>.<mark>.<counter>.mid" above.
 QString markedFileName(const QString &base, const QString &mark, int counter = 1);
 
+/// True when an AI save of the document at \a documentPath has to settle
+/// "overwrite or copy" first: the document has a file MidiEditor can write
+/// back (.mid/.midi) and it is not the caller's own marked working copy.
+/// Untitled documents, imports that cannot be written back (Guitar Pro,
+/// MusicXML, ...) and the AI's own copy never raise the question.
+bool offersOverwrite(const QString &documentPath, const QString &mark);
+
 /// Outcome of planSave().
 struct SavePlan {
     bool ok = false;
@@ -69,13 +78,17 @@ struct SavePlan {
  *                      (the editor's last Open/Save folder)
  * \param isTaken       true when a candidate path must not be written
  *                      (exists on disk or belongs to another open document)
+ * \param overwriteDocumentFile  the user chose to overwrite the document's
+ *                      own file: save_document writes it in place when
+ *                      offersOverwrite() holds (never for save_document_as)
  */
 SavePlan planSave(const QString &documentPath,
                   const QString &requestedName,
                   const QString &mark,
                   bool asNewCopy,
                   const QString &fallbackDir,
-                  const std::function<bool(const QString &)> &isTaken);
+                  const std::function<bool(const QString &)> &isTaken,
+                  bool overwriteDocumentFile = false);
 
 } // namespace AiFileNaming
 

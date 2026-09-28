@@ -135,18 +135,22 @@ In Agent mode, the AI has access to <b>38 tools</b> (32 core + <code>switch_docu
 
 <p>
 MidiPilot and MCP clients can create, open, save and close documents themselves. None of these
-tools opens a dialog, and the AI never writes over a file that already exists. Every file it
-saves is a <b>marked copy</b>:
+tools opens a dialog. A file you opened is only written over when you say so; everything else the
+AI saves is a <b>marked copy</b>:
 </p>
 
 <ul>
-<li><b>The mark shows who wrote it.</b> MidiPilot saves <code>mozart.mid</code> as
-<code>mozart.midipilot.mid</code>, an MCP client as <code>mozart.mcp.mid</code>. The copy is always a
-Standard MIDI file (<code>.mid</code>), also for an imported Guitar Pro, MusicXML, MuseScore or MML
-file, and it is written next to the source.</li>
-<li><b>The tab continues on the copy.</b> After the save the tab shows the new name and works on the
-copy; the original on disk is unchanged. Saving again writes into the same copy - the one file the AI
-may write over is its own marked working copy.</li>
+<li><b>Overwrite or copy - you decide.</b> When the AI saves a document you opened from a MIDI file,
+it first asks you in the chat whether to overwrite that file or keep it and save a copy. Your answer
+counts for that tab until you close it, so the AI asks only once. In the MidiPilot settings,
+<b>AI saves your file</b> can settle it for good: <i>Ask each time</i> (the default), <i>Always save a
+copy</i> or <i>Always overwrite</i>. The setting applies to MidiPilot and to MCP clients alike.</li>
+<li><b>The mark shows who wrote it.</b> MidiPilot saves a copy of <code>mozart.mid</code> as
+<code>mozart.midipilot.mid</code>, an MCP client as <code>mozart.mcp.mid</code>. A copy is always a
+Standard MIDI file (<code>.mid</code>), and it is written next to the source. An imported Guitar Pro,
+MusicXML, MuseScore or MML file cannot be written back, so it always gets the copy.</li>
+<li><b>The tab continues on the copy.</b> After a copy is saved the tab shows the new name and works
+on the copy; the original on disk is unchanged. Saving again writes into the same copy.</li>
 <li><b>Taken names get a counter.</b> If <code>mozart.midipilot.mid</code> already exists and is not
 the document being saved, the AI writes <code>mozart.midipilot.2.mid</code>.</li>
 <li><b>Untitled documents need a name.</b> The AI takes a short name from your request and asks when

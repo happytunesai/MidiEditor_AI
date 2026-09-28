@@ -4213,7 +4213,8 @@ bool MainWindow::isOpenDocumentPath(const QString &path) const {
 }
 
 QJsonObject MainWindow::aiSaveDocument(MidiFile *f, const QString &name,
-                                       const QString &source, bool asNewCopy) {
+                                       const QString &source, bool asNewCopy,
+                                       const QString &mode) {
     QJsonObject r;
     r["success"] = false;
     if (_shuttingDown) {
@@ -4227,13 +4228,60 @@ QJsonObject MainWindow::aiSaveDocument(MidiFile *f, const QString &name,
     }
 
     const QString oldPath = f->path();
+    const QString mark = AiFileNaming::markFor(source);
     // "Taken" = a file on disk OR the path of an open document (whose file
     // may be gone from disk): neither is ever written over by the AI.
     auto isTaken = [this](const QString &candidate) {
         return QFileInfo::exists(candidate) || isOpenDocumentPath(candidate);
     };
+
+    // A document opened from a MIDI file: overwrite that file or keep it and
+    // write a marked copy? The user decides - through the AI's question (mode,
+    // then remembered for this tab: the property dies with the document) or
+    // once for all in the settings. Without a decision nothing is written and
+    // the result carries the question for the AI to ask.
+    bool overwrite = false;
+    if (!asNewCopy && AiFileNaming::offersOverwrite(oldPath, mark)) {
+        static const char *kDecisionProperty = "aiExistingFileSave";
+        QString decision = mode;
+        if (!decision.isEmpty()) {
+            f->setProperty(kDecisionProperty, decision);
+        } else {
+            decision = f->property(kDecisionProperty).toString();
+        }
+        if (decision.isEmpty()) {
+            const QString setting = _settings->value(QStringLiteral("AI/existing_file_save"),
+                                                     QStringLiteral("ask")).toString();
+            if (setting == QLatin1String("copy") || setting == QLatin1String("overwrite")) {
+                decision = setting;
+            }
+        }
+        if (decision.isEmpty()) {
+            const AiFileNaming::SavePlan copyPlan = AiFileNaming::planSave(
+                oldPath, name, mark, false, aiDefaultFolder(), isTaken);
+            const QString fileName = QFileInfo(oldPath).fileName();
+            r["decisionNeeded"] = QStringLiteral("overwrite_or_copy");
+            // Concatenated, never .arg()-substituted (file names are input).
+            r["question"] = QStringLiteral("Overwrite ") + fileName
+                + QStringLiteral(" with the changes, or keep it and save a copy")
+                + (copyPlan.ok ? QStringLiteral(" as ") + QFileInfo(copyPlan.targetPath).fileName()
+                               : QString())
+                + QStringLiteral("?");
+            r["overwritePath"] = QDir::toNativeSeparators(oldPath);
+            if (copyPlan.ok) {
+                r["copyPath"] = QDir::toNativeSeparators(copyPlan.targetPath);
+            }
+            r["next"] = QStringLiteral(
+                "Nothing was saved yet. Put this question to the user in your reply and wait "
+                "for the answer, then call save_document again with mode \"overwrite\" or "
+                "\"copy\". The answer is remembered for this document until its tab is closed.");
+            return r;
+        }
+        overwrite = (decision == QLatin1String("overwrite"));
+    }
+
     const AiFileNaming::SavePlan plan = AiFileNaming::planSave(
-        oldPath, name, AiFileNaming::markFor(source), asNewCopy, aiDefaultFolder(), isTaken);
+        oldPath, name, mark, asNewCopy, aiDefaultFolder(), isTaken, overwrite);
     if (!plan.ok) {
         r["error"] = plan.error;
         return r;
@@ -4247,11 +4295,13 @@ QJsonObject MainWindow::aiSaveDocument(MidiFile *f, const QString &name,
     }
 
     const QString nativePath = QDir::toNativeSeparators(plan.targetPath);
+    const bool overwrote = overwrite && plan.inPlace;
     r["success"] = true;
     r["path"] = nativePath;
     r["fileName"] = QFileInfo(plan.targetPath).fileName();
     r["documentIndex"] = documentListIndexOf(f);
     r["savedInPlace"] = plan.inPlace;
+    r["overwritten"] = overwrote;
     r["modified"] = !f->saved();
     QStringList notes;
     if (!oldPath.isEmpty() && !plan.inPlace) {
@@ -4259,11 +4309,18 @@ QJsonObject MainWindow::aiSaveDocument(MidiFile *f, const QString &name,
         notes << QStringLiteral("The tab now continues on the new file; the previous file "
                                 "was not changed.");
     }
+    if (overwrote) {
+        notes << QStringLiteral("The document's own file was overwritten, as the user chose; "
+                                "later saves of this document overwrite it again.");
+    } else if (mode == QLatin1String("overwrite") && !asNewCopy) {
+        notes << QStringLiteral("Overwriting was not possible - only a MIDI file the document "
+                                "was opened from can be overwritten - so the file above was "
+                                "written instead.");
+    }
     if (plan.nameIgnored) {
         notes << (plan.inPlace
-            ? QStringLiteral("The name was not used: this document is already your working "
-                             "copy and was saved in place. Use save_document_as for a new "
-                             "file under another name.")
+            ? QStringLiteral("The name was not used: this document was saved in place. Use "
+                             "save_document_as for a new file under another name.")
             : QStringLiteral("The name was not used: this document has a source file, so the "
                              "copy is named after it. Use save_document_as to choose another "
                              "name."));
@@ -4276,7 +4333,8 @@ QJsonObject MainWindow::aiSaveDocument(MidiFile *f, const QString &name,
                                       "editor; they are audible in the saved file.");
     }
     // Multi-arg arg(): one pass, so a '%1' inside a file name stays literal.
-    statusBar()->showMessage(tr("%1 saved %2").arg(aiActorLabel(source), nativePath), 8000);
+    statusBar()->showMessage((overwrote ? tr("%1 overwrote %2") : tr("%1 saved %2"))
+                                 .arg(aiActorLabel(source), nativePath), 8000);
     return r;
 }
 

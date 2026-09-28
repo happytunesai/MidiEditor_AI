@@ -108,15 +108,32 @@ QString markedFileName(const QString &base, const QString &mark, int counter) {
         + QString::number(counter) + QStringLiteral(".mid");
 }
 
+bool offersOverwrite(const QString &documentPath, const QString &mark) {
+    if (documentPath.isEmpty() || hasMark(documentPath, mark))
+        return false;
+    const QString suffix = QFileInfo(documentPath).suffix().toLower();
+    return suffix == QLatin1String("mid") || suffix == QLatin1String("midi");
+}
+
 SavePlan planSave(const QString &documentPath,
                   const QString &requestedName,
                   const QString &mark,
                   bool asNewCopy,
                   const QString &fallbackDir,
-                  const std::function<bool(const QString &)> &isTaken) {
+                  const std::function<bool(const QString &)> &isTaken,
+                  bool overwriteDocumentFile) {
     SavePlan plan;
     const QString name = requestedName.trimmed();
     const bool hasSource = !documentPath.isEmpty();
+
+    // The user chose to overwrite the document's own MIDI file.
+    if (!asNewCopy && overwriteDocumentFile && offersOverwrite(documentPath, mark)) {
+        plan.ok = true;
+        plan.inPlace = true;
+        plan.targetPath = QDir::cleanPath(QFileInfo(documentPath).absoluteFilePath());
+        plan.nameIgnored = !name.isEmpty();
+        return plan;
+    }
 
     // The AI's own working copy: the one file it may write over.
     if (!asNewCopy && hasSource && hasMark(documentPath, mark)) {

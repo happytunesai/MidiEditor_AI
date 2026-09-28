@@ -5,7 +5,8 @@
  * (src/ai/AiFileNaming): every AI-written file is a MARKED copy
  * (<name>.midipilot.mid / <name>.mcp.mid), marks never stack, the extension is
  * always .mid, and an existing file is never written over - except the
- * document's own file when it already carries the caller's mark.
+ * document's own file when it already carries the caller's mark, and the
+ * document's own MIDI file when the user chose "overwrite" (offersOverwrite).
  *
  * Pure Qt Core. planSave() is fed a real temporary folder, so "taken" is the
  * file system plus an explicit set standing in for other open documents.
@@ -190,6 +191,51 @@ private slots:
                                     takenBy({path(QStringLiteral("mozart.midipilot.mid"))}));
         QVERIFY2(p.ok, qPrintable(p.error));
         QCOMPARE(p.targetPath, path(QStringLiteral("mozart.midipilot.2.mid")));
+    }
+
+    // --- the user's "overwrite or copy?" decision --------------------------
+
+    // Only a MIDI file the document was opened from raises the question - not
+    // an untitled document, not an import that cannot be written back, not
+    // the caller's own copy (another AI's copy is a file the user opened).
+    void offersOverwrite_onlyForTheDocumentsOwnMidiFile() {
+        QVERIFY(offersOverwrite(path(QStringLiteral("mozart.mid")), QStringLiteral("mcp")));
+        QVERIFY(offersOverwrite(path(QStringLiteral("Mozart.MIDI")), QStringLiteral("mcp")));
+        QVERIFY(offersOverwrite(path(QStringLiteral("mozart.midipilot.mid")), QStringLiteral("mcp")));
+        QVERIFY(!offersOverwrite(QString(), QStringLiteral("mcp")));
+        QVERIFY(!offersOverwrite(path(QStringLiteral("song.gp5")), QStringLiteral("mcp")));
+        QVERIFY(!offersOverwrite(path(QStringLiteral("trio.musicxml")), QStringLiteral("mcp")));
+        QVERIFY(!offersOverwrite(path(QStringLiteral("mozart.mcp.mid")), QStringLiteral("mcp")));
+        QVERIFY(!offersOverwrite(path(QStringLiteral("mozart.mcp.2.mid")), QStringLiteral("mcp")));
+    }
+
+    // "overwrite": the document's own file, in place - a passed name is ignored.
+    void planSave_overwriteChosen_writesTheDocumentsOwnFile() {
+        touch(QStringLiteral("mozart.mid"));
+        const SavePlan p = planSave(path(QStringLiteral("mozart.mid")), QStringLiteral("other"),
+                                    QStringLiteral("mcp"), false, QString(), takenBy({}),
+                                    /*overwriteDocumentFile=*/true);
+        QVERIFY2(p.ok, qPrintable(p.error));
+        QVERIFY(p.inPlace);
+        QCOMPARE(p.targetPath, path(QStringLiteral("mozart.mid")));
+        QVERIFY(p.nameIgnored);
+    }
+
+    // "overwrite" never reaches beyond that one file: save_document_as stays a
+    // new file, and an import that cannot be written back gets its copy.
+    void planSave_overwriteChosen_neverForSaveAsOrImports() {
+        touch(QStringLiteral("mozart.mid"));
+        touch(QStringLiteral("song.gp5"));
+        const SavePlan asCopy = planSave(path(QStringLiteral("mozart.mid")), QStringLiteral("other"),
+                                         QStringLiteral("mcp"), true, QString(), takenBy({}), true);
+        QVERIFY2(asCopy.ok, qPrintable(asCopy.error));
+        QVERIFY(!asCopy.inPlace);
+        QCOMPARE(asCopy.targetPath, path(QStringLiteral("other.mcp.mid")));
+        const SavePlan import = planSave(path(QStringLiteral("song.gp5")), QString(),
+                                         QStringLiteral("mcp"), false, QString(), takenBy({}), true);
+        QVERIFY2(import.ok, qPrintable(import.error));
+        QVERIFY(!import.inPlace);
+        QCOMPARE(import.targetPath, path(QStringLiteral("song.mcp.mid")));
     }
 
     // Imported, import-only source: marked .mid next to it.

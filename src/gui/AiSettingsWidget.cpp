@@ -419,6 +419,27 @@ AiSettingsWidget::AiSettingsWidget(QSettings *settings, QWidget *parent)
     layout->addWidget(_agentMaxStepsSpin, row, 1);
     row++;
 
+    // What an AI save does with a MIDI file the user opened (MidiPilot and MCP)
+    layout->addWidget(new QLabel("AI saves your file:"), row, 0);
+    _existingFileSaveCombo = new QComboBox(this);
+    _existingFileSaveCombo->addItem("Ask each time", QStringLiteral("ask"));
+    _existingFileSaveCombo->addItem("Always save a copy", QStringLiteral("copy"));
+    _existingFileSaveCombo->addItem("Always overwrite", QStringLiteral("overwrite"));
+    {
+        const int idx = _existingFileSaveCombo->findData(
+            _settings->value("AI/existing_file_save", QStringLiteral("ask")).toString());
+        _existingFileSaveCombo->setCurrentIndex(idx >= 0 ? idx : 0);
+    }
+    _existingFileSaveCombo->setToolTip(
+        "When MidiPilot or an MCP client saves a document you opened from a MIDI file:\n"
+        "- Ask each time: the AI asks you whether to overwrite the file or save a copy\n"
+        "  (<name>.midipilot.mid / <name>.mcp.mid); your answer counts for that tab.\n"
+        "- Always save a copy: the file stays untouched, the tab continues on the copy.\n"
+        "- Always overwrite: the file itself is saved, like Ctrl+S.\n"
+        "Other files are never overwritten by the AI.");
+    layout->addWidget(_existingFileSaveCombo, row, 1);
+    row++;
+
     auto updateEstimate = [this]() {
         int m = _contextMeasuresSpin->value();
         if (m == 0) {
@@ -631,6 +652,7 @@ bool AiSettingsWidget::accept() {
         _streamingCheck->isChecked() ? "on" : "off");
     _settings->setValue("AI/context_measures", _contextMeasuresSpin->value());
     _settings->setValue("AI/agent_max_steps", _agentMaxStepsSpin->value());
+    _settings->setValue("AI/existing_file_save", _existingFileSaveCombo->currentData().toString());
     _settings->setValue("AI/ffxiv_mode", _ffxivCheck->isChecked());
     _settings->setValue("AI/max_token_enabled", _tokenLimitCheck->isChecked());
     _settings->setValue("AI/max_token_limit", _tokenLimitSpin->value());

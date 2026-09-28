@@ -834,19 +834,33 @@ QJsonArray ToolDefinitions::toolSchemas(const ToolSchemaOptions &options) {
                             "taken from the user's request (e.g. \"moonlight-octet\") or a "
                             "full path the user gave. Extension and mark are added "
                             "automatically. null for a document that already has a file."}};
+        props["mode"] = QJsonObject{
+            {"anyOf", QJsonArray{QJsonObject{{"type", "string"},
+                                             {"enum", QJsonArray{"overwrite", "copy"}}},
+                                 QJsonObject{{"type", "null"}}}},
+            {"description", "The USER's answer to the overwrite question: \"overwrite\" "
+                            "writes over the MIDI file the document was opened from, "
+                            "\"copy\" keeps it and saves a marked copy. null unless the "
+                            "user answered it or said it in the request."}};
         tools.append(makeTool(
             "save_document",
-            "Save the document being edited - silently, without a dialog. You never "
-            "overwrite existing files: a document that has a source file is saved as a "
-            "MARKED copy next to it (mozart.mid or mozart.gp5 -> mozart.midipilot.mid from "
-            "MidiPilot, mozart.mcp.mid over MCP), the tab continues on that copy, and the "
-            "original stays untouched. Saving again writes into the same copy. A taken name "
-            "gets a counter (mozart.midipilot.2.mid). An untitled document needs a name: "
-            "take it from the user's request, and ask the user when there is nothing to go "
-            "on. To keep the user's original while changing a lot, save FIRST and edit "
-            "afterwards, so a later Ctrl+S by the user lands in the copy. A file operation "
-            "is not an undo step and cannot be undone. Returns the written path.",
-            makeParams(props, {"name"})));
+            "Save the document being edited - silently, without a dialog. A document opened "
+            "from a MIDI file raises one question for the user: overwrite that file, or keep "
+            "it and save a MARKED copy next to it (mozart.mid -> mozart.midipilot.mid from "
+            "MidiPilot, mozart.mcp.mid over MCP; the tab then continues on the copy). When "
+            "the result says decisionNeeded, NOTHING was saved: ask the user its question, "
+            "wait for the answer and call again with mode \"overwrite\" or \"copy\". The "
+            "answer is remembered for the document until its tab is closed, and the user "
+            "can settle it for good in the settings - then the call saves right away. No "
+            "other existing file is ever written over: an imported source (mozart.gp5) "
+            "always gets the marked .mid copy, your own marked copy is saved in place, and a "
+            "taken copy name gets a counter (mozart.midipilot.2.mid). An untitled document "
+            "needs a name: take it from the user's request, and ask the user when there is "
+            "nothing to go on. To keep the user's original while changing a lot, save the "
+            "copy FIRST and edit afterwards, so a later Ctrl+S by the user lands in the "
+            "copy. A file operation is not an undo step and cannot be undone. Returns the "
+            "written path.",
+            makeParams(props, {"name", "mode"})));
     }
 
     // save_document_as
@@ -2145,8 +2159,18 @@ QJsonObject ToolDefinitions::execDocumentFileTool(const QString &toolName,
             result["error"] = QStringLiteral("name must be a string or null.");
             return result;
         }
+        // mode: the user's answer to the overwrite question (save_document only).
+        const QJsonValue mode = args.value(QStringLiteral("mode"));
+        if (!mode.isUndefined() && !mode.isNull()
+            && mode.toString() != QLatin1String("overwrite")
+            && mode.toString() != QLatin1String("copy")) {
+            result["success"] = false;
+            result["error"] = QStringLiteral("mode must be \"overwrite\", \"copy\" or null.");
+            return result;
+        }
         return mw->aiSaveDocument(file, name.toString(), source,
-                                  toolName == QStringLiteral("save_document_as"));
+                                  toolName == QStringLiteral("save_document_as"),
+                                  mode.toString());
     }
 
     if (toolName == QStringLiteral("close_document")) {

@@ -970,8 +970,12 @@ private slots:
         // hits the original.
         const QString save = findTool(QStringLiteral("save_document"))
                                  .value(QStringLiteral("description")).toString();
-        QVERIFY2(save.contains(QStringLiteral("save FIRST")), qPrintable(save));
+        QVERIFY2(save.contains(QStringLiteral("copy FIRST")), qPrintable(save));
         QVERIFY2(save.contains(QStringLiteral("ask the user")), qPrintable(save));
+        // Overwrite or copy is the USER's decision, asked through the result.
+        QVERIFY2(save.contains(QStringLiteral("decisionNeeded")), qPrintable(save));
+        QVERIFY2(save.contains(QStringLiteral("NOTHING was saved")), qPrintable(save));
+        QVERIFY2(save.contains(QStringLiteral("mode \"overwrite\" or \"copy\"")), qPrintable(save));
         // Neither caller is re-bound silently by new/open.
         for (const QString &name : {QStringLiteral("new_document"),
                                     QStringLiteral("open_document")}) {
@@ -996,10 +1000,23 @@ private slots:
             return findTool(tool).value(QStringLiteral("parameters")).toObject()
                 .value(QStringLiteral("properties")).toObject();
         };
-        // save_document(_as): one optional name.
-        for (const QString &name : {QStringLiteral("save_document"),
-                                    QStringLiteral("save_document_as")}) {
-            const QJsonObject props = propsOf(name);
+        // save_document: optional name + the user's overwrite decision;
+        // save_document_as: one optional name (always a new file, no decision).
+        {
+            const QJsonObject props = propsOf(QStringLiteral("save_document"));
+            QCOMPARE(props.size(), 2);
+            QVERIFY(nullable(props.value(QStringLiteral("name")).toObject()));
+            const QJsonObject mode = props.value(QStringLiteral("mode")).toObject();
+            QVERIFY(nullable(mode));
+            QJsonArray modes;
+            for (const QJsonValue &b : mode.value(QStringLiteral("anyOf")).toArray()) {
+                if (b.toObject().contains(QStringLiteral("enum")))
+                    modes = b.toObject().value(QStringLiteral("enum")).toArray();
+            }
+            QCOMPARE(modes, (QJsonArray{QStringLiteral("overwrite"), QStringLiteral("copy")}));
+        }
+        {
+            const QJsonObject props = propsOf(QStringLiteral("save_document_as"));
             QCOMPARE(props.size(), 1);
             QVERIFY(nullable(props.value(QStringLiteral("name")).toObject()));
         }

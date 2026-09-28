@@ -9,7 +9,7 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 
 ### Summary
 * **[MidiPilot and MCP clients save, open, create and close documents](https://midieditor-ai.de/midipilot-tools.html#files)** - five new tools finish a workflow without the GUI, silently and without a dialog (Phase 51).
-* **[The AI never overwrites your files](https://midieditor-ai.de/midipilot-tools.html#files)** - every file it saves is a marked copy next to the source (`mozart.mid` -> `mozart.midipilot.mid`, over MCP `mozart.mcp.mid`), a taken name gets a counter, and the tab continues on the copy while the original stays untouched.
+* **[You decide whether the AI overwrites your file](https://midieditor-ai.de/midipilot-tools.html#files)** - before saving a file you opened, the AI asks: overwrite it, or keep it and save a marked copy next to it (`mozart.mid` -> `mozart.midipilot.mid`, over MCP `mozart.mcp.mid`). The answer counts for the tab, and a setting can make it for good. Any other existing file is never written over; a taken name gets a counter.
 * **[Exact tempos](https://midieditor-ai.de/mcp-server.html#tools)** - `set_tempo` takes fractional BPM or the exact microseconds per quarter note MIDI files store, and the new `get_timing_map` reads every tempo, meter, key signature and marker with exact values (51.2).
 * **Stricter tool arguments** - a tool call with a parameter the tool does not have is refused and names the real parameters, and `delete_events` / `query_events` can act on one event kind only, e.g. just the program change at tick 0 (MCP-ARGS-001).
 * **MCP calls show up in the status bar** - one short line per tool call with the client name, the path of a file operation or the error of a failed call.
@@ -22,7 +22,7 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 <summary>Full Changelog - Document Tools and Attachments for MidiPilot and MCP</summary>
 
 ### New Features
-* **[Document tools](https://midieditor-ai.de/midipilot-tools.html#files)** - `save_document`, `save_document_as`, `new_document`, `open_document` and `close_document` for MidiPilot's agent and for MCP clients. None of them opens a dialog, so an MCP call never waits on the user. Saving writes a marked copy (`<name>.midipilot.mid` from MidiPilot, `<name>.mcp.mid` over MCP; always `.mid`, also for an imported Guitar Pro, MusicXML, MuseScore or MML file) next to the source; the only file the AI saves in place is its own marked working copy, a taken name gets a counter, and an existing file is never written over. The tab continues on the copy, so a later Ctrl+S lands there too. An untitled document takes a short name from the request - the agent asks when there is nothing to go on. A tab with unsaved changes is never closed by the AI. Saving is not an undo step; it shows in the tab title, the status bar and - for MidiPilot - a chat line with the saved path. File -> Save and Save As keep their dialogs.
+* **[Document tools](https://midieditor-ai.de/midipilot-tools.html#files)** - `save_document`, `save_document_as`, `new_document`, `open_document` and `close_document` for MidiPilot's agent and for MCP clients. None of them opens a dialog, so an MCP call never waits on the user. For a document you opened from a MIDI file the AI asks you first - in its chat - whether to overwrite that file or keep it and save a marked copy (`<name>.midipilot.mid` from MidiPilot, `<name>.mcp.mid` over MCP; always `.mid`, and the only choice for an imported Guitar Pro, MusicXML, MuseScore or MML file) next to the source. Your answer counts for that tab until it is closed, and **Settings -> MidiPilot -> AI saves your file** (Ask each time / Always save a copy / Always overwrite) can settle it for good, for MidiPilot and MCP clients alike. The AI's own marked copy is saved in place, a taken name gets a counter, and no other existing file is ever written over. After a copy the tab continues on it, so a later Ctrl+S lands there too. An untitled document takes a short name from the request - the agent asks when there is nothing to go on. A tab with unsaved changes is never closed by the AI. Saving is not an undo step; it shows in the tab title, the status bar and - for MidiPilot - a chat line with the saved path. File -> Save and Save As keep their dialogs.
 * **New documents at a chosen resolution** - `new_document` creates an empty document with the requested ticks per quarter note.
 * **[Exact tempo](https://midieditor-ai.de/mcp-server.html#tools)** - `set_tempo` accepts fractional BPM or `microsecondsPerQuarter`, returns the stored value and writes it unrounded (a 120.5 BPM tempo used to become 120). `get_timing_map` returns the resolution, every tempo change (microseconds per quarter note, derived BPM, time in ms), every time and key signature, and marker, text and cue events with their ticks.
 * **Event-kind filter** - `delete_events` and `query_events` take an optional `types` list (`note`, `cc`, `pitch_bend`, `program_change`).
@@ -58,12 +58,13 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 * **Clone Track doubled the tempo map** - cloning the first track copied every tempo change, time and key signature and marker onto the clone.
 
 ### Files Modified
-* `src/ai/AiFileNaming.h/.cpp` (new) - the naming rules for AI saves: marks, counter, never overwrite
+* `src/ai/AiFileNaming.h/.cpp` (new) - the naming rules for AI saves: marks, counter, overwrite only the document's own MIDI file and only on the user's decision
+* `src/gui/AiSettingsWidget.h/.cpp` - the "AI saves your file" setting
 * `src/ai/EventKindFilter.h` (new) - the `types` filter
 * `src/ai/ToolDefinitions.h/.cpp` - the new tools, `set_tempo` exact input, unknown-argument check, `types` filter, `setup_channel_pattern` description
 * `src/gui/MainWindow.h/.cpp` - per-document save core shared by the menu and the tools; the AI document operations; MCP status-bar line; Fix X|V Channels result warnings and title; edit and paste track follow their track, Merge/Clone keep the song-wide data
 * `src/gui/TrackListWidget.cpp`, `src/gui/TrackDropTarget.h` (new) - drops land at the insertion line; the first track can be moved, its context menu entries enabled
-* `src/ai/McpServer.h/.cpp` - window-level new/open/close, tool-call signal with client, result and detail
+* `src/ai/McpServer.h/.cpp` - window-level new/open/close, tool-call signal with client, result and detail; a save waiting for the user's decision is no error
 * `src/ai/AgentRunner.cpp`, `src/gui/MidiPilotWidget.cpp`, `src/ai/EditorContext.cpp` - step labels, saved-path chat line, exact tempo, agent prompt
 * `src/midi/MidiFile.h/.cpp` - resolution of a new document; a failed write is not a save; channel assignment on load, the player's start program, program changes before their notes; song-wide data kept in the first track on load, move, removal and save, loader defaults only when the file has none
 * `src/midi/MidiChannel.h/.cpp`, `src/midi/PlayerThread.cpp` - the program change in effect at a tick; program changes played before their notes
@@ -75,7 +76,7 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 * `src/gui/MidiPilotWidget.h/.cpp` - paperclip, chips, drag & drop, paste; attachments in send, retry, budget, save and reload; New Chat saves before clearing
 * `run_environment/graphics/tool/attach.png` (new), `resources.qrc`
 * `tests/test_ai_file_naming.cpp` (new), `tests/test_chat_attachments.cpp` (new), `tests/test_document_timing.cpp` (new), `tests/test_tool_definitions.cpp`, `tests/test_conversation_store.cpp`, `tests/test_streaming_fallback.cpp`, `tests/test_ffxiv_fixer_resync.cpp`, `tests/test_midi_channel.cpp`, `tests/test_track_order.cpp` (new)
-* `manual/midipilot-tools.html`, `manual/mcp-server.html`, `manual/midipilot.html`, `manual/midipilot-modes.html`, `manual/docs-index.html`, `manual/ffxiv-channel-fixer.html`, `manual/editing-midi-files.html`, `manual/editor-and-components.html`, `README.md`
+* `manual/midipilot-tools.html`, `manual/mcp-server.html`, `manual/midipilot.html`, `manual/midipilot-modes.html`, `manual/midipilot-settings.html`, `manual/docs-index.html`, `manual/ffxiv-channel-fixer.html`, `manual/editing-midi-files.html`, `manual/editor-and-components.html`, `README.md`
 
 </details>
 

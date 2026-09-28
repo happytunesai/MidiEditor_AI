@@ -210,16 +210,22 @@ public:
     // failure comes back as text in the result's "error" field, addressed to
     // the model. Saving goes through the AI gate (AiFileNaming): the AI writes
     // marked copies (<name>.midipilot.mid / <name>.mcp.mid) and never writes
-    // over an existing file except the document's own marked file. The menu
+    // over an existing file except the document's own marked file - or the
+    // document's own MIDI file when the user chose "overwrite". The menu
     // commands keep their dialogs; only the tools use these.
     // \a source is the tool call's source ("" = MidiPilot, "mcp[:client]").
 
     /** \brief Saves \a f per the AI gate. \a asNewCopy = save_document_as
      *  (always a new file); otherwise the document's own marked file is
-     *  written in place and any other document gets its marked copy. The tab
+     *  written in place, and a document opened from a MIDI file is either
+     *  overwritten or copied - as \a mode says ("overwrite" / "copy", the
+     *  user's answer), as answered before for this tab, or as the setting
+     *  AI/existing_file_save says. With none of them the result asks for the
+     *  decision (decisionNeeded) and nothing is written. After a copy the tab
      *  continues on the written file (Save As semantics). */
     QJsonObject aiSaveDocument(MidiFile *f, const QString &name,
-                               const QString &source, bool asNewCopy);
+                               const QString &source, bool asNewCopy,
+                               const QString &mode = QString());
 
     /** \brief Opens an empty untitled document in a new tab of the focused
      *  group. \a ticksPerQuarter <= 0 = the configured default. */
