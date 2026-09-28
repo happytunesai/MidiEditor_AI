@@ -840,6 +840,21 @@ void MatrixWidget::paintChannel(QPainter *painter, int channel) {
         // Fast early rejection: check line visibility first (cheapest test)
         int line = currentEvent->line();
         if (line < startLineY || line > endLineY) {
+            // The rows below the notes (controllers, pitch bend, pressure,
+            // tempo, ...) are usually scrolled out of view, but the controller
+            // lane under the piano roll reads their values from velocityObjects
+            // for the whole visible time range - it stayed flat (and drawing in
+            // it doubled the events it could not see) unless that row was on
+            // screen. Velocities stay limited to the notes on screen.
+            if (line >= MidiEvent::TEMPO_CHANGE_EVENT_LINE && !currentEvent->track()->hidden()) {
+                const int tick = currentEvent->midiTime();
+                if (tick >= startTick && tick <= endTick
+                    && !localVelocityObjectsSet.contains(currentEvent)) {
+                    currentEvent->setX(xPosOfMs(msOfTick(tick)));
+                    velocityObjects->prepend(currentEvent);
+                    localVelocityObjectsSet.insert(currentEvent);
+                }
+            }
             continue;
         }
 
