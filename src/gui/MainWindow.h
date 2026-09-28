@@ -1427,6 +1427,10 @@ private:
      *  (read-only) view while the sync-lock is on. */
     void syncSecondaryCursor();
 
+    /** \brief Sync: puts the secondary view on the primary's zoom, position
+     *  and cursor (Sync switched on, or another tab shown on the right). */
+    void snapSecondaryToPrimary();
+
     /** \brief True iff a live (LAN/WAN) collaboration session is running. While
      *  it is, collab is treated as single-document: the tabs are locked. */
     bool collabLiveActive() const;
@@ -1705,8 +1709,10 @@ private:
      * saveSession(). \return true if at least one document was reopened (so the
      * caller skips the default new/initial document); false if there was no
      * usable session.
+     * \param views the per-tab view states saveSession(true) wrote (taken out
+     *        of the settings by loadInitFile(), so they serve one start only)
      */
-    bool restoreSession();
+    bool restoreSession(const QVariantList &views = QVariantList());
 
     /** \brief Phase 28: files whose one-time signal wiring has been done. */
     QSet<MidiFile *> _connectedFiles;
@@ -1746,18 +1752,12 @@ private:
      *  updateTrackMenu() (a per-refresh group was leaked). */
     QActionGroup *_pasteTrackGroup = nullptr;
 
-    /** \brief The TRACKS chosen for new events and for "Paste to track": the
-     *  tool statics hold only positions, so after a reorder, an undo of one or
-     *  a removed track updateTrackMenu() re-finds these tracks by identity
-     *  instead of silently switching to whatever sits at the old position
-     *  (track-order review TR-01). Null when none was chosen in this file. */
-    QPointer<MidiTrack> _editTrackRef;
-    QPointer<MidiTrack> _pasteTrackRef;
-
     /** \brief The track order the track menus were last built for. After every
      *  finished action of the active document the menus are rebuilt when the
      *  order differs - Clone, the split tools and MidiPilot/MCP track tools
-     *  rearrange the list without a trackChanged() (track-order review TR-01). */
+     *  rearrange the list without a trackChanged() (track-order review TR-01).
+     *  It is also the list the edit track and the paste target were chosen
+     *  in, so updateTrackMenu() moves them along with their tracks. */
     QList<MidiTrack *> _trackMenuOrder;
 
     /** \brief Lower tab widget for additional panels */

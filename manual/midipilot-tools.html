@@ -111,7 +111,7 @@ In Agent mode, the AI has access to <b>38 tools</b> (32 core + <code>switch_docu
 <tr><td><code>copy_events_to_track</code></td><td>Copy notes to another track, optionally restricted to a tick range - e.g. double a melody onto a second performer, then transpose the copy</td></tr>
 <tr><td><code>import_tracks_from_document</code></td><td>Copy whole tracks from another open tab into the document being edited - appended as new tracks with their names preserved, the source untouched. Ticks are rescaled when the two files' resolutions differ; channel collisions and differing tempo maps are reported. Defaults to a dry run and requires the user's confirmation before the real pass; one undo step restores everything</td></tr>
 <tr><td><code>switch_document</code></td><td>Point the rest of the run at another open tab: from the next tool call on, every read and write acts on that document and its undo steps land there. The chat announces the switch, the visible tab stays put, and the agent switches only when you explicitly ask it to work on another tab</td></tr>
-<tr><td><code>save_document</code></td><td>Save the document being edited, without a dialog, as a marked copy next to its source file - see <a href="#files">Saving and opening documents</a></td></tr>
+<tr><td><code>save_document</code></td><td>Save the document being edited, without a dialog: into the file you opened when you say so, otherwise as a marked copy next to it - see <a href="#files">Saving and opening documents</a></td></tr>
 <tr><td><code>save_document_as</code></td><td>Save the document as a new marked file under another name - also how the AI "renames" a document; the previous file stays where it is</td></tr>
 <tr><td><code>new_document</code></td><td>Create an empty, untitled document in a new tab, optionally with a chosen resolution (ticks per quarter note)</td></tr>
 <tr><td><code>open_document</code></td><td>Open a MIDI file or an importable file (Guitar Pro, MusicXML, MuseScore, MML) in a new tab; a file that is already open is reported instead of opened twice</td></tr>
@@ -142,7 +142,8 @@ AI saves is a <b>marked copy</b>:
 <ul>
 <li><b>Overwrite or copy - you decide.</b> When the AI saves a document you opened from a MIDI file,
 it first asks you in the chat whether to overwrite that file or keep it and save a copy. Your answer
-counts for that tab until you close it, so the AI asks only once. In the MidiPilot settings,
+counts for that file in that tab until you close it, so the AI asks only once; after a Save As to
+another MIDI file, or for a file in another tab, it asks again. In the MidiPilot settings,
 <b>AI saves your file</b> can settle it for good: <i>Ask each time</i> (the default), <i>Always save a
 copy</i> or <i>Always overwrite</i>. The setting applies to MidiPilot and to MCP clients alike.</li>
 <li><b>The mark shows who wrote it.</b> MidiPilot saves a copy of <code>mozart.mid</code> as

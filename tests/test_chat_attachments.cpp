@@ -205,6 +205,43 @@ private slots:
         QCOMPARE(primaryText(QJsonValue(QStringLiteral("s"))), QStringLiteral("s"));
     }
 
+    // A refused message leaves the conversation as text: pictures and files
+    // out (named), inlined text files and the user's text kept.
+    void refusedMessage_keepsItsTextOnly() {
+        const QJsonArray chat = chatContent(
+            QStringLiteral("instruction"),
+            {make(QStringLiteral("notes.txt"), QByteArray("line")),
+             make(QStringLiteral("sheet.png"), pngBytes()),
+             make(QStringLiteral("song.mid"), QByteArray("MThd-bytes"))});
+        QHash<QString, QString> names{{hashOf(pngBytes()), QStringLiteral("sheet.png")}};
+        QStringList removed;
+        const QJsonValue out = withoutImageAndFileParts(chat, names, &removed);
+        QVERIFY(out.isString());
+        QCOMPARE(removed, (QStringList{QStringLiteral("sheet.png"), QStringLiteral("song.mid")}));
+        QVERIFY(out.toString().startsWith(QStringLiteral("instruction\n\n")));
+        QVERIFY(out.toString().contains(QStringLiteral("line")));          // text file kept
+        QVERIFY(out.toString().contains(QStringLiteral("sheet.png, song.mid")));
+        QVERIFY(!out.toString().contains(QStringLiteral("base64")));
+        // nothing to take out: unchanged
+        removed.clear();
+        const QJsonArray textOnly = chatContent(QStringLiteral("hi"),
+                                                {make(QStringLiteral("notes.txt"), QByteArray("x"))});
+        QCOMPARE(withoutImageAndFileParts(textOnly, {}, &removed), QJsonValue(textOnly));
+        QVERIFY(removed.isEmpty());
+        QCOMPARE(withoutImageAndFileParts(QJsonValue(QStringLiteral("s")), {}, &removed),
+                 QJsonValue(QStringLiteral("s")));
+    }
+
+    void contentRefusal_onlyForTheRequestsContent() {
+        QVERIFY(isContentRefusal(QStringLiteral("API error (HTTP 400): invalid image")));
+        QVERIFY(isContentRefusal(QStringLiteral("Streaming error (HTTP 413): too large")));
+        QVERIFY(isContentRefusal(QStringLiteral("Gemini streaming error (HTTP 422): x\ny")));
+        QVERIFY(!isContentRefusal(QStringLiteral("API error (HTTP 401): bad key")));
+        QVERIFY(!isContentRefusal(QStringLiteral("API error (HTTP 429): rate limit")));
+        QVERIFY(!isContentRefusal(QStringLiteral("Streaming error (HTTP 503): overloaded")));
+        QVERIFY(!isContentRefusal(QStringLiteral("Request timed out.")));
+    }
+
     void tokenEstimate_countsAttachments() {
         const int textOnly = estimateTokens(chatContent(QString(400, QLatin1Char('a')), {}));
         QCOMPARE(textOnly, 100);

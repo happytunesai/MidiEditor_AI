@@ -115,6 +115,41 @@ bool offersOverwrite(const QString &documentPath, const QString &mark) {
     return suffix == QLatin1String("mid") || suffix == QLatin1String("midi");
 }
 
+bool samePath(const QString &a, const QString &b) {
+    if (a.isEmpty() || b.isEmpty())
+        return false;
+#ifdef Q_OS_WIN
+    const Qt::CaseSensitivity cs = Qt::CaseInsensitive;
+#else
+    const Qt::CaseSensitivity cs = Qt::CaseSensitive;
+#endif
+    return QDir::cleanPath(QFileInfo(a).absoluteFilePath())
+               .compare(QDir::cleanPath(QFileInfo(b).absoluteFilePath()), cs) == 0;
+}
+
+ExistingFileSave resolveExistingFileSave(const QString &documentPath, const QString &mode,
+                                         const ExistingFileDecision &decision,
+                                         const QString &setting) {
+    const bool answeredHere = samePath(decision.answeredPath, documentPath);
+    if (mode == QLatin1String("copy"))
+        return ExistingFileSave::Copy;
+    if (mode == QLatin1String("overwrite")) {
+        const bool userSaidSo = samePath(decision.askedPath, documentPath)
+            || (answeredHere && decision.answer == QLatin1String("overwrite"))
+            || setting == QLatin1String("overwrite");
+        return userSaidSo ? ExistingFileSave::Overwrite : ExistingFileSave::Ask;
+    }
+    if (answeredHere && decision.answer == QLatin1String("overwrite"))
+        return ExistingFileSave::Overwrite;
+    if (answeredHere && decision.answer == QLatin1String("copy"))
+        return ExistingFileSave::Copy;
+    if (setting == QLatin1String("overwrite"))
+        return ExistingFileSave::Overwrite;
+    if (setting == QLatin1String("copy"))
+        return ExistingFileSave::Copy;
+    return ExistingFileSave::Ask;
+}
+
 SavePlan planSave(const QString &documentPath,
                   const QString &requestedName,
                   const QString &mark,

@@ -407,6 +407,42 @@ QStringList attachmentNames(const QJsonValue &content, const QHash<QString, QStr
     return names;
 }
 
+QJsonValue withoutImageAndFileParts(const QJsonValue &content,
+                                    const QHash<QString, QString> &imageNames,
+                                    QStringList *removed) {
+    if (!content.isArray())
+        return content;
+    QJsonArray kept;
+    QJsonArray takenOut;
+    for (const QJsonValue &v : content.toArray()) {
+        const QString type = v.toObject().value(QStringLiteral("type")).toString();
+        if (type == QLatin1String("text"))
+            kept.append(v);
+        else
+            takenOut.append(v);
+    }
+    if (takenOut.isEmpty())
+        return content;
+    const QStringList names = attachmentNames(takenOut, imageNames);
+    if (removed)
+        *removed = names;
+    QString text = plainText(kept);
+    if (!text.isEmpty())
+        text += QStringLiteral("\n\n");
+    text += QStringLiteral("[Not sent: ") + names.join(QStringLiteral(", "))
+        + QStringLiteral(" - the provider refused the message with them.]");
+    return text;
+}
+
+bool isContentRefusal(const QString &error) {
+    static const QRegularExpression re(QStringLiteral("HTTP (\\d{3})"));
+    const QRegularExpressionMatch m = re.match(error);
+    if (!m.hasMatch())
+        return false;
+    const int code = m.captured(1).toInt();
+    return code == 400 || code == 413 || code == 415 || code == 422;
+}
+
 int estimateTokens(const QJsonValue &content) {
     if (!content.isArray())
         return content.toString().size() / 4;

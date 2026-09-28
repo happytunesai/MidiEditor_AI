@@ -13,7 +13,6 @@
 #include "../../midi/MidiTrack.h"
 #include "../../MidiEvent/NoteOnEvent.h"
 #include "../../MidiEvent/OffEvent.h"
-#include "../../MidiEvent/ProgChangeEvent.h"
 #include "../../MidiEvent/TempoChangeEvent.h"
 #include "../../MidiEvent/TimeSignatureEvent.h"
 #include "../../MidiEvent/KeySignatureEvent.h"
@@ -58,32 +57,31 @@ ScoreInput extractInput(MidiFile *file) {
         }
     }
 
-    // Notes + program, bucketed by track (channels 0..15 only).
+    // Notes, bucketed by track (channels 0..15 only), and the channel each
+    // track plays on: the one with most of its notes. The part's instrument is
+    // the program in effect on that channel at its first note there - not the
+    // first program change the track owns: Fix X|V Channels gives every track
+    // a program change for every channel, so that one belonged to channel 0
+    // and every part came out with channel 0's instrument.
     struct Acc {
         QList<RawNote> notes;
-        int  program = 0; bool hasProg = false;
-        int  channel = 0; bool hasChan = false;
+        QHash<int, int> notesPerChannel;
+        QHash<int, int> firstTickOnChannel;
     };
     QHash<MidiTrack *, Acc> acc;
     for (int ch = 0; ch < 16; ++ch) {
         QMultiMap<int, MidiEvent *> *map = file->channel(ch)->eventMap();
         for (auto it = map->begin(); it != map->end(); ++it) {
-            MidiEvent *e = it.value();
-            if (auto *on = dynamic_cast<NoteOnEvent *>(e)) {
-                OffEvent *off = on->offEvent();
-                if (!off) continue;
-                MidiTrack *tr = on->track();
-                Acc &a = acc[tr];
-                a.notes.append({ on->midiTime(), off->midiTime() - on->midiTime(),
-                                 on->note(), on->velocity() });
-                if (!a.hasChan) { a.channel = ch; a.hasChan = true; }
-            } else if (auto *pc = dynamic_cast<ProgChangeEvent *>(e)) {
-                Acc &a = acc[pc->track()];
-                if (!a.hasProg) {
-                    a.program = pc->program(); a.hasProg = true;
-                    if (!a.hasChan) { a.channel = ch; a.hasChan = true; }
-                }
-            }
+            auto *on = dynamic_cast<NoteOnEvent *>(it.value());
+            if (!on) continue;
+            OffEvent *off = on->offEvent();
+            if (!off) continue;
+            Acc &a = acc[on->track()];
+            a.notes.append({ on->midiTime(), off->midiTime() - on->midiTime(),
+                             on->note(), on->velocity() });
+            ++a.notesPerChannel[ch];
+            if (!a.firstTickOnChannel.contains(ch)) // map order: the earliest
+                a.firstTickOnChannel.insert(ch, on->midiTime());
         }
     }
 
@@ -98,8 +96,14 @@ ScoreInput extractInput(MidiFile *file) {
         RawPart rp;
         rp.name = tr->name();
         if (rp.name.isEmpty()) rp.name = QStringLiteral("Track %1").arg(idx);
-        rp.channel = a.channel;
-        rp.program = a.program;
+        int channel = 0, most = -1;
+        for (int ch = 0; ch < 16; ++ch) { // ties: the lowest channel
+            const int n = a.notesPerChannel.value(ch, 0);
+            if (n > most) { most = n; channel = ch; }
+        }
+        const int program = file->channel(channel)->progAtTick(a.firstTickOnChannel.value(channel));
+        rp.channel = channel;
+        rp.program = program >= 0 ? program : 0;
         rp.notes = a.notes;
         in.parts.append(rp);
     }

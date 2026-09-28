@@ -233,6 +233,20 @@ void AgentRunner::updateWorkingStateFromToolResult(AgentWorkingState &state,
                                                    const QJsonObject &result)
 {
     const bool success = result.value(QStringLiteral("success")).toBool(false);
+    // save_document waiting for the user's "overwrite or copy": not a failure,
+    // and the model must hand the question to the user instead of trying
+    // another action (the generic failure hint below said exactly that).
+    if (!success && result.contains(QStringLiteral("decisionNeeded"))) {
+        state.repeatedFailureCount = 0;
+        state.lastToolResult = compactText(QStringLiteral("%1 waits for the user's decision: %2")
+                                           .arg(toolName,
+                                                result.value(QStringLiteral("question")).toString()),
+                                           360);
+        state.nextStepHint = QStringLiteral(
+            "Ask the user this question in your reply and stop; once they answered, call "
+            "save_document again with mode \"overwrite\" or \"copy\".");
+        return;
+    }
     if (!success) {
         const QString error = result.value(QStringLiteral("error")).toString();
         const QString guidance = result.value(QStringLiteral("guidance")).toString();

@@ -34,6 +34,7 @@
 #include <QTemporaryFile>
 
 #include "../src/gui/TrackDropTarget.h"
+#include "../src/gui/TrackPositionFollow.h"
 #include "../src/midi/MidiFile.h"
 #include "../src/midi/MidiChannel.h"
 #include "../src/midi/MidiTrack.h"
@@ -294,6 +295,24 @@ private slots:
         QCOMPARE(finalIndex(3, -1, OnViewport, 4), -1);
         QCOMPARE(finalIndex(0, 0, BelowItem, 4), -1);
         QCOMPARE(finalIndex(5, 0, AboveItem, 4), -1);  // invalid source
+    }
+
+    // ---- TR-01: edit track / paste target follow their track ------------------
+
+    // The position is followed through the list it was chosen in - whoever
+    // set it, also when the user never picked a track in this document.
+    void positionFollow_staysOnItsTrack() {
+        int a = 0, b = 0, c = 0, d = 0, other = 0;
+        const QList<int *> before{&a, &b, &c, &d};
+        QCOMPARE(TrackPositionFollow::follow(before, QList<int *>{&c, &a, &b, &d}, 2), 0);
+        QCOMPARE(TrackPositionFollow::follow(before, QList<int *>{&b, &c, &d, &a}, 0), 3);
+        QCOMPARE(TrackPositionFollow::follow(before, before, 1), 1);
+        // removed track, another document's list, modes and bad positions: unchanged
+        QCOMPARE(TrackPositionFollow::follow(before, QList<int *>{&a, &b, &d}, 2), 2);
+        QCOMPARE(TrackPositionFollow::follow(QList<int *>{&other}, before, 0), 0);
+        QCOMPARE(TrackPositionFollow::follow(before, QList<int *>{&d, &c, &b, &a}, -1), -1);
+        QCOMPARE(TrackPositionFollow::follow(before, QList<int *>{&d, &c, &b, &a}, -2), -2);
+        QCOMPARE(TrackPositionFollow::follow(QList<int *>(), before, 1), 1);
     }
 
     // ---- TR-09: moving the first track ---------------------------------------

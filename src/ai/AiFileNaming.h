@@ -55,6 +55,33 @@ QString markedFileName(const QString &base, const QString &mark, int counter = 1
 /// MusicXML, ...) and the AI's own copy never raise the question.
 bool offersOverwrite(const QString &documentPath, const QString &mark);
 
+/// True when two paths name the same file (cleaned; case-insensitive on Windows).
+bool samePath(const QString &a, const QString &b);
+
+/// The user's side of "overwrite or copy" for one document (per tab).
+struct ExistingFileDecision {
+    QString askedPath;    ///< the file the question was last put for
+    QString answeredPath; ///< the file the remembered answer was given for
+    QString answer;       ///< "copy" or "overwrite" (empty = none yet)
+};
+
+enum class ExistingFileSave { Ask, Copy, Overwrite };
+
+/**
+ * \brief Settles "overwrite or copy" for a document at \a documentPath for
+ *        which offersOverwrite() holds.
+ *
+ * A copy writes nothing over, so \a mode "copy" is always taken. "overwrite"
+ * only counts when the user said so for THIS file: in answer to the question
+ * put for this path, as the answer remembered for this path, or in the
+ * settings - an answer given for another file (another tab, the file before a
+ * Save As) raises the question again. Without \a mode the remembered answer
+ * for this path decides, then \a setting ("ask", "copy", "overwrite").
+ */
+ExistingFileSave resolveExistingFileSave(const QString &documentPath, const QString &mode,
+                                         const ExistingFileDecision &decision,
+                                         const QString &setting);
+
 /// Outcome of planSave().
 struct SavePlan {
     bool ok = false;

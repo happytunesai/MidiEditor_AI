@@ -89,6 +89,8 @@ QList<ConversationStore::ConversationMeta> ConversationStore::findByMidiFile(con
 QJsonObject ConversationStore::loadConversation(const QString &id)
 {
     // Direct path lookup — saveConversation() uses id + ".json" as filename
+    if (!isPlainId(id))
+        return QJsonObject(); // an id from a tampered file never names a path
     QString filePath = storageDir() + QStringLiteral("/") + id + QStringLiteral(".json");
     QFile f(filePath);
     if (!f.open(QIODevice::ReadOnly))
@@ -122,6 +124,10 @@ void ConversationStore::saveConversation(const QJsonObject &data)
 
 void ConversationStore::deleteConversation(const QString &id)
 {
+    // Same guard as attachmentDir(): the id comes out of a file on disk and
+    // must not lead the delete to a .json outside the history folder.
+    if (!isPlainId(id))
+        return;
     QString filePath = storageDir() + QStringLiteral("/") + id + QStringLiteral(".json");
     QFile::remove(filePath);
     // Phase 52: the conversation's attachments go with it.

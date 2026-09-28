@@ -65,7 +65,7 @@ MidiPilot is the AI brain embedded directly in MidiEditor AI. Open the sidebar, 
 | 💬 **Simple Mode** | Single request/response with real-time SSE streaming for quick edits and small tasks |
 | 📜 **Conversation History** | Auto-saved conversations as JSON - browse, resume, and reload past chats across sessions |
 | 📎 **Attachments** | Send pictures, PDFs and text files with a message - e.g. sheet music for the AI to write into the editor; drop, paste or pick them, saved with the conversation |
-| 💾 **AI Document Tools** | MidiPilot and MCP clients create, open, save and close documents - always as marked copies (`name.midipilot.mid` / `name.mcp.mid`), never over an existing file |
+| 💾 **AI Document Tools** | MidiPilot and MCP clients create, open, save and close documents - a file you opened is overwritten only when you say so (the AI asks, or a setting decides); everything else is a marked copy (`name.midipilot.mid` / `name.mcp.mid`), never written over an existing file |
 | 🌊 **Response Streaming** | Server-Sent Events (SSE) streaming in Simple and Agent mode - thoughts, text, and tool progress appear live |
 | 🔄 **Dynamic Model Lists** | Refresh provider model lists, cache context windows, filter non-chat models, and manage per-provider favourites |
 | 💾 **Per-File AI Presets** | Save provider, model, mode, FFXIV, effort, and custom instructions per MIDI file as a sidecar `.midipilot.json` |
@@ -491,7 +491,7 @@ The AI has access to **32 core tools** plus `switch_document`, and **5 more when
 | `copy_events_to_track` | Copy notes to another track (e.g. double a melody, then transpose the copy) |
 | `import_tracks_from_document` | Copy whole tracks from another open tab into the current document (names preserved, ticks rescaled, channel collisions reported) - dry run first, your confirmation required |
 | `switch_document` | Re-bind the run to another open tab when you explicitly ask for it - reads, writes, and undo steps then act on that document while the visible tab stays put |
-| `save_document` / `save_document_as` | Save without a dialog - always as a marked copy (`mozart.mid` → `mozart.midipilot.mid`, over MCP `mozart.mcp.mid`); existing files are never overwritten, a taken name gets a counter |
+| `save_document` / `save_document_as` | Save without a dialog - a file you opened is overwritten only on your answer to the AI's question (or the *AI saves your file* setting); otherwise a marked copy (`mozart.mid` → `mozart.midipilot.mid`, over MCP `mozart.mcp.mid`), a taken name gets a counter |
 | `new_document` / `open_document` / `close_document` | Create an empty document, open a MIDI or importable file, close a saved tab (a tab with unsaved changes stays open) |
 | `search_help` / `get_help_section` | Ask about the editor itself - the AI searches the built-in manual and answers from it, citing the page |
 | `set_tempo` / `set_time_signature` | Change tempo (BPM with fractions, or exact microseconds per quarter note) and meter |

@@ -311,6 +311,25 @@ private slots:
         QVERIFY(ConversationStore::attachmentDir(QStringLiteral("a\\b")).isEmpty());
     }
 
+    // An id out of a tampered history file never leads load or delete to a
+    // .json outside the history folder.
+    void loadAndDelete_refusePathIds()
+    {
+        QDir storage(ConversationStore::storageDir());
+        QVERIFY(storage.mkpath(QStringLiteral("sub")));
+        const QString inSub = storage.filePath(QStringLiteral("sub/victim.json"));
+        QFile f(inSub);
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write("{\"id\":\"victim\",\"title\":\"x\"}");
+        f.close();
+
+        QVERIFY(ConversationStore::loadConversation(QStringLiteral("sub/victim")).isEmpty());
+        ConversationStore::deleteConversation(QStringLiteral("sub/victim"));
+        ConversationStore::deleteConversation(QStringLiteral("sub\\victim"));
+        QVERIFY(QFile::exists(inSub));
+        QVERIFY(QDir(storage.filePath(QStringLiteral("sub"))).removeRecursively());
+    }
+
     void deleteConversation_removesItsAttachmentFolder()
     {
         ConversationStore::saveConversation(makeConversation(QStringLiteral("withfiles001")));

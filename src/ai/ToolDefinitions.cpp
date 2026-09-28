@@ -462,7 +462,7 @@ QJsonArray ToolDefinitions::toolSchemas(const ToolSchemaOptions &options) {
         QJsonObject props;
         props["bpm"] = QJsonObject{
             {"anyOf", QJsonArray{QJsonObject{{"type", "number"}}, QJsonObject{{"type", "null"}}}},
-            {"description", "Tempo in beats per minute (1-999); fractions allowed, e.g. "
+            {"description", "Tempo in beats per minute (3.58-999); fractions allowed, e.g. "
                             "117.5. null when microsecondsPerQuarter is given."}};
         props["microsecondsPerQuarter"] = QJsonObject{
             {"anyOf", QJsonArray{QJsonObject{{"type", "integer"}}, QJsonObject{{"type", "null"}}}},

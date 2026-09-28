@@ -375,9 +375,10 @@ session bound to its document; call <code>get_editor_state</code> to work on the
 </p>
 
 <p>
-<b>Saving:</b> an MCP client never writes over an existing file. Every file it saves carries the mark
-<code>.mcp</code> and the extension <code>.mid</code>, whatever name it passes; a taken name gets a
-counter (<code>mozart.mcp.2.mid</code>); the only file it saves in place is its own marked working copy.
+<b>Saving:</b> an MCP client writes over the MIDI file you opened only when you answered its question
+with "overwrite" (or the <b>AI saves your file</b> setting says so). Every other file it saves carries
+the mark <code>.mcp</code> and the extension <code>.mid</code>, whatever name it passes; a taken name
+gets a counter (<code>mozart.mcp.2.mid</code>), and its own marked working copy is saved in place.
 Saving is not an undo step. The full rules are on
 <a href="midipilot-tools.html#files">Saving and opening documents</a>.
 </p>

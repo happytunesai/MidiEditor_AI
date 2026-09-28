@@ -58,8 +58,10 @@ public:
     /** Mark the downloaded ZIP as "pending" — will be applied on app exit. */
     void scheduleUpdateOnExit();
 
-    /** Apply the update immediately: extract, restart, exit. */
-    void executeUpdateNow(const QString &currentMidiPath);
+    /** Apply the update immediately: extract, restart, exit. Returns false
+     *  (after showing the error) when the update did not start - the
+     *  application keeps running then. */
+    bool executeUpdateNow(const QString &currentMidiPath);
 
     /** Returns true if a pending update ZIP is stored in QSettings. */
     bool hasPendingUpdate() const;

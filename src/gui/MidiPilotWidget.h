@@ -609,6 +609,9 @@ private:
     QString _turnModel;
     void resetTurnState();
     void finalizeTurn(const QString &finalText, const QString &status);
+    /// After a provider refused a message: takes the picture and file parts
+    /// out of the last user message, so later messages are not refused too.
+    void dropRefusedAttachments(const QString &error);
     void scheduleSave();
     void doSaveConversation();
     void showHistoryMenu();

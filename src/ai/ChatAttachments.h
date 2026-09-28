@@ -113,6 +113,22 @@ QStringList attachmentNames(const QJsonValue &content,
                             const QHash<QString, QString> &imageNames = {});
 
 /**
+ * \brief \a content without its image and file parts, as plain text: the
+ *        text parts (inlined text files too - every provider takes text)
+ *        followed by a line naming what was taken out. Used when a provider
+ *        refused a message, so the conversation can go on without it.
+ *        Returns \a content unchanged when it has no image or file part;
+ *        \a removed receives the names of the parts taken out.
+ */
+QJsonValue withoutImageAndFileParts(const QJsonValue &content,
+                                    const QHash<QString, QString> &imageNames,
+                                    QStringList *removed);
+
+/// True when \a error reports a provider refusing the request's content
+/// (HTTP 400, 413, 415 or 422) - not a key, quota, rate or server problem.
+bool isContentRefusal(const QString &error);
+
+/**
  * \brief Rough token estimate of a content for the context budget: text at
  *        4 characters per token, an image at a high-detail estimate, a PDF
  *        per page found in the file, other files by size.

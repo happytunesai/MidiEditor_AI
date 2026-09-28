@@ -2663,6 +2663,7 @@ void MidiPilotWidget::onErrorOccurred(const QString &errorMessage) {
     if (_simpleRetryCount > 0)
         surfaced = QStringLiteral("%1 (after %2 retry attempts)").arg(errorMessage).arg(_simpleRetryCount);
     addChatBubble("system", "Error: " + surfaced);
+    dropRefusedAttachments(errorMessage);
     // ANALYZE-LATCH-001: listeners waiting for the turn's outcome (the
     // playability workbench) must hear the terminal error too, or they wait
     // forever and mis-attribute the NEXT unrelated reply as theirs.
@@ -3621,6 +3622,7 @@ void MidiPilotWidget::onAgentError(const QString &error) {
     setConnectionControlsEnabled(true);
 
     addChatBubble("system", "Agent error: " + error);
+    dropRefusedAttachments(error);
     // v2.4.0 cross-tab: even an aborted multi-document run has already put
     // undo steps into other tabs' Protocols - same disclosure as the success
     // path so the user can find (and undo) what landed before the error.
@@ -4282,7 +4284,7 @@ QJsonObject MidiPilotWidget::applyTempoAction(const QJsonObject &response, bool 
     } else if (hasBpm) {
         const double bpm = bpmValue.toDouble(-1);
         if (!bpmValue.isDouble() || bpm < 1 || bpm > 999) {
-            tempoError = QStringLiteral("Invalid BPM value (must be 1-999).");
+            tempoError = QStringLiteral("Invalid BPM value (must be 3.58-999).");
         } else {
             micros = qRound(60000000.0 / bpm);
             if (micros > kMaxMicros) {
@@ -4716,6 +4718,40 @@ void MidiPilotWidget::finalizeTurn(const QString &finalText, const QString &stat
     _turnSteps = QJsonArray();
     _turnStartMs = 0;
     _turnStreamed = false;
+}
+
+void MidiPilotWidget::dropRefusedAttachments(const QString &error)
+{
+    // The refused message stays in the history that goes out with every later
+    // request: a model that cannot read the file (or a request grown too large)
+    // would refuse each of them, and the chat - saved that way - could only be
+    // abandoned. Its text stays; pictures and files are taken out.
+    if (!ChatAttachments::isContentRefusal(error)) {
+        return;
+    }
+    for (int i = _conversationHistory.size() - 1; i >= 0; --i) {
+        QJsonObject msg = _conversationHistory.at(i).toObject();
+        if (msg.value(QStringLiteral("role")).toString() != QLatin1String("user")) {
+            continue;
+        }
+        QStringList removed;
+        const QJsonValue content = ChatAttachments::withoutImageAndFileParts(
+            msg.value(QStringLiteral("content")), _attachmentImageNames, &removed);
+        if (removed.isEmpty()) {
+            return;
+        }
+        msg[QStringLiteral("content")] = content;
+        _conversationHistory[i] = msg;
+        addChatBubble(QStringLiteral("system"),
+                      removed.join(QStringLiteral(", "))
+                          + QStringLiteral(" left the conversation, so the next message can be "
+                                           "sent. Attach ")
+                          + (removed.size() > 1 ? QStringLiteral("them") : QStringLiteral("it"))
+                          + QStringLiteral(" again for a model that reads ")
+                          + (removed.size() > 1 ? QStringLiteral("them.") : QStringLiteral("it.")));
+        scheduleSave();
+        return;
+    }
 }
 
 void MidiPilotWidget::scheduleSave()

@@ -13757,7 +13757,10 @@ it writes copies that carry its mark and works on those:
   time / Always save a copy / Always overwrite, shared by MidiPilot and MCP) can settle it for
   good. Imports that cannot be written back, save_document_as and every other file keep the
   rules above. No MCP elicitation - the question travels in the tool result, so every client
-  works.
+  works. **Review 2026-09-28:** the question and the answer are kept with the file they were
+  about, so an "overwrite" only counts for the file the question named - not for another tab
+  bound in between, not after a Save As (AiFileNaming::resolveExistingFileSave, unit-tested);
+  MidiPilot's agent state treats the question as a question, not as a rejected step.
 * **Names.** A document with a source file takes its name from the source, and the copy goes
   next to it: `mozart.mid` or `mozart.gp5` -> `mozart.midipilot.mid`. An untitled document gets
   a short descriptive name from the request or from the user; with nothing to go on, the AI
@@ -13828,7 +13831,7 @@ counts; help_db regen.
 
 **Decisions:** resolved on 2026-09-24 - silent saving (owner proposal) behind the AI gate: marked
 copies `<name>.midipilot.mid` / `<name>.mcp.mid`, existing files never overwritten except the
-AI's own working copy, renaming = a new marked copy, 51.2 included in 2.5.
+AI's own working copy (revised 2026-09-28: and the opened MIDI file on the user's decision), renaming = a new marked copy, 51.2 included in 2.5.
 
 ## Phase 52: Attachments in MidiPilot - images, PDFs and other files - CONFIRMED for 2.5
 
@@ -13906,7 +13909,8 @@ stored as separate files next to the conversation.
 ## 2.5 scope (fixed 2026-09-24)
 
 * **Phase 51 (extended)** - document and file tools behind the AI gate (marked copies, no
-  overwrite of existing files), including 51.2 (exact tempo), MCP-ARGS-001 and the status-bar
+  overwrite of existing files - revised 2026-09-28: the opened MIDI file on the user's
+  decision), including 51.2 (exact tempo), MCP-ARGS-001 and the status-bar
   line per MCP tool call.
 * **Phase 52** - attachments in MidiPilot.
 * **Small items:**

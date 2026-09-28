@@ -79,6 +79,7 @@
 #include <QTemporaryFile>
 
 #include "../src/ai/FFXIVChannelFixer.h"
+#include "../src/converter/Score/MidiToScore.h"
 #include "../src/gui/InstrumentChooser.h"
 #include "../src/midi/MidiFile.h"
 #include "../src/midi/MidiChannel.h"
@@ -1226,6 +1227,26 @@ private slots:
         QCOMPARE(f->channel(2)->progAtTick(999), 41);
         QCOMPARE(f->channel(2)->progAtTick(1000), 42);
         QCOMPARE(prerollProgram(f, 2, 1200), 42);
+        delete f;
+    }
+
+    void musicXmlExport_partTakesTheInstrumentOfItsChannel() {
+        // After Rebuild every track owns a program change for every channel.
+        // The exported part must take the instrument of the channel its notes
+        // play on - not the first program change the track owns, which made
+        // every part of a fixed file the same instrument.
+        MidiFile *f = makeFile("Harp", 1);
+        addNote(f, 1, f->track(1), 60, 0, 400);
+        const int fluteIdx = addNoteTrack(f, "Flute", 2);
+        runTier(f, 2);
+        const score::ScoreInput in = score::extractInput(f);
+        QCOMPARE(in.parts.size(), 2);
+        for (const score::RawPart &p : in.parts) {
+            const bool flute = (p.name == QStringLiteral("Flute"));
+            QCOMPARE(p.program, flute ? 73 : 46);
+            MidiTrack *track = f->track(flute ? fluteIdx : 1);
+            QCOMPARE(p.channel, track->assignedChannel());
+        }
         delete f;
     }
 

@@ -209,6 +209,70 @@ private slots:
         QVERIFY(!offersOverwrite(path(QStringLiteral("mozart.mcp.2.mid")), QStringLiteral("mcp")));
     }
 
+    // Without an answer nothing is written: the question comes first, unless
+    // the settings decided for good.
+    void resolve_withoutAnswer_asksUnlessTheSettingsDecide() {
+        const QString doc = path(QStringLiteral("mozart.mid"));
+        const ExistingFileDecision none;
+        QVERIFY(resolveExistingFileSave(doc, QString(), none, QStringLiteral("ask"))
+                 == ExistingFileSave::Ask);
+        QVERIFY(resolveExistingFileSave(doc, QString(), none, QStringLiteral("copy"))
+                 == ExistingFileSave::Copy);
+        QVERIFY(resolveExistingFileSave(doc, QString(), none, QStringLiteral("overwrite"))
+                 == ExistingFileSave::Overwrite);
+    }
+
+    // "overwrite" counts only as the answer to the question put for THIS file;
+    // "copy" writes nothing over and is always taken.
+    void resolve_overwrite_onlyAsTheAnswerForThisFile() {
+        const QString doc = path(QStringLiteral("mozart.mid"));
+        ExistingFileDecision d;
+        QVERIFY(resolveExistingFileSave(doc, QStringLiteral("overwrite"), d, QStringLiteral("ask"))
+                 == ExistingFileSave::Ask);  // never asked: ask first
+        QVERIFY(resolveExistingFileSave(doc, QStringLiteral("copy"), d, QStringLiteral("ask"))
+                 == ExistingFileSave::Copy);
+        d.askedPath = path(QStringLiteral("MOZART.mid"));
+#ifdef Q_OS_WIN
+        QVERIFY(resolveExistingFileSave(doc, QStringLiteral("overwrite"), d, QStringLiteral("ask"))
+                 == ExistingFileSave::Overwrite); // same file, other case
+#endif
+        d.askedPath = doc;
+        QVERIFY(resolveExistingFileSave(doc, QStringLiteral("overwrite"), d, QStringLiteral("ask"))
+                 == ExistingFileSave::Overwrite);
+    }
+
+    // The question was put for tab A; the answer arrives while tab B is bound:
+    // B is asked about itself instead of being overwritten.
+    void resolve_answerForAnotherFile_asksAgain() {
+        ExistingFileDecision askedForA;
+        askedForA.askedPath = path(QStringLiteral("a.mid"));
+        QVERIFY(resolveExistingFileSave(path(QStringLiteral("b.mid")), QStringLiteral("overwrite"),
+                                         askedForA, QStringLiteral("ask"))
+                 == ExistingFileSave::Ask);
+    }
+
+    // The remembered answer belongs to the file it was given for: after a
+    // Save As to another MIDI file the question comes again.
+    void resolve_rememberedAnswer_onlyForThatFile() {
+        ExistingFileDecision d;
+        d.askedPath = path(QStringLiteral("mozart.mid"));
+        d.answeredPath = path(QStringLiteral("mozart.mid"));
+        d.answer = QStringLiteral("overwrite");
+        QVERIFY(resolveExistingFileSave(path(QStringLiteral("mozart.mid")), QString(), d,
+                                         QStringLiteral("ask"))
+                 == ExistingFileSave::Overwrite);
+        QVERIFY(resolveExistingFileSave(path(QStringLiteral("final.mid")), QString(), d,
+                                         QStringLiteral("ask"))
+                 == ExistingFileSave::Ask);
+        QVERIFY(resolveExistingFileSave(path(QStringLiteral("final.mid")),
+                                         QStringLiteral("overwrite"), d, QStringLiteral("ask"))
+                 == ExistingFileSave::Ask);
+        d.answer = QStringLiteral("copy");
+        QVERIFY(resolveExistingFileSave(path(QStringLiteral("mozart.mid")), QString(), d,
+                                         QStringLiteral("overwrite"))
+                 == ExistingFileSave::Copy); // the user's answer beats the setting
+    }
+
     // "overwrite": the document's own file, in place - a passed name is ignored.
     void planSave_overwriteChosen_writesTheDocumentsOwnFile() {
         touch(QStringLiteral("mozart.mid"));

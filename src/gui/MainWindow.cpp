@@ -146,6 +146,7 @@ Q_LOGGING_CATEGORY(memLog, "midieditor.memory")
 #include "SettingsDialog.h"
 #include "StrummerDialog.h"
 #include "TrackListWidget.h"
+#include "TrackPositionFollow.h"
 #include "TransposeDialog.h"
 #include "TweakTarget.h"
 #include "UpdateChecker.h"
@@ -1826,6 +1827,12 @@ void MainWindow::updatePasteActionState() {
 }
 
 void MainWindow::loadInitFile() {
+    // The per-tab view states of a restart the editor made itself belong to
+    // this start only, whichever way it opens (a file, a recovered backup or
+    // the session): left in the settings they would reach a later start.
+    const QVariantList views = _settings->value("session/views").toList();
+    _settings->remove("session/views");
+
     // Check for untitled auto-save recovery before loading. If a document was
     // recovered it is already open as the first tab - do NOT also open the init
     // file / a blank document (that produced a spurious extra tab).
@@ -1838,7 +1845,7 @@ void MainWindow::loadInitFile() {
     // falling back to a fresh document.
     if (_initFile != "") {
         loadFile(_initFile);
-    } else if (!restoreSession()) {
+    } else if (!restoreSession(views)) {
         newFile();
     }
 
@@ -2783,22 +2790,27 @@ void MainWindow::saveSession(bool withViewState) {
     collect(_documentManager, g0, a0, a0path);
     collect(_group1Docs, g1, a1, a1path);
 
-    // Per file path: the tab's zoom and scroll position (what the views keep on
-    // the document) and its cursor and pause position.
-    QVariantMap views;
+    // Per tab, in tab order: its zoom and scroll position (what the views keep
+    // on the document) and its cursor and pause position, with its group and
+    // path - so two tabs of one file each keep their own.
+    QVariantList views;
     if (withViewState) {
         for (MatrixWidget *view : {mw_matrixWidget, _compareMatrixWidget}) {
             if (view) view->rememberViewState(); // the shown tabs' live view
         }
+        int group = 0;
         for (DocumentManager *m : {_documentManager, _group1Docs}) {
             for (int i = 0; m && i < m->count(); ++i) {
                 MidiFile *f = m->at(i)->file();
                 if (!f || f->path().isEmpty()) continue;
                 QVariantMap state = MatrixWidget::storedViewState(f);
+                state.insert(QStringLiteral("group"), group);
+                state.insert(QStringLiteral("path"), f->path());
                 state.insert(QStringLiteral("cursorTick"), f->cursorTick());
                 state.insert(QStringLiteral("pauseTick"), f->pauseTick());
-                views.insert(f->path(), state);
+                views.append(state);
             }
+            ++group;
         }
     }
 
@@ -2827,7 +2839,7 @@ bool MainWindow::restoreWindowPlacement() {
     return !geometry.isEmpty() && restoreGeometry(geometry);
 }
 
-bool MainWindow::restoreSession() {
+bool MainWindow::restoreSession(const QVariantList &views) {
     _settings->beginGroup("session");
     const QStringList g0 = _settings->value("g0paths").toStringList();
     const QStringList g1 = _settings->value("g1paths").toStringList();
@@ -2837,9 +2849,6 @@ bool MainWindow::restoreSession() {
     const QString a1path = _settings->value("g1activePath").toString();
     const bool g1collapsed = _settings->value("g1collapsed", false).toBool();
     const int focusGroup = _settings->value("focusGroup", 0).toInt();
-    // Only written by a restart the editor made itself - used once.
-    const QVariantMap views = _settings->value("views").toMap();
-    _settings->remove("views");
     _settings->endGroup();
 
     if (g0.isEmpty() && g1.isEmpty()) {
@@ -2911,16 +2920,30 @@ bool MainWindow::restoreSession() {
     }
 
     // ----- every tab where it was left (after an update or theme restart) --
+    // Each saved tab state goes to the next tab of its group with its path,
+    // in tab order - two tabs of one file get their own; a vanished file's
+    // state is simply left over.
     if (!views.isEmpty()) {
+        QList<bool> used(views.size(), false);
+        int group = 0;
         for (DocumentManager *m : {_documentManager, _group1Docs}) {
             for (int i = 0; m && i < m->count(); ++i) {
                 MidiFile *f = m->at(i)->file();
-                const QVariantMap state = f ? views.value(f->path()).toMap() : QVariantMap();
-                if (state.isEmpty()) continue;
-                MatrixWidget::setStoredViewState(f, state);
-                f->setCursorTick(state.value(QStringLiteral("cursorTick")).toInt());
-                f->setPauseTick(state.value(QStringLiteral("pauseTick"), -1).toInt());
+                if (!f || f->path().isEmpty()) continue;
+                for (int k = 0; k < views.size(); ++k) {
+                    const QVariantMap state = views.at(k).toMap();
+                    if (used.at(k) || state.value(QStringLiteral("group")).toInt() != group
+                        || state.value(QStringLiteral("path")).toString() != f->path()) {
+                        continue;
+                    }
+                    used[k] = true;
+                    MatrixWidget::setStoredViewState(f, state);
+                    f->setCursorTick(state.value(QStringLiteral("cursorTick")).toInt());
+                    f->setPauseTick(state.value(QStringLiteral("pauseTick"), -1).toInt());
+                    break;
+                }
             }
+            ++group;
         }
         // The other tabs pick their state up when they are opened; the shown
         // ones once the window has its real size (it is not shown yet here).
@@ -3398,6 +3421,11 @@ void MainWindow::onGroup1TabChanged(int index) {
         _compareFile = f;
     }
     setActiveDocument(f);
+    // Sync: the right pane follows the left also after a tab switch - not the
+    // view the newly shown document had when it was last on screen.
+    if (_syncViews) {
+        snapSecondaryToPrimary();
+    }
     refreshScrollbarsForFocus();
     updateActiveGroupHighlight();
     focusEditorView(_compareMatrixWidget);
@@ -3879,24 +3907,7 @@ void MainWindow::setSyncViews(bool on) {
         // pushed the right pane's own position back onto itself. (The left
         // view keeps its position through the re-activation above: setFile()
         // no longer resets a view that is bound again to the same document.)
-        _syncInProgress = true;
-        if (mw_matrixWidget) {
-            // Zoom first, then position: the mirroring works in ms / lines,
-            // which only lines the two panes up when they share the zoom. A
-            // fresh right pane sits at zoom 1 while the left may be zoomed
-            // out to the whole song; without this the right showed the first
-            // few seconds with the cursor far off-screen. (Before SYNC-JUMP-001
-            // the left was reset to zoom 1 here by accident, which hid this.)
-            _compareMatrixWidget->applyZoom(mw_matrixWidget->currentScaleX(),
-                                            mw_matrixWidget->currentScaleY());
-            _compareMatrixWidget->scrollXChanged(mw_matrixWidget->viewStartTimeMs());
-            _compareMatrixWidget->scrollYChanged(mw_matrixWidget->viewStartLine());
-        }
-        if (_compareFile && file) {
-            _compareFile->setCursorTick(file->cursorTick());
-        }
-        _compareMatrixWidget->update();
-        _syncInProgress = false;
+        snapSecondaryToPrimary();
         statusBar()->showMessage(
             tr("Sync on - the right view follows the left (scroll, cursor & playback); right is read-only"), 5000);
     } else {
@@ -3908,6 +3919,33 @@ void MainWindow::setSyncViews(bool on) {
     // The scrollbar source view changed (master while synced, focused otherwise) -
     // make the bars reflect it.
     refreshScrollbarsForFocus();
+}
+
+void MainWindow::snapSecondaryToPrimary() {
+    if (!_compareMatrixWidget) {
+        return;
+    }
+    _syncInProgress = true;
+    if (mw_matrixWidget) {
+        // Zoom first, then position: the mirroring works in ms / lines,
+        // which only lines the two panes up when they share the zoom. A
+        // fresh right pane sits at zoom 1 while the left may be zoomed
+        // out to the whole song; without this the right showed the first
+        // few seconds with the cursor far off-screen. (Before SYNC-JUMP-001
+        // the left was reset to zoom 1 here by accident, which hid this.)
+        _compareMatrixWidget->applyZoom(mw_matrixWidget->currentScaleX(),
+                                        mw_matrixWidget->currentScaleY());
+        _compareMatrixWidget->scrollXChanged(mw_matrixWidget->viewStartTimeMs());
+        _compareMatrixWidget->scrollYChanged(mw_matrixWidget->viewStartLine());
+        // The LEFT document's cursor - after a right-side tab switch the
+        // active document is the right one.
+        MidiFile *left = mw_matrixWidget->midiFile();
+        if (_compareFile && left && left != _compareFile) {
+            _compareFile->setCursorTick(left->cursorTick());
+        }
+    }
+    _compareMatrixWidget->update();
+    _syncInProgress = false;
 }
 
 void MainWindow::syncSecondaryCursor() {
@@ -4303,23 +4341,32 @@ QJsonObject MainWindow::aiSaveDocument(MidiFile *f, const QString &name,
     // then remembered for this tab: the property dies with the document) or
     // once for all in the settings. Without a decision nothing is written and
     // the result carries the question for the AI to ask.
+    // The question, the answer and the file each was about are kept on the
+    // document, so an answer never carries over to another file: another tab
+    // bound in between, or this tab after a Save As (AiFileNaming::
+    // resolveExistingFileSave).
     bool overwrite = false;
     if (!asNewCopy && AiFileNaming::offersOverwrite(oldPath, mark)) {
         static const char *kDecisionProperty = "aiExistingFileSave";
-        QString decision = mode;
-        if (!decision.isEmpty()) {
-            f->setProperty(kDecisionProperty, decision);
-        } else {
-            decision = f->property(kDecisionProperty).toString();
-        }
-        if (decision.isEmpty()) {
-            const QString setting = _settings->value(QStringLiteral("AI/existing_file_save"),
-                                                     QStringLiteral("ask")).toString();
-            if (setting == QLatin1String("copy") || setting == QLatin1String("overwrite")) {
-                decision = setting;
-            }
-        }
-        if (decision.isEmpty()) {
+        const QVariantMap stored = f->property(kDecisionProperty).toMap();
+        AiFileNaming::ExistingFileDecision decision;
+        decision.askedPath = stored.value(QStringLiteral("askedPath")).toString();
+        decision.answeredPath = stored.value(QStringLiteral("answeredPath")).toString();
+        decision.answer = stored.value(QStringLiteral("answer")).toString();
+        const QString setting = _settings->value(QStringLiteral("AI/existing_file_save"),
+                                                 QStringLiteral("ask")).toString();
+        const AiFileNaming::ExistingFileSave outcome =
+            AiFileNaming::resolveExistingFileSave(oldPath, mode, decision, setting);
+        auto storeDecision = [&]() {
+            QVariantMap m;
+            m.insert(QStringLiteral("askedPath"), decision.askedPath);
+            m.insert(QStringLiteral("answeredPath"), decision.answeredPath);
+            m.insert(QStringLiteral("answer"), decision.answer);
+            f->setProperty(kDecisionProperty, m);
+        };
+        if (outcome == AiFileNaming::ExistingFileSave::Ask) {
+            decision.askedPath = oldPath;
+            storeDecision();
             const AiFileNaming::SavePlan copyPlan = AiFileNaming::planSave(
                 oldPath, name, mark, false, aiDefaultFolder(), isTaken);
             const QString fileName = QFileInfo(oldPath).fileName();
@@ -4337,10 +4384,22 @@ QJsonObject MainWindow::aiSaveDocument(MidiFile *f, const QString &name,
             r["next"] = QStringLiteral(
                 "Nothing was saved yet. Put this question to the user in your reply and wait "
                 "for the answer, then call save_document again with mode \"overwrite\" or "
-                "\"copy\". The answer is remembered for this document until its tab is closed.");
+                "\"copy\". The answer is remembered for this file until its tab is closed.");
+            if (mode == QLatin1String("overwrite")) {
+                // Checked before anything is written: an "overwrite" given for
+                // another file (another tab, or before a Save As) is not taken.
+                r["note"] = QStringLiteral(
+                    "mode \"overwrite\" was not taken: the user has not been asked about "
+                    "this file yet.");
+            }
             return r;
         }
-        overwrite = (decision == QLatin1String("overwrite"));
+        overwrite = (outcome == AiFileNaming::ExistingFileSave::Overwrite);
+        if (!mode.isEmpty()) {
+            decision.answeredPath = oldPath; // the user's answer, for this file
+            decision.answer = mode;
+            storeDecision();
+        }
     }
 
     const AiFileNaming::SavePlan plan = AiFileNaming::planSave(
@@ -4374,8 +4433,9 @@ QJsonObject MainWindow::aiSaveDocument(MidiFile *f, const QString &name,
     }
     if (overwrote) {
         notes << QStringLiteral("The document's own file was overwritten, as the user chose; "
-                                "later saves of this document overwrite it again.");
-    } else if (mode == QLatin1String("overwrite") && !asNewCopy) {
+                                "later saves of this file overwrite it again.");
+    } else if (mode == QLatin1String("overwrite") && !asNewCopy && !plan.inPlace) {
+        // (In place = the AI's own marked copy was rewritten: nothing to explain.)
         notes << QStringLiteral("Overwriting was not possible - only a MIDI file the document "
                                 "was opened from can be overwritten - so the file above was "
                                 "written instead.");
@@ -4537,6 +4597,9 @@ QJsonObject MainWindow::aiOpenDocument(const QString &path, const QString &sourc
     stop();
     openInNewTab(mf);
     addRecentPath(abs);
+    // The folder last used for Open, like File -> Open: a later bare name
+    // (open_document, an untitled save) resolves against it.
+    startDirectory = QFileInfo(abs).absoluteDir().path() + "/";
     C64SoundFontHelper::normalizeDefaultSoundFont(this);
 
     r["success"] = true;
@@ -6552,26 +6615,19 @@ void MainWindow::updateTrackMenu() {
         _trackMenuOrder.clear();
         return;
     }
+    // The edit track and the paste target are stored as POSITIONS, chosen in
+    // the list as it was at the previous refresh (every reorder triggers one,
+    // see the actionFinished hook in setActiveDocument). They follow their
+    // TRACK into its new place - also when the user never picked a track in
+    // this document - or new notes go into whatever track moved into the old
+    // position (track-order review TR-01). The list of another document (tab
+    // switch) or a removed track keeps the position.
+    const QList<MidiTrack *> chosenIn = _trackMenuOrder;
     _trackMenuOrder = *file->tracks();
-
-    // The edit track and the paste target are stored as POSITIONS. After a
-    // reorder (drag, Move Up/Down, their undo) they have to follow their
-    // TRACK - otherwise new notes silently went into whatever track moved into
-    // the old position, on the previous track's channel (track-order review
-    // TR-01). A track of another document or one no longer in the list keeps
-    // the position as before.
-    if (_editTrackRef) {
-        const int idx = file->tracks()->indexOf(_editTrackRef.data());
-        if (idx >= 0) {
-            NewNoteTool::setEditTrack(idx);
-        }
-    }
-    if (_pasteTrackRef && EventTool::pasteTrack() >= 0) {
-        const int idx = file->tracks()->indexOf(_pasteTrackRef.data());
-        if (idx >= 0) {
-            EventTool::setPasteTrack(idx);
-        }
-    }
+    NewNoteTool::setEditTrack(
+        TrackPositionFollow::follow(chosenIn, _trackMenuOrder, NewNoteTool::editTrack()));
+    EventTool::setPasteTrack(
+        TrackPositionFollow::follow(chosenIn, _trackMenuOrder, EventTool::pasteTrack()));
 
     for (int i = 0; i < file->numTracks(); i++) {
         QVariant variant(i);
@@ -7387,13 +7443,13 @@ void MainWindow::explodeChordsToTracks(MidiTrack *sourceTrack) {
     updateAll();
 }
 
-// True when removing the track would lose events the old emptiness scans
-// missed: anything left on the musical channels, tempo (17) or time-signature
-// (18) events, or channel-16 meta events (lyrics / markers / key signatures)
+// True when removing the track would lose events: anything left on the
+// musical channels, or channel-16..18 meta events such as lyrics or other text
 // other than the track's own TRACKNAME event. Used by the remove-empty-source
-// options of both split tools - MidiFile::removeTrack() deletes the track's
-// events across ALL channels, so a check limited to 0-15(+17) silently
-// dropped mid-song time signatures and lyrics that rode on the source track.
+// options of both split tools. Song-wide events (tempo, time and key
+// signatures, markers - MidiFile::isSongWideEvent) do not count: removeTrack()
+// hands them to the next first track, so a split first track that only held
+// the tempo map is removed like any other emptied source.
 static bool trackHasResidualEvents(MidiFile *file, MidiTrack *track) {
     for (int ch = 0; ch < 16; ++ch) {
         QMultiMap<int, MidiEvent *> *emap = file->channel(ch)->eventMap();
@@ -7408,6 +7464,7 @@ static bool trackHasResidualEvents(MidiFile *file, MidiTrack *track) {
         for (auto it = emap->begin(); it != emap->end(); ++it) {
             if (it.value()->track() != track) continue;
             if (ch == 16 && it.value() == track->nameEvent()) continue;
+            if (MidiFile::isSongWideEvent(it.value())) continue;
             return true;
         }
     }
@@ -9303,7 +9360,6 @@ void MainWindow::editChannel(int i, bool assign) {
 
 void MainWindow::editTrack(int i, bool assign) {
     NewNoteTool::setEditTrack(i);
-    _editTrackRef = (file && i >= 0) ? file->track(i) : nullptr;
 
     // assign channel to track
     if (assign && file && file->track(i)) {
@@ -11994,8 +12050,6 @@ void MainWindow::pasteToChannel(QAction *action) {
 void MainWindow::pasteToTrack(QAction *action) {
     const int track = action->data().toInt();
     EventTool::setPasteTrack(track);
-    // -1 / -2 are the "keep track" / "same as new events" modes, not a track.
-    _pasteTrackRef = (file && track >= 0) ? file->track(track) : nullptr;
 }
 
 void MainWindow::divChanged(QAction *action) {
@@ -12088,7 +12142,14 @@ void MainWindow::checkForUpdates(bool silent) {
                                 saveSession(true); // the tabs come back as they are
                                 _settings->sync(); // flush: executeUpdateNow ExitProcess()es, no dtors run
                                 _forceCloseForUpdate = true;
-                                _autoUpdater->executeUpdateNow(file ? file->path() : QString());
+                                if (!_autoUpdater->executeUpdateNow(file ? file->path() : QString())) {
+                                    // The update did not start (its error was shown)
+                                    // and the editor keeps running: a later close must
+                                    // ask about unsaved work again, and the one-shot
+                                    // tab views must not reach a later start.
+                                    _forceCloseForUpdate = false;
+                                    _settings->remove("session/views");
+                                }
                             } else {
                                 _autoUpdater->scheduleUpdateOnExit();
                                 QMessageBox::information(this, tr("Update Scheduled"),

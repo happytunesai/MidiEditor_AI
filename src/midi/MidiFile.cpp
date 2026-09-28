@@ -20,6 +20,8 @@
 
 #include <QDataStream>
 #include <QFile>
+#include <QSaveFile>
+#include <QDebug>
 #include <QMutexLocker>
 #include <QThread>
 
@@ -1905,18 +1907,46 @@ void MidiFile::setPauseTick(int tick) {
     _pauseTick = tick;
 }
 
+// Writes a finished file. First into a temporary file next to the target
+// that replaces it only once everything is on disk: a full disk, a vanished
+// network share or a crash mid-write leaves the previous file as it was
+// instead of emptied - an AI save may overwrite the user's own file. Where no
+// temporary file can be made (a folder without write access), QSaveFile
+// writes directly. Windows refuses only the final replacement while another
+// program holds the target open (a player, a virus scanner, a cloud sync):
+// the complete bytes are then written directly, as every save did before.
+static bool writeWholeFile(const QString &path, const QByteArray &bytes) {
+    QSaveFile safe(path);
+    safe.setDirectWriteFallback(true);
+    if (!safe.open(QIODevice::WriteOnly)) {
+        qWarning() << "MidiFile::save: could not open" << path << "-" << safe.errorString();
+        return false;
+    }
+    if (safe.write(bytes) != bytes.size()) {
+        qWarning() << "MidiFile::save: could not write" << path << "-" << safe.errorString();
+        safe.cancelWriting(); // the previous file stays as it was
+        return false;
+    }
+    if (safe.commit()) {
+        return true;
+    }
+    if (safe.error() != QFileDevice::RenameError) {
+        qWarning() << "MidiFile::save: could not write" << path << "-" << safe.errorString();
+        return false; // the final flush failed: the previous file stays
+    }
+    QFile direct(path);
+    if (!direct.open(QIODevice::WriteOnly)) {
+        qWarning() << "MidiFile::save: could not replace" << path << "-" << direct.errorString();
+        return false;
+    }
+    const bool written = direct.write(bytes) == bytes.size() && direct.flush();
+    direct.close();
+    return written && direct.error() == QFileDevice::NoError;
+}
+
 bool MidiFile::save(QString path, bool skipMutedTrackEvents,
                     const QHash<QString, int> &drumProgramByTrackName,
                     bool markSaved) {
-    QFile f(path);
-
-    if (!f.open(QIODevice::WriteOnly)) {
-        return false;
-    }
-
-    QDataStream stream(&f);
-    stream.setByteOrder(QDataStream::BigEndian);
-
     // All Events are stored in allEvents. This is because the data has to be
     // saved by tracks and not by channels
     QMultiMap<int, MidiEvent *> allEvents = QMultiMap<int, MidiEvent *>();
@@ -2049,17 +2079,9 @@ bool MidiFile::save(QString path, bool skipMutedTrackEvents,
         }
     }
 
-    // write data to the filestream
-    for (int i = 0; i < data.size(); i++) {
-        stream << (qint8) (data.at(i));
-    }
-
-    // close the file
-    f.close();
-
-    // A full disk or a vanished network share fails the write or the final
-    // flush; that is not a save, so the document must stay dirty.
-    if (stream.status() != QDataStream::Ok || f.error() != QFileDevice::NoError) {
+    // A full disk or a vanished network share is not a save: the document
+    // stays dirty.
+    if (!writeWholeFile(path, data)) {
         return false;
     }
 
