@@ -3939,6 +3939,13 @@ void MainWindow::onTabMoveRequested(DocumentTabBar *source, int sourceIndex,
     }
 
     stop();
+    // The document keeps its zoom and scroll position in the other group: the
+    // view that shows it now hands them over before the target view binds it.
+    for (MatrixWidget *view : {mw_matrixWidget, _compareMatrixWidget}) {
+        if (view && view->midiFile() == f) {
+            view->rememberViewState();
+        }
+    }
     srcMgr->removeAt(sourceIndex);            // detaches the file (Document deleted)
     Document *nd = tgtMgr->insert(targetIndex, f, title);
     tgtMgr->setActive(nd);                    // the dropped tab is active in its new group

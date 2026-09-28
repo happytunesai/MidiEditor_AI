@@ -13943,6 +13943,15 @@ stored as separate files next to the conversation.
     menus stale, TR-07 audio export with a muted first track lost the tempo map, TR-08 Clone
     Track doubled the tempo map. Collab live sync (TR-05) carries the order as content per track
     index - no change needed. Regression tests in `test_track_order`.
+  * **Tab view state - added 2026-09-28, implemented on `feature/v2.5.0`, in test.** Returning
+    to a tab showed the song start at the default zoom (MatrixWidget::setFile reset zoom and
+    scroll for every other document). The view now stores zoom and scroll position on the
+    document it leaves (a dynamic property of the MidiFile, so it follows the tab into the other
+    editor group and dies with the document) and restores them when the document returns; a tab
+    dragged to the other group hands its current view over first. The position is kept as time
+    and tick: the exact time while the tempo map is unchanged, the tick after a tempo edit made in
+    the background. Live-checked pixel-identical for zoom and both scroll axes. Not across a
+    restart - the session restores the tabs only.
 * **Housekeeping first - DONE 2026-09-24:** status sweep of the stale "Planned" / "TODO"
   markers in this file, each checked against the CHANGELOG: Phase 24 (1.4.0), Phase 25 and 27
   (1.5.0), Phase 26 Local AI (1.8.2), Phase 35 Auto-Fit (2.1.0), Phase 39 (1.6.1), the v2.0

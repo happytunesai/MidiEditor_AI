@@ -49,6 +49,7 @@
 
 #include <QList>
 #include <QSettings>
+#include <QVariantMap>
 #include <QMenu>
 #include <QContextMenuEvent>
 #include <cmath>
@@ -1396,6 +1397,11 @@ void MatrixWidget::paintPianoKey(QPainter *painter, int number, int x, int y,
 
 void MatrixWidget::setFile(MidiFile *f) {
     MidiFile *previous = file;
+    // Leaving a document keeps its zoom and scroll position on it, so its tab
+    // comes back where it was left instead of at the song start.
+    if (previous && previous != f) {
+        storeViewState(previous);
+    }
     file = f;
 
     // Phase 28 (editor groups): setFile() is now called again every time the user
@@ -1429,6 +1435,12 @@ void MatrixWidget::setFile(MidiFile *f) {
         calcSizes();
         startTick = file->tick(startTimeX);
         endTick = file->tick(endTimeX);
+        return;
+    }
+
+    // A document this or the other view showed before (tab switch, tab moved
+    // to the other editor group) returns at its own zoom and position.
+    if (restoreViewState()) {
         return;
     }
 
@@ -1522,6 +1534,54 @@ void MatrixWidget::calcSizes() {
 
 MidiFile *MatrixWidget::midiFile() {
     return file;
+}
+
+namespace {
+// A dynamic property of the MidiFile: the view state lives and dies with the
+// document and follows its tab into either editor group.
+const char *const kViewStateProperty = "matrixViewState";
+}
+
+void MatrixWidget::rememberViewState() {
+    storeViewState(file);
+}
+
+void MatrixWidget::storeViewState(MidiFile *target) {
+    if (!target) {
+        return;
+    }
+    QVariantMap state;
+    state.insert(QStringLiteral("scaleX"), scaleX);
+    state.insert(QStringLiteral("scaleY"), scaleY);
+    // The time AND the tick: a tempo edit made while the tab is in the
+    // background (MidiPilot, MCP) must not move the music out of the view.
+    state.insert(QStringLiteral("startMs"), startTimeX);
+    state.insert(QStringLiteral("startTick"), target->tick(startTimeX));
+    state.insert(QStringLiteral("startLine"), startLineY);
+    target->setProperty(kViewStateProperty, state);
+}
+
+bool MatrixWidget::restoreViewState() {
+    const QVariantMap state = file->property(kViewStateProperty).toMap();
+    const double storedScaleX = state.value(QStringLiteral("scaleX")).toDouble();
+    const double storedScaleY = state.value(QStringLiteral("scaleY")).toDouble();
+    if (storedScaleX <= 0.0 || storedScaleY <= 0.0) {
+        return false; // not shown before
+    }
+    scaleX = storedScaleX;
+    scaleY = storedScaleY;
+    // The exact time while the tempo map is unchanged (a tick converted back
+    // to ms would round the view off by a pixel); after a tempo edit the tick.
+    const int storedMs = state.value(QStringLiteral("startMs")).toInt();
+    const int storedTick = state.value(QStringLiteral("startTick")).toInt();
+    startTimeX = (file->tick(storedMs) == storedTick) ? storedMs : file->msOfTick(storedTick);
+    startLineY = state.value(QStringLiteral("startLine")).toInt();
+    // calcSizes() fits the position to this view's size and the song's current
+    // length (both may have changed meanwhile) and hands it to the scrollbars.
+    calcSizes();
+    startTick = file->tick(startTimeX);
+    endTick = file->tick(endTimeX);
+    return true;
 }
 
 void MatrixWidget::mouseMoveEvent(QMouseEvent *event) {

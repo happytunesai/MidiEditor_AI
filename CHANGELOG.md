@@ -16,6 +16,7 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 * **[Attachments in MidiPilot](https://midieditor-ai.de/midipilot.html#attachments)** - send pictures, PDFs and text files with a message, for example sheet music for the AI to write into the editor: paperclip, drag & drop or Ctrl+V of a screenshot; saved with the conversation (Phase 52).
 * **[Fix X|V Channels, sharpened](https://midieditor-ai.de/ffxiv-channel-fixer.html)** - Preserve no longer stacks guitar switch program changes with every run, keeps the octave suffix when it renames a guitar track, keeps drum tracks on their channel and leaves a channel to the instrument that plays there; Rebuild keeps channel 9 for percussion; the dialog proposes the mode MidiPilot and MCP run.
 * **One instrument per channel and tick** - with several program changes at one tick, the channel list, playback and the saved file agree on the one in effect, the instrument dialog changes all of them at the start of the song, and a program change is saved and played before the notes that start with it.
+* **[Every tab comes back where you left it](https://midieditor-ai.de/editor-groups.html)** - switching to another tab and back keeps the zoom and scroll position of each document, also when a tab moves to the other editor group.
 * **[Every track can be moved, the first one too](https://midieditor-ai.de/editor-and-components.html#track_editor)** - drag any track anywhere in the list; the first track keeps the song-wide data (tempo, time and key signatures, markers) and hands it on when another track takes its place. Removing, merging or cloning tracks no longer loses or doubles that data.
 
 <details>
@@ -55,6 +56,7 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 * **A dragged track landed next to the insertion line** - in half of the drops the track ended one place above or below the line the list showed, and dropping it right below the first track did nothing. It now lands exactly at the line, and a drop below the last track moves it to the end.
 * **Track menus kept the old track order** - after Move Track Up/Down, Clone Track, the split tools or a MidiPilot/MCP track change, the "Add new events to" track box and the move/copy/select-by-track menus showed the previous order; they now follow at once.
 * **Audio export with a muted first track rendered at 120 BPM** - an export of the audible tracks left out the tempo map when the track holding it was muted.
+* **[Switching tabs reset the view](https://midieditor-ai.de/editor-groups.html)** - returning to a tab showed the song from the start at the default zoom, so the place you had been working on had to be found again. Each tab now keeps its zoom and scroll position, also when it is moved to the other editor group, and a tempo change made meanwhile (for example by MidiPilot or an MCP client) keeps the same music in view.
 * **Clone Track doubled the tempo map** - cloning the first track copied every tempo change, time and key signature and marker onto the clone.
 
 ### Files Modified
@@ -62,7 +64,8 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 * `src/gui/AiSettingsWidget.h/.cpp` - the "AI saves your file" setting
 * `src/ai/EventKindFilter.h` (new) - the `types` filter
 * `src/ai/ToolDefinitions.h/.cpp` - the new tools, `set_tempo` exact input, unknown-argument check, `types` filter, `setup_channel_pattern` description
-* `src/gui/MainWindow.h/.cpp` - per-document save core shared by the menu and the tools; the AI document operations; MCP status-bar line; Fix X|V Channels result warnings and title; edit and paste track follow their track, Merge/Clone keep the song-wide data
+* `src/gui/MainWindow.h/.cpp` - per-document save core shared by the menu and the tools; the AI document operations; MCP status-bar line; a tab moved to the other group keeps its view; Fix X|V Channels result warnings and title; edit and paste track follow their track, Merge/Clone keep the song-wide data
+* `src/gui/MatrixWidget.h/.cpp` - zoom and scroll position kept per document and restored when its tab returns
 * `src/gui/TrackListWidget.cpp`, `src/gui/TrackDropTarget.h` (new) - drops land at the insertion line; the first track can be moved, its context menu entries enabled
 * `src/ai/McpServer.h/.cpp` - window-level new/open/close, tool-call signal with client, result and detail; a save waiting for the user's decision is no error
 * `src/ai/AgentRunner.cpp`, `src/gui/MidiPilotWidget.cpp`, `src/ai/EditorContext.cpp` - step labels, saved-path chat line, exact tempo, agent prompt
@@ -76,7 +79,7 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 * `src/gui/MidiPilotWidget.h/.cpp` - paperclip, chips, drag & drop, paste; attachments in send, retry, budget, save and reload; New Chat saves before clearing
 * `run_environment/graphics/tool/attach.png` (new), `resources.qrc`
 * `tests/test_ai_file_naming.cpp` (new), `tests/test_chat_attachments.cpp` (new), `tests/test_document_timing.cpp` (new), `tests/test_tool_definitions.cpp`, `tests/test_conversation_store.cpp`, `tests/test_streaming_fallback.cpp`, `tests/test_ffxiv_fixer_resync.cpp`, `tests/test_midi_channel.cpp`, `tests/test_track_order.cpp` (new)
-* `manual/midipilot-tools.html`, `manual/mcp-server.html`, `manual/midipilot.html`, `manual/midipilot-modes.html`, `manual/midipilot-settings.html`, `manual/docs-index.html`, `manual/ffxiv-channel-fixer.html`, `manual/editing-midi-files.html`, `manual/editor-and-components.html`, `README.md`
+* `manual/midipilot-tools.html`, `manual/mcp-server.html`, `manual/midipilot.html`, `manual/midipilot-modes.html`, `manual/midipilot-settings.html`, `manual/docs-index.html`, `manual/ffxiv-channel-fixer.html`, `manual/editing-midi-files.html`, `manual/editor-and-components.html`, `manual/editor-groups.html`, `README.md`
 
 </details>
 
