@@ -108,6 +108,7 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 * `src/gui/TrackListWidget.cpp`, `src/gui/TrackDropTarget.h` (new) - drops land at the insertion line; the first track can be moved, its context menu entries enabled
 * `src/main.cpp` - the window opens where it was closed
 * `src/gui/AutoUpdater.h/.cpp` - Update Now reports an update that did not start
+* `CMakeLists.txt` - version 2.5.0, the new source files
 
 #### Import / export
 * `src/converter/Score/MidiToScoreExtract.cpp` - a MusicXML part's instrument from its notes' channel
@@ -115,9 +116,11 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 
 #### Tests
 * `tests/test_ai_file_naming.cpp` (new), `tests/test_chat_attachments.cpp` (new), `tests/test_document_timing.cpp` (new), `tests/test_tool_definitions.cpp`, `tests/test_conversation_store.cpp`, `tests/test_streaming_fallback.cpp`, `tests/test_ffxiv_fixer_resync.cpp`, `tests/test_midi_channel.cpp`, `tests/test_track_order.cpp` (new), `tests/test_agent_runner_state.cpp`
+* `tests/CMakeLists.txt` - the new tests registered
 
 #### Manual and docs
 * `manual/midipilot-tools.html`, `manual/mcp-server.html`, `manual/midipilot.html`, `manual/midipilot-modes.html`, `manual/midipilot-settings.html`, `manual/docs-index.html`, `manual/ffxiv-channel-fixer.html`, `manual/editing-midi-files.html`, `manual/editor-and-components.html`, `manual/editor-groups.html`, `manual/playback.html`, `manual/soundfont.html`, `README.md`
+* `manual/index.html`, `manual/download.html` - What's New for 2.5.0, version references
 
 </details>
 
