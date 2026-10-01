@@ -14,6 +14,8 @@
   <link rel="stylesheet" href="audio.css">
 <style>
 .screenshot-single { text-align: center; margin: 1.5rem 0; }
+.screenshot-row { display: flex; flex-wrap: wrap; gap: 1.5rem; justify-content: center; margin: 1.5rem 0; }
+.screenshot-row img { border: 1px solid var(--border); border-radius: 8px; }
 .screenshot-single img,
 .screenshot-single video {
     max-width: 100%;
@@ -166,6 +168,12 @@ last tab of the left editor group and the document a running MidiPilot agent wor
 <li><b>Opening</b> never writes anything. SID tunes are opened from the <b>File</b> menu, because
 their import asks for a song length.</li>
 </ul>
+
+<div class="screenshot-row">
+<img src="screenshots/midipilot-save-question.png" alt="MidiPilot transposed the song and asks whether to overwrite the opened MIDI file or save a copy; the save step waits for the answer" width="400">
+<img src="screenshots/midipilot-save-answer.png" alt="After the answer &quot;save as a copy&quot; MidiPilot saves a marked copy, the tab continues on it and the original stays unchanged" width="460">
+</div>
+<div class="caption">Saving a file you opened - MidiPilot asks first and saves nothing until you answer (left); after your answer it saves the copy and says where (right)</div>
 
 <p>
 Saving, opening and closing are not undo steps. You see them in the tab title, as a status-bar
