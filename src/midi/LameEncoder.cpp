@@ -29,11 +29,11 @@
 // ============================================================================
 
 bool LameEncoder::isAvailable() {
-    return true; // Always available â€” LAME is compiled in
+    return true; // Always available - LAME is compiled in
 }
 
 // ============================================================================
-// Encode WAV â†’ MP3
+// Encode WAV → MP3
 // ============================================================================
 
 bool LameEncoder::encode(const QString &wavPath, const QString &mp3Path,

@@ -13578,8 +13578,9 @@ remaining candidates are carried into the v2.5 scoping at the end of this file.
 
 ## Phase 51: MCP workflow completeness and API precision (candidate, 2026-09-08)
 
-**Status:** recorded during `feature/v2.4.0` preparation; **not implemented or committed
-to a release**. Scope this block for a subsequent release decision. This extends Phase
+**Status:** recorded during `feature/v2.4.0` preparation; 51.1, 51.2, 51.3, 51.5 and 51.6
+**shipped in 2.5.0** as "Phase 51 (extended)" below; 51.4 (audio render through MCP) stays
+for later. This extends Phase
 46's arrangement work, including its deliberately deferred save-tool decision.
 
 **Scope:** extend MCP access beyond event editing to document creation, precise timing
@@ -13710,7 +13711,7 @@ matching schemas where appropriate; update the manual/tool contracts with each c
 
 ---
 
-# v2.5 PLAN (scoped 2026-09-24)
+# v2.5 PLAN (scoped 2026-09-24) - SHIPPED 2026-10-01
 
 2.4.0 shipped on 2026-09-12. The 2.5.0 scope was fixed with the owner on 2026-09-24: document
 and file tools for MidiPilot and MCP (Phase 51, extended), attachments in MidiPilot (Phase 52)
@@ -13725,7 +13726,7 @@ third-party apps; ChatGPT plans are reachable for third parties only through Cod
 
 ## Phase 51 (extended): document and file tools - CONFIRMED for 2.5
 
-**Status (2026-09-24): implemented on `feature/v2.5.0`, in test.** Tools `save_document`,
+**Status: shipped in 2.5.0 (2026-10-01).** Tools `save_document`,
 `save_document_as`, `new_document`, `open_document`, `close_document` and `get_timing_map` (51.2),
 exact `set_tempo`, MCP-ARGS-001 (unknown arguments refused, `types` filter), the status-bar line per
 MCP call, 51.5 (velocity note in the `setup_channel_pattern` description) and the 51.6 documentation
@@ -13835,7 +13836,7 @@ AI's own working copy (revised 2026-09-28: and the opened MIDI file on the user'
 
 ## Phase 52: Attachments in MidiPilot - images, PDFs and other files - CONFIRMED for 2.5
 
-**Status (2026-09-24): implemented on `feature/v2.5.0`, in test.** `src/ai/ChatAttachments` builds the
+**Status: shipped in 2.5.0 (2026-10-01).** `src/ai/ChatAttachments` builds the
 parts (canonical Chat form, Responses and native Gemini translations, limits 10 MB/file,
 14 MB and 10 files/message, 512 KB/text file, token estimate, storage references) - unit test
 `test_chat_attachments`. MidiPilotWidget: paperclip, chips with thumbnail/estimate, drag & drop on
@@ -13920,7 +13921,7 @@ stored as separate files next to the conversation.
   * 51.6 - integration check that an FFXIV mode switch reaches an initialised MCP session
     (`notifications/tools/list_changed`, refreshed `tools/list`); document the explicit
     `tools/list` refresh as the fallback for clients that cache the tool list.
-  * **Fix X|V Channels review - added 2026-09-25, implemented on `feature/v2.5.0`, in test.**
+  * **Fix X|V Channels review - added 2026-09-25, shipped in 2.5.0.**
     A full failure-mode review of the fixer (scenarios run on the real fixer and MIDI core),
     all eleven findings accepted for 2.5; Tier 3 changes for exactly these points, the harmless
     non-guitar quirk stays. CF-01 octave suffix kept on a Preserve rename; CF-02 switch program
@@ -13935,7 +13936,7 @@ stored as separate files next to the conversation.
     `setup_channel_pattern` describes both modes. Regression tests in
     `test_ffxiv_fixer_resync` (+ `test_midi_channel`). Open: comparison run against 2.4 on real
     files, in-game check of CF-08.
-  * **Track order review - added 2026-09-25, implemented on `feature/v2.5.0`, in test.** Moving
+  * **Track order review - added 2026-09-25, shipped in 2.5.0.** Moving
     tracks in the track list checked end to end; the first track can now be moved as well. The
     rule behind it: the first track holds the song-wide data (tempo, meter, key signatures,
     markers, cue points, copyright) - moving or removing the first track hands it to the next
@@ -13947,7 +13948,7 @@ stored as separate files next to the conversation.
     menus stale, TR-07 audio export with a muted first track lost the tempo map, TR-08 Clone
     Track doubled the tempo map. Collab live sync (TR-05) carries the order as content per track
     index - no change needed. Regression tests in `test_track_order`.
-  * **Tab view state - added 2026-09-28, implemented on `feature/v2.5.0`, in test.** Returning
+  * **Tab view state - added 2026-09-28, shipped in 2.5.0.** Returning
     to a tab showed the song start at the default zoom (MatrixWidget::setFile reset zoom and
     scroll for every other document). The view now stores zoom and scroll position on the
     document it leaves (a dynamic property of the MidiFile, so it follows the tab into the other

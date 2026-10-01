@@ -448,7 +448,7 @@ int FFXIVChannelFixer::dominantNoteChannel(MidiFile *file, MidiTrack *track) {
 }
 
 // ---------------------------------------------------------------------------
-// fixChannels  â€” the main entry point (3-tier smart detection)
+// fixChannels  - the main entry point (3-tier smart detection)
 // ---------------------------------------------------------------------------
 
 QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
@@ -483,7 +483,7 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
     };
 
     // -----------------------------------------------------------------------
-    // 0. PRE-SCAN â€” classify tracks, count FFXIV matches, scan guitar progs
+    // 0. PRE-SCAN - classify tracks, count FFXIV matches, scan guitar progs
     // -----------------------------------------------------------------------
 
     reportProgress(5, QStringLiteral("Scanning tracks..."));
@@ -515,7 +515,7 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
     }
 
     // -----------------------------------------------------------------------
-    // SINGLE guitar-program scan â€” used for BOTH tier detection AND channel map.
+    // SINGLE guitar-program scan - used for BOTH tier detection AND channel map.
     // Scans all 16 channels for ProgChangeEvents with guitar programs (27-31).
     // -----------------------------------------------------------------------
 
@@ -539,10 +539,10 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
     }
 
     // -----------------------------------------------------------------------
-    // TIER DETECTION â€” Tier 2 (Rebuild) vs Tier 3 (Preserve)
+    // TIER DETECTION - Tier 2 (Rebuild) vs Tier 3 (Preserve)
     //
     //   Preserve mode if EITHER:
-    //   (A) Guitar program_changes already exist â†’ file was configured
+    //   (A) Guitar program_changes already exist → file was configured
     //   (B) A guitar track has notes on >1 guitar channel (multi-ch switches)
     // -----------------------------------------------------------------------
 
@@ -688,7 +688,7 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
             usedChannels.insert(aCh);
         }
     } else {
-        // TIER 2 â€” assign channels by track index (fresh start)
+        // TIER 2 - assign channels by track index (fresh start)
         // Duplicate guitar variants share the channel of the first occurrence.
         QVector<bool> drumRouted(trackCount, false); // sent to CH9 as percussion
         for (int t = 0; t < trackCount; t++) {
@@ -915,7 +915,7 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
     }
 
     // -----------------------------------------------------------------------
-    // 2. CLEAN â€" remove program_change events
+    // 2. CLEAN - remove program_change events
     //    Tier 2: remove ALL PCs (full rebuild)
     //    Tier 3: only remove PCs on guitar channels (non-guitar untouched)
     // -----------------------------------------------------------------------
@@ -923,7 +923,7 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
     reportProgress(35, QStringLiteral("Removing old program changes..."));
 
     // -----------------------------------------------------------------------
-    // BULK-OP UNDO STRATEGY â€" snapshot once, mutate fast, commit at end.
+    // BULK-OP UNDO STRATEGY - snapshot once, mutate fast, commit at end.
     //
     //   Background (perf bug fixed 2026-04-21):
     //   The default Protocol path of every mutating MidiChannel/MidiEvent
@@ -931,15 +931,15 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
     //   full deep copy() of the affected event/channel and pushes a
     //   ProtocolItem onto the open undo action. On a 20-track / >100k-event
     //   FFXIV file Tier 2 used to allocate one clone per touched event in
-    //   each of CLEAN, MIGRATE, SWITCH and VELOCITY â€" easily 64 GB peak RSS
+    //   each of CLEAN, MIGRATE, SWITCH and VELOCITY - easily 64 GB peak RSS
     //   and several minutes to finish.
     //
     //   Fix: take a single MidiChannel::copy() per channel and one
     //   MidiTrack::copy() per track BEFORE any mutation, then call the
     //   per-event APIs with toProtocol=false. After all phases finish we
-    //   register one ProtocolItem per snapshot â€" so undo restores the full
+    //   register one ProtocolItem per snapshot - so undo restores the full
     //   pre-fix state of every channel and track in one shot. RAM cost
-    //   collapses from O(events Ã— mutations) to O(tracks + 16).
+    //   collapses from O(events × mutations) to O(tracks + 16).
     // -----------------------------------------------------------------------
 
     QVector<ProtocolEntry *> trackSnapshots(trackCount, nullptr);
@@ -1008,7 +1008,7 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
     }
 
     // -----------------------------------------------------------------------
-    // 2b. CLEAN â€" remove non-essential events (Tier 2 only)
+    // 2b. CLEAN - remove non-essential events (Tier 2 only)
     //     FFXIV doesn't use CC, PitchBend, etc.  Keep Text (lyrics) and notes.
     // -----------------------------------------------------------------------
 
@@ -1035,8 +1035,8 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
     }
 
     // -----------------------------------------------------------------------
-    // 3. MIGRATE â€” move events to correct channels (Tier 2 only)
-    //    Tier 3 (Preserve) skips this â€” channels are already established
+    // 3. MIGRATE - move events to correct channels (Tier 2 only)
+    //    Tier 3 (Preserve) skips this - channels are already established
     // -----------------------------------------------------------------------
 
     reportProgress(50, QStringLiteral("Migrating events..."));
@@ -1166,7 +1166,7 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
     }
 
     // -----------------------------------------------------------------------
-    // 4. PROGRAM â€” insert program_change at tick 0
+    // 4. PROGRAM - insert program_change at tick 0
     //    Tier 2: ALL channels (guitar + non-guitar) on all tracks
     //    Tier 3: only guitar channels (non-guitar already have correct PCs)
     // -----------------------------------------------------------------------
@@ -1229,7 +1229,7 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
     }
 
     // -----------------------------------------------------------------------
-    // 4b. SWITCH â€” insert program_change at guitar channel switch points
+    // 4b. SWITCH - insert program_change at guitar channel switch points
     // -----------------------------------------------------------------------
 
     reportProgress(90, QStringLiteral("Processing guitar switches..."));
@@ -1300,7 +1300,7 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
     }
 
     // -----------------------------------------------------------------------
-    // 5. VELOCITY â€" normalise all NoteOn velocities to 127 (max)
+    // 5. VELOCITY - normalise all NoteOn velocities to 127 (max)
     //    FFXIV performance has no dynamics; uniform velocity improves playback.
     // -----------------------------------------------------------------------
 
@@ -1327,13 +1327,13 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
     }
 
     // -----------------------------------------------------------------------
-    // 6. REPORT â€" with debug info
+    // 6. REPORT - with debug info
     // -----------------------------------------------------------------------
 
     reportProgress(100, QStringLiteral("Done!"));
 
     // Commit the bulk-op snapshots taken before phase 2. One ProtocolItem
-    // per touched track + one per touched channel â€" the entire edit becomes
+    // per touched track + one per touched channel - the entire edit becomes
     // a single coarse-grained undo step regardless of how many events were
     // mutated above.
     for (int t = 0; t < trackCount; t++) {

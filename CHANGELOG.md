@@ -5,7 +5,7 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 
 ---
 
-## [2.5.0] - Unreleased - Document Tools and Attachments for MidiPilot and MCP
+## [2.5.0] - 2026-10-01 - Document Tools and Attachments for MidiPilot and MCP
 
 ### Summary
 * **[MidiPilot and MCP clients save, open, create and close documents](https://midieditor-ai.de/midipilot-tools.html#files)** - five new tools finish a workflow without the GUI, silently and without a dialog (Phase 51).
@@ -40,7 +40,34 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 * The split tools' option to remove the emptied source track also removes a first track that only kept the tempo map; the tempo map moves on to the new first track.
 
 ### Bug Fixes
+#### Editing & Tracks
+* **The controller lane stayed flat unless its row was on screen** - the lane under the piano roll (Control Change, Pitch Bend, Key and Channel Pressure, Tempo) only knew the events whose row at the bottom of the piano roll was scrolled into view. Otherwise it showed a flat line, and drawing in it left the old values in place next to the new ones. It now shows and edits every value in the visible time range.
+* **New notes went into the wrong track after reordering** - the track chosen for new events (and a "Paste to track" target) was kept by position, so after a drag, Move Track, Clone Track, the split tools, a MidiPilot or MCP track change or an undo the next notes landed in whatever track had moved into that place. Both now follow their track.
+* **A dragged track landed next to the insertion line** - in half of the drops the track ended one place above or below the line the list showed, and dropping it right below the first track did nothing. It now lands exactly at the line, and a drop below the last track moves it to the end.
+* **Track menus kept the old track order** - after Move Track Up/Down, Clone Track, the split tools or a MidiPilot/MCP track change, the "Add new events to" track box and the move/copy/select-by-track menus showed the previous order; they now follow at once.
+* **Removing the first track kept only the first tempo** - its later tempo changes, time and key signatures and markers were deleted with it, without a warning. They now move to the new first track; the same goes for any other track that held a tempo change.
+* **Clone Track doubled the tempo map** - cloning the first track copied every tempo change, time and key signature and marker onto the clone.
+* Garbled characters in the title of the Fix X|V Channels result window, the tooltip of the MIDI activity visualizer, the pitch bend range choices and the Split Channels message for a track with one channel.
+
+#### Playback & Audio
+* **Several program changes at one tick** - Fix X|V Channels writes one per track. The channel list and the instrument dialog showed the oldest of them while playback and the saved file used the newest, and playback started in the middle of the song used the oldest again. The newest now counts everywhere, and the instrument dialog changes every program change at the start of the channel instead of only one - so Preserve keeps the instrument you chose there instead of reverting it.
+* **Program changes come before their notes** - a program change added after the notes of the same tick (Fix X|V Channels' programs at tick 0 and its guitar switches) was saved and played behind them, and the first note sounded with the previous instrument. It now comes first; a bank select keeps its place in front of its program change.
+* **Audio export with a muted first track rendered at 120 BPM** - an export of the audible tracks left out the tempo map when the track holding it was muted.
+
+#### Files, Import & Export
+* **An interrupted save no longer damages the file** - a save that failed while writing (a full disk, a vanished network drive) marked the document saved, and the file on disk had already been emptied. The file is now written in full before it replaces the previous one, and a failed save leaves the document unsaved and the previous file as it was.
+* **Files with the tempo map in a later track played at 120 BPM** - the loader added a default 120 BPM and 4/4 at the start before it reached the file's own, and the default won. The default is now only added when the file has none.
+* **Tracks load with the channel of their notes** - a loaded track was assigned the channel with the most events of any kind, so program changes could outvote the notes: after Fix X|V Channels a track with few notes came back assigned to the drum channel, and new notes drawn on it landed there. Tracks without notes keep the old rule.
+* **MusicXML export gave every part of a Fix X|V Channels file the same instrument** - each part took the first program change its track owned, and the fixer gives every track one per channel. A part now takes the instrument of the channel its notes play on.
+
+#### Tabs & Editor Groups
+* **[Switching tabs reset the view](https://midieditor-ai.de/editor-groups.html)** - returning to a tab showed the song from the start at the default zoom, so the place you had been working on had to be found again. Each tab now keeps its zoom and scroll position, also when it is moved to the other editor group, and a tempo change made meanwhile (for example by MidiPilot or an MCP client) keeps the same music in view.
+
+#### MidiPilot & MCP
 * **New Chat could drop the last reply from the saved conversation** - the conversation is saved two seconds after each reply, and New Chat cleared it before its own final save, so a reply that arrived within those two seconds was missing when the conversation was reopened from the history. New Chat now saves first.
+* A damaged MidiPilot history file could make deleting a conversation remove a file outside the history folder.
+
+#### FFXIV Tools
 * **[Fix X|V Channels: guitar switches no longer pile up](https://midieditor-ai.de/ffxiv-channel-fixer.html#guitar)** - Preserve wrote the switch program changes on a reserved guitar channel again on every run without removing the old ones, so each run added another copy, and once the channel had been given another variant the old switches still played the old one. They are now written anew on every run, like on the other guitar channels.
 * **Fix X|V Channels keeps the octave suffix** - Preserve renamed `ElectricGuitarClean+1` to `ElectricGuitarOverdriven` and dropped the `+1` the game reads as the octave; the suffix now stays.
 * **[Fix X|V Channels keeps channel 9 for the drums](https://midieditor-ai.de/ffxiv-channel-fixer.html#modes)** - Rebuild put a melodic track at track index 9 on the percussion channel (next to drum tracks the channel got two different programs, and the editor played the track as a drum) and could reserve a guitar variant there. Such a track now takes the next free channel, and no guitar variant is reserved on channel 9.
@@ -48,49 +75,49 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 * **Fix X|V Channels reports guitar notes it cannot switch** - guitar notes on a channel without a guitar program get no switch program change; Preserve now lists them with track, channel and the instrument playing there, in the result window and for MidiPilot and MCP (`guitarNotesOnOtherChannels`).
 * **Fix X|V Channels keeps drum tracks on their channel in Preserve** - Preserve re-pointed every percussion track at channel 9 without moving its notes.
 * **The Fix X|V Channels dialog proposes the mode MidiPilot and MCP run** - its pre-selection treated a guitar program anywhere in the song as "already set up" and ignored guitar notes spread over several guitar channels; it now follows the rules `setup_channel_pattern` uses.
-* **An interrupted save no longer damages the file** - a save that failed while writing (a full disk, a vanished network drive) marked the document saved, and the file on disk had already been emptied. The file is now written in full before it replaces the previous one, and a failed save leaves the document unsaved and the previous file as it was.
+
+#### Updates
 * **A failed Update Now skipped the save questions later** - when an update could not be installed, the editor kept running, but closing it afterwards discarded unsaved changes without asking.
-* **MusicXML export gave every part of a Fix X|V Channels file the same instrument** - each part took the first program change its track owned, and the fixer gives every track one per channel. A part now takes the instrument of the channel its notes play on.
-* A damaged MidiPilot history file could make deleting a conversation remove a file outside the history folder.
-* **The controller lane stayed flat unless its row was on screen** - the lane under the piano roll (Control Change, Pitch Bend, Key and Channel Pressure, Tempo) only knew the events whose row at the bottom of the piano roll was scrolled into view. Otherwise it showed a flat line, and drawing in it left the old values in place next to the new ones. It now shows and edits every value in the visible time range.
-* **Several program changes at one tick** - Fix X|V Channels writes one per track. The channel list and the instrument dialog showed the oldest of them while playback and the saved file used the newest, and playback started in the middle of the song used the oldest again. The newest now counts everywhere, and the instrument dialog changes every program change at the start of the channel instead of only one - so Preserve keeps the instrument you chose there instead of reverting it.
-* **Program changes come before their notes** - a program change added after the notes of the same tick (Fix X|V Channels' programs at tick 0 and its guitar switches) was saved and played behind them, and the first note sounded with the previous instrument. It now comes first; a bank select keeps its place in front of its program change.
-* **Tracks load with the channel of their notes** - a loaded track was assigned the channel with the most events of any kind, so program changes could outvote the notes: after Fix X|V Channels a track with few notes came back assigned to the drum channel, and new notes drawn on it landed there. Tracks without notes keep the old rule.
-* The title of the Fix X|V Channels result window showed garbled characters.
-* **Removing the first track kept only the first tempo** - its later tempo changes, time and key signatures and markers were deleted with it, without a warning. They now move to the new first track; the same goes for any other track that held a tempo change.
-* **Files with the tempo map in a later track played at 120 BPM** - the loader added a default 120 BPM and 4/4 at the start before it reached the file's own, and the default won. The default is now only added when the file has none.
-* **New notes went into the wrong track after reordering** - the track chosen for new events (and a "Paste to track" target) was kept by position, so after a drag, Move Track, Clone Track, the split tools, a MidiPilot or MCP track change or an undo the next notes landed in whatever track had moved into that place. Both now follow their track.
-* **A dragged track landed next to the insertion line** - in half of the drops the track ended one place above or below the line the list showed, and dropping it right below the first track did nothing. It now lands exactly at the line, and a drop below the last track moves it to the end.
-* **Track menus kept the old track order** - after Move Track Up/Down, Clone Track, the split tools or a MidiPilot/MCP track change, the "Add new events to" track box and the move/copy/select-by-track menus showed the previous order; they now follow at once.
-* **Audio export with a muted first track rendered at 120 BPM** - an export of the audible tracks left out the tempo map when the track holding it was muted.
-* **[Switching tabs reset the view](https://midieditor-ai.de/editor-groups.html)** - returning to a tab showed the song from the start at the default zoom, so the place you had been working on had to be found again. Each tab now keeps its zoom and scroll position, also when it is moved to the other editor group, and a tempo change made meanwhile (for example by MidiPilot or an MCP client) keeps the same music in view.
-* **Clone Track doubled the tempo map** - cloning the first track copied every tempo change, time and key signature and marker onto the clone.
 
 ### Files Modified
+#### MidiPilot / MCP
 * `src/ai/AiFileNaming.h/.cpp` (new) - the naming rules for AI saves: marks, counter, overwrite only the document's own MIDI file and only on the user's decision
-* `src/gui/AiSettingsWidget.h/.cpp` - the "AI saves your file" setting
 * `src/ai/EventKindFilter.h` (new) - the `types` filter
 * `src/ai/ToolDefinitions.h/.cpp` - the new tools, `set_tempo` exact input, unknown-argument check, `types` filter, `setup_channel_pattern` description
-* `src/gui/MainWindow.h/.cpp` - per-document save core shared by the menu and the tools; the AI document operations; MCP status-bar line; a tab moved to the other group keeps its view; an update or theme restart keeps every tab's view and cursor in the session; the window's monitor, position and maximized state saved with the session; Fix X|V Channels result warnings and title; edit and paste track follow their track, Merge/Clone keep the song-wide data
-* `src/gui/MatrixWidget.h/.cpp` - zoom and scroll position kept per document and restored when its tab returns; the controller lane gets every controller value in the visible time range
-* `src/main.cpp` - the window opens where it was closed
-* `src/gui/AutoUpdater.h/.cpp` - Update Now reports an update that did not start
-* `src/converter/Score/MidiToScoreExtract.cpp` - a MusicXML part's instrument from its notes' channel
-* `src/gui/TrackPositionFollow.h` (new) - the edit track and the paste target follow their track
-* `src/gui/TrackListWidget.cpp`, `src/gui/TrackDropTarget.h` (new) - drops land at the insertion line; the first track can be moved, its context menu entries enabled
 * `src/ai/McpServer.h/.cpp` - window-level new/open/close, tool-call signal with client, result and detail; a save waiting for the user's decision is no error
 * `src/ai/AgentRunner.cpp`, `src/gui/MidiPilotWidget.cpp`, `src/ai/EditorContext.cpp` - step labels, saved-path chat line, exact tempo, agent prompt
-* `src/midi/MidiFile.h/.cpp` - resolution of a new document; a failed write is not a save; channel assignment on load, the player's start program, program changes before their notes; song-wide data kept in the first track on load, move, removal and save, loader defaults only when the file has none
-* `src/midi/MidiChannel.h/.cpp`, `src/midi/PlayerThread.cpp` - the program change in effect at a tick; program changes played before their notes
-* `src/ai/FFXIVChannelFixer.h/.cpp`, `src/gui/FFXIVFixerDialog.cpp`, `src/gui/InstrumentChooser.h/.cpp` - the Fix X|V Channels fixes; the instrument dialog changes every program change at the start of the channel
-* `src/ai/FfxivVoiceAnalyzer.cpp` - the FFXIV voice load analysis applies the program changes of a tick the same way
 * `src/ai/ChatAttachments.h/.cpp` (new) - attachment parts per file kind and transport, limits, token estimate, storage references
 * `src/ai/AiClient.h/.cpp` - user message as text or part array; Responses and native Gemini translations; attachment summary in the API log
 * `src/ai/ConversationStore.h/.cpp` - attachment folder per conversation, removed with it; ids checked before a file is read or deleted
 * `src/gui/MidiPilotWidget.h/.cpp` - paperclip, chips, drag & drop, paste; attachments in send, retry, budget, save and reload; refused pictures and files leave the conversation; New Chat saves before clearing
+* `src/gui/AiSettingsWidget.h/.cpp` - the "AI saves your file" setting
 * `run_environment/graphics/tool/attach.png` (new), `resources.qrc`
+
+#### MIDI engine & playback
+* `src/midi/MidiFile.h/.cpp` - resolution of a new document; a failed write is not a save; channel assignment on load, the player's start program, program changes before their notes; song-wide data kept in the first track on load, move, removal and save, loader defaults only when the file has none
+* `src/midi/MidiChannel.h/.cpp`, `src/midi/PlayerThread.cpp` - the program change in effect at a tick; program changes played before their notes
+
+#### FFXIV tools
+* `src/ai/FFXIVChannelFixer.h/.cpp`, `src/gui/FFXIVFixerDialog.cpp`, `src/gui/InstrumentChooser.h/.cpp` - the Fix X|V Channels fixes; the instrument dialog changes every program change at the start of the channel
+* `src/ai/FfxivVoiceAnalyzer.cpp` - the FFXIV voice load analysis applies the program changes of a tick the same way
+
+#### Editor & tabs
+* `src/gui/MainWindow.h/.cpp` - per-document save core shared by the menu and the tools; the AI document operations; MCP status-bar line; a tab moved to the other group keeps its view; an update or theme restart keeps every tab's view and cursor in the session; the window's monitor, position and maximized state saved with the session; Fix X|V Channels result warnings and title; edit and paste track follow their track, Merge/Clone keep the song-wide data; garbled characters in the visualizer tooltip, the pitch bend range choices and a Split Channels message
+* `src/gui/MatrixWidget.h/.cpp` - zoom and scroll position kept per document and restored when its tab returns; the controller lane gets every controller value in the visible time range
+* `src/gui/TrackPositionFollow.h` (new) - the edit track and the paste target follow their track
+* `src/gui/TrackListWidget.cpp`, `src/gui/TrackDropTarget.h` (new) - drops land at the insertion line; the first track can be moved, its context menu entries enabled
+* `src/main.cpp` - the window opens where it was closed
+* `src/gui/AutoUpdater.h/.cpp` - Update Now reports an update that did not start
+
+#### Import / export
+* `src/converter/Score/MidiToScoreExtract.cpp` - a MusicXML part's instrument from its notes' channel
+* `src/converter/GuitarPro/Gp345Parser.cpp`, `src/midi/LameEncoder.cpp` - garbled characters in comments
+
+#### Tests
 * `tests/test_ai_file_naming.cpp` (new), `tests/test_chat_attachments.cpp` (new), `tests/test_document_timing.cpp` (new), `tests/test_tool_definitions.cpp`, `tests/test_conversation_store.cpp`, `tests/test_streaming_fallback.cpp`, `tests/test_ffxiv_fixer_resync.cpp`, `tests/test_midi_channel.cpp`, `tests/test_track_order.cpp` (new), `tests/test_agent_runner_state.cpp`
-* `manual/midipilot-tools.html`, `manual/mcp-server.html`, `manual/midipilot.html`, `manual/midipilot-modes.html`, `manual/midipilot-settings.html`, `manual/docs-index.html`, `manual/ffxiv-channel-fixer.html`, `manual/editing-midi-files.html`, `manual/editor-and-components.html`, `manual/editor-groups.html`, `README.md`
+
+#### Manual and docs
+* `manual/midipilot-tools.html`, `manual/mcp-server.html`, `manual/midipilot.html`, `manual/midipilot-modes.html`, `manual/midipilot-settings.html`, `manual/docs-index.html`, `manual/ffxiv-channel-fixer.html`, `manual/editing-midi-files.html`, `manual/editor-and-components.html`, `manual/editor-groups.html`, `manual/playback.html`, `manual/soundfont.html`, `README.md`
 
 </details>
 

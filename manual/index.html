@@ -179,7 +179,7 @@
     "description": "AI-powered MIDI editor with intelligent copilot, Guitar Pro import, FFXIV bard mode, and FluidSynth playback.",
     "url": "https://midieditor-ai.de",
     "downloadUrl": "https://github.com/happytunesai/MidiEditor_AI/releases/latest",
-    "softwareVersion": "2.4.0",
+    "softwareVersion": "2.5.0",
     "license": "https://github.com/happytunesai/MidiEditor_AI/blob/main/LICENSE",
     "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
 }
@@ -243,7 +243,7 @@
              onerror="this.parentElement.style.display='none';">
     </div>
 
-    <span class="hero-badge">v2.4.0 &middot; Open Source &middot; Windows</span>
+    <span class="hero-badge">v2.5.0 &middot; Open Source &middot; Windows</span>
 
     <h1 class="hero-title">
         The <span class="text-gradient">AI-Powered</span> MIDI Editor
@@ -255,7 +255,7 @@
 
     <div class="hero-actions">
         <a href="download.html" class="btn btn-primary">
-            &#x2B07; Download v2.4.0
+            &#x2B07; Download v2.5.0
         </a>
         <a href="docs-index.html" class="btn btn-secondary" target="_blank" rel="noopener noreferrer">
             &#x1F4D6; Documentation
@@ -651,14 +651,15 @@
     </div>
     <div class="whats-new reveal">
         <span class="latest-badge">Latest</span>
-        <h3>v2.4.0 - September 2026</h3>
-        <p class="whats-new-subtitle">A stability pass across the whole editor, MidiPilot across tabs, and GPT-6 Astra</p>
+        <h3>v2.5.0 - October 2026</h3>
+        <p class="whats-new-subtitle">MidiPilot and MCP clients save and open documents, attachments in MidiPilot, and a sharper Fix X|V Channels</p>
         <ul>
-            <li><strong>More than 200 fixes for defects present in every release so far</strong> - crashes when closing a tab or switching the MIDI output during playback, undo steps that restored nothing after Fix X|V Channels or a track reorder, Guitar Pro and MusicXML imports that wrote wrong notes and meters, sysex dumps that cut a file short, MidiPilot runs that lost their tool calls on streaming providers, and an editor that could hang invisibly on quit while an MCP client kept its event stream open.</li>
-            <li><strong>MidiPilot sees across tabs</strong> - the agent lists every open document, reads another tab's overview, imports whole tracks from another tab as one undoable step, and - when you explicitly ask - re-points a running agent at another tab. Every step taken elsewhere is labeled with that document's name.</li>
-            <li><strong>GPT-6 Astra</strong> - OpenAI's new model needs its tool calls on the Responses API and has no temperature; MidiPilot routes it accordingly in both modes, knows its 1.05M context and offers its new <em>Max</em> reasoning effort.</li>
-            <li><strong>The Agent Steps panel behaves</strong> - it scrolls in a pane of its own below the chat, follows the step that is running, and the divider can be dragged to the height you like.</li>
-            <li><strong>Small things that add up</strong> - Fix X|V Channels gives a renamed guitar track its program in Preserve mode, live sessions keep one shared history, rendering options apply the moment you change them, and a split view keeps its place when Sync is switched on.</li>
+            <li><strong>The AI saves and opens documents</strong> - MidiPilot and MCP clients create, open, save and close documents without a dialog. A file you opened is overwritten only when you say so: the AI asks, your answer counts for that file, and a setting can decide for good. Everything else is a marked copy next to the source.</li>
+            <li><strong>Attachments in MidiPilot</strong> - send pictures, PDFs and text files with a message, for example a photo or a PDF of sheet music for the AI to write into the editor. Paperclip, drag &amp; drop or Ctrl+V; the attachments are saved with the conversation.</li>
+            <li><strong>Fix X|V Channels, sharpened</strong> - guitar switches no longer pile up with every Preserve run, the octave suffix stays, channel 9 stays with the drums and another instrument's channel is left alone. With several program changes at one tick, the editor, playback and the saved file agree on the instrument.</li>
+            <li><strong>Every track can be moved</strong> - drag any track anywhere, the first one too. The first track keeps the tempo, time and key signatures and markers and hands them on, and new notes keep going into the track you chose.</li>
+            <li><strong>Every tab comes back where you left it</strong> - each tab keeps its zoom and scroll position, a restart for an update or a theme change brings every tab back with its cursor, and the window opens on the monitor it was closed on.</li>
+            <li><strong>Exact tempos and stricter tools for MCP</strong> - <code>set_tempo</code> takes fractional BPM or the exact microseconds per quarter note, <code>get_timing_map</code> reads the whole timing map, a parameter a tool does not have is refused, and every MCP call shows up in the status bar.</li>
         </ul>
         <a href="changelog.html" class="changelog-link">View Full Changelog &rarr;</a>
     </div>
@@ -717,7 +718,7 @@
     </div>
     <div class="hero-actions reveal" style="margin-bottom: 1.5rem;">
         <a href="download.html" class="btn btn-primary" style="font-size: 1.15rem; padding: 1rem 2.5rem;">
-            &#x2B07; Download MidiEditor AI v2.4.0
+            &#x2B07; Download MidiEditor AI v2.5.0
         </a>
     </div>
     <p class="reveal" style="color: var(--text-muted); font-size: .9rem;">

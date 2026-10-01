@@ -374,14 +374,14 @@ MainWindow::MainWindow(QString initFile)
             stop();
     });
 
-    // MIDI visualizer â€” register a plain QAction for the toolbar customize list.
+    // MIDI visualizer - register a plain QAction for the toolbar customize list.
     // The actual widget is created fresh in each toolbar build (see createCustomToolbar/
     // updateToolbarContents) because QWidgetAction::setDefaultWidget() reparents the
     // widget to the toolbar, causing it to be destroyed on toolbar rebuild.
     _visualizer = nullptr;  // Created on-demand in toolbar build
     QAction *visualizerAction = new QAction(this);
     visualizerAction->setText(tr("MIDI Visualizer"));
-    visualizerAction->setToolTip(tr("MIDI activity visualizer â€” shows per-channel velocity during playback"));
+    visualizerAction->setToolTip(tr("MIDI activity visualizer - shows per-channel velocity during playback"));
     _actionMap["midi_visualizer"] = visualizerAction;
 
     // Phase 41: retro cursor-time display. Registers a plain QAction for the
@@ -4958,7 +4958,7 @@ void MainWindow::record() {
                 matrixWidget->timeMsChanged(file->msOfTick(file->cursorTick()), true);
             }
 
-            // UX-PLAY-001: see play() â€” same opt-out toggle gates panel locking here.
+            // UX-PLAY-001: see play() - same opt-out toggle gates panel locking here.
             const bool lockPanelsDuringPlayback =
                 _settings->value("playback/lock_panels", false).toBool();
             if (lockPanelsDuringPlayback) {
@@ -5546,7 +5546,7 @@ void MainWindow::openFile(QString filePath) {
         stop();
         if (useAutoSave) {
             mf->setPath(filePath);   // Point to original file path
-            mf->setSaved(false);     // Mark as dirty â€” user should save explicitly
+            mf->setSaved(false);     // Mark as dirty - user should save explicitly
         }
         openInNewTab(mf);            // Phase 28: open the loaded file in a new tab
         if (useAutoSave) {
@@ -7096,9 +7096,9 @@ void MainWindow::convertPitchBendToNotes() {
     // Prompt user for pitch bend range
     bool ok;
     QStringList items;
-    items << tr("Ã‚Â±2 semitones (General MIDI default)")
-          << tr("Ã‚Â±12 semitones (Guitar/Bass VSTs)")
-          << tr("Ã‚Â±24 semitones (Extreme pitch modulation)")
+    items << tr("±2 semitones (General MIDI default)")
+          << tr("±12 semitones (Guitar/Bass VSTs)")
+          << tr("±24 semitones (Extreme pitch modulation)")
           << tr("Custom...");
     
     QString item = QInputDialog::getItem(this, 
@@ -7121,7 +7121,7 @@ void MainWindow::convertPitchBendToNotes() {
     } else { // Custom
         bendRangeSemis = QInputDialog::getDouble(this,
                                                   tr("Custom Pitch Bend Range"),
-                                                  tr("Enter pitch bend range in semitones (Ã‚Â±):"),
+                                                  tr("Enter pitch bend range in semitones (±):"),
                                                   2.0, 1.0, 96.0, 1, &ok);
         if (!ok) {
             return; // User cancelled
@@ -7484,7 +7484,7 @@ void MainWindow::splitChannelsToTracks(MidiTrack *sourceTrack) {
         return;
     }
 
-    // Phase 1: Analyze â€” collect channel info for events on the source track
+    // Phase 1: Analyze - collect channel info for events on the source track
     QList<SplitChannelsDialog::ChannelInfo> activeChannels;
 
     for (int ch = 0; ch < 16; ++ch) {
@@ -7525,7 +7525,7 @@ void MainWindow::splitChannelsToTracks(MidiTrack *sourceTrack) {
 
     if (activeChannels.size() <= 1) {
         QMessageBox::information(this, tr("Split Channels to Tracks"),
-            tr("This track only uses one channel â€” nothing to split."));
+            tr("This track only uses one channel - nothing to split."));
         return;
     }
 
@@ -9164,10 +9164,10 @@ QString MainWindow::autoSavePathFor(MidiFile *f) const {
     if (!f) return QString();
 
     if (!f->path().isEmpty() && QFile::exists(f->path())) {
-        // Named file â†’ sidecar: "MySong.mid" â†’ "MySong.mid.autosave"
+        // Named file → sidecar: "MySong.mid" → "MySong.mid.autosave"
         return f->path() + ".autosave";
     }
-    // Untitled â†’ stable path in AppData. Only the ACTIVE untitled document
+    // Untitled → stable path in AppData. Only the ACTIVE untitled document
     // uses it: multiple untitled tabs would otherwise overwrite each other's
     // backup on the same fixed path.
     if (f != file) return QString();
@@ -12167,7 +12167,7 @@ void MainWindow::checkForUpdates(bool silent) {
                     _autoUpdater->downloadUpdate(zipDownloadUrl, zipSize);
                 }
             }
-            // else: Skip â€” do nothing
+            // else: Skip - do nothing
         });
         connect(_updateChecker, &UpdateChecker::noUpdateAvailable, this, [this](){
             if (!_silentUpdateCheck) {
@@ -14360,7 +14360,7 @@ void MainWindow::updateRenderingMode() {
 
 void MainWindow::rebuildToolbarFromSettings() {
     // Dedicated method for rebuilding toolbar when settings change
-    // Reentrancy guard only â€” no time-based debounce, because
+    // Reentrancy guard only - no time-based debounce, because
     // refreshColors() needs this to run synchronously on every theme switch.
     static bool isRebuilding = false;
 
@@ -15216,8 +15216,8 @@ void MainWindow::startExport(const ExportOptions &opts) {
 
     connect(engine, &FluidSynthEngine::exportProgress, this, [this](int pct) {
         if (_exportProgressDialog) {
-            // For MP3: WAV render is 0â€“70%, LAME encode is 70â€“100%
-            // For others: 0â€“100% directly
+            // For MP3: WAV render is 0-70%, LAME encode is 70-100%
+            // For others: 0-100% directly
             _exportProgressDialog->setValue(pct);
         }
     });
@@ -15233,7 +15233,7 @@ void MainWindow::startExport(const ExportOptions &opts) {
 
     if (isMp3) {
 #ifdef LAME_SUPPORT
-        // MP3 pipeline: render WAV to temp â†’ encode MP3 â†’ delete temp
+        // MP3 pipeline: render WAV to temp → encode MP3 → delete temp
         ExportOptions wavOpts = opts;
         wavOpts.fileType = "wav";
         wavOpts.sampleFormat = "s16"; // LAME needs 16-bit PCM
@@ -15242,7 +15242,7 @@ void MainWindow::startExport(const ExportOptions &opts) {
         QString finalMp3Path = opts.outputFilePath;
         int mp3Bitrate = opts.mp3Bitrate;
 
-        // Override progress to scale WAV phase to 0â€“70%
+        // Override progress to scale WAV phase to 0-70%
         disconnect(engine, &FluidSynthEngine::exportProgress, nullptr, nullptr);
         connect(engine, &FluidSynthEngine::exportProgress, this, [this](int pct) {
             if (_exportProgressDialog) {
@@ -15260,7 +15260,7 @@ void MainWindow::startExport(const ExportOptions &opts) {
                 return;
             }
 
-            // Phase 2: encode WAV â†’ MP3 in background
+            // Phase 2: encode WAV → MP3 in background
             if (_exportProgressDialog) {
                 _exportProgressDialog->setLabelText(tr("Encoding MP3..."));
                 _exportProgressDialog->setValue(70);
@@ -15270,7 +15270,7 @@ void MainWindow::startExport(const ExportOptions &opts) {
             QThreadPool::globalInstance()->start([this, tempWav, finalMp3Path, mp3Bitrate]() {
                 bool ok = LameEncoder::encode(tempWav, finalMp3Path, mp3Bitrate,
                     [this](int pct) {
-                        // Scale LAME progress 0â€“100 to dialog 70â€“100
+                        // Scale LAME progress 0-100 to dialog 70-100
                         int scaled = 70 + pct * 30 / 100;
                         QMetaObject::invokeMethod(this, [this, scaled]() {
                             if (_exportProgressDialog) {
