@@ -885,6 +885,7 @@ option(MIDIPILOT_ENABLE_LIVE_API_TESTS "Register live provider API smoke tests" 
 add_executable(test_provider_matrix
     test_provider_matrix.cpp
     ../src/ai/AiClient.cpp
+    ../src/ai/ChatAttachments.cpp # Phase 52: attachment parts per transport
     ../src/ai/ModelListCache.cpp
     ../src/AppPaths.cpp # Phase 45: AiClient's API-log path
 )
@@ -914,6 +915,7 @@ endif()
 add_executable(test_streaming_fallback
     test_streaming_fallback.cpp
     ../src/ai/AiClient.cpp
+    ../src/ai/ChatAttachments.cpp # Phase 52: attachment parts per transport
     ../src/ai/ModelListCache.cpp
     ../src/AppPaths.cpp # Phase 45: AiClient's API-log path
 )
@@ -1649,10 +1651,15 @@ add_test(NAME DrumKitPreset COMMAND test_drum_kit_preset)
 # (FFXIVChannelFixer). Compiles the REAL fixer + MidiFile/MidiChannel/
 # MidiTrack/Protocol/MidiEvent stack; only the GUI periphery (Appearance
 # colors, EventWidget) is ODR-shimmed in the test TU - same approach as
-# test_midi_event, extended to the full midi core.
+# test_midi_event, extended to the full midi core. InstrumentChooser is linked
+# for its dialog-free applyProgram() (2.5.0 fixer review CF-03), and the
+# MusicXML part extraction for the instrument of a fixer-processed file.
 add_executable(test_ffxiv_fixer_resync
     test_ffxiv_fixer_resync.cpp
     ../src/ai/FFXIVChannelFixer.cpp
+    ../src/converter/Score/MidiToScoreExtract.cpp
+    ../src/converter/Score/MidiToScore.cpp
+    ../src/gui/InstrumentChooser.cpp
     ../src/midi/MidiFile.cpp
     ../src/midi/MidiChannel.cpp
     ../src/midi/MidiTrack.cpp
@@ -1696,6 +1703,59 @@ target_link_libraries(test_ffxiv_fixer_resync PRIVATE
     Qt6::Test
 )
 add_test(NAME FfxivFixerResync COMMAND test_ffxiv_fixer_resync)
+
+# -----------------------------------------------------------------------------
+# test_track_order
+# -----------------------------------------------------------------------------
+# Track order and the song-wide events (tempo, meter, key, markers): moving or
+# removing the first track hands them to the next first track, saving writes
+# them into the first chunk, loading gathers them there without doubled
+# defaults, and a drag lands at the drop indicator (track-order review, 2.5.0).
+# Same harness as test_ffxiv_fixer_resync, without the fixer.
+add_executable(test_track_order
+    test_track_order.cpp
+    ../src/midi/MidiFile.cpp
+    ../src/midi/MidiChannel.cpp
+    ../src/midi/MidiTrack.cpp
+    ../src/midi/LyricManager.cpp
+    ../src/midi/InstrumentDefinitions.cpp
+    ../src/converter/SrtParser.cpp
+    ../src/protocol/Protocol.cpp
+    ../src/protocol/ProtocolEntry.cpp
+    ../src/protocol/ProtocolItem.cpp
+    ../src/protocol/ProtocolStep.cpp
+    ../src/gui/ChannelVisibilityManager.cpp
+    ../src/gui/GraphicObject.cpp
+    ../src/MidiEvent/MidiEvent.cpp
+    ../src/MidiEvent/NoteOnEvent.cpp
+    ../src/MidiEvent/OffEvent.cpp
+    ../src/MidiEvent/OnEvent.cpp
+    ../src/MidiEvent/ControlChangeEvent.cpp
+    ../src/MidiEvent/ProgChangeEvent.cpp
+    ../src/MidiEvent/PitchBendEvent.cpp
+    ../src/MidiEvent/ChannelPressureEvent.cpp
+    ../src/MidiEvent/KeyPressureEvent.cpp
+    ../src/MidiEvent/TempoChangeEvent.cpp
+    ../src/MidiEvent/TimeSignatureEvent.cpp
+    ../src/MidiEvent/KeySignatureEvent.cpp
+    ../src/MidiEvent/TextEvent.cpp
+    ../src/MidiEvent/SysExEvent.cpp
+    ../src/MidiEvent/UnknownEvent.cpp
+)
+target_include_directories(test_track_order PRIVATE
+    ../src/MidiEvent
+    ../src/midi
+    ../src/protocol
+    ../src/gui
+    ../src/converter
+)
+target_link_libraries(test_track_order PRIVATE
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Widgets
+    Qt6::Test
+)
+add_test(NAME TrackOrder COMMAND test_track_order)
 
 # -----------------------------------------------------------------------------
 # test_midi_measure
@@ -1908,6 +1968,42 @@ target_link_libraries(test_mcp_session_table PRIVATE
 add_test(NAME McpSessionTable COMMAND test_mcp_session_table)
 set_tests_properties(McpSessionTable PROPERTIES TIMEOUT 60)
 
+# -----------------------------------------------------------------------------
+# test_ai_file_naming
+# -----------------------------------------------------------------------------
+# Phase 51 (v2.5.0): the "AI gate" for documents MidiPilot and MCP clients
+# save - marked copies (<name>.midipilot.mid / <name>.mcp.mid), marks never
+# stack, always .mid, a taken name gets a counter, an existing file is never
+# written over except the caller's own marked working copy. Pure Qt Core;
+# planSave() runs against a temporary folder.
+add_executable(test_ai_file_naming
+    test_ai_file_naming.cpp
+    ../src/ai/AiFileNaming.cpp
+)
+target_link_libraries(test_ai_file_naming PRIVATE
+    Qt6::Core
+    Qt6::Test
+)
+add_test(NAME AiFileNaming COMMAND test_ai_file_naming)
+
+# -----------------------------------------------------------------------------
+# test_chat_attachments
+# -----------------------------------------------------------------------------
+# Phase 52 (v2.5.0): MidiPilot attachments as content parts - one part per
+# file kind (image data URL, PDF/other file part, text inlined), the
+# Responses API and native Gemini translations, limits, the token estimate,
+# and the storage round trip (files next to the conversation, references in
+# the JSON, a missing file reloads as a text line). Pure Qt Core.
+add_executable(test_chat_attachments
+    test_chat_attachments.cpp
+    ../src/ai/ChatAttachments.cpp
+)
+target_link_libraries(test_chat_attachments PRIVATE
+    Qt6::Core
+    Qt6::Test
+)
+add_test(NAME ChatAttachments COMMAND test_chat_attachments)
+
 # Make Qt DLLs visible to the tests at runtime on Windows.
 if(WIN32)
     get_target_property(_qmake_exe Qt6::qmake IMPORTED_LOCATION)
@@ -1947,6 +2043,7 @@ if(WIN32)
         ThreeMleParser
         DrumKitPreset
         FfxivFixerResync
+        TrackOrder
         MidiMeasure
         FfxivPlayability
         HelpDatabase
@@ -1973,6 +2070,8 @@ if(WIN32)
         AutoSaveScheduler
         DpiEnvOverrides
         McpSessionTable
+        AiFileNaming
+        ChatAttachments
         PROPERTIES
             ENVIRONMENT "PATH=${_qt_bin_dir};$ENV{PATH}"
     )
@@ -2037,6 +2136,61 @@ if(WIN32)
     get_target_property(_qt_core_loc Qt6::Core LOCATION)
     get_filename_component(_qt_bin_dir "${_qt_core_loc}" DIRECTORY)
     set_tests_properties(TempoMapThinner PROPERTIES
+        ENVIRONMENT "PATH=${_qt_bin_dir};$ENV{PATH}")
+endif()
+
+# --- v2.5 Phase 51 / 51.2: new-document resolution, exact tempo round trip,
+# a failed write is not a save (MidiFile side of the document tools) ---
+add_executable(test_document_timing
+    test_document_timing.cpp
+    ../src/midi/TempoMapThinner.cpp
+    ../src/midi/MidiFile.cpp
+    ../src/midi/MidiChannel.cpp
+    ../src/midi/MidiTrack.cpp
+    ../src/midi/LyricManager.cpp
+    ../src/midi/InstrumentDefinitions.cpp
+    ../src/converter/SrtParser.cpp
+    ../src/protocol/Protocol.cpp
+    ../src/protocol/ProtocolEntry.cpp
+    ../src/protocol/ProtocolItem.cpp
+    ../src/protocol/ProtocolStep.cpp
+    ../src/gui/ChannelVisibilityManager.cpp
+    ../src/gui/GraphicObject.cpp
+    ../src/MidiEvent/MidiEvent.cpp
+    ../src/MidiEvent/NoteOnEvent.cpp
+    ../src/MidiEvent/OffEvent.cpp
+    ../src/MidiEvent/OnEvent.cpp
+    ../src/MidiEvent/ControlChangeEvent.cpp
+    ../src/MidiEvent/ProgChangeEvent.cpp
+    ../src/MidiEvent/PitchBendEvent.cpp
+    ../src/MidiEvent/ChannelPressureEvent.cpp
+    ../src/MidiEvent/KeyPressureEvent.cpp
+    ../src/MidiEvent/TempoChangeEvent.cpp
+    ../src/MidiEvent/TimeSignatureEvent.cpp
+    ../src/MidiEvent/KeySignatureEvent.cpp
+    ../src/MidiEvent/TextEvent.cpp
+    ../src/MidiEvent/SysExEvent.cpp
+    ../src/MidiEvent/UnknownEvent.cpp
+)
+target_include_directories(test_document_timing PRIVATE
+    ../src/MidiEvent
+    ../src/midi
+    ../src/protocol
+    ../src/gui
+    ../src/converter
+)
+target_link_libraries(test_document_timing PRIVATE
+    Qt6::Core
+    Qt6::Gui
+    Qt6::Widgets
+    Qt6::Test
+)
+add_test(NAME DocumentTiming COMMAND test_document_timing)
+
+if(WIN32)
+    get_target_property(_qt_core_loc Qt6::Core LOCATION)
+    get_filename_component(_qt_bin_dir "${_qt_core_loc}" DIRECTORY)
+    set_tests_properties(DocumentTiming PROPERTIES
         ENVIRONMENT "PATH=${_qt_bin_dir};$ENV{PATH}")
 endif()
 

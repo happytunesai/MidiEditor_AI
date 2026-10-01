@@ -78,6 +78,24 @@ void FFXIVFixerDialog::setupUI(const QJsonObject &analysis) {
                                 " - the program is taken from the track name")
                             .arg(np.join(", "));
         }
+
+        // The same on a channel another instrument plays on: Preserve leaves
+        // that channel to the other instrument (its sound would be replaced).
+        const QJsonArray sharedArr = analysis["guitarTracksOnSharedChannel"].toArray();
+        if (!sharedArr.isEmpty()) {
+            QStringList sp;
+            for (const auto &v : sharedArr) {
+                const QJsonObject e = v.toObject();
+                sp << QString("%1 %2 (CH%3, %4)").arg(QString::number(e["index"].toInt()),
+                        e["name"].toString().toHtmlEscaped(),
+                        QString::number(e["channel"].toInt()),
+                        e["sharedWith"].toString().toHtmlEscaped());
+            }
+            infoText += QString("<br>Guitar tracks on another instrument's channel: <b>%1</b>"
+                                " - Preserve leaves these channels to that instrument;"
+                                " move the guitar notes onto a guitar channel")
+                            .arg(sp.join(", "));
+        }
     }
     if (!percArr.isEmpty()) {
         QStringList pv;

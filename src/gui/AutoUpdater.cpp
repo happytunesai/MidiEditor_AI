@@ -253,15 +253,17 @@ bool AutoUpdater::hasPendingUpdate() const
     return !zipPath.isEmpty() && QFile::exists(zipPath);
 }
 
-void AutoUpdater::executeUpdateNow(const QString &currentMidiPath)
+bool AutoUpdater::executeUpdateNow(const QString &currentMidiPath)
 {
     if (_downloadedZipPath.isEmpty() || !QFile::exists(_downloadedZipPath)) {
         QMessageBox::warning(_parentWidget, tr("Update Error"), tr("Update file not found. Please try again."));
-        return;
+        return false;
     }
 
     qDebug() << "AutoUpdater: executeUpdateNow ZIP:" << _downloadedZipPath;
-    applyUpdate(_downloadedZipPath, currentMidiPath);
+    // Returns only when the update did not start: on success applyUpdate()
+    // ends this process after launching the new one.
+    return applyUpdate(_downloadedZipPath, currentMidiPath);
 }
 
 void AutoUpdater::launchPendingUpdate(const QString &currentMidiPath)

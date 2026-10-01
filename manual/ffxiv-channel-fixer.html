@@ -121,7 +121,7 @@ The fixer analyzes your MIDI file by track name, auto-detects the best mode, and
 </div>
 <div class="step-card">
 <h4>3&#xFE0F;&#x20E3; Migrate</h4>
-<p>Assigns each track a unique MIDI channel (T0&rarr;CH0, T1&rarr;CH1, etc.). Percussion goes to CH9. Guitar tracks get 5 channels for variant switching.</p>
+<p>Assigns each track a unique MIDI channel (T0&rarr;CH0, T1&rarr;CH1, etc.). Percussion goes to CH9, and CH9 stays with the percussion: a melodic track at track index 9 takes the next free channel. Guitar tracks get 5 channels for variant switching.</p>
 </div>
 <div class="step-card">
 <h4>4&#xFE0F;&#x20E3; Program</h4>
@@ -154,6 +154,7 @@ When you click <b>Fix X|V Channels</b>, a confirmation dialog appears with two m
 <ul style="margin:0; padding-left:1.2em;">
 <li>Maps every track to a fresh channel (T0&rarr;CH0, T1&rarr;CH1, &hellip;)</li>
 <li>Percussion tracks &rarr; CH9 &nbsp;(Timpani stays on track index - it's tonal)</li>
+<li>CH9 is kept for percussion - a melodic or guitar track at track index 9 moves to the next free channel, and no reserved guitar channel lands on CH9</li>
 <li>Removes <b>all</b> existing program changes and non-essential events (CC, PitchBend, SysEx)</li>
 <li>Moves all events to the correct channel</li>
 <li>Reserves channels for <b>all 5 guitar variants</b>, even if only 1-2 are present as tracks</li>
@@ -168,11 +169,11 @@ When you click <b>Fix X|V Channels</b>, a confirmation dialog appears with two m
 <td><b>&#x1F6E1;&#xFE0F; Preserve</b><br>(Minimal Changes)</td>
 <td>
 <ul style="margin:0; padding-left:1.2em;">
-<li>Keeps all existing channel assignments (uses <code>assignedChannel()</code>)</li>
+<li>Keeps all existing channel assignments (uses <code>assignedChannel()</code>) - percussion tracks included</li>
 <li>Non-guitar channels <b>completely untouched</b> - no PCs removed, no events moved (unless the optional <a href="#resync">instrument re-sync</a> is enabled)</li>
 <li>Recognizes <b>reserved guitar channels</b> from a previous Rebuild (e.g. CH5, CH6 for unused variants)</li>
-<li>Refreshes guitar program changes at tick 0 + inserts switch PCs at variant change points</li>
-<li>Auto-renames guitar tracks if first note sits on a different variant's channel</li>
+<li>Refreshes guitar program changes at tick 0 and writes the switch PCs at variant change points anew - running Preserve again does not stack them, on reserved guitar channels either</li>
+<li>Auto-renames guitar tracks if first note sits on a different variant's channel (an octave suffix like <code>+1</code> stays)</li>
 <li>Normalizes all note velocities to 127 (FFXIV has no dynamics)</li>
 </ul>
 </td>
@@ -183,9 +184,10 @@ When you click <b>Fix X|V Channels</b>, a confirmation dialog appears with two m
 <h3>Auto-Detection Logic</h3>
 <p>The tool auto-selects the mode based on these criteria:</p>
 <ul>
-<li><b>Rebuild</b> is selected when the file has FFXIV instrument names but no existing guitar program changes</li>
-<li><b>Preserve</b> is selected when guitar program changes already exist, or when guitar tracks have notes spread across multiple channels (indicating a pre-configured file)</li>
+<li><b>Rebuild</b> is selected when the file has FFXIV instrument names but no guitar program at the start of the song</li>
+<li><b>Preserve</b> is selected when a channel starts with a guitar program, or when a guitar track has notes on more than one guitar channel (indicating a pre-configured file)</li>
 </ul>
+<p>MidiPilot and MCP clients (<code>setup_channel_pattern</code>) choose the mode by the same rules, so the dialog proposes the mode they would run.</p>
 
 <h3 id="resync">Optional: Re-sync Non-Guitar Instruments (Preserve mode)</h3>
 
@@ -237,6 +239,7 @@ After the fix completes, a structured result popup shows exactly what was change
 <li><b>Guitar switches</b> - how many mid-song variant switches were inserted</li>
 <li><b>Velocity normalization</b> - how many notes were set to maximum velocity</li>
 <li><b>Track renames</b> - any guitar tracks auto-renamed to match their actual variant</li>
+<li><b>Guitar notes on other channels</b> (Preserve) - guitar notes that sit on a channel without a guitar program, for example the Flute's, get no switch program change; the result lists them with their track and channel so you can move them onto a guitar channel</li>
 </ul>
 
 <hr>
@@ -322,8 +325,9 @@ FFXIV electric guitar supports 5 tonal variants that share channels via <code>pr
 <li><b>5 channels reserved</b> - Rebuild mode ensures all 5 guitar variants get a channel, even if your file only uses 1-2 variants. These reserved channels persist across saves and are recognized by Preserve mode.</li>
 <li><b>Reserved channels visible in Preserve</b> - when you manually place notes on a reserved guitar channel (e.g. Guitar harmonics on CH6), Preserve mode detects them for auto-rename and switch-point insertion.</li>
 <li><b>Mid-song switches</b> - when notes jump between guitar channels, a <code>program_change</code> is inserted at the switch point</li>
-<li><b>Auto-rename</b> - in Preserve mode, if a guitar track's first note is on a different variant's channel, the track is automatically renamed to match</li>
-<li><b>Program from the track name</b> - in Preserve mode, a guitar track that plays on a channel without a guitar program (for example a Viola track you renamed to ElectricGuitarOverdriven) gets the program of its own variant on that channel; the analysis dialog lists such tracks. An empty guitar track parked on another instrument's channel leaves that channel alone.</li>
+<li><b>Auto-rename</b> - in Preserve mode, if a guitar track's first note is on a different variant's channel, the track is automatically renamed to match; an octave suffix like <code>+1</code> stays</li>
+<li><b>Program from the track name</b> - in Preserve mode, a guitar track that plays on a channel without a guitar program (for example a Viola track you renamed to ElectricGuitarOverdriven) gets the program of its own variant on that channel; the analysis dialog lists such tracks. An empty guitar track parked on another instrument's channel leaves that channel alone, and so does a guitar track on a channel another instrument plays on - the channel keeps that instrument, and the analysis dialog and the result list the guitar track so you can move its notes.</li>
+<li><b>Your instrument choice counts</b> - when you give a guitar channel another variant with the channel's instrument dialog, Preserve keeps that program at tick 0 and writes the switches with it, and a guitar track that starts on that channel is renamed to match</li>
 </ul>
 
 <hr>

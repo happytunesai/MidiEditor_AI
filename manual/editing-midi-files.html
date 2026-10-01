@@ -308,7 +308,7 @@
 <p>
   The following picture shows some notes before (left) and after (right) quantization. The quantization fractions were set to 8ths.
 </p>
-<img class="figure" src="screenshots/quantization.png" hspace="10" vspace="10"/>
+<img class="figure" width="520" src="screenshots/quantization.png" hspace="10" vspace="10" alt="Eight notes slightly off the beat (left) and the same notes on the eighth-note grid (right)"/>
 <p>
   As tuplets are not aligned on the usual grid, you can select the events which belong to a tuplet und use the action quantify tuplet in order to
   correct a tuplet's timing.
@@ -543,15 +543,24 @@ the instrument can be chosen from a list of instruments. Press
 <img src="tools/instrument.png"  width="12" height="12"/> in the channel list to change the instrument. This will open up the following dialog:
 </p>
 
-<img class="figure" src="screenshots/instrument.png" />
+<img class="figure" src="screenshots/instrument.png" alt="Choose Instrument dialog for channel 0" />
 
 <p>
 You can specify the instrument from the given list. Accepting the dialog
 will set the channel's instrument in the beginning of the file to the
-instrument from the list. Later in the file there may be Program Change
+instrument from the list - every Program Change Event of the channel at
+the very beginning gets it (files set up by Fix X|V Channels carry one per
+track there). Later in the file there may be Program Change
 Events changing the channel's instrument. To prevent this, you can select
 &quot;Remove other Program Change Events&quot; before accepting the
 dialog. All other Program Change Events of the channel will be removed.
+</p>
+
+<p>
+When several Program Change Events of a channel sit at the same position,
+the one added last decides the instrument - in the channel list, during
+playback and in the saved file. A Program Change Event is always played and
+saved before the notes of its channel that start at the same position.
 </p>
 
 <h3 id="tweaking-event-properties">Tweaking Event Properties</h3>

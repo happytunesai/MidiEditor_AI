@@ -160,21 +160,21 @@ QList<ConversationEntry> _conversationHistory;  // Per session, not persisted
   1. ✅ **Header:** Status indicator (connected/disconnected), model name, gear icon for settings
   2. ✅ **Context bar:** Shows active track, channel, measure, selection count (auto-updates)
   3. ✅ **Chat area:** Scrollable message list + input field + send button
-- ⬜ Loading spinner during API requests — *uses text-based "Thinking..." instead*
+- ✅ Loading indicator during API requests — *animated status line with rotating messages (replaced the plain "Thinking..." text)*
 - ✅ Error messages displayed inline
 
 ### 2.2 — Toolbar & Menu Integration ✅
 - ✅ Toggle button in toolbar: 🤖 icon (`midipilot.png`) to show/hide MidiPilot panel
 - ✅ Menu: `View → MidiPilot` (checkable, with `Ctrl+I` shortcut)
 - ✅ Menu: `Edit → Ask MidiPilot...` (opens panel and focuses input)
-- ⬜ Context menu on right-click in MatrixWidget: `"Ask MidiPilot..."` — *only in Edit menu for now*
+- ✅ Context menu on right-click in MatrixWidget: "Ask MidiPilot about the selection" — *shipped in 2.2.0*
 
 ### 2.3 — First-Run Setup ✅ (partial)
 - ✅ If no API key configured: show setup prompt in the panel
 - ✅ "Enter your OpenAI API key to get started" text
 - ✅ "Open Settings" button → redirects to Settings dialog
-- ⬜ Inline API key input + "Save & Test" button in the panel itself
-- ⬜ Link to API key page
+- ⏸ Inline API key input + "Save & Test" button in the panel itself — *not planned, the Open Settings redirect works fine*
+- ⏸ Link to API key page — *not planned, same reason*
 
 ---
 
@@ -239,7 +239,7 @@ All operations below are supported via the AI action system (edit/delete/info/er
 - ✅ User can refine: "No, make those sixths instead of thirds"
 - ✅ Context re-captured on each message (reflects latest editor state)
 - ✅ Conversation resets when user clicks "New Chat" (➕ button)
-- ⬜ Conversation resets on file change — *not implemented, only refreshes context*
+- ⏸ Conversation resets on file change — *not planned: since the 1.9.0 tabs a document switch keeps the chat; New Chat resets it*
 
 ---
 
@@ -289,10 +289,10 @@ All operations below are supported via the AI action system (edit/delete/info/er
 - ✅ Enables multi-step autonomous workflows (AI reasons about context, then acts on specific regions)
 - ✅ Update system prompt with new action definitions + autonomous editing guidance
 
-### 4.6 — Persistent History (SQLite) ⬜
-- ⬜ Store conversation history across sessions
-- ⬜ Associate conversations with MIDI files
-- ⬜ Searchable history
+### 4.6 — Persistent History ✅ (shipped in 1.1.9 as JSON files via ConversationStore, not SQLite)
+- ✅ Store conversation history across sessions
+- ✅ Associate conversations with MIDI files
+- ✅ Searchable history (search box in the history popup)
 - ⬜ Export/import conversation logs
 
 ### 4.7 — Model Configuration ✅ (partial)
@@ -802,12 +802,12 @@ Phase 20   Audio Export & FluidSynth Hardening            ✅ DONE (20.1-20.8, v
 Phase 21   Lyric Editor                                   ✅ DONE (all sub-phases 21.1–21.9 complete)
 Phase 22   Lyric Visualizer (Karaoke Display)             ✅ DONE
 Phase 23   MCP Server, Documentation & Prompt v3          ✅ DONE (23.1-23.5, v1.3.2)
-Phase 24   MusicXML & MuseScore (.mscz) Import              ⬜ TODO
-Phase 4.6  Persistent history (SQLite)                    ⬜ TODO (low priority)
-              --- v2.0 (planned, see "v2.0 - FFXIV Power Tools" at the end) ---
-v2.0 #1    Fix XIV: opt-in non-guitar instrument re-sync    🔨 BUILT (feature/v2.0, af06d0b + 9 hard-gate tests)
-v2.0 #2    FFXIV drum split (cosmetic CH9 -> FFXIV tracks)  🔨 BUILT (feature/v2.0, ccac285.. + toolbar/icon)
-v2.0 #3    Rich track/channel right-click context menu      🔨 BUILT (feature/v2.0, 18dd5d6..149b5cd)
+Phase 24   MusicXML & MuseScore (.mscz) Import              ✅ DONE (v1.4.0)
+Phase 4.6  Persistent history (JSON, not SQLite)           ✅ DONE (v1.1.9)
+              --- v2.0 (shipped 2026-07-05, see "v2.0 - FFXIV Power Tools" further down) ---
+v2.0 #1    Fix XIV: opt-in non-guitar instrument re-sync    ✅ SHIPPED (v2.0.0)
+v2.0 #2    FFXIV drum split (cosmetic CH9 -> FFXIV tracks)  ✅ SHIPPED (v2.0.0)
+v2.0 #3    Rich track/channel right-click context menu      ✅ SHIPPED (v2.0.0)
 ```
 
 #### Phase 11.5 — 3-Tier Smart Detection (Fix X|V v2)
@@ -1334,7 +1334,7 @@ Parse token usage from API responses and display in the UI.
 
 **Files:** Modify `AiClient.h/cpp`, `MidiPilotWidget.h/cpp`
 
-### 8.3 — Rate Limit Awareness ⬜
+### 8.3 — Rate Limit Awareness ✅ (retry on 429/5xx with exponential backoff since 1.3.2, quota handling in 1.9.2)
 
 Parse rate limit headers from OpenAI responses and react intelligently.
 
@@ -1397,7 +1397,7 @@ Each provider supports different models. Populate model dropdown based on select
 ```
 Phase 8.1  Custom base URL (provider presets)           ✅ DONE — OpenAI, OpenRouter, Gemini, Custom
 Phase 8.2  Token usage tracking & display               ✅ DONE — last request + session totals
-Phase 8.3  Rate limit awareness + auto-retry            ⬜ TODO — nice-to-have for free tiers
+Phase 8.3  Rate limit awareness + auto-retry            ✅ DONE — retry/backoff 1.3.2, quota handling 1.9.2
 Phase 8.4  Puter.com / free provider integration        ❌ DEFERRED — covered by Gemini/OpenRouter/Ollama
 Phase 8.5  Provider-specific model lists                ✅ DONE — per-provider model dropdowns
 ```
@@ -1627,12 +1627,12 @@ Phase 9.4  App startup auto-loading                     ✅ DONE
 ## Remaining Work
 
 ### Not Yet Implemented (Nice-to-Have)
-- ⬜ **Context menu in MatrixWidget:** Right-click on selected notes → "Ask MidiPilot..." (Phase 2.2)
-- ⬜ **Inline API key setup:** Enter API key directly in MidiPilot panel (Phase 2.3) — *low priority, Settings redirect works fine*
-- ⬜ **Conversation reset on file change** (Phase 3.4)
-- ⬜ **Persistent history** (SQLite) across sessions (Phase 4.6) — *low priority*
-- ⬜ **Loading spinner** animation instead of "Thinking..." text (Phase 2.1) — *cosmetic*
-- ⬜ **Rate limit awareness** + auto-retry for free tiers (Phase 8.3) — *nice-to-have*
+- ✅ **Context menu in MatrixWidget:** Right-click on selected notes → "Ask MidiPilot about the selection" (Phase 2.2) — *shipped in 2.2.0*
+- ⏸ **Inline API key setup:** Enter API key directly in MidiPilot panel (Phase 2.3) — *not planned, Settings redirect works fine*
+- ⏸ **Conversation reset on file change** (Phase 3.4) — *not planned, the tabs keep the chat by design*
+- ✅ **Persistent history** across sessions (Phase 4.6) — *shipped in 1.1.9 (JSON, not SQLite)*
+- ✅ **Loading indicator** instead of the plain "Thinking..." text (Phase 2.1) — *animated status line*
+- ✅ **Rate limit awareness** + auto-retry (Phase 8.3) — *shipped in 1.3.2, quota handling 1.9.2*
 
 ### Completed Since Last Update
 - ✅ **Lyric Timeline Widget (Phase 21.1)** — new LyricTimelineWidget displaying lyric/text events as colored blocks synced with MatrixWidget scroll/zoom, label panel, playback pop effects (expand, glow, shadow, bold), View menu toggle (Ctrl+L), auto-show setting, dynamic font sizing, centered text, configurable lyric color (fixed pinkish default or track color) in Appearance settings
@@ -2932,7 +2932,7 @@ if "%4"=="" (
 )
 ```
 
-### 15.1 — Extend UpdateChecker to Provide Download URL ⬜
+### 15.1 — Extend UpdateChecker to Provide Download URL ✅
 
 **Changes to `UpdateChecker.h/cpp`:**
 
@@ -2949,7 +2949,7 @@ signals:
 
 **Estimated:** ~20 lines changed in `UpdateChecker.cpp`
 
-### 15.2 — AutoUpdater Class (Download + Extract) ⬜
+### 15.2 — AutoUpdater Class (Download + Extract) ✅
 
 **New files: `src/gui/AutoUpdater.h` + `src/gui/AutoUpdater.cpp`**
 
@@ -3007,7 +3007,7 @@ private:
 
 **Estimated:** ~200 lines (AutoUpdater.h ~50, AutoUpdater.cpp ~150)
 
-### 15.3 — Update Decision Dialog ⬜
+### 15.3 — Update Decision Dialog ✅
 
 **New dialog shown when update is available:**
 
@@ -3041,7 +3041,7 @@ Both links are `QLabel` with `setOpenExternalLinks(true)` using `<a href="...">`
 
 **Estimated:** ~45 lines (can be inline in MainWindow or a small helper)
 
-### 15.4 — MainWindow Integration ⬜
+### 15.4 — MainWindow Integration ✅
 
 **Changes to `MainWindow.h/cpp`:**
 
@@ -3060,7 +3060,7 @@ Both links are `QLabel` with `setOpenExternalLinks(true)` using `<a href="...">`
 
 **Estimated:** ~60 lines changed in MainWindow + ~10 lines in main.cpp
 
-### 15.5 — updater.bat Script ⬜
+### 15.5 — updater.bat Script ✅
 
 **File: `run_environment/updater.bat`** (shipped with the app)
 
@@ -3076,7 +3076,7 @@ The batch script that runs after the app exits:
 
 **Estimated:** ~40 lines
 
-### 15.6 — Testing & Edge Cases ⬜
+### 15.6 — Testing & Edge Cases ✅
 
 **Test scenarios:**
 1. ✅ Update Now with no file open → download, extract, restart (no --open arg)
@@ -5574,7 +5574,7 @@ Phase 20.8   FluidSynth Hardening (driver fallback + error UX)      ✅
 
 ---
 
-### 20.1 — FluidSynthEngine Export Core (Render Pipeline) ⬜
+### 20.1 — FluidSynthEngine Export Core (Render Pipeline) ✅
 
 **Goal:** Add offline rendering to FluidSynthEngine that can export a MIDI file (or
 section) to WAV/FLAC/OGG using the currently loaded SoundFont stack.
@@ -5698,7 +5698,7 @@ RISK: Low — proven approach from Mewo's code, just extended
 
 ---
 
-### 20.2 — Export Dialog (Format, Quality, Range Selection) ⬜
+### 20.2 — Export Dialog (Format, Quality, Range Selection) ✅
 
 **Goal:** A user-friendly modal dialog for configuring audio export. Replaces Mewo's
 button-only approach with a proper settings dialog.
@@ -5861,7 +5861,7 @@ RISK: Low — standard QDialog construction
 
 ---
 
-### 20.3 — Full-File Export (File Menu + Toolbar + Settings) ⬜
+### 20.3 — Full-File Export (File Menu + Toolbar + Settings) ✅
 
 **Goal:** Wire up the Export Dialog to File menu, toolbar button, MidiSettingsWidget,
 and keyboard shortcut for full-file export.
@@ -5950,7 +5950,7 @@ RISK: Low — standard menu/toolbar wiring
 
 ---
 
-### 20.4 — Selection/Range Export (Context Menu + Dialog) ⬜
+### 20.4 — Selection/Range Export (Context Menu + Dialog) ✅
 
 **Goal:** Let users select notes/measures in the piano roll, right-click, and export
 just that section as audio. This is the key user-requested feature.
@@ -6070,7 +6070,7 @@ RISK: Medium — range/trim logic needs careful handling of setup events
 
 ---
 
-### 20.5 — MP3 Support via LAME (Optional Encoder) ⬜
+### 20.5 — MP3 Support via LAME (Optional Encoder) ✅
 
 **Goal:** Add MP3 export support. Since FluidSynth doesn't support MP3 natively,
 we use a two-step pipeline: render to WAV → encode to MP3 via LAME.
@@ -6208,7 +6208,7 @@ RISK: Medium — external dependency, two encoding paths, DLL loading complexity
 
 ---
 
-### 20.6 — Export Progress UI (Progress Bar + Cancel) ⬜
+### 20.6 — Export Progress UI (Progress Bar + Cancel) ✅
 
 **Goal:** Show a clear, non-blocking progress indicator during export with cancel support.
 
@@ -7796,7 +7796,7 @@ Phase 23.3d  Provider abstraction                                ⏭️ SKIPPED 
 
 ---
 
-## Phase 24 - MusicXML & MuseScore (.mscz) Import
+## Phase 24 - MusicXML & MuseScore (.mscz) Import — ✅ SHIPPED in 1.4.0
 
 > **Goal:** Allow users to open MusicXML files (`.musicxml`, `.xml`) and MuseScore files
 > (`.mscz`) directly in MidiEditor AI. MusicXML is the standard interchange format for
@@ -7988,7 +7988,7 @@ Phase 24.3b  Unit tests (XmlScoreToMidi)                         ✅ DONE
 
 ---
 
-## Phase 25: Live Streaming Everywhere + Reasoning Summary (Planned)
+## Phase 25: Live Streaming Everywhere + Reasoning Summary — ✅ SHIPPED in 1.5.0
 
 > **Goal:** Make the Agent Mode feel like Copilot — text streams as it's generated,
 > tool-call arguments stream as they're being constructed, and (where supported)
@@ -8214,7 +8214,7 @@ Today's state ([`AiClient::sendStreamingRequest`](../src/ai/AiClient.cpp), Agent
 
 ---
 
-## Phase 27: MidiPilot UX Polish — Universal Thoughts, Responses-API Streaming, History UX & Persistent Turns ✅ DONE (Unreleased)
+## Phase 27: MidiPilot UX Polish — Universal Thoughts, Responses-API Streaming, History UX & Persistent Turns ✅ DONE (shipped in 1.5.0)
 
 > **Goal:** Round out Phase 25's streaming work so live thoughts work for
 > *every* provider, OpenAI's Responses API streams as smoothly as Gemini,
@@ -10017,7 +10017,7 @@ block:
 
 ---
 
-## Phase 35: Auto-Fit Voice Load — PLANNED for 1.6.x
+## Phase 35: Auto-Fit Voice Load — ✅ SHIPPED in 2.1.0
 
 ### Why
 
@@ -10853,7 +10853,7 @@ families have all been classified Tier-3 in two consecutive rounds
 
 ---
 
-## Phase 39: FFXIV SoundFont Equalizer (Per-Instrument Volume Mixer)
+## Phase 39: FFXIV SoundFont Equalizer (Per-Instrument Volume Mixer) — ✅ SHIPPED in 1.6.1 (39.8 AI tool still deferred)
 
 > Status: ✅ **Shipped in 1.6.1 (2026-05-03)**. Implementation summary
 > in CHANGELOG entry FFXIV-EQ-001. Below is the original plan, kept
@@ -11532,7 +11532,7 @@ compressed `.mxl` yet). Deferred: true tuplet detection, `.mxl`, multi-voice,
 and a **Guitar Pro (GP6/7/8 GPIF) writer** reusing the same `MidiToScore` core
 (the originally discussed fast-follow).
 
-## Phase 26: Local AI - Built-in Ollama Provider (Planned, NEXT)
+## Phase 26: Local AI - Built-in Ollama Provider — ✅ SHIPPED in 1.8.2 (guided auto-install dropped)
 
 > **Goal:** Let anyone run MidiPilot **100% locally and free** - no API key, no
 > cloud account - by making Ollama a first-class provider. The user installs
@@ -12130,7 +12130,7 @@ batch; regenerate `manual/changelog.html` after.
 
 ---
 
-## v2.0 - FFXIV Power Tools (planned)
+## v2.0 - FFXIV Power Tools — ✅ SHIPPED 2026-07-05 (v2.0.0)
 
 > Planned for the next MAJOR release: #1 + #2 are FFXIV authoring features, #3 is a general QoL context menu. Scoped +
 > designed 2026-06-29 via multi-agent investigation of the existing code (channel fixer, drum infrastructure, the
@@ -13578,8 +13578,9 @@ remaining candidates are carried into the v2.5 scoping at the end of this file.
 
 ## Phase 51: MCP workflow completeness and API precision (candidate, 2026-09-08)
 
-**Status:** recorded during `feature/v2.4.0` preparation; **not implemented or committed
-to a release**. Scope this block for a subsequent release decision. This extends Phase
+**Status:** recorded during `feature/v2.4.0` preparation; 51.1, 51.2, 51.3, 51.5 and 51.6
+**shipped in 2.5.0** as "Phase 51 (extended)" below; 51.4 (audio render through MCP) stays
+for later. This extends Phase
 46's arrangement work, including its deliberately deferred save-tool decision.
 
 **Scope:** extend MCP access beyond event editing to document creation, precise timing
@@ -13710,7 +13711,7 @@ matching schemas where appropriate; update the manual/tool contracts with each c
 
 ---
 
-# v2.5 PLAN (scoped 2026-09-24)
+# v2.5 PLAN (scoped 2026-09-24) - SHIPPED 2026-10-01
 
 2.4.0 shipped on 2026-09-12. The 2.5.0 scope was fixed with the owner on 2026-09-24: document
 and file tools for MidiPilot and MCP (Phase 51, extended), attachments in MidiPilot (Phase 52)
@@ -13724,6 +13725,15 @@ duplication. (Research 2026-09-24: Anthropic does not permit Claude subscription
 third-party apps; ChatGPT plans are reachable for third parties only through Codex.)
 
 ## Phase 51 (extended): document and file tools - CONFIRMED for 2.5
+
+**Status: shipped in 2.5.0 (2026-10-01).** Tools `save_document`,
+`save_document_as`, `new_document`, `open_document`, `close_document` and `get_timing_map` (51.2),
+exact `set_tempo`, MCP-ARGS-001 (unknown arguments refused, `types` filter), the status-bar line per
+MCP call, 51.5 (velocity note in the `setup_channel_pattern` description) and the 51.6 documentation
+of the `tools/list` refresh. The gate lives in `src/ai/AiFileNaming` (unit test
+`test_ai_file_naming`), the per-document save core in `MainWindow::writeDocumentTo()`, the AI
+operations in `MainWindow::ai*Document()`. New/open/close also work over MCP after the session's own
+document was closed. Open: the live 51.6 check with a connected MCP client.
 
 **Goal.** MidiPilot and MCP can complete a workflow without the GUI: create, open, save and
 close documents, not only edit events. 51.1 (saving) is the core; the empty-document half of
@@ -13741,6 +13751,17 @@ it writes copies that carry its mark and works on those:
   bound document's own file when that file already carries an AI mark - its own working copy,
   so repeated saves need no new names. Every other existing file stays untouched; if the target
   name is taken, a counter is added (`mozart.midipilot.2.mid`). There is no `overwrite` switch.
+  **Revised 2026-09-28 (owner, after trying the tools):** a document opened from a MIDI file
+  may be overwritten, but only on the user's decision - save_document answers `decisionNeeded`
+  with a question the AI asks in its chat, then saves with `mode` "overwrite" or "copy"; the
+  answer is remembered per tab (until it closes), and the setting "AI saves your file" (Ask each
+  time / Always save a copy / Always overwrite, shared by MidiPilot and MCP) can settle it for
+  good. Imports that cannot be written back, save_document_as and every other file keep the
+  rules above. No MCP elicitation - the question travels in the tool result, so every client
+  works. **Review 2026-09-28:** the question and the answer are kept with the file they were
+  about, so an "overwrite" only counts for the file the question named - not for another tab
+  bound in between, not after a Save As (AiFileNaming::resolveExistingFileSave, unit-tested);
+  MidiPilot's agent state treats the question as a question, not as a rejected step.
 * **Names.** A document with a source file takes its name from the source, and the copy goes
   next to it: `mozart.mid` or `mozart.gp5` -> `mozart.midipilot.mid`. An untitled document gets
   a short descriptive name from the request or from the user; with nothing to go on, the AI
@@ -13811,9 +13832,21 @@ counts; help_db regen.
 
 **Decisions:** resolved on 2026-09-24 - silent saving (owner proposal) behind the AI gate: marked
 copies `<name>.midipilot.mid` / `<name>.mcp.mid`, existing files never overwritten except the
-AI's own working copy, renaming = a new marked copy, 51.2 included in 2.5.
+AI's own working copy (revised 2026-09-28: and the opened MIDI file on the user's decision), renaming = a new marked copy, 51.2 included in 2.5.
 
 ## Phase 52: Attachments in MidiPilot - images, PDFs and other files - CONFIRMED for 2.5
+
+**Status: shipped in 2.5.0 (2026-10-01).** `src/ai/ChatAttachments` builds the
+parts (canonical Chat form, Responses and native Gemini translations, limits 10 MB/file,
+14 MB and 10 files/message, 512 KB/text file, token estimate, storage references) - unit test
+`test_chat_attachments`. MidiPilotWidget: paperclip, chips with thumbnail/estimate, drag & drop on
+the panel, Ctrl+V (text wins over a rendered picture), attachments-only messages, the message
+payload lists the file names (image parts carry none). Converted text-only sites: AiClient
+(QJsonValue user message, streaming retry, both Responses conversions, the Gemini builder, a
+per-request attachment line in the API log), the context budget (token estimate), the simple-mode
+retry comparison, the title, save/load (`MidiPilotHistory/<id>/`, references in the JSON, removed
+with the conversation). Programmatic prompts (`submitPrompt`) never take pending chips. Side fix:
+New Chat saved the old conversation only after clearing it.
 
 **Goal.** Attach sheet music (image or PDF) or other files to a MidiPilot message and let the
 model work with them, for example write the notes. Most current models read images and PDFs.
@@ -13877,7 +13910,8 @@ stored as separate files next to the conversation.
 ## 2.5 scope (fixed 2026-09-24)
 
 * **Phase 51 (extended)** - document and file tools behind the AI gate (marked copies, no
-  overwrite of existing files), including 51.2 (exact tempo), MCP-ARGS-001 and the status-bar
+  overwrite of existing files - revised 2026-09-28: the opened MIDI file on the user's
+  decision), including 51.2 (exact tempo), MCP-ARGS-001 and the status-bar
   line per MCP tool call.
 * **Phase 52** - attachments in MidiPilot.
 * **Small items:**
@@ -13887,11 +13921,74 @@ stored as separate files next to the conversation.
   * 51.6 - integration check that an FFXIV mode switch reaches an initialised MCP session
     (`notifications/tools/list_changed`, refreshed `tools/list`); document the explicit
     `tools/list` refresh as the fallback for clients that cache the tool list.
-* **Housekeeping first:** a status sweep of the stale "Planned" / "TODO" phase headers in this
-  file (Phase 24 MusicXML import, Phase 26 Local AI in 1.8.2, Phase 35 Auto-Fit in 2.1.0, the
-  v2.0 section).
+  * **Fix X|V Channels review - added 2026-09-25, shipped in 2.5.0.**
+    A full failure-mode review of the fixer (scenarios run on the real fixer and MIDI core),
+    all eleven findings accepted for 2.5; Tier 3 changes for exactly these points, the harmless
+    non-guitar quirk stays. CF-01 octave suffix kept on a Preserve rename; CF-02 switch program
+    changes on reserved guitar channels written anew instead of piling up; CF-03 one rule for
+    several program changes at a tick (the newest wins in the channel view, the player's start
+    program and the fixer; the instrument dialog changes every tick-0 program change); CF-04
+    the loader assigns a track the channel of its notes; CF-05 Rebuild keeps channel 9 for
+    percussion; CF-06 Preserve leaves a channel another instrument plays on alone; CF-07 the
+    dialog pre-selects the mode MidiPilot/MCP run; CF-08 program changes saved and played
+    before the notes of their tick; CF-09 guitar notes on non-guitar channels reported
+    (`guitarNotesOnOtherChannels`); CF-10 Preserve keeps drum tracks on their channel; CF-11
+    `setup_channel_pattern` describes both modes. Regression tests in
+    `test_ffxiv_fixer_resync` (+ `test_midi_channel`). Open: comparison run against 2.4 on real
+    files, in-game check of CF-08.
+  * **Track order review - added 2026-09-25, shipped in 2.5.0.** Moving
+    tracks in the track list checked end to end; the first track can now be moved as well. The
+    rule behind it: the first track holds the song-wide data (tempo, meter, key signatures,
+    markers, cue points, copyright) - moving or removing the first track hands it to the next
+    first track, loading gathers it there, saving writes it into the first chunk and a muted
+    track never drops it. Fixed on the way: TR-01 edit and paste track kept by position (notes
+    went into another track after a reorder), TR-02 drops landed one place off the insertion
+    line, TR-03 removing the first track deleted the tempo map beyond tick 0, TR-04 a tempo map
+    in a later chunk loaded next to a default 120 BPM that won, TR-06 Move Up/Down left the track
+    menus stale, TR-07 audio export with a muted first track lost the tempo map, TR-08 Clone
+    Track doubled the tempo map. Collab live sync (TR-05) carries the order as content per track
+    index - no change needed. Regression tests in `test_track_order`.
+  * **Tab view state - added 2026-09-28, shipped in 2.5.0.** Returning
+    to a tab showed the song start at the default zoom (MatrixWidget::setFile reset zoom and
+    scroll for every other document). The view now stores zoom and scroll position on the
+    document it leaves (a dynamic property of the MidiFile, so it follows the tab into the other
+    editor group and dies with the document) and restores them when the document returns; a tab
+    dragged to the other group hands its current view over first. The position is kept as time
+    and tick: the exact time while the tempo map is unchanged, the tick after a tempo edit made in
+    the background. Live-checked pixel-identical for zoom and both scroll axes. Across a
+    restart only when the editor restarts itself (Update Now, theme change): saveSession(true)
+    writes `session/views` (per file path: view state, cursor and pause tick), restoreSession
+    reads it once and applies it after the window is shown. A normal quit restores the tabs at
+    the default view (owner's choice); live-checked over two theme restarts (active and background
+    tab pixel-identical, cursor back). A view no longer stores a state before the window is
+    shown, so the startup tab switching of the session restore pins no pre-layout viewport.
+    Also: the main window had no saved geometry at all and always opened maximized wherever
+    Windows put it; saveSession now stores saveGeometry() and main.cpp restores it before
+    showing (maximized only on a first start). Live-checked on three monitors with 100 % and
+    125 % scaling, windowed and maximized.
+* **Housekeeping first - DONE 2026-09-24:** status sweep of the stale "Planned" / "TODO"
+  markers in this file, each checked against the CHANGELOG: Phase 24 (1.4.0), Phase 25 and 27
+  (1.5.0), Phase 26 Local AI (1.8.2), Phase 35 Auto-Fit (2.1.0), Phase 39 (1.6.1), the v2.0
+  section and its table rows (2.0.0), 4.6 persistent history (1.1.9), 8.3 rate limits (1.3.2),
+  the 15.x / 20.x sub-phase headers of shipped phases, and the old "Remaining Work" list.
+  Phase 27's prompt block builder is the one "Planned" header that is still genuinely open.
 
 ## Later (not in 2.5)
+
+**From the 2.5 review (2026-09-28, verified, deferred)**
+* Same-tick order after undo/redo: `MidiEvent::reloadState` re-inserts an event at the front of
+  its equal-key range, so with two program changes of different programs (or two tempo events)
+  at one tick on one channel, an undo/redo can change which one the editor applies while the
+  saved file keeps chunk order. Fix: define the winner by a stable key (track index, then map
+  order) in one helper, or skip the re-insert when channel and tick are unchanged.
+* Attachments: a size cap over the whole conversation that is sent (today 14 MB per message).
+* Tempo lane: a drawn tempo belongs to the edit track in the editor but to the first track in
+  the saved file - assign the first track when it is created.
+* PDF token estimate for PDFs with compressed page objects (counts 1 page).
+* Fix X|V Channels niche cases: Preserve removes hand-placed guitar switches on reserved
+  channels of non-guitar tracks (CF-02); Rebuild keeps an unnamed track at index 9 on channel 9
+  (CF-05 name condition).
+* Window geometry saved in one DPI mode and restored in the other (Performance settings).
 
 **From Phase 51 and the v2.4+ lists**
 * 51.4 audio render through MCP.

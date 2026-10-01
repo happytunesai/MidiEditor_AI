@@ -206,8 +206,12 @@ public:
 
     /**
      * \brief Gets the program number active at the specified tick.
+     *
+     * Among several program changes at the same tick the most recently
+     * inserted one wins - the one playback and the saved file apply last.
      * \param tick The time position to query
-     * \return The MIDI program number (0-127) active at that time
+     * \return The MIDI program number (0-127) active at that time, 0 when
+     *         the channel has no program change at or before \a tick
      */
     int progAtTick(int tick);
 

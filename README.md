@@ -13,7 +13,7 @@
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-0078D6?logo=windows)](https://github.com/happytunesai/MidiEditor_AI/releases)
 
-**Version:** 2.4.0
+**Version:** 2.5.0
 **Status:** Release
 
 📥 **[Download Latest Release](https://github.com/happytunesai/MidiEditor_AI/releases/latest)**
@@ -64,6 +64,8 @@ MidiPilot is the AI brain embedded directly in MidiEditor AI. Open the sidebar, 
 | 🎯 **Agent Mode** | Multi-step agentic loop - AI calls tools iteratively, with granular per-tool-call undo |
 | 💬 **Simple Mode** | Single request/response with real-time SSE streaming for quick edits and small tasks |
 | 📜 **Conversation History** | Auto-saved conversations as JSON - browse, resume, and reload past chats across sessions |
+| 📎 **Attachments** | Send pictures, PDFs and text files with a message - e.g. sheet music for the AI to write into the editor; drop, paste or pick them, saved with the conversation |
+| 💾 **AI Document Tools** | MidiPilot and MCP clients create, open, save and close documents - a file you opened is overwritten only when you say so (the AI asks, or a setting decides); everything else is a marked copy (`name.midipilot.mid` / `name.mcp.mid`), never written over an existing file |
 | 🌊 **Response Streaming** | Server-Sent Events (SSE) streaming in Simple and Agent mode - thoughts, text, and tool progress appear live |
 | 🔄 **Dynamic Model Lists** | Refresh provider model lists, cache context windows, filter non-chat models, and manage per-provider favourites |
 | 💾 **Per-File AI Presets** | Save provider, model, mode, FFXIV, effort, and custom instructions per MIDI file as a sidecar `.midipilot.json` |
@@ -76,7 +78,7 @@ MidiPilot is the AI brain embedded directly in MidiEditor AI. Open the sidebar, 
 | 🖱️ **Track & Channel Context Menus** | Right-click a track row for Clone, Merge Into, Move Up/Down, Quantize, Transpose, Explode Chords, Split Channels, and event ops (select all / move to channel / remove / tempo conversion); channel rows get the matching event ops |
 | 🔀 **Split Channels to Tracks** | Convert single-track multi-channel GM MIDI files into one track per instrument with auto-naming |
 | 💥 **Explode Chords to Tracks** | Split polyphonic chords into separate monophonic tracks - one note per track, ideal for FFXIV ensemble prep |
-| 🗂️ **Tabs & Editor Groups** | Keep several files open as tabs and view two **side by side** in independent, fully-editable editor groups. Drag tabs between groups (with a drop caret), Split / Clone / New-Tab tools, collapse/restore the second group, drop files into a specific pane. Your tabs + split are restored after a restart |
+| 🗂️ **Tabs & Editor Groups** | Keep several files open as tabs and view two **side by side** in independent, fully-editable editor groups. Drag tabs between groups (with a drop caret), Split / Clone / New-Tab tools, collapse/restore the second group, drop files into a specific pane. Each tab keeps its own zoom and scroll position. Your tabs + split are restored after a restart, the window opens on the monitor it was closed on, and a restart for an update or a theme change brings every tab back with its view and cursor |
 | 🎼 **Score & Tab Import** | Open Guitar Pro (GP1-GP8: `.gp`, `.gp3`-`.gp5`, `.gpx`, `.gtp`), MusicXML (`.musicxml`, `.xml`, `.mxl`) and MuseScore (`.mscz`, `.mscx`) files directly - auto-converted to MIDI on open |
 | 🕹️ **Commodore 64 / SID** | Open `.sid` tunes as editable MIDI and play them **authentically** - the converted MIDI through a C64 SoundFont, or the *original* SID through the cycle-accurate **libsidplayfp** engine (transport-controlled, cursor-synced, per-voice mute). A retro `SF2 ⟷ EMU` toolbar switch flips engines |
 | 🎼 **MusicXML Export** | Write the current song out as a MusicXML score (*File → Export MusicXML*) - opens in MuseScore, Finale, Sibelius, Dorico. Reconstructs measures, note values, rests, ties, chords and key spelling from the MIDI |
@@ -114,7 +116,7 @@ MidiEditor AI
 │   ├── AiClient         → OpenAI-compatible API client (SSE streaming)
 │   ├── ConversationStore → Persistent history (JSON save/load/resume)
 │   ├── EditorContext     → Musical context extraction for AI
-│   ├── ToolDefinitions   → 32 MIDI manipulation tools (26 core + switch_document + 5 FFXIV)
+│   ├── ToolDefinitions   → 38 MIDI and document tools (32 core + switch_document + 5 FFXIV)
 │   └── SystemPrompts     → Customizable per-mode AI instructions
 ├── Collaboration        → Live multi-peer co-editing + async PR workflow
 │   ├── LanLiveSession    → LAN host/joiner state machine + heartbeat + ghost-peer dedup
@@ -470,17 +472,18 @@ MidiEditor AI checks for new versions on GitHub at every startup. When an update
 
 ## 🛠️ MidiPilot Tools
 
-The AI has access to **26 core tools** plus `switch_document`, and **5 more when FFXIV mode is on** (32 total), for inspecting and modifying MIDI files:
+The AI has access to **32 core tools** plus `switch_document`, and **5 more when FFXIV mode is on** (38 total), for inspecting and modifying MIDI files and for creating, opening, saving and closing documents:
 
 | Tool | Description |
 |------|-------------|
 | `get_editor_state` | Read file info, tracks, tempo, time signature, cursor |
 | `get_track_info` | Get details about a specific track |
-| `query_events` | Read events in a tick range on a track |
+| `query_events` | Read events in a tick range on a track, optionally only some kinds (notes, controllers, pitch bends, program changes) |
+| `get_timing_map` | Read the complete timing data with exact values - every tempo change in microseconds per quarter note, time and key signatures, markers |
 | `get_selection` | Read the current selection as full events, each with a 0-based index |
 | `list_documents` / `get_document_overview` | List the open tabs and read a summary of another one without switching to it |
 | `create_track` / `rename_track` / `set_channel` / `remove_track` | Manage tracks |
-| `insert_events` / `replace_events` / `delete_events` | Add, modify, remove MIDI events |
+| `insert_events` / `replace_events` / `delete_events` | Add, modify, remove MIDI events (`delete_events` optionally only some kinds) |
 | `delete_events_by_index` | Delete selected events by index (e.g. every second note) |
 | `move_events_to_track` | Move events between tracks |
 | `transpose_events` | Transpose notes by semitones (track/range/file), optionally folded into the bard range C3-C6 |
@@ -488,8 +491,10 @@ The AI has access to **26 core tools** plus `switch_document`, and **5 more when
 | `copy_events_to_track` | Copy notes to another track (e.g. double a melody, then transpose the copy) |
 | `import_tracks_from_document` | Copy whole tracks from another open tab into the current document (names preserved, ticks rescaled, channel collisions reported) - dry run first, your confirmation required |
 | `switch_document` | Re-bind the run to another open tab when you explicitly ask for it - reads, writes, and undo steps then act on that document while the visible tab stays put |
+| `save_document` / `save_document_as` | Save without a dialog - a file you opened is overwritten only on your answer to the AI's question (or the *AI saves your file* setting); otherwise a marked copy (`mozart.mid` → `mozart.midipilot.mid`, over MCP `mozart.mcp.mid`), a taken name gets a counter |
+| `new_document` / `open_document` / `close_document` | Create an empty document, open a MIDI or importable file, close a saved tab (a tab with unsaved changes stays open) |
 | `search_help` / `get_help_section` | Ask about the editor itself - the AI searches the built-in manual and answers from it, citing the page |
-| `set_tempo` / `set_time_signature` | Change tempo and meter |
+| `set_tempo` / `set_time_signature` | Change tempo (BPM with fractions, or exact microseconds per quarter note) and meter |
 | `convert_tempo_preserve_duration` | Re-tempo material while keeping its real-time duration (e.g. fit a 90 BPM vocal into a 180 BPM project) - dry run first, your confirmation required |
 | `thin_tempo_map` | Reduce a dense DAW-exported tempo ramp to the events that carry the timing - you set how far the music may move (default 2 ms) and every note keeps its place within that corridor. Dry run by default, one undo step |
 | `set_ffxiv_mode` | Turn FFXIV mode on/off - the FFXIV tool bundle appears/disappears with it (MCP clients are notified) |
@@ -511,7 +516,7 @@ MidiEditor AI includes a built-in **MCP server** that exposes all MidiPilot tool
 
 1. Enable the MCP server in **Settings → MidiPilot AI → MCP Server**
 2. Copy the MCP config JSON to your AI client's configuration
-3. The client discovers the tools automatically and can compose, edit, and analyze MIDI - 27 by default (the 26 core tools plus MCP's own `switch_document` for driving the open tabs), 32 with FFXIV mode on
+3. The client discovers the tools automatically and can compose, edit, analyze and save MIDI - 33 by default (the 32 core tools plus MCP's own `switch_document` for driving the open tabs), 38 with FFXIV mode on
 
 ### Quick Setup
 

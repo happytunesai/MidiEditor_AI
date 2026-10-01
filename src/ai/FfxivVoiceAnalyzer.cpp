@@ -30,6 +30,7 @@
 #include <QMultiMap>
 #include <QMutexLocker>
 #include <algorithm>
+#include <climits>
 #include <deque>
 
 static constexpr int kDebounceMs = 100;
@@ -262,15 +263,26 @@ FfxivVoiceAnalyzer::Result FfxivVoiceAnalyzer::computeResult(
         const bool isDrum = (ch == 9);
 
         // QMultiMap iteration is in key order (ascending tick).  Within a
-        // single tick, ProgChangeEvent should apply *before* NoteOn — we
-        // walk the map in order and update currentProgram first, then
-        // emit NoteSpans.  This matches the typical authoring order.
+        // single tick the program changes apply *before* the NoteOns, and
+        // among several the most recently inserted one wins - the rule of
+        // MidiChannel::progAtTick(), playback and the saved file (fixer
+        // review CF-03/CF-08). The map holds that one FIRST among equal
+        // keys, whatever the order the notes and programs were added in, so
+        // each tick is looked ahead for it before its notes are emitted.
+        int groupTick = INT_MIN;
         for (auto it = events->begin(); it != events->end(); ++it) {
-            MidiEvent *ev = it.value();
-            if (auto *pc = dynamic_cast<ProgChangeEvent *>(ev)) {
-                currentProgram = pc->program();
-                continue;
+            if (it.key() != groupTick) {
+                groupTick = it.key();
+                for (auto p = it; p != events->end() && p.key() == groupTick; ++p) {
+                    if (auto *pc = dynamic_cast<ProgChangeEvent *>(p.value())) {
+                        currentProgram = pc->program();
+                        break;
+                    }
+                }
             }
+            MidiEvent *ev = it.value();
+            if (dynamic_cast<ProgChangeEvent *>(ev))
+                continue;
             auto *on = dynamic_cast<NoteOnEvent *>(ev);
             if (!on)
                 continue;

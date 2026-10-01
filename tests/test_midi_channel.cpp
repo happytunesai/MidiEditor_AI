@@ -427,6 +427,37 @@ private slots:
     }
 
     // -----------------------------------------------------------------
+    void progAtTick_sameTick_mostRecentlyInsertedWins() {
+        // QMultiMap keeps the most recently inserted value FIRST among equal
+        // keys; that program change is the one playback and the saved file
+        // apply last, so it is the one in effect (fixer review CF-03).
+        MidiFile file;
+        MidiChannel ch(&file, 0);
+
+        ProgChangeEvent *older = new ProgChangeEvent(0, 40, nullptr);
+        ProgChangeEvent *newer = new ProgChangeEvent(0, 41, nullptr);
+        NoteOnEvent *note = new NoteOnEvent(60, 100, 0, nullptr);
+        ProgChangeEvent *later = new ProgChangeEvent(0, 42, nullptr);
+        older->setMidiTime(0, false);
+        newer->setMidiTime(0, false);
+        note->setMidiTime(0, false);
+        later->setMidiTime(500, false);
+        ch.eventMap()->insert(0, note);
+        ch.eventMap()->insert(0, older);
+        ch.eventMap()->insert(0, newer);
+        ch.eventMap()->insert(500, later);
+
+        QCOMPARE(ch.progAtTick(0), 41);
+        QCOMPARE(ch.progAtTick(499), 41);
+        QCOMPARE(ch.progAtTick(500), 42);
+
+        delete older;
+        delete newer;
+        delete note;
+        delete later;
+    }
+
+    // -----------------------------------------------------------------
     void progAtTick_noProgChangePresent_thenReturnsZero() {
         // A channel filled only with NoteOnEvents has no program info;
         // the search walks all entries and returns 0.

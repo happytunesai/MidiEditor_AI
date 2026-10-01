@@ -38,6 +38,16 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QInputDialog>
+#include <QBuffer>
+#include <QDragEnterEvent>
+#include <QDropEvent>
+#include <QImage>
+#include <QImageReader>
+#include <QLocale>
+#include <QMimeData>
+#include <QPixmap>
+#include <QToolButton>
+#include <QUrl>
 
 #include <cmath>
 #include <algorithm>
@@ -48,6 +58,7 @@
 #include "../ai/AiClient.h"
 #include "../ai/AgentRunner.h"
 #include "../ai/EditorContext.h"
+#include "../ai/EventKindFilter.h"
 #include "../ai/ToolDefinitions.h"
 #include "../ai/MidiEventSerializer.h"
 #include "../ai/ConversationStore.h"
@@ -364,12 +375,20 @@ public:
         });
     }
 
-    void completeStep(int step, bool success, bool recoverable = false) {
+    void completeStep(int step, bool success, bool recoverable = false,
+                      bool awaitsUser = false) {
         if (!_stepLabels.contains(step)) return;
         bool dark = Appearance::shouldUseDarkMode();
         QLabel *label = _stepLabels[step];
         QString name = _stepNames[step];
-        if (success) {
+        if (awaitsUser) {
+            // save_document asked "overwrite or copy?" and wrote nothing: a
+            // green check read as "saved" right above the agent's question.
+            label->setText(QString("\xE2\x9D\x93 %1 - waiting for your answer").arg(name));  // ❓
+            label->setStyleSheet(
+                QString("color: %1; font-size: 11px; padding: 1px 2px;")
+                    .arg(dark ? "#CC9944" : "#CC7700"));
+        } else if (success) {
             label->setText(QString("\xE2\x9C\x85 %1").arg(name));  // ✅
             label->setStyleSheet(
                 QString("color: %1; font-size: 11px; padding: 1px 2px;")
@@ -583,11 +602,31 @@ MidiPilotWidget::MidiPilotWidget(MainWindow *mainWindow, QWidget *parent)
     });
 }
 
+// Phase 52: data a paste or drop carries as attachments - local files, or a
+// picture WITHOUT text. Text wins over a picture: Word and browsers put a
+// rendered bitmap of copied text on the clipboard too, and pasting a
+// paragraph must still paste the paragraph.
+static bool mimeCarriesAttachments(const QMimeData *mime) {
+    if (!mime)
+        return false;
+    if (mime->hasUrls()) {
+        for (const QUrl &url : mime->urls()) {
+            if (url.isLocalFile())
+                return true;
+        }
+    }
+    return mime->hasImage() && mime->text().trimmed().isEmpty();
+}
+
 // Helper: QTextEdit that sends on Enter, newline on Shift+Enter
 class ChatInputEdit : public QTextEdit {
 public:
     ChatInputEdit(QWidget *parent = nullptr) : QTextEdit(parent) {}
     std::function<void()> onSend;
+    /// Phase 52: pasted or dropped files / pictures become attachments.
+    std::function<bool(const QMimeData *)> onAttachMime;
+    /// Phase 52: the paperclip follows the field's enabled state.
+    std::function<void(bool)> onEnabledChanged;
 protected:
     void keyPressEvent(QKeyEvent *e) override {
         if (e->key() == Qt::Key_Return || e->key() == Qt::Key_Enter) {
@@ -600,6 +639,21 @@ protected:
         } else {
             QTextEdit::keyPressEvent(e);
         }
+    }
+    bool canInsertFromMimeData(const QMimeData *source) const override {
+        if (onAttachMime && mimeCarriesAttachments(source))
+            return true;
+        return QTextEdit::canInsertFromMimeData(source);
+    }
+    void insertFromMimeData(const QMimeData *source) override {
+        if (onAttachMime && mimeCarriesAttachments(source) && onAttachMime(source))
+            return;
+        QTextEdit::insertFromMimeData(source);
+    }
+    void changeEvent(QEvent *e) override {
+        QTextEdit::changeEvent(e);
+        if (e->type() == QEvent::EnabledChange && onEnabledChanged)
+            onEnabledChanged(isEnabled());
     }
 };
 
@@ -705,12 +759,44 @@ void MidiPilotWidget::setupUi() {
     inputOuterLayout->setContentsMargins(4, 4, 4, 4);
     inputOuterLayout->setSpacing(4);
 
+    // Phase 52: attachment chips above the input - one chip per file, in a
+    // row that scrolls sideways in a narrow panel. Hidden while empty.
+    _attachmentBar = new QWidget(inputFrame);
+    QHBoxLayout *attachmentBarLayout = new QHBoxLayout(_attachmentBar);
+    attachmentBarLayout->setContentsMargins(0, 0, 0, 0);
+    attachmentBarLayout->setSpacing(6);
+    QScrollArea *chipScroll = new QScrollArea(_attachmentBar);
+    chipScroll->setFrameShape(QFrame::NoFrame);
+    chipScroll->setWidgetResizable(true);
+    chipScroll->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    chipScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+    chipScroll->setFixedHeight(40);
+    QWidget *chipHost = new QWidget(chipScroll);
+    _attachmentChips = new QHBoxLayout(chipHost);
+    _attachmentChips->setContentsMargins(0, 0, 0, 0);
+    _attachmentChips->setSpacing(4);
+    _attachmentChips->addStretch();
+    chipScroll->setWidget(chipHost);
+    attachmentBarLayout->addWidget(chipScroll, 1);
+    _attachmentInfo = new QLabel(_attachmentBar);
+    _attachmentInfo->setStyleSheet("font-size: 10px; color: #888;");
+    attachmentBarLayout->addWidget(_attachmentInfo);
+    _attachmentBar->setVisible(false);
+    inputOuterLayout->addWidget(_attachmentBar);
+
     ChatInputEdit *inputEdit = new ChatInputEdit(this);
     inputEdit->setPlaceholderText("Ask MidiPilot... (Enter to send, Shift+Enter for newline)");
     inputEdit->setMinimumHeight(60);
     inputEdit->setMaximumHeight(120);
     inputEdit->setAcceptRichText(false);
     inputEdit->setTabChangesFocus(true);
+    // Phase 52: Ctrl+V of a screenshot or of copied files, and drops onto
+    // the field, become attachments; plain text pastes as before.
+    inputEdit->onAttachMime = [this](const QMimeData *mime) { return attachFromMimeData(mime); };
+    inputEdit->onEnabledChanged = [this](bool enabled) {
+        if (_attachButton)
+            _attachButton->setEnabled(enabled);
+    };
     _inputField = inputEdit;
     inputOuterLayout->addWidget(_inputField);
 
@@ -718,6 +804,19 @@ void MidiPilotWidget::setupUi() {
     QHBoxLayout *inputBtnLayout = new QHBoxLayout();
     inputBtnLayout->setContentsMargins(0, 0, 0, 0);
     inputBtnLayout->setSpacing(4);
+
+    // Phase 52: attach files - images, PDFs, text and other files.
+    _attachButton = new QPushButton(this);
+    _attachButton->setIcon(Appearance::adjustIconForDarkMode(":/run_environment/graphics/tool/attach.png"));
+    _attachButton->setIconSize(QSize(18, 18));
+    _attachButton->setFixedSize(28, 28);
+    _attachButton->setToolTip("Attach files - pictures, PDFs, text files and more\n"
+                              "(you can also drop them on the panel or paste a screenshot)");
+    _attachButton->setFlat(true);
+    connect(_attachButton, &QPushButton::clicked, this, &MidiPilotWidget::onAttachClicked);
+    _attachButton->setEnabled(_inputField->isEnabled());
+    inputBtnLayout->addWidget(_attachButton);
+    setAcceptDrops(true);
 
     QPushButton *newChatBtn = new QPushButton(this);
     newChatBtn->setIcon(Appearance::adjustIconForDarkMode(":/run_environment/graphics/tool/new_chat.png"));
@@ -1378,7 +1477,8 @@ bool MidiPilotWidget::submitPrompt(const QString &text) {
     // waiting for a reply that could not arrive.
     const QString draft = _inputField->toPlainText();
     _inputField->setPlainText(text);
-    const bool accepted = sendCurrentPrompt();
+    // Phase 52: the user's pending attachment chips stay with the draft.
+    const bool accepted = sendCurrentPrompt(/*withAttachments=*/false);
     _inputField->setPlainText(draft);
     QTextCursor c = _inputField->textCursor();
     c.movePosition(QTextCursor::End);
@@ -1463,7 +1563,7 @@ void MidiPilotWidget::abortActiveRequest() {
         _simpleRetryPending = false;
         _isAgentRunning = false;
         _simpleRetryCount = 0;
-        _lastSimpleMessage.clear();
+        _lastSimpleMessage = QJsonValue(QJsonValue::Undefined);
         setStatus(tr("Stopped"), "gray");
         // Phase 9.9c §15.2: respect the show-mode lock when re-enabling input.
         bool inputEnabled = !_showModeLocked;
@@ -1555,13 +1655,19 @@ void MidiPilotWidget::onNewChat() {
             return;
     }
 
-    _conversationHistory = QJsonArray();
-    _entries.clear();
-    // Flush any pending save for the old conversation before clearing the ID
+    // Flush any pending save for the old conversation before clearing the ID.
+    // The history must still be there: doSaveConversation() skips an empty
+    // one, so clearing it first dropped a reply that arrived within the save
+    // debounce (2 s) before New Chat.
     _saveTimer->stop();
     doSaveConversation();
+    _conversationHistory = QJsonArray();
+    _entries.clear();
     _conversationId.clear();
     _turns = QJsonArray();
+    // Phase 52: image names belong to the conversation that is closed now.
+    // Chips still waiting above the input stay - they are part of the draft.
+    _attachmentImageNames.clear();
     AiClient::clearLog();
 
     // Reset token counters
@@ -1593,9 +1699,243 @@ void MidiPilotWidget::onSendMessage() {
     sendCurrentPrompt();
 }
 
-bool MidiPilotWidget::sendCurrentPrompt() {
+// === Phase 52: attachments ==================================================
+// Attaching is never gated by model (owner rule): a file the chosen model
+// cannot read comes back as the provider's error. Limits per file and per
+// message are ChatAttachments' (set against the providers' request limits).
+
+void MidiPilotWidget::onAttachClicked()
+{
+    auto settings = AppPaths::settings();
+    const QString dir = settings->value(QStringLiteral("MidiPilot/attach_dir")).toString();
+    const QStringList files = QFileDialog::getOpenFileNames(
+        this, tr("Attach files"), dir,
+        tr("Pictures, PDFs and text (*.png *.jpg *.jpeg *.gif *.webp *.bmp *.pdf *.txt *.md "
+           "*.csv *.json *.xml *.musicxml *.abc *.mml *.lrc *.srt);;All files (*)"));
+    if (files.isEmpty())
+        return;
+    settings->setValue(QStringLiteral("MidiPilot/attach_dir"),
+                       QFileInfo(files.first()).absolutePath());
+    addAttachmentFiles(files);
+}
+
+bool MidiPilotWidget::addAttachment(const ChatAttachments::Attachment &attachment, QString *error)
+{
+    // The same file twice (same content, same name) is kept once.
+    for (const ChatAttachments::Attachment &pending : std::as_const(_pendingAttachments)) {
+        if (pending.sha256 == attachment.sha256 && pending.fileName == attachment.fileName)
+            return true;
+    }
+    QList<ChatAttachments::Attachment> next = _pendingAttachments;
+    next.append(attachment);
+    const QString limit = ChatAttachments::checkMessageLimits(next);
+    if (!limit.isEmpty()) {
+        *error = limit;
+        return false;
+    }
+    _pendingAttachments.append(attachment);
+    return true;
+}
+
+void MidiPilotWidget::addAttachmentFiles(const QStringList &paths)
+{
+    QStringList problems;
+    for (const QString &path : paths) {
+        const QFileInfo info(path);
+        QString error;
+        // Pictures the providers do not take directly (BMP, TIFF, ...) are
+        // sent as PNG when Qt can read them.
+        if (info.isFile()
+            && ChatAttachments::kindForFileName(info.fileName()) == ChatAttachments::Kind::Binary) {
+            QImageReader reader(path);
+            if (reader.canRead()) {
+                if (info.size() > 4 * ChatAttachments::kMaxFileBytes) {
+                    problems << QStringLiteral("\"") + info.fileName()
+                                    + QStringLiteral("\" is too large to attach.");
+                    continue;
+                }
+                const QImage image = reader.read();
+                if (!image.isNull()) {
+                    addAttachmentImage(image, info.completeBaseName() + QStringLiteral(".png"));
+                    continue;
+                }
+            }
+        }
+        ChatAttachments::Attachment attachment;
+        if (!ChatAttachments::fromFile(path, &attachment, &error)
+            || !addAttachment(attachment, &error)) {
+            problems << error;
+        }
+    }
+    rebuildAttachmentBar();
+    // File names concatenated, never .arg()-substituted.
+    if (!problems.isEmpty()) {
+        addChatBubble(QStringLiteral("system"),
+                      QStringLiteral("\U0001F4CE ") + problems.join(QLatin1Char('\n')));
+    }
+}
+
+void MidiPilotWidget::addAttachmentImage(const QImage &image, const QString &fileName)
+{
+    QByteArray bytes;
+    QString name = fileName;
+    {
+        QBuffer buffer(&bytes);
+        buffer.open(QIODevice::WriteOnly);
+        image.save(&buffer, "PNG");
+    }
+    if (bytes.size() > ChatAttachments::kMaxFileBytes) {
+        // A very large screenshot: JPEG keeps a sheet readable well under the
+        // limit. Flattened onto white first - JPEG has no transparency.
+        QImage flat(image.size(), QImage::Format_RGB32);
+        flat.fill(Qt::white);
+        {
+            QPainter painter(&flat);
+            painter.drawImage(0, 0, image);
+        }
+        bytes.clear();
+        QBuffer buffer(&bytes);
+        buffer.open(QIODevice::WriteOnly);
+        flat.save(&buffer, "JPG", 90);
+        name = QFileInfo(fileName).completeBaseName() + QStringLiteral(".jpg");
+    }
+    ChatAttachments::Attachment attachment;
+    QString error;
+    if (!ChatAttachments::fromBytes(name, bytes, &attachment, &error)
+        || !addAttachment(attachment, &error)) {
+        addChatBubble(QStringLiteral("system"), QStringLiteral("\U0001F4CE ") + error);
+    }
+    rebuildAttachmentBar();
+}
+
+bool MidiPilotWidget::attachFromMimeData(const QMimeData *mime)
+{
+    // Only while a message can be written: the input is disabled during a
+    // request and for a Show-mode viewer.
+    if (!mimeCarriesAttachments(mime) || _showModeLocked || !_inputField
+        || !_inputField->isEnabled()) {
+        return false;
+    }
+    QStringList files;
+    for (const QUrl &url : mime->urls()) {
+        if (url.isLocalFile())
+            files << url.toLocalFile();
+    }
+    if (!files.isEmpty()) {
+        addAttachmentFiles(files);
+        return true;
+    }
+    const QImage image = qvariant_cast<QImage>(mime->imageData());
+    if (image.isNull())
+        return false;
+    addAttachmentImage(image, QStringLiteral("pasted-image-")
+                                  + QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd-HHmmss"))
+                                  + QStringLiteral(".png"));
+    return true;
+}
+
+void MidiPilotWidget::dragEnterEvent(QDragEnterEvent *event)
+{
+    if (mimeCarriesAttachments(event->mimeData()) && !_showModeLocked && _inputField
+        && _inputField->isEnabled()) {
+        event->acceptProposedAction();
+        return;
+    }
+    QWidget::dragEnterEvent(event);
+}
+
+void MidiPilotWidget::dropEvent(QDropEvent *event)
+{
+    if (attachFromMimeData(event->mimeData())) {
+        event->acceptProposedAction();
+        return;
+    }
+    QWidget::dropEvent(event);
+}
+
+void MidiPilotWidget::rebuildAttachmentBar()
+{
+    if (!_attachmentBar || !_attachmentChips || !_attachmentInfo)
+        return;
+    // Drop the old chips; the trailing stretch stays the last item.
+    while (_attachmentChips->count() > 1) {
+        QLayoutItem *item = _attachmentChips->takeAt(0);
+        if (QWidget *w = item->widget())
+            w->deleteLater();
+        delete item;
+    }
+
+    const bool dark = Appearance::shouldUseDarkMode();
+    int tokens = 0;
+    for (const ChatAttachments::Attachment &a : std::as_const(_pendingAttachments)) {
+        tokens += ChatAttachments::estimateTokens(a);
+
+        QFrame *chip = new QFrame(_attachmentChips->parentWidget());
+        chip->setObjectName(QStringLiteral("attachmentChip"));
+        chip->setStyleSheet(QStringLiteral("QFrame#attachmentChip { border: 1px solid %1; "
+                                           "border-radius: 6px; background: %2; }")
+                                .arg(dark ? QStringLiteral("#555555") : QStringLiteral("#C8C8C8"),
+                                     dark ? QStringLiteral("#333333") : QStringLiteral("#F4F4F4")));
+        QHBoxLayout *row = new QHBoxLayout(chip);
+        row->setContentsMargins(4, 2, 2, 2);
+        row->setSpacing(4);
+
+        QLabel *icon = new QLabel(chip);
+        QPixmap thumb;
+        if (a.kind == ChatAttachments::Kind::Image && thumb.loadFromData(a.data)) {
+            icon->setPixmap(thumb.scaled(28, 28, Qt::KeepAspectRatio, Qt::SmoothTransformation));
+        } else if (a.kind == ChatAttachments::Kind::Pdf) {
+            icon->setText(QStringLiteral("\U0001F4C4"));
+        } else if (a.kind == ChatAttachments::Kind::Text) {
+            icon->setText(QStringLiteral("\U0001F4DD"));
+        } else {
+            icon->setText(QStringLiteral("\U0001F4CE"));
+        }
+        row->addWidget(icon);
+
+        QLabel *name = new QLabel(chip);
+        name->setText(name->fontMetrics().elidedText(a.fileName, Qt::ElideMiddle, 150));
+        name->setToolTip(a.fileName + QStringLiteral(" - ")
+                         + QLocale().formattedDataSize(a.data.size()));
+        row->addWidget(name);
+
+        QToolButton *remove = new QToolButton(chip);
+        remove->setText(QStringLiteral("✕"));
+        remove->setAutoRaise(true);
+        remove->setToolTip(tr("Remove"));
+        const QString sha = a.sha256;
+        const QString fileName = a.fileName;
+        connect(remove, &QToolButton::clicked, this, [this, sha, fileName]() {
+            for (int i = 0; i < _pendingAttachments.size(); ++i) {
+                if (_pendingAttachments.at(i).sha256 == sha
+                    && _pendingAttachments.at(i).fileName == fileName) {
+                    _pendingAttachments.removeAt(i);
+                    break;
+                }
+            }
+            // Deferred: the rebuild deletes the chip this button sits on.
+            QTimer::singleShot(0, this, [this]() { rebuildAttachmentBar(); });
+        });
+        row->addWidget(remove);
+
+        _attachmentChips->insertWidget(_attachmentChips->count() - 1, chip);
+    }
+
+    _attachmentBar->setVisible(!_pendingAttachments.isEmpty());
+    _attachmentInfo->setText(tokens > 0
+        ? QStringLiteral("≈ %1 tokens").arg(QLocale().toString(tokens)) : QString());
+    _attachmentInfo->setToolTip(tr("Rough estimate for the attachments. In Agent mode the whole "
+                                   "conversation, attachments included, is sent again with every "
+                                   "step."));
+}
+
+bool MidiPilotWidget::sendCurrentPrompt(bool withAttachments) {
     QString text = _inputField->toPlainText().trimmed();
-    if (text.isEmpty())
+    // Phase 52: the chips go with the message; a message may be attachments
+    // only ("what is on this sheet?" can be implied by the picture itself).
+    const QList<ChatAttachments::Attachment> attachments =
+        withAttachments ? _pendingAttachments : QList<ChatAttachments::Attachment>();
+    if (text.isEmpty() && attachments.isEmpty())
         return false;
 
     if (!_client->isConfigured()) {
@@ -1646,8 +1986,28 @@ bool MidiPilotWidget::sendCurrentPrompt() {
 
     _inputField->clear();
 
-    // Add user bubble
-    addChatBubble("user", text);
+    // Phase 52: from here on the message is sent, so its attachments leave
+    // the chip row. Image parts carry no file name - remember it by content
+    // hash for the saved references and the reloaded bubble.
+    QStringList attachmentNames;
+    for (const ChatAttachments::Attachment &a : attachments) {
+        attachmentNames << a.fileName;
+        if (a.kind == ChatAttachments::Kind::Image)
+            _attachmentImageNames.insert(a.sha256, a.fileName);
+    }
+    if (!attachments.isEmpty()) {
+        _pendingAttachments.clear();
+        rebuildAttachmentBar();
+    }
+
+    // Add user bubble (file names concatenated - never .arg() on them)
+    QString bubbleText = text;
+    if (!attachmentNames.isEmpty()) {
+        if (!bubbleText.isEmpty())
+            bubbleText += QLatin1Char('\n');
+        bubbleText += QStringLiteral("\U0001F4CE ") + attachmentNames.join(QStringLiteral(", "));
+    }
+    addChatBubble("user", bubbleText);
 
     // Capture context and selected events
     QJsonObject editorState;
@@ -1688,8 +2048,17 @@ bool MidiPilotWidget::sendCurrentPrompt() {
         userPayload["selectedEvents"] = selectedEvents;
     if (!surroundingEvents.isEmpty())
         userPayload["surroundingEvents"] = surroundingEvents;
+    // Phase 52: the attached files by name, in part order - image parts carry
+    // no name, so this is how the model can refer to "sheet2.png".
+    if (!attachmentNames.isEmpty())
+        userPayload["attachments"] = QJsonArray::fromStringList(attachmentNames);
 
     QString fullMessage = QJsonDocument(userPayload).toJson(QJsonDocument::Compact);
+    // The message as it goes into the history: the JSON text alone, or with
+    // attachments a content-part array (text first, then one part per file).
+    const QJsonValue userContent = attachments.isEmpty()
+        ? QJsonValue(fullMessage)
+        : QJsonValue(ChatAttachments::chatContent(fullMessage, attachments));
 
     // Begin a fresh per-turn metadata record. resetTurnState() captures
     // the start timestamp, current model/provider/effort and clears the
@@ -1730,7 +2099,7 @@ bool MidiPilotWidget::sendCurrentPrompt() {
         // Add user message to history (AgentRunner reads it from there)
         QJsonObject userMsg;
         userMsg["role"] = "user";
-        userMsg["content"] = fullMessage;
+        userMsg["content"] = userContent;
         _conversationHistory.append(userMsg);
 
         // Wrap all tool calls in a single undo action
@@ -1882,7 +2251,7 @@ bool MidiPilotWidget::sendCurrentPrompt() {
         _simpleRetryPending = false;
         _runOriginFile = _file;
         _client->sendStreamingRequest(simplePrompt,
-                                       historyForApi, fullMessage);
+                                       historyForApi, userContent);
         // Give simple mode a Stop affordance too — mirror the agent path's
         // send→stop button swap so a stalled streaming request is always
         // recoverable without resorting to New Chat (BUG-MIDIPILOT-001).
@@ -1891,7 +2260,7 @@ bool MidiPilotWidget::sendCurrentPrompt() {
         // Stash for self-healing retry on transient errors.
         _lastSimpleSystemPrompt = simplePrompt;
         _lastSimpleHistory = historyForApi;
-        _lastSimpleMessage = fullMessage;
+        _lastSimpleMessage = userContent;
         _simpleRetryCount = 0;
         auto _retrySettingsPtr = AppPaths::settings();
         QSettings &_retrySettings = *_retrySettingsPtr;
@@ -1901,7 +2270,7 @@ bool MidiPilotWidget::sendCurrentPrompt() {
         // Add user message to history AFTER constructing the request
         QJsonObject userMsg;
         userMsg["role"] = "user";
-        userMsg["content"] = fullMessage;
+        userMsg["content"] = userContent;
         _conversationHistory.append(userMsg);
     }
 
@@ -1925,7 +2294,7 @@ void MidiPilotWidget::onResponseReceived(const QString &content, const QJsonObje
 
     // Successful response — reset the simple-mode self-healing retry counter.
     _simpleRetryCount = 0;
-    _lastSimpleMessage.clear();
+    _lastSimpleMessage = QJsonValue(QJsonValue::Undefined);
 
     // Phase 46: external listeners (the playability dialog mirrors the
     // answer to a check it submitted) get the final text of every reply.
@@ -2227,7 +2596,10 @@ void MidiPilotWidget::onErrorOccurred(const QString &errorMessage) {
                 && l.contains(QStringLiteral("openrouter")));
     };
 
-    if (!_lastSimpleMessage.isEmpty()
+    // A pending message is a string or (with attachments) a part array; a
+    // default-constructed value is Null, a cleared one Undefined.
+    const bool hasRetryMessage = _lastSimpleMessage.isString() || _lastSimpleMessage.isArray();
+    if (hasRetryMessage
         && _simpleRetryCount < _simpleMaxRetries
         && isRetriable(errorMessage)) {
         _simpleRetryCount++;
@@ -2243,7 +2615,7 @@ void MidiPilotWidget::onErrorOccurred(const QString &errorMessage) {
         if (!_conversationHistory.isEmpty()) {
             QJsonObject last = _conversationHistory.last().toObject();
             if (last.value(QStringLiteral("role")).toString() == QStringLiteral("user")
-                && last.value(QStringLiteral("content")).toString() == _lastSimpleMessage) {
+                && last.value(QStringLiteral("content")) == _lastSimpleMessage) {
                 _conversationHistory.removeLast();
             }
         }
@@ -2251,7 +2623,7 @@ void MidiPilotWidget::onErrorOccurred(const QString &errorMessage) {
         int delayMs = qMin(4000, 500 * (1 << (_simpleRetryCount - 1)));
         QString sysP = _lastSimpleSystemPrompt;
         QJsonArray hist = _lastSimpleHistory;
-        QString msg = _lastSimpleMessage;
+        QJsonValue msg = _lastSimpleMessage;
         // Phase 28: pin the retry to this request's generation + origin document so
         // a Stop / tab-close / new send during the backoff invalidates it, and a tab
         // switch during the backoff still applies the edit to the origin document.
@@ -2299,12 +2671,13 @@ void MidiPilotWidget::onErrorOccurred(const QString &errorMessage) {
     if (_simpleRetryCount > 0)
         surfaced = QStringLiteral("%1 (after %2 retry attempts)").arg(errorMessage).arg(_simpleRetryCount);
     addChatBubble("system", "Error: " + surfaced);
+    dropRefusedAttachments(errorMessage);
     // ANALYZE-LATCH-001: listeners waiting for the turn's outcome (the
     // playability workbench) must hear the terminal error too, or they wait
     // forever and mis-attribute the NEXT unrelated reply as theirs.
     emit assistantReplied(tr("MidiPilot request failed: %1").arg(surfaced));
     _simpleRetryCount = 0;
-    _lastSimpleMessage.clear();
+    _lastSimpleMessage = QJsonValue(QJsonValue::Undefined);
     // Phase 28: release the request-origin pin symmetrically with the other
     // terminal handlers (onResponseReceived / onAgentFinished / onAgentError) so
     // isAgentRunningOn() doesn't keep reporting a phantom run after a dead request.
@@ -2963,13 +3336,29 @@ void MidiPilotWidget::onAgentStepStarted(int step, const QString &toolName) {
 void MidiPilotWidget::onAgentStepCompleted(int step, const QString &toolName, const QJsonObject &result) {
     bool success = result["success"].toBool(true);
     bool recoverable = result["recoverable"].toBool(false);
+    // save_document waiting for the user's "overwrite or copy?" saved nothing,
+    // but the step did its job - it produced the question. Shown as a question
+    // (not as a failed step, and not with the green check of a save); the agent
+    // asks it in its reply.
+    const bool awaitsUser = result.contains(QStringLiteral("decisionNeeded"));
+    if (awaitsUser) {
+        success = true;
+        const QString question = result.value(QStringLiteral("question")).toString();
+        if (!question.isEmpty()) {
+            // Concatenated, never .arg()-substituted (file names are input).
+            addChatBubble(QStringLiteral("system"), QStringLiteral("❓ ") + question);
+        }
+    }
     // Color-code the footer status to match the step outcome:
     //   OK       → green   (matches the green check in the Steps widget)
     //   retrying → orange  (still in progress)
     //   failed   → red     (terminal failure)
     QString label;
     QString color;
-    if (success) {
+    if (awaitsUser) {
+        label = QStringLiteral("waiting for your answer");
+        color = QStringLiteral("orange");
+    } else if (success) {
         label = QStringLiteral("OK");
         color = QStringLiteral("green");
     } else if (recoverable) {
@@ -2999,6 +3388,30 @@ void MidiPilotWidget::onAgentStepCompleted(int step, const QString &toolName, co
                 line += QStringLiteral(" - retrying with corrected instructions.");
             addChatBubble(QStringLiteral("system"), line);
         }
+    }
+
+    // v2.5.0 (Phase 51): a save is not an undo step, so the written file is
+    // announced in the chat - the one place the user reliably looks during a
+    // run (the status bar says it too, briefly). Path concatenated, never
+    // .arg()-substituted (file-name input).
+    if (success && (toolName == QStringLiteral("save_document")
+                    || toolName == QStringLiteral("save_document_as"))) {
+        const QString path = result.value(QStringLiteral("path")).toString();
+        if (!path.isEmpty()) {
+            QString tail;
+            if (result.value(QStringLiteral("overwritten")).toBool(false)) {
+                tail = QStringLiteral(" — the file was overwritten, as you chose for this tab.");
+            } else if (!result.value(QStringLiteral("previousPath")).toString().isEmpty()) {
+                tail = QStringLiteral(" — the tab continues on this file, the previous file "
+                                      "is unchanged.");
+            }
+            addChatBubble(QStringLiteral("system"),
+                          QStringLiteral("\U0001F4BE Saved ") + path + tail);
+        }
+        // The bound tab was renamed with the file: keep the per-step
+        // document label current.
+        if (_isAgentRunning && _runOriginFile && _runOriginFile != _runStartFile)
+            _runCurrentDocTitle = documentTitleForFile(_runOriginFile);
     }
 
     // For a successful step, the green flash is informational — if the
@@ -3042,7 +3455,7 @@ void MidiPilotWidget::onAgentStepCompleted(int step, const QString &toolName, co
     // Check off the step in the checklist
     if (_agentStepsWidget) {
         AgentStepsWidget *sw = static_cast<AgentStepsWidget *>(_agentStepsWidget);
-        sw->completeStep(step, success, recoverable);
+        sw->completeStep(step, success, recoverable, awaitsUser);
     }
 }
 
@@ -3221,6 +3634,7 @@ void MidiPilotWidget::onAgentError(const QString &error) {
     setConnectionControlsEnabled(true);
 
     addChatBubble("system", "Agent error: " + error);
+    dropRefusedAttachments(error);
     // v2.4.0 cross-tab: even an aborted multi-document run has already put
     // undo steps into other tabs' Protocols - same disclosure as the success
     // path so the user can find (and undo) what landed before the error.
@@ -3858,19 +4272,55 @@ QJsonObject MidiPilotWidget::applyTempoAction(const QJsonObject &response, bool 
         return result;
     }
 
-    int bpm = response["bpm"].toInt(-1);
-    if (bpm <= 0 || bpm > 999) {
-        if (showBubbles) addChatBubble("system", "Invalid BPM value (must be 1-999).");
+    // 51.2 (v2.5.0): the tempo is stored as whole microseconds per quarter
+    // note. Callers pass either that exact value or a BPM that may be
+    // fractional; an integer-only BPM made every non-integral tempo drift
+    // when a model copied a tempo map (120.5 BPM became 120).
+    const QJsonValue usValue = response.value(QStringLiteral("microsecondsPerQuarter"));
+    const QJsonValue bpmValue = response.value(QStringLiteral("bpm"));
+    const bool hasUs = !usValue.isUndefined() && !usValue.isNull();
+    const bool hasBpm = !bpmValue.isUndefined() && !bpmValue.isNull();
+    // 24-bit tempo field; the lower bound is the 999 BPM ceiling below.
+    constexpr int kMinMicros = 60060;
+    constexpr int kMaxMicros = 16777215;
+    QString tempoError;
+    int micros = -1;
+    if (hasUs && hasBpm) {
+        tempoError = QStringLiteral("Pass either bpm or microsecondsPerQuarter, not both.");
+    } else if (hasUs) {
+        micros = usValue.toInt(-1); // -1 for a non-integral value
+        if (micros < kMinMicros || micros > kMaxMicros) {
+            tempoError = QStringLiteral("Invalid microsecondsPerQuarter (must be an integer "
+                                        "60060-16777215; 500000 = 120 BPM).");
+        }
+    } else if (hasBpm) {
+        const double bpm = bpmValue.toDouble(-1);
+        if (!bpmValue.isDouble() || bpm < 1 || bpm > 999) {
+            tempoError = QStringLiteral("Invalid BPM value (must be 3.58-999).");
+        } else {
+            micros = qRound(60000000.0 / bpm);
+            if (micros > kMaxMicros) {
+                tempoError = QStringLiteral("A tempo below 3.58 BPM cannot be stored in a "
+                                            "MIDI file.");
+            }
+        }
+    } else {
+        tempoError = QStringLiteral("Give the tempo as bpm or as microsecondsPerQuarter.");
+    }
+    if (!tempoError.isEmpty()) {
+        if (showBubbles) addChatBubble("system", tempoError);
         result["success"] = false;
-        result["error"] = QString("Invalid BPM value (must be 1-999).");
+        result["error"] = tempoError;
         return result;
     }
+    const double exactBpm = 60000000.0 / micros;
+    const QString bpmText = QString::number(exactBpm, 'g', 6);
 
     int tick = response["tick"].toInt(0);
     if (tick < 0) tick = 0;
 
     activeEditFile()->protocol()->startNewAction(
-        QStringLiteral("%1: Agent set tempo - %2 BPM").arg(protoPrefix(response), QString::number(bpm)));
+        QStringLiteral("%1: Agent set tempo - %2 BPM").arg(protoPrefix(response), bpmText));
 
     // Check if there's already a tempo event at this tick
     QMultiMap<int, MidiEvent *> *tempoMap = activeEditFile()->tempoEvents();
@@ -3883,13 +4333,12 @@ QJsonObject MidiPilotWidget::applyTempoAction(const QJsonObject &response, bool 
     }
 
     if (existing) {
-        // Modify existing tempo event
-        existing->setBeats(bpm);
+        // Modify existing tempo event - exact value, setBeats() would round
+        existing->setMicrosPerQuarter(micros);
     } else {
         // Create new tempo event
-        int microsPerQuarter = 60000000 / bpm;
         MidiTrack *track = activeEditFile()->track(0);
-        TempoChangeEvent *ev = new TempoChangeEvent(17, microsPerQuarter, track);
+        TempoChangeEvent *ev = new TempoChangeEvent(17, micros, track);
         activeEditFile()->channel(17)->insertEvent(ev, tick);
     }
 
@@ -3899,7 +4348,9 @@ QJsonObject MidiPilotWidget::applyTempoAction(const QJsonObject &response, bool 
     emit requestRepaint();
 
     result["success"] = true;
-    result["bpm"] = bpm;
+    result["microsecondsPerQuarter"] = micros; // authoritative
+    result["bpm"] = exactBpm;                   // derived, for display
+    result["tick"] = tick;
     return result;
 }
 
@@ -4088,6 +4539,16 @@ QJsonObject MidiPilotWidget::applySelectAndDelete(const QJsonObject &response, b
         return result;
     }
 
+    // MCP-ARGS-001: optional event-kind filter (null = every kind), checked
+    // before the protocol action opens so a bad filter leaves no empty step.
+    QSet<QString> kindFilter;
+    QString kindError;
+    if (!EventKindFilter::parse(response.value(QStringLiteral("types")), &kindFilter, &kindError)) {
+        result["success"] = false;
+        result["error"] = kindError;
+        return result;
+    }
+
     MidiTrack *targetTrack = activeEditFile()->track(trackIndex);
 
     activeEditFile()->protocol()->startNewAction(
@@ -4102,6 +4563,7 @@ QJsonObject MidiPilotWidget::applySelectAndDelete(const QJsonObject &response, b
             if (dynamic_cast<OffEvent *>(ev)) continue;
             if (ev->channel() >= 16) continue;
             if (ev->track() != targetTrack) continue;
+            if (!EventKindFilter::matches(ev, kindFilter)) continue;
 
             MidiChannel *ch = activeEditFile()->channel(ev->channel());
             if (ch) {
@@ -4117,9 +4579,12 @@ QJsonObject MidiPilotWidget::applySelectAndDelete(const QJsonObject &response, b
     activeEditFile()->protocol()->endAction();
 
     if (deletedCount == 0) {
-        if (showBubbles) addChatBubble("system", "No events found in the specified range.");
+        const QString none = kindFilter.isEmpty()
+            ? QStringLiteral("No events found in the specified range.")
+            : QStringLiteral("No events of the requested types found in the specified range.");
+        if (showBubbles) addChatBubble("system", none);
         result["success"] = false;
-        result["error"] = QString("No events found in the specified range.");
+        result["error"] = none;
     } else {
         result["success"] = true;
         result["eventsDeleted"] = deletedCount;
@@ -4131,17 +4596,27 @@ QJsonObject MidiPilotWidget::applySelectAndDelete(const QJsonObject &response, b
 
 // === Context Window Management ===
 
+int MidiPilotWidget::messageBudgetChars(const QJsonObject &message)
+{
+    const QJsonValue content = message.value(QStringLiteral("content"));
+    if (content.isArray())
+        return ChatAttachments::estimateTokens(content) * 4;
+    return content.toString().length();
+}
+
 QJsonArray MidiPilotWidget::truncateHistory(const QJsonArray &history, int contextWindow,
                                             int systemPromptChars) const
 {
     if (history.isEmpty())
         return history;
 
-    // Estimate total chars, then tokens (~4 chars per token)
+    // Estimate total chars, then tokens (~4 chars per token). A message with
+    // attachments counts their token estimate (Phase 52) - its content is a
+    // part array, which toString() read as empty.
     int totalChars = 0;
     for (const QJsonValue &v : history) {
         QJsonObject msg = v.toObject();
-        totalChars += msg[QStringLiteral("content")].toString().length();
+        totalChars += messageBudgetChars(msg);
         // Tool calls and tool results can be large
         if (msg.contains(QStringLiteral("tool_calls")))
             totalChars += QJsonDocument(msg[QStringLiteral("tool_calls")].toArray()).toJson().size();
@@ -4165,7 +4640,7 @@ QJsonArray MidiPilotWidget::truncateHistory(const QJsonArray &history, int conte
     // Calculate chars for front messages
     int frontChars = 0;
     for (int i = 0; i < keepFront; i++) {
-        frontChars += history[i].toObject()[QStringLiteral("content")].toString().length();
+        frontChars += messageBudgetChars(history[i].toObject());
     }
 
     // Fill from the back with remaining budget
@@ -4173,7 +4648,7 @@ QJsonArray MidiPilotWidget::truncateHistory(const QJsonArray &history, int conte
     QList<int> backIndices;
     int backChars = 0;
     for (int i = history.size() - 1; i >= keepFront; i--) {
-        int msgChars = history[i].toObject()[QStringLiteral("content")].toString().length();
+        int msgChars = messageBudgetChars(history[i].toObject());
         // The newest message is the CURRENT turn's instruction (agent mode builds
         // the request from this history alone), so it is kept even when it does
         // not fit - dropping it would make the agent re-execute the previous turn,
@@ -4257,6 +4732,40 @@ void MidiPilotWidget::finalizeTurn(const QString &finalText, const QString &stat
     _turnStreamed = false;
 }
 
+void MidiPilotWidget::dropRefusedAttachments(const QString &error)
+{
+    // The refused message stays in the history that goes out with every later
+    // request: a model that cannot read the file (or a request grown too large)
+    // would refuse each of them, and the chat - saved that way - could only be
+    // abandoned. Its text stays; pictures and files are taken out.
+    if (!ChatAttachments::isContentRefusal(error)) {
+        return;
+    }
+    for (int i = _conversationHistory.size() - 1; i >= 0; --i) {
+        QJsonObject msg = _conversationHistory.at(i).toObject();
+        if (msg.value(QStringLiteral("role")).toString() != QLatin1String("user")) {
+            continue;
+        }
+        QStringList removed;
+        const QJsonValue content = ChatAttachments::withoutImageAndFileParts(
+            msg.value(QStringLiteral("content")), _attachmentImageNames, &removed);
+        if (removed.isEmpty()) {
+            return;
+        }
+        msg[QStringLiteral("content")] = content;
+        _conversationHistory[i] = msg;
+        addChatBubble(QStringLiteral("system"),
+                      removed.join(QStringLiteral(", "))
+                          + QStringLiteral(" left the conversation, so the next message can be "
+                                           "sent. Attach ")
+                          + (removed.size() > 1 ? QStringLiteral("them") : QStringLiteral("it"))
+                          + QStringLiteral(" again for a model that reads ")
+                          + (removed.size() > 1 ? QStringLiteral("them.") : QStringLiteral("it.")));
+        scheduleSave();
+        return;
+    }
+}
+
 void MidiPilotWidget::scheduleSave()
 {
     if (_conversationHistory.isEmpty())
@@ -4279,7 +4788,10 @@ void MidiPilotWidget::doSaveConversation()
     for (int i = 0; i < _conversationHistory.size(); i++) {
         QJsonObject msg = _conversationHistory[i].toObject();
         if (msg[QStringLiteral("role")].toString() == QStringLiteral("user")) {
-            title = ConversationStore::titleFromMessage(msg[QStringLiteral("content")].toString());
+            // primaryText: a message with attachments is a part array whose
+            // first part is the user's own message (Phase 52).
+            title = ConversationStore::titleFromMessage(
+                ChatAttachments::primaryText(msg[QStringLiteral("content")]));
             break;
         }
     }
@@ -4294,7 +4806,27 @@ void MidiPilotWidget::doSaveConversation()
     data[QStringLiteral("midiFile")] = _file ? _file->path() : QString();
     data[QStringLiteral("model")] = _client->model();
     data[QStringLiteral("provider")] = _client->provider();
-    data[QStringLiteral("messages")] = _conversationHistory;
+
+    // Phase 52: attachments are written as files into the conversation's own
+    // folder next to its JSON; the saved messages keep references only (the
+    // history list parses every JSON file, so inline data would slow it down).
+    const QString attachmentDir = ConversationStore::attachmentDir(_conversationId);
+    QJsonArray storedMessages;
+    bool attachmentsSaved = true;
+    for (const QJsonValue &v : std::as_const(_conversationHistory)) {
+        QJsonObject msg = v.toObject();
+        const QJsonValue content = msg.value(QStringLiteral("content"));
+        if (content.isArray() && !attachmentDir.isEmpty()) {
+            bool ok = true;
+            msg[QStringLiteral("content")] = ChatAttachments::toStoredContent(
+                content, attachmentDir, _attachmentImageNames, &ok);
+            attachmentsSaved = attachmentsSaved && ok;
+        }
+        storedMessages.append(msg);
+    }
+    data[QStringLiteral("messages")] = storedMessages;
+    if (!attachmentsSaved)
+        setStatus(tr("Some attachments could not be saved with the conversation"), "orange");
 
     QJsonObject usage;
     usage[QStringLiteral("prompt")] = _totalPromptTokens;
@@ -4630,6 +5162,22 @@ void MidiPilotWidget::loadConversation(const QString &id)
     _conversationHistory = data[QStringLiteral("messages")].toArray();
     _turns = data[QStringLiteral("turns")].toArray();
 
+    // Phase 52: attachment references become data parts again, from the
+    // files next to the conversation (a file that is gone reloads as a short
+    // text line, so the chat can still be read and continued).
+    _attachmentImageNames.clear();
+    {
+        const QString attachmentDir = ConversationStore::attachmentDir(id);
+        for (int i = 0; i < _conversationHistory.size(); ++i) {
+            QJsonObject msg = _conversationHistory[i].toObject();
+            if (!msg.value(QStringLiteral("content")).isArray())
+                continue;
+            msg[QStringLiteral("content")] = ChatAttachments::fromStoredContent(
+                msg.value(QStringLiteral("content")), attachmentDir, &_attachmentImageNames);
+            _conversationHistory[i] = msg;
+        }
+    }
+
     QJsonObject tokUsage = data[QStringLiteral("tokenUsage")].toObject();
     _totalPromptTokens = tokUsage[QStringLiteral("prompt")].toInt();
     _totalCompletionTokens = tokUsage[QStringLiteral("completion")].toInt();
@@ -4647,7 +5195,9 @@ void MidiPilotWidget::loadConversation(const QString &id)
     for (int i = 0; i < _conversationHistory.size(); i++) {
         QJsonObject msg = _conversationHistory[i].toObject();
         QString role = msg[QStringLiteral("role")].toString();
-        QString content = msg[QStringLiteral("content")].toString();
+        // Phase 52: a message with attachments is a part array; its first
+        // text part is the message itself.
+        QString content = ChatAttachments::primaryText(msg[QStringLiteral("content")]);
 
         if (role == QStringLiteral("system") || role == QStringLiteral("tool"))
             continue;
@@ -4658,9 +5208,21 @@ void MidiPilotWidget::loadConversation(const QString &id)
             if (role == QStringLiteral("user")) {
                 QJsonDocument jd = QJsonDocument::fromJson(content.toUtf8());
                 if (jd.isObject()) {
-                    QString instr = jd.object()[QStringLiteral("instruction")].toString();
-                    if (!instr.isEmpty())
+                    const QJsonObject payload = jd.object();
+                    QString instr = payload[QStringLiteral("instruction")].toString();
+                    // An attachments-only message has an empty instruction -
+                    // show the file line, not the raw JSON payload.
+                    const QJsonArray attached = payload[QStringLiteral("attachments")].toArray();
+                    if (!instr.isEmpty() || !attached.isEmpty())
                         displayText = instr;
+                    QStringList names;
+                    for (const QJsonValue &n : attached)
+                        names << n.toString();
+                    if (!names.isEmpty()) {
+                        if (!displayText.isEmpty())
+                            displayText += QLatin1Char('\n');
+                        displayText += QStringLiteral("\U0001F4CE ") + names.join(QStringLiteral(", "));
+                    }
                 }
             }
 

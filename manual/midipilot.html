@@ -154,6 +154,11 @@ MidiPilot is the AI brain embedded directly in MidiEditor AI. Open the sidebar p
 <p>Edit AI behavior per mode via the built-in editor. Export/import as JSON - no recompiling needed.</p>
 <span class="card-arrow">Learn more &rarr;</span>
 </a>
+<a class="feature-card" href="#attachments">
+<h4>&#x1F4CE; Attachments</h4>
+<p>Send pictures, PDFs and text files with a message - for example sheet music for the AI to write into the editor. Drop, paste or pick them with the paperclip.</p>
+<span class="card-arrow">Learn more &rarr;</span>
+</a>
 <a class="feature-card" href="midipilot-modes.html#conversation-history">
 <h4>&#x1F4DC; Conversation History</h4>
 <p>Conversations auto-saved as JSON. Browse, search, and resume past sessions from the history menu.</p>
@@ -211,10 +216,10 @@ The MidiPilot panel features a clean chat interface with context-aware track inf
 </p>
 
 <div class="screenshot-row">
-<img src="screenshots/midipilot-panel.png" alt="MidiPilot chat panel in light theme" width="380">
-<img src="screenshots/midipilot-panel-alt.png" alt="MidiPilot chat panel in dark theme" width="380">
+<img src="screenshots/midipilot-panel.png" alt="MidiPilot chat panel in Simple mode" width="380">
+<img src="screenshots/midipilot-panel-alt.png" alt="MidiPilot chat panel in Agent mode" width="380">
 </div>
-<div class="caption">Docked MidiPilot panel side by side - Light theme (left) and Dark theme (right)</div>
+<div class="caption">Docked MidiPilot panel - Simple mode (left) and Agent mode (right)</div>
 
 <p>
 The input bar at the bottom provides quick access to everything you need:
@@ -229,6 +234,7 @@ The input bar at the bottom provides quick access to everything you need:
 </div>
 
 <ul>
+<li><b>Attach (&#x1F4CE;)</b> - Add pictures, PDFs, text files or other files to your message - see <a href="#attachments">Attachments</a></li>
 <li><b>Mode selector</b> - Switch between Agent (multi-step) and Simple (single response)</li>
 <li><b>New Chat</b> - Start a fresh conversation (previous one is auto-saved to history)</li>
 <li><b>History</b> - Browse and resume past conversations</li>
@@ -243,12 +249,53 @@ The input bar at the bottom provides quick access to everything you need:
 
 <hr>
 
+<h2 id="attachments">Attachments</h2>
+
+<p>
+You can send files along with a message - for example a photo or a PDF of sheet music with
+&ldquo;write this melody into track 1&rdquo;, a screenshot of a score, or a text file with lyrics or
+ABC notation. Attachments work in Agent and Simple mode.
+</p>
+
+<div class="screenshot-single">
+    <img src="screenshots/midipilot-attachments.png" alt="MidiPilot input bar with a picture and a PDF attached as chips above the message" width="480" loading="lazy">
+</div>
+<div class="caption">A picture and a PDF attached to the next message - each chip can be removed with its &#x2715;; the estimate on the right shows roughly how many tokens they add</div>
+
+<ul>
+<li><b>Adding files</b> - click the paperclip (&#x1F4CE;) in the input bar, drop files anywhere on the
+MidiPilot panel, or paste with <b>Ctrl+V</b>: a screenshot on the clipboard becomes a picture
+attachment, copied files are attached as files, and copied text is pasted as text.</li>
+<li><b>Chips</b> - every attached file appears as a chip above the input with a thumbnail or an icon
+and its name; the &#x2715; on a chip removes it. Next to the chips, an estimate shows roughly how many
+tokens the attachments add. The chips are sent with your next message, and the message bubble lists
+the file names.</li>
+<li><b>Pictures</b> (PNG, JPEG, GIF, WebP) are sent as images; other picture formats such as BMP are
+converted to PNG first. <b>PDFs</b> and other files are sent as files. <b>Text files</b> (.txt, .md, .csv,
+.json, .xml, .musicxml, .abc, .mml, .lrc, .srt, .log) are put into the message as text, so every model
+can read them.</li>
+<li><b>Which model</b> - most current models read pictures and PDFs. Whether a file can be read is
+decided by the model you picked; when it cannot, the provider's answer appears in the chat. The
+pictures and files of a message the provider refused are then taken out of the conversation, so
+your next message goes through; attach them again for a model that reads them.</li>
+<li><b>Limits</b> - up to 10&nbsp;MB per file, 14&nbsp;MB and 10 files per message, and 512&nbsp;KB for a
+text file.</li>
+<li><b>Cost</b> - a conversation is sent in full with every request, attachments included. In Agent
+mode that means once per step, so a large PDF in an early message counts again at every step; the
+token counter shows what the provider reported.</li>
+<li><b>History</b> - attachments are saved with the conversation, in a folder of their own next to
+it, so a conversation you reopen from the history still has them for follow-up questions. Deleting a
+conversation deletes its attachments too.</li>
+</ul>
+
+<hr>
+
 <h2 id="mode-comparison">Mode Comparison</h2>
 
 <table>
 <tr><th>Feature</th><th>Simple Mode</th><th>Agent Mode</th></tr>
 <tr><td><b>API Calls</b></td><td>1 (one-shot)</td><td>Multiple (iterative loop)</td></tr>
-<tr><td><b>Tool Access</b></td><td>None</td><td>27 tools (32 with FFXIV)</td></tr>
+<tr><td><b>Tool Access</b></td><td>None</td><td>33 tools (38 with FFXIV)</td></tr>
 <tr><td><b>Self-Correction</b></td><td>No</td><td>Yes - can inspect and fix</td></tr>
 <tr><td><b>Token Limit Risk</b></td><td>High for complex tasks</td><td>Low - work is split</td></tr>
 <tr><td><b>Truncation Handling</b></td><td>Warns, suggests Agent mode</td><td>Per-step, can continue</td></tr>

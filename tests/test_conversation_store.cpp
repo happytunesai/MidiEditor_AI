@@ -296,6 +296,72 @@ private slots:
         ConversationStore::deleteAll();
         QCOMPARE(ConversationStore::listConversations().size(), 0);
     }
+
+    // ---- Phase 52: attachment folders -------------------------------------
+
+    // Each conversation keeps its attachments in <storageDir>/<id>/ next to
+    // its JSON; only plain generated ids may name a folder.
+    void attachmentDir_isNextToTheJsonAndRefusesPathIds()
+    {
+        QCOMPARE(ConversationStore::attachmentDir(QStringLiteral("abc123-def45")),
+                 ConversationStore::storageDir() + QStringLiteral("/abc123-def45"));
+        QVERIFY(ConversationStore::attachmentDir(QString()).isEmpty());
+        QVERIFY(ConversationStore::attachmentDir(QStringLiteral("../outside")).isEmpty());
+        QVERIFY(ConversationStore::attachmentDir(QStringLiteral("a/b")).isEmpty());
+        QVERIFY(ConversationStore::attachmentDir(QStringLiteral("a\\b")).isEmpty());
+    }
+
+    // An id out of a tampered history file never leads load or delete to a
+    // .json outside the history folder.
+    void loadAndDelete_refusePathIds()
+    {
+        QDir storage(ConversationStore::storageDir());
+        QVERIFY(storage.mkpath(QStringLiteral("sub")));
+        const QString inSub = storage.filePath(QStringLiteral("sub/victim.json"));
+        QFile f(inSub);
+        QVERIFY(f.open(QIODevice::WriteOnly));
+        f.write("{\"id\":\"victim\",\"title\":\"x\"}");
+        f.close();
+
+        QVERIFY(ConversationStore::loadConversation(QStringLiteral("sub/victim")).isEmpty());
+        ConversationStore::deleteConversation(QStringLiteral("sub/victim"));
+        ConversationStore::deleteConversation(QStringLiteral("sub\\victim"));
+        QVERIFY(QFile::exists(inSub));
+        QVERIFY(QDir(storage.filePath(QStringLiteral("sub"))).removeRecursively());
+    }
+
+    void deleteConversation_removesItsAttachmentFolder()
+    {
+        ConversationStore::saveConversation(makeConversation(QStringLiteral("withfiles001")));
+        ConversationStore::saveConversation(makeConversation(QStringLiteral("withfiles002")));
+        for (const QString &id : {QStringLiteral("withfiles001"), QStringLiteral("withfiles002")}) {
+            const QString dir = ConversationStore::attachmentDir(id);
+            QVERIFY(QDir().mkpath(dir));
+            QFile f(dir + QStringLiteral("/sheet.png"));
+            QVERIFY(f.open(QIODevice::WriteOnly));
+            f.write("png");
+        }
+
+        ConversationStore::deleteConversation(QStringLiteral("withfiles001"));
+        QVERIFY(!QDir(ConversationStore::attachmentDir(QStringLiteral("withfiles001"))).exists());
+        QVERIFY(QDir(ConversationStore::attachmentDir(QStringLiteral("withfiles002"))).exists());
+    }
+
+    // deleteAll takes every conversation's folder - and nothing it does not own.
+    void deleteAll_removesAttachmentFoldersOnly()
+    {
+        ConversationStore::saveConversation(makeConversation(QStringLiteral("withfiles003")));
+        const QString owned = ConversationStore::attachmentDir(QStringLiteral("withfiles003"));
+        QVERIFY(QDir().mkpath(owned));
+        // A folder whose name is not an id (dot in it) is left alone.
+        const QString foreign = ConversationStore::storageDir() + QStringLiteral("/keep.me");
+        QVERIFY(QDir().mkpath(foreign));
+
+        ConversationStore::deleteAll();
+        QVERIFY(!QDir(owned).exists());
+        QVERIFY(QDir(foreign).exists());
+        QVERIFY(QDir(foreign).removeRecursively());
+    }
 };
 
 QTEST_APPLESS_MAIN(TestConversationStore)

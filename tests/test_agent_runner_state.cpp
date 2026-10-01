@@ -134,6 +134,29 @@ private slots:
         QVERIFY(layer.size() < 1401);
     }
 
+    void workingState_saveQuestionIsHandedToTheUserNotTreatedAsFailure()
+    {
+        // save_document's "overwrite or copy" question comes back with
+        // success:false. It must not count as a rejected step or steer the
+        // model to "a different valid next action" - it has to ask the user.
+        AgentRunner::AgentWorkingState state = AgentRunner::initialWorkingState(
+            QStringLiteral("Save the song"));
+        AgentRunner::updateWorkingStateFromToolResult(
+            state, QStringLiteral("save_document"),
+            QJsonObject{{QStringLiteral("name"), QJsonValue::Null},
+                        {QStringLiteral("mode"), QJsonValue::Null}},
+            QJsonObject{{QStringLiteral("success"), false},
+                        {QStringLiteral("decisionNeeded"), QStringLiteral("overwrite_or_copy")},
+                        {QStringLiteral("question"),
+                         QStringLiteral("Overwrite mozart.mid with the changes, or keep it and "
+                                        "save a copy as mozart.midipilot.mid?")}});
+        QCOMPARE(state.repeatedFailureCount, 0);
+        QVERIFY(!state.lastToolResult.contains(QStringLiteral("rejected")));
+        QVERIFY(state.lastToolResult.contains(QStringLiteral("Overwrite mozart.mid")));
+        QVERIFY(state.nextStepHint.contains(QStringLiteral("Ask the user")));
+        QVERIFY(!state.nextStepHint.contains(QStringLiteral("different valid next action")));
+    }
+
     void pitchBendOnlyRejectionBecomesNextStepSteering()
     {
         // Removed in Phase 31.2. The pre-Phase-31 working-state branch that

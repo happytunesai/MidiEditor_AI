@@ -30,6 +30,9 @@
 #include "../src/ai/AiClient.h"
 #include "../src/ai/SecretRedactor.h"
 
+#include <QJsonArray>
+#include <QJsonObject>
+
 class TestStreamingFallback : public QObject {
     Q_OBJECT
 
@@ -629,6 +632,53 @@ private slots:
         QVERIFY2(!client.toolsIncapableForCurrentModel(),
                  "clearToolsIncapableFlag must remove the flag.");
         QVERIFY(!AppPaths::settings()->contains(key));
+    }
+
+    // ------------------------------------------------------------------
+    // Phase 52: the native Gemini path (agent mode) turns a user message
+    // with attachments into text + inline_data parts - the Chat-shaped part
+    // array must never reach Gemini as an empty text. A plain string user
+    // message keeps its single text part.
+    // ------------------------------------------------------------------
+    void geminiContents_userAttachmentsBecomeInlineData()
+    {
+        const QByteArray png("fake-png-bytes");
+        QJsonArray parts;
+        parts.append(QJsonObject{{QStringLiteral("type"), QStringLiteral("text")},
+                                 {QStringLiteral("text"), QStringLiteral("{\"instruction\":\"x\"}")}});
+        parts.append(QJsonObject{
+            {QStringLiteral("type"), QStringLiteral("image_url")},
+            {QStringLiteral("image_url"),
+             QJsonObject{{QStringLiteral("url"),
+                          QStringLiteral("data:image/png;base64,")
+                              + QString::fromLatin1(png.toBase64())},
+                         {QStringLiteral("detail"), QStringLiteral("high")}}}});
+        QJsonArray messages;
+        messages.append(QJsonObject{{QStringLiteral("role"), QStringLiteral("system")},
+                                    {QStringLiteral("content"), QStringLiteral("sys")}});
+        messages.append(QJsonObject{{QStringLiteral("role"), QStringLiteral("user")},
+                                    {QStringLiteral("content"), parts}});
+        messages.append(QJsonObject{{QStringLiteral("role"), QStringLiteral("assistant")},
+                                    {QStringLiteral("content"), QStringLiteral("ok")}});
+        messages.append(QJsonObject{{QStringLiteral("role"), QStringLiteral("user")},
+                                    {QStringLiteral("content"), QStringLiteral("plain")}});
+
+        QJsonArray contents;
+        QJsonObject systemInstruction;
+        AiClient::geminiContentsFromMessages(messages, contents, systemInstruction);
+
+        QCOMPARE(contents.size(), 3);
+        const QJsonArray first = contents[0].toObject()[QStringLiteral("parts")].toArray();
+        QCOMPARE(first.size(), 2);
+        QCOMPARE(first[0].toObject()[QStringLiteral("text")].toString(),
+                 QStringLiteral("{\"instruction\":\"x\"}"));
+        const QJsonObject inl = first[1].toObject()[QStringLiteral("inline_data")].toObject();
+        QCOMPARE(inl[QStringLiteral("mime_type")].toString(), QStringLiteral("image/png"));
+        QCOMPARE(QByteArray::fromBase64(inl[QStringLiteral("data")].toString().toLatin1()), png);
+
+        const QJsonArray last = contents[2].toObject()[QStringLiteral("parts")].toArray();
+        QCOMPARE(last.size(), 1);
+        QCOMPARE(last[0].toObject()[QStringLiteral("text")].toString(), QStringLiteral("plain"));
     }
 };
 

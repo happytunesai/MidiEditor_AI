@@ -69,13 +69,22 @@ InstrumentChooser::InstrumentChooser(MidiFile *f, int channel, QWidget *parent)
 }
 
 void InstrumentChooser::accept() {
-    int program = _box->currentIndex();
-    bool removeOthers = _removeOthers->isChecked();
+    _file->protocol()->startNewAction(tr("Edited instrument for channel"));
+    applyProgram(_file, _channel, _box->currentIndex(), _removeOthers->isChecked());
+    _file->protocol()->endAction();
+    QDialog::accept();
+}
+
+void InstrumentChooser::applyProgram(MidiFile *file, int channel, int program,
+                                     bool removeOthers) {
+    if (!file || !file->channel(channel)) {
+        return;
+    }
     MidiTrack *track = 0;
 
-    // get events
+    // get events (sorted by tick)
     QList<ProgChangeEvent *> events;
-    foreach(MidiEvent* event, _file->channel(_channel)->eventMap()->values()) {
+    foreach(MidiEvent* event, file->channel(channel)->eventMap()->values()) {
         ProgChangeEvent *prg = dynamic_cast<ProgChangeEvent *>(event);
         if (prg) {
             events.append(prg);
@@ -83,27 +92,33 @@ void InstrumentChooser::accept() {
         }
     }
     if (!track) {
-        track = _file->track(0);
+        track = file->track(0);
     }
 
+    // EVERY program change at tick 0 takes the new program. A file set up by
+    // the FFXIV fixer carries one per track there; editing just one of them
+    // left the channel list, the playback and the saved file naming different
+    // instruments (fixer review CF-03).
     ProgChangeEvent *event = 0;
-
-    _file->protocol()->startNewAction(tr("Edited instrument for channel"));
-    if (events.size() > 0 && events.first()->midiTime() == 0) {
-        event = events.first();
-        event->setProgram(program);
-    } else {
-        event = new ProgChangeEvent(_channel, program, track);
-        _file->channel(_channel)->insertEvent(event, 0);
+    foreach(ProgChangeEvent* prg, events) {
+        if (prg->midiTime() != 0) {
+            break;
+        }
+        if (!event) {
+            event = prg;
+        }
+        prg->setProgram(program);
+    }
+    if (!event) {
+        event = new ProgChangeEvent(channel, program, track);
+        file->channel(channel)->insertEvent(event, 0);
     }
 
     if (removeOthers) {
         foreach(ProgChangeEvent* toRemove, events) {
             if (toRemove != event) {
-                _file->channel(_channel)->removeEvent(toRemove);
+                file->channel(channel)->removeEvent(toRemove);
             }
         }
     }
-    _file->protocol()->endAction();
-    QDialog::accept();
 }

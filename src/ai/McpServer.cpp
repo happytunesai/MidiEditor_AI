@@ -617,6 +617,31 @@ QJsonObject McpServer::handleToolsList(const QJsonObject &params) {
 // MCP method: tools/call
 // ---------------------------------------------------------------------------
 
+// v2.5.0: the short text that goes with the status-bar line for one tool call
+// (toolCalled): the path a document tool wrote or opened, the error of a
+// failed call, nothing otherwise.
+// A result that waits for the user's decision (save_document's "overwrite or
+// copy?") saved nothing - success stays false so no model reports a save - but
+// it is no error either: the client gets no isError and the status bar says
+// what the AI is asking.
+static bool awaitsUserDecision(const QJsonObject &toolResult) {
+    return toolResult.contains(QStringLiteral("decisionNeeded"));
+}
+
+static bool isToolError(const QJsonObject &toolResult) {
+    return toolResult.contains(QStringLiteral("success"))
+        && !toolResult.value(QStringLiteral("success")).toBool()
+        && !awaitsUserDecision(toolResult);
+}
+
+static QString toolCallDetail(const QJsonObject &toolResult) {
+    if (awaitsUserDecision(toolResult))
+        return QStringLiteral("asks the user: ") + toolResult.value(QStringLiteral("question")).toString();
+    if (!toolResult.value(QStringLiteral("success")).toBool(true))
+        return toolResult.value(QStringLiteral("error")).toString();
+    return toolResult.value(QStringLiteral("path")).toString();
+}
+
 QJsonObject McpServer::handleToolsCall(const QJsonObject &params, Session &session) {
     QString toolName = params["name"].toString();
     QJsonObject args = params["arguments"].toObject();
@@ -692,10 +717,45 @@ QJsonObject McpServer::handleToolsCall(const QJsonObject &params, Session &sessi
     // switch_document stays MCP's own (activate-the-tab contract) - the
     // MidiPilot runner's rebind-only switch_document is gated out of the
     // default schema and never reaches MCP.
+    // v2.5.0: new_document / open_document / close_document are window-level
+    // too - they need no bound document, so they must keep working after the
+    // session's own document was closed (close_document on it included).
+    // save_document(_as) acts on the bound document and takes the normal path.
+    const bool windowFileTool = toolName == QStringLiteral("new_document")
+                             || toolName == QStringLiteral("open_document")
+                             || toolName == QStringLiteral("close_document");
     if (toolName == QStringLiteral("list_documents")
-        || toolName == QStringLiteral("switch_document")) {
+        || toolName == QStringLiteral("switch_document")
+        || windowFileTool) {
         QJsonObject toolResult;
         auto runDocTool = [&]() {
+            if (windowFileTool) {
+                // Argument checks, the main-window lookup (floating-dock
+                // aware) and the shutdown refusal all happen in there.
+                toolResult = ToolDefinitions::executeTool(toolName, args, nullptr,
+                                                          _widget, source);
+                return;
+            }
+            // MCP-ARGS-001: these two never reach executeTool's argument
+            // check, so refuse undeclared arguments here - same wording.
+            {
+                const QStringList accepted = toolName == QStringLiteral("switch_document")
+                    ? QStringList{QStringLiteral("index")} : QStringList{};
+                QStringList unknown;
+                for (auto it = args.constBegin(); it != args.constEnd(); ++it) {
+                    if (!accepted.contains(it.key()))
+                        unknown << it.key();
+                }
+                if (!unknown.isEmpty()) {
+                    toolResult["success"] = false;
+                    toolResult["error"] = QString("Tool '%1' does not accept parameter(s): %2 - "
+                                                  "its parameters are: %3. Nothing was changed.")
+                        .arg(toolName, unknown.join(QStringLiteral(", ")),
+                             accepted.isEmpty() ? QStringLiteral("none")
+                                                : accepted.join(QStringLiteral(", ")));
+                    return;
+                }
+            }
             MainWindow *mw = _widget
                 ? qobject_cast<MainWindow *>(_widget->window())
                 : nullptr;
@@ -738,7 +798,9 @@ QJsonObject McpServer::handleToolsCall(const QJsonObject &params, Session &sessi
                                       Qt::BlockingQueuedConnection);
         }
         session.toolCallCount++;
-        emit toolCalled(session.id, toolName);
+        emit toolCalled(session.id, session.clientName, toolName,
+                        toolResult.value(QStringLiteral("success")).toBool(false),
+                        toolCallDetail(toolResult));
 
         QJsonObject result;
         QJsonArray content;
@@ -802,7 +864,11 @@ QJsonObject McpServer::handleToolsCall(const QJsonObject &params, Session &sessi
     }
 
     session.toolCallCount++;
-    emit toolCalled(session.id, toolName);
+    // A tool that reports no "success" field at all counts as succeeded (same
+    // rule as the isError mapping below).
+    emit toolCalled(session.id, session.clientName, toolName,
+                    !isToolError(toolResult),
+                    toolCallDetail(toolResult));
 
     // Convert tool result to MCP content format
     QJsonObject result;
@@ -813,7 +879,7 @@ QJsonObject McpServer::handleToolsCall(const QJsonObject &params, Session &sessi
     content.append(textContent);
     result["content"] = content;
 
-    if (toolResult.contains("success") && !toolResult["success"].toBool()) {
+    if (isToolError(toolResult)) {
         result["isError"] = true;
     }
 

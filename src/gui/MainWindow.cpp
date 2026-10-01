@@ -146,6 +146,7 @@ Q_LOGGING_CATEGORY(memLog, "midieditor.memory")
 #include "SettingsDialog.h"
 #include "StrummerDialog.h"
 #include "TrackListWidget.h"
+#include "TrackPositionFollow.h"
 #include "TransposeDialog.h"
 #include "TweakTarget.h"
 #include "UpdateChecker.h"
@@ -169,6 +170,7 @@ Q_LOGGING_CATEGORY(memLog, "midieditor.memory")
 #include "AppearanceSettingsWidget.h"
 
 #include "../ai/McpServer.h"
+#include "../ai/AiFileNaming.h"
 #include "../ai/FfxivVoiceAnalyzer.h"
 #include "../ai/MidiEventSerializer.h"
 
@@ -372,14 +374,14 @@ MainWindow::MainWindow(QString initFile)
             stop();
     });
 
-    // MIDI visualizer â€” register a plain QAction for the toolbar customize list.
+    // MIDI visualizer - register a plain QAction for the toolbar customize list.
     // The actual widget is created fresh in each toolbar build (see createCustomToolbar/
     // updateToolbarContents) because QWidgetAction::setDefaultWidget() reparents the
     // widget to the toolbar, causing it to be destroyed on toolbar rebuild.
     _visualizer = nullptr;  // Created on-demand in toolbar build
     QAction *visualizerAction = new QAction(this);
     visualizerAction->setText(tr("MIDI Visualizer"));
-    visualizerAction->setToolTip(tr("MIDI activity visualizer â€” shows per-channel velocity during playback"));
+    visualizerAction->setToolTip(tr("MIDI activity visualizer - shows per-channel velocity during playback"));
     _actionMap["midi_visualizer"] = visualizerAction;
 
     // Phase 41: retro cursor-time display. Registers a plain QAction for the
@@ -1279,6 +1281,29 @@ MainWindow::MainWindow(QString initFile)
     // broadcastToolsChanged() existed but nothing ever called it.
     connect(_midiPilotWidget, &MidiPilotWidget::ffxivModeChanged,
             _mcpServer, [this]() { _mcpServer->broadcastToolsChanged(); });
+    // v2.5.0: one status-bar line per MCP tool call. Until now an MCP client
+    // was visible only through its Protocol entries - reads and file
+    // operations (not undo steps) left no trace at all. Strings concatenated,
+    // never .arg()-substituted (client names and paths are external input).
+    connect(_mcpServer, &McpServer::toolCalled, this,
+            [this](const QString &, const QString &client, const QString &toolName,
+                   bool success, const QString &detail) {
+        if (_shuttingDown) {
+            return;
+        }
+        QString line = (client.isEmpty() ? QStringLiteral("MCP")
+                                         : QStringLiteral("MCP (") + client + QLatin1Char(')'))
+                       + QStringLiteral(": ") + toolName;
+        if (!success) {
+            line += QStringLiteral(" failed");
+            if (!detail.isEmpty()) {
+                line += QStringLiteral(" — ") + detail.left(160);
+            }
+        } else if (!detail.isEmpty()) {
+            line += QStringLiteral(" — ") + detail;
+        }
+        statusBar()->showMessage(line, success ? 5000 : 10000);
+    });
 
     QWidget *buttons = setupActions(central);
 
@@ -1802,6 +1827,12 @@ void MainWindow::updatePasteActionState() {
 }
 
 void MainWindow::loadInitFile() {
+    // The per-tab view states of a restart the editor made itself belong to
+    // this start only, whichever way it opens (a file, a recovered backup or
+    // the session): left in the settings they would reach a later start.
+    const QVariantList views = _settings->value("session/views").toList();
+    _settings->remove("session/views");
+
     // Check for untitled auto-save recovery before loading. If a document was
     // recovered it is already open as the first tab - do NOT also open the init
     // file / a blank document (that produced a spurious extra tab).
@@ -1814,7 +1845,7 @@ void MainWindow::loadInitFile() {
     // falling back to a fresh document.
     if (_initFile != "") {
         loadFile(_initFile);
-    } else if (!restoreSession()) {
+    } else if (!restoreSession(views)) {
         newFile();
     }
 
@@ -2317,6 +2348,15 @@ void MainWindow::setActiveDocument(MidiFile *newFile) {
         // dirty the title of a clean active document (markEditedFor checks).
         connect(newFile->protocol(), &Protocol::actionFinished, this,
                 [this, newFile]() { markEditedFor(newFile); });
+        // The track menus, the "Add new events to" track box and the edit track
+        // follow any change of the track order - Clone, the split tools and the
+        // MidiPilot/MCP track tools rearrange the list without a trackChanged()
+        // (track-order review TR-01). One pointer-list compare per action.
+        connect(newFile->protocol(), &Protocol::actionFinished, this, [this, newFile]() {
+            if (file == newFile && _trackMenuOrder != *newFile->tracks()) {
+                updateTrackMenu();
+            }
+        });
         connect(newFile->protocol(), SIGNAL(actionFinished()), eventWidget(), SLOT(reload()));
         connect(newFile->protocol(), SIGNAL(actionFinished()), this, SLOT(checkEnableActionsForSelection()));
         connect(newFile->protocol(), SIGNAL(actionFinished()), this, SLOT(updateStatusBar()));
@@ -2718,7 +2758,7 @@ void MainWindow::toggleCompareView() {
     updateActiveGroupHighlight();
 }
 
-void MainWindow::saveSession() {
+void MainWindow::saveSession(bool withViewState) {
     // Persist each group's open documents (by path) + active tab, so the session
     // can be reopened after a restart. Untitled docs (no path) are skipped - on a
     // proper close/restart they were already save-prompted (saved -> get a path,
@@ -2750,6 +2790,30 @@ void MainWindow::saveSession() {
     collect(_documentManager, g0, a0, a0path);
     collect(_group1Docs, g1, a1, a1path);
 
+    // Per tab, in tab order: its zoom and scroll position (what the views keep
+    // on the document) and its cursor and pause position, with its group and
+    // path - so two tabs of one file each keep their own.
+    QVariantList views;
+    if (withViewState) {
+        for (MatrixWidget *view : {mw_matrixWidget, _compareMatrixWidget}) {
+            if (view) view->rememberViewState(); // the shown tabs' live view
+        }
+        int group = 0;
+        for (DocumentManager *m : {_documentManager, _group1Docs}) {
+            for (int i = 0; m && i < m->count(); ++i) {
+                MidiFile *f = m->at(i)->file();
+                if (!f || f->path().isEmpty()) continue;
+                QVariantMap state = MatrixWidget::storedViewState(f);
+                state.insert(QStringLiteral("group"), group);
+                state.insert(QStringLiteral("path"), f->path());
+                state.insert(QStringLiteral("cursorTick"), f->cursorTick());
+                state.insert(QStringLiteral("pauseTick"), f->pauseTick());
+                views.append(state);
+            }
+            ++group;
+        }
+    }
+
     _settings->beginGroup("session");
     _settings->setValue("g0paths", g0);
     _settings->setValue("g0active", a0);
@@ -2759,10 +2823,23 @@ void MainWindow::saveSession() {
     _settings->setValue("g1activePath", a1path);
     _settings->setValue("g1collapsed", _group1Collapsed);
     _settings->setValue("focusGroup", (_activeView == _compareMatrixWidget) ? 1 : 0);
+    // The window's monitor, position and maximized state (restoreWindowPlacement).
+    _settings->setValue("windowGeometry", saveGeometry());
+    if (views.isEmpty()) {
+        _settings->remove("views");
+    } else {
+        _settings->setValue("views", views);
+    }
     _settings->endGroup();
 }
 
-bool MainWindow::restoreSession() {
+bool MainWindow::restoreWindowPlacement() {
+    // Qt moves a window whose monitor has gone onto one that exists.
+    const QByteArray geometry = _settings->value("session/windowGeometry").toByteArray();
+    return !geometry.isEmpty() && restoreGeometry(geometry);
+}
+
+bool MainWindow::restoreSession(const QVariantList &views) {
     _settings->beginGroup("session");
     const QStringList g0 = _settings->value("g0paths").toStringList();
     const QStringList g1 = _settings->value("g1paths").toStringList();
@@ -2840,6 +2917,41 @@ bool MainWindow::restoreSession() {
     } else {
         _activeView = mw_matrixWidget;
         if (Document *a = _documentManager->active()) activateDocument(a->file());
+    }
+
+    // ----- every tab where it was left (after an update or theme restart) --
+    // Each saved tab state goes to the next tab of its group with its path,
+    // in tab order - two tabs of one file get their own; a vanished file's
+    // state is simply left over.
+    if (!views.isEmpty()) {
+        QList<bool> used(views.size(), false);
+        int group = 0;
+        for (DocumentManager *m : {_documentManager, _group1Docs}) {
+            for (int i = 0; m && i < m->count(); ++i) {
+                MidiFile *f = m->at(i)->file();
+                if (!f || f->path().isEmpty()) continue;
+                for (int k = 0; k < views.size(); ++k) {
+                    const QVariantMap state = views.at(k).toMap();
+                    if (used.at(k) || state.value(QStringLiteral("group")).toInt() != group
+                        || state.value(QStringLiteral("path")).toString() != f->path()) {
+                        continue;
+                    }
+                    used[k] = true;
+                    MatrixWidget::setStoredViewState(f, state);
+                    f->setCursorTick(state.value(QStringLiteral("cursorTick")).toInt());
+                    f->setPauseTick(state.value(QStringLiteral("pauseTick"), -1).toInt());
+                    break;
+                }
+            }
+            ++group;
+        }
+        // The other tabs pick their state up when they are opened; the shown
+        // ones once the window has its real size (it is not shown yet here).
+        QTimer::singleShot(0, this, [this]() {
+            for (MatrixWidget *view : {mw_matrixWidget, _compareMatrixWidget}) {
+                if (view) view->applyStoredViewState();
+            }
+        });
     }
     return true;
 }
@@ -3309,6 +3421,11 @@ void MainWindow::onGroup1TabChanged(int index) {
         _compareFile = f;
     }
     setActiveDocument(f);
+    // Sync: the right pane follows the left also after a tab switch - not the
+    // view the newly shown document had when it was last on screen.
+    if (_syncViews) {
+        snapSecondaryToPrimary();
+    }
     refreshScrollbarsForFocus();
     updateActiveGroupHighlight();
     focusEditorView(_compareMatrixWidget);
@@ -3790,24 +3907,7 @@ void MainWindow::setSyncViews(bool on) {
         // pushed the right pane's own position back onto itself. (The left
         // view keeps its position through the re-activation above: setFile()
         // no longer resets a view that is bound again to the same document.)
-        _syncInProgress = true;
-        if (mw_matrixWidget) {
-            // Zoom first, then position: the mirroring works in ms / lines,
-            // which only lines the two panes up when they share the zoom. A
-            // fresh right pane sits at zoom 1 while the left may be zoomed
-            // out to the whole song; without this the right showed the first
-            // few seconds with the cursor far off-screen. (Before SYNC-JUMP-001
-            // the left was reset to zoom 1 here by accident, which hid this.)
-            _compareMatrixWidget->applyZoom(mw_matrixWidget->currentScaleX(),
-                                            mw_matrixWidget->currentScaleY());
-            _compareMatrixWidget->scrollXChanged(mw_matrixWidget->viewStartTimeMs());
-            _compareMatrixWidget->scrollYChanged(mw_matrixWidget->viewStartLine());
-        }
-        if (_compareFile && file) {
-            _compareFile->setCursorTick(file->cursorTick());
-        }
-        _compareMatrixWidget->update();
-        _syncInProgress = false;
+        snapSecondaryToPrimary();
         statusBar()->showMessage(
             tr("Sync on - the right view follows the left (scroll, cursor & playback); right is read-only"), 5000);
     } else {
@@ -3819,6 +3919,33 @@ void MainWindow::setSyncViews(bool on) {
     // The scrollbar source view changed (master while synced, focused otherwise) -
     // make the bars reflect it.
     refreshScrollbarsForFocus();
+}
+
+void MainWindow::snapSecondaryToPrimary() {
+    if (!_compareMatrixWidget) {
+        return;
+    }
+    _syncInProgress = true;
+    if (mw_matrixWidget) {
+        // Zoom first, then position: the mirroring works in ms / lines,
+        // which only lines the two panes up when they share the zoom. A
+        // fresh right pane sits at zoom 1 while the left may be zoomed
+        // out to the whole song; without this the right showed the first
+        // few seconds with the cursor far off-screen. (Before SYNC-JUMP-001
+        // the left was reset to zoom 1 here by accident, which hid this.)
+        _compareMatrixWidget->applyZoom(mw_matrixWidget->currentScaleX(),
+                                        mw_matrixWidget->currentScaleY());
+        _compareMatrixWidget->scrollXChanged(mw_matrixWidget->viewStartTimeMs());
+        _compareMatrixWidget->scrollYChanged(mw_matrixWidget->viewStartLine());
+        // The LEFT document's cursor - after a right-side tab switch the
+        // active document is the right one.
+        MidiFile *left = mw_matrixWidget->midiFile();
+        if (_compareFile && left && left != _compareFile) {
+            _compareFile->setCursorTick(left->cursorTick());
+        }
+    }
+    _compareMatrixWidget->update();
+    _syncInProgress = false;
 }
 
 void MainWindow::syncSecondaryCursor() {
@@ -3906,6 +4033,13 @@ void MainWindow::onTabMoveRequested(DocumentTabBar *source, int sourceIndex,
     }
 
     stop();
+    // The document keeps its zoom and scroll position in the other group: the
+    // view that shows it now hands them over before the target view binds it.
+    for (MatrixWidget *view : {mw_matrixWidget, _compareMatrixWidget}) {
+        if (view && view->midiFile() == f) {
+            view->rememberViewState();
+        }
+    }
     srcMgr->removeAt(sourceIndex);            // detaches the file (Document deleted)
     Document *nd = tgtMgr->insert(targetIndex, f, title);
     tgtMgr->setActive(nd);                    // the dropped tab is active in its new group
@@ -4106,6 +4240,454 @@ bool MainWindow::activateDocumentByListIndex(int index) {
         return true;
     }
     return false;
+}
+
+int MainWindow::documentListIndexOf(MidiFile *f) const {
+    // MUST mirror listOpenDocumentsJson()'s flattening (see
+    // documentFileByListIndex()).
+    if (!f) {
+        return -1;
+    }
+    int listIndex = 0;
+    int found = -1;
+    auto scan = [&](DocumentManager *mgr) {
+        if (!mgr || found >= 0) return;
+        for (int i = 0; i < mgr->count(); ++i) {
+            Document *doc = mgr->at(i);
+            if (!doc || !doc->file()) continue;
+            if (doc->file() == f) {
+                found = listIndex;
+                return;
+            }
+            ++listIndex;
+        }
+    };
+    scan(_documentManager);
+    scan(_group1Docs);
+    return found;
+}
+
+// ---------------------------------------------------------------------------
+// Phase 51 (v2.5.0): document tools for MidiPilot and MCP
+// ---------------------------------------------------------------------------
+
+QString MainWindow::aiActorLabel(const QString &source) {
+    // Same three forms as ToolDefinitions::protocolActorPrefix, shorter.
+    if (!source.startsWith(QLatin1String("mcp"))) {
+        return QStringLiteral("MidiPilot");
+    }
+    const int colon = source.indexOf(QLatin1Char(':'));
+    if (colon > 0 && colon + 1 < source.length()) {
+        return QStringLiteral("MCP (") + source.mid(colon + 1) + QLatin1Char(')');
+    }
+    return QStringLiteral("MCP");
+}
+
+QString MainWindow::aiDefaultFolder() const {
+    if (!startDirectory.isEmpty() && QFileInfo(startDirectory).isDir()) {
+        return QDir::cleanPath(QFileInfo(startDirectory).absoluteFilePath());
+    }
+    return QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
+}
+
+bool MainWindow::isOpenDocumentPath(const QString &path) const {
+    if (path.isEmpty()) {
+        return false;
+    }
+#ifdef Q_OS_WIN
+    const Qt::CaseSensitivity cs = Qt::CaseInsensitive;
+#else
+    const Qt::CaseSensitivity cs = Qt::CaseSensitive;
+#endif
+    const QString wanted = QDir::cleanPath(QFileInfo(path).absoluteFilePath());
+    auto scan = [&](DocumentManager *mgr) {
+        if (!mgr) return false;
+        for (int i = 0; i < mgr->count(); ++i) {
+            Document *doc = mgr->at(i);
+            if (!doc || !doc->file() || doc->file()->path().isEmpty()) continue;
+            const QString p = QDir::cleanPath(QFileInfo(doc->file()->path()).absoluteFilePath());
+            if (p.compare(wanted, cs) == 0) return true;
+        }
+        return false;
+    };
+    return scan(_documentManager) || scan(_group1Docs);
+}
+
+QJsonObject MainWindow::aiSaveDocument(MidiFile *f, const QString &name,
+                                       const QString &source, bool asNewCopy,
+                                       const QString &mode) {
+    QJsonObject r;
+    r["success"] = false;
+    if (_shuttingDown) {
+        r["error"] = QStringLiteral("The editor is shutting down.");
+        return r;
+    }
+    if (!f || !isDocumentOpen(f)) {
+        r["error"] = QStringLiteral("The document is not open any more. Call list_documents "
+                                    "for the current list.");
+        return r;
+    }
+
+    const QString oldPath = f->path();
+    const QString mark = AiFileNaming::markFor(source);
+    // "Taken" = a file on disk OR the path of an open document (whose file
+    // may be gone from disk): neither is ever written over by the AI.
+    auto isTaken = [this](const QString &candidate) {
+        return QFileInfo::exists(candidate) || isOpenDocumentPath(candidate);
+    };
+
+    // A document opened from a MIDI file: overwrite that file or keep it and
+    // write a marked copy? The user decides - through the AI's question (mode,
+    // then remembered for this tab: the property dies with the document) or
+    // once for all in the settings. Without a decision nothing is written and
+    // the result carries the question for the AI to ask.
+    // The question, the answer and the file each was about are kept on the
+    // document, so an answer never carries over to another file: another tab
+    // bound in between, or this tab after a Save As (AiFileNaming::
+    // resolveExistingFileSave).
+    bool overwrite = false;
+    if (!asNewCopy && AiFileNaming::offersOverwrite(oldPath, mark)) {
+        static const char *kDecisionProperty = "aiExistingFileSave";
+        const QVariantMap stored = f->property(kDecisionProperty).toMap();
+        AiFileNaming::ExistingFileDecision decision;
+        decision.askedPath = stored.value(QStringLiteral("askedPath")).toString();
+        decision.answeredPath = stored.value(QStringLiteral("answeredPath")).toString();
+        decision.answer = stored.value(QStringLiteral("answer")).toString();
+        const QString setting = _settings->value(QStringLiteral("AI/existing_file_save"),
+                                                 QStringLiteral("ask")).toString();
+        const AiFileNaming::ExistingFileSave outcome =
+            AiFileNaming::resolveExistingFileSave(oldPath, mode, decision, setting);
+        auto storeDecision = [&]() {
+            QVariantMap m;
+            m.insert(QStringLiteral("askedPath"), decision.askedPath);
+            m.insert(QStringLiteral("answeredPath"), decision.answeredPath);
+            m.insert(QStringLiteral("answer"), decision.answer);
+            f->setProperty(kDecisionProperty, m);
+        };
+        if (outcome == AiFileNaming::ExistingFileSave::Ask) {
+            decision.askedPath = oldPath;
+            storeDecision();
+            const AiFileNaming::SavePlan copyPlan = AiFileNaming::planSave(
+                oldPath, name, mark, false, aiDefaultFolder(), isTaken);
+            const QString fileName = QFileInfo(oldPath).fileName();
+            r["decisionNeeded"] = QStringLiteral("overwrite_or_copy");
+            // Concatenated, never .arg()-substituted (file names are input).
+            r["question"] = QStringLiteral("Overwrite ") + fileName
+                + QStringLiteral(" with the changes, or keep it and save a copy")
+                + (copyPlan.ok ? QStringLiteral(" as ") + QFileInfo(copyPlan.targetPath).fileName()
+                               : QString())
+                + QStringLiteral("?");
+            r["overwritePath"] = QDir::toNativeSeparators(oldPath);
+            if (copyPlan.ok) {
+                r["copyPath"] = QDir::toNativeSeparators(copyPlan.targetPath);
+            }
+            r["next"] = QStringLiteral(
+                "Nothing was saved yet. Put this question to the user in your reply and wait "
+                "for the answer, then call save_document again with mode \"overwrite\" or "
+                "\"copy\". The answer is remembered for this file until its tab is closed.");
+            if (mode == QLatin1String("overwrite")) {
+                // Checked before anything is written: an "overwrite" given for
+                // another file (another tab, or before a Save As) is not taken.
+                r["note"] = QStringLiteral(
+                    "mode \"overwrite\" was not taken: the user has not been asked about "
+                    "this file yet.");
+            }
+            return r;
+        }
+        overwrite = (outcome == AiFileNaming::ExistingFileSave::Overwrite);
+        if (!mode.isEmpty()) {
+            decision.answeredPath = oldPath; // the user's answer, for this file
+            decision.answer = mode;
+            storeDecision();
+        }
+    }
+
+    const AiFileNaming::SavePlan plan = AiFileNaming::planSave(
+        oldPath, name, mark, asNewCopy, aiDefaultFolder(), isTaken, overwrite);
+    if (!plan.ok) {
+        r["error"] = plan.error;
+        return r;
+    }
+
+    if (!writeDocumentTo(f, plan.targetPath)) {
+        r["error"] = QStringLiteral("Could not write ") + QDir::toNativeSeparators(plan.targetPath)
+            + QStringLiteral(" - the folder may be read-only or the disk full. The document "
+                             "was not marked saved.");
+        return r;
+    }
+
+    const QString nativePath = QDir::toNativeSeparators(plan.targetPath);
+    const bool overwrote = overwrite && plan.inPlace;
+    r["success"] = true;
+    r["path"] = nativePath;
+    r["fileName"] = QFileInfo(plan.targetPath).fileName();
+    r["documentIndex"] = documentListIndexOf(f);
+    r["savedInPlace"] = plan.inPlace;
+    r["overwritten"] = overwrote;
+    r["modified"] = !f->saved();
+    QStringList notes;
+    if (!oldPath.isEmpty() && !plan.inPlace) {
+        r["previousPath"] = QDir::toNativeSeparators(oldPath);
+        notes << QStringLiteral("The tab now continues on the new file; the previous file "
+                                "was not changed.");
+    }
+    if (overwrote) {
+        notes << QStringLiteral("The document's own file was overwritten, as the user chose; "
+                                "later saves of this file overwrite it again.");
+    } else if (mode == QLatin1String("overwrite") && !asNewCopy && !plan.inPlace) {
+        // (In place = the AI's own marked copy was rewritten: nothing to explain.)
+        notes << QStringLiteral("Overwriting was not possible - only a MIDI file the document "
+                                "was opened from can be overwritten - so the file above was "
+                                "written instead.");
+    }
+    if (plan.nameIgnored) {
+        notes << (plan.inPlace
+            ? QStringLiteral("The name was not used: this document was saved in place. Use "
+                             "save_document_as for a new file under another name.")
+            : QStringLiteral("The name was not used: this document has a source file, so the "
+                             "copy is named after it. Use save_document_as to choose another "
+                             "name."));
+    }
+    if (!notes.isEmpty()) {
+        r["note"] = notes.join(QLatin1Char(' '));
+    }
+    if (hasSilencedParts(f)) {
+        r["warning"] = QStringLiteral("Some channels or tracks are muted or hidden in the "
+                                      "editor; they are audible in the saved file.");
+    }
+    // Multi-arg arg(): one pass, so a '%1' inside a file name stays literal.
+    statusBar()->showMessage((overwrote ? tr("%1 overwrote %2") : tr("%1 saved %2"))
+                                 .arg(aiActorLabel(source), nativePath), 8000);
+    return r;
+}
+
+QJsonObject MainWindow::aiNewDocument(int ticksPerQuarter, const QString &source) {
+    QJsonObject r;
+    r["success"] = false;
+    if (_shuttingDown) {
+        r["error"] = QStringLiteral("The editor is shutting down.");
+        return r;
+    }
+    if (_collabTabsLocked) {
+        r["error"] = QStringLiteral("A live collaboration session keeps the editor on one "
+                                    "document; no new document can be created until it ends.");
+        return r;
+    }
+    if (ticksPerQuarter > 32767) {
+        r["error"] = QStringLiteral("ppq must be between 1 and 32767 (common values: 96, 192, "
+                                    "480, 960), or null for the default.");
+        return r;
+    }
+
+    // Same sequence as File > New (newFile()), minus nothing: stop playback
+    // before the active file changes (PlayerThread reads it).
+    stop();
+    MidiFile *f = new MidiFile();
+    if (ticksPerQuarter > 0 && !f->initTicksPerQuarter(ticksPerQuarter)) {
+        delete f; // fresh, fully constructed and never shown - safe to delete
+        r["error"] = QStringLiteral("The resolution could not be set.");
+        return r;
+    }
+    openInNewTab(f);
+    editTrack(1);
+    setWindowTitle(QApplication::applicationName() + " v" + QApplication::applicationVersion() + tr(" - Untitled Document[*]"));
+
+    r["success"] = true;
+    r["documentIndex"] = documentListIndexOf(f);
+    r["title"] = documentTabTitle(f);
+    r["ticksPerQuarter"] = f->ticksPerQuarter();
+    r["path"] = QString();
+    statusBar()->showMessage(tr("%1 created a new document").arg(aiActorLabel(source)), 8000);
+    return r;
+}
+
+QJsonObject MainWindow::aiOpenDocument(const QString &path, const QString &source) {
+    QJsonObject r;
+    r["success"] = false;
+    if (_shuttingDown) {
+        r["error"] = QStringLiteral("The editor is shutting down.");
+        return r;
+    }
+    if (_collabTabsLocked) {
+        r["error"] = QStringLiteral("A live collaboration session keeps the editor on one "
+                                    "document; no other file can be opened until it ends.");
+        return r;
+    }
+
+    QString requested = path.trimmed();
+    if (requested.size() >= 2 && requested.startsWith(QLatin1Char('"'))
+        && requested.endsWith(QLatin1Char('"'))) {
+        requested = requested.mid(1, requested.size() - 2).trimmed();
+    }
+    if (requested.isEmpty()) {
+        r["error"] = QStringLiteral("No path was given.");
+        return r;
+    }
+    QFileInfo fi(QDir::fromNativeSeparators(requested));
+    if (!fi.isAbsolute()) {
+        // A bare name is looked up where the user last opened a file.
+        fi = QFileInfo(QDir(aiDefaultFolder()).absoluteFilePath(fi.filePath()));
+    }
+    const QString abs = QDir::cleanPath(fi.absoluteFilePath());
+    if (!fi.exists() || !fi.isFile()) {
+        r["error"] = QStringLiteral("File not found: ") + QDir::toNativeSeparators(abs);
+        return r;
+    }
+    const QString suffix = fi.suffix().toLower();
+    if (suffix == QLatin1String("sid")) {
+        r["error"] = QStringLiteral("SID tunes are opened from the menu (File > Open): their "
+                                    "import can ask for a song length and renders for a while. "
+                                    "Ask the user to open it.");
+        return r;
+    }
+    const bool isMidi = suffix == QLatin1String("mid") || suffix == QLatin1String("midi");
+    if (!isMidi && !ImportFormats::isImportOnlySuffix(suffix)) {
+        r["error"] = QStringLiteral("Not a file MidiEditor opens. Supported: .mid, .midi, Guitar "
+                                    "Pro (.gp3-.gp8, .gpx, .gp, .gtp), MusicXML (.musicxml, .xml, "
+                                    ".mxl), MuseScore (.mscz, .mscx), MML (.mml, .3mle).");
+        return r;
+    }
+
+    // Already open: report that tab instead of opening the file twice (two
+    // tabs on one path would make every later save ambiguous).
+#ifdef Q_OS_WIN
+    const Qt::CaseSensitivity cs = Qt::CaseInsensitive;
+#else
+    const Qt::CaseSensitivity cs = Qt::CaseSensitive;
+#endif
+    for (int i = 0;; ++i) {
+        MidiFile *open = documentFileByListIndex(i);
+        if (!open) break;
+        if (open->path().isEmpty()) continue;
+        if (QDir::cleanPath(QFileInfo(open->path()).absoluteFilePath()).compare(abs, cs) == 0) {
+            r["success"] = true;
+            r["alreadyOpen"] = true;
+            r["documentIndex"] = i;
+            r["title"] = documentTabTitle(open);
+            r["path"] = QDir::toNativeSeparators(abs);
+            r["modified"] = !open->saved();
+            return r;
+        }
+    }
+
+    // Same importer dispatch as openFile(), without its dialogs: no auto-save
+    // recovery prompt (reported below instead), no SID (refused above).
+    bool ok = true;
+    MidiFile *mf = nullptr;
+    if (suffix == QLatin1String("gtp") || suffix.startsWith(QLatin1String("gp"))) {
+        mf = GpImporter::loadFile(abs, &ok);
+    } else if (suffix == QLatin1String("mml") || suffix == QLatin1String("3mle")) {
+        mf = MmlImporter::loadFile(abs, &ok);
+    } else if (suffix == QLatin1String("musicxml") || suffix == QLatin1String("xml")
+               || suffix == QLatin1String("mxl")) {
+        mf = MusicXmlImporter::loadFile(abs, &ok);
+    } else if (suffix == QLatin1String("mscz") || suffix == QLatin1String("mscx")) {
+        mf = MsczImporter::loadFile(abs, &ok);
+    } else {
+        mf = new MidiFile(abs, &ok);
+    }
+    if (!ok || !mf) {
+        // NB: like openFile(), a failed MidiFile is not deleted - a load that
+        // failed early leaves its channels uninitialised.
+        r["error"] = QStringLiteral("The file could not be read: ") + QDir::toNativeSeparators(abs)
+            + QStringLiteral(". It may be damaged or use an unsupported version.");
+        return r;
+    }
+
+    stop();
+    openInNewTab(mf);
+    addRecentPath(abs);
+    // The folder last used for Open, like File -> Open: a later bare name
+    // (open_document, an untitled save) resolves against it.
+    startDirectory = QFileInfo(abs).absoluteDir().path() + "/";
+    C64SoundFontHelper::normalizeDefaultSoundFont(this);
+
+    r["success"] = true;
+    r["documentIndex"] = documentListIndexOf(mf);
+    r["title"] = documentTabTitle(mf);
+    r["path"] = QDir::toNativeSeparators(abs);
+    r["ticksPerQuarter"] = mf->ticksPerQuarter();
+    if (!isMidi) {
+        r["imported"] = true;
+        r["note"] = QStringLiteral("Imported from a format MidiEditor cannot write back; "
+                                   "save_document writes a marked .mid copy next to it.");
+    }
+    const QString sidecar = abs + QStringLiteral(".autosave");
+    if (QFile::exists(sidecar)
+        && QFileInfo(sidecar).lastModified() > QFileInfo(abs).lastModified()) {
+        r["autoSaveBackup"] = QDir::toNativeSeparators(sidecar);
+        r["warning"] = QStringLiteral("A newer auto-save backup of this file exists; the saved "
+                                      "file was opened. Tell the user: opening the file from "
+                                      "File > Open offers to recover the backup.");
+    }
+    statusBar()->showMessage(tr("%1 opened %2").arg(aiActorLabel(source), QDir::toNativeSeparators(abs)), 8000);
+    return r;
+}
+
+QJsonObject MainWindow::aiCloseDocument(int index, const QString &source) {
+    QJsonObject r;
+    r["success"] = false;
+    if (_shuttingDown) {
+        r["error"] = QStringLiteral("The editor is shutting down.");
+        return r;
+    }
+    if (_collabTabsLocked) {
+        r["error"] = QStringLiteral("A live collaboration session keeps the editor on one "
+                                    "document; tabs cannot be closed until it ends.");
+        return r;
+    }
+    MidiFile *f = documentFileByListIndex(index);
+    if (!f) {
+        r["error"] = QStringLiteral("Invalid document index - call list_documents for the "
+                                    "current list.");
+        return r;
+    }
+    // Title and path concatenated, never .arg()-substituted (file-name input).
+    const QString title = documentTabTitle(f);
+    const QString path = f->path();
+    if (!f->saved()) {
+        r["error"] = QStringLiteral("'") + title + QStringLiteral("' has unsaved changes and "
+            "was not closed. Save it first with save_document, or ask the user - the AI "
+            "never discards changes.");
+        return r;
+    }
+    // closeDocumentFile() would abort a MidiPilot run working on this file.
+    if (_midiPilotWidget && _midiPilotWidget->isAgentRunningOn(f)) {
+        r["error"] = QStringLiteral("MidiPilot is working on '") + title
+            + QStringLiteral("' right now; it can be closed after that run ends.");
+        return r;
+    }
+
+    const int g0 = _documentManager ? _documentManager->indexOfFile(f) : -1;
+    if (g0 >= 0) {
+        if (_documentManager->count() <= 1) {
+            r["error"] = QStringLiteral("'") + title + QStringLiteral("' is the last tab of the "
+                "left editor group, which always keeps one document open.");
+            return r;
+        }
+        onDocumentTabCloseRequested(g0);
+    } else {
+        const int g1 = _group1Docs ? _group1Docs->indexOfFile(f) : -1;
+        if (g1 < 0) {
+            r["error"] = QStringLiteral("The document is not open any more.");
+            return r;
+        }
+        onGroup1TabCloseRequested(g1);
+    }
+    // Identity check only - f is deleted when the close went through.
+    if (isDocumentOpen(f)) {
+        r["error"] = QStringLiteral("'") + title + QStringLiteral("' could not be closed.");
+        return r;
+    }
+
+    r["success"] = true;
+    r["closedIndex"] = index;
+    r["title"] = title;
+    r["path"] = QDir::toNativeSeparators(path);
+    r["note"] = QStringLiteral("Document indexes after this one moved down by one - call "
+                               "list_documents before using an index again.");
+    statusBar()->showMessage(tr("%1 closed %2").arg(aiActorLabel(source), title), 8000);
+    return r;
 }
 
 MatrixWidget *MainWindow::matrixWidget() {
@@ -4376,7 +4958,7 @@ void MainWindow::record() {
                 matrixWidget->timeMsChanged(file->msOfTick(file->cursorTick()), true);
             }
 
-            // UX-PLAY-001: see play() â€” same opt-out toggle gates panel locking here.
+            // UX-PLAY-001: see play() - same opt-out toggle gates panel locking here.
             const bool lockPanelsDuringPlayback =
                 _settings->value("playback/lock_panels", false).toBool();
             if (lockPanelsDuringPlayback) {
@@ -4710,18 +5292,62 @@ void MainWindow::save() {
             QMessageBox::information(this, tr("Channels/Tracks mute"), tr("One or more channels/tracks are not audible. They will be audible in the saved file."), QMessageBox::Ok);
         }
 
-        if (!file->save(file->path())) {
+        if (!writeDocumentTo(file, file->path())) {
             QMessageBox::warning(this, tr("Error"), QString(tr("The file could not be saved. Please make sure that the destination directory exists and that you have the correct access rights to write into this directory.")));
-        } else {
-            setWindowModified(false);
-            cleanupAutoSaveFor(file, file->path()); // this document's backup only
-#ifdef MIDIEDITOR_COLLAB_ENABLED
-            CollabService::instance()->onFileSaved(file, file->path());
-#endif
         }
     } else {
         saveas();
     }
+}
+
+bool MainWindow::writeDocumentTo(MidiFile *f, const QString &path) {
+    if (!f || path.isEmpty()) {
+        return false;
+    }
+    const QString oldPath = f->path();
+    if (!f->save(path)) {
+        return false;
+    }
+    if (path != oldPath) {
+        f->setPath(path);
+        refreshDocumentTabTitle(f); // rename the tab to match the new filename
+        addRecentPath(path);
+    }
+    // The "[*]" marker and the title belong to the ACTIVE document only - an
+    // AI save of a background tab must not touch them.
+    if (f == file) {
+        setWindowTitle(QApplication::applicationName() + " v" + QApplication::applicationVersion() + " - " + f->path() + "[*]");
+        setWindowModified(false);
+    }
+    // WHY oldPath: the backup was written for the path the document had BEFORE
+    // a rename (oldPath + ".autosave", or the untitled slot); cleaning the NEW
+    // path orphaned it and re-offered a stale recovery on every open.
+    cleanupAutoSaveFor(f, oldPath);
+#ifdef MIDIEDITOR_COLLAB_ENABLED
+    CollabService::instance()->onFileSaved(f, path);
+#endif
+    return true;
+}
+
+bool MainWindow::hasSilencedParts(MidiFile *f) const {
+    if (!f) {
+        return false;
+    }
+    for (int i = 0; i < 16; i++) {
+        MidiChannel *ch = f->channel(i);
+        if (ch->mute() || !ch->visible()) {
+            return true;
+        }
+    }
+    foreach(MidiTrack* track, *(f->tracks())) {
+        // hiddenByUser(): a temporary focus overlay is not a property of
+        // the saved file, so it must not raise the "not audible" warning
+        // (FOCUS-DEADEYE-001).
+        if (track->muted() || track->hiddenByUser()) {
+            return true;
+        }
+    }
+    return false;
 }
 
 bool MainWindow::saveas() {
@@ -4754,40 +5380,10 @@ bool MainWindow::saveas() {
         newPath.append(".mid");
     }
 
-    if (file->save(newPath)) {
-        bool printMuteWarning = false;
-
-        for (int i = 0; i < 16; i++) {
-            MidiChannel *ch = file->channel(i);
-            if (ch->mute() || !ch->visible()) {
-                printMuteWarning = true;
-            }
-        }
-        foreach(MidiTrack* track, *(file->tracks())) {
-            // hiddenByUser(): a temporary focus overlay is not a property of
-            // the saved file, so it must not raise the "not audible" warning
-            // (FOCUS-DEADEYE-001).
-            if (track->muted() || track->hiddenByUser()) {
-                printMuteWarning = true;
-            }
-        }
-
-        if (printMuteWarning) {
+    if (writeDocumentTo(file, newPath)) {
+        if (hasSilencedParts(file)) {
             QMessageBox::information(this, tr("Channels/Tracks mute"), tr("One or more channels/tracks are not audible. They will be audible in the saved file."), QMessageBox::Ok);
         }
-
-        file->setPath(newPath);
-        refreshDocumentTabTitle(file); // rename the tab to match the new filename
-        setWindowTitle(QApplication::applicationName() + " v" + QApplication::applicationVersion() + " - " + file->path() + "[*]");
-        updateRecentPathsList();
-        setWindowModified(false);
-        // WHY: the backup was written for the path the document had BEFORE the
-        // rename above (oldPath + ".autosave", or the untitled slot); cleaning the
-        // NEW path orphaned it and re-offered a stale recovery on every open.
-        cleanupAutoSaveFor(file, oldPath);
-#ifdef MIDIEDITOR_COLLAB_ENABLED
-        CollabService::instance()->onFileSaved(file, newPath);
-#endif
         return true;
     } else {
         QMessageBox::warning(this, tr("Error"), QString(tr("The file could not be saved. Please make sure that the destination directory exists and that you have the correct access rights to write into this directory.")));
@@ -4950,7 +5546,7 @@ void MainWindow::openFile(QString filePath) {
         stop();
         if (useAutoSave) {
             mf->setPath(filePath);   // Point to original file path
-            mf->setSaved(false);     // Mark as dirty â€” user should save explicitly
+            mf->setSaved(false);     // Mark as dirty - user should save explicitly
         }
         openInNewTab(mf);            // Phase 28: open the loaded file in a new tab
         if (useAutoSave) {
@@ -5622,11 +6218,30 @@ void MainWindow::fixFFXIVChannels() {
                          QString::number(fb["program"].toInt()));
             }
         }
+        // Preserve: guitar notes on a channel that is no guitar channel get no
+        // switch program change - point the user at them.
+        const QJsonArray offChannel = result["guitarNotesOnOtherChannels"].toArray();
+        if (!offChannel.isEmpty()) {
+            html += QStringLiteral("<br><span style='color:#c62828;'>&#x26A0; Guitar notes on a channel "
+                                   "without a guitar program - no switch was written for them; move them "
+                                   "onto a guitar channel:</span>");
+            for (const auto &v : offChannel) {
+                const QJsonObject e = v.toObject();
+                const QString shared = e["sharedWith"].toString();
+                html += QString("<br>&nbsp;&nbsp;&nbsp;T%1 %2: %3 note(s) on CH%4%5")
+                    .arg(QString::number(e["track"].toInt()),
+                         e["trackName"].toString().toHtmlEscaped(),
+                         QString::number(e["notes"].toInt()),
+                         QString::number(e["channel"].toInt()),
+                         shared.isEmpty() ? QString()
+                                          : QStringLiteral(" (%1)").arg(shared.toHtmlEscaped()));
+            }
+        }
         html += QStringLiteral("</p>");
         html += QStringLiteral("<p style='font-size:10px; color:gray; margin-top:8px;'>Press Ctrl+Z to undo all changes.</p>");
 
         QMessageBox infoBox(this);
-        infoBox.setWindowTitle(tr("Fix X|V Channels â€” Result"));
+        infoBox.setWindowTitle(tr("Fix X|V Channels - Result"));
         infoBox.setTextFormat(Qt::RichText);
         infoBox.setText(html);
         infoBox.setIcon(QMessageBox::Information);
@@ -5891,13 +6506,16 @@ void MainWindow::copySelectedEventsToTrack(QAction *action) {
 
 void MainWindow::updateRecentPathsList() {
     // if file opened put it at the top of the list
-    if (file) {
-        QString currentPath = file->path();
+    addRecentPath(file ? file->path() : QString());
+}
+
+void MainWindow::addRecentPath(const QString &path) {
+    if (!path.isEmpty()) {
         QStringList newList;
-        newList.append(currentPath);
+        newList.append(path);
 
         foreach(QString str, _recentFilePaths) {
-            if (str != currentPath && newList.size() < 10) {
+            if (str != path && newList.size() < 10) {
                 newList.append(str);
             }
         }
@@ -5994,8 +6612,22 @@ void MainWindow::updateTrackMenu() {
     _selectAllFromTrackMenu->clear();
 
     if (!file) {
+        _trackMenuOrder.clear();
         return;
     }
+    // The edit track and the paste target are stored as POSITIONS, chosen in
+    // the list as it was at the previous refresh (every reorder triggers one,
+    // see the actionFinished hook in setActiveDocument). They follow their
+    // TRACK into its new place - also when the user never picked a track in
+    // this document - or new notes go into whatever track moved into the old
+    // position (track-order review TR-01). The list of another document (tab
+    // switch) or a removed track keeps the position.
+    const QList<MidiTrack *> chosenIn = _trackMenuOrder;
+    _trackMenuOrder = *file->tracks();
+    NewNoteTool::setEditTrack(
+        TrackPositionFollow::follow(chosenIn, _trackMenuOrder, NewNoteTool::editTrack()));
+    EventTool::setPasteTrack(
+        TrackPositionFollow::follow(chosenIn, _trackMenuOrder, EventTool::pasteTrack()));
 
     for (int i = 0; i < file->numTracks(); i++) {
         QVariant variant(i);
@@ -6464,9 +7096,9 @@ void MainWindow::convertPitchBendToNotes() {
     // Prompt user for pitch bend range
     bool ok;
     QStringList items;
-    items << tr("Ã‚Â±2 semitones (General MIDI default)")
-          << tr("Ã‚Â±12 semitones (Guitar/Bass VSTs)")
-          << tr("Ã‚Â±24 semitones (Extreme pitch modulation)")
+    items << tr("±2 semitones (General MIDI default)")
+          << tr("±12 semitones (Guitar/Bass VSTs)")
+          << tr("±24 semitones (Extreme pitch modulation)")
           << tr("Custom...");
     
     QString item = QInputDialog::getItem(this, 
@@ -6489,7 +7121,7 @@ void MainWindow::convertPitchBendToNotes() {
     } else { // Custom
         bendRangeSemis = QInputDialog::getDouble(this,
                                                   tr("Custom Pitch Bend Range"),
-                                                  tr("Enter pitch bend range in semitones (Ã‚Â±):"),
+                                                  tr("Enter pitch bend range in semitones (±):"),
                                                   2.0, 1.0, 96.0, 1, &ok);
         if (!ok) {
             return; // User cancelled
@@ -6811,13 +7443,13 @@ void MainWindow::explodeChordsToTracks(MidiTrack *sourceTrack) {
     updateAll();
 }
 
-// True when removing the track would lose events the old emptiness scans
-// missed: anything left on the musical channels, tempo (17) or time-signature
-// (18) events, or channel-16 meta events (lyrics / markers / key signatures)
+// True when removing the track would lose events: anything left on the
+// musical channels, or channel-16..18 meta events such as lyrics or other text
 // other than the track's own TRACKNAME event. Used by the remove-empty-source
-// options of both split tools - MidiFile::removeTrack() deletes the track's
-// events across ALL channels, so a check limited to 0-15(+17) silently
-// dropped mid-song time signatures and lyrics that rode on the source track.
+// options of both split tools. Song-wide events (tempo, time and key
+// signatures, markers - MidiFile::isSongWideEvent) do not count: removeTrack()
+// hands them to the next first track, so a split first track that only held
+// the tempo map is removed like any other emptied source.
 static bool trackHasResidualEvents(MidiFile *file, MidiTrack *track) {
     for (int ch = 0; ch < 16; ++ch) {
         QMultiMap<int, MidiEvent *> *emap = file->channel(ch)->eventMap();
@@ -6832,6 +7464,7 @@ static bool trackHasResidualEvents(MidiFile *file, MidiTrack *track) {
         for (auto it = emap->begin(); it != emap->end(); ++it) {
             if (it.value()->track() != track) continue;
             if (ch == 16 && it.value() == track->nameEvent()) continue;
+            if (MidiFile::isSongWideEvent(it.value())) continue;
             return true;
         }
     }
@@ -6851,7 +7484,7 @@ void MainWindow::splitChannelsToTracks(MidiTrack *sourceTrack) {
         return;
     }
 
-    // Phase 1: Analyze â€” collect channel info for events on the source track
+    // Phase 1: Analyze - collect channel info for events on the source track
     QList<SplitChannelsDialog::ChannelInfo> activeChannels;
 
     for (int ch = 0; ch < 16; ++ch) {
@@ -6892,7 +7525,7 @@ void MainWindow::splitChannelsToTracks(MidiTrack *sourceTrack) {
 
     if (activeChannels.size() <= 1) {
         QMessageBox::information(this, tr("Split Channels to Tracks"),
-            tr("This track only uses one channel â€” nothing to split."));
+            tr("This track only uses one channel - nothing to split."));
         return;
     }
 
@@ -7882,6 +8515,10 @@ void MainWindow::cloneTrack(MidiTrack *track) {
             // would leave TWO TRACKNAME events on the clone (last one wins
             // on save/reload, renaming the clone back to the source name).
             if (ev == track->nameEvent()) continue;
+            // The song-wide events (tempo, meter, key, markers) exist once
+            // per song - cloning the first track doubled the whole tempo map
+            // and every marker (track-order review TR-08).
+            if (MidiFile::isSongWideEvent(ev)) continue;
             if (NoteOnEvent *on = dynamic_cast<NoteOnEvent *>(ev)) {
                 if (on->offEvent())
                     channel->insertNote(on->note(), on->midiTime(),
@@ -7928,6 +8565,11 @@ void MainWindow::mergeTrack(MidiTrack *source, MidiTrack *destination) {
                 // the destination TWO TRACKNAME events (last one wins on
                 // save/reload, renaming the destination to the source name).
                 if (ev == source->nameEvent()) continue;
+                // Song-wide events (tempo, meter, key, markers) stay behind
+                // too: removeTrack() hands them to the first track, which
+                // keeps the tempo map in slot 0 when the first track is
+                // merged away (track-order review TR-09).
+                if (MidiFile::isSongWideEvent(ev)) continue;
                 ev->setTrack(destination, true);
             }
         }
@@ -7948,6 +8590,10 @@ void MainWindow::moveTrackUp(MidiTrack *track) {
     f->moveTrack(track, -1); // protocolled list reorder (undo restores order)
     f->protocol()->endAction();
     updateAll();
+    // The track menus and the "Add new events to" track box list the tracks
+    // by position; nothing else rebuilds them after a reorder, and the edit
+    // track has to follow its track (track-order review TR-06).
+    updateTrackMenu();
 }
 
 void MainWindow::moveTrackDown(MidiTrack *track) {
@@ -7958,6 +8604,7 @@ void MainWindow::moveTrackDown(MidiTrack *track) {
     f->moveTrack(track, +1); // protocolled list reorder (undo restores order)
     f->protocol()->endAction();
     updateAll();
+    updateTrackMenu(); // see moveTrackUp()
 }
 
 void MainWindow::quantizeTrack(MidiTrack *track) {
@@ -8517,10 +9164,10 @@ QString MainWindow::autoSavePathFor(MidiFile *f) const {
     if (!f) return QString();
 
     if (!f->path().isEmpty() && QFile::exists(f->path())) {
-        // Named file â†’ sidecar: "MySong.mid" â†’ "MySong.mid.autosave"
+        // Named file → sidecar: "MySong.mid" → "MySong.mid.autosave"
         return f->path() + ".autosave";
     }
-    // Untitled â†’ stable path in AppData. Only the ACTIVE untitled document
+    // Untitled → stable path in AppData. Only the ACTIVE untitled document
     // uses it: multiple untitled tabs would otherwise overwrite each other's
     // backup on the same fixed path.
     if (f != file) return QString();
@@ -8597,7 +9244,10 @@ void MainWindow::cleanupAutoSaveFor(MidiFile *f, const QString &pathBeforeSave) 
 
     if (!pathBeforeSave.isEmpty()) {
         QFile::remove(pathBeforeSave + ".autosave");
-    } else {
+    } else if (f == file) {
+        // The untitled slot belongs to the ACTIVE untitled document only
+        // (autoSavePathFor); an AI save of an untitled document in a
+        // background tab must not delete the active one's backup.
         QFile::remove(QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
                       + "/autosave/untitled.autosave.mid");
     }
@@ -11398,7 +12048,8 @@ void MainWindow::pasteToChannel(QAction *action) {
 }
 
 void MainWindow::pasteToTrack(QAction *action) {
-    EventTool::setPasteTrack(action->data().toInt());
+    const int track = action->data().toInt();
+    EventTool::setPasteTrack(track);
 }
 
 void MainWindow::divChanged(QAction *action) {
@@ -11488,10 +12139,17 @@ void MainWindow::checkForUpdates(bool silent) {
                                     _forceCloseForUpdate = false;
                                     return;
                                 }
-                                saveSession();
+                                saveSession(true); // the tabs come back as they are
                                 _settings->sync(); // flush: executeUpdateNow ExitProcess()es, no dtors run
                                 _forceCloseForUpdate = true;
-                                _autoUpdater->executeUpdateNow(file ? file->path() : QString());
+                                if (!_autoUpdater->executeUpdateNow(file ? file->path() : QString())) {
+                                    // The update did not start (its error was shown)
+                                    // and the editor keeps running: a later close must
+                                    // ask about unsaved work again, and the one-shot
+                                    // tab views must not reach a later start.
+                                    _forceCloseForUpdate = false;
+                                    _settings->remove("session/views");
+                                }
                             } else {
                                 _autoUpdater->scheduleUpdateOnExit();
                                 QMessageBox::information(this, tr("Update Scheduled"),
@@ -11509,7 +12167,7 @@ void MainWindow::checkForUpdates(bool silent) {
                     _autoUpdater->downloadUpdate(zipDownloadUrl, zipSize);
                 }
             }
-            // else: Skip â€” do nothing
+            // else: Skip - do nothing
         });
         connect(_updateChecker, &UpdateChecker::noUpdateAvailable, this, [this](){
             if (!_silentUpdateCheck) {
@@ -11601,9 +12259,9 @@ void MainWindow::restartForThemeChange() {
         return; // user cancelled - abort restart
     }
 
-    // Persist the open tabs/groups so the restarted instance restores them, plus
-    // all settings.
-    saveSession();
+    // Persist the open tabs/groups so the restarted instance restores them - each
+    // with its zoom, scroll position and cursor - plus all settings.
+    saveSession(true);
     Appearance::writeSettings(_settings);
     _settings->sync();
 
@@ -13702,7 +14360,7 @@ void MainWindow::updateRenderingMode() {
 
 void MainWindow::rebuildToolbarFromSettings() {
     // Dedicated method for rebuilding toolbar when settings change
-    // Reentrancy guard only â€” no time-based debounce, because
+    // Reentrancy guard only - no time-based debounce, because
     // refreshColors() needs this to run synchronously on every theme switch.
     static bool isRebuilding = false;
 
@@ -14558,8 +15216,8 @@ void MainWindow::startExport(const ExportOptions &opts) {
 
     connect(engine, &FluidSynthEngine::exportProgress, this, [this](int pct) {
         if (_exportProgressDialog) {
-            // For MP3: WAV render is 0â€“70%, LAME encode is 70â€“100%
-            // For others: 0â€“100% directly
+            // For MP3: WAV render is 0-70%, LAME encode is 70-100%
+            // For others: 0-100% directly
             _exportProgressDialog->setValue(pct);
         }
     });
@@ -14575,7 +15233,7 @@ void MainWindow::startExport(const ExportOptions &opts) {
 
     if (isMp3) {
 #ifdef LAME_SUPPORT
-        // MP3 pipeline: render WAV to temp â†’ encode MP3 â†’ delete temp
+        // MP3 pipeline: render WAV to temp → encode MP3 → delete temp
         ExportOptions wavOpts = opts;
         wavOpts.fileType = "wav";
         wavOpts.sampleFormat = "s16"; // LAME needs 16-bit PCM
@@ -14584,7 +15242,7 @@ void MainWindow::startExport(const ExportOptions &opts) {
         QString finalMp3Path = opts.outputFilePath;
         int mp3Bitrate = opts.mp3Bitrate;
 
-        // Override progress to scale WAV phase to 0â€“70%
+        // Override progress to scale WAV phase to 0-70%
         disconnect(engine, &FluidSynthEngine::exportProgress, nullptr, nullptr);
         connect(engine, &FluidSynthEngine::exportProgress, this, [this](int pct) {
             if (_exportProgressDialog) {
@@ -14602,7 +15260,7 @@ void MainWindow::startExport(const ExportOptions &opts) {
                 return;
             }
 
-            // Phase 2: encode WAV â†’ MP3 in background
+            // Phase 2: encode WAV → MP3 in background
             if (_exportProgressDialog) {
                 _exportProgressDialog->setLabelText(tr("Encoding MP3..."));
                 _exportProgressDialog->setValue(70);
@@ -14612,7 +15270,7 @@ void MainWindow::startExport(const ExportOptions &opts) {
             QThreadPool::globalInstance()->start([this, tempWav, finalMp3Path, mp3Bitrate]() {
                 bool ok = LameEncoder::encode(tempWav, finalMp3Path, mp3Bitrate,
                     [this](int pct) {
-                        // Scale LAME progress 0â€“100 to dialog 70â€“100
+                        // Scale LAME progress 0-100 to dialog 70-100
                         int scaled = 70 + pct * 30 / 100;
                         QMetaObject::invokeMethod(this, [this, scaled]() {
                             if (_exportProgressDialog) {

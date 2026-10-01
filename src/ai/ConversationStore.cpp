@@ -4,6 +4,7 @@
 #include <QDir>
 #include <QFile>
 #include <QJsonDocument>
+#include <QRegularExpression>
 #include <QStandardPaths>
 #include <QUuid>
 
@@ -13,6 +14,22 @@ QString ConversationStore::storageDir()
     QString dir = base + QStringLiteral("/MidiPilotHistory");
     QDir().mkpath(dir);
     return dir;
+}
+
+// Ids come back from JSON files on disk; only the shape generateId() makes
+// (letters, digits, dashes) may name a folder, so a tampered file cannot
+// point a delete outside the history folder.
+static bool isPlainId(const QString &id)
+{
+    static const QRegularExpression re(QStringLiteral("^[A-Za-z0-9-]{1,64}$"));
+    return re.match(id).hasMatch();
+}
+
+QString ConversationStore::attachmentDir(const QString &id)
+{
+    if (!isPlainId(id))
+        return QString();
+    return storageDir() + QStringLiteral("/") + id;
 }
 
 QList<ConversationStore::ConversationMeta> ConversationStore::listConversations()
@@ -72,6 +89,8 @@ QList<ConversationStore::ConversationMeta> ConversationStore::findByMidiFile(con
 QJsonObject ConversationStore::loadConversation(const QString &id)
 {
     // Direct path lookup — saveConversation() uses id + ".json" as filename
+    if (!isPlainId(id))
+        return QJsonObject(); // an id from a tampered file never names a path
     QString filePath = storageDir() + QStringLiteral("/") + id + QStringLiteral(".json");
     QFile f(filePath);
     if (!f.open(QIODevice::ReadOnly))
@@ -105,8 +124,16 @@ void ConversationStore::saveConversation(const QJsonObject &data)
 
 void ConversationStore::deleteConversation(const QString &id)
 {
+    // Same guard as attachmentDir(): the id comes out of a file on disk and
+    // must not lead the delete to a .json outside the history folder.
+    if (!isPlainId(id))
+        return;
     QString filePath = storageDir() + QStringLiteral("/") + id + QStringLiteral(".json");
     QFile::remove(filePath);
+    // Phase 52: the conversation's attachments go with it.
+    const QString attachments = attachmentDir(id);
+    if (!attachments.isEmpty())
+        QDir(attachments).removeRecursively();
 }
 
 void ConversationStore::deleteAll()
@@ -115,6 +142,14 @@ void ConversationStore::deleteAll()
     QStringList files = dir.entryList(QStringList() << QStringLiteral("*.json"), QDir::Files);
     for (const QString &fileName : files) {
         dir.remove(fileName);
+    }
+    // Phase 52: every conversation's attachment folder. Only folders named
+    // like a conversation id - nothing else in the history folder is ours
+    // to delete.
+    const QStringList folders = dir.entryList(QDir::Dirs | QDir::NoDotAndDotDot);
+    for (const QString &folder : folders) {
+        if (isPlainId(folder))
+            QDir(dir.filePath(folder)).removeRecursively();
     }
 }
 

@@ -140,7 +140,7 @@ Agent mode is the powerhouse for complex compositions and large-scale edits. Ins
 <h3>How It Works</h3>
 
 <ol>
-<li>Your prompt is sent along with the system prompt and a set of <b><a href="midipilot-tools.html#tools">27 tools</a></b> (plus 5 FFXIV tools when FFXIV mode is on) the model can call</li>
+<li>Your prompt is sent along with the system prompt and a set of <b><a href="midipilot-tools.html#tools">33 tools</a></b> (plus 5 FFXIV tools when FFXIV mode is on) the model can call</li>
 <li>The model responds with one or more <b>tool calls</b> (e.g., <code>create_track</code>, <code>insert_events</code>, <code>get_editor_state</code>)</li>
 <li>MidiEditor executes each tool call and sends the results back to the model</li>
 <li>The model reviews the results, decides the next step, and issues more tool calls</li>
@@ -395,12 +395,14 @@ MidiPilot automatically saves every conversation as a JSON file. You can browse,
 <li><b>Turn metadata</b> - Agent reasoning, executed steps, latency, provider, model, and token counts are stored with each assistant turn</li>
 <li><b>Resume</b> - Click any past conversation to load it back into the chat and continue where you left off</li>
 <li><b>Persistent across sessions</b> - Conversations survive app restarts</li>
+<li><b>Attachments</b> - Files sent with a message (see <a href="midipilot.html#attachments">Attachments</a>) are saved with the conversation and come back when you resume it; deleting a conversation deletes them too</li>
 </ul>
 
 <h3>Conversation File Format</h3>
 
 <p>
 Each conversation is stored as a single JSON file containing the full message history, model/provider info, token usage, per-turn metadata, and the associated MIDI file path. Files are human-readable and can be exported or shared.
+Attachments are stored as separate files in a folder named after the conversation, next to its JSON file; the JSON only refers to them by name.
 </p>
 
 <div class="screenshot-single">

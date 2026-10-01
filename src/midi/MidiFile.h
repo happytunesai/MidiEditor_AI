@@ -361,6 +361,15 @@ public:
      */
     int ticksPerQuarter();
 
+    /**
+     * \brief Sets the resolution of a NEW, still empty document (Phase 51,
+     *        new_document). Refused once any event sits after tick 0: changing
+     *        the resolution of a populated file would retime everything.
+     * \param tpq Ticks per quarter note, 1-32767 (bit 15 would mean SMPTE).
+     * \return False when refused or out of range.
+     */
+    bool initTicksPerQuarter(int tpq);
+
     // === Channel and Protocol Access ===
 
     /**
@@ -402,6 +411,21 @@ public:
      * \return Pointer to QMultiMap containing events organized for playback
      */
     QMultiMap<int, MidiEvent *> *playerData();
+
+    /**
+     * \brief Orders events that are sent or written together so every Note-On
+     *        follows the program changes of its channel at the same tick.
+     *
+     * Events of one tick leave the channel maps in insertion-dependent order,
+     * so a program change added after the notes (the FFXIV fixer's tick-0 and
+     * guitar switch programs) came out behind them and the first note played
+     * the old instrument. The Note-Ons in front of a channel's last program
+     * change at their tick move right behind it (a zero-length note keeps its
+     * note-off behind its note-on); everything else keeps its order, so a bank
+     * select still precedes its program change. Used by save() per track and
+     * tick and by the player per sending batch.
+     */
+    static void programChangesBeforeNotes(QList<MidiEvent *> &events);
 
     // === Static Utility Methods ===
 
@@ -506,6 +530,9 @@ public:
 
     /**
      * \brief Removes a track from the file.
+     *
+     * The track's own events go with it; its song-wide events
+     * (isSongWideEvent) are handed to the first remaining track instead.
      * \param track The MidiTrack to remove
      * \return True if the track was successfully removed
      */
@@ -515,9 +542,27 @@ public:
      * \brief Moves a track one slot up/down (delta -1 / +1) in the track list
      *        and renumbers all tracks, as one protocolled operation (the file
      *        snapshot restores the LIST ORDER on undo, not just the numbers).
+     *
+     * Any track may move, the first one included: when another track becomes
+     * the first, the song-wide events of the previous first track move to it,
+     * so tempo, meter, key and markers always stay in the first track.
      * \return False when the move is out of range.
      */
     bool moveTrack(MidiTrack *track, int delta);
+
+    /**
+     * \brief True for the song-wide ("conductor") events: tempo changes, time
+     *        and key signatures, markers, cue points and the copyright notice.
+     *
+     * They belong to the song rather than to one instrument. The first track
+     * holds them: loading gathers them there, moving or removing the first
+     * track hands them to the next first track, saving writes them into the
+     * first track chunk (the SMF convention - many readers look for the tempo
+     * map nowhere else), and they are never dropped with a muted or removed
+     * track. Everything else - notes, program changes, controllers, the track
+     * name, lyrics and plain text - belongs to its track and moves with it.
+     */
+    static bool isSongWideEvent(MidiEvent *event);
 
     // === File Structure Modification ===
 
@@ -876,6 +921,16 @@ private:
      *  pending while their track was read - paired against later tracks' Note-Ons
      *  at the end of readMidiFile(), dropped if still unpaired. */
     QList<QPair<OffEvent *, int>> _orphanOffEvents;
+
+    /** \brief Loading only: the default 4/4 and 120 BPM readTrack() put at tick
+     *  0 when a track left them missing. The file may still carry its own in a
+     *  later track; readMidiFile() drops a default that got superseded. */
+    MidiEvent *_loaderDefaultTimeSig = nullptr;
+    MidiEvent *_loaderDefaultTempo = nullptr;
+
+    /** \brief Moves the song-wide events (isSongWideEvent) owned by \a from to
+     *  \a to, one protocolled setTrack() per event. */
+    void handOverSongWideEvents(MidiTrack *from, MidiTrack *to);
 
     /** \brief File path and basic properties */
     QString _path;

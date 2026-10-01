@@ -32,6 +32,7 @@
 #include <QMouseEvent>
 #include <QPainter>
 #include <QSet>
+#include <QVariantMap>
 #include <QWidget>
 
 // Forward declarations
@@ -109,6 +110,29 @@ public:
      * \return The current MidiFile, or nullptr if none loaded
      */
     MidiFile *midiFile();
+
+    /**
+     * \brief Keeps this view's zoom and scroll position on the shown document,
+     *        so any view that shows the document again starts at the same
+     *        place. setFile() does this by itself when it switches to another
+     *        document; call it when a document moves to the other editor group
+     *        while this view still shows it.
+     */
+    void rememberViewState();
+
+    /**
+     * \brief Applies the zoom and scroll position stored on the shown document -
+     *        for a state put there after the document was bound (a restart
+     *        restoring the session).
+     */
+    void applyStoredViewState();
+
+    /** \brief The zoom and scroll position stored on \p f (empty if none). */
+    static QVariantMap storedViewState(MidiFile *f);
+
+    /** \brief Stores a zoom and scroll position on \p f; the next view that
+     *         shows the document starts there. */
+    static void setStoredViewState(MidiFile *f, const QVariantMap &state);
 
     // === Event Access ===
 
@@ -776,6 +800,13 @@ private:
 
     /** \brief Offset in ms from cursor to viewport left edge at playback start */
     int _dynamicOffsetMs = 0;
+
+    /** \brief Writes the zoom and scroll position to \p target (see rememberViewState). */
+    void storeViewState(MidiFile *target);
+
+    /** \brief Applies the zoom and scroll position stored on the current file.
+     *  \return false if the file has none (first time shown) */
+    bool restoreViewState();
 
     // === Data References ===
 

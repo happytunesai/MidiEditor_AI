@@ -14,6 +14,8 @@
   <link rel="stylesheet" href="audio.css">
 <style>
 .screenshot-single { text-align: center; margin: 1.5rem 0; }
+.screenshot-row { display: flex; flex-wrap: wrap; gap: 1.5rem; justify-content: center; margin: 1.5rem 0; }
+.screenshot-row img { border: 1px solid var(--border); border-radius: 8px; }
 .screenshot-single img,
 .screenshot-single video {
     max-width: 100%;
@@ -86,7 +88,7 @@ at the MCP server that hands the same set to external AI clients.
 <h2 id="tools">AI Tools Reference</h2>
 
 <p>
-In Agent mode, the AI has access to <b>32 tools</b> (26 core + <code>switch_document</code> + 5 FFXIV-specific) for inspecting and modifying MIDI files. The 26 core tools are the same ones exposed over the <a href="mcp-server.html">MCP server</a>; <code>switch_document</code> is the one tool each side defines for itself, because it behaves differently there (see its row below):
+In Agent mode, the AI has access to <b>38 tools</b> (32 core + <code>switch_document</code> + 5 FFXIV-specific) for inspecting and modifying MIDI files and for creating, opening, saving and closing documents. The 32 core tools are the same ones exposed over the <a href="mcp-server.html">MCP server</a>; <code>switch_document</code> is the one tool each side defines for itself, because it behaves differently there (see its row below):
 </p>
 
 <table>
@@ -102,28 +104,82 @@ In Agent mode, the AI has access to <b>32 tools</b> (26 core + <code>switch_docu
 <tr><td><code>remove_track</code></td><td>Delete a track and all its events (cannot remove the file's last track)</td></tr>
 <tr><td><code>insert_events</code></td><td>Add new MIDI events (notes, control changes, etc.)</td></tr>
 <tr><td><code>replace_events</code></td><td>Modify existing events in a range</td></tr>
-<tr><td><code>delete_events</code></td><td>Delete events in a tick range on a track</td></tr>
+<tr><td><code>delete_events</code></td><td>Delete events in a tick range on a track - all of them, or only chosen kinds (notes, controllers, pitch bends, program changes), e.g. just the program change at tick 0 while its controllers stay</td></tr>
 <tr><td><code>delete_events_by_index</code></td><td>Delete specific events from the current selection by 0-based index (e.g. every second selected note)</td></tr>
-<tr><td><code>query_events</code></td><td>Read events in a tick range on a track</td></tr>
+<tr><td><code>query_events</code></td><td>Read events in a tick range on a track, optionally only chosen kinds</td></tr>
 <tr><td><code>move_events_to_track</code></td><td>Move events between tracks</td></tr>
 <tr><td><code>transpose_events</code></td><td>Transpose notes by semitones - a track, a tick range, or the whole file - as one undo step, optionally folded octave-wise into the bard range C3-C6</td></tr>
 <tr><td><code>split_chords_to_tracks</code></td><td>Split a track's chords voice-wise onto new tracks (voice 1 = highest note) - the standard way to turn a chordal part into monophonic FFXIV performers</td></tr>
 <tr><td><code>copy_events_to_track</code></td><td>Copy notes to another track, optionally restricted to a tick range - e.g. double a melody onto a second performer, then transpose the copy</td></tr>
 <tr><td><code>import_tracks_from_document</code></td><td>Copy whole tracks from another open tab into the document being edited - appended as new tracks with their names preserved, the source untouched. Ticks are rescaled when the two files' resolutions differ; channel collisions and differing tempo maps are reported. Defaults to a dry run and requires the user's confirmation before the real pass; one undo step restores everything</td></tr>
 <tr><td><code>switch_document</code></td><td>Point the rest of the run at another open tab: from the next tool call on, every read and write acts on that document and its undo steps land there. The chat announces the switch, the visible tab stays put, and the agent switches only when you explicitly ask it to work on another tab</td></tr>
+<tr><td><code>save_document</code></td><td>Save the document being edited, without a dialog: into the file you opened when you say so, otherwise as a marked copy next to it - see <a href="#files">Saving and opening documents</a></td></tr>
+<tr><td><code>save_document_as</code></td><td>Save the document as a new marked file under another name - also how the AI "renames" a document; the previous file stays where it is</td></tr>
+<tr><td><code>new_document</code></td><td>Create an empty, untitled document in a new tab, optionally with a chosen resolution (ticks per quarter note)</td></tr>
+<tr><td><code>open_document</code></td><td>Open a MIDI file or an importable file (Guitar Pro, MusicXML, MuseScore, MML) in a new tab; a file that is already open is reported instead of opened twice</td></tr>
+<tr><td><code>close_document</code></td><td>Close a tab that has no unsaved changes</td></tr>
 <tr><td><code>search_help</code></td><td>Search the built-in manual - for questions about the editor itself ("how do I split drums?"), the AI looks the answer up instead of guessing</td></tr>
 <tr><td><code>get_help_section</code></td><td>Read one manual section's full text; the answer cites the page so you can click through</td></tr>
-<tr><td><code>set_tempo</code></td><td>Change the tempo (BPM)</td></tr>
+<tr><td><code>set_tempo</code></td><td>Change the tempo - in BPM (fractions allowed, e.g. 117.5) or exactly in microseconds per quarter note, the unit MIDI files store</td></tr>
+<tr><td><code>get_timing_map</code></td><td>Read the complete timing data with exact values: resolution, every tempo change (in microseconds per quarter note, with the BPM and the time in milliseconds), every time signature and key signature, and markers and text events with their ticks - what the AI needs to rebuild a tempo or meter map exactly in another document</td></tr>
 <tr><td><code>set_time_signature</code></td><td>Change the time signature</td></tr>
 <tr><td><code>convert_tempo_preserve_duration</code></td><td>Re-tempo material while keeping its real-time duration - scales event ticks and updates the tempo map so e.g. a 90&nbsp;BPM vocal line fits a 180&nbsp;BPM project with the bars lining up again. Works on the whole file, chosen tracks or channels, or the current selection; defaults to a dry run and requires the user's confirmation before the real pass</td></tr>
 <tr><td><code>thin_tempo_map</code></td><td>Reduce a dense DAW-exported tempo ramp to the events that carry the timing - you set how far the music may move in milliseconds (default 2&nbsp;ms) and every point of the piece stays inside that corridor. The corridor is a budget per open document, measured against the tempo map the file was opened with: running the tool again at the same tolerance therefore removes nothing more, and the millisecond figures it reports are always the total distance from the file as loaded. Defaults to a dry run that reports the before/after counts; one undo step restores the full map.</td></tr>
 <tr><td><code>set_ffxiv_mode</code></td><td>Turn FFXIV Bard Performance mode on or off - the five FFXIV tools below appear and disappear with it, and <code>get_editor_state</code> reports the current state as <code>ffxivMode</code></td></tr>
-<tr><td><code>setup_channel_pattern</code></td><td>Auto-configure MidiBard2 channel mapping (FFXIV). Applies the same check as Fix X|V Channels and reports the reason instead of running when the file is not an FFXIV MIDI</td></tr>
+<tr><td><code>setup_channel_pattern</code></td><td>Auto-configure MidiBard2 channel mapping (FFXIV) and set every note's velocity to 127, as FFXIV plays no dynamics. Applies the same check as Fix X|V Channels and reports the reason instead of running when the file is not an FFXIV MIDI; chooses Rebuild or Preserve by the same rules as the Fix X|V Channels dialog and lists guitar notes on channels without a guitar program, which get no switch</td></tr>
 <tr><td><code>convert_drums_ffxiv</code></td><td>Convert GM drum kit to FFXIV-compatible tone-mapped notes</td></tr>
 <tr><td><code>validate_ffxiv</code></td><td>Check FFXIV Bard Performance rule compliance: every same-tick note collision and stacked duplicate with its tick, notes outside C3-C6, and track names matching no FFXIV instrument - the same engine as <b>Tools &rarr; Check FFXIV Playability</b>, see <a href="ffxiv-playability.html">Check FFXIV Playability</a></td></tr>
 <tr><td><code>analyze_voice_load</code></td><td>Read-only audit of the FFXIV 16-voice ceiling and 14&nbsp;notes/sec/channel rate cap. Returns <code>globalPeak</code>, <code>overflowRanges</code> and <code>rateHotspots</code> - see <a href="ffxiv-voice-limiter.html#ai-tool">FFXIV Voice Limiter</a></td></tr>
 <tr><td><code>auto_fit_voice_load</code></td><td>The matching action tool: thins overloaded moments and over-dense passages (whole file or a tick range). Defaults to a dry run and requires the user's confirmation before the real pass - see <a href="auto-fit-voice-load.html#ai-tool">Auto-Fit Voice Load</a></td></tr>
 </table>
+
+<h3 id="files">Saving and opening documents</h3>
+
+<p>
+MidiPilot and MCP clients can create, open, save and close documents themselves. None of these
+tools opens a dialog. A file you opened is only written over when you say so; everything else the
+AI saves is a <b>marked copy</b>:
+</p>
+
+<ul>
+<li><b>Overwrite or copy - you decide.</b> When the AI saves a document you opened from a MIDI file,
+it first asks you in the chat whether to overwrite that file or keep it and save a copy. Your answer
+counts for that file in that tab until you close it, so the AI asks only once; after a Save As to
+another MIDI file, or for a file in another tab, it asks again. In the MidiPilot settings,
+<b>AI saves your file</b> can settle it for good: <i>Ask each time</i> (the default), <i>Always save a
+copy</i> or <i>Always overwrite</i>. The setting applies to MidiPilot and to MCP clients alike.</li>
+<li><b>The mark shows who wrote it.</b> MidiPilot saves a copy of <code>mozart.mid</code> as
+<code>mozart.midipilot.mid</code>, an MCP client as <code>mozart.mcp.mid</code>. A copy is always a
+Standard MIDI file (<code>.mid</code>), and it is written next to the source. An imported Guitar Pro,
+MusicXML, MuseScore or MML file cannot be written back, so it always gets the copy.</li>
+<li><b>The tab continues on the copy.</b> After a copy is saved the tab shows the new name and works
+on the copy; the original on disk is unchanged. Saving again writes into the same copy.</li>
+<li><b>Taken names get a counter.</b> If <code>mozart.midipilot.mid</code> already exists and is not
+the document being saved, the AI writes <code>mozart.midipilot.2.mid</code>.</li>
+<li><b>Untitled documents need a name.</b> The AI takes a short name from your request and asks when
+there is nothing to go on. A plain name is saved in the folder you last opened a file from; a full
+path you give is used as given, with mark and extension added.</li>
+<li><b>Keeping the original.</b> When you ask the AI to keep the original while it changes a lot, it
+saves the copy first and edits afterwards, so a later <b>Ctrl+S</b> lands in the copy.</li>
+<li><b>Saving under another name</b> (<code>save_document_as</code>) writes a new marked file and the
+tab continues on it; the previous file stays where it is.</li>
+<li><b>Closing</b> works only for a tab without unsaved changes; the AI never discards work. The
+last tab of the left editor group and the document a running MidiPilot agent works on stay open.</li>
+<li><b>Opening</b> never writes anything. SID tunes are opened from the <b>File</b> menu, because
+their import asks for a song length.</li>
+</ul>
+
+<div class="screenshot-row">
+<img src="screenshots/midipilot-save-question.png" alt="MidiPilot transposed the song and asks whether to overwrite the opened MIDI file or save a copy; the save step waits for the answer" width="400">
+<img src="screenshots/midipilot-save-answer.png" alt="After the answer &quot;save as a copy&quot; MidiPilot saves a marked copy, the tab continues on it and the original stays unchanged" width="460">
+</div>
+<div class="caption">Saving a file you opened - MidiPilot asks first and saves nothing until you answer (left); after your answer it saves the copy and says where (right)</div>
+
+<p>
+Saving, opening and closing are not undo steps. You see them in the tab title, as a status-bar
+message, and - for MidiPilot - as a chat line with the saved path. <b>File &rarr; Save</b> and
+<b>Save As</b> keep their dialogs; the rules above apply to the AI tools only.
+</p>
 
 <hr>
 
@@ -131,7 +187,7 @@ In Agent mode, the AI has access to <b>32 tools</b> (26 core + <code>switch_docu
 
 <p>
 MidiEditor AI includes a built-in <b>MCP (Model Context Protocol)</b> server that exposes the same
-<b>26 core tools</b> MidiPilot uses, plus its own variant of <code>switch_document</code> - one that
+<b>32 core tools</b> MidiPilot uses, plus its own variant of <code>switch_document</code> - one that
 also brings the chosen tab to the front - and the five FFXIV tools
 whenever FFXIV mode is on. Instead of using the built-in chat panel, you can connect <b>Claude Desktop</b>,
 <b>VS Code Copilot</b>, <b>Cursor</b>, <b>Windsurf</b>, or any other MCP-compatible client and let it edit

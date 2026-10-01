@@ -5,7 +5,7 @@
 #include <stdexcept>
 
 // ============================================================
-// GP3 Parser â€” ported from GP3File.cs
+// GP3 Parser - ported from GP3File.cs
 // ============================================================
 
 Gp3Parser::Gp3Parser(const std::vector<uint8_t>& data) {
@@ -575,7 +575,7 @@ BeatText Gp3Parser::readText() {
 }
 
 // ============================================================
-// GP4 Parser â€” ported from GP4File.cs
+// GP4 Parser - ported from GP4File.cs
 // ============================================================
 
 Gp4Parser::Gp4Parser(const std::vector<uint8_t>& data) : Gp3Parser(data) {}
@@ -776,7 +776,7 @@ void Gp4Parser::readNewChord(Chord& chord) {
 }
 
 // ============================================================
-// GP5 Parser â€” ported from GP5File.cs
+// GP5 Parser - ported from GP5File.cs
 // ============================================================
 
 Gp5Parser::Gp5Parser(const std::vector<uint8_t>& data) : Gp4Parser(data) {}
