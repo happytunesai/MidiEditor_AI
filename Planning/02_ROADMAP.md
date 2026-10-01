@@ -13975,6 +13975,14 @@ stored as separate files next to the conversation.
 
 ## Later (not in 2.5)
 
+**For 2.5.1**
+* MCP over IPv6 localhost (MCP-IPV6-001): the MCP server listens on `127.0.0.1` only
+  (`QHostAddress::LocalHost`). A client configured with `localhost` tries `::1` first, and on
+  Windows every refused IPv6 connect costs about 2 s before the IPv4 fallback - a script with a
+  few hundred calls ran into its timeout. Fix: a second `QTcpServer` on
+  `QHostAddress::LocalHostIPv6` (never `Any`) on the same port, sharing the session table; when
+  IPv6 is not available, IPv4 alone as today. Until then `127.0.0.1` in the client URL avoids it.
+
 **From the 2.5 review (2026-09-28, verified, deferred)**
 * Same-tick order after undo/redo: `MidiEvent::reloadState` re-inserts an event at the front of
   its equal-key range, so with two program changes of different programs (or two tempo events)
