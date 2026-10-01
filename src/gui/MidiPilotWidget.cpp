@@ -375,12 +375,20 @@ public:
         });
     }
 
-    void completeStep(int step, bool success, bool recoverable = false) {
+    void completeStep(int step, bool success, bool recoverable = false,
+                      bool awaitsUser = false) {
         if (!_stepLabels.contains(step)) return;
         bool dark = Appearance::shouldUseDarkMode();
         QLabel *label = _stepLabels[step];
         QString name = _stepNames[step];
-        if (success) {
+        if (awaitsUser) {
+            // save_document asked "overwrite or copy?" and wrote nothing: a
+            // green check read as "saved" right above the agent's question.
+            label->setText(QString("\xE2\x9D\x93 %1 - waiting for your answer").arg(name));  // ❓
+            label->setStyleSheet(
+                QString("color: %1; font-size: 11px; padding: 1px 2px;")
+                    .arg(dark ? "#CC9944" : "#CC7700"));
+        } else if (success) {
             label->setText(QString("\xE2\x9C\x85 %1").arg(name));  // ✅
             label->setStyleSheet(
                 QString("color: %1; font-size: 11px; padding: 1px 2px;")
@@ -3329,8 +3337,9 @@ void MidiPilotWidget::onAgentStepCompleted(int step, const QString &toolName, co
     bool success = result["success"].toBool(true);
     bool recoverable = result["recoverable"].toBool(false);
     // save_document waiting for the user's "overwrite or copy?" saved nothing,
-    // but the step did its job - it produced the question. Shown as a question,
-    // not as a failed step; the agent asks it in its reply.
+    // but the step did its job - it produced the question. Shown as a question
+    // (not as a failed step, and not with the green check of a save); the agent
+    // asks it in its reply.
     const bool awaitsUser = result.contains(QStringLiteral("decisionNeeded"));
     if (awaitsUser) {
         success = true;
@@ -3346,7 +3355,10 @@ void MidiPilotWidget::onAgentStepCompleted(int step, const QString &toolName, co
     //   failed   → red     (terminal failure)
     QString label;
     QString color;
-    if (success) {
+    if (awaitsUser) {
+        label = QStringLiteral("waiting for your answer");
+        color = QStringLiteral("orange");
+    } else if (success) {
         label = QStringLiteral("OK");
         color = QStringLiteral("green");
     } else if (recoverable) {
@@ -3443,7 +3455,7 @@ void MidiPilotWidget::onAgentStepCompleted(int step, const QString &toolName, co
     // Check off the step in the checklist
     if (_agentStepsWidget) {
         AgentStepsWidget *sw = static_cast<AgentStepsWidget *>(_agentStepsWidget);
-        sw->completeStep(step, success, recoverable);
+        sw->completeStep(step, success, recoverable, awaitsUser);
     }
 }
 
