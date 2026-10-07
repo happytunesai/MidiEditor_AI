@@ -229,6 +229,7 @@ The **Check FFXIV Playability** workbench examines a file the way the game will 
 - **Chords** - several pitches starting on the same tick on one performer (the game rolls them as a fast arpeggio) and **Stacked notes** - the same pitch twice on one tick (played once, the duplicate wasted); separate checks because a chord is often intentional and a stacked note almost always a defect
 - **Range** - notes outside C3-C6; **Track names** - names matching no FFXIV instrument (in game, the track name selects the instrument)
 - **Voice limit** - the raw voice peak against the 16-voice ceiling with notes/sec hotspots; **Channel spread** (editor playback only) and **Empty tracks**
+- **Editor-only events** - controllers, pitch bend, aftertouch and SysEx that FFXIV ignores but the editor plays (a GM/GS/XG reset turns every channel into a piano when played from the start), and mid-song program changes on non-guitar channels
 
 **Working with the findings:** click a finding to select its notes and jump there, double-click to show only that track; select single findings, a range or a whole group such as "Stacked duplicates" and delete exactly those notes in one undo step; the window stays open and re-checks after every change. **Analyze with MidiPilot** shows the AI's prioritised assessment right in the window, and the AI's `validate_ffxiv` tool runs the same engine.
 

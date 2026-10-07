@@ -13982,6 +13982,20 @@ stored as separate files next to the conversation.
   few hundred calls ran into its timeout. Fix: a second `QTcpServer` on
   `QHostAddress::LocalHostIPv6` (never `Any`) on the same port, sharing the session table; when
   IPv6 is not available, IPv4 alone as today. Until then `127.0.0.1` in the client URL avoids it.
+* Fix X|V Channels: events FFXIV ignores - DONE 2026-10-06 (FIX-SYSEX-001, owner-tested on a
+  real file): both modes remove controllers (bank select included), pitch bend, aftertouch and
+  every SysEx. A GM/GS reset after the tick-0 program changes made playback from the start all
+  piano while playback from later in the song was right. Mid-song program changes of non-guitar
+  channels stay (owner decision); the playability check reports them.
+* Fix X|V Channels: renamed guitar track keeps the guitar channel - DONE 2026-10-06
+  (FIX-CELLO-001, owner-tested): with the Preserve re-sync a non-guitar track on a guitar channel
+  gets the first free channel, its notes move there with one program change of its instrument;
+  guitar tracks, channels and programs unchanged. Stray non-guitar notes on guitar channels go
+  back to the track's channel. No free channel: nothing moves, reported.
+* Check FFXIV Playability: "Editor-only events" check - DONE 2026-10-06: events FFXIV ignores
+  per track (resets named) with the Channel Fixer button, mid-song program changes of non-guitar
+  channels; validate_ffxiv returns eventsFfxivIgnores without changing its verdict.
+* Owner test week with older MIDIs (from 2026-10-07) - further fixer findings go here.
 
 **From the 2.5 review (2026-09-28, verified, deferred)**
 * Same-tick order after undo/redo: `MidiEvent::reloadState` re-inserts an event at the front of

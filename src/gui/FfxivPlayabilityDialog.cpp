@@ -42,6 +42,10 @@ QString groupTitle(FfxivPlayabilityIssue::Type t, int count) {
         return FfxivPlayabilityDialog::tr("Empty instrument tracks (%1)").arg(count);
     case FfxivPlayabilityIssue::Type::TempoMap:
         return FfxivPlayabilityDialog::tr("Tempo map (%1)").arg(count);
+    case FfxivPlayabilityIssue::Type::EditorOnlyEvents:
+        return FfxivPlayabilityDialog::tr("Events FFXIV ignores - editor playback only (%1)").arg(count);
+    case FfxivPlayabilityIssue::Type::MidSongProgram:
+        return FfxivPlayabilityDialog::tr("Mid-song program changes - editor playback only (%1)").arg(count);
     }
     return QString();
 }
@@ -87,9 +91,15 @@ FfxivPlayabilityDialog::FfxivPlayabilityDialog(QWidget *parent)
     _checkVoiceLoad = new QCheckBox(tr("Voice limit"), this);
     _checkVoiceLoad->setToolTip(tr("Raw voice peak vs the 16-voice ceiling and "
                                    "notes/sec hotspots"));
+    _checkEditorOnly = new QCheckBox(tr("Editor-only events"), this);
+    _checkEditorOnly->setToolTip(tr("Controllers, pitch bend, aftertouch and SysEx - "
+                                    "FFXIV ignores them, the editor plays them (a GM/GS/XG "
+                                    "reset turns every channel into a piano) - and program "
+                                    "changes in the middle of the song on non-guitar "
+                                    "channels. Affects editor playback only."));
     for (QCheckBox *cb : {_checkSimultaneous, _checkDuplicates, _checkRange,
                           _checkNames, _checkChannels, _checkEmpty,
-                          _checkTempoMap, _checkVoiceLoad}) {
+                          _checkTempoMap, _checkEditorOnly, _checkVoiceLoad}) {
         cb->setChecked(true);
         checksRow->addWidget(cb);
     }
@@ -222,6 +232,7 @@ FfxivPlayabilityChecks FfxivPlayabilityDialog::selectedChecks() const {
     c.channelSpread = _checkChannels->isChecked();
     c.emptyTracks = _checkEmpty->isChecked();
     c.tempoMap = _checkTempoMap->isChecked();
+    c.editorOnlyEvents = _checkEditorOnly->isChecked();
     return c;
 }
 
@@ -279,6 +290,8 @@ void FfxivPlayabilityDialog::rebuildTree() {
         FfxivPlayabilityIssue::Type::OutOfRange,
         FfxivPlayabilityIssue::Type::TrackName,
         FfxivPlayabilityIssue::Type::ChannelSpread,
+        FfxivPlayabilityIssue::Type::EditorOnlyEvents,
+        FfxivPlayabilityIssue::Type::MidSongProgram,
         FfxivPlayabilityIssue::Type::EmptyTrack,
     };
     for (FfxivPlayabilityIssue::Type type : order) {
@@ -321,8 +334,12 @@ void FfxivPlayabilityDialog::rebuildFixRow() {
     // (see FfxivPlayabilityValidator), so the fixer always has something to do
     // - which is also why gating on FFXIVChannelFixer::analyzeFile() would only
     // repeat that fact at the cost of a second full-file pass per re-check.
+    // Editor-only events go with it: the validator raises them only in files
+    // with an instrument-named track, and the fixer removes them in both
+    // modes. Mid-song program changes do NOT - the fixer keeps those.
     const bool hasChannelIssues =
-        _report.countOf(FfxivPlayabilityIssue::Type::ChannelSpread) > 0;
+        _report.countOf(FfxivPlayabilityIssue::Type::ChannelSpread) > 0
+        || _report.countOf(FfxivPlayabilityIssue::Type::EditorOnlyEvents) > 0;
     const bool hasVoiceIssues =
         _report.countOf(FfxivPlayabilityIssue::Type::VoiceCeiling) > 0
         || _report.countOf(FfxivPlayabilityIssue::Type::NoteRate) > 0;

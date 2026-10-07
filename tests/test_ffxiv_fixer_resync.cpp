@@ -89,6 +89,7 @@
 #include "../src/MidiEvent/MidiEvent.h"
 #include "../src/MidiEvent/NoteOnEvent.h"
 #include "../src/MidiEvent/OffEvent.h"
+#include "../src/MidiEvent/PitchBendEvent.h"
 #include "../src/MidiEvent/ProgChangeEvent.h"
 #include "../src/MidiEvent/SysExEvent.h"
 #include "../src/MidiEvent/TextEvent.h"
@@ -1509,6 +1510,238 @@ private slots:
         QCOMPARE(f->track(cymbal)->assignedChannel(), 7);
         QCOMPARE(notesOf(f, cymbal, 7), 1);
         QCOMPARE(r["channelMap"].toArray().at(cymbal).toObject()["channel"].toInt(), 7);
+        delete f;
+    }
+
+    // ---- 2.5.1: a non-guitar track on a guitar channel (resync) -------------
+
+    void tier3Resync_guitarTrackRenamedToCello_getsAChannelOfItsOwn() {
+        // An Overdriven guitar with a switch to Clean next to a PowerChords
+        // guitar, set up by Rebuild and Preserve. Then the user renames the
+        // Overdriven track to Cello.
+        MidiFile *f = makeFile("ElectricGuitarOverdriven", 1);
+        addNote(f, 1, f->track(1), 60, 0, 400);
+        const int power = addNoteTrack(f, "ElectricGuitarPowerChords", 2);
+        addNote(f, 2, f->track(power), 55, 480, 900);
+        QCOMPARE(runTier(f, 0)["tier"].toInt(), 2);
+        const int od = f->track(1)->assignedChannel();
+        const int pcCh = f->track(power)->assignedChannel();
+        const int clean = channelWithProgram(f, 27);
+        QVERIFY(od >= 0 && pcCh >= 0 && clean >= 0);
+        addNote(f, clean, f->track(1), 62, 960, 1400); // switch to Clean
+        addNote(f, od, f->track(1), 64, 1440, 1800);    // and back
+        runTier(f, 3);
+
+        // What the guitars own before the rename.
+        QHash<int, QList<int>> guitarPrograms;
+        for (int ch = 0; ch < 16; ++ch) {
+            const int p = f->channel(ch)->progAtTick(0);
+            if (p >= 27 && p <= 31) guitarPrograms.insert(ch, tickZeroPrograms(f, ch));
+        }
+        QCOMPARE(guitarPrograms.size(), 5);
+        QHash<int, int> powerNotes;
+        for (int ch = 0; ch < 16; ++ch) powerNotes.insert(ch, notesOf(f, power, ch));
+
+        f->track(1)->setName(QStringLiteral("Cello"));
+        QJsonObject r = runTier3(f, true);
+        QVERIFY(r["success"].toBool());
+        QCOMPARE(r["tier"].toInt(), 3);
+
+        const QJsonArray moved = r["nonGuitarNotesMoved"].toArray();
+        QCOMPARE(moved.size(), 1);
+        const QJsonObject m = moved.first().toObject();
+        const int cello = m["channel"].toInt();
+        QCOMPARE(m["track"].toInt(), 1);
+        QCOMPARE(m["fromChannel"].toInt(), od);
+        QCOMPARE(m["notes"].toInt(), 3);
+        QVERIFY(cello != 9);
+        QVERIFY(!guitarPrograms.contains(cello));
+
+        // The Cello plays on its own channel with its own program ...
+        QCOMPARE(f->track(1)->assignedChannel(), cello);
+        QCOMPARE(notesOf(f, 1, cello), 3);
+        QCOMPARE(notesOf(f, 1, od), 0);
+        QCOMPARE(notesOf(f, 1, clean), 0);
+        QCOMPARE(tickZeroPrograms(f, cello), QList<int>{42});
+        QCOMPARE(f->channel(cello)->progAtTick(1500), 42);
+
+        // ... and the guitars keep every channel and program they had.
+        for (auto it = guitarPrograms.constBegin(); it != guitarPrograms.constEnd(); ++it)
+            QCOMPARE(tickZeroPrograms(f, it.key()), it.value());
+        for (int ch = 0; ch < 16; ++ch) QCOMPARE(notesOf(f, power, ch), powerNotes.value(ch));
+        QCOMPARE(f->track(power)->assignedChannel(), pcCh);
+        QCOMPARE(f->track(power)->name(), QString("ElectricGuitarPowerChords"));
+        QCOMPARE(f->channel(od)->progAtTick(1500), 29); // no Cello switch left behind
+        QCOMPARE(f->channel(clean)->progAtTick(1000), 27);
+
+        // A second run changes nothing.
+        const auto after1 = pcFingerprint(f);
+        QJsonObject r2 = runTier3(f, true);
+        QVERIFY(!r2.contains("nonGuitarNotesMoved"));
+        QCOMPARE(r2["resyncedNonGuitarChannels"].toInt(), 0);
+        QCOMPARE(pcFingerprint(f), after1);
+
+        // One undo step restores the guitar channel layout of the rename.
+        f->protocol()->undo(); // the empty second run
+        f->protocol()->undo(); // the move
+        QCOMPARE(f->track(1)->assignedChannel(), od);
+        QCOMPARE(notesOf(f, 1, od), 2);
+        QCOMPARE(notesOf(f, 1, clean), 1);
+        QCOMPARE(notesOf(f, 1, cello), 0);
+        QVERIFY(tickZeroPrograms(f, cello).isEmpty());
+        delete f;
+    }
+
+    void tier3WithoutResync_nonGuitarTrackOnGuitarChannelStays() {
+        MidiFile *f = makeFile("ElectricGuitarOverdriven", 1);
+        addNote(f, 1, f->track(1), 60, 0, 400);
+        addNoteTrack(f, "ElectricGuitarPowerChords", 2);
+        runTier(f, 2);
+        const int od = f->track(1)->assignedChannel();
+        f->track(1)->setName(QStringLiteral("Cello"));
+
+        QJsonObject r = runTier3(f, false);
+        QVERIFY(!r.contains("nonGuitarNotesMoved"));
+        QCOMPARE(f->track(1)->assignedChannel(), od);
+        QCOMPARE(notesOf(f, 1, od), 1);
+        delete f;
+    }
+
+    void tier3Resync_noFreeChannel_reportsAndMovesNothing() {
+        MidiFile *f = makeFile("ElectricGuitarOverdriven", 1);
+        addNote(f, 1, f->track(1), 60, 0, 400);
+        addNoteTrack(f, "ElectricGuitarPowerChords", 2);
+        runTier(f, 2);
+        const int od = f->track(1)->assignedChannel();
+        // Every channel that is no guitar channel and not 9 gets a performer.
+        QSet<int> taken;
+        for (int t = 0; t < f->numTracks(); ++t) taken.insert(f->track(t)->assignedChannel());
+        for (int ch = 0; ch < 16; ++ch) {
+            const int p = f->channel(ch)->progAtTick(0);
+            if (ch == 9 || taken.contains(ch) || (p >= 27 && p <= 31)) continue;
+            addNoteTrack(f, QStringLiteral("Flute"), ch);
+        }
+        f->track(1)->setName(QStringLiteral("Cello"));
+
+        QJsonObject r = runTier3(f, true);
+        QVERIFY(r["success"].toBool());
+        QVERIFY(!r.contains("nonGuitarNotesMoved"));
+        const QJsonArray none = r["nonGuitarTracksWithoutFreeChannel"].toArray();
+        QCOMPARE(none.size(), 1);
+        QCOMPARE(none.first().toObject()["track"].toInt(), 1);
+        QCOMPARE(none.first().toObject()["channel"].toInt(), od);
+        QCOMPARE(f->track(1)->assignedChannel(), od);
+        QCOMPARE(notesOf(f, 1, od), 1);
+        QCOMPARE(f->channel(od)->progAtTick(0), 29); // the guitar channel stays
+        delete f;
+    }
+
+    void tier3Resync_strayNotesOnAGuitarChannel_returnToTheTracksChannel() {
+        MidiFile *f = makeFile("ElectricGuitarClean", 1);
+        addNote(f, 1, f->track(1), 60, 0, 400);
+        const int flute = addNoteTrack(f, "Flute", 2);
+        runTier(f, 2);
+        const int fluteCh = f->track(flute)->assignedChannel();
+        const int muted = channelWithProgram(f, 28);
+        QVERIFY(muted >= 0);
+        addNote(f, muted, f->track(flute), 72, 2000, 2100); // drawn on the wrong channel
+
+        QJsonObject r = runTier3(f, true);
+        const QJsonArray moved = r["nonGuitarNotesMoved"].toArray();
+        QCOMPARE(moved.size(), 1);
+        QCOMPARE(moved.first().toObject()["fromChannel"].toInt(), fluteCh);
+        QCOMPARE(moved.first().toObject()["channel"].toInt(), fluteCh);
+        QCOMPARE(moved.first().toObject()["notes"].toInt(), 1);
+        QCOMPARE(f->track(flute)->assignedChannel(), fluteCh);
+        QCOMPARE(notesOf(f, flute, fluteCh), 2);
+        QCOMPARE(notesOf(f, flute, muted), 0);
+        QCOMPARE(f->channel(muted)->progAtTick(0), 28);
+        delete f;
+    }
+
+    // ---- 2.5.1: events FFXIV ignores are removed in both modes ---------------
+
+    void systemResetSysEx_recognised() {
+        auto hex = [](const char *h) { return QByteArray::fromHex(h); };
+        QVERIFY(FFXIVChannelFixer::isSystemResetSysEx(hex("7e7f0901")));      // GM On
+        QVERIFY(FFXIVChannelFixer::isSystemResetSysEx(hex("7e100903")));      // GM2 On
+        QVERIFY(FFXIVChannelFixer::isSystemResetSysEx(hex("4110421240007f0041"))); // GS Reset
+        QVERIFY(FFXIVChannelFixer::isSystemResetSysEx(hex("43104c00007e00")));      // XG On
+        QVERIFY(FFXIVChannelFixer::isSystemResetSysEx(hex("43104c00007f00")));      // XG reset
+        QVERIFY(!FFXIVChannelFixer::isSystemResetSysEx(hex("41104212400133503c"))); // GS reverb
+        QVERIFY(!FFXIVChannelFixer::isSystemResetSysEx(hex("7e7f0902")));     // GM Off
+        QVERIFY(!FFXIVChannelFixer::isSystemResetSysEx(QByteArray()));
+    }
+
+    void bothModes_removeSysEx_undoBringsItBack() {
+        for (int tier : {2, 3}) {
+            MidiFile *f = makeFile("ElectricGuitarClean", 1);
+            addNote(f, 1, f->track(1), 60, 768, 900);
+            addNoteTrack(f, "Flute", 2);
+            if (tier == 3) runTier(f, 2);
+            auto addSysEx = [&](const char *hex, int tick) {
+                auto *sx = new SysExEvent(16, QByteArray::fromHex(hex), f->track(1));
+                sx->setFile(f);
+                f->channel(16)->insertEvent(sx, tick, false);
+            };
+            addSysEx("7e7f0901", 1);             // GM System On
+            addSysEx("4110421240007f0041", 24);  // GS Reset
+            addSysEx("41104212400133503c", 68);  // GS reverb level
+            auto sysExCount = [&]() {
+                int n = 0;
+                QMultiMap<int, MidiEvent *> *map = f->channel(16)->eventMap();
+                for (auto it = map->begin(); it != map->end(); ++it)
+                    if (dynamic_cast<SysExEvent *>(it.value())) ++n;
+                return n;
+            };
+            const int otherMeta = f->channel(16)->eventMap()->size() - 3;
+
+            const QJsonObject a = FFXIVChannelFixer::analyzeFile(f);
+            QCOMPARE(a["sysExCount"].toInt(), 3);
+            QCOMPARE(a["systemResetCount"].toInt(), 2);
+
+            QJsonObject r = runTier(f, tier);
+            QCOMPARE(r["tier"].toInt(), tier);
+            QCOMPARE(r["removedSysEx"].toInt(), 3);
+            QCOMPARE(r["removedSystemResets"].toInt(), 2);
+            QCOMPARE(sysExCount(), 0);
+            QCOMPARE(f->channel(16)->eventMap()->size(), otherMeta); // names stay
+            QCOMPARE(f->track(1)->name(), QString("ElectricGuitarClean"));
+
+            f->protocol()->undo();
+            QCOMPARE(sysExCount(), 3);
+            delete f;
+        }
+    }
+
+    void preserve_removesControllersAndPitchBend_keepsNotesAndPrograms() {
+        MidiFile *f = makeFile("ElectricGuitarClean", 1);
+        addNote(f, 1, f->track(1), 60, 0, 400);
+        const int flute = addNoteTrack(f, "Flute", 2);
+        runTier(f, 2);
+        const int fluteCh = f->track(flute)->assignedChannel();
+        addPc(f, fluteCh, 75, f->track(flute), 3000); // a deliberate mid-song change stays
+        auto add = [&](MidiEvent *ev, int tick) {
+            ev->setFile(f);
+            f->channel(fluteCh)->insertEvent(ev, tick, false);
+        };
+        add(new ControlChangeEvent(fluteCh, 0, 1, f->track(flute)), 0);    // bank select
+        add(new ControlChangeEvent(fluteCh, 7, 20, f->track(flute)), 100);  // volume
+        add(new PitchBendEvent(fluteCh, 9000, f->track(flute)), 200);
+        QCOMPARE(FFXIVChannelFixer::analyzeFile(f)["editorOnlyChannelEvents"].toInt(), 3);
+        const auto pcsBefore = allPcs(f, fluteCh);
+
+        QJsonObject r = runTier(f, 3);
+        QCOMPARE(r["tier"].toInt(), 3);
+        QCOMPARE(r["removedExtraEvents"].toInt(), 3);
+        int left = 0;
+        QMultiMap<int, MidiEvent *> *map = f->channel(fluteCh)->eventMap();
+        for (auto it = map->begin(); it != map->end(); ++it)
+            if (FFXIVChannelFixer::isEditorOnlyChannelEvent(it.value())) ++left;
+        QCOMPARE(left, 0);
+        QCOMPARE(notesOf(f, flute, fluteCh), 1);
+        QCOMPARE(allPcs(f, fluteCh), pcsBefore);
+        QCOMPARE(f->channel(fluteCh)->progAtTick(3100), 75);
         delete f;
     }
 };

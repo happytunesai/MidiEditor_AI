@@ -56,6 +56,21 @@ void FFXIVFixerDialog::setupUI(const QJsonObject &analysis) {
         }
         infoText += QString("<br>Not FFXIV: <b>%1</b>").arg(nv.join(", "));
     }
+    // What both modes remove: FFXIV ignores it, the editor's synth plays it.
+    const int editorOnly = analysis["editorOnlyChannelEvents"].toInt();
+    const int sysEx = analysis["sysExCount"].toInt();
+    if (editorOnly > 0 || sysEx > 0) {
+        QStringList parts;
+        if (editorOnly > 0)
+            parts << QString("%1 controller/pitch bend/aftertouch").arg(editorOnly);
+        if (sysEx > 0) {
+            const int resets = analysis["systemResetCount"].toInt();
+            parts << (resets > 0 ? QString("%1 SysEx (%2 GM/GS/XG resets)").arg(sysEx).arg(resets)
+                                 : QString("%1 SysEx").arg(sysEx));
+        }
+        infoText += QString("<br>Events FFXIV ignores: <b>%1</b> - both modes remove them")
+                        .arg(parts.join(", "));
+    }
 
     if (hasGuitar) {
         QStringList gv;
@@ -133,6 +148,7 @@ void FFXIVFixerDialog::setupUI(const QJsonObject &analysis) {
            "• Maps each track to its matching channel (T0→CH0, T1→CH1, …)\n"
            "• Percussion tracks → CH9\n"
            "• Removes all %1 existing program changes\n"
+           "• Removes controllers, pitch bend and SysEx (FFXIV ignores them)\n"
            "• Moves all events to correct channels\n"
            "• Inserts new program changes at tick 0\n"
            "Best for: New or unconfigured MIDI files."))
@@ -148,8 +164,9 @@ void FFXIVFixerDialog::setupUI(const QJsonObject &analysis) {
     QString tier3Text = QString(
         tr("Minimal-invasive preservation:\n"
            "\u2022 Keeps all existing channel assignments\n"
-           "\u2022 Non-guitar channels completely untouched\n"
-           "\u2022 Only refreshes guitar program changes (tick 0 + switch points)\n"
+           "\u2022 Keeps the program changes of non-guitar channels\n"
+           "\u2022 Refreshes guitar program changes (tick 0 + switch points)\n"
+           "\u2022 Removes controllers, pitch bend and SysEx (FFXIV ignores them)\n"
            "\u2022 Auto-renames guitar tracks if first note differs from track name\n"
            "\u2022 Normalizes all note velocities to 127 (max)\n"
            "Best for: Already configured files needing a guitar touch-up."));
@@ -159,7 +176,7 @@ void FFXIVFixerDialog::setupUI(const QJsonObject &analysis) {
     tierLayout->addWidget(tier3Desc);
 
     // v2.0: opt-in non-guitar instrument re-sync (Preserve only, default off
-    // so plain Tier 3 keeps its "non-guitar channels untouched" contract).
+    // so plain Tier 3 keeps the non-guitar programs and moves no notes).
     _resyncCheck = new QCheckBox(tr("Re-sync non-guitar channel instruments from track names"), tierGroup);
     _resyncCheck->setChecked(false);
     _resyncCheck->setEnabled(false);
@@ -167,7 +184,10 @@ void FFXIVFixerDialog::setupUI(const QJsonObject &analysis) {
         "Rewrites a channel's program change at tick 0 when it no longer matches\n"
         "the track name (e.g. after renaming Trumpet to Trombone). Only channels\n"
         "with a mismatch are touched; program changes later in the song are kept,\n"
-        "and running the fixer again changes nothing."));
+        "and running the fixer again changes nothing.\n"
+        "A non-guitar track on a guitar channel (a guitar track renamed to Cello)\n"
+        "gets a free channel of its own and its notes move there; the guitar\n"
+        "tracks and their channels stay as they are."));
     _resyncCheck->setStyleSheet("QCheckBox { margin-left: 20px; }");
     tierLayout->addWidget(_resyncCheck);
 

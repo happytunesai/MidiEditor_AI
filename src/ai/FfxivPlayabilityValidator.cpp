@@ -4,15 +4,22 @@
 #include "../midi/MidiFile.h"
 #include "../midi/MidiTrack.h"
 #include "../midi/MidiChannel.h"
+#include "../MidiEvent/ControlChangeEvent.h"
 #include "../MidiEvent/MidiEvent.h"
 #include "../MidiEvent/NoteOnEvent.h"
+#include "../MidiEvent/PitchBendEvent.h"
+#include "../MidiEvent/ProgChangeEvent.h"
+#include "../MidiEvent/SysExEvent.h"
 #include "../MidiEvent/TempoChangeEvent.h"
 
+#include <QHash>
 #include <QLocale>
 #include <QMap>
 #include <QPair>
 #include <QSet>
 #include <QStringList>
+
+#include <climits>
 
 namespace {
 
@@ -134,6 +141,9 @@ FfxivPlayabilityReport FfxivPlayabilityValidator::validate(
 
     const int trackCount = file->numTracks();
     report.checkedTracks = trackCount;
+    // The editor-only findings speak to FFXIV files: a plain GM file has a
+    // use for its controllers and SysEx.
+    bool anyInstrumentWithNotes = false;
 
     for (int t = 0; t < trackCount; ++t) {
         MidiTrack *track = file->track(t);
@@ -167,6 +177,7 @@ FfxivPlayabilityReport FfxivPlayabilityValidator::validate(
             }
         }
         report.checkedNotes += notes.size();
+        if (isInstrument && !notes.isEmpty()) anyInstrumentWithNotes = true;
 
         // Track-name check, only for tracks that HAVE notes: a silent track
         // occupies no performer, so its name is irrelevant to playability -
@@ -350,6 +361,150 @@ FfxivPlayabilityReport FfxivPlayabilityValidator::validate(
                     .arg(tempoMapShape(bpmInOrder))
                     .arg(perBar, 0, 'f', perBar < 10 ? 1 : 0);
             report.issues.append(issue);
+        }
+    }
+
+    if (checks.editorOnlyEvents && anyInstrumentWithNotes) {
+        QHash<MidiTrack *, int> trackIndex;
+        for (int t = 0; t < trackCount; ++t) trackIndex.insert(file->track(t), t);
+
+        // Events FFXIV ignores and the editor plays - per track, the same
+        // predicates Fix X|V Channels removes them by.
+        struct Counts {
+            int controllers = 0;
+            int bankSelects = 0;
+            int pitchBends = 0;
+            int other = 0;        // key / channel aftertouch
+            int sysEx = 0;
+            int resets = 0;
+            int firstTick = INT_MAX;
+        };
+        QMap<int, Counts> perTrack;
+        for (int ch = 0; ch < 17; ++ch) {
+            MidiChannel *channel = file->channel(ch);
+            if (!channel) continue;
+            QMultiMap<int, MidiEvent *> *map = channel->eventMap();
+            for (auto it = map->begin(); it != map->end(); ++it) {
+                MidiEvent *ev = it.value();
+                const int t = trackIndex.value(ev ? ev->track() : nullptr, -1);
+                if (t < 0) continue;
+                if (ch == 16) {
+                    auto *sx = dynamic_cast<SysExEvent *>(ev);
+                    if (!sx) continue;
+                    Counts &c = perTrack[t];
+                    c.sysEx++;
+                    if (FFXIVChannelFixer::isSystemResetSysEx(sx->data())) c.resets++;
+                    c.firstTick = qMin(c.firstTick, it.key());
+                    continue;
+                }
+                if (!FFXIVChannelFixer::isEditorOnlyChannelEvent(ev)) continue;
+                Counts &c = perTrack[t];
+                if (auto *cc = dynamic_cast<ControlChangeEvent *>(ev)) {
+                    c.controllers++;
+                    if (cc->control() == 0 || cc->control() == 32) c.bankSelects++;
+                } else if (dynamic_cast<PitchBendEvent *>(ev)) {
+                    c.pitchBends++;
+                } else {
+                    c.other++;
+                }
+                c.firstTick = qMin(c.firstTick, it.key());
+            }
+        }
+        auto counted = [](int n, const char *one, const char *many) {
+            return QStringLiteral("%1 %2").arg(n).arg(QLatin1String(n == 1 ? one : many));
+        };
+        for (auto it = perTrack.constBegin(); it != perTrack.constEnd(); ++it) {
+            const Counts &c = it.value();
+            QStringList parts;
+            if (c.sysEx > 0) {
+                parts << (c.resets > 0
+                    ? QStringLiteral("%1 SysEx (%2 - played from the start, every "
+                                     "channel becomes a piano)")
+                          .arg(c.sysEx)
+                          .arg(counted(c.resets, "GM/GS/XG reset", "GM/GS/XG resets"))
+                    : QStringLiteral("%1 SysEx").arg(c.sysEx));
+            }
+            if (c.controllers > 0) {
+                const QString controllers = counted(c.controllers, "controller", "controllers");
+                parts << (c.bankSelects > 0
+                    ? QStringLiteral("%1 (%2)").arg(controllers,
+                          counted(c.bankSelects, "bank select", "bank selects"))
+                    : controllers);
+            }
+            if (c.pitchBends > 0) parts << counted(c.pitchBends, "pitch bend", "pitch bends");
+            if (c.other > 0) parts << counted(c.other, "aftertouch event", "aftertouch events");
+            FfxivPlayabilityIssue issue;
+            issue.type = FfxivPlayabilityIssue::Type::EditorOnlyEvents;
+            issue.track = it.key();
+            issue.tick = c.firstTick == INT_MAX ? 0 : c.firstTick;
+            issue.details = QStringLiteral(
+                "%1 - FFXIV ignores them, the editor plays them; Fix X|V Channels "
+                "removes them").arg(parts.join(QStringLiteral(", ")));
+            report.issues.append(issue);
+        }
+
+        // Program changes after tick 0 on a non-guitar channel: the editor
+        // switches the sound there, in game the track name stays the
+        // instrument. Guitar channels switch on purpose (the variant
+        // switches), channel 9 belongs to the drums. Only a change of the
+        // program in effect counts - a repeated program plays the same.
+        for (int ch = 0; ch < 16; ++ch) {
+            if (ch == 9) continue;
+            MidiChannel *channel = file->channel(ch);
+            if (!channel) continue;
+            const int startProgram = channel->progAtTick(0);
+            if (startProgram >= 27 && startProgram <= 31) continue;
+            QMultiMap<int, MidiEvent *> *map = channel->eventMap();
+            bool guitarNotes = false;
+            QList<int> pcTicks;
+            for (auto it = map->begin(); it != map->end(); ++it) {
+                MidiEvent *ev = it.value();
+                if (auto *on = dynamic_cast<NoteOnEvent *>(ev)) {
+                    if (on->track() && FFXIVChannelFixer::isGuitar(
+                            FFXIVChannelFixer::stripSuffix(on->track()->name()))) {
+                        guitarNotes = true;
+                        break;
+                    }
+                } else if (dynamic_cast<ProgChangeEvent *>(ev) && it.key() > 0
+                           && (pcTicks.isEmpty() || pcTicks.last() != it.key())) {
+                    pcTicks.append(it.key());
+                }
+            }
+            if (guitarNotes) continue;
+            for (int tick : pcTicks) {
+                const int before = channel->progAtTick(tick - 1);
+                const int after = channel->progAtTick(tick);
+                if (before == after) continue;
+                // Whose sound changes: the first track that plays on the
+                // channel from here on, else the program change's own track.
+                MidiTrack *owner = nullptr;
+                for (auto it = map->lowerBound(tick); it != map->end(); ++it) {
+                    if (dynamic_cast<NoteOnEvent *>(it.value())) {
+                        owner = it.value()->track();
+                        break;
+                    }
+                }
+                if (!owner) {
+                    const QList<MidiEvent *> atTick = map->values(tick);
+                    for (MidiEvent *ev : atTick) {
+                        if (dynamic_cast<ProgChangeEvent *>(ev)) {
+                            owner = ev->track();
+                            break;
+                        }
+                    }
+                }
+                const int t = trackIndex.value(owner, -1);
+                FfxivPlayabilityIssue issue;
+                issue.type = FfxivPlayabilityIssue::Type::MidSongProgram;
+                issue.track = t;
+                issue.tick = tick;
+                issue.details = QStringLiteral(
+                    "Program change to %1 (%2) at tick %3 on CH%4 - the editor plays "
+                    "it from here, in game the track name stays the instrument")
+                        .arg(MidiFile::gmInstrumentName(after)).arg(after)
+                        .arg(tick).arg(ch);
+                report.issues.append(issue);
+            }
         }
     }
 

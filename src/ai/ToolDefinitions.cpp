@@ -32,6 +32,7 @@
 #include "../MidiEvent/MidiEvent.h"
 #include "../MidiEvent/NoteOnEvent.h"
 #include "../MidiEvent/OffEvent.h"
+#include "../MidiEvent/SysExEvent.h"
 #include "../protocol/Protocol.h"
 #include "../tool/Selection.h"
 
@@ -976,7 +977,9 @@ QJsonArray ToolDefinitions::toolSchemas(const ToolSchemaOptions &options) {
                 "and track names matching no FFXIV instrument (the legal spellings are "
                 "returned as legalInstruments). NOTE: in game the TRACK NAME selects the "
                 "instrument - program changes only affect the editor's SoundFont playback and "
-                "are not validated here.",
+                "are not validated here. eventsFfxivIgnores (only when present) counts "
+                "controllers, pitch bend, aftertouch and SysEx - including GM/GS/XG resets that "
+                "switch the editor's playback to piano - which setup_channel_pattern removes.",
                 makeParams(QJsonObject(), QJsonArray())));
         }
 
@@ -1007,6 +1010,9 @@ QJsonArray ToolDefinitions::toolSchemas(const ToolSchemaOptions &options) {
                 "the guitar programs at tick 0 and at guitar switch points and renames a guitar "
                 "track after the variant its first note plays. guitarNotesOnOtherChannels lists "
                 "guitar notes on non-guitar channels that got no switch - tell the user. "
+                "Both modes remove what FFXIV ignores but the editor plays: controllers, pitch "
+                "bend, aftertouch and SysEx (removedExtraEvents, removedSysEx; removedSystemResets "
+                "counts GM/GS/XG resets, which switched every channel to piano in playback). "
                 "It also sets the velocity of EVERY note to 127 - FFXIV plays no dynamics - "
                 "and reports how many notes changed as velocityNormalized; tell the user "
                 "when the file had dynamics worth keeping elsewhere. "
@@ -2371,6 +2377,8 @@ QJsonObject ToolDefinitions::execValidateFFXIV(MidiFile *file) {
     // perfectly playable file as invalid and send the agent hunting for
     // chords. The count travels as its own field below instead.
     toolChecks.tempoMap = false;
+    // 2.5.1: the editor-only events the same way - counts below, no verdict.
+    toolChecks.editorOnlyEvents = false;
     const FfxivPlayabilityReport report =
         FfxivPlayabilityValidator::validate(file, toolChecks);
     if (!report.ok) {
@@ -2387,7 +2395,10 @@ QJsonObject ToolDefinitions::execValidateFFXIV(MidiFile *file) {
             return QStringLiteral("out_of_range");
         case FfxivPlayabilityIssue::Type::DuplicateNote:
             return QStringLiteral("duplicate_note");
-        case FfxivPlayabilityIssue::Type::Overlap:
+        case FfxivPlayabilityIssue::Type::EditorOnlyEvents:
+        case FfxivPlayabilityIssue::Type::MidSongProgram:
+            return QStringLiteral("editor_only"); // switched off above
+        default:
             break;
         }
         // "polyphonic" kept for Overlap - the name agents have always seen.
@@ -2421,6 +2432,42 @@ QJsonObject ToolDefinitions::execValidateFFXIV(MidiFile *file) {
     // the file heavy for the editor and for the game. thin_tempo_map is the
     // repair; the number is here so the agent knows when to reach for it.
     result["tempoEventCount"] = TempoMapThinner::tempoEventCount(file);
+    // 2.5.1: events FFXIV ignores but the editor plays - no verdict either,
+    // and nothing the agent could see otherwise: query_events lists no SysEx.
+    // setup_channel_pattern removes them (the same predicates).
+    {
+        int channelEvents = 0;
+        for (int ch = 0; ch < 16; ++ch) {
+            MidiChannel *channel = file->channel(ch);
+            if (!channel) continue;
+            QMultiMap<int, MidiEvent *> *map = channel->eventMap();
+            for (auto it = map->begin(); it != map->end(); ++it) {
+                if (FFXIVChannelFixer::isEditorOnlyChannelEvent(it.value())) ++channelEvents;
+            }
+        }
+        int sysEx = 0;
+        int resets = 0;
+        if (MidiChannel *meta = file->channel(16)) {
+            QMultiMap<int, MidiEvent *> *map = meta->eventMap();
+            for (auto it = map->begin(); it != map->end(); ++it) {
+                if (auto *sx = dynamic_cast<SysExEvent *>(it.value())) {
+                    ++sysEx;
+                    if (FFXIVChannelFixer::isSystemResetSysEx(sx->data())) ++resets;
+                }
+            }
+        }
+        if (channelEvents > 0 || sysEx > 0) {
+            QJsonObject ignored;
+            ignored["controllersPitchBendAftertouch"] = channelEvents;
+            ignored["sysEx"] = sysEx;
+            ignored["systemResets"] = resets;
+            ignored["note"] = QStringLiteral(
+                "FFXIV ignores these events, the editor plays them - a GM/GS/XG system "
+                "reset switches every channel to piano when the song is played from the "
+                "start. setup_channel_pattern removes them.");
+            result["eventsFfxivIgnores"] = ignored;
+        }
+    }
     if (report.issues.size() > cap)
         result["issuesTruncated"] = report.issues.size() - cap;
     // Octet finding #6: a rejected track name used to leave the agent

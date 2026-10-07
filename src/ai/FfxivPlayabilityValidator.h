@@ -62,7 +62,15 @@ struct FfxivPlayabilityIssue {
         VoiceCeiling,     ///< raw voice peak over 16 - synthesized by the
                           ///< DIALOG from an Auto-Fit dry run, never emitted
                           ///< by the validator itself (keeps it dependency-free)
-        NoteRate          ///< notes/sec hotspot - dialog-synthesized as well
+        NoteRate,         ///< notes/sec hotspot - dialog-synthesized as well
+        EditorOnlyEvents, ///< controllers, pitch bend, aftertouch, SysEx of a
+                          ///< track - FFXIV ignores them, the editor plays
+                          ///< them (a GM/GS/XG reset turns every channel into
+                          ///< a piano); Fix X|V Channels removes them
+        MidSongProgram    ///< program change after tick 0 on a non-guitar
+                          ///< channel - the editor switches the sound there,
+                          ///< in game the track name stays the instrument;
+                          ///< kept by the fixer, reported only
     };
 
     Type type;
@@ -88,6 +96,9 @@ struct FfxivPlayabilityChecks {
     bool channelSpread = true; ///< editor-playback channel consistency
     bool emptyTracks = true;   ///< instrument-named tracks without notes
     bool tempoMap = true;      ///< dense tempo maps (DAW ramps)
+    bool editorOnlyEvents = true; ///< events the editor plays and the game
+                                  ///< ignores, mid-song program changes of
+                                  ///< non-guitar channels (editor playback)
 };
 
 /** Threshold for the tempo-map check, kept next to the enum so the rule is

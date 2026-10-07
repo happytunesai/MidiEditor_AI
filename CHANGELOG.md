@@ -5,6 +5,48 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 
 ---
 
+## [2.5.1] - Unreleased - Fix X|V Channels: The Editor Sounds Like the Game
+
+> In progress on the feature/v2.5.1 branch.
+
+### Summary
+* **[Fix X|V Channels removes what FFXIV ignores](https://midieditor-ai.de/ffxiv-channel-fixer.html)** - both modes remove controllers, pitch bend, aftertouch and SysEx, so the editor plays the song the way the bards do; a GM, GS or XG reset in a file no longer turns every instrument into a piano when the song plays from the start.
+* **[Re-sync gives a renamed guitar track a channel of its own](https://midieditor-ai.de/ffxiv-channel-fixer.html#resync)** - a guitar track renamed to Cello moves to a free channel with the Cello's program; the guitar tracks keep their channels and programs.
+* **[Check FFXIV Playability finds editor-only events](https://midieditor-ai.de/ffxiv-playability.html#playability-checks)** - a new check lists the events FFXIV ignores and the mid-song program changes of non-guitar channels, which change the editor's playback but not the game's.
+
+<details>
+<summary>Full Changelog - Fix X|V Channels: The Editor Sounds Like the Game</summary>
+
+### New Features
+* **[Editor-only events check](https://midieditor-ai.de/ffxiv-playability.html#playability-checks)** - the new **Editor-only events** checkbox in Check FFXIV Playability lists, per track, the controllers (bank selects named), pitch bends, aftertouch and SysEx messages FFXIV ignores, and every program change after the start of the song that switches the instrument of a non-guitar channel. Raised only for files with a track named after an FFXIV instrument; the Channel Fixer button appears for the first kind. `validate_ffxiv` counts the same events as `eventsFfxivIgnores` (SysEx included, which no other tool shows) without changing its verdict.
+
+### Changed
+* **Preserve removes the events FFXIV ignores, like Rebuild** - controllers, pitch bend and aftertouch are removed in both modes now; program changes of non-guitar channels stay where they are.
+* The Fix X|V Channels dialog shows how many events FFXIV ignores the file holds, and its mode descriptions say what each mode removes; the result window lists the removed events and the moved notes.
+
+### Bug Fixes
+* **Piano sound after a GM/GS/XG reset** - a file with a reset message after the start (GM System On, GS Reset, XG System On) played every instrument as a piano when played from the start, while playback from later in the song sounded right: the reset undid the program changes Fix X|V Channels writes at tick 0. Both modes now remove every SysEx message; Rebuild was described as doing so but kept them.
+* **[A guitar track renamed to another instrument kept the guitar's channel](https://midieditor-ai.de/ffxiv-channel-fixer.html#resync)** - with "Re-sync non-guitar channel instruments" on, Preserve skipped the track because its channel is a guitar channel, so a guitar renamed to Cello went on playing the guitar's sound on the guitar channel and the switch channels. It now gets the first free channel, its notes move there and the channel gets the Cello's program; the guitar channels keep their programs for the other guitars. Notes a non-guitar track left on a guitar channel go back to its own channel. Without a free channel nothing moves and the result names the track.
+
+### Files Modified
+#### FFXIV tools
+* `src/ai/FFXIVChannelFixer.h/.cpp` - removal of controllers, pitch bend, aftertouch and SysEx in both modes (with its own undo snapshot for the SysEx); non-guitar notes off guitar channels in the Preserve re-sync; system-reset and editor-only event helpers; analysis counts
+* `src/ai/FfxivPlayabilityValidator.h/.cpp` - the editor-only events and mid-song program change findings
+* `src/gui/FfxivPlayabilityDialog.h/.cpp` - Editor-only events checkbox, groups, Channel Fixer button
+* `src/gui/FFXIVFixerDialog.cpp` - analysis line, mode descriptions, re-sync tooltip
+* `src/gui/MainWindow.cpp` - result window lines for removed events and moved notes
+* `src/ai/ToolDefinitions.cpp` - `setup_channel_pattern` description, `validate_ffxiv` `eventsFfxivIgnores`
+
+#### Tests
+* `tests/test_ffxiv_fixer_resync.cpp`, `tests/test_ffxiv_playability.cpp`
+
+#### Manual and docs
+* `manual/ffxiv-channel-fixer.html`, `manual/ffxiv-playability.html`, `manual/midipilot-tools.html`, `manual/mcp-server.html`, `README.md`
+
+</details>
+
+---
+
 ## [2.5.0] - 2026-10-01 - Document Tools and Attachments for MidiPilot and MCP
 
 ### Summary

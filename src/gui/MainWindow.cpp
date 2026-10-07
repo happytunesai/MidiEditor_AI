@@ -6190,6 +6190,50 @@ void MainWindow::fixFFXIVChannels() {
         // Changes summary
         html += QStringLiteral("<p style='font-size:11px; margin:4px 0;'>");
         html += QString("&#x1F5D1; Removed <b>%1</b> old program change(s)").arg(removedPCs);
+        // What FFXIV ignores but the editor would play (both modes).
+        const int removedExtra = result["removedExtraEvents"].toInt();
+        if (removedExtra > 0)
+            html += QString("<br>&#x1F5D1; Removed <b>%1</b> controller, pitch bend and aftertouch "
+                            "event(s) - FFXIV ignores them").arg(removedExtra);
+        const int removedSysEx = result["removedSysEx"].toInt();
+        if (removedSysEx > 0) {
+            const int resets = result["removedSystemResets"].toInt();
+            html += QString("<br>&#x1F5D1; Removed <b>%1</b> SysEx message(s)%2 - FFXIV ignores them")
+                .arg(QString::number(removedSysEx),
+                     resets > 0 ? QString(", %1 of them GM/GS/XG resets that switched every "
+                                          "channel to piano in playback").arg(resets)
+                                : QString());
+        }
+        // Preserve with the resync: non-guitar notes taken off guitar channels.
+        const QJsonArray movedTracks = result["nonGuitarNotesMoved"].toArray();
+        if (!movedTracks.isEmpty()) {
+            html += QString("<br>&#x1F500; Moved the notes of <b>%1</b> track(s) off guitar channels:")
+                        .arg(movedTracks.size());
+            for (const auto &v : movedTracks) {
+                const QJsonObject e = v.toObject();
+                const int from = e["fromChannel"].toInt();
+                const int to = e["channel"].toInt();
+                html += QString("<br>&nbsp;&nbsp;&nbsp;T%1 %2: %3 note(s) &rarr; CH%4%5")
+                    .arg(QString::number(e["track"].toInt()),
+                         e["trackName"].toString().toHtmlEscaped(),
+                         QString::number(e["notes"].toInt()),
+                         QString::number(to),
+                         from != to ? QString(" (new channel, was CH%1)").arg(from) : QString());
+            }
+        }
+        const QJsonArray noFreeChannel = result["nonGuitarTracksWithoutFreeChannel"].toArray();
+        if (!noFreeChannel.isEmpty()) {
+            html += QStringLiteral("<br><span style='color:#c62828;'>&#x26A0; No free channel left for "
+                                   "these tracks - they still play on a guitar channel:</span>");
+            for (const auto &v : noFreeChannel) {
+                const QJsonObject e = v.toObject();
+                html += QString("<br>&nbsp;&nbsp;&nbsp;T%1 %2: %3 note(s) on CH%4")
+                    .arg(QString::number(e["track"].toInt()),
+                         e["trackName"].toString().toHtmlEscaped(),
+                         QString::number(e["notes"].toInt()),
+                         QString::number(e["channel"].toInt()));
+            }
+        }
         if (switchPCs > 0)
             html += QString("<br>&#x1F3B8; Inserted <b>%1</b> mid-song guitar switch(es)").arg(switchPCs);
         if (velNorm > 0)

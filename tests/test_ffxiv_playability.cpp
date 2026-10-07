@@ -63,7 +63,10 @@
 #include "../src/protocol/Protocol.h"
 #include "../src/MidiEvent/MidiEvent.h"
 #include "../src/MidiEvent/NoteOnEvent.h"
+#include "../src/MidiEvent/ControlChangeEvent.h"
+#include "../src/MidiEvent/PitchBendEvent.h"
 #include "../src/MidiEvent/ProgChangeEvent.h"
+#include "../src/MidiEvent/SysExEvent.h"
 #include "../src/MidiEvent/TempoChangeEvent.h"
 
 // ---- ODR shims: Appearance colors (statics used by midi core / events) ---
@@ -629,6 +632,80 @@ private slots:
         QCOMPARE(FfxivPlayabilityValidator::validate(f, checks).countOf(Type::TempoMap), 1);
         checks.tempoMap = false;
         QCOMPARE(FfxivPlayabilityValidator::validate(f, checks).countOf(Type::TempoMap), 0);
+        delete f;
+    }
+
+    // --- 2.5.1: what the editor plays and the game ignores ------------------
+
+    void editorOnlyEvents_reportedPerTrackWithResets() {
+        MidiFile *f = makeFile("Viola", 0);
+        addNote(f, 0, f->track(1), 60, 768, 900);
+        auto put = [&](int ch, MidiEvent *ev, int tick) {
+            ev->setFile(f);
+            f->channel(ch)->insertEvent(ev, tick, false);
+        };
+        put(16, new SysExEvent(16, QByteArray::fromHex("7e7f0901"), f->track(1)), 1);
+        put(16, new SysExEvent(16, QByteArray::fromHex("4110421240007f0041"), f->track(1)), 24);
+        put(16, new SysExEvent(16, QByteArray::fromHex("41104212400133503c"), f->track(1)), 68);
+        put(0, new ControlChangeEvent(0, 0, 1, f->track(1)), 0);   // bank select
+        put(0, new ControlChangeEvent(0, 7, 90, f->track(1)), 0);  // volume
+        put(0, new PitchBendEvent(0, 9000, f->track(1)), 800);
+
+        const FfxivPlayabilityReport r = FfxivPlayabilityValidator::validate(f);
+        QCOMPARE(r.countOf(Type::EditorOnlyEvents), 1);
+        const FfxivPlayabilityIssue *issue = nullptr;
+        for (const auto &i : r.issues)
+            if (i.type == Type::EditorOnlyEvents) issue = &i;
+        QVERIFY(issue);
+        QCOMPARE(issue->track, 1);
+        QCOMPARE(issue->tick, 0);
+        QVERIFY(issue->details.contains("3 SysEx (2 GM/GS/XG resets"));
+        QVERIFY(issue->details.contains("2 controllers (1 bank select)"));
+        QVERIFY(issue->details.contains("1 pitch bend - FFXIV ignores them"));
+        QVERIFY(issue->events.isEmpty()); // nothing for "select offending notes"
+
+        FfxivPlayabilityChecks off;
+        off.editorOnlyEvents = false;
+        QCOMPARE(FfxivPlayabilityValidator::validate(f, off).countOf(Type::EditorOnlyEvents), 0);
+        delete f;
+    }
+
+    void editorOnlyEvents_quietInAPlainGmFile() {
+        MidiFile *f = makeFile("Lead Synth", 0); // no FFXIV instrument
+        addNote(f, 0, f->track(1), 60, 0, 100);
+        auto *cc = new ControlChangeEvent(0, 7, 90, f->track(1));
+        cc->setFile(f);
+        f->channel(0)->insertEvent(cc, 0, false);
+        QCOMPARE(FfxivPlayabilityValidator::validate(f).countOf(Type::EditorOnlyEvents), 0);
+        delete f;
+    }
+
+    void midSongProgram_reportedOnNonGuitarChannelsOnly() {
+        MidiFile *f = makeFile("Flute", 2);
+        addNote(f, 2, f->track(1), 72, 0, 100);
+        addNote(f, 2, f->track(1), 74, 2000, 2100);
+        addProgChange(f, 2, f->track(1), 73, 0);
+        addProgChange(f, 2, f->track(1), 73, 960);  // the same program: no change
+        addProgChange(f, 2, f->track(1), 75, 1920); // Flute -> Panpipes
+        // A guitar's switch on its own channel is no finding.
+        f->protocol()->startNewAction("setup-track");
+        f->addTrack();
+        f->protocol()->endAction();
+        MidiTrack *guitar = f->track(f->numTracks() - 1);
+        guitar->setName(QStringLiteral("ElectricGuitarClean"));
+        addNote(f, 3, guitar, 60, 0, 100);
+        addProgChange(f, 3, guitar, 27, 0);
+        addProgChange(f, 3, guitar, 29, 480);
+
+        const FfxivPlayabilityReport r = FfxivPlayabilityValidator::validate(f);
+        QCOMPARE(r.countOf(Type::MidSongProgram), 1);
+        for (const auto &i : r.issues) {
+            if (i.type != Type::MidSongProgram) continue;
+            QCOMPARE(i.track, 1);
+            QCOMPARE(i.tick, 1920);
+            QVERIFY(i.details.contains("(75)"));
+            QVERIFY(i.details.contains("CH2"));
+        }
         delete f;
     }
 };

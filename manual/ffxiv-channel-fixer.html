@@ -117,7 +117,7 @@ The fixer analyzes your MIDI file by track name, auto-detects the best mode, and
 </div>
 <div class="step-card">
 <h4>2&#xFE0F;&#x20E3; Clean</h4>
-<p>Removes existing <code>program_change</code> events. Rebuild mode removes all; Preserve mode removes only guitar channels.</p>
+<p>Removes existing <code>program_change</code> events. Rebuild mode removes all; Preserve mode removes only guitar channels. Both modes remove what FFXIV ignores but the editor plays: controllers (bank select included), pitch bend, aftertouch and SysEx. A GM, GS or XG reset message in the file would otherwise switch every channel to piano when the song plays from the start.</p>
 </div>
 <div class="step-card">
 <h4>3&#xFE0F;&#x20E3; Migrate</h4>
@@ -155,7 +155,7 @@ When you click <b>Fix X|V Channels</b>, a confirmation dialog appears with two m
 <li>Maps every track to a fresh channel (T0&rarr;CH0, T1&rarr;CH1, &hellip;)</li>
 <li>Percussion tracks &rarr; CH9 &nbsp;(Timpani stays on track index - it's tonal)</li>
 <li>CH9 is kept for percussion - a melodic or guitar track at track index 9 moves to the next free channel, and no reserved guitar channel lands on CH9</li>
-<li>Removes <b>all</b> existing program changes and non-essential events (CC, PitchBend, SysEx)</li>
+<li>Removes <b>all</b> existing program changes and the events FFXIV ignores (controllers, pitch bend, aftertouch, SysEx)</li>
 <li>Moves all events to the correct channel</li>
 <li>Reserves channels for <b>all 5 guitar variants</b>, even if only 1-2 are present as tracks</li>
 <li>Inserts <code>program_change</code> at tick 0 for every instrument on every track</li>
@@ -170,7 +170,8 @@ When you click <b>Fix X|V Channels</b>, a confirmation dialog appears with two m
 <td>
 <ul style="margin:0; padding-left:1.2em;">
 <li>Keeps all existing channel assignments (uses <code>assignedChannel()</code>) - percussion tracks included</li>
-<li>Non-guitar channels <b>completely untouched</b> - no PCs removed, no events moved (unless the optional <a href="#resync">instrument re-sync</a> is enabled)</li>
+<li>Keeps the program changes of non-guitar channels and moves no notes (unless the optional <a href="#resync">instrument re-sync</a> is enabled)</li>
+<li>Removes controllers, pitch bend, aftertouch and SysEx - FFXIV ignores them, so the editor sounds like the game</li>
 <li>Recognizes <b>reserved guitar channels</b> from a previous Rebuild (e.g. CH5, CH6 for unused variants)</li>
 <li>Refreshes guitar program changes at tick 0 and writes the switch PCs at variant change points anew - running Preserve again does not stack them, on reserved guitar channels either</li>
 <li>Auto-renames guitar tracks if first note sits on a different variant's channel (an octave suffix like <code>+1</code> stays)</li>
@@ -216,6 +217,7 @@ default.</p>
 <li><b>Percussion and the drum channel are never touched</b> - the drum instruments follow their track names at playback; Timpani (a tonal instrument) is re-synced like any melodic track</li>
 <li><b>Shared channels follow the playing track</b> - when several tracks point at one channel, the track whose first note sounds earliest on that channel decides the instrument</li>
 <li><b>Tracks without notes on a channel cannot claim it</b> - an empty or moved-away track never overwrites another track's instrument</li>
+<li><b>A non-guitar track on a guitar channel gets a channel of its own</b> - a guitar track you renamed to Cello still plays on the guitar channel, with the guitar's sound. The re-sync gives it the first free channel, moves its notes from the guitar channels there and sets the Cello's program on it. The guitar tracks, their channels and their program changes stay as they are. Notes a non-guitar track left on a guitar channel go back to its own channel. When no channel is free, nothing moves and the result names the track.</li>
 </ul>
 
 <hr>
@@ -238,6 +240,8 @@ After the fix completes, a structured result popup shows exactly what was change
 <li><b>Removed program changes</b> - how many old PCs were cleaned up</li>
 <li><b>Guitar switches</b> - how many mid-song variant switches were inserted</li>
 <li><b>Velocity normalization</b> - how many notes were set to maximum velocity</li>
+<li><b>Removed events FFXIV ignores</b> - controllers, pitch bend and aftertouch, and SysEx messages with the number of GM, GS or XG resets among them</li>
+<li><b>Moved notes</b> (Preserve with re-sync) - non-guitar tracks whose notes left the guitar channels, with the channel they play on now</li>
 <li><b>Track renames</b> - any guitar tracks auto-renamed to match their actual variant</li>
 <li><b>Guitar notes on other channels</b> (Preserve) - guitar notes that sit on a channel without a guitar program, for example the Flute's, get no switch program change; the result lists them with their track and channel so you can move them onto a guitar channel</li>
 </ul>
@@ -363,7 +367,7 @@ The entire Fix X|V Channels operation is wrapped in a <b>single undo action</b>.
 <ul>
 <li><b>Name your tracks correctly</b> - the fixer identifies instruments purely by track name. Use the exact FFXIV instrument names listed above</li>
 <li><b>Run Rebuild first</b> - for fresh files, always start with Rebuild mode to get a clean baseline</li>
-<li><b>Use Preserve for touch-ups</b> - if you only need to fix guitar variants after manual editing, Preserve keeps everything else intact</li>
+<li><b>Use Preserve for touch-ups</b> - if you only need to fix guitar variants after manual editing, Preserve keeps your channels and instrument choices</li>
 <li><b>Split the drums first</b> - the <a href="ffxiv-drum-split.html">FFXIV Drum Split</a> turns a GM drum track into named percussion tracks the fixer routes automatically</li>
 <li><b>Combine with MidiPilot</b> - use "Convert this for FFXIV Bard performance" in Agent mode to compose, then Fix X|V to clean up channels</li>
 <li><b>Check afterwards</b> - run <a href="ffxiv-playability.html">Check FFXIV Playability</a> once the channels are set up; it needs no AI and its findings are clickable. Ask MidiPilot to run <code>validate_ffxiv</code> when you want the same verdict inside a conversation</li>
