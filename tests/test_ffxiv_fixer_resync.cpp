@@ -1231,6 +1231,37 @@ private slots:
         delete f;
     }
 
+    void sameTickPrograms_undoOfAValueChangeKeepsTheOneInEffect() {
+        // Undo/redo restored an edited event by re-inserting it, which put it
+        // first among the events of its tick - the older program change won.
+        MidiFile *f = makeFile("Violin", 2);
+        addNote(f, 2, f->track(1), 60, 0, 100);
+        addPc(f, 2, 40, f->track(1), 0);
+        addPc(f, 2, 41, f->track(0), 0); // inserted later: the one in effect
+        ProgChangeEvent *older = nullptr;
+        for (MidiEvent *ev : f->channel(2)->eventMap()->values(0)) {
+            auto *pc = dynamic_cast<ProgChangeEvent *>(ev);
+            if (pc && pc->program() == 40) older = pc;
+        }
+        QVERIFY(older);
+
+        f->protocol()->startNewAction("edit program");
+        older->setProgram(44); // the event list edits a program like this
+        f->protocol()->endAction();
+        QCOMPARE(f->channel(2)->progAtTick(0), 41);
+
+        f->protocol()->undo();
+        QCOMPARE(older->program(), 40);
+        QCOMPARE(f->channel(2)->progAtTick(0), 41);
+        QCOMPARE(f->channel(2)->eventMap()->count(0, older), 1);
+
+        f->protocol()->redo();
+        QCOMPARE(older->program(), 44);
+        QCOMPARE(f->channel(2)->progAtTick(0), 41);
+        QCOMPARE(prerollProgram(f, 2, 480), 41);
+        delete f;
+    }
+
     void musicXmlExport_partTakesTheInstrumentOfItsChannel() {
         // After Rebuild every track owns a program change for every channel.
         // The exported part must take the instrument of the channel its notes

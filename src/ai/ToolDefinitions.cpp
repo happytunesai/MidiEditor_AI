@@ -1484,7 +1484,7 @@ QJsonObject ToolDefinitions::execGetSelection(MidiFile *file) {
 // used since v2.0. Real builds only: test_tool_definitions ODR-stubs
 // MidiPilotWidget as a non-QWidget, so window()/qobject_cast must never enter
 // the stub link (each exec* below is #ifdef-stubbed like thin_tempo_map).
-static MainWindow *mainWindowOf(MidiPilotWidget *widget) {
+MainWindow *ToolDefinitions::mainWindowOf(MidiPilotWidget *widget) {
     if (!widget)
         return nullptr;
     if (MainWindow *mw = qobject_cast<MainWindow *>(widget->window()))
@@ -1494,9 +1494,8 @@ static MainWindow *mainWindowOf(MidiPilotWidget *widget) {
     // panel's top-level window, so window() no longer reaches the MainWindow;
     // the parent chain still does (a floating dock keeps its parent). Without
     // this, the cross-tab tools would fail with "Main window not available"
-    // whenever the panel is undocked. (The MCP pre-dispatch intercept in
-    // McpServer.cpp has the same window()-only resolution since v2.0 and is
-    // left untouched for byte-compatibility - reported instead.)
+    // whenever the panel is undocked. The MCP pre-dispatch intercept
+    // (list_documents, switch_document) resolves through here as well.
     for (QWidget *p = widget->parentWidget(); p; p = p->parentWidget()) {
         if (MainWindow *mw = qobject_cast<MainWindow *>(p))
             return mw;

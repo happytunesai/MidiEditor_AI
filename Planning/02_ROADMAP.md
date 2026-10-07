@@ -13976,7 +13976,8 @@ stored as separate files next to the conversation.
 ## Later (not in 2.5)
 
 **For 2.5.1**
-* MCP over IPv6 localhost (MCP-IPV6-001): the MCP server listens on `127.0.0.1` only
+* MCP over IPv6 localhost (MCP-IPV6-001) - DONE 2026-10-07: second listener on `::1`, same port;
+  live: `localhost` 1-8 ms per call (was about 2 s). Original note: the MCP server listened on `127.0.0.1` only
   (`QHostAddress::LocalHost`). A client configured with `localhost` tries `::1` first, and on
   Windows every refused IPv6 connect costs about 2 s before the IPv4 fallback - a script with a
   few hundred calls ran into its timeout. Fix: a second `QTcpServer` on
@@ -13995,6 +13996,14 @@ stored as separate files next to the conversation.
 * Check FFXIV Playability: "Editor-only events" check - DONE 2026-10-06: events FFXIV ignores
   per track (resets named) with the Channel Fixer button, mid-song program changes of non-guitar
   channels; validate_ffxiv returns eventsFfxivIgnores without changing its verdict.
+* From the 2.5 review, DONE 2026-10-07: same-tick order after undo/redo (an event restored with
+  unchanged channel and tick keeps its map position); tempo lane draws into the first track; MCP
+  document intercept (list_documents, switch_document) uses the floating-dock aware lookup
+  (ToolDefinitions::mainWindowOf). CLOSED without code: CF-02 leftover (a non-guitar track's
+  guitar-program change on a reserved channel) - superseded by FIX-CELLO-001, keeping such PCs
+  would leave a renamed guitar's old switches on the guitar channels; CF-05 name condition -
+  deliberate, only an EMPTY unnamed track can be affected and it must not take a channel a
+  guitar variant needs.
 * Owner test week with older MIDIs (from 2026-10-07) - further fixer findings go here.
 
 **From the 2.5 review (2026-09-28, verified, deferred)**

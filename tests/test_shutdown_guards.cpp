@@ -155,6 +155,34 @@ private slots:
                  "McpServer::stop() must not block on a queued call");
     }
 
+    // MCP-IPV6-001: "localhost" resolves to ::1 first; with only an IPv4
+    // listener every call waited for the refused IPv6 connect. Both loopback
+    // listeners, never a wildcard address, and stop() closes and drops both.
+    void mcpListensOnBothLoopbacksOnly()
+    {
+        const QString start = functionBody(_mcpServer, QStringLiteral("bool McpServer::start("));
+        QVERIFY2(!start.isEmpty(), "McpServer::start() definition not found");
+        QVERIFY(start.contains(QStringLiteral("listen(QHostAddress::LocalHost,")));
+        QVERIFY(start.contains(QStringLiteral("listen(QHostAddress::LocalHostIPv6,")));
+        QVERIFY2(!_mcpServer.contains(QStringLiteral("QHostAddress::Any")),
+                 "the MCP server must listen on the loopback addresses only");
+        const QString stop = functionBody(_mcpServer, QStringLiteral("void McpServer::stop()"));
+        QVERIFY(stop.contains(QStringLiteral("_server6->close()")));
+        QVERIFY(stop.contains(QStringLiteral("_server6->findChildren<QTcpSocket *>()")));
+        const QString accept = functionBody(_mcpServer, QStringLiteral("void McpServer::onNewConnection()"));
+        QVERIFY(accept.contains(QStringLiteral("_server6")));
+    }
+
+    // While the MidiPilot dock floats, window() is the dock: list_documents and
+    // switch_document over MCP answered "Main window not available". The
+    // intercept resolves through the floating-dock aware helper now.
+    void mcpDocumentInterceptFindsTheMainWindowWhileTheDockFloats()
+    {
+        QVERIFY2(!_mcpServer.contains(QStringLiteral("_widget->window()")),
+                 "the MCP document intercept must not resolve the MainWindow via window() only");
+        QVERIFY(_mcpServer.contains(QStringLiteral("ToolDefinitions::mainWindowOf(_widget)")));
+    }
+
     // SP-06: the session lock lives in McpSessionTable, which never calls into a
     // socket - so no caller can close a stream while holding it, and the
     // disconnected handler (which takes the lock) cannot re-enter it.

@@ -13,6 +13,7 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 * **[Fix X|V Channels removes what FFXIV ignores](https://midieditor-ai.de/ffxiv-channel-fixer.html)** - both modes remove controllers, pitch bend, aftertouch and SysEx, so the editor plays the song the way the bards do; a GM, GS or XG reset in a file no longer turns every instrument into a piano when the song plays from the start.
 * **[Re-sync gives a renamed guitar track a channel of its own](https://midieditor-ai.de/ffxiv-channel-fixer.html#resync)** - a guitar track renamed to Cello moves to a free channel with the Cello's program; the guitar tracks keep their channels and programs.
 * **[Check FFXIV Playability finds editor-only events](https://midieditor-ai.de/ffxiv-playability.html#playability-checks)** - a new check lists the events FFXIV ignores and the mid-song program changes of non-guitar channels, which change the editor's playback but not the game's.
+* **MCP clients connected to `localhost` answer at once** - every tool call waited about two seconds before; the server now listens on the IPv6 loopback as well (MCP-IPV6-001).
 
 <details>
 <summary>Full Changelog - Fix X|V Channels: The Editor Sounds Like the Game</summary>
@@ -25,6 +26,10 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 * The Fix X|V Channels dialog shows how many events FFXIV ignores the file holds, and its mode descriptions say what each mode removes; the result window lists the removed events and the moved notes.
 
 ### Bug Fixes
+* **MCP calls over `localhost` took two seconds each** - `localhost` resolves to the IPv6 loopback first, and the server listened on IPv4 only, so on Windows every call waited for the refused IPv6 connection before falling back. The server now listens on `::1` as well, on the same port and still on the loopback addresses only.
+* **list_documents and switch_document over MCP failed while the MidiPilot panel floated** - with the panel undocked they answered "Main window not available"; they find the editor window now, as MidiPilot's own tools do.
+* **Undo or redo of a program change could switch the instrument** - with two program changes of different programs at the same tick on one channel, undoing or redoing an edit of the older one made it the one in effect, so the channel list and playback changed instrument while the saved file did not. An edited event now keeps its place among the events of its tick.
+* **A tempo drawn in the controller lane belonged to the edit track** - the saved file keeps tempo changes in the first track, so the tempo moved there on save; it is created in the first track right away, like the tempos the tempo tool, the tempo dialog and MidiPilot create.
 * **Piano sound after a GM/GS/XG reset** - a file with a reset message after the start (GM System On, GS Reset, XG System On) played every instrument as a piano when played from the start, while playback from later in the song sounded right: the reset undid the program changes Fix X|V Channels writes at tick 0. Both modes now remove every SysEx message; Rebuild was described as doing so but kept them.
 * **[A guitar track renamed to another instrument kept the guitar's channel](https://midieditor-ai.de/ffxiv-channel-fixer.html#resync)** - with "Re-sync non-guitar channel instruments" on, Preserve skipped the track because its channel is a guitar channel, so a guitar renamed to Cello went on playing the guitar's sound on the guitar channel and the switch channels. It now gets the first free channel, its notes move there and the channel gets the Cello's program; the guitar channels keep their programs for the other guitars. Notes a non-guitar track left on a guitar channel go back to its own channel. Without a free channel nothing moves and the result names the track.
 
@@ -35,10 +40,15 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 * `src/gui/FfxivPlayabilityDialog.h/.cpp` - Editor-only events checkbox, groups, Channel Fixer button
 * `src/gui/FFXIVFixerDialog.cpp` - analysis line, mode descriptions, re-sync tooltip
 * `src/gui/MainWindow.cpp` - result window lines for removed events and moved notes
-* `src/ai/ToolDefinitions.cpp` - `setup_channel_pattern` description, `validate_ffxiv` `eventsFfxivIgnores`
+* `src/ai/ToolDefinitions.h/.cpp` - `setup_channel_pattern` description, `validate_ffxiv` `eventsFfxivIgnores`; the floating-dock aware main window lookup shared with the MCP server
+
+#### MCP, editing
+* `src/ai/McpServer.h/.cpp` - a second listener on the IPv6 loopback; document intercept through the shared lookup
+* `src/MidiEvent/MidiEvent.cpp` - an event restored by undo/redo keeps its place at its tick
+* `src/gui/MiscWidget.cpp` - tempos drawn in the controller lane go to the first track
 
 #### Tests
-* `tests/test_ffxiv_fixer_resync.cpp`, `tests/test_ffxiv_playability.cpp`
+* `tests/test_ffxiv_fixer_resync.cpp`, `tests/test_ffxiv_playability.cpp`, `tests/test_shutdown_guards.cpp`
 
 #### Manual and docs
 * `manual/ffxiv-channel-fixer.html`, `manual/ffxiv-playability.html`, `manual/midipilot-tools.html`, `manual/mcp-server.html`, `README.md`

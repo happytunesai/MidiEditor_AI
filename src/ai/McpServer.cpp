@@ -38,8 +38,9 @@ static const int JSONRPC_INTERNAL_ERROR = -32603;
 // ---------------------------------------------------------------------------
 
 McpServer::McpServer(QObject *parent)
-    : QObject(parent), _server(new QTcpServer(this)) {
+    : QObject(parent), _server(new QTcpServer(this)), _server6(new QTcpServer(this)) {
     connect(_server, &QTcpServer::newConnection, this, &McpServer::onNewConnection);
+    connect(_server6, &QTcpServer::newConnection, this, &McpServer::onNewConnection);
 
     // Cleanup stale sessions every 5 minutes
     _cleanupTimer.setInterval(300000);
@@ -66,9 +67,20 @@ bool McpServer::start(quint16 port) {
         return false;
     }
     _port = _server->serverPort();
+    // The same port on the IPv6 loopback (MCP-IPV6-001): a client configured
+    // with "localhost" tries ::1 first, and on Windows every refused IPv6
+    // connect cost about two seconds before it fell back to 127.0.0.1 - per
+    // call. Loopback only, never Any. Where IPv6 is unavailable the server
+    // stays on IPv4 alone, as before.
+    if (_server6->listen(QHostAddress::LocalHostIPv6, _port)) {
+        emit logMessage(QString("MCP Server listening on localhost:%1 (IPv4 and IPv6)").arg(_port));
+    } else {
+        emit logMessage(QString("MCP Server listening on localhost:%1 (IPv4 only - IPv6 loopback: %2)")
+                            .arg(_port)
+                            .arg(_server6->errorString()));
+    }
     _cleanupTimer.start();
     emit started(_port);
-    emit logMessage(QString("MCP Server listening on localhost:%1").arg(_port));
     return true;
 }
 
@@ -91,6 +103,7 @@ void McpServer::stop() {
     }
 
     _server->close();
+    _server6->close();
 
     // Drop every client connection as well, not only the listener: a request
     // that already sits in a socket buffer would otherwise still be dispatched
@@ -100,7 +113,9 @@ void McpServer::stop() {
     // in here waits: the server lives on the GUI thread, so a stop() from
     // there can never deadlock against a tool call that is blocked in a
     // BlockingQueuedConnection towards this very thread.
-    const QList<QTcpSocket *> clients = _server->findChildren<QTcpSocket *>();
+    // An accepted socket is a child of the server that accepted it.
+    QList<QTcpSocket *> clients = _server->findChildren<QTcpSocket *>();
+    clients += _server6->findChildren<QTcpSocket *>();
     for (QTcpSocket *client : clients) {
         client->abort();
     }
@@ -180,23 +195,26 @@ int McpServer::sessionCount() const {
 // ---------------------------------------------------------------------------
 
 void McpServer::onNewConnection() {
-    while (_server->hasPendingConnections()) {
-        QTcpSocket *socket = _server->nextPendingConnection();
-        connect(socket, &QTcpSocket::readyRead, this, [this, socket]() {
-            handleClient(socket);
-        });
-        connect(socket, &QTcpSocket::disconnected, this, [this, socket]() {
-            _pendingData.remove(socket);
-            // Forget the socket where it was a session's SSE stream. This
-            // runs synchronously from close() - which is why no caller may
-            // close a stream while holding the table's lock (SP-06).
-            const QString id = _sessions.detachSocket(socket);
-            if (!id.isEmpty()) {
-                emit clientDisconnected(id);
-                emit logMessage(QString("SSE connection closed for session %1").arg(id));
-            }
-            socket->deleteLater();
-        });
+    // Both listeners (IPv4 and IPv6 loopback) feed the same handling.
+    for (QTcpServer *listener : {_server, _server6}) {
+        while (listener->hasPendingConnections()) {
+            QTcpSocket *socket = listener->nextPendingConnection();
+            connect(socket, &QTcpSocket::readyRead, this, [this, socket]() {
+                handleClient(socket);
+            });
+            connect(socket, &QTcpSocket::disconnected, this, [this, socket]() {
+                _pendingData.remove(socket);
+                // Forget the socket where it was a session's SSE stream. This
+                // runs synchronously from close() - which is why no caller may
+                // close a stream while holding the table's lock (SP-06).
+                const QString id = _sessions.detachSocket(socket);
+                if (!id.isEmpty()) {
+                    emit clientDisconnected(id);
+                    emit logMessage(QString("SSE connection closed for session %1").arg(id));
+                }
+                socket->deleteLater();
+            });
+        }
     }
 }
 
@@ -756,9 +774,9 @@ QJsonObject McpServer::handleToolsCall(const QJsonObject &params, Session &sessi
                     return;
                 }
             }
-            MainWindow *mw = _widget
-                ? qobject_cast<MainWindow *>(_widget->window())
-                : nullptr;
+            // Floating-dock aware: while the MidiPilot dock floats, window()
+            // is the dock and only the parent chain reaches the MainWindow.
+            MainWindow *mw = ToolDefinitions::mainWindowOf(_widget);
             if (!mw) {
                 toolResult["success"] = false;
                 toolResult["error"] = QStringLiteral("Main window not available.");

@@ -704,6 +704,19 @@ void MidiEvent::reloadState(ProtocolEntry *entry) {
         return;
     }
     _track = other->_track;
+    // Same channel, same tick and already mapped there exactly once (an edit
+    // of the value, the track or the note-off): stay where it is. Re-inserting
+    // puts the event FIRST among the events of its tick, and with several
+    // program changes or tempos at one tick the first one is the one in
+    // effect (fixer review CF-03) - an undo or redo of a value change made an
+    // older program change win over the newer one.
+    if (numChannel == other->numChannel && timePos == other->timePos) {
+        QMultiMap<int, MidiEvent *> *map = file()->channelEvents(numChannel);
+        if (map->count(timePos, this) == 1) {
+            midiFile = other->midiFile;
+            return;
+        }
+    }
     // A channel-level snapshot restored earlier in the same undo/redo step may
     // already hold this event at its target key (or still at the stale one):
     // unmap it at BOTH keys, in both channels, before re-inserting, so no map

@@ -5,6 +5,7 @@
 #include <QJsonObject>
 #include <QString>
 
+class MainWindow;
 class MidiFile;
 class MidiPilotWidget;
 
@@ -97,6 +98,15 @@ public:
                                    MidiFile *file,
                                    MidiPilotWidget *widget,
                                    const QString &source = QString());
+
+    /**
+     * \brief The MainWindow the MidiPilot panel belongs to - also while its
+     *        dock floats (then the dock is the panel's top-level window and
+     *        only the parent chain still leads to the MainWindow). Shared by
+     *        the cross-tab tools and the MCP server's document intercept.
+     *        Real builds only (the FFXIV test stub does not define it).
+     */
+    static MainWindow *mainWindowOf(MidiPilotWidget *widget);
 
 private:
     static QJsonObject makeTool(const QString &name,

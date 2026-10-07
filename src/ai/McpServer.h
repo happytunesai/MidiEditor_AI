@@ -149,7 +149,8 @@ private:
     void removeSession(const QString &id);
     void cleanupStaleSessions();
 
-    QTcpServer *_server = nullptr;
+    QTcpServer *_server = nullptr;    ///< 127.0.0.1 - the server's state
+    QTcpServer *_server6 = nullptr;   ///< ::1 on the same port, when available
     MidiFile *_file = nullptr;
     MidiPilotWidget *_widget = nullptr;
     QString _authToken;

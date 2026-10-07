@@ -489,7 +489,7 @@ even though they add nothing to the Protocol panel.
 
 <table>
     <tr><th>Feature</th><th>Description</th></tr>
-    <tr><td><b>Localhost binding</b></td><td>Listens on <code>127.0.0.1</code> only - not accessible from the network</td></tr>
+    <tr><td><b>Localhost binding</b></td><td>Listens on the loopback addresses only (<code>127.0.0.1</code> and <code>::1</code>) - not accessible from the network</td></tr>
     <tr><td><b>Origin validation</b></td><td>Rejects requests with non-local Origin headers (DNS rebinding protection)</td></tr>
     <tr><td><b>Auth token</b></td><td>Optional Bearer token authentication - generate one in Settings</td></tr>
     <tr><td><b>Rate limiting</b></td><td>100 tool calls per minute per session</td></tr>
