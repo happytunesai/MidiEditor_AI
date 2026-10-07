@@ -14004,6 +14004,11 @@ stored as separate files next to the conversation.
   would leave a renamed guitar's old switches on the guitar channels; CF-05 name condition -
   deliberate, only an EMPTY unnamed track can be affected and it must not take a channel a
   guitar variant needs.
+* Playability repairs for MidiPilot/MCP - DONE 2026-10-07 (TOOLS-PLAYABILITY-001): new FFXIV tool
+  delete_ffxiv_collisions (the workbench's Delete colliding notes: same findings, same survivor rule,
+  shared ffxivRemoveNotes, one undo step; kinds duplicates/chords, track and tick range);
+  validate_ffxiv `checks`; setup_channel_pattern `mode` + `resyncNonGuitar`. Survivor rule: equally
+  loud duplicates keep the longer copy (button too). Used live on 285 band files.
 * Owner test week with older MIDIs (from 2026-10-07) - further fixer findings go here.
 
 **From the 2.5 review (2026-09-28, verified, deferred)**

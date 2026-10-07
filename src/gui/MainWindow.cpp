@@ -8355,23 +8355,8 @@ void MainWindow::checkFfxivPlayability() {
             [this, checkedFile](const QList<MidiEvent *> &victims) {
                 if (file != checkedFile || victims.isEmpty()) return;
                 checkedFile->protocol()->startNewAction(tr("Delete colliding notes"));
-                QMap<int, QList<MidiEvent *>> byChannel;
-                for (MidiEvent *ev : victims) byChannel[ev->channel()].append(ev);
-                for (auto it = byChannel.constBegin(); it != byChannel.constEnd(); ++it) {
-                    MidiChannel *channel = checkedFile->channel(it.key());
-                    if (!channel) continue;
-                    ProtocolEntry *toCopy = channel->copy();
-                    for (MidiEvent *ev : it.value()) {
-                        channel->eventMap()->remove(ev->midiTime(), ev);
-                        if (OnEvent *on = dynamic_cast<OnEvent *>(ev)) {
-                            if (on->offEvent()) {
-                                channel->eventMap()->remove(
-                                    on->offEvent()->midiTime(), on->offEvent());
-                            }
-                        }
-                    }
-                    channel->protocol(toCopy, channel);
-                }
+                // The removal the delete_ffxiv_collisions tool uses as well.
+                ffxivRemoveNotes(checkedFile, victims);
                 Selection::instance()->clearSelection();
                 eventWidget()->reportSelectionChangedByTool();
                 checkedFile->protocol()->endAction();

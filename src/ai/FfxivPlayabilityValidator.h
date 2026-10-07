@@ -148,12 +148,22 @@ public:
  *  simply contributes nothing.
  *
  *  Survivor per collision group: highest pitch (the melody rule Auto-Fit
- *  documents), among equal pitches the louder note. A note may survive one
+ *  documents), among equal pitches the louder note, among equally loud ones
+ *  the longer note (fixer-normalized files have every velocity at 127, so a
+ *  stacked duplicate keeps its longest copy). A note may survive one
  *  issue and be a victim of another (C+C+E: the chord keeps E, the
  *  duplicate pair contributes both Cs) - the victim UNION handles that
  *  correctly. The result follows the order of `indices` and is
  *  deduplicated. */
 QList<MidiEvent *> ffxivCollisionSurplus(
     const QList<FfxivPlayabilityIssue> &issues, const QList<int> &indices);
+
+/** Removes `notes` (NoteOn events, their note-offs go with them) from their
+ *  channels - one snapshot per touched channel, so the caller's open
+ *  Protocol action undoes the whole removal in one step. Shared by the
+ *  workbench's "Delete colliding notes" and the delete_ffxiv_collisions tool.
+ *  The caller opens and closes the action and drops the notes from any
+ *  selection. */
+void ffxivRemoveNotes(MidiFile *file, const QList<MidiEvent *> &notes);
 
 #endif // FFXIVPLAYABILITYVALIDATOR_H_

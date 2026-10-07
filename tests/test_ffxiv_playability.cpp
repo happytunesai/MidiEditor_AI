@@ -637,6 +637,33 @@ private slots:
 
     // --- 2.5.1: what the editor plays and the game ignores ------------------
 
+    // 2.5.1: equally loud stacked duplicates keep the LONGER copy (fixer-
+    // normalized files have every velocity at 127), and the shared removal
+    // undoes in one step.
+    void collisionSurplus_equalVelocityKeepsTheLongerDuplicate() {
+        MidiFile *f = makeFile("Flute", 0);
+        NoteOnEvent *shortOne = addNote(f, 0, f->track(1), 60, 480, 500);
+        NoteOnEvent *longOne = addNote(f, 0, f->track(1), 60, 480, 900);
+        const FfxivPlayabilityReport r = FfxivPlayabilityValidator::validate(f);
+        QList<int> all;
+        for (int i = 0; i < r.issues.size(); ++i) all.append(i);
+        const QList<MidiEvent *> victims = ffxivCollisionSurplus(r.issues, all);
+        QCOMPARE(victims.size(), 1);
+        QCOMPARE(victims.first(), static_cast<MidiEvent *>(shortOne));
+
+        f->protocol()->startNewAction("delete colliding notes");
+        ffxivRemoveNotes(f, victims);
+        f->protocol()->endAction();
+        QVERIFY(!f->channel(0)->eventMap()->values(480).contains(shortOne));
+        QVERIFY(f->channel(0)->eventMap()->values(480).contains(longOne));
+        QCOMPARE(FfxivPlayabilityValidator::validate(f).countOf(Type::DuplicateNote), 0);
+
+        f->protocol()->undo();
+        QVERIFY(f->channel(0)->eventMap()->values(480).contains(shortOne));
+        QCOMPARE(FfxivPlayabilityValidator::validate(f).countOf(Type::DuplicateNote), 1);
+        delete f;
+    }
+
     void editorOnlyEvents_reportedPerTrackWithResets() {
         MidiFile *f = makeFile("Viola", 0);
         addNote(f, 0, f->track(1), 60, 768, 900);

@@ -275,7 +275,7 @@ stays a set of tools rather than a console of dead buttons:
   <td><b>Delete colliding notes</b></td>
   <td>Simultaneous notes or stacked duplicates were found</td>
   <td>Removes the surplus notes of every collision in one undo step. A chord keeps its highest
-      note, a duplicate keeps one copy - the louder one.</td>
+      note, a duplicate keeps one copy - the louder one, and of two equally loud copies the longer one.</td>
 </tr>
 <tr>
   <td><b>Channel Fixer</b></td>
@@ -360,8 +360,11 @@ keeps the conversation. Without a configured provider the button is simply not t
 With FFXIV mode enabled, MidiPilot and any connected <a href="mcp-server.html">MCP</a> client can
 run the same engine through the <b>validate_ffxiv</b> tool, so an arrangement built by the AI is
 held to the same standard as one built by hand. The tool reports the four in-game rules - notes
-starting on the same tick, stacked duplicates, range and track names - and it tells stacked
-duplicates from chords rather than lumping them together. Every finding comes with its tick, so
+starting on the same tick, stacked duplicates, range and track names, all four or only the ones
+asked for - and it tells stacked duplicates from chords rather than lumping them together.
+The <b>delete_ffxiv_collisions</b> tool is the <b>Delete colliding notes</b> button for the AI: the same
+findings and the same rule for which note stays, stacked duplicates by default and chords only on
+request, optionally for one track or a stretch of the song, in one undo step. Every finding comes with its tick, so
 the agent can navigate to a problem instead of describing it vaguely, and when a track name is
 rejected the answer quotes the legal instrument spellings, which is what turns "that name is
 wrong" into a fix.

@@ -152,12 +152,17 @@ private:
                                        MidiPilotWidget *widget);
 
     // FFXIV tools
-    static QJsonObject execValidateFFXIV(MidiFile *file);
+    static QJsonObject execValidateFFXIV(const QJsonObject &args, MidiFile *file);
+    // 2.5.1: the workbench's "Delete colliding notes" as a tool
+    static QJsonObject execDeleteFfxivCollisions(const QJsonObject &args,
+                                                 MidiFile *file,
+                                                 const QString &source);
     static QJsonObject execConvertDrumsFFXIV(const QJsonObject &args,
                                              MidiFile *file,
                                              MidiPilotWidget *widget,
                                              const QString &source);
-    static QJsonObject execSetupChannelPattern(MidiFile *file,
+    static QJsonObject execSetupChannelPattern(const QJsonObject &args,
+                                               MidiFile *file,
                                                MidiPilotWidget *widget,
                                                const QString &source);
     // Phase 32.6: read-only voice-load analysis for the agent

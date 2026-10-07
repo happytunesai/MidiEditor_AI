@@ -7,6 +7,8 @@
 #include "../MidiEvent/ControlChangeEvent.h"
 #include "../MidiEvent/MidiEvent.h"
 #include "../MidiEvent/NoteOnEvent.h"
+#include "../MidiEvent/OffEvent.h"
+#include "../MidiEvent/OnEvent.h"
 #include "../MidiEvent/PitchBendEvent.h"
 #include "../MidiEvent/ProgChangeEvent.h"
 #include "../MidiEvent/SysExEvent.h"
@@ -111,12 +113,17 @@ QList<MidiEvent *> ffxivCollisionSurplus(
             && i.type != FfxivPlayabilityIssue::Type::DuplicateNote)
             continue;
         NoteOnEvent *survivor = nullptr;
+        auto length = [](NoteOnEvent *on) {
+            return on->offEvent() ? on->offEvent()->midiTime() - on->midiTime() : 0;
+        };
         for (MidiEvent *ev : i.events) {
             auto *on = dynamic_cast<NoteOnEvent *>(ev);
             if (!on) continue;
             if (!survivor || on->note() > survivor->note()
                 || (on->note() == survivor->note()
-                    && on->velocity() > survivor->velocity())) {
+                    && (on->velocity() > survivor->velocity()
+                        || (on->velocity() == survivor->velocity()
+                            && length(on) > length(survivor))))) {
                 survivor = on;
             }
         }
@@ -128,6 +135,28 @@ QList<MidiEvent *> ffxivCollisionSurplus(
         }
     }
     return victims;
+}
+
+void ffxivRemoveNotes(MidiFile *file, const QList<MidiEvent *> &notes) {
+    if (!file) return;
+    QMap<int, QList<MidiEvent *>> byChannel;
+    for (MidiEvent *ev : notes) {
+        if (ev) byChannel[ev->channel()].append(ev);
+    }
+    for (auto it = byChannel.constBegin(); it != byChannel.constEnd(); ++it) {
+        MidiChannel *channel = file->channel(it.key());
+        if (!channel) continue;
+        ProtocolEntry *toCopy = channel->copy();
+        for (MidiEvent *ev : it.value()) {
+            channel->eventMap()->remove(ev->midiTime(), ev);
+            if (OnEvent *on = dynamic_cast<OnEvent *>(ev)) {
+                if (on->offEvent()) {
+                    channel->eventMap()->remove(on->offEvent()->midiTime(), on->offEvent());
+                }
+            }
+        }
+        channel->protocol(toCopy, channel);
+    }
 }
 
 FfxivPlayabilityReport FfxivPlayabilityValidator::validate(

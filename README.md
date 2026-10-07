@@ -116,7 +116,7 @@ MidiEditor AI
 │   ├── AiClient         → OpenAI-compatible API client (SSE streaming)
 │   ├── ConversationStore → Persistent history (JSON save/load/resume)
 │   ├── EditorContext     → Musical context extraction for AI
-│   ├── ToolDefinitions   → 38 MIDI and document tools (32 core + switch_document + 5 FFXIV)
+│   ├── ToolDefinitions   → 39 MIDI and document tools (32 core + switch_document + 6 FFXIV)
 │   └── SystemPrompts     → Customizable per-mode AI instructions
 ├── Collaboration        → Live multi-peer co-editing + async PR workflow
 │   ├── LanLiveSession    → LAN host/joiner state machine + heartbeat + ghost-peer dedup
@@ -473,7 +473,7 @@ MidiEditor AI checks for new versions on GitHub at every startup. When an update
 
 ## 🛠️ MidiPilot Tools
 
-The AI has access to **32 core tools** plus `switch_document`, and **5 more when FFXIV mode is on** (38 total), for inspecting and modifying MIDI files and for creating, opening, saving and closing documents:
+The AI has access to **32 core tools** plus `switch_document`, and **6 more when FFXIV mode is on** (39 total), for inspecting and modifying MIDI files and for creating, opening, saving and closing documents:
 
 | Tool | Description |
 |------|-------------|
@@ -501,6 +501,7 @@ The AI has access to **32 core tools** plus `switch_document`, and **5 more when
 | `set_ffxiv_mode` | Turn FFXIV mode on/off - the FFXIV tool bundle appears/disappears with it (MCP clients are notified) |
 | `setup_channel_pattern` | Auto-configure MidiBard2 channel mapping *(FFXIV)* |
 | `validate_ffxiv` | Check FFXIV rule compliance *(FFXIV)* |
+| `delete_ffxiv_collisions` | Delete the surplus notes of stacked duplicates (and chords on request), like *Delete colliding notes* *(FFXIV)* |
 | `convert_drums_ffxiv` | Convert GM drums to FFXIV tonal percussion *(FFXIV)* |
 | `analyze_voice_load` | Audit simultaneous-voice count vs the FFXIV 16-voice ceiling *(FFXIV)* |
 | `auto_fit_voice_load` | Thin overloaded moments and over-dense passages - dry run first, your confirmation required *(FFXIV)* |
@@ -517,7 +518,7 @@ MidiEditor AI includes a built-in **MCP server** that exposes all MidiPilot tool
 
 1. Enable the MCP server in **Settings → MidiPilot AI → MCP Server**
 2. Copy the MCP config JSON to your AI client's configuration
-3. The client discovers the tools automatically and can compose, edit, analyze and save MIDI - 33 by default (the 32 core tools plus MCP's own `switch_document` for driving the open tabs), 38 with FFXIV mode on
+3. The client discovers the tools automatically and can compose, edit, analyze and save MIDI - 33 by default (the 32 core tools plus MCP's own `switch_document` for driving the open tabs), 39 with FFXIV mode on
 
 ### Quick Setup
 
