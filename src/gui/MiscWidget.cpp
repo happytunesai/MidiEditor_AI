@@ -671,7 +671,10 @@ void MiscWidget::mouseReleaseEvent(QMouseEvent *event) {
                                     v = _max;
                                 if (v < 1)
                                     v = 1;
-                                TempoChangeEvent *event = new TempoChangeEvent(channelToUse, 60000000 / v, track);
+                                // Song-wide data belongs to the first track - the one a saved file
+                                // keeps it in - not to the edit track the other lanes draw into.
+                                TempoChangeEvent *event = new TempoChangeEvent(channelToUse, 60000000 / v,
+                                                                               matrixWidget->midiFile()->track(0));
                                 matrixWidget->midiFile()->channel(channelToUse)->insertEvent(event, tick);
                                 break;
                             }
@@ -757,7 +760,9 @@ void MiscWidget::mouseReleaseEvent(QMouseEvent *event) {
                             v = _max;
                         if (v < 1)
                             v = 1;
-                        TempoChangeEvent *event = new TempoChangeEvent(channelToUse, 60000000 / v, track);
+                        // On the first track, like the tempo drawn above.
+                        TempoChangeEvent *event = new TempoChangeEvent(channelToUse, 60000000 / v,
+                                                                       matrixWidget->midiFile()->track(0));
                         matrixWidget->midiFile()->channel(channelToUse)->insertEvent(event, tick);
                         break;
                     }
@@ -953,7 +958,9 @@ void MiscWidget::mouseReleaseEvent(QMouseEvent *event) {
                                 // already applied to the protected tick 0 event above
                                 break;
                             }
-                            TempoChangeEvent *event = new TempoChangeEvent(channelToUse, 60000000 / v, track);
+                            // On the first track, like the tempo drawn above.
+                            TempoChangeEvent *event = new TempoChangeEvent(channelToUse, 60000000 / v,
+                                                                           matrixWidget->midiFile()->track(0));
                             matrixWidget->midiFile()->channel(channelToUse)->insertEvent(event, tick);
                             break;
                         }

@@ -32,6 +32,7 @@
 #include "../MidiEvent/MidiEvent.h"
 #include "../MidiEvent/NoteOnEvent.h"
 #include "../MidiEvent/OffEvent.h"
+#include "../MidiEvent/SysExEvent.h"
 #include "../protocol/Protocol.h"
 #include "../tool/Selection.h"
 
@@ -643,8 +644,8 @@ QJsonArray ToolDefinitions::toolSchemas(const ToolSchemaOptions &options) {
         tools.append(makeTool(
             "set_ffxiv_mode",
             "Enable or disable FFXIV Bard Performance mode. The mode gates the FFXIV tool "
-            "bundle (validate_ffxiv, convert_drums_ffxiv, setup_channel_pattern, "
-            "analyze_voice_load, auto_fit_voice_load): enabling adds them to the tool list, "
+            "bundle (validate_ffxiv, delete_ffxiv_collisions, convert_drums_ffxiv, "
+            "setup_channel_pattern, analyze_voice_load, auto_fit_voice_load): enabling adds them to the tool list, "
             "disabling removes them. The change takes effect from your next step - in an "
             "agent run the tool list and the FFXIV rules are re-derived automatically, and "
             "MCP clients receive notifications/tools/list_changed. The current mode is "
@@ -963,8 +964,19 @@ QJsonArray ToolDefinitions::toolSchemas(const ToolSchemaOptions &options) {
     // --- FFXIV tools (only when FFXIV mode is active) ---
     if (AppPaths::settings()->value("AI/ffxiv_mode", false).toBool()) {
 
-        // validate_ffxiv (no parameters)
+        // The in-game checks of the playability workbench, selectable (2.5.1).
+        const QJsonArray ffxivCheckEnum{"chords", "duplicates", "range", "trackNames"};
+
+        // validate_ffxiv
         {
+            QJsonObject props;
+            props["checks"] = QJsonObject{
+                {"anyOf", QJsonArray{
+                     QJsonObject{{"type", "array"},
+                                 {"items", QJsonObject{{"type", "string"}, {"enum", ffxivCheckEnum}}}},
+                     QJsonObject{{"type", "null"}}}},
+                {"description", "Only these checks: chords (simultaneous notes), duplicates "
+                                "(stacked notes), range, trackNames. null = all four."}};
             tools.append(makeTool(
                 "validate_ffxiv",
                 "Check if the current MIDI file meets FFXIV Bard Performance constraints. "
@@ -976,8 +988,43 @@ QJsonArray ToolDefinitions::toolSchemas(const ToolSchemaOptions &options) {
                 "and track names matching no FFXIV instrument (the legal spellings are "
                 "returned as legalInstruments). NOTE: in game the TRACK NAME selects the "
                 "instrument - program changes only affect the editor's SoundFont playback and "
-                "are not validated here.",
-                makeParams(QJsonObject(), QJsonArray())));
+                "are not validated here. eventsFfxivIgnores (only when present) counts "
+                "controllers, pitch bend, aftertouch and SysEx - including GM/GS/XG resets that "
+                "switch the editor's playback to piano - which setup_channel_pattern removes. "
+                "delete_ffxiv_collisions repairs the chords and stacked duplicates it finds.",
+                makeParams(props, {"checks"})));
+        }
+
+        // delete_ffxiv_collisions (2.5.1) - the playability workbench's
+        // "Delete colliding notes": the same findings, the same survivor rule
+        {
+            QJsonObject props;
+            props["kinds"] = QJsonObject{
+                {"anyOf", QJsonArray{
+                     QJsonObject{{"type", "array"},
+                                 {"items", QJsonObject{{"type", "string"},
+                                                       {"enum", QJsonArray{"duplicates", "chords"}}}}},
+                     QJsonObject{{"type", "null"}}}},
+                {"description", "duplicates = the same pitch starting twice on one tick (almost "
+                                "always a defect); chords = different pitches starting together "
+                                "(often intended - only on the user's request). null = duplicates."}};
+            props["trackIndex"] = QJsonObject{
+                {"anyOf", QJsonArray{QJsonObject{{"type", "integer"}}, QJsonObject{{"type", "null"}}}},
+                {"description", "Only this track. null = every track."}};
+            props["startTick"] = QJsonObject{
+                {"anyOf", QJsonArray{QJsonObject{{"type", "integer"}}, QJsonObject{{"type", "null"}}}},
+                {"description", "Only collisions from this tick on. null = from the start."}};
+            props["endTick"] = QJsonObject{
+                {"anyOf", QJsonArray{QJsonObject{{"type", "integer"}}, QJsonObject{{"type", "null"}}}},
+                {"description", "Only collisions up to this tick (inclusive). null = to the end."}};
+            tools.append(makeTool(
+                "delete_ffxiv_collisions",
+                "Delete the surplus notes of FFXIV collisions found by validate_ffxiv - the "
+                "playability check's \"Delete colliding notes\". A stacked duplicate keeps one "
+                "copy (the louder, then the longer one); a chord keeps its highest note. Guitar "
+                "tracks count per channel, as in validate_ffxiv. One undoable step; returns how "
+                "many notes were removed and how many collisions are left.",
+                makeParams(props, {"kinds", "trackIndex", "startTick", "endTick"})));
         }
 
         // convert_drums_ffxiv
@@ -993,8 +1040,24 @@ QJsonArray ToolDefinitions::toolSchemas(const ToolSchemaOptions &options) {
                 makeParams(props, {"trackIndex"})));
         }
 
-        // setup_channel_pattern (no parameters)
+        // setup_channel_pattern
         {
+            QJsonObject props;
+            props["mode"] = QJsonObject{
+                {"anyOf", QJsonArray{
+                     QJsonObject{{"type", "string"},
+                                 {"enum", QJsonArray{"auto", "rebuild", "preserve"}}},
+                     QJsonObject{{"type", "null"}}}},
+                {"description", "auto (null) = the mode Fix X|V Channels proposes; rebuild = the "
+                                "first full set-up of a file; preserve = keep the channels of a "
+                                "file already set up. Like choosing the mode in the dialog."}};
+            props["resyncNonGuitar"] = QJsonObject{
+                {"anyOf", QJsonArray{QJsonObject{{"type", "boolean"}}, QJsonObject{{"type", "null"}}}},
+                {"description", "Preserve only - the dialog's \"Re-sync non-guitar channel "
+                                "instruments from track names\": rewrites a non-guitar channel's "
+                                "program at tick 0 when it no longer matches the track name, and "
+                                "gives a non-guitar track on a guitar channel a free channel of its "
+                                "own. null = false."}};
             tools.append(makeTool(
                 "setup_channel_pattern",
                 "Fix FFXIV channel assignments and program_change events for all tracks - "
@@ -1007,11 +1070,14 @@ QJsonArray ToolDefinitions::toolSchemas(const ToolSchemaOptions &options) {
                 "the guitar programs at tick 0 and at guitar switch points and renames a guitar "
                 "track after the variant its first note plays. guitarNotesOnOtherChannels lists "
                 "guitar notes on non-guitar channels that got no switch - tell the user. "
+                "Both modes remove what FFXIV ignores but the editor plays: controllers, pitch "
+                "bend, aftertouch and SysEx (removedExtraEvents, removedSysEx; removedSystemResets "
+                "counts GM/GS/XG resets, which switched every channel to piano in playback). "
                 "It also sets the velocity of EVERY note to 127 - FFXIV plays no dynamics - "
                 "and reports how many notes changed as velocityNormalized; tell the user "
                 "when the file had dynamics worth keeping elsewhere. "
                 "Call once after all tracks are created/renamed.",
-                makeParams(QJsonObject(), QJsonArray())));
+                makeParams(props, {"mode", "resyncNonGuitar"})));
         }
 
         // analyze_voice_load (Phase 32.6)
@@ -1408,13 +1474,16 @@ QJsonObject ToolDefinitions::executeTool(const QString &toolName,
 
     // FFXIV tools
     if (toolName == "validate_ffxiv") {
-        return execValidateFFXIV(file);
+        return execValidateFFXIV(args, file);
+    }
+    if (toolName == "delete_ffxiv_collisions") {
+        return execDeleteFfxivCollisions(args, file, source);
     }
     if (toolName == "convert_drums_ffxiv") {
         return execConvertDrumsFFXIV(args, file, widget, source);
     }
     if (toolName == "setup_channel_pattern") {
-        return execSetupChannelPattern(file, widget, source);
+        return execSetupChannelPattern(args, file, widget, source);
     }
     if (toolName == "analyze_voice_load") {
         return execAnalyzeVoiceLoad(args, file);
@@ -1478,7 +1547,7 @@ QJsonObject ToolDefinitions::execGetSelection(MidiFile *file) {
 // used since v2.0. Real builds only: test_tool_definitions ODR-stubs
 // MidiPilotWidget as a non-QWidget, so window()/qobject_cast must never enter
 // the stub link (each exec* below is #ifdef-stubbed like thin_tempo_map).
-static MainWindow *mainWindowOf(MidiPilotWidget *widget) {
+MainWindow *ToolDefinitions::mainWindowOf(MidiPilotWidget *widget) {
     if (!widget)
         return nullptr;
     if (MainWindow *mw = qobject_cast<MainWindow *>(widget->window()))
@@ -1488,9 +1557,8 @@ static MainWindow *mainWindowOf(MidiPilotWidget *widget) {
     // panel's top-level window, so window() no longer reaches the MainWindow;
     // the parent chain still does (a floating dock keeps its parent). Without
     // this, the cross-tab tools would fail with "Main window not available"
-    // whenever the panel is undocked. (The MCP pre-dispatch intercept in
-    // McpServer.cpp has the same window()-only resolution since v2.0 and is
-    // left untouched for byte-compatibility - reported instead.)
+    // whenever the panel is undocked. The MCP pre-dispatch intercept
+    // (list_documents, switch_document) resolves through here as well.
     for (QWidget *p = widget->parentWidget(); p; p = p->parentWidget()) {
         if (MainWindow *mw = qobject_cast<MainWindow *>(p))
             return mw;
@@ -2349,8 +2417,9 @@ QJsonObject ToolDefinitions::execWriteAction(const QString &action,
 // (the canonical source); the validation logic itself moved to
 // FfxivPlayabilityValidator, shared with the GUI's playability dialog.
 
-QJsonObject ToolDefinitions::execValidateFFXIV(MidiFile *file) {
+QJsonObject ToolDefinitions::execValidateFFXIV(const QJsonObject &args, MidiFile *file) {
 #ifdef TOOLDEFINITIONS_TEST_STUB_FFXIV
+    Q_UNUSED(args);
     Q_UNUSED(file);
     QJsonObject result;
     result["success"] = false;
@@ -2371,6 +2440,43 @@ QJsonObject ToolDefinitions::execValidateFFXIV(MidiFile *file) {
     // perfectly playable file as invalid and send the agent hunting for
     // chords. The count travels as its own field below instead.
     toolChecks.tempoMap = false;
+    // 2.5.1: the editor-only events the same way - counts below, no verdict.
+    toolChecks.editorOnlyEvents = false;
+    // 2.5.1: the four in-game checks are selectable, like the workbench's
+    // checkboxes ("only the duplicates" without wading through the chords).
+    const QJsonValue selected = args.value(QStringLiteral("checks"));
+    // The checks that ran when only some were asked for - a clean subset is
+    // no clean file, and the summary must not say so (it becomes a fact the
+    // agent carries into its answer).
+    QStringList checksRun;
+    if (selected.isArray()) {
+        static const QStringList known{QStringLiteral("chords"), QStringLiteral("duplicates"),
+                                       QStringLiteral("range"), QStringLiteral("trackNames")};
+        QSet<QString> want;
+        for (const QJsonValue &v : selected.toArray()) {
+            const QString name = v.toString();
+            if (!known.contains(name)) {
+                result["success"] = false;
+                result["error"] = QStringLiteral("Unknown check '") + name
+                    + QStringLiteral("' - use chords, duplicates, range, trackNames, or null for all.");
+                return result;
+            }
+            want.insert(name);
+        }
+        if (want.isEmpty()) {
+            result["success"] = false;
+            result["error"] = QStringLiteral("checks names no check - use null for all four.");
+            return result;
+        }
+        toolChecks.simultaneousNotes = want.contains(QStringLiteral("chords"));
+        toolChecks.stackedDuplicates = want.contains(QStringLiteral("duplicates"));
+        toolChecks.range = want.contains(QStringLiteral("range"));
+        toolChecks.trackNames = want.contains(QStringLiteral("trackNames"));
+        for (const QString &name : known) {
+            if (want.contains(name)) checksRun.append(name);
+        }
+        if (checksRun.size() == known.size()) checksRun.clear();
+    }
     const FfxivPlayabilityReport report =
         FfxivPlayabilityValidator::validate(file, toolChecks);
     if (!report.ok) {
@@ -2387,7 +2493,10 @@ QJsonObject ToolDefinitions::execValidateFFXIV(MidiFile *file) {
             return QStringLiteral("out_of_range");
         case FfxivPlayabilityIssue::Type::DuplicateNote:
             return QStringLiteral("duplicate_note");
-        case FfxivPlayabilityIssue::Type::Overlap:
+        case FfxivPlayabilityIssue::Type::EditorOnlyEvents:
+        case FfxivPlayabilityIssue::Type::MidSongProgram:
+            return QStringLiteral("editor_only"); // switched off above
+        default:
             break;
         }
         // "polyphonic" kept for Overlap - the name agents have always seen.
@@ -2421,6 +2530,42 @@ QJsonObject ToolDefinitions::execValidateFFXIV(MidiFile *file) {
     // the file heavy for the editor and for the game. thin_tempo_map is the
     // repair; the number is here so the agent knows when to reach for it.
     result["tempoEventCount"] = TempoMapThinner::tempoEventCount(file);
+    // 2.5.1: events FFXIV ignores but the editor plays - no verdict either,
+    // and nothing the agent could see otherwise: query_events lists no SysEx.
+    // setup_channel_pattern removes them (the same predicates).
+    {
+        int channelEvents = 0;
+        for (int ch = 0; ch < 16; ++ch) {
+            MidiChannel *channel = file->channel(ch);
+            if (!channel) continue;
+            QMultiMap<int, MidiEvent *> *map = channel->eventMap();
+            for (auto it = map->begin(); it != map->end(); ++it) {
+                if (FFXIVChannelFixer::isEditorOnlyChannelEvent(it.value())) ++channelEvents;
+            }
+        }
+        int sysEx = 0;
+        int resets = 0;
+        if (MidiChannel *meta = file->channel(16)) {
+            QMultiMap<int, MidiEvent *> *map = meta->eventMap();
+            for (auto it = map->begin(); it != map->end(); ++it) {
+                if (auto *sx = dynamic_cast<SysExEvent *>(it.value())) {
+                    ++sysEx;
+                    if (FFXIVChannelFixer::isSystemResetSysEx(sx->data())) ++resets;
+                }
+            }
+        }
+        if (channelEvents > 0 || sysEx > 0) {
+            QJsonObject ignored;
+            ignored["controllersPitchBendAftertouch"] = channelEvents;
+            ignored["sysEx"] = sysEx;
+            ignored["systemResets"] = resets;
+            ignored["note"] = QStringLiteral(
+                "FFXIV ignores these events, the editor plays them - a GM/GS/XG system "
+                "reset switches every channel to piano when the song is played from the "
+                "start. setup_channel_pattern removes them.");
+            result["eventsFfxivIgnores"] = ignored;
+        }
+    }
     if (report.issues.size() > cap)
         result["issuesTruncated"] = report.issues.size() - cap;
     // Octet finding #6: a rejected track name used to leave the agent
@@ -2429,7 +2574,13 @@ QJsonObject ToolDefinitions::execValidateFFXIV(MidiFile *file) {
         result["legalInstruments"] =
             QJsonArray::fromStringList(FFXIVChannelFixer::instrumentNames());
 
-    if (report.issues.isEmpty()) {
+    if (!checksRun.isEmpty())
+        result["checksRun"] = QJsonArray::fromStringList(checksRun);
+    if (report.issues.isEmpty() && !checksRun.isEmpty()) {
+        result["summary"] = QStringLiteral(
+            "No issues in the checks that ran (%1) - the other checks did not run")
+            .arg(checksRun.join(QStringLiteral(", ")));
+    } else if (report.issues.isEmpty()) {
         result["summary"] = QStringLiteral("File is FFXIV-compliant");
     } else {
         result["summary"] = QStringLiteral(
@@ -2610,11 +2761,156 @@ static int ffxivProgramNumber(const QString &instrumentName) {
 }
 
 // ---------------------------------------------------------------------------
+// delete_ffxiv_collisions (2.5.1) — the playability workbench's "Delete
+// colliding notes": the validator's findings, ffxivCollisionSurplus()'s
+// survivor rule and ffxivRemoveNotes()'s one-step removal, all shared with
+// the GUI, so the tool and the button can never disagree.
+// ---------------------------------------------------------------------------
+QJsonObject ToolDefinitions::execDeleteFfxivCollisions(const QJsonObject &args,
+                                                        MidiFile *file,
+                                                        const QString &source) {
+    QJsonObject result;
+#ifdef TOOLDEFINITIONS_TEST_STUB_FFXIV
+    Q_UNUSED(args);
+    Q_UNUSED(file);
+    Q_UNUSED(source);
+    result["success"] = false;
+    result["error"] = QStringLiteral("Stub build: delete_ffxiv_collisions is unavailable.");
+    return result;
+#else
+    if (!file) {
+        result["success"] = false;
+        result["error"] = QStringLiteral("No file loaded.");
+        return result;
+    }
+    bool duplicates = true;
+    bool chords = false;
+    const QJsonValue kinds = args.value(QStringLiteral("kinds"));
+    if (kinds.isArray()) {
+        duplicates = false;
+        for (const QJsonValue &v : kinds.toArray()) {
+            const QString k = v.toString();
+            if (k == QLatin1String("duplicates")) {
+                duplicates = true;
+            } else if (k == QLatin1String("chords")) {
+                chords = true;
+            } else {
+                result["success"] = false;
+                result["error"] = QStringLiteral("Unknown kind '") + k
+                    + QStringLiteral("' - use duplicates and/or chords.");
+                return result;
+            }
+        }
+        if (!duplicates && !chords) {
+            result["success"] = false;
+            result["error"] = QStringLiteral("kinds names nothing - use duplicates and/or chords, "
+                                             "or null for duplicates.");
+            return result;
+        }
+    }
+    // toInt(-1): a fractional number (2.5 from an MCP client) is refused
+    // instead of turning into track 0 / tick 0 of a destructive call.
+    int trackIndex = -1;
+    if (args.value(QStringLiteral("trackIndex")).isDouble()) {
+        trackIndex = args.value(QStringLiteral("trackIndex")).toInt(-1);
+        if (trackIndex < 0 || trackIndex >= file->numTracks()) {
+            result["success"] = false;
+            result["error"] = QStringLiteral("Invalid track index: %1")
+                .arg(args.value(QStringLiteral("trackIndex")).toDouble());
+            return result;
+        }
+    }
+    const int startTick = args.value(QStringLiteral("startTick")).isDouble()
+        ? args.value(QStringLiteral("startTick")).toInt(-1) : 0;
+    const int endTick = args.value(QStringLiteral("endTick")).isDouble()
+        ? args.value(QStringLiteral("endTick")).toInt(-1) : INT_MAX;
+    if (startTick < 0 || endTick < startTick) {
+        result["success"] = false;
+        result["error"] = QStringLiteral("Invalid tick range: %1-%2").arg(startTick).arg(endTick);
+        return result;
+    }
+
+    FfxivPlayabilityChecks checks;
+    checks.simultaneousNotes = chords;
+    checks.stackedDuplicates = duplicates;
+    checks.range = false;
+    checks.trackNames = false;
+    checks.channelSpread = false;
+    checks.emptyTracks = false;
+    checks.tempoMap = false;
+    checks.editorOnlyEvents = false;
+    auto inScope = [&](const FfxivPlayabilityIssue &i) {
+        return (trackIndex < 0 || i.track == trackIndex)
+            && i.tick >= startTick && i.tick <= endTick;
+    };
+    const FfxivPlayabilityReport report = FfxivPlayabilityValidator::validate(file, checks);
+    QList<int> scope;
+    int duplicateGroups = 0;
+    int chordGroups = 0;
+    for (int i = 0; i < report.issues.size(); ++i) {
+        const FfxivPlayabilityIssue &issue = report.issues.at(i);
+        if (!inScope(issue)) continue;
+        scope.append(i);
+        if (issue.type == FfxivPlayabilityIssue::Type::DuplicateNote) ++duplicateGroups;
+        else if (issue.type == FfxivPlayabilityIssue::Type::Overlap) ++chordGroups;
+    }
+    const QList<MidiEvent *> victims = ffxivCollisionSurplus(report.issues, scope);
+    if (!victims.isEmpty()) {
+        // Notes about to be removed must not stay in a selection.
+        if (Selection *sel = Selection::forFile(file)) {
+            QList<MidiEvent *> kept = sel->selectedEvents();
+            const int before = kept.size();
+            for (MidiEvent *ev : victims) kept.removeAll(ev);
+            if (kept.size() != before) sel->setSelection(kept);
+        }
+        if (file->protocol())
+            file->protocol()->startNewAction(protocolActorPrefix(source)
+                                             + QStringLiteral(": Delete colliding notes"));
+        ffxivRemoveNotes(file, victims);
+        if (file->protocol())
+            file->protocol()->endAction();
+    }
+    int remaining = 0;
+    const FfxivPlayabilityReport after = FfxivPlayabilityValidator::validate(file, checks);
+    for (const FfxivPlayabilityIssue &issue : after.issues) {
+        if (inScope(issue)) ++remaining;
+    }
+    result["success"] = true;
+    result["removedNotes"] = victims.size();
+    result["duplicateGroups"] = duplicateGroups;
+    result["chordGroups"] = chordGroups;
+    result["collisionsLeft"] = remaining;
+    result["summary"] = victims.isEmpty()
+        ? QStringLiteral("No collisions of the chosen kinds - nothing removed.")
+        : QStringLiteral("Removed %1 surplus note(s) from %2 stacked duplicate(s) and %3 chord(s); "
+                         "%4 collision(s) left.")
+              .arg(victims.size()).arg(duplicateGroups).arg(chordGroups).arg(remaining);
+    return result;
+#endif
+}
+
+// ---------------------------------------------------------------------------
 // setup_channel_pattern — delegates to FFXIVChannelFixer
 // ---------------------------------------------------------------------------
-QJsonObject ToolDefinitions::execSetupChannelPattern(MidiFile *file,
+QJsonObject ToolDefinitions::execSetupChannelPattern(const QJsonObject &args,
+                                                      MidiFile *file,
                                                       MidiPilotWidget * /*widget*/,
                                                       const QString &source) {
+    // 2.5.1: the dialog's choices - the mode and the Preserve re-sync.
+    int forcedTier = 0;
+    const QString mode = args.value(QStringLiteral("mode")).toString();
+    if (mode == QLatin1String("rebuild")) {
+        forcedTier = 2;
+    } else if (mode == QLatin1String("preserve")) {
+        forcedTier = 3;
+    } else if (!mode.isEmpty() && mode != QLatin1String("auto")) {
+        QJsonObject result;
+        result["success"] = false;
+        result["error"] = QStringLiteral("Unknown mode '") + mode
+            + QStringLiteral("' - use auto, rebuild or preserve.");
+        return result;
+    }
+    const bool resync = args.value(QStringLiteral("resyncNonGuitar")).toBool(false);
     // V131-P2-04: FFXIVChannelFixer::fixChannels() calls
     // MidiChannel::removeEvent(..., true) in its CLEAN phase, which routes
     // through Protocol::enterUndoStep(). If no action is open, every undo
@@ -2657,19 +2953,19 @@ QJsonObject ToolDefinitions::execSetupChannelPattern(MidiFile *file,
     // empty action wiped the redo stack and dirtied the untouched file.
     if (fixerWillEdit) {
         const QJsonObject gate = FFXIVChannelFixer::checkEligibility(file);
+        const int tier = forcedTier ? forcedTier : FFXIVChannelFixer::autoTier(file);
         fixerWillEdit = gate.value(QStringLiteral("eligible")).toBool()
-            && (gate.value(QStringLiteral("tier2Eligible")).toBool()
-                || FFXIVChannelFixer::autoTier(file) == 3);
+            && (gate.value(QStringLiteral("tier2Eligible")).toBool() || tier == 3);
     }
 #endif
     if (!fixerWillEdit)
-        return FFXIVChannelFixer::fixChannels(file);
+        return FFXIVChannelFixer::fixChannels(file, forcedTier, nullptr, resync);
 
     if (file && file->protocol())
         file->protocol()->startNewAction(
             protocolActorPrefix(source)
             + QStringLiteral(": Agent setup channel pattern"));
-    QJsonObject result = FFXIVChannelFixer::fixChannels(file);
+    QJsonObject result = FFXIVChannelFixer::fixChannels(file, forcedTier, nullptr, resync);
     if (file && file->protocol())
         file->protocol()->endAction();
     return result;
@@ -2694,8 +2990,8 @@ QJsonObject ToolDefinitions::execSetFfxivMode(const QJsonObject &args,
     result["ffxivMode"] = enabled;
     result["summary"] = enabled
         ? QStringLiteral("FFXIV mode enabled - the FFXIV tools (validate_ffxiv, "
-                         "convert_drums_ffxiv, setup_channel_pattern, analyze_voice_load, "
-                         "auto_fit_voice_load) and the FFXIV rules are available from your "
+                         "delete_ffxiv_collisions, convert_drums_ffxiv, setup_channel_pattern, "
+                         "analyze_voice_load, auto_fit_voice_load) and the FFXIV rules are available from your "
                          "next step.")
         : QStringLiteral("FFXIV mode disabled - the FFXIV tools are no longer available "
                          "from your next step.");

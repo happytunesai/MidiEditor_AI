@@ -5,6 +5,64 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 
 ---
 
+## [2.5.1] - 2026-10-11 - Fix X|V Channels: The Editor Sounds Like the Game
+
+### Summary
+* **[Fix X|V Channels removes what FFXIV ignores](https://midieditor-ai.de/ffxiv-channel-fixer.html)** - both modes remove controllers, pitch bend, aftertouch and SysEx, so the editor plays the song the way the bards do; a GM, GS or XG reset in a file no longer turns every instrument into a piano when the song plays from the start (FIX-SYSEX-001).
+* **[Re-sync gives a renamed guitar track a channel of its own](https://midieditor-ai.de/ffxiv-channel-fixer.html#resync)** - a guitar track renamed to Cello moves to a free channel with the Cello's program; the guitar tracks keep their channels and programs (FIX-CELLO-001).
+* **[Check FFXIV Playability finds editor-only events](https://midieditor-ai.de/ffxiv-playability.html#playability-checks)** - a new check lists the events FFXIV ignores and the mid-song program changes of non-guitar channels, which change the editor's playback but not the game's.
+* **[The playability repairs for MidiPilot and MCP](https://midieditor-ai.de/ffxiv-playability.html#playability-ai)** - the new `delete_ffxiv_collisions` tool removes stacked duplicates (and chords on request) like *Delete colliding notes*, `validate_ffxiv` runs single checks, and `setup_channel_pattern` takes the dialog's mode and re-sync (TOOLS-PLAYABILITY-001).
+* **MCP clients connected to `localhost` answer at once** - every tool call waited about two seconds before; the server now listens on the IPv6 loopback as well (MCP-IPV6-001).
+
+<details>
+<summary>Full Changelog - Fix X|V Channels: The Editor Sounds Like the Game</summary>
+
+### New Features
+* **[Editor-only events check](https://midieditor-ai.de/ffxiv-playability.html#playability-checks)** - the new **Editor-only events** checkbox in Check FFXIV Playability lists, per track, the controllers (bank selects named), pitch bends, aftertouch and SysEx messages FFXIV ignores, and every program change after a channel's first note that switches the instrument of a non-guitar channel. Raised only for files with a track that is named after an FFXIV instrument and has notes; the Channel Fixer button appears for the first kind. `validate_ffxiv` counts the same events as `eventsFfxivIgnores` (SysEx included, which no other tool shows) without changing its verdict.
+
+* **[delete_ffxiv_collisions](https://midieditor-ai.de/ffxiv-playability.html#playability-ai)** - MidiPilot's and MCP's version of the playability check's *Delete colliding notes*: the same findings, the same rule for the note that stays and one undo step. `kinds` picks stacked duplicates (the default) and/or chords, `trackIndex`, `startTick` and `endTick` narrow it down; the result counts the removed notes and the collisions left.
+* **[validate_ffxiv runs single checks](https://midieditor-ai.de/mcp-server.html#tools)** - the optional `checks` list (chords, duplicates, range, trackNames) picks the in-game checks to run, like the checkboxes of the playability check; the result names them in `checksRun`.
+* **[setup_channel_pattern takes the dialog's choices](https://midieditor-ai.de/mcp-server.html#tools)** - optional `mode` (auto, rebuild, preserve) and `resyncNonGuitar`, which the AI could not choose before: a file whose guitar program happened to sit at tick 0 always ran as Preserve, and the re-sync of non-guitar instruments was out of reach.
+
+### Changed
+* **Preserve removes the events FFXIV ignores, like Rebuild** - controllers, pitch bend and aftertouch are removed in both modes now; program changes of non-guitar channels stay where they are.
+* **Delete colliding notes keeps the longer duplicate** - of two equally loud stacked copies the longer one stays; files set up by Fix X|V Channels have every velocity at 127, so the choice used to fall on whichever copy came first.
+* The Fix X|V Channels dialog shows how many events FFXIV ignores the file holds, and its mode descriptions say what each mode removes; the result window lists the removed events and the moved notes.
+
+### Bug Fixes
+* **MCP calls over `localhost` took two seconds each** - `localhost` resolves to the IPv6 loopback first, and the server listened on IPv4 only, so on Windows every call waited for the refused IPv6 connection before falling back. The server now listens on `::1` as well, on the same port and still on the loopback addresses only.
+* **list_documents and switch_document over MCP failed while the MidiPilot panel floated** - with the panel undocked they answered "Main window not available"; they find the editor window now, as MidiPilot's own tools do.
+* **Undo or redo of a program change could switch the instrument** - with two program changes of different programs at the same tick on one channel, undoing or redoing an edit of the older one made it the one in effect, so the channel list and playback changed instrument while the saved file did not. An edited event now keeps its place among the events of its tick.
+* **A tempo drawn in the controller lane belonged to the edit track** - the saved file keeps tempo changes in the first track, so the tempo moved there on save; it is created in the first track right away, like the tempos the tempo tool, the tempo dialog and MidiPilot create.
+* **Piano sound after a GM/GS/XG reset** - a file with a reset message after the start (GM System On, GS Reset, XG System On) played every instrument as a piano when played from the start, while playback from later in the song sounded right: the reset undid the program changes Fix X|V Channels writes at tick 0. Both modes now remove every SysEx message; Rebuild was described as doing so but kept them.
+* **[A guitar track renamed to another instrument kept the guitar's channel](https://midieditor-ai.de/ffxiv-channel-fixer.html#resync)** - with "Re-sync non-guitar channel instruments" on, Preserve skipped the track because its channel is a guitar channel, so a guitar renamed to Cello went on playing the guitar's sound on the guitar channel and the switch channels. It now gets the first free channel, its notes move there and the channel gets the Cello's program; the guitar channels keep their programs for the other guitars. Notes a non-guitar track left on a guitar channel go back to its own channel. Without a free channel nothing moves and the result names the track.
+
+### Files Modified
+#### FFXIV tools
+* `src/ai/FFXIVChannelFixer.h/.cpp` - removal of controllers, pitch bend, aftertouch and SysEx in both modes (with its own undo snapshot for the SysEx); non-guitar notes off guitar channels in the Preserve re-sync; system-reset and editor-only event helpers; analysis counts
+* `src/ai/FfxivPlayabilityValidator.h/.cpp` - the editor-only events and mid-song program change findings; the longer duplicate survives; the note removal shared by Delete colliding notes and delete_ffxiv_collisions
+* `src/gui/FfxivPlayabilityDialog.h/.cpp` - Editor-only events checkbox, groups, Channel Fixer button
+* `src/gui/FFXIVFixerDialog.cpp` - analysis line, mode descriptions, re-sync tooltip
+* `src/gui/MainWindow.cpp` - result window lines for removed events and moved notes; Delete colliding notes through the shared removal
+* `src/ai/AgentRunner.cpp`, `src/ai/EditorContext.cpp` - the new tool in the FFXIV tool list, step label and rules
+* `src/ai/ToolDefinitions.h/.cpp` - `setup_channel_pattern` description, `validate_ffxiv` `eventsFfxivIgnores`; the floating-dock aware main window lookup shared with the MCP server; `delete_ffxiv_collisions`, `validate_ffxiv` checks, `setup_channel_pattern` mode and re-sync
+
+#### MCP, editing
+* `src/ai/McpServer.h/.cpp` - a second listener on the IPv6 loopback; document intercept through the shared lookup
+* `src/MidiEvent/MidiEvent.cpp` - an event restored by undo/redo keeps its place at its tick
+* `src/gui/MiscWidget.cpp` - tempos drawn in the controller lane go to the first track
+
+#### Tests
+* `tests/test_ffxiv_fixer_resync.cpp`, `tests/test_ffxiv_playability.cpp`, `tests/test_shutdown_guards.cpp`, `tests/test_tool_definitions.cpp`
+
+#### Manual and docs
+* `manual/ffxiv-channel-fixer.html`, `manual/ffxiv-playability.html`, `manual/midipilot-tools.html`, `manual/mcp-server.html`, `manual/midipilot-ffxiv.html`, `manual/midipilot-modes.html`, `manual/midipilot.html`, `manual/docs-index.html`, `README.md`
+* `run_environment/help_db.json` - the manual index regenerated for the AI's help tools
+
+</details>
+
+---
+
 ## [2.5.0] - 2026-10-01 - Document Tools and Attachments for MidiPilot and MCP
 
 ### Summary

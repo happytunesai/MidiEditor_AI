@@ -57,7 +57,16 @@ public:
                                    std::function<void(int, QString const &)> cb,
                                    bool resyncNonGuitar);
 };
-QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *, int, std::function<void(int, QString const &)>, bool) { return QJsonObject(); }
+// The stub remembers what setup_channel_pattern handed over (2.5.1: mode and re-sync).
+static int g_fixerCalls = 0;
+static int g_fixerMode = -1;
+static bool g_fixerResync = false;
+QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *, int mode, std::function<void(int, QString const &)>, bool resync) {
+    ++g_fixerCalls;
+    g_fixerMode = mode;
+    g_fixerResync = resync;
+    return QJsonObject();
+}
 
 class MidiFile {
 public:
@@ -214,6 +223,7 @@ const QStringList kDocumentFileToolNames = {
 // Extra tools added when FFXIV mode is ON.
 const QStringList kFfxivToolNames = {
     QStringLiteral("validate_ffxiv"),
+    QStringLiteral("delete_ffxiv_collisions"),
     QStringLiteral("convert_drums_ffxiv"),
     QStringLiteral("setup_channel_pattern"),
     QStringLiteral("analyze_voice_load"),
@@ -316,8 +326,7 @@ private slots:
 
     // -----------------------------------------------------------------
     void toolSchemas_ffxivOn_appendsThreeFfxivTools() {
-        // Name kept for history; current FFXIV bundle is 4 tools (validate_ffxiv,
-        // convert_drums_ffxiv, setup_channel_pattern, analyze_voice_load).
+        // Name kept for history; the current FFXIV bundle is kFfxivToolNames.
         setFfxivMode(true);
         QJsonArray tools = ToolDefinitions::toolSchemas();
         QCOMPARE(tools.size(), kCoreToolNames.size() + kFfxivToolNames.size());
@@ -1320,6 +1329,51 @@ private slots:
                                 .arg(problems.join(QStringLiteral("\n  ")))));
     }
 
+    // 2.5.1: setup_channel_pattern takes the dialog's choices - the mode and
+    // the Preserve re-sync - and hands them to the fixer unchanged.
+    void executeTool_setupChannelPattern_passesModeAndResync() {
+        setFfxivMode(true);
+        struct Case { QJsonObject args; int mode; bool resync; };
+        const QList<Case> cases{
+            {QJsonObject{}, 0, false},
+            {QJsonObject{{"mode", QJsonValue()}, {"resyncNonGuitar", QJsonValue()}}, 0, false},
+            {QJsonObject{{"mode", "auto"}}, 0, false},
+            {QJsonObject{{"mode", "rebuild"}}, 2, false},
+            {QJsonObject{{"mode", "preserve"}, {"resyncNonGuitar", true}}, 3, true},
+        };
+        for (const Case &c : cases) {
+            g_fixerCalls = 0;
+            ToolDefinitions::executeTool(QStringLiteral("setup_channel_pattern"), c.args,
+                                         nullptr, nullptr);
+            QCOMPARE(g_fixerCalls, 1);
+            QCOMPARE(g_fixerMode, c.mode);
+            QCOMPARE(g_fixerResync, c.resync);
+        }
+        g_fixerCalls = 0;
+        const QJsonObject r = ToolDefinitions::executeTool(
+            QStringLiteral("setup_channel_pattern"), QJsonObject{{"mode", "everything"}},
+            nullptr, nullptr);
+        QCOMPARE(r.value(QStringLiteral("success")).toBool(true), false);
+        QCOMPARE(g_fixerCalls, 0); // an unknown mode never reaches the fixer
+        setFfxivMode(false);
+    }
+
+    // The new tool takes no required argument: omitted and null both reach
+    // its (stubbed) executor.
+    void executeTool_deleteFfxivCollisions_acceptsNullAndOmittedArgs() {
+        setFfxivMode(true);
+        for (const QJsonObject &args :
+             {QJsonObject{}, QJsonObject{{"kinds", QJsonValue()}, {"trackIndex", QJsonValue()},
+                                         {"startTick", QJsonValue()}, {"endTick", QJsonValue()}}}) {
+            const QJsonObject r = ToolDefinitions::executeTool(
+                QStringLiteral("delete_ffxiv_collisions"), args, nullptr, nullptr);
+            const QString err = r.value(QStringLiteral("error")).toString();
+            QVERIFY2(err.contains(QStringLiteral("Stub build: delete_ffxiv_collisions")),
+                     qPrintable(err));
+        }
+        setFfxivMode(false);
+    }
+
 private:
     // Find one tool's "function" object in a schema array; empty when absent.
     static QJsonObject findToolIn(const QJsonArray &tools, const QString &name) {
@@ -1378,6 +1432,7 @@ private:
                               path + QStringLiteral(".items"), problems);
         }
     }
+
 };
 
 QTEST_APPLESS_MAIN(TestToolDefinitions)

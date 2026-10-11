@@ -13,7 +13,7 @@
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-0078D6?logo=windows)](https://github.com/happytunesai/MidiEditor_AI/releases)
 
-**Version:** 2.5.0
+**Version:** 2.5.1
 **Status:** Release
 
 📥 **[Download Latest Release](https://github.com/happytunesai/MidiEditor_AI/releases/latest)**
@@ -116,7 +116,7 @@ MidiEditor AI
 │   ├── AiClient         → OpenAI-compatible API client (SSE streaming)
 │   ├── ConversationStore → Persistent history (JSON save/load/resume)
 │   ├── EditorContext     → Musical context extraction for AI
-│   ├── ToolDefinitions   → 38 MIDI and document tools (32 core + switch_document + 5 FFXIV)
+│   ├── ToolDefinitions   → 39 MIDI and document tools (32 core + switch_document + 6 FFXIV)
 │   └── SystemPrompts     → Customizable per-mode AI instructions
 ├── Collaboration        → Live multi-peer co-editing + async PR workflow
 │   ├── LanLiveSession    → LAN host/joiner state machine + heartbeat + ghost-peer dedup
@@ -229,6 +229,7 @@ The **Check FFXIV Playability** workbench examines a file the way the game will 
 - **Chords** - several pitches starting on the same tick on one performer (the game rolls them as a fast arpeggio) and **Stacked notes** - the same pitch twice on one tick (played once, the duplicate wasted); separate checks because a chord is often intentional and a stacked note almost always a defect
 - **Range** - notes outside C3-C6; **Track names** - names matching no FFXIV instrument (in game, the track name selects the instrument)
 - **Voice limit** - the raw voice peak against the 16-voice ceiling with notes/sec hotspots; **Channel spread** (editor playback only) and **Empty tracks**
+- **Editor-only events** - controllers, pitch bend, aftertouch and SysEx that FFXIV ignores but the editor plays (a GM/GS/XG reset turns every channel into a piano when played from the start), and mid-song program changes on non-guitar channels
 
 **Working with the findings:** click a finding to select its notes and jump there, double-click to show only that track; select single findings, a range or a whole group such as "Stacked duplicates" and delete exactly those notes in one undo step; the window stays open and re-checks after every change. **Analyze with MidiPilot** shows the AI's prioritised assessment right in the window, and the AI's `validate_ffxiv` tool runs the same engine.
 
@@ -472,7 +473,7 @@ MidiEditor AI checks for new versions on GitHub at every startup. When an update
 
 ## 🛠️ MidiPilot Tools
 
-The AI has access to **32 core tools** plus `switch_document`, and **5 more when FFXIV mode is on** (38 total), for inspecting and modifying MIDI files and for creating, opening, saving and closing documents:
+The AI has access to **32 core tools** plus `switch_document`, and **6 more when FFXIV mode is on** (39 total), for inspecting and modifying MIDI files and for creating, opening, saving and closing documents:
 
 | Tool | Description |
 |------|-------------|
@@ -500,6 +501,7 @@ The AI has access to **32 core tools** plus `switch_document`, and **5 more when
 | `set_ffxiv_mode` | Turn FFXIV mode on/off - the FFXIV tool bundle appears/disappears with it (MCP clients are notified) |
 | `setup_channel_pattern` | Auto-configure MidiBard2 channel mapping *(FFXIV)* |
 | `validate_ffxiv` | Check FFXIV rule compliance *(FFXIV)* |
+| `delete_ffxiv_collisions` | Delete the surplus notes of stacked duplicates (and chords on request), like *Delete colliding notes* *(FFXIV)* |
 | `convert_drums_ffxiv` | Convert GM drums to FFXIV tonal percussion *(FFXIV)* |
 | `analyze_voice_load` | Audit simultaneous-voice count vs the FFXIV 16-voice ceiling *(FFXIV)* |
 | `auto_fit_voice_load` | Thin overloaded moments and over-dense passages - dry run first, your confirmation required *(FFXIV)* |
@@ -516,7 +518,7 @@ MidiEditor AI includes a built-in **MCP server** that exposes all MidiPilot tool
 
 1. Enable the MCP server in **Settings → MidiPilot AI → MCP Server**
 2. Copy the MCP config JSON to your AI client's configuration
-3. The client discovers the tools automatically and can compose, edit, analyze and save MIDI - 33 by default (the 32 core tools plus MCP's own `switch_document` for driving the open tabs), 38 with FFXIV mode on
+3. The client discovers the tools automatically and can compose, edit, analyze and save MIDI - 33 by default (the 32 core tools plus MCP's own `switch_document` for driving the open tabs), 39 with FFXIV mode on
 
 ### Quick Setup
 

@@ -174,6 +174,7 @@ private:
     QCheckBox *_checkChannels = nullptr;
     QCheckBox *_checkEmpty = nullptr;
     QCheckBox *_checkTempoMap = nullptr;
+    QCheckBox *_checkEditorOnly = nullptr;
     QCheckBox *_checkVoiceLoad = nullptr;
 
     QLabel *_summaryLabel = nullptr;

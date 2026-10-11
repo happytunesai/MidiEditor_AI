@@ -120,9 +120,9 @@ QString ffxivStateConstraints()
 /// model when the mode flips so it knows what just changed in its tool list.
 QString ffxivBundleNames()
 {
-    return QStringLiteral("validate_ffxiv, convert_drums_ffxiv, "
-                          "setup_channel_pattern, analyze_voice_load, "
-                          "auto_fit_voice_load");
+    return QStringLiteral("validate_ffxiv, delete_ffxiv_collisions, "
+                          "convert_drums_ffxiv, setup_channel_pattern, "
+                          "analyze_voice_load, auto_fit_voice_load");
 }
 
 void logAgentState(int step, const AgentRunner::AgentWorkingState &state)
@@ -322,6 +322,8 @@ void AgentRunner::updateWorkingStateFromToolResult(AgentWorkingState &state,
             : QStringLiteral("get_editor_state succeeded: %1 tracks").arg(tracks.size());
     } else if (toolName == QStringLiteral("validate_ffxiv")) {
         appendFact(state, result.value(QStringLiteral("summary")).toString(QStringLiteral("FFXIV validation completed")));
+    } else if (toolName == QStringLiteral("delete_ffxiv_collisions")) {
+        appendFact(state, result.value(QStringLiteral("summary")).toString(QStringLiteral("FFXIV collisions removed")));
     } else if (toolName == QStringLiteral("analyze_voice_load")) {
         appendFact(state, result.value(QStringLiteral("summary")).toString(QStringLiteral("Voice-load analysis completed")));
     } else if (toolName == QStringLiteral("setup_channel_pattern")) {
@@ -1405,6 +1407,9 @@ QString AgentRunner::buildStepLabel(const QString &toolName, const QJsonObject &
     }
     if (toolName == "validate_ffxiv") {
         return QStringLiteral("Validate FFXIV constraints");
+    }
+    if (toolName == "delete_ffxiv_collisions") {
+        return QStringLiteral("Delete colliding notes (FFXIV)");
     }
     if (toolName == "setup_channel_pattern") {
         return QStringLiteral("Setup channel pattern & guitar switches");

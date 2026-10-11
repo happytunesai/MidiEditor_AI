@@ -1,6 +1,7 @@
 #ifndef FFXIVCHANNELFIXER_H
 #define FFXIVCHANNELFIXER_H
 
+#include <QByteArray>
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QString>
@@ -8,6 +9,7 @@
 #include <QList>
 #include <functional>
 
+class MidiEvent;
 class MidiFile;
 class MidiTrack;
 
@@ -29,6 +31,11 @@ class MidiTrack;
  *     CH9).
  *  4. program_change at tick 0 for every used channel on every track.
  *  5. All events migrated to the correct channel via moveToChannel().
+ *
+ * Both modes remove what FFXIV ignores but the editor's synth plays:
+ * controllers (bank select included), pitch bend, aftertouch and SysEx - a
+ * GM/GS/XG reset after the tick-0 program changes set every channel back to
+ * piano in playback from the start of the song.
  */
 class FFXIVChannelFixer {
 public:
@@ -101,11 +108,19 @@ public:
      *        owning track's name (e.g. after renaming Trumpet -> Trombone).
      *        Only mismatched channels are touched, exactly ONE tick-0 PC per
      *        channel is written, and mid-song PCs are preserved - a second
-     *        consecutive run is a no-op. Default off: plain Tier 3 leaves
-     *        non-guitar channels byte-identical, as before.
-     * \return JSON result with success, channelMap, summary; in Preserve also
+     *        consecutive run is a no-op. A non-guitar track on a guitar
+     *        channel (a guitar track renamed to Cello) gets the first free
+     *        channel, and its notes on guitar channels move there; the guitar
+     *        tracks and channels stay as they are. Default off: plain Tier 3
+     *        moves no notes and keeps the non-guitar programs.
+     * \return JSON result with success, channelMap, summary,
+     *         removedExtraEvents (controllers, pitch bend, aftertouch),
+     *         removedSysEx / removedSystemResets; in Preserve also
      *         guitarNotesOnOtherChannels [{track, trackName, channel, notes,
-     *         sharedWith?}] - guitar notes the switch logic cannot cover
+     *         sharedWith?}] - guitar notes the switch logic cannot cover -
+     *         and with the resync nonGuitarNotesMoved [{track, trackName,
+     *         fromChannel, channel, notes}] / nonGuitarTracksWithoutFreeChannel
+     *         [{track, trackName, channel, notes}]
      */
     static QJsonObject fixChannels(MidiFile *file, int forcedTier = 0,
                                    ProgressCallback progress = nullptr,
@@ -132,6 +147,17 @@ public:
     // programNumber() accepts ("Double Bass" with a space,
     // "ElectricGuitarOverdriven" without). For error messages and the AI.
     static QStringList instrumentNames();
+
+    // A GM / GM2 System On, Roland GS Reset or Yamaha XG System On / All
+    // Parameter Reset - the SysEx messages that set every channel's program
+    // back to 0. `payload` is SysExEvent::data() (no F0, no closing F7).
+    static bool isSystemResetSysEx(const QByteArray &payload);
+
+    // A channel event (channels 0-15) FFXIV ignores but the editor's synth
+    // plays: controllers (bank select included), pitch bend, key and channel
+    // aftertouch. Notes, note-offs, program changes and text are not.
+    // Shared by the fixer's clean-up and the playability check.
+    static bool isEditorOnlyChannelEvent(MidiEvent *event);
 
 private:
 

@@ -196,6 +196,21 @@ opposite things.
       <a href="tempo-conversion.html#thin-tempo-map">Thin Tempo Map</a> is the repair.</td>
 </tr>
 <tr>
+  <td><b>Editor-only events</b></td>
+  <td>Events FFXIV ignores - editor playback only &middot; Mid-song program changes - editor playback only</td>
+  <td>Two kinds of findings that change how the song sounds in the editor but not in game, and only in
+      files with at least one track that is named after an FFXIV instrument and has notes. <b>Events FFXIV ignores</b> lists, per
+      track, its controllers (bank selects named), pitch bends, aftertouch and SysEx messages. The editor
+      plays them, the game does not, so the preview drifts away from what the bards play. A GM, GS or XG
+      reset among the SysEx messages is the worst of them: played from the start of the song it switches
+      every channel to piano, while playback started further in sounds right.
+      <a href="ffxiv-channel-fixer.html">Fix X|V Channels</a> removes all of them.
+      <b>Mid-song program changes</b> lists program changes after the first note of a channel that
+      is no guitar channel and not the drum channel, when they change the instrument: the editor plays the
+      new sound from there, in game the track name stays the instrument. The fixer keeps them, because
+      they may be there on purpose - the finding says where they are.</td>
+</tr>
+<tr>
   <td><b>Voice limit</b></td>
   <td>Voice limit &middot; Note-rate hotspots</td>
   <td>The raw voice peak against the 16-voice ceiling together with the number of overflow ranges,
@@ -260,11 +275,11 @@ stays a set of tools rather than a console of dead buttons:
   <td><b>Delete colliding notes</b></td>
   <td>Simultaneous notes or stacked duplicates were found</td>
   <td>Removes the surplus notes of every collision in one undo step. A chord keeps its highest
-      note, a duplicate keeps one copy - the louder one.</td>
+      note, a duplicate keeps one copy - the louder one, and of two equally loud copies the longer one.</td>
 </tr>
 <tr>
   <td><b>Channel Fixer</b></td>
-  <td>Channel-spread findings exist</td>
+  <td>Channel-spread findings or events FFXIV ignores exist</td>
   <td>Runs <a href="ffxiv-channel-fixer.html">Fix X|V Channels</a> to re-sync the channels and
       programs of the tracks it recognises as FFXIV instruments. A rejected <b>track name</b> is not
       repaired for you - the fixer works from the names it recognises and cannot invent one, so
@@ -345,17 +360,22 @@ keeps the conversation. Without a configured provider the button is simply not t
 With FFXIV mode enabled, MidiPilot and any connected <a href="mcp-server.html">MCP</a> client can
 run the same engine through the <b>validate_ffxiv</b> tool, so an arrangement built by the AI is
 held to the same standard as one built by hand. The tool reports the four in-game rules - notes
-starting on the same tick, stacked duplicates, range and track names - and it tells stacked
-duplicates from chords rather than lumping them together. Every finding comes with its tick, so
+starting on the same tick, stacked duplicates, range and track names, all four or only the ones
+asked for - and it tells stacked duplicates from chords rather than lumping them together.
+The <b>delete_ffxiv_collisions</b> tool is the <b>Delete colliding notes</b> button for the AI: the same
+findings and the same rule for which note stays, stacked duplicates by default and chords only on
+request, optionally for one track or a stretch of the song, in one undo step. Every finding comes with its tick, so
 the agent can navigate to a problem instead of describing it vaguely, and when a track name is
 rejected the answer quotes the legal instrument spellings, which is what turns "that name is
 wrong" into a fix.
 </p>
 
 <p>
-The editor-only checks stay in the window: channel spread, empty tracks and the voice-limit
-figures are about the editor and about arranging comfort, not about whether the game can play the
-file, so they never flip the tool's verdict. The AI reaches the voice figures through
+The editor-only checks stay in the window: channel spread, empty tracks, the editor-only events
+and the voice-limit figures are about the editor and about arranging comfort, not about whether
+the game can play the file, so they never flip the tool's verdict. When the file holds events
+FFXIV ignores, the answer counts them in <code>eventsFfxivIgnores</code> - SysEx included, which the
+AI cannot see otherwise - so it knows to run the channel fixer. The AI reaches the voice figures through
 <code>analyze_voice_load</code> instead - see the
 <a href="ffxiv-voice-limiter.html#ai-tool">Voice Limiter's AI tools</a>.
 </p>

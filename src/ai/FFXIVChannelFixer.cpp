@@ -8,6 +8,7 @@
 #include "../MidiEvent/OnEvent.h"
 #include "../MidiEvent/OffEvent.h"
 #include "../MidiEvent/ProgChangeEvent.h"
+#include "../MidiEvent/SysExEvent.h"
 #include "../MidiEvent/TextEvent.h"
 #include "../protocol/ProtocolEntry.h"
 
@@ -77,6 +78,36 @@ QStringList FFXIVChannelFixer::instrumentNames() {
     return names;
 }
 
+bool FFXIVChannelFixer::isSystemResetSysEx(const QByteArray &payload) {
+    auto at = [&](int i) { return static_cast<quint8>(payload.at(i)); };
+    // GM System On / GM2 System On: 7E <device> 09 01|03
+    if (payload.size() >= 4 && at(0) == 0x7E && at(2) == 0x09
+        && (at(3) == 0x01 || at(3) == 0x03))
+        return true;
+    // Roland GS Reset: 41 <device> 42 12 40 00 7F 00 <checksum>
+    if (payload.size() >= 8 && at(0) == 0x41 && at(2) == 0x42 && at(3) == 0x12
+        && at(4) == 0x40 && at(5) == 0x00 && at(6) == 0x7F)
+        return true;
+    // Yamaha XG System On / All Parameter Reset: 43 1n 4C 00 00 7E|7F 00
+    if (payload.size() >= 7 && at(0) == 0x43 && (at(1) & 0xF0) == 0x10
+        && at(2) == 0x4C && at(3) == 0x00 && at(4) == 0x00
+        && (at(5) == 0x7E || at(5) == 0x7F))
+        return true;
+    return false;
+}
+
+bool FFXIVChannelFixer::isEditorOnlyChannelEvent(MidiEvent *event) {
+    if (!event) return false;
+    // The complement of what an FFXIV performance reads: notes (with their
+    // note-offs) and, for the editor's SoundFont preview, the program
+    // changes the fixer manages. Text events on a channel are kept as well.
+    if (dynamic_cast<NoteOnEvent *>(event))     return false;
+    if (dynamic_cast<OffEvent *>(event))        return false;
+    if (dynamic_cast<TextEvent *>(event))       return false;
+    if (dynamic_cast<ProgChangeEvent *>(event)) return false;
+    return true;
+}
+
 // ---------------------------------------------------------------------------
 // checkEligibility - "is this an FFXIV MIDI at all?" (v2.4.0, review F066)
 // ---------------------------------------------------------------------------
@@ -101,6 +132,33 @@ bool trackPlaysOnChannel(MidiFile *file, MidiTrack *track, int ch) {
             return true;
     }
     return false;
+}
+
+// NoteOn count of `track` on channel `ch`.
+int trackNotesOnChannel(MidiFile *file, MidiTrack *track, int ch) {
+    if (!file || !track || ch < 0 || ch > 15) return 0;
+    MidiChannel *channel = file->channel(ch);
+    if (!channel) return 0;
+    int n = 0;
+    QMultiMap<int, MidiEvent *> *map = channel->eventMap();
+    for (auto it = map->begin(); it != map->end(); ++it) {
+        if (it.value()->track() == track && dynamic_cast<NoteOnEvent *>(it.value()))
+            ++n;
+    }
+    return n;
+}
+
+// Tick of the first NoteOn of `track` on channel `ch`, INT_MAX when none.
+int firstNoteTickOnChannel(MidiFile *file, MidiTrack *track, int ch) {
+    if (!file || !track || ch < 0 || ch > 15) return INT_MAX;
+    MidiChannel *channel = file->channel(ch);
+    if (!channel) return INT_MAX;
+    QMultiMap<int, MidiEvent *> *map = channel->eventMap();
+    for (auto it = map->begin(); it != map->end(); ++it) {
+        if (it.value()->track() == track && dynamic_cast<NoteOnEvent *>(it.value()))
+            return it.key(); // the map is sorted by tick
+    }
+    return INT_MAX;
 }
 
 // The first track that is NOT a guitar and plays at least one note on channel
@@ -344,8 +402,10 @@ QJsonObject FFXIVChannelFixer::analyzeFile(MidiFile *file) {
         }
     }
 
-    // Count existing program changes
+    // Count existing program changes, and the events both modes remove
+    // (step 2b of fixChannels, same predicates)
     int totalProgramChanges = 0;
+    int editorOnlyChannelEvents = 0;
     for (int ch = 0; ch < 16; ch++) {
         MidiChannel *channel = file->channel(ch);
         if (!channel) continue;
@@ -353,6 +413,19 @@ QJsonObject FFXIVChannelFixer::analyzeFile(MidiFile *file) {
         for (auto it = map->begin(); it != map->end(); ++it) {
             if (dynamic_cast<ProgChangeEvent *>(it.value()))
                 totalProgramChanges++;
+            else if (isEditorOnlyChannelEvent(it.value()))
+                editorOnlyChannelEvents++;
+        }
+    }
+    int sysExCount = 0;
+    int systemResetCount = 0;
+    if (MidiChannel *meta = file->channel(16)) {
+        QMultiMap<int, MidiEvent *> *map = meta->eventMap();
+        for (auto it = map->begin(); it != map->end(); ++it) {
+            if (auto *sx = dynamic_cast<SysExEvent *>(it.value())) {
+                sysExCount++;
+                if (isSystemResetSysEx(sx->data())) systemResetCount++;
+            }
         }
     }
 
@@ -402,6 +475,9 @@ QJsonObject FFXIVChannelFixer::analyzeFile(MidiFile *file) {
     result["ffxivTrackCount"]     = ffxivTrackCount;
     result["hasGuitar"]           = hasGuitar;
     result["totalProgramChanges"] = totalProgramChanges;
+    result["editorOnlyChannelEvents"] = editorOnlyChannelEvents;
+    result["sysExCount"]          = sysExCount;
+    result["systemResetCount"]    = systemResetCount;
     result["autoDetectedTier"]    = detectedTier;
     result["guitarVariants"]      = QJsonArray::fromStringList(guitarVariants);
     result["percussionTracks"]    = QJsonArray::fromStringList(percussionTracks);
@@ -754,7 +830,9 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
     }
 
     // Reserve free channels for missing guitar variants (Tier 2 only)
-    // Tier 3 must NOT allocate new channels — preserve existing assignments.
+    // Tier 3 allocates no guitar channels - it preserves the existing
+    // assignments (only its opt-in resync gives a non-guitar track that sits
+    // on a guitar channel a free one, see 1a).
     // Never channel 9, the percussion channel (fixer review CF-05).
     if (hasGuitar && !isPreserveMode) {
         auto nextFreeChannel = [&]() -> int {
@@ -811,6 +889,105 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
     std::sort(sortedGuitarChs.begin(), sortedGuitarChs.end());
 
     // -----------------------------------------------------------------------
+    // 1a. NON-GUITAR NOTES ON GUITAR CHANNELS (Tier 3 opt-in resync)
+    //
+    //     A guitar track renamed to another instrument (Cello) keeps its
+    //     guitar channel, and its notes there - and on the variant channels
+    //     it switched to - play the guitar programs in the editor. The guitar
+    //     channel itself is not the Cello's to reprogram: other guitars switch
+    //     into it. So the track gets the first free channel and its notes on
+    //     guitar channels move there; a non-guitar track that only left some
+    //     notes on a guitar channel gets them back on its own channel. Guitar
+    //     tracks, their channels and program changes stay exactly as they are.
+    //     Read-only planning; the notes move in the Tier-3 branch below.
+    //     A channel is free when no track is assigned to it, it is neither a
+    //     guitar channel nor the drum channel 9, and it holds nothing but
+    //     program changes at tick 0 (left over from an earlier Rebuild - the
+    //     resync replaces them).
+    // -----------------------------------------------------------------------
+
+    QMap<int, int> moveTarget; // track -> channel its guitar-channel notes move to
+    QJsonArray movedLog;
+    QJsonArray noFreeChannelLog;
+
+    if (isPreserveMode && resyncNonGuitar && !allGuitarChs.isEmpty()) {
+        // An idle guitar track's channel (no notes of it there yet) is no
+        // guitar channel and not in usedChannels, but it is that track's: the
+        // notes drawn on the track next go there.
+        QSet<int> idleGuitarChs;
+        for (int t : idleGuitarTracks) idleGuitarChs.insert(channelFor[t]);
+        auto channelIsFree = [&](int ch) {
+            if (ch == 9 || usedChannels.contains(ch) || allGuitarChs.contains(ch)
+                || idleGuitarChs.contains(ch))
+                return false;
+            MidiChannel *channel = file->channel(ch);
+            if (!channel) return false;
+            QMultiMap<int, MidiEvent *> *map = channel->eventMap();
+            for (auto it = map->begin(); it != map->end(); ++it) {
+                if (it.key() == 0 && dynamic_cast<ProgChangeEvent *>(it.value()))
+                    continue;
+                return false;
+            }
+            return true;
+        };
+
+        for (int t = 0; t < trackCount; t++) {
+            if (isGuitar(baseNames[t]) || isPercussion(baseNames[t])) continue;
+            if (programNumber(baseNames[t]) < 0) continue; // not an FFXIV name
+            MidiTrack *track = file->track(t);
+            int notes = 0;
+            for (int ch : sortedGuitarChs)
+                notes += trackNotesOnChannel(file, track, ch);
+            if (notes == 0) continue;
+
+            const int from = channelFor[t];
+            if (from == 9) continue; // the drum channel's own rules apply there
+            int target = from;
+            if (allGuitarChs.contains(from)) {
+                target = -1;
+                for (int ch = 0; ch <= 15; ch++) {
+                    if (channelIsFree(ch)) {
+                        target = ch;
+                        break;
+                    }
+                }
+                if (target < 0) {
+                    QJsonObject entry;
+                    entry["track"]     = t;
+                    entry["trackName"] = track->name();
+                    entry["channel"]   = from;
+                    entry["notes"]     = notes;
+                    noFreeChannelLog.append(entry);
+                    continue;
+                }
+                usedChannels.insert(target);
+                channelFor[t] = target;
+            }
+            moveTarget.insert(t, target);
+            QJsonObject entry;
+            entry["track"]       = t;
+            entry["trackName"]   = track->name();
+            entry["fromChannel"] = from;
+            entry["channel"]     = target;
+            entry["notes"]       = notes;
+            movedLog.append(entry);
+        }
+    }
+
+    // The first NoteOn of a track on a channel as it will be after the move
+    // above: the notes that move there count as well. Without moves this is
+    // just the track's first note on the channel.
+    auto firstNoteTickAfterMove = [&](int t, int ch) {
+        MidiTrack *track = file->track(t);
+        int first = firstNoteTickOnChannel(file, track, ch);
+        if (moveTarget.value(t, -1) == ch) {
+            for (int g : sortedGuitarChs)
+                first = qMin(first, firstNoteTickOnChannel(file, track, g));
+        }
+        return first;
+    };
+
+    // -----------------------------------------------------------------------
     // 1b. RESYNC PLAN (Tier 3 opt-in, v2.0) — non-guitar channels whose
     //     tick-0 program no longer matches the owning track's name.
     //
@@ -865,19 +1042,16 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
             // empty/idle FFXIV-named track with a stale assignedChannel must
             // not clobber another (possibly non-FFXIV) track's deliberate
             // tick-0 program change.
+            // The notes planned to move here in 1a count already, so a Cello
+            // that gets a free channel owns it although nothing plays there
+            // yet; without moves this is the track's first note here.
             int ownerT = -1;
             int bestTick = INT_MAX;
             for (int t : it.value()) {
-                MidiTrack *track = file->track(t);
-                QMultiMap<int, MidiEvent *> *map = channel->eventMap();
-                for (auto eit = map->begin(); eit != map->end(); ++eit) {
-                    if (eit.value()->track() != track) continue;
-                    if (!dynamic_cast<NoteOnEvent *>(eit.value())) continue;
-                    if (eit.key() < bestTick) {
-                        bestTick = eit.key();
-                        ownerT = t;
-                    }
-                    break; // map sorted by tick: first hit = this track's earliest
+                const int first = firstNoteTickAfterMove(t, ch);
+                if (first < bestTick) {
+                    bestTick = first;
+                    ownerT = t;
                 }
             }
             if (ownerT < 0) continue; // no candidate plays here -> untouched
@@ -1008,29 +1182,53 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
     }
 
     // -----------------------------------------------------------------------
-    // 2b. CLEAN - remove non-essential events (Tier 2 only)
-    //     FFXIV doesn't use CC, PitchBend, etc.  Keep Text (lyrics) and notes.
+    // 2b. CLEAN - remove what FFXIV ignores but the editor's synth plays
+    //     (both modes): controllers - bank select included, which picks a bank
+    //     the FFXIV SoundFont does not have - pitch bend and aftertouch on
+    //     channels 0-15, and every SysEx. A GM/GS/XG reset after the tick-0
+    //     program changes set every channel back to piano in playback from
+    //     the start, other GS/XG messages re-voice channels (a GS part turned
+    //     into a drum part). Notes, program changes and text stay. Preserve
+    //     keeps its non-guitar program changes; only these events go, so the
+    //     editor sounds like the game.
     // -----------------------------------------------------------------------
 
     int removedExtraCount = 0;
-    if (!isPreserveMode) {
-        for (int ch = 0; ch < 16; ch++) {
-            MidiChannel *channel = file->channel(ch);
-            if (!channel) continue;
-            QMultiMap<int, MidiEvent *> *map = channel->eventMap();
-            QList<MidiEvent *> toRemoveExtra;
-            for (auto it = map->begin(); it != map->end(); ++it) {
-                MidiEvent *ev = it.value();
-                if (dynamic_cast<NoteOnEvent *>(ev))     continue;
-                if (dynamic_cast<OffEvent *>(ev))        continue;
-                if (dynamic_cast<TextEvent *>(ev))       continue;
-                if (dynamic_cast<ProgChangeEvent *>(ev)) continue;
-                toRemoveExtra.append(ev);
+    for (int ch = 0; ch < 16; ch++) {
+        MidiChannel *channel = file->channel(ch);
+        if (!channel) continue;
+        QMultiMap<int, MidiEvent *> *map = channel->eventMap();
+        QList<MidiEvent *> toRemoveExtra;
+        for (auto it = map->begin(); it != map->end(); ++it) {
+            if (isEditorOnlyChannelEvent(it.value()))
+                toRemoveExtra.append(it.value());
+        }
+        for (MidiEvent *ev : toRemoveExtra) {
+            channel->removeEvent(ev, false);
+        }
+        removedExtraCount += toRemoveExtra.size();
+    }
+
+    // SysEx lives on channel 16 next to the track names, lyrics and markers,
+    // so it gets its own snapshot - taken only when there is SysEx to remove,
+    // a file without any keeps its undo step exactly as before.
+    int removedSysExCount = 0;
+    int removedResetCount = 0;
+    ProtocolEntry *sysExSnapshot = nullptr;
+    if (MidiChannel *meta = file->channel(16)) {
+        QList<SysExEvent *> sysEx;
+        QMultiMap<int, MidiEvent *> *map = meta->eventMap();
+        for (auto it = map->begin(); it != map->end(); ++it) {
+            if (auto *sx = dynamic_cast<SysExEvent *>(it.value()))
+                sysEx.append(sx);
+        }
+        if (!sysEx.isEmpty()) {
+            sysExSnapshot = meta->copy();
+            for (SysExEvent *sx : sysEx) {
+                if (isSystemResetSysEx(sx->data())) removedResetCount++;
+                meta->removeEvent(sx, false);
             }
-            for (MidiEvent *ev : toRemoveExtra) {
-                channel->removeEvent(ev, false);
-            }
-            removedExtraCount += toRemoveExtra.size();
+            removedSysExCount = sysEx.size();
         }
     }
 
@@ -1089,8 +1287,46 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
             track->assignChannel(targetCh);
         }
     } else {
-        // Tier 3: preserve — NO event migration, NO channel changes.
-        // Only rename tracks and assign channels.
+        // Tier 3: preserve — no event migration and no channel changes, with
+        // one exception: the opt-in resync moves the notes of non-guitar
+        // tracks off the guitar channels (planned in 1a). Only events of
+        // those tracks move; program changes stay where they are, so every
+        // guitar channel keeps its program.
+        for (auto mv = moveTarget.constBegin(); mv != moveTarget.constEnd(); ++mv) {
+            MidiTrack *track = file->track(mv.key());
+            const int targetCh = mv.value();
+            QList<MidiEvent *> toMove;
+            for (int ch : sortedGuitarChs) {
+                if (ch == targetCh) continue;
+                MidiChannel *channel = file->channel(ch);
+                if (!channel) continue;
+                QMultiMap<int, MidiEvent *> *map = channel->eventMap();
+                for (auto it = map->begin(); it != map->end(); ++it) {
+                    MidiEvent *ev = it.value();
+                    if (ev->track() != track) continue;
+                    if (dynamic_cast<ProgChangeEvent *>(ev)) continue;
+                    if (dynamic_cast<OffEvent *>(ev)) continue; // moves with its NoteOn
+                    toMove.append(ev);
+                }
+            }
+            for (MidiEvent *ev : toMove) {
+                // Same per-event undo item as Tier 2's MIGRATE: the channel
+                // snapshots restore map membership, this restores the event's
+                // own channel number (and its note-off's).
+                OffEvent *off = nullptr;
+                ProtocolEntry *beforeOff = nullptr;
+                if (OnEvent *on = dynamic_cast<OnEvent *>(ev)) {
+                    off = on->offEvent();
+                    if (off) beforeOff = off->copy();
+                }
+                ProtocolEntry *beforeEv = ev->copy();
+                ev->moveToChannel(targetCh, false);
+                ev->protocol(beforeEv, ev);
+                if (off) off->protocol(beforeOff, off);
+            }
+        }
+
+        // Rename tracks and assign channels.
 
         // Tier 3: rename guitar tracks if all notes sit on a single
         // channel that belongs to a different variant.
@@ -1344,6 +1580,8 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
         if (channelSnapshots[ch])
             file->channel(ch)->protocol(channelSnapshots[ch], file->channel(ch));
     }
+    if (sysExSnapshot)
+        file->channel(16)->protocol(sysExSnapshot, file->channel(16));
 
     int tier = isPreserveMode ? 3 : 2;
 
@@ -1379,6 +1617,10 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
     result["resyncedNonGuitarChannels"] = resyncPlan.size();
     if (!resyncLog.isEmpty())
         result["nonGuitarResyncs"] = resyncLog;
+    if (!movedLog.isEmpty())
+        result["nonGuitarNotesMoved"] = movedLog;
+    if (!noFreeChannelLog.isEmpty())
+        result["nonGuitarTracksWithoutFreeChannel"] = noFreeChannelLog;
 
     result["guitarProgramFallbacks"] = guitarProgramFallbackLog.size();
     if (!guitarProgramFallbackLog.isEmpty())
@@ -1432,6 +1674,8 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
     result["guitarSwitchProgramChanges"] = switchCount;
     result["removedProgramChanges"] = removedPcCount;
     result["removedExtraEvents"]   = removedExtraCount;
+    result["removedSysEx"]         = removedSysExCount;
+    result["removedSystemResets"]  = removedResetCount;
     result["velocityNormalized"] = velocityChangedCount;
     result["trackCount"] = trackCount;
     return result;
