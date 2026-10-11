@@ -911,8 +911,14 @@ QJsonObject FFXIVChannelFixer::fixChannels(MidiFile *file, int forcedTier,
     QJsonArray noFreeChannelLog;
 
     if (isPreserveMode && resyncNonGuitar && !allGuitarChs.isEmpty()) {
+        // An idle guitar track's channel (no notes of it there yet) is no
+        // guitar channel and not in usedChannels, but it is that track's: the
+        // notes drawn on the track next go there.
+        QSet<int> idleGuitarChs;
+        for (int t : idleGuitarTracks) idleGuitarChs.insert(channelFor[t]);
         auto channelIsFree = [&](int ch) {
-            if (ch == 9 || usedChannels.contains(ch) || allGuitarChs.contains(ch))
+            if (ch == 9 || usedChannels.contains(ch) || allGuitarChs.contains(ch)
+                || idleGuitarChs.contains(ch))
                 return false;
             MidiChannel *channel = file->channel(ch);
             if (!channel) return false;

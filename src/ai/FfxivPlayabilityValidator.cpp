@@ -100,7 +100,8 @@ QList<MidiEvent *> FfxivPlayabilityReport::offendingNotes() const {
 QList<MidiEvent *> ffxivCollisionSurplus(
     const QList<FfxivPlayabilityIssue> &issues, const QList<int> &indices) {
     // Survivor per collision group: highest pitch (the melody rule Auto-Fit
-    // documents), among equal pitches the louder note. A note may survive
+    // documents), among equal pitches the louder note, among equally loud
+    // ones the longer note. A note may survive
     // one issue and be a victim of another (C+C+E: the chord keeps E, the
     // duplicate pair contributes both Cs) - the victim UNION handles that
     // correctly.
@@ -476,7 +477,10 @@ FfxivPlayabilityReport FfxivPlayabilityValidator::validate(
         // switches the sound there, in game the track name stays the
         // instrument. Guitar channels switch on purpose (the variant
         // switches), channel 9 belongs to the drums. Only a change of the
-        // program in effect counts - a repeated program plays the same.
+        // program in effect counts - a repeated program plays the same - and
+        // only after the channel's first note: a program change up to that
+        // note (an export that puts it on the first note) sets the sound the
+        // channel starts with, nothing plays under the old one.
         for (int ch = 0; ch < 16; ++ch) {
             if (ch == 9) continue;
             MidiChannel *channel = file->channel(ch);
@@ -485,6 +489,7 @@ FfxivPlayabilityReport FfxivPlayabilityValidator::validate(
             if (startProgram >= 27 && startProgram <= 31) continue;
             QMultiMap<int, MidiEvent *> *map = channel->eventMap();
             bool guitarNotes = false;
+            int firstNoteTick = INT_MAX;
             QList<int> pcTicks;
             for (auto it = map->begin(); it != map->end(); ++it) {
                 MidiEvent *ev = it.value();
@@ -494,6 +499,7 @@ FfxivPlayabilityReport FfxivPlayabilityValidator::validate(
                         guitarNotes = true;
                         break;
                     }
+                    firstNoteTick = qMin(firstNoteTick, it.key());
                 } else if (dynamic_cast<ProgChangeEvent *>(ev) && it.key() > 0
                            && (pcTicks.isEmpty() || pcTicks.last() != it.key())) {
                     pcTicks.append(it.key());
@@ -501,6 +507,7 @@ FfxivPlayabilityReport FfxivPlayabilityValidator::validate(
             }
             if (guitarNotes) continue;
             for (int tick : pcTicks) {
+                if (tick <= firstNoteTick) continue;
                 const int before = channel->progAtTick(tick - 1);
                 const int after = channel->progAtTick(tick);
                 if (before == after) continue;

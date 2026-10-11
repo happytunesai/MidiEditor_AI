@@ -1623,6 +1623,53 @@ private slots:
         delete f;
     }
 
+    // A guitar track that has no notes on its channel yet (just added and
+    // pinned there) still owns it: the Cello must not take that channel, or
+    // the notes drawn on the guitar next would sound like the Cello.
+    void tier3Resync_idleGuitarTracksChannelIsNotFree() {
+        MidiFile *f = makeFile("ElectricGuitarOverdriven", 1);
+        addNote(f, 1, f->track(1), 60, 0, 400);
+        const int power = addNoteTrack(f, "ElectricGuitarPowerChords", 2);
+        addNote(f, 2, f->track(power), 55, 480, 900);
+        runTier(f, 2);
+        runTier(f, 3);
+        const int od = f->track(1)->assignedChannel();
+
+        // The channel the resync would pick: the first one that no track is
+        // pinned to, that is no guitar channel and not 9, and holds no notes.
+        QSet<int> taken;
+        for (int t = 0; t < f->numTracks(); ++t) taken.insert(f->track(t)->assignedChannel());
+        int idleCh = -1;
+        for (int ch = 0; ch < 16 && idleCh < 0; ++ch) {
+            const int p = f->channel(ch)->progAtTick(0);
+            if (ch == 9 || taken.contains(ch) || (p >= 27 && p <= 31)) continue;
+            bool notes = false;
+            for (MidiEvent *ev : f->channel(ch)->eventMap()->values())
+                if (dynamic_cast<NoteOnEvent *>(ev)) notes = true;
+            if (!notes) idleCh = ch;
+        }
+        QVERIFY(idleCh >= 0);
+        f->protocol()->startNewAction("setup-track");
+        f->addTrack();
+        f->protocol()->endAction();
+        const int idle = f->numTracks() - 1;
+        f->track(idle)->setName(QStringLiteral("ElectricGuitarClean"));
+        f->track(idle)->assignChannel(idleCh);
+
+        f->track(1)->setName(QStringLiteral("Cello"));
+        QJsonObject r = runTier3(f, true);
+        QVERIFY(r["success"].toBool());
+        const QJsonArray moved = r["nonGuitarNotesMoved"].toArray();
+        QCOMPARE(moved.size(), 1);
+        const int cello = moved.first().toObject()["channel"].toInt();
+        QVERIFY(cello != idleCh);
+        QCOMPARE(f->track(1)->assignedChannel(), cello);
+        QCOMPARE(notesOf(f, 1, od), 0);
+        QCOMPARE(f->track(idle)->assignedChannel(), idleCh);
+        QVERIFY(!tickZeroPrograms(f, idleCh).contains(42));
+        delete f;
+    }
+
     void tier3WithoutResync_nonGuitarTrackOnGuitarChannelStays() {
         MidiFile *f = makeFile("ElectricGuitarOverdriven", 1);
         addNote(f, 1, f->track(1), 60, 0, 400);

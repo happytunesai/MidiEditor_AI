@@ -148,7 +148,7 @@ void FFXIVFixerDialog::setupUI(const QJsonObject &analysis) {
            "• Maps each track to its matching channel (T0→CH0, T1→CH1, …)\n"
            "• Percussion tracks → CH9\n"
            "• Removes all %1 existing program changes\n"
-           "• Removes controllers, pitch bend and SysEx (FFXIV ignores them)\n"
+           "• Removes controllers, pitch bend, aftertouch and SysEx (FFXIV ignores them)\n"
            "• Moves all events to correct channels\n"
            "• Inserts new program changes at tick 0\n"
            "Best for: New or unconfigured MIDI files."))
@@ -166,7 +166,7 @@ void FFXIVFixerDialog::setupUI(const QJsonObject &analysis) {
            "\u2022 Keeps all existing channel assignments\n"
            "\u2022 Keeps the program changes of non-guitar channels\n"
            "\u2022 Refreshes guitar program changes (tick 0 + switch points)\n"
-           "\u2022 Removes controllers, pitch bend and SysEx (FFXIV ignores them)\n"
+           "\u2022 Removes controllers, pitch bend, aftertouch and SysEx (FFXIV ignores them)\n"
            "\u2022 Auto-renames guitar tracks if first note differs from track name\n"
            "\u2022 Normalizes all note velocities to 127 (max)\n"
            "Best for: Already configured files needing a guitar touch-up."));

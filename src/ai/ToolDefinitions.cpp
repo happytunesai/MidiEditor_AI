@@ -2445,6 +2445,10 @@ QJsonObject ToolDefinitions::execValidateFFXIV(const QJsonObject &args, MidiFile
     // 2.5.1: the four in-game checks are selectable, like the workbench's
     // checkboxes ("only the duplicates" without wading through the chords).
     const QJsonValue selected = args.value(QStringLiteral("checks"));
+    // The checks that ran when only some were asked for - a clean subset is
+    // no clean file, and the summary must not say so (it becomes a fact the
+    // agent carries into its answer).
+    QStringList checksRun;
     if (selected.isArray()) {
         static const QStringList known{QStringLiteral("chords"), QStringLiteral("duplicates"),
                                        QStringLiteral("range"), QStringLiteral("trackNames")};
@@ -2468,6 +2472,10 @@ QJsonObject ToolDefinitions::execValidateFFXIV(const QJsonObject &args, MidiFile
         toolChecks.stackedDuplicates = want.contains(QStringLiteral("duplicates"));
         toolChecks.range = want.contains(QStringLiteral("range"));
         toolChecks.trackNames = want.contains(QStringLiteral("trackNames"));
+        for (const QString &name : known) {
+            if (want.contains(name)) checksRun.append(name);
+        }
+        if (checksRun.size() == known.size()) checksRun.clear();
     }
     const FfxivPlayabilityReport report =
         FfxivPlayabilityValidator::validate(file, toolChecks);
@@ -2566,7 +2574,13 @@ QJsonObject ToolDefinitions::execValidateFFXIV(const QJsonObject &args, MidiFile
         result["legalInstruments"] =
             QJsonArray::fromStringList(FFXIVChannelFixer::instrumentNames());
 
-    if (report.issues.isEmpty()) {
+    if (!checksRun.isEmpty())
+        result["checksRun"] = QJsonArray::fromStringList(checksRun);
+    if (report.issues.isEmpty() && !checksRun.isEmpty()) {
+        result["summary"] = QStringLiteral(
+            "No issues in the checks that ran (%1) - the other checks did not run")
+            .arg(checksRun.join(QStringLiteral(", ")));
+    } else if (report.issues.isEmpty()) {
         result["summary"] = QStringLiteral("File is FFXIV-compliant");
     } else {
         result["summary"] = QStringLiteral(
@@ -2794,19 +2808,22 @@ QJsonObject ToolDefinitions::execDeleteFfxivCollisions(const QJsonObject &args,
             return result;
         }
     }
+    // toInt(-1): a fractional number (2.5 from an MCP client) is refused
+    // instead of turning into track 0 / tick 0 of a destructive call.
     int trackIndex = -1;
     if (args.value(QStringLiteral("trackIndex")).isDouble()) {
-        trackIndex = args.value(QStringLiteral("trackIndex")).toInt();
+        trackIndex = args.value(QStringLiteral("trackIndex")).toInt(-1);
         if (trackIndex < 0 || trackIndex >= file->numTracks()) {
             result["success"] = false;
-            result["error"] = QStringLiteral("Invalid track index: %1").arg(trackIndex);
+            result["error"] = QStringLiteral("Invalid track index: %1")
+                .arg(args.value(QStringLiteral("trackIndex")).toDouble());
             return result;
         }
     }
     const int startTick = args.value(QStringLiteral("startTick")).isDouble()
-        ? args.value(QStringLiteral("startTick")).toInt() : 0;
+        ? args.value(QStringLiteral("startTick")).toInt(-1) : 0;
     const int endTick = args.value(QStringLiteral("endTick")).isDouble()
-        ? args.value(QStringLiteral("endTick")).toInt() : INT_MAX;
+        ? args.value(QStringLiteral("endTick")).toInt(-1) : INT_MAX;
     if (startTick < 0 || endTick < startTick) {
         result["success"] = false;
         result["error"] = QStringLiteral("Invalid tick range: %1-%2").arg(startTick).arg(endTick);

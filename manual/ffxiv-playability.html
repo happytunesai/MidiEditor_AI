@@ -199,13 +199,13 @@ opposite things.
   <td><b>Editor-only events</b></td>
   <td>Events FFXIV ignores - editor playback only &middot; Mid-song program changes - editor playback only</td>
   <td>Two kinds of findings that change how the song sounds in the editor but not in game, and only in
-      files with at least one track named after an FFXIV instrument. <b>Events FFXIV ignores</b> lists, per
+      files with at least one track that is named after an FFXIV instrument and has notes. <b>Events FFXIV ignores</b> lists, per
       track, its controllers (bank selects named), pitch bends, aftertouch and SysEx messages. The editor
       plays them, the game does not, so the preview drifts away from what the bards play. A GM, GS or XG
       reset among the SysEx messages is the worst of them: played from the start of the song it switches
       every channel to piano, while playback started further in sounds right.
       <a href="ffxiv-channel-fixer.html">Fix X|V Channels</a> removes all of them.
-      <b>Mid-song program changes</b> lists program changes after the start of the song on a channel that
+      <b>Mid-song program changes</b> lists program changes after the first note of a channel that
       is no guitar channel and not the drum channel, when they change the instrument: the editor plays the
       new sound from there, in game the track name stays the instrument. The fixer keeps them, because
       they may be there on purpose - the finding says where they are.</td>

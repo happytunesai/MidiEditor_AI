@@ -639,11 +639,27 @@ private slots:
 
     // 2.5.1: equally loud stacked duplicates keep the LONGER copy (fixer-
     // normalized files have every velocity at 127), and the shared removal
-    // undoes in one step.
+    // undoes in one step. Both insert orders: a new event goes in front of the
+    // events of its tick, so each order puts the other copy first in the
+    // collision - only the length decides both.
+    void collisionSurplus_equalVelocityKeepsTheLongerDuplicate_data() {
+        QTest::addColumn<bool>("shortFirst");
+        QTest::newRow("short inserted first") << true;
+        QTest::newRow("long inserted first") << false;
+    }
+
     void collisionSurplus_equalVelocityKeepsTheLongerDuplicate() {
+        QFETCH(bool, shortFirst);
         MidiFile *f = makeFile("Flute", 0);
-        NoteOnEvent *shortOne = addNote(f, 0, f->track(1), 60, 480, 500);
-        NoteOnEvent *longOne = addNote(f, 0, f->track(1), 60, 480, 900);
+        NoteOnEvent *shortOne = nullptr;
+        NoteOnEvent *longOne = nullptr;
+        if (shortFirst) {
+            shortOne = addNote(f, 0, f->track(1), 60, 480, 500);
+            longOne = addNote(f, 0, f->track(1), 60, 480, 900);
+        } else {
+            longOne = addNote(f, 0, f->track(1), 60, 480, 900);
+            shortOne = addNote(f, 0, f->track(1), 60, 480, 500);
+        }
         const FfxivPlayabilityReport r = FfxivPlayabilityValidator::validate(f);
         QList<int> all;
         for (int i = 0; i < r.issues.size(); ++i) all.append(i);
@@ -733,6 +749,21 @@ private slots:
             QVERIFY(i.details.contains("(75)"));
             QVERIFY(i.details.contains("CH2"));
         }
+        delete f;
+    }
+
+    // A program change on the channel's first note (an export that writes it
+    // there, or a count-in) sets the starting sound - nothing plays under the
+    // old program, so it is no mid-song change. One after that note is.
+    void midSongProgram_programChangeOnTheFirstNoteIsNoFinding() {
+        MidiFile *f = makeFile("Flute", 2);
+        addNote(f, 2, f->track(1), 72, 480, 600);
+        addNote(f, 2, f->track(1), 74, 2000, 2100);
+        addProgChange(f, 2, f->track(1), 73, 480);
+        QCOMPARE(FfxivPlayabilityValidator::validate(f).countOf(Type::MidSongProgram), 0);
+
+        addProgChange(f, 2, f->track(1), 75, 1920);
+        QCOMPARE(FfxivPlayabilityValidator::validate(f).countOf(Type::MidSongProgram), 1);
         delete f;
     }
 };
