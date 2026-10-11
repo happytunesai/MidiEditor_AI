@@ -13975,7 +13975,7 @@ stored as separate files next to the conversation.
 
 ## Later (not in 2.5)
 
-**For 2.5.1**
+**For 2.5.1 - SHIPPED 2026-10-11**
 * MCP over IPv6 localhost (MCP-IPV6-001) - DONE 2026-10-07: second listener on `::1`, same port;
   live: `localhost` 1-8 ms per call (was about 2 s). Original note: the MCP server listened on `127.0.0.1` only
   (`QHostAddress::LocalHost`). A client configured with `localhost` tries `::1` first, and on
@@ -14009,28 +14009,29 @@ stored as separate files next to the conversation.
   shared ffxivRemoveNotes, one undo step; kinds duplicates/chords, track and tick range);
   validate_ffxiv `checks`; setup_channel_pattern `mode` + `resyncNonGuitar`. Survivor rule: equally
   loud duplicates keep the longer copy (button too). Used live on 285 band files.
-* Owner test week with older MIDIs (from 2026-10-07) - further fixer findings go here.
+* Release review (2026-10-11), fixed before the release: the re-sync no longer hands a guitar
+  track's channel to the Cello while that guitar has no notes there yet; the mid-song program
+  change check counts only changes after the channel's first note (an export that writes the
+  program on the first note is no finding); `validate_ffxiv` with a `checks` subset names them in
+  `checksRun` and no longer calls the file compliant; `delete_ffxiv_collisions` refuses a
+  fractional track index or tick instead of reading it as 0; the duplicate test covers both
+  insert orders.
+* Owner test week with older MIDIs (from 2026-10-07): no further fixer findings before the
+  release; about 970 octet files ran through the fixer and the duplicate repair over MCP.
 
 **From the 2.5 review (2026-09-28, verified, deferred)**
-* Same-tick order after undo/redo: `MidiEvent::reloadState` re-inserts an event at the front of
-  its equal-key range, so with two program changes of different programs (or two tempo events)
-  at one tick on one channel, an undo/redo can change which one the editor applies while the
-  saved file keeps chunk order. Fix: define the winner by a stable key (track index, then map
-  order) in one helper, or skip the re-insert when channel and tick are unchanged.
+* Same-tick order after undo/redo - DONE in 2.5.1 (UNDO-TICKORDER-001, see above).
 * Attachments: a size cap over the whole conversation that is sent (today 14 MB per message).
-* Tempo lane: a drawn tempo belongs to the edit track in the editor but to the first track in
-  the saved file - assign the first track when it is created.
+* Tempo lane: drawn tempos on the first track - DONE in 2.5.1 (TEMPOLANE-TRACK-001).
 * PDF token estimate for PDFs with compressed page objects (counts 1 page).
-* Fix X|V Channels niche cases: Preserve removes hand-placed guitar switches on reserved
-  channels of non-guitar tracks (CF-02); Rebuild keeps an unnamed track at index 9 on channel 9
-  (CF-05 name condition).
+* Fix X|V Channels niche cases CF-02 / CF-05 - CLOSED in 2.5.1 without code (reasons above).
 * Window geometry saved in one DPI mode and restored in the other (Performance settings).
 
 **From Phase 51 and the v2.4+ lists**
 * 51.4 audio render through MCP.
 * Mid-run agent steering (design validated 2026-08-26).
 * Cross-tab follow-ups: (a) import engine as its own TU for round-trip tests, (b) MCP's
-  document intercept still lacks the floating-dock fallback, (c) null
+  document intercept floating-dock fallback - DONE in 2.5.1 (MCP-FLOATDOCK-001), (c) null
   `AgentRunner::_originFile` on close.
 * GPT-6 Astra follow-ups: async tools, WebSocket steering, `configuration_update`, cache ttl.
 * LOW carry-over: `startTickOfMeasure()` ceil() on off-grid meter changes,

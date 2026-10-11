@@ -5,26 +5,24 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 
 ---
 
-## [2.5.1] - Unreleased - Fix X|V Channels: The Editor Sounds Like the Game
-
-> In progress on the feature/v2.5.1 branch.
+## [2.5.1] - 2026-10-11 - Fix X|V Channels: The Editor Sounds Like the Game
 
 ### Summary
-* **[Fix X|V Channels removes what FFXIV ignores](https://midieditor-ai.de/ffxiv-channel-fixer.html)** - both modes remove controllers, pitch bend, aftertouch and SysEx, so the editor plays the song the way the bards do; a GM, GS or XG reset in a file no longer turns every instrument into a piano when the song plays from the start.
-* **[Re-sync gives a renamed guitar track a channel of its own](https://midieditor-ai.de/ffxiv-channel-fixer.html#resync)** - a guitar track renamed to Cello moves to a free channel with the Cello's program; the guitar tracks keep their channels and programs.
+* **[Fix X|V Channels removes what FFXIV ignores](https://midieditor-ai.de/ffxiv-channel-fixer.html)** - both modes remove controllers, pitch bend, aftertouch and SysEx, so the editor plays the song the way the bards do; a GM, GS or XG reset in a file no longer turns every instrument into a piano when the song plays from the start (FIX-SYSEX-001).
+* **[Re-sync gives a renamed guitar track a channel of its own](https://midieditor-ai.de/ffxiv-channel-fixer.html#resync)** - a guitar track renamed to Cello moves to a free channel with the Cello's program; the guitar tracks keep their channels and programs (FIX-CELLO-001).
 * **[Check FFXIV Playability finds editor-only events](https://midieditor-ai.de/ffxiv-playability.html#playability-checks)** - a new check lists the events FFXIV ignores and the mid-song program changes of non-guitar channels, which change the editor's playback but not the game's.
-* **[The playability repairs for MidiPilot and MCP](https://midieditor-ai.de/ffxiv-playability.html#playability-ai)** - the new `delete_ffxiv_collisions` tool removes stacked duplicates (and chords on request) like *Delete colliding notes*, `validate_ffxiv` runs single checks, and `setup_channel_pattern` takes the dialog's mode and re-sync.
+* **[The playability repairs for MidiPilot and MCP](https://midieditor-ai.de/ffxiv-playability.html#playability-ai)** - the new `delete_ffxiv_collisions` tool removes stacked duplicates (and chords on request) like *Delete colliding notes*, `validate_ffxiv` runs single checks, and `setup_channel_pattern` takes the dialog's mode and re-sync (TOOLS-PLAYABILITY-001).
 * **MCP clients connected to `localhost` answer at once** - every tool call waited about two seconds before; the server now listens on the IPv6 loopback as well (MCP-IPV6-001).
 
 <details>
 <summary>Full Changelog - Fix X|V Channels: The Editor Sounds Like the Game</summary>
 
 ### New Features
-* **[Editor-only events check](https://midieditor-ai.de/ffxiv-playability.html#playability-checks)** - the new **Editor-only events** checkbox in Check FFXIV Playability lists, per track, the controllers (bank selects named), pitch bends, aftertouch and SysEx messages FFXIV ignores, and every program change after the start of the song that switches the instrument of a non-guitar channel. Raised only for files with a track named after an FFXIV instrument; the Channel Fixer button appears for the first kind. `validate_ffxiv` counts the same events as `eventsFfxivIgnores` (SysEx included, which no other tool shows) without changing its verdict.
+* **[Editor-only events check](https://midieditor-ai.de/ffxiv-playability.html#playability-checks)** - the new **Editor-only events** checkbox in Check FFXIV Playability lists, per track, the controllers (bank selects named), pitch bends, aftertouch and SysEx messages FFXIV ignores, and every program change after a channel's first note that switches the instrument of a non-guitar channel. Raised only for files with a track that is named after an FFXIV instrument and has notes; the Channel Fixer button appears for the first kind. `validate_ffxiv` counts the same events as `eventsFfxivIgnores` (SysEx included, which no other tool shows) without changing its verdict.
 
 * **[delete_ffxiv_collisions](https://midieditor-ai.de/ffxiv-playability.html#playability-ai)** - MidiPilot's and MCP's version of the playability check's *Delete colliding notes*: the same findings, the same rule for the note that stays and one undo step. `kinds` picks stacked duplicates (the default) and/or chords, `trackIndex`, `startTick` and `endTick` narrow it down; the result counts the removed notes and the collisions left.
-* **validate_ffxiv runs single checks** - the optional `checks` list (chords, duplicates, range, trackNames) picks the in-game checks to run, like the checkboxes of the playability check.
-* **setup_channel_pattern takes the dialog's choices** - optional `mode` (auto, rebuild, preserve) and `resyncNonGuitar`, which the AI could not choose before: a file whose guitar program happened to sit at tick 0 always ran as Preserve, and the re-sync of non-guitar instruments was out of reach.
+* **[validate_ffxiv runs single checks](https://midieditor-ai.de/mcp-server.html#tools)** - the optional `checks` list (chords, duplicates, range, trackNames) picks the in-game checks to run, like the checkboxes of the playability check; the result names them in `checksRun`.
+* **[setup_channel_pattern takes the dialog's choices](https://midieditor-ai.de/mcp-server.html#tools)** - optional `mode` (auto, rebuild, preserve) and `resyncNonGuitar`, which the AI could not choose before: a file whose guitar program happened to sit at tick 0 always ran as Preserve, and the re-sync of non-guitar instruments was out of reach.
 
 ### Changed
 * **Preserve removes the events FFXIV ignores, like Rebuild** - controllers, pitch bend and aftertouch are removed in both modes now; program changes of non-guitar channels stay where they are.
@@ -59,6 +57,7 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 
 #### Manual and docs
 * `manual/ffxiv-channel-fixer.html`, `manual/ffxiv-playability.html`, `manual/midipilot-tools.html`, `manual/mcp-server.html`, `manual/midipilot-ffxiv.html`, `manual/midipilot-modes.html`, `manual/midipilot.html`, `manual/docs-index.html`, `README.md`
+* `run_environment/help_db.json` - the manual index regenerated for the AI's help tools
 
 </details>
 
