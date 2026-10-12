@@ -226,7 +226,7 @@
 		<td valign="top"></td>
 		<td>
 			<i>Move events to channel...</i><br>
-        Assigns all selected events to the specified channel. <a href="editing-midi-files.html#tracks-and-channels">Click here for details</a>
+        Assigns the selected events to the specified channel; program changes stay on their channel. <a href="editing-midi-files.html#context_menu">Click here for details</a>
 		</td>
 	</tr>
 	<tr>
@@ -372,8 +372,8 @@
 		<td valign="top"><img src="screenshots/copy_to_x_tool.png" width="40px"/></td>
 		<td>
 			<i>Copy events to track&hellip; / Copy events to channel&hellip;</i><br>
-			Duplicates the current selection 1:1 onto another track or channel (0-15) while leaving the originals
-			in place. The new copies become the active selection so an immediate <i>Octave Up</i> or velocity edit
+			Duplicates the current selection onto another track or channel (0-15) while leaving the originals
+			in place; a program change is copied to another track, never onto another channel. The new copies become the active selection so an immediate <i>Octave Up</i> or velocity edit
 			only affects the duplicates. NoteOn/Off pairing is preserved; the whole action is a single undo step.
 			Disabled when the selection is empty. Available from the matrix right-click menu as well. -
 			<a href="editing-midi-files.html#copy-to-track-channel">full reference</a>.

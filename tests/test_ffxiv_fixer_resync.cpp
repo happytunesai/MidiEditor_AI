@@ -92,6 +92,7 @@
 #include "../src/MidiEvent/PitchBendEvent.h"
 #include "../src/MidiEvent/ProgChangeEvent.h"
 #include "../src/MidiEvent/SysExEvent.h"
+#include "../src/MidiEvent/TempoChangeEvent.h"
 #include "../src/MidiEvent/TextEvent.h"
 
 // ---- ODR shims: Appearance colors (statics used by midi core / events) ---
@@ -1734,6 +1735,222 @@ private slots:
         QCOMPARE(notesOf(f, flute, fluteCh), 2);
         QCOMPARE(notesOf(f, flute, muted), 0);
         QCOMPARE(f->channel(muted)->progAtTick(0), 28);
+        delete f;
+    }
+
+    // ---- 2.5.2: moving a track's events to another channel ------------------
+
+    // A file set up by Rebuild holds the guitar channels' programs in every
+    // track, and after a Preserve re-sync a non-guitar channel's one program
+    // change sits in its own track. Moving a whole track to the Distortion
+    // channel (Select All + "Move events to channel", or "Move Track Events to
+    // Channel") took them all along: the target got every program at tick 0 -
+    // Harmonics ended up in effect - and the track's own channel fell back to
+    // piano, so the next Fix X|V Channels run made the guitar a Harmonics.
+    // Program changes stay on their channel now; notes and their off events
+    // move.
+    void moveEventsToChannel_programChangesStayOnTheirChannel() {
+        MidiFile *f = makeFile("Oboe", 1);
+        addNote(f, 1, f->track(1), 72, 0, 400);
+        const int power = addNoteTrack(f, "ElectricGuitarPowerChords", 2);
+        addNote(f, 2, f->track(power), 55, 480, 900);
+        const int bass = addNoteTrack(f, "Double Bass", 3);
+        addNote(f, 3, f->track(bass), 40, 960, 1400);
+        QCOMPARE(runTier(f, 2)["tier"].toInt(), 2);
+        QVERIFY(runTier3(f, true)["success"].toBool());
+        const int bassCh = f->track(bass)->assignedChannel();
+        const int powerCh = f->track(power)->assignedChannel();
+        QCOMPARE(pcCountAt(f, bassCh, 0), 1); // the Contrabass, in the bass track
+        QCOMPARE(f->channel(bassCh)->progAtTick(0), 43);
+        QCOMPARE(f->channel(powerCh)->progAtTick(0), 30);
+        int harmonicsChannels = 0;
+        for (int ch = 0; ch < 16; ++ch)
+            if (ch != 9 && f->channel(ch)->progAtTick(0) == 31) ++harmonicsChannels;
+
+        // What Select All picks up with only the bass track visible: every
+        // event of the track, the program copies of all channels included.
+        QList<MidiEvent *> events;
+        int bassPcsElsewhere = 0;
+        NoteOnEvent *bassNote = nullptr;
+        for (int ch = 0; ch < 16; ++ch) {
+            for (MidiEvent *ev : f->channel(ch)->eventMap()->values()) {
+                if (ev->track() != f->track(bass) || dynamic_cast<OffEvent *>(ev)) continue;
+                events.append(ev);
+                if (dynamic_cast<ProgChangeEvent *>(ev) && ch != powerCh) ++bassPcsElsewhere;
+                if (auto *on = dynamic_cast<NoteOnEvent *>(ev)) bassNote = on;
+            }
+        }
+        QVERIFY(bassPcsElsewhere >= 3);
+        const int bassNotes = notesOf(f, bass, bassCh);
+        QCOMPARE(bassNotes, 2);
+        QVERIFY(bassNote && bassNote->offEvent());
+        QList<QList<QPair<int, int>>> pcsBefore;
+        for (int ch = 0; ch < 16; ++ch) pcsBefore.append(allPcs(f, ch));
+
+        f->protocol()->startNewAction("move");
+        QCOMPARE(f->moveEventsToChannel(events, powerCh), bassPcsElsewhere);
+        f->protocol()->endAction();
+
+        QCOMPARE(notesOf(f, bass, powerCh), bassNotes);
+        QCOMPARE(notesOf(f, bass, bassCh), 0);
+        QCOMPARE(bassNote->channel(), powerCh);
+        QCOMPARE(bassNote->offEvent()->channel(), powerCh);
+        QVERIFY(f->channel(powerCh)->eventMap()->values(1400).contains(bassNote->offEvent()));
+        for (int ch = 0; ch < 16; ++ch) QCOMPARE(allPcs(f, ch), pcsBefore.at(ch));
+        QCOMPARE(f->channel(bassCh)->progAtTick(0), 43);
+        QCOMPARE(f->channel(powerCh)->progAtTick(0), 30);
+
+        // One undo puts the note back.
+        f->protocol()->undo();
+        QCOMPARE(notesOf(f, bass, bassCh), bassNotes);
+        QCOMPARE(notesOf(f, bass, powerCh), 0);
+        QCOMPARE(bassNote->channel(), bassCh);
+        QCOMPARE(bassNote->offEvent()->channel(), bassCh);
+        for (int ch = 0; ch < 16; ++ch) QCOMPARE(allPcs(f, ch), pcsBefore.at(ch));
+
+        // Moved again and renamed, Preserve keeps the Distortion guitar.
+        f->protocol()->redo();
+        f->track(bass)->setName(QStringLiteral("ElectricGuitarPowerChords"));
+        QVERIFY(runTier3(f, false)["success"].toBool());
+        QCOMPARE(f->track(bass)->name(), QString("ElectricGuitarPowerChords"));
+        QCOMPARE(f->channel(powerCh)->progAtTick(0), 30);
+        QCOMPARE(notesOf(f, bass, powerCh), bassNotes);
+        int harmonicsAfter = 0;
+        for (int ch = 0; ch < 16; ++ch)
+            if (ch != 9 && f->channel(ch)->progAtTick(0) == 31) ++harmonicsAfter;
+        QCOMPARE(harmonicsAfter, harmonicsChannels);
+        delete f;
+    }
+
+    // Everything Select All picks up of one track: its events on 0-15 without
+    // the off events (they travel with their notes).
+    static QList<MidiEvent *> trackEvents(MidiFile *f, int track) {
+        QList<MidiEvent *> out;
+        for (int ch = 0; ch < 16; ++ch) {
+            for (MidiEvent *ev : f->channel(ch)->eventMap()->values()) {
+                if (ev->track() == f->track(track) && !dynamic_cast<OffEvent *>(ev)) out.append(ev);
+            }
+        }
+        return out;
+    }
+
+    // Where a pasted event goes (Paste options): -1 keeps its channel, -2
+    // ("Same as selected") is the edit channel, 0-15 that channel - and a meta
+    // event never leaves 16-18, where the tempo map and the meter look.
+    void pasteTargetChannel_routesMidiChannelsOnly() {
+        QCOMPARE(MidiFile::pasteTargetChannel(5, -1, 3), 5);
+        QCOMPARE(MidiFile::pasteTargetChannel(5, 8, 3), 8);
+        QCOMPARE(MidiFile::pasteTargetChannel(5, -2, 3), 3);
+        QCOMPARE(MidiFile::pasteTargetChannel(16, 4, 3), 16);
+        QCOMPARE(MidiFile::pasteTargetChannel(17, 8, 3), 17);
+        QCOMPARE(MidiFile::pasteTargetChannel(18, -2, 3), 18);
+    }
+
+    // Copy to Channel, Paste to channel N, "Same as selected" and Paste
+    // Special's current edit target all ask isForeignProgramChange about every
+    // event (pinned in test_shutdown_guards). Of a Select All on a track after
+    // Rebuild and a re-sync, every note comes along and only a program change
+    // of the target channel itself - with "Keep channel" every program change.
+    void copyAndPasteOntoAChannel_leaveTheOtherChannelsProgramsOut() {
+        MidiFile *f = makeFile("Oboe", 1);
+        addNote(f, 1, f->track(1), 72, 0, 400);
+        const int power = addNoteTrack(f, "ElectricGuitarPowerChords", 2);
+        addNote(f, 2, f->track(power), 55, 480, 900);
+        const int bass = addNoteTrack(f, "Double Bass", 3);
+        addNote(f, 3, f->track(bass), 40, 960, 1400);
+        QCOMPARE(runTier(f, 2)["tier"].toInt(), 2);
+        QVERIFY(runTier3(f, true)["success"].toBool());
+        const int powerCh = f->track(power)->assignedChannel();
+        const QList<MidiEvent *> events = trackEvents(f, bass);
+        int notes = 0, programs = 0, programsOnTarget = 0;
+        for (MidiEvent *ev : events) {
+            if (dynamic_cast<NoteOnEvent *>(ev)) ++notes;
+            if (dynamic_cast<ProgChangeEvent *>(ev)) {
+                ++programs;
+                if (ev->channel() == powerCh) ++programsOnTarget;
+            }
+        }
+        QCOMPARE(notes, 2);
+        QVERIFY(programs - programsOnTarget >= 3);
+
+        struct Mode { const char *name; int pasteChannel; bool copy; };
+        const Mode modes[] = {
+            {"Copy to Channel", -1, true},
+            {"Paste to channel N", powerCh, false},
+            {"Same as selected / current edit target", -2, false},
+            {"Keep channel", -1, false},
+        };
+        for (const Mode &mode : modes) {
+            int keptNotes = 0, keptPrograms = 0;
+            for (MidiEvent *ev : events) {
+                const int target = mode.copy
+                    ? powerCh
+                    : MidiFile::pasteTargetChannel(ev->channel(), mode.pasteChannel, powerCh);
+                if (MidiFile::isForeignProgramChange(ev, target)) {
+                    QVERIFY2(target != ev->channel(), mode.name);
+                    continue;
+                }
+                if (dynamic_cast<NoteOnEvent *>(ev)) ++keptNotes;
+                if (dynamic_cast<ProgChangeEvent *>(ev)) {
+                    ++keptPrograms;
+                    QVERIFY2(target == ev->channel(), mode.name); // never re-channelled
+                }
+            }
+            QVERIFY2(keptNotes == notes, mode.name);
+            const bool keep = !mode.copy && mode.pasteChannel == -1;
+            QVERIFY2(keptPrograms == (keep ? programs : programsOnTarget), mode.name);
+        }
+
+        // Notes and meta events are never "foreign program changes".
+        auto *tempo = new TempoChangeEvent(17, 500000, f->track(0));
+        QVERIFY(!MidiFile::isForeignProgramChange(tempo, powerCh));
+        delete tempo;
+        delete f;
+    }
+
+    // import_tracks_from_document: a track imported from a Rebuild file brings
+    // the program change of a channel only when it plays notes there - a
+    // guitar that switches keeps both its channels' programs.
+    void importKeepsOnlyTheProgramsOfThePlayedChannels() {
+        MidiFile *f = makeFile("ElectricGuitarOverdriven", 1);
+        addNote(f, 1, f->track(1), 60, 0, 400);
+        const int bass = addNoteTrack(f, "Double Bass", 2);
+        addNote(f, 2, f->track(bass), 40, 960, 1400);
+        QCOMPARE(runTier(f, 2)["tier"].toInt(), 2);
+        const int od = f->track(1)->assignedChannel();
+        const int clean = channelWithProgram(f, 27);
+        const int bassCh = f->track(bass)->assignedChannel();
+        QVERIFY(od >= 0 && clean >= 0 && clean != od);
+        addNote(f, clean, f->track(1), 62, 1440, 1800); // a switch to Clean
+
+        auto check = [&](int track, const QSet<int> &played) {
+            const QList<MidiEvent *> events = trackEvents(f, track);
+            int programs = 0, programsPlayed = 0, notes = 0;
+            for (MidiEvent *ev : events) {
+                if (dynamic_cast<NoteOnEvent *>(ev)) ++notes;
+                if (dynamic_cast<ProgChangeEvent *>(ev)) {
+                    ++programs;
+                    if (played.contains(ev->channel())) ++programsPlayed;
+                }
+            }
+            QVERIFY(programs > programsPlayed);
+            int leftOut = -1;
+            const QList<MidiEvent *> kept =
+                MidiFile::withoutProgramsOfUnplayedChannels(events, &leftOut);
+            QCOMPARE(leftOut, programs - programsPlayed);
+            int keptNotes = 0, keptPrograms = 0;
+            for (MidiEvent *ev : kept) {
+                if (dynamic_cast<NoteOnEvent *>(ev)) ++keptNotes;
+                if (dynamic_cast<ProgChangeEvent *>(ev)) {
+                    ++keptPrograms;
+                    QVERIFY(played.contains(ev->channel()));
+                }
+            }
+            QCOMPARE(keptNotes, notes);
+            QCOMPARE(keptPrograms, programsPlayed);
+        };
+        check(bass, {bassCh});
+        check(1, {od, clean});
         delete f;
     }
 

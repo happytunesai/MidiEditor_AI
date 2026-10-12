@@ -6456,54 +6456,25 @@ void MainWindow::moveSelectedEventsToChannel(QAction *action) {
     }
 
     int num = action->data().toInt();
-    MidiChannel *channel = file->channel(num);
 
-    if (Selection::instance()->selectedEvents().size() > 0) {
+    // Program changes stay on their channel (MidiFile::moveEventsToChannel):
+    // Select All picks up every program change of the visible channels - in a
+    // file set up by Fix X|V Channels the program of EVERY channel sits in
+    // every track - and moving them stacked them all onto the target and left
+    // their own channels without an instrument. No action when nothing moves:
+    // an empty one still clears the redo history and marks the file modified.
+    int stayed = 0;
+    const QList<MidiEvent *> movable = MidiFile::channelMoveCandidates(
+        Selection::instance()->selectedEvents(), num, &stayed);
+    if (!movable.isEmpty()) {
         file->protocol()->startNewAction(tr("Move selected events to channel ") + QString::number(num));
-        // WHY: removeEvent/setChannel/insertEvent with toProtocol=true each take
-        // a MidiChannel::copy() (a clone of the whole event map) - ~5 clones per
-        // note, the O(events x map) undo blow-up. Same as moveTrackEventsToChannel:
-        // one snapshot per touched channel up front, toProtocol=false map moves,
-        // one small per-event item for the channel field (and the paired OffEvent).
-        QSet<int> touched;
-        touched.insert(num);
-        foreach(MidiEvent* ev, Selection::instance()->selectedEvents()) {
-            touched.insert(ev->channel());
-            OnEvent *onevent = dynamic_cast<OnEvent *>(ev);
-            if (onevent && onevent->offEvent()) {
-                touched.insert(onevent->offEvent()->channel());
-            }
-        }
-        QHash<int, ProtocolEntry *> channelSnapshots;
-        for (int ch : touched) {
-            channelSnapshots.insert(ch, file->channel(ch)->copy());
-        }
-        foreach(MidiEvent* ev, Selection::instance()->selectedEvents()) {
-            const int oldChannel = ev->channel();
-            OnEvent *onevent = dynamic_cast<OnEvent *>(ev);
-            OffEvent *off = onevent ? onevent->offEvent() : nullptr;
-            ProtocolEntry *beforeEv = ev->copy();
-            ProtocolEntry *beforeOff = off ? off->copy() : nullptr;
-            file->channel(oldChannel)->removeEvent(ev, false); // drops the paired OffEvent too
-            // removeEvent() keeps a lone tick-0 tempo/time-signature event;
-            // setChannel(num, true) used to re-key it regardless - keep that.
-            file->channelEvents(oldChannel)->remove(ev->midiTime(), ev);
-            ev->setChannel(num, false);
-            if (off) {
-                off->setChannel(num, false);
-                channel->insertEvent(off, off->midiTime(), false);
-            }
-            channel->insertEvent(ev, ev->midiTime(), false);
-            ev->protocol(beforeEv, ev);
-            if (off) {
-                off->protocol(beforeOff, off);
-            }
-        }
-        for (auto it = channelSnapshots.cbegin(); it != channelSnapshots.cend(); ++it) {
-            file->channel(it.key())->protocol(it.value(), file->channel(it.key()));
-        }
-
+        file->moveEventsToChannel(movable, num);
         file->protocol()->endAction();
+    }
+    if (stayed > 0) {
+        statusBar()->showMessage(
+            tr("%n program change(s) stayed on their channel - a channel keeps its instrument",
+               "", stayed), 6000);
     }
 }
 
@@ -6537,7 +6508,17 @@ void MainWindow::moveSelectedEventsToTrack(QAction *action) {
 void MainWindow::copySelectedEventsToChannel(QAction *action) {
     if (!file || !action) return;
     const int num = action->data().toInt();
+    int programs = 0;
+    for (MidiEvent *ev : Selection::instance()->selectedEvents()) {
+        if (MidiFile::isForeignProgramChange(ev, num))
+            ++programs;
+    }
     EventTool::copySelectionToChannel(num);
+    if (programs > 0) {
+        statusBar()->showMessage(
+            tr("%n program change(s) not copied - the channel keeps its instrument",
+               "", programs), 6000);
+    }
 }
 
 void MainWindow::copySelectedEventsToTrack(QAction *action) {
@@ -8805,41 +8786,27 @@ void MainWindow::clearTrackEvents(MidiTrack *track) {
 void MainWindow::moveTrackEventsToChannel(MidiTrack *track, int channel) {
     MidiFile *f = track ? track->file() : nullptr;
     if (!f || channel < 0 || channel >= 16) return;
-    f->protocol()->startNewAction(tr("Move Track Events to Channel"));
-    // Musical channels only (0-15): never re-channel meta events.
-    //
-    // Every event goes through moveToChannel (map remove + re-insert) - a
-    // setChannel(ch, false) would only flip the event's channel FIELD and
-    // leave it in the old channel's map (map corruption: duplicated on the
-    // next time edit, dangling entry once deleted). Undo: one bulk snapshot
-    // per channel restores the maps; a small per-event ProtocolItem restores
-    // each event's channel field (channel snapshots alone don't cover event
-    // fields, and per-event moveToChannel(true) would deep-clone the maps).
-    QVector<ProtocolEntry *> channelSnapshots(16, nullptr);
-    for (int ch = 0; ch < 16; ++ch)
-        channelSnapshots[ch] = f->channel(ch)->copy();
+    // Musical channels only (0-15): never re-channel meta events. The track's
+    // program changes stay on their channels (see moveSelectedEventsToChannel).
+    QList<MidiEvent *> events;
     for (int ch = 0; ch < 16; ++ch) {
-        QMultiMap<int, MidiEvent *> *emap = f->channel(ch)->eventMap();
-        const QList<MidiEvent *> all = emap->values();
-        for (MidiEvent *ev : all) {
-            if (ev->track() != track) continue;
-            if (ev->channel() == channel) continue; // already there (or moved)
-            if (dynamic_cast<OffEvent *>(ev)) continue; // moved with their OnEvent
-            OffEvent *off = nullptr;
-            ProtocolEntry *beforeOff = nullptr;
-            if (OnEvent *on = dynamic_cast<OnEvent *>(ev)) {
-                off = on->offEvent();
-                if (off) beforeOff = off->copy();
-            }
-            ProtocolEntry *beforeEv = ev->copy();
-            ev->moveToChannel(channel, false); // OnEvent override moves the off too
-            ev->protocol(beforeEv, ev);
-            if (off) off->protocol(beforeOff, off);
+        const QMultiMap<int, MidiEvent *> *emap = f->channel(ch)->eventMap();
+        for (auto it = emap->cbegin(); it != emap->cend(); ++it) {
+            if (it.value()->track() == track) events.append(it.value());
         }
     }
-    for (int ch = 0; ch < 16; ++ch)
-        f->channel(ch)->protocol(channelSnapshots[ch], f->channel(ch));
-    f->protocol()->endAction();
+    int stayed = 0;
+    const QList<MidiEvent *> movable = MidiFile::channelMoveCandidates(events, channel, &stayed);
+    if (!movable.isEmpty()) {
+        f->protocol()->startNewAction(tr("Move Track Events to Channel"));
+        f->moveEventsToChannel(movable, channel);
+        f->protocol()->endAction();
+    }
+    if (stayed > 0) {
+        statusBar()->showMessage(
+            tr("%n program change(s) stayed on their channel - a channel keeps its instrument",
+               "", stayed), 6000);
+    }
     updateAll();
 }
 

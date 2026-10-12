@@ -14019,6 +14019,23 @@ stored as separate files next to the conversation.
 * Owner test week with older MIDIs (from 2026-10-07): no further fixer findings before the
   release; about 970 octet files ran through the fixer and the duplicate repair over MCP.
 
+**2.5.2 (hotfix) - SHIPPED 2026-10-12**
+* MOVE-PC-001 (owner report): Select All picks up the program changes of the visible channels, and a
+  file set up by Fix X|V Channels holds the programs of several channels in every track (after a
+  re-sync a non-guitar channel's one program sits in its own track). Move to Channel, the track
+  menu's Move Events to Channel, Copy to Channel, paste onto another channel, Paste Special's
+  current edit target and import_tracks_from_document carried them onto other channels: stacked
+  programs at tick 0 (Distortion became Harmonics), and the source channel fell back to piano. Now
+  program changes stay on their channel (shared MidiFile::moveEventsToChannel; copy/paste leave
+  them out; the import keeps only those on channels the track plays), status bar counts, meta
+  events never re-channelled, no empty undo step. The behaviour is inherited from the original
+  editor (2018) and meow; the Rebuild layout made it severe. The rules are MidiFile statics
+  (isForeignProgramChange, pasteTargetChannel, withoutProgramsOfUnplayedChannels) unit-tested in
+  test_ffxiv_fixer_resync; the GUI/AI call sites are pinned by source guards in
+  test_shutdown_guards; all mutation-checked. Not changed on purpose: MidiPilot simple-mode "edit" replaces the selection
+  with the model's events, program changes included (keeping foreign ones would leave conflicting
+  programs whenever the model changes an instrument).
+
 **From the 2.5 review (2026-09-28, verified, deferred)**
 * Same-tick order after undo/redo - DONE in 2.5.1 (UNDO-TICKORDER-001, see above).
 * Attachments: a size cap over the whole conversation that is sent (today 14 MB per message).

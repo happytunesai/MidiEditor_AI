@@ -806,7 +806,8 @@ QJsonArray ToolDefinitions::toolSchemas(const ToolSchemaOptions &options) {
             "edited: they are appended as new tracks with their names preserved, and the "
             "source document is not modified. Events keep their source channels - "
             "collisions with channels this document already uses are reported, not "
-            "remapped. Ticks are rescaled automatically when the two files' "
+            "remapped. A program change comes along only on a channel its track plays "
+            "notes on (programChangesLeftOut counts the rest). Ticks are rescaled automatically when the two files' "
             "ticksPerQuarter differ. The source's tempo map is NOT imported: imported "
             "material follows THIS document's tempo, and when the two tempo maps differ "
             "the timing will audibly differ from the source (reported, never blocked). "
@@ -1819,6 +1820,14 @@ QJsonObject ToolDefinitions::execImportTracksFromDocument(const QJsonObject &arg
                 ++plannedNotes[t];
         }
     }
+    // A program change comes along only on a channel the track plays notes
+    // on: a file set up by Fix X|V Channels holds the programs of several
+    // channels in every track, and importing them changed the instruments of
+    // channels in this document the imported track never plays (MOVE-PC-001).
+    QVector<int> programsLeftOut(srcTrackCount, 0);
+    for (int t = 0; t < srcTrackCount; ++t) {
+        planned[t] = MidiFile::withoutProgramsOfUnplayedChannels(planned[t], &programsLeftOut[t]);
+    }
 
     // Which tracks get created: the explicit list as given (empty ones too -
     // the caller asked for them by index, the name still carries meaning), or
@@ -1922,6 +1931,7 @@ QJsonObject ToolDefinitions::execImportTracksFromDocument(const QJsonObject &arg
     QJsonArray trackReport;
     int totalEvents = 0;
     int totalNotes = 0;
+    int totalProgramsLeftOut = 0;
     for (int i = 0; i < importList.size(); ++i) {
         const int t = importList[i];
         MidiTrack *srcTrack = src->track(t);
@@ -1935,6 +1945,7 @@ QJsonObject ToolDefinitions::execImportTracksFromDocument(const QJsonObject &arg
         trackReport.append(o);
         totalEvents += planned[t].size();
         totalNotes += plannedNotes[t];
+        totalProgramsLeftOut += programsLeftOut[t];
     }
 
     if (!dryRun) {
@@ -2018,6 +2029,8 @@ QJsonObject ToolDefinitions::execImportTracksFromDocument(const QJsonObject &arg
     result["channelCollisions"] = collisions;
     result["tempoMapsDiffer"] = tempoMapsDiffer;
     result["tracks"] = trackReport;
+    if (totalProgramsLeftOut > 0)
+        result["programChangesLeftOut"] = totalProgramsLeftOut;
 
     // Honest summary, thin_tempo_map style: dry runs instruct the model to
     // confirm with the user first. Title concatenated, never .arg()'d.
@@ -2045,6 +2058,12 @@ QJsonObject ToolDefinitions::execImportTracksFromDocument(const QJsonObject &arg
                                   "already uses - existing material stays "
                                   "untouched but shares those channels.")
                        .arg(collisionStrings.join(QStringLiteral(", ")));
+    }
+    if (totalProgramsLeftOut > 0) {
+        summary += QStringLiteral(" %1 program change(s) on channels the imported "
+                                  "tracks play no notes on were left out, so those "
+                                  "channels keep their instruments here.")
+                       .arg(totalProgramsLeftOut);
     }
     if (tempoMapsDiffer) {
         summary += QStringLiteral(" The two documents' tempo maps differ and the "

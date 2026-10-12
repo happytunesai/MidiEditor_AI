@@ -20,6 +20,8 @@
 
 #include <QDataStream>
 #include <QFile>
+#include <QHash>
+#include <QSet>
 #include <QSaveFile>
 #include <QDebug>
 #include <QMutexLocker>
@@ -2295,6 +2297,100 @@ bool MidiFile::moveTrack(MidiTrack *track, int delta) {
     }
     ProtocolEntry::protocol(toCopy, this);
     return true;
+}
+
+QList<MidiEvent *> MidiFile::channelMoveCandidates(const QList<MidiEvent *> &events,
+                                                  int target, int *stayed) {
+    QList<MidiEvent *> toMove;
+    int kept = 0;
+    if (target >= 0 && target <= 15) {
+        QSet<MidiEvent *> seen;
+        for (MidiEvent *ev : events) {
+            if (!ev || seen.contains(ev)) continue;
+            seen.insert(ev);
+            const int ch = ev->channel();
+            if (ch < 0 || ch > 15 || ch == target) continue;
+            if (dynamic_cast<OffEvent *>(ev)) continue; // moves with its note
+            if (isForeignProgramChange(ev, target)) { // the channel's instrument
+                ++kept;
+                continue;
+            }
+            toMove.append(ev);
+        }
+    }
+    if (stayed) *stayed = kept;
+    return toMove;
+}
+
+bool MidiFile::isForeignProgramChange(MidiEvent *event, int target) {
+    if (!event || !dynamic_cast<ProgChangeEvent *>(event)) return false;
+    const int ch = event->channel();
+    return ch >= 0 && ch <= 15 && ch != target;
+}
+
+int MidiFile::pasteTargetChannel(int eventChannel, int pasteChannel, int editChannel) {
+    if (eventChannel < 0 || eventChannel > 15) return eventChannel; // meta keep theirs
+    if (pasteChannel == -2) return editChannel;
+    if (pasteChannel >= 0 && pasteChannel <= 15) return pasteChannel;
+    return eventChannel;
+}
+
+QList<MidiEvent *> MidiFile::withoutProgramsOfUnplayedChannels(const QList<MidiEvent *> &events,
+                                                              int *leftOut) {
+    QSet<int> played;
+    for (MidiEvent *ev : events) {
+        if (dynamic_cast<NoteOnEvent *>(ev)) played.insert(ev->channel());
+    }
+    QList<MidiEvent *> kept;
+    int dropped = 0;
+    for (MidiEvent *ev : events) {
+        if (ev && dynamic_cast<ProgChangeEvent *>(ev) && !played.contains(ev->channel())) {
+            ++dropped;
+            continue;
+        }
+        kept.append(ev);
+    }
+    if (leftOut) *leftOut = dropped;
+    return kept;
+}
+
+int MidiFile::moveEventsToChannel(const QList<MidiEvent *> &events, int target) {
+    int stayed = 0;
+    const QList<MidiEvent *> toMove = channelMoveCandidates(events, target, &stayed);
+    if (toMove.isEmpty()) {
+        return stayed;
+    }
+
+    // One snapshot per touched channel restores the maps; a small item per
+    // event restores its channel field (moveToChannel(true) per event would
+    // deep-clone the maps for every note).
+    QSet<int> touched{target};
+    for (MidiEvent *ev : toMove) {
+        touched.insert(ev->channel());
+        if (OnEvent *on = dynamic_cast<OnEvent *>(ev)) {
+            if (on->offEvent()) touched.insert(on->offEvent()->channel());
+        }
+    }
+    QHash<int, ProtocolEntry *> snapshots;
+    for (int ch : touched) {
+        snapshots.insert(ch, channel(ch)->copy());
+    }
+    for (MidiEvent *ev : toMove) {
+        OffEvent *off = nullptr;
+        ProtocolEntry *beforeOff = nullptr;
+        if (OnEvent *on = dynamic_cast<OnEvent *>(ev)) {
+            off = on->offEvent();
+            if (off) beforeOff = off->copy();
+        }
+        ProtocolEntry *beforeEv = ev->copy();
+        ev->moveToChannel(target, false); // OnEvent moves its off event too
+        ev->protocol(beforeEv, ev);
+        if (off) off->protocol(beforeOff, off);
+    }
+    for (auto it = snapshots.cbegin(); it != snapshots.cend(); ++it) {
+        channel(it.key())->protocol(it.value(), channel(it.key()));
+    }
+    return stayed;
 }
 
 bool MidiFile::removeTrack(MidiTrack *track) {

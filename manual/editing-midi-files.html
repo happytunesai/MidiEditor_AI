@@ -218,7 +218,9 @@
     without a dialog</li>
 <li><b>Move to Track</b> / <b>Move to Channel</b> - submenus that reassign the selected events to
     another track or MIDI channel; each entry carries an eye icon showing whether that target is
-    currently <a href="editor-and-components.html#context-menu-visibility">visible</a></li>
+    currently <a href="editor-and-components.html#context-menu-visibility">visible</a>. Program
+    changes stay on their channel when events move to another channel: a channel keeps its
+    instrument, and the moved notes play with the instrument of the channel they move to</li>
 <li><b>Copy to Track</b> / <b>Copy to Channel</b> - duplicate the selection onto another track / channel (see <a href="#copy-to-track-channel">below</a>)</li>
 <li><b>Scale Selection&hellip;</b> - asks for a scale factor and stretches or compresses the selected
     events in time around the earliest one, note ends included; 2.0 makes the passage twice as long,
@@ -236,9 +238,9 @@
 <p>
   Next to the <b>Move to Track</b> / <b>Move to Channel</b> entries, the matrix
   right-click menu and the <b>Tools</b> menu offer <b>Copy events to track&hellip;</b> and
-  <b>Copy events to channel&hellip;</b>. Both duplicate the current selection 1:1 onto the chosen
+  <b>Copy events to channel&hellip;</b>. Both duplicate the current selection onto the chosen
   target while leaving the originals exactly where they were - nothing is shifted, scaled,
-  or quantised.
+  or quantised. Copy to Channel leaves program changes out (see below).
 </p>
 <ul>
   <li><b>Selection switches to the copies.</b> After the action, the new duplicates become the
@@ -253,6 +255,9 @@
   <li><b>Cross-track selections collapse to a single target.</b> A selection that spans tracks 1
     and 2, copied to track 3, lands all duplicates on track 3 on the channels they had
     originally (matches the existing <i>Move to Track</i> behaviour).</li>
+  <li><b>A channel keeps its program.</b> A program change sets the
+    instrument of its channel; the copied notes play with the instrument of the target channel,
+    which keeps its own program.</li>
   <li><b>Meta channels are skipped.</b> Channels 16 (lyrics/text), 17 (tempo) and 18 (time
     signature) do not appear in the <i>Copy to Channel</i> submenu - "channel" doesn't
     apply to those event types.</li>
@@ -357,7 +362,8 @@
     Best when both files already share a track structure and you just want events to land
     where they came from.</li>
   <li><b>Paste to current edit track + channel (legacy)</b> - the classic behaviour. All events
-    collapse onto the current <i>edit track</i> and <i>edit channel</i>. Useful for quick
+    collapse onto the current <i>edit track</i> and <i>edit channel</i>; program changes of
+    other channels are left out, so the edit channel keeps its instrument. Useful for quick
     one-off paste of a single phrase.</li>
 </ul>
 <p>
