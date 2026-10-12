@@ -13,7 +13,7 @@
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-0078D6?logo=windows)](https://github.com/happytunesai/MidiEditor_AI/releases)
 
-**Version:** 2.5.1
+**Version:** 2.5.2
 **Status:** Release
 
 📥 **[Download Latest Release](https://github.com/happytunesai/MidiEditor_AI/releases/latest)**
@@ -92,7 +92,7 @@ MidiPilot is the AI brain embedded directly in MidiEditor AI. Open the sidebar, 
 | 📈 **Tempo Transition Curves** | Edit Tempo's Smooth Transition with Linear / Ease-in / Ease-out / S-curve - one tempo event per BPM step, exact endpoint, single undo step |
 | 📉 **Thin Tempo Map** | Reduce a DAW-exported tempo ramp (often tens of thousands of events) to the few that carry the timing - choose the allowed timing shift (default 2 ms), preview kept/removed and the largest drift, apply as one undo step. Also offered as a Check FFXIV Playability repair and as a MidiPilot/MCP tool |
 | 📥 **Paste Special** | Cross-instance Ctrl+V opens a dialog: *Create new tracks per source* (default), *Preserve source mapping (1:1)*, or *Paste to current edit track* (legacy). Track creation + paste in one undo step |
-| 📋 **Copy to Track / Copy to Channel** | Duplicate the current selection 1:1 onto another track or channel; originals stay in place, the copies become the active selection |
+| 📋 **Copy to Track / Copy to Channel** | Duplicate the current selection onto another track or channel (program changes stay with their channel); originals stay in place, the copies become the active selection |
 | 📊 **MIDI Visualizer** | Real-time 16-channel equalizer bars in the toolbar with velocity-based color and smooth decay animation |
 | 🔌 **Multi-Provider** | OpenAI, OpenRouter, Google Gemini, Ollama, or any OpenAI-compatible endpoint |
 | 🗃️ **Provider Profiles** | Save several AI endpoints (provider, base URL, API key, model) under a name and switch with one click from the Provider dropdown - in Settings and in the MidiPilot footer. Every custom endpoint keeps its own model list and favourites; a local server (llama.cpp, LM Studio) needs no API key |
@@ -490,7 +490,7 @@ The AI has access to **32 core tools** plus `switch_document`, and **6 more when
 | `transpose_events` | Transpose notes by semitones (track/range/file), optionally folded into the bard range C3-C6 |
 | `split_chords_to_tracks` | Split a chordal track voice-wise onto new tracks (voice 1 = highest) - chords become monophonic performers |
 | `copy_events_to_track` | Copy notes to another track (e.g. double a melody, then transpose the copy) |
-| `import_tracks_from_document` | Copy whole tracks from another open tab into the current document (names preserved, ticks rescaled, channel collisions reported) - dry run first, your confirmation required |
+| `import_tracks_from_document` | Copy whole tracks from another open tab into the current document (names preserved, ticks rescaled, program changes only on the channels a track plays, channel collisions reported) - dry run first, your confirmation required |
 | `switch_document` | Re-bind the run to another open tab when you explicitly ask for it - reads, writes, and undo steps then act on that document while the visible tab stays put |
 | `save_document` / `save_document_as` | Save without a dialog - a file you opened is overwritten only on your answer to the AI's question (or the *AI saves your file* setting); otherwise a marked copy (`mozart.mid` → `mozart.midipilot.mid`, over MCP `mozart.mcp.mid`), a taken name gets a counter |
 | `new_document` / `open_document` / `close_document` | Create an empty document, open a MIDI or importable file, close a saved tab (a tab with unsaved changes stays open) |

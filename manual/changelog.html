@@ -221,12 +221,28 @@
 <div class="cl-no-results" id="cl-no-results">No matching releases found.</div>
 
 <div class="cl-timeline">
-<article class="cl-version latest" data-version="2.5.1">
+<article class="cl-version latest" data-version="2.5.2">
+<div class="cl-dot"></div>
+<div class="cl-version-head">
+<h2><a href="https://github.com/happytunesai/MidiEditor_AI/releases/tag/v2.5.2" target="_blank" rel="noopener noreferrer">v2.5.2</a></h2>
+<span class="cl-date">2026-10-12</span>
+<span class="cl-badge-latest">Latest</span>
+</div>
+<div class="cl-title">Hotfix: Moving Notes Keeps Every Channel&#x27;s Instrument</div>
+<ul class="cl-summary">
+<li><strong><a href="https://midieditor-ai.de/editing-midi-files.html#context_menu" target="_blank" rel="noopener noreferrer">Moving, copying or pasting events onto another channel keeps every channel&#x27;s instrument</a></strong> - program changes stay on their channel, so Select All + Move to Channel in a file set up by Fix X|V Channels no longer stacks the programs onto the target channel or leaves a channel without its instrument; the status bar says how many stayed (MOVE-PC-001).</li>
+<li><strong>Importing tracks from another tab leaves the other channels&#x27; instruments alone</strong> - <code class="hl">import_tracks_from_document</code> brings a program change along only on a channel the track plays notes on (MOVE-PC-001).</li>
+<li><strong>Tempo, meter, key and text events stay on their channels</strong> - moving a selection to a channel or pasting with *Same as selected for new events* no longer puts them onto a MIDI channel, where the tempo map and the meter no longer saw them.</li>
+</ul>
+<button class="cl-toggle" type="button"><span class="arrow">▶</span> Show full changelog</button>
+<div class="cl-details"><div class="cl-cat cat-fix"><h4><span class="cat-badge">🔧 Fixed</span> Bug Fixes</h4><ul><li><strong>Move to Channel took the program changes along (MOVE-PC-001)</strong> - Select All picks up the program changes of the visible channels as well, and a file set up by Fix X|V Channels holds the programs of several channels in every track. Moving such a selection - or a whole track with *Move Events to Channel* in the track menu - put all of them onto the target channel at tick 0, where one of them took over the instrument (a Distortion guitar channel could end up as Harmonics), and a channel whose program change sat only in the moved track fell back to piano. A Fix X|V Channels run afterwards worked from those wrong instruments. Program changes now stay on their channel; everything else - notes with their note-offs, controllers, pitch bends, aftertouch - moves, and the status bar says how many program changes stayed. *Copy to Channel*, a channel or *Same as selected for new events* under *Paste options &gt; Paste to channel*, and Paste Special&#x27;s *Paste to current edit track + channel* leave program changes of other channels out as well, and <code class="hl">import_tracks_from_document</code> brings a program change along only on a channel its track plays notes on (<code class="hl">programChangesLeftOut</code> counts the rest). A selected tempo, time signature, key signature or text event is never moved onto a MIDI channel, and a paste with *Same as selected for new events* keeps them on their own channels.</li></ul></div>
+<div class="cl-cat cat-medium"><h4><span class="cat-badge">🟡 Medium</span> Files Modified</h4><ul><li><code class="hl">src/midi/MidiFile.h/.cpp</code> - <code class="hl">moveEventsToChannel()</code>: the shared channel move (program changes and meta events stay, one snapshot per touched channel for the undo); the rules every move, copy, paste and import uses: <code class="hl">isForeignProgramChange()</code>, <code class="hl">pasteTargetChannel()</code>, <code class="hl">withoutProgramsOfUnplayedChannels()</code></li><li><code class="hl">src/gui/MainWindow.cpp</code> - Move to Channel for the selection and for a whole track through the shared move, no undo step when nothing moves; status bar notes for Move and Copy to Channel</li><li><code class="hl">src/tool/EventTool.cpp</code> - Copy to Channel, Paste to channel and Paste Special&#x27;s Paste to current edit track + channel leave program changes of other channels out (no undo step when nothing is copied); meta events keep their channel on paste</li><li><code class="hl">src/ai/ToolDefinitions.cpp</code> - <code class="hl">import_tracks_from_document</code>: program changes only on channels the track plays notes on, <code class="hl">programChangesLeftOut</code></li><li><code class="hl">tests/test_ffxiv_fixer_resync.cpp</code> - moving a track onto a guitar channel after Rebuild and a re-sync (the programs stay, undo and redo, Preserve afterwards keeps the guitar); copy and paste onto a channel; the paste target channel; the import keeps the programs of the played channels</li><li><code class="hl">tests/test_shutdown_guards.cpp</code> - every move, copy, paste and import path uses the program change rules</li><li><code class="hl">manual/editing-midi-files.html</code>, <code class="hl">manual/editor-and-components.html</code>, <code class="hl">manual/menu-tools.html</code>, <code class="hl">manual/mcp-server.html</code>, <code class="hl">manual/midipilot-tools.html</code>, <code class="hl">README.md</code>, <code class="hl">run_environment/help_db.json</code></li></ul></div></div>
+</article>
+<article class="cl-version" data-version="2.5.1">
 <div class="cl-dot"></div>
 <div class="cl-version-head">
 <h2><a href="https://github.com/happytunesai/MidiEditor_AI/releases/tag/v2.5.1" target="_blank" rel="noopener noreferrer">v2.5.1</a></h2>
 <span class="cl-date">2026-10-11</span>
-<span class="cl-badge-latest">Latest</span>
 </div>
 <div class="cl-title">Fix X|V Channels: The Editor Sounds Like the Game</div>
 <ul class="cl-summary">

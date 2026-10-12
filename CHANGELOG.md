@@ -5,6 +5,32 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 
 ---
 
+## [2.5.2] - 2026-10-12 - Hotfix: Moving Notes Keeps Every Channel's Instrument
+
+### Summary
+* **[Moving, copying or pasting events onto another channel keeps every channel's instrument](https://midieditor-ai.de/editing-midi-files.html#context_menu)** - program changes stay on their channel, so Select All + Move to Channel in a file set up by Fix X|V Channels no longer stacks the programs onto the target channel or leaves a channel without its instrument; the status bar says how many stayed (MOVE-PC-001).
+* **Importing tracks from another tab leaves the other channels' instruments alone** - `import_tracks_from_document` brings a program change along only on a channel the track plays notes on (MOVE-PC-001).
+* **Tempo, meter, key and text events stay on their channels** - moving a selection to a channel or pasting with *Same as selected for new events* no longer puts them onto a MIDI channel, where the tempo map and the meter no longer saw them.
+
+<details>
+<summary>Full Changelog - Hotfix: Moving Notes Keeps Every Channel's Instrument</summary>
+
+### Bug Fixes
+* **Move to Channel took the program changes along (MOVE-PC-001)** - Select All picks up the program changes of the visible channels as well, and a file set up by Fix X|V Channels holds the programs of several channels in every track. Moving such a selection - or a whole track with *Move Events to Channel* in the track menu - put all of them onto the target channel at tick 0, where one of them took over the instrument (a Distortion guitar channel could end up as Harmonics), and a channel whose program change sat only in the moved track fell back to piano. A Fix X|V Channels run afterwards worked from those wrong instruments. Program changes now stay on their channel; everything else - notes with their note-offs, controllers, pitch bends, aftertouch - moves, and the status bar says how many program changes stayed. *Copy to Channel*, a channel or *Same as selected for new events* under *Paste options > Paste to channel*, and Paste Special's *Paste to current edit track + channel* leave program changes of other channels out as well, and `import_tracks_from_document` brings a program change along only on a channel its track plays notes on (`programChangesLeftOut` counts the rest). A selected tempo, time signature, key signature or text event is never moved onto a MIDI channel, and a paste with *Same as selected for new events* keeps them on their own channels.
+
+### Files Modified
+* `src/midi/MidiFile.h/.cpp` - `moveEventsToChannel()`: the shared channel move (program changes and meta events stay, one snapshot per touched channel for the undo); the rules every move, copy, paste and import uses: `isForeignProgramChange()`, `pasteTargetChannel()`, `withoutProgramsOfUnplayedChannels()`
+* `src/gui/MainWindow.cpp` - Move to Channel for the selection and for a whole track through the shared move, no undo step when nothing moves; status bar notes for Move and Copy to Channel
+* `src/tool/EventTool.cpp` - Copy to Channel, Paste to channel and Paste Special's Paste to current edit track + channel leave program changes of other channels out (no undo step when nothing is copied); meta events keep their channel on paste
+* `src/ai/ToolDefinitions.cpp` - `import_tracks_from_document`: program changes only on channels the track plays notes on, `programChangesLeftOut`
+* `tests/test_ffxiv_fixer_resync.cpp` - moving a track onto a guitar channel after Rebuild and a re-sync (the programs stay, undo and redo, Preserve afterwards keeps the guitar); copy and paste onto a channel; the paste target channel; the import keeps the programs of the played channels
+* `tests/test_shutdown_guards.cpp` - every move, copy, paste and import path uses the program change rules
+* `manual/editing-midi-files.html`, `manual/editor-and-components.html`, `manual/menu-tools.html`, `manual/mcp-server.html`, `manual/midipilot-tools.html`, `README.md`, `run_environment/help_db.json`
+
+</details>
+
+---
+
 ## [2.5.1] - 2026-10-11 - Fix X|V Channels: The Editor Sounds Like the Game
 
 ### Summary
