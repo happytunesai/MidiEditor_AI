@@ -169,7 +169,7 @@ structured within the following submenus. For the <b>Tools</b> menu, see the
 </tr>
 <tr>
 <td></td>
-<td><i>Paste options&hellip;</i><br>Choose whether pasted events keep their original track/channel or get assigned to a fixed track/channel.</td>
+<td><i>Paste options&hellip;</i><br>Choose whether pasted events keep their original track/channel or get assigned to a fixed track/channel. Pasted onto another channel, program changes are left out - the channel keeps its instrument.</td>
 </tr>
 <tr>
 <td></td>
@@ -369,7 +369,9 @@ See the <a href="playback.html">Playback &amp; Recording</a> page for full detai
   <li><b>Transpose Track</b> - transposes all notes of the track by a chosen interval, or a whole octave up/down</li>
   <li><b>Explode Chords to Tracks</b> / <b>Split Channels to Tracks</b> - runs the split tools on this track</li>
   <li><b>Select All Events</b> - selects every event of the track</li>
-  <li><b>Move Events to Channel</b> - moves all of the track's events onto a chosen MIDI channel</li>
+  <li><b>Move Events to Channel</b> - moves the track's events - notes, controllers, pitch bends,
+      aftertouch - onto a chosen MIDI channel; only its program changes stay on their channels, so every
+      channel keeps its instrument</li>
   <li><b>Remove Events</b> - clears the track's notes and its other channel events such as program changes, controllers and pitch bends (the track itself, its name and the song-wide data stay)</li>
   <li><b>Convert Tempo, Preserve Duration</b> - opens the <a href="tempo-conversion.html">tempo conversion</a> scoped to this track</li>
 </ul>

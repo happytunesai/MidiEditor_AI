@@ -218,6 +218,56 @@ private slots:
                  "the MCP list_documents / switch_document intercept no longer "
                  "refuses work during shutdown");
     }
+
+    // MOVE-PC-001: every path that puts events onto another channel keeps the
+    // program changes of other channels out - Select All in a file set up by
+    // Fix X|V Channels holds the programs of several channels, and they got
+    // stacked onto the target. The rules live in MidiFile (unit-tested in
+    // test_ffxiv_fixer_resync); these paths are GUI/AI code no test links, so
+    // their use of the rules is pinned here.
+    void channelMovesCopiesAndPastesKeepTheProgramsOfOtherChannels()
+    {
+        struct Site { QString file, signature; QStringList calls; };
+        const QList<Site> sites = {
+            {QStringLiteral("src/gui/MainWindow.cpp"),
+             QStringLiteral("void MainWindow::moveSelectedEventsToChannel(QAction *action)"),
+             {QStringLiteral("MidiFile::channelMoveCandidates("), QStringLiteral("moveEventsToChannel(")}},
+            {QStringLiteral("src/gui/MainWindow.cpp"),
+             QStringLiteral("void MainWindow::moveTrackEventsToChannel(MidiTrack *track, int channel)"),
+             {QStringLiteral("MidiFile::channelMoveCandidates("), QStringLiteral("moveEventsToChannel(")}},
+            {QStringLiteral("src/gui/MainWindow.cpp"),
+             QStringLiteral("void MainWindow::copySelectedEventsToChannel(QAction *action)"),
+             {QStringLiteral("MidiFile::isForeignProgramChange(")}},
+            {QStringLiteral("src/tool/EventTool.cpp"),
+             QStringLiteral("bool EventTool::copySelectionToChannel(int channel)"),
+             {QStringLiteral("MidiFile::isForeignProgramChange(")}},
+            {QStringLiteral("src/tool/EventTool.cpp"),
+             QStringLiteral("void EventTool::pasteAction()"),
+             {QStringLiteral("MidiFile::pasteTargetChannel("), QStringLiteral("MidiFile::isForeignProgramChange(")}},
+            {QStringLiteral("src/tool/EventTool.cpp"),
+             QStringLiteral("bool EventTool::pasteFromSharedClipboardWithOptions("),
+             {QStringLiteral("MidiFile::isForeignProgramChange(")}},
+            {QStringLiteral("src/ai/ToolDefinitions.cpp"),
+             QStringLiteral("QJsonObject ToolDefinitions::execImportTracksFromDocument("),
+             {QStringLiteral("MidiFile::withoutProgramsOfUnplayedChannels(")}},
+        };
+        for (const Site &site : sites) {
+            const QString src = readRepoFile(site.file);
+            QVERIFY2(!src.isEmpty(), qPrintable(site.file + QStringLiteral(" is not readable")));
+            const QString body = functionBody(src, site.signature);
+            QVERIFY2(!body.isEmpty(), qPrintable(site.signature + QStringLiteral(" not found")));
+            for (const QString &call : site.calls) {
+                QVERIFY2(body.contains(call),
+                         qPrintable(site.signature + QStringLiteral(" no longer calls ") + call
+                                    + QStringLiteral(" - program changes of other channels "
+                                                     "would be stacked onto the target (MOVE-PC-001)")));
+            }
+        }
+        // The old per-event re-channel of the selection move must not come back.
+        const QString moveSel = functionBody(readRepoFile(QStringLiteral("src/gui/MainWindow.cpp")),
+            QStringLiteral("void MainWindow::moveSelectedEventsToChannel(QAction *action)"));
+        QVERIFY(!moveSel.contains(QStringLiteral("setChannel(")));
+    }
 };
 
 QTEST_GUILESS_MAIN(TestShutdownGuards)

@@ -564,6 +564,58 @@ public:
      */
     static bool isSongWideEvent(MidiEvent *event);
 
+    /**
+     * \brief Moves events to another MIDI channel (0-15) inside the caller's
+     *        protocol action - "Move events to channel" and "Move Track Events
+     *        to Channel".
+     *
+     * A note takes its off event along. Program changes stay on their
+     * channel: they set the instrument of everything that plays there, so
+     * moving one would take the sound away from its channel and stack it onto
+     * the target's (a file set up by Fix X|V Channels holds the program of
+     * every channel in every track). A single program change can still be
+     * given another channel in the event panel. Meta events (channel 16-18)
+     * never move. One snapshot per touched channel plus a small item
+     * per event, so the undo stays cheap for thousands of notes.
+     * \return The number of program changes that stayed on their channel.
+     */
+    int moveEventsToChannel(const QList<MidiEvent *> &events, int target);
+
+    /**
+     * \brief The events moveEventsToChannel() would move (no off events, no
+     *        program changes, nothing on 16-18 or already on the target, no
+     *        duplicates). Lets a caller skip its protocol action when nothing
+     *        moves - an empty action still clears the redo history.
+     * \param stayed Receives the number of program changes that would stay.
+     */
+    static QList<MidiEvent *> channelMoveCandidates(const QList<MidiEvent *> &events,
+                                                    int target, int *stayed = nullptr);
+
+    /**
+     * \brief The program change rule of every move, copy, paste and import
+     *        onto another channel (MOVE-PC-001): true for a program change of
+     *        a MIDI channel (0-15) other than `target` - it is that channel's
+     *        instrument and stays out.
+     */
+    static bool isForeignProgramChange(MidiEvent *event, int target);
+
+    /**
+     * \brief The channel a pasted event goes to. `pasteChannel` is the paste
+     *        option: -1 keeps the event's channel, -2 ("Same as selected")
+     *        takes `editChannel`, 0-15 that channel. Meta events (16-18) always
+     *        keep theirs - on a MIDI channel the tempo map would not see them.
+     */
+    static int pasteTargetChannel(int eventChannel, int pasteChannel, int editChannel);
+
+    /**
+     * \brief A track's events without the program changes of channels it
+     *        plays no notes on (a track imported from a file set up by Fix X|V
+     *        Channels carries the programs of several channels).
+     * \param leftOut Receives the number of program changes left out.
+     */
+    static QList<MidiEvent *> withoutProgramsOfUnplayedChannels(const QList<MidiEvent *> &events,
+                                                                int *leftOut = nullptr);
+
     // === File Structure Modification ===
 
     /**

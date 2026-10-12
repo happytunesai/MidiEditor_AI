@@ -306,6 +306,32 @@ void EventTool::pasteAction() {
         }
     }
 
+    // The channel a pasted event goes to: "Paste to channel N" or "Same as
+    // selected" re-route the voice channels; meta events (16-18: tempo, time
+    // and key signatures, text) always keep theirs.
+    auto pasteChannelOf = [](MidiEvent *event) {
+        return MidiFile::pasteTargetChannel(event->channel(), _pasteChannel,
+                                            NewNoteTool::editChannel());
+    };
+    // A program change is its channel's instrument: pasted onto another
+    // channel it would stack onto the target's own program (Select All in a
+    // file set up by Fix X|V Channels copies the programs of several
+    // channels) - it is left out, the notes play with the target's instrument.
+    int programsLeftOut = 0;
+    for (int i = copiedCopiedEvents.size() - 1; i >= 0; --i) {
+        MidiEvent *ev = copiedCopiedEvents.at(i);
+        if (MidiFile::isForeignProgramChange(ev, pasteChannelOf(ev))) {
+            copiedCopiedEvents.removeAt(i);
+            delete ev; // a fresh copy, in no map yet
+            ++programsLeftOut;
+        }
+    }
+    if (programsLeftOut > 0 && _mainWindow) {
+        _mainWindow->statusBar()->showMessage(
+            QObject::tr("%n program change(s) not pasted onto another channel - the channel keeps its instrument",
+                        "", programsLeftOut), 6000);
+    }
+
     if (copiedCopiedEvents.count() > 0) {
         // Begin a new ProtocolAction
         currentFile()->protocol()->startNewAction(QObject::tr("Paste ") + QString::number(copiedCopiedEvents.count()) + QObject::tr(" events"));
@@ -339,14 +365,7 @@ void EventTool::pasteAction() {
 
         // Determine which channels are associated with the pasted events and copy them
         for (auto event: copiedCopiedEvents) {
-            // get channel
-            int channelNum = event->channel();
-            if (_pasteChannel == -2) {
-                channelNum = NewNoteTool::editChannel();
-            }
-            if ((_pasteChannel >= 0) && (channelNum < 16)) {
-                channelNum = _pasteChannel;
-            }
+            const int channelNum = pasteChannelOf(event);
 
             if (copiedChannels.find(channelNum) == copiedChannels.end()) {
                 MidiChannel *channel = currentFile()->channel(channelNum);
@@ -366,14 +385,7 @@ void EventTool::pasteAction() {
         for (auto it = copiedCopiedEvents.rbegin(); it != copiedCopiedEvents.rend(); it++) {
             MidiEvent *event = *it;
 
-            // get channel
-            int channelNum = event->channel();
-            if (_pasteChannel == -2) {
-                channelNum = NewNoteTool::editChannel();
-            }
-            if ((_pasteChannel >= 0) && (channelNum < 16)) {
-                channelNum = _pasteChannel;
-            }
+            const int channelNum = pasteChannelOf(event);
 
             // get track
             MidiTrack *track = event->track();
@@ -591,6 +603,7 @@ bool EventTool::pasteFromSharedClipboardWithOptions(const PasteSpecialOptions &o
         // because the loop used a tempo-first running index that diverged.
         QSet<MidiEvent *> skipSet;
         int skippedNotes = 0;
+        int programsLeftOut = 0; // program changes kept off the edit channel
         if (opts.skipDuplicates) {
             const QList<MidiEvent *> dupOns =
                 findDuplicatePasteNotes(currentFile(), sharedEvents,
@@ -909,6 +922,16 @@ bool EventTool::pasteFromSharedClipboardWithOptions(const PasteSpecialOptions &o
                 // Phase 34: route per-event according to opts.assignment.
                 int eventChannel = targetChannel;
                 MidiTrack *eventTrack = targetTrack;
+                // A program change is its channel's instrument: routed onto
+                // the edit channel it would stack onto that channel's own
+                // program - it is left out (MOVE-PC-001). The deserialized
+                // event still carries its source channel.
+                if (opts.assignment == PasteAssignment::CurrentEditTarget
+                    && MidiFile::isForeignProgramChange(event, targetChannel)) {
+                    delete event;
+                    ++programsLeftOut;
+                    continue;
+                }
                 if (opts.assignment != PasteAssignment::CurrentEditTarget) {
                     const PasteSourceInfo info =
                         SharedClipboard::getPasteSourceInfo(metaIndex);
@@ -983,6 +1006,11 @@ bool EventTool::pasteFromSharedClipboardWithOptions(const PasteSpecialOptions &o
                 QObject::tr("Pasted %1 events (%2 already-present note(s) skipped)")
                     .arg(insertCount).arg(skippedNotes),
                 4000);
+        }
+        if (programsLeftOut > 0 && _mainWindow) {
+            _mainWindow->statusBar()->showMessage(
+                QObject::tr("%n program change(s) not pasted onto the edit channel - the channel keeps its instrument",
+                            "", programsLeftOut), 6000);
         }
     }
 
@@ -1222,6 +1250,16 @@ bool EventTool::copySelectionToChannel(int channel) {
 
     QList<MidiEvent *> selected = Selection::instance()->selectedEvents();
     if (selected.isEmpty()) return false;
+    // Nothing to copy (only program changes or meta events selected): no
+    // action - an empty one still clears the redo history.
+    bool anyCopy = false;
+    for (MidiEvent *ev : selected) {
+        if (!ev || dynamic_cast<OffEvent *>(ev) || ev->channel() >= 16) continue;
+        if (MidiFile::isForeignProgramChange(ev, channel)) continue;
+        anyCopy = true;
+        break;
+    }
+    if (!anyCopy) return false;
 
     file->protocol()->startNewAction(
         QObject::tr("Copy %1 events to channel %2")
@@ -1248,6 +1286,11 @@ bool EventTool::copySelectionToChannel(int channel) {
         // Skip events that already live on a meta channel -- they cannot
         // be re-routed onto a 0..15 voice channel.
         if (ev->channel() >= 16) continue;
+        // A program change is its channel's instrument: a copy would stack
+        // onto the target's own program (Select All in a file set up by Fix
+        // X|V Channels holds the program of every channel in every track).
+        // The copied notes play with the target channel's instrument.
+        if (MidiFile::isForeignProgramChange(ev, channel)) continue;
 
         // Keep the original track. We only re-channel the duplicate.
         MidiEvent *dup = cloneEventOnto(ev, ev->track(), channel, file);
