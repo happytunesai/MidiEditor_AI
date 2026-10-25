@@ -5,6 +5,42 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 
 ---
 
+## [2.5.3] - 2026-10-25 - Audio Export With Any MIDI Output, Zoom Out to the Whole Song
+
+### Summary
+* **[Audio export works with every MIDI output](https://midieditor-ai.de/export-audio.html#other-outputs)** - with Microsoft GS Wavetable Synth, VirtualMIDISynth or a hardware synthesizer selected for playback, *Export Audio* rendered nothing: its Export button stayed greyed out. It now renders with the built-in FluidSynth and the SoundFonts from Settings, whatever output plays live ([#17](https://github.com/happytunesai/MidiEditor_AI/issues/17), EXPORT-OUT-001).
+* **Exported audio ends with the song** - an export carried up to 16 seconds of silence after the music where the reverb tail promises 2; it now ends 2 seconds after the last note (EXPORT-TAIL-001).
+* **[Zoom out until the whole song fits](https://midieditor-ai.de/editor-and-components.html#view)** - horizontal zoom stopped at 10 pixels per second, so a song longer than about two minutes never fit the editor; zooming out now goes on until the song fits, and far out the measure numbers and the division raster are thinned so the notes stay readable (ZOOM-FIT-001).
+* **[Zoom to fit](https://midieditor-ai.de/shortcuts.html#view)** - one click (Ctrl+Shift+F, View > Zoom, or right-click on the measure ruler) shows the whole song and the range of its notes (ZOOM-FIT-001).
+
+<details>
+<summary>Full Changelog - Audio Export With Any MIDI Output, Zoom Out to the Whole Song</summary>
+
+### New Features
+* **[Zoom to fit](https://midieditor-ai.de/shortcuts.html#view)** - *View > Zoom > Zoom to fit* (Ctrl+Shift+F, also in the right-click menu of the measure ruler) zooms the editor to the whole song horizontally and to the range of the shown notes vertically, with a little room on each side. In split view with synchronised views the second view follows.
+
+### Changed
+* **[Zooming out reaches the whole song](https://midieditor-ai.de/editor-and-components.html#view)** - the horizontal zoom-out used to stop at 10 pixels per second (about two minutes in a typical window); it now goes on until the song plus a little room fits, down to 1 pixel per second, in steps of a fifth below the old floor. Short songs keep the old limit. Far out, the measure bars are drawn only where they have room, the measure numbers appear on every 2nd, 4th, 8th ... measure, and the dashed division raster is left out below 6 pixels per division - the snap points stay.
+
+### Bug Fixes
+* **Export Audio was greyed out with any MIDI output but FluidSynth (EXPORT-OUT-001, [#17](https://github.com/happytunesai/MidiEditor_AI/issues/17))** - selecting another MIDI output shuts the built-in synthesizer down and unloads its SoundFonts, and the export dialog enabled its Export button only for SoundFonts loaded in that live synthesizer - the render itself, which always runs on a separate offline synthesizer, refused to start as well. The export now takes the enabled SoundFonts from Settings when the live synthesizer is off, and the dialog says that it renders with FluidSynth while the selected output only plays live. The selected output itself (VirtualMIDISynth and the like) cannot be recorded offline; adding the same SoundFont files to the list gives its sound.
+* **Exported audio had up to 16 seconds of silence at the end (EXPORT-TAIL-001)** - the "2 s" reverb tail counted render blocks of 64 samples, but FluidSynth renders blocks of 512, so the tail was eight times as long: a 3:01 song exported as 3:19, the last 18 seconds silent. The tail is now 2 seconds, and with it the render stops at the song's last tick instead of waiting for inaudible release envelopes; without the tail option the file ends as soon as the last notes have faded (at most 10 seconds after the song) instead of 2 more seconds of silence. The export progress bar also counts against the real song length now (it jumped to 100 % at once).
+
+### Files Modified
+* `src/midi/FluidSynthEngine.h/.cpp` - `exportSoundFontPaths()`: the enabled SoundFonts for the offline render, from the live stack or from Settings; `exportAudio()` no longer needs the live engine; the reverb tail in blocks of the real render size, with the tail the render ends at the song's last tick, without it once no voice sounds any more (at most 10 s of release), progress against the real song length; no synth reset inside the tail; an export with no loadable SoundFont fails instead of writing silence
+* `src/gui/ExportDialog.cpp` - Export button and SoundFont line from the export list, a note when another MIDI output plays live
+* `src/gui/MatrixWidget.h/.cpp` - `zoomToFit()`, `minScaleX()` from the song length, fifth steps below 0.2, `fitToFocus()` floor 0.01 and never more lines than exist; thinned measure bars, numbers, lines and division raster; time <-> pixel conversion in 64 bit
+* `src/gui/OpenGLMatrixWidget.h` - `zoomToFit()` for the OpenGL view
+* `src/gui/MainWindow.h/.cpp` - *Zoom to fit* action (Ctrl+Shift+F, `zoom_fit`) and slot
+* `src/gui/KeybindsSettingsWidget.cpp` - `zoom_fit` in the keybinding list
+* `tests/test_shutdown_guards.cpp` - neither the dialog nor the render depends on the live synthesizer; the tail and the song end of the render; the zoom floor, Zoom to fit and the 64-bit pixel conversion
+* `README.md` - Zoom to Fit, export with any MIDI output, the real Export Audio shortcut (Ctrl+Shift+X)
+* `manual/export-audio.html`, `manual/editor-and-components.html`, `manual/shortcuts.html`, `run_environment/help_db.json`
+
+</details>
+
+---
+
 ## [2.5.2] - 2026-10-12 - Hotfix: Moving Notes Keeps Every Channel's Instrument
 
 ### Summary
