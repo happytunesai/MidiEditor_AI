@@ -179,7 +179,7 @@
     "description": "AI-powered MIDI editor with intelligent copilot, Guitar Pro import, FFXIV bard mode, and FluidSynth playback.",
     "url": "https://midieditor-ai.de",
     "downloadUrl": "https://github.com/happytunesai/MidiEditor_AI/releases/latest",
-    "softwareVersion": "2.5.2",
+    "softwareVersion": "2.5.3",
     "license": "https://github.com/happytunesai/MidiEditor_AI/blob/main/LICENSE",
     "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" }
 }
@@ -243,7 +243,7 @@
              onerror="this.parentElement.style.display='none';">
     </div>
 
-    <span class="hero-badge">v2.5.2 &middot; Open Source &middot; Windows</span>
+    <span class="hero-badge">v2.5.3 &middot; Open Source &middot; Windows</span>
 
     <h1 class="hero-title">
         The <span class="text-gradient">AI-Powered</span> MIDI Editor
@@ -255,7 +255,7 @@
 
     <div class="hero-actions">
         <a href="download.html" class="btn btn-primary">
-            &#x2B07; Download v2.5.2
+            &#x2B07; Download v2.5.3
         </a>
         <a href="docs-index.html" class="btn btn-secondary" target="_blank" rel="noopener noreferrer">
             &#x1F4D6; Documentation
@@ -651,12 +651,13 @@
     </div>
     <div class="whats-new reveal">
         <span class="latest-badge">Latest</span>
-        <h3>v2.5.2 - October 2026</h3>
-        <p class="whats-new-subtitle">Hotfix</p>
+        <h3>v2.5.3 - October 2026</h3>
+        <p class="whats-new-subtitle">Audio export with any MIDI output, zoom out to the whole song</p>
         <ul>
-            <li><strong>Moving notes to another channel keeps every channel&rsquo;s instrument</strong> - Select All picks up the program changes as well, and a file set up by Fix X|V Channels holds the programs of several channels in every track. Move to Channel took them all along: the target channel ended up with the wrong instrument (a Distortion guitar could turn into Harmonics) and the track&rsquo;s own channel could fall back to piano. Program changes now stay on their channel; the notes play with the instrument of the channel they move to.</li>
-            <li><strong>Copy, paste and import as well</strong> - Copy to Channel, pasting onto another channel and Paste Special&rsquo;s <i>Paste to current edit track + channel</i> leave program changes of other channels out, and importing tracks from another tab brings a program change only along on a channel the track plays.</li>
-            <li><strong>Tempo and meter stay where they belong</strong> - a selected tempo, time signature, key signature or text event is never moved or pasted onto a MIDI channel any more.</li>
+            <li><strong>Export Audio works with every MIDI output</strong> - with Microsoft GS Wavetable Synth, VirtualMIDISynth or a hardware synth selected for playback, the Export button used to stay greyed out. The export now always renders with the built-in FluidSynth and the SoundFonts from Settings &rarr; Midi I/O; the selected output only plays live. Add the SoundFonts your other synth uses, and the export sounds like it.</li>
+            <li><strong>Exported audio ends with the song</strong> - the 2-second reverb tail was rendered eight times as long, so every export carried many seconds of silence at the end. It is 2 seconds now.</li>
+            <li><strong>Zoom out to the whole song</strong> - zooming out used to stop at about two minutes in view; it now goes on until the whole song fits, and the measure numbers thin out so the ruler stays readable.</li>
+            <li><strong>Zoom to fit</strong> - <kbd>Ctrl+Shift+F</kbd>, View &rarr; Zoom, or a right-click on the measure ruler shows the whole song and the range of its notes in one step.</li>
         </ul>
         <a href="changelog.html" class="changelog-link">View Full Changelog &rarr;</a>
     </div>
@@ -715,7 +716,7 @@
     </div>
     <div class="hero-actions reveal" style="margin-bottom: 1.5rem;">
         <a href="download.html" class="btn btn-primary" style="font-size: 1.15rem; padding: 1rem 2.5rem;">
-            &#x2B07; Download MidiEditor AI v2.5.2
+            &#x2B07; Download MidiEditor AI v2.5.3
         </a>
     </div>
     <p class="reveal" style="color: var(--text-muted); font-size: .9rem;">

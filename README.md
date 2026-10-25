@@ -13,7 +13,7 @@
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-0078D6?logo=windows)](https://github.com/happytunesai/MidiEditor_AI/releases)
 
-**Version:** 2.5.2
+**Version:** 2.5.3
 **Status:** Release
 
 📥 **[Download Latest Release](https://github.com/happytunesai/MidiEditor_AI/releases/latest)**
@@ -82,10 +82,11 @@ MidiPilot is the AI brain embedded directly in MidiEditor AI. Open the sidebar, 
 | 🎼 **Score & Tab Import** | Open Guitar Pro (GP1-GP8: `.gp`, `.gp3`-`.gp5`, `.gpx`, `.gtp`), MusicXML (`.musicxml`, `.xml`, `.mxl`) and MuseScore (`.mscz`, `.mscx`) files directly - auto-converted to MIDI on open |
 | 🕹️ **Commodore 64 / SID** | Open `.sid` tunes as editable MIDI and play them **authentically** - the converted MIDI through a C64 SoundFont, or the *original* SID through the cycle-accurate **libsidplayfp** engine (transport-controlled, cursor-synced, per-voice mute). A retro `SF2 ⟷ EMU` toolbar switch flips engines |
 | 🎼 **MusicXML Export** | Write the current song out as a MusicXML score (*File → Export MusicXML*) - opens in MuseScore, Finale, Sibelius, Dorico. Reconstructs measures, note values, rests, ties, chords and key spelling from the MIDI |
+| 🔍 **Zoom to Fit** | One click (Ctrl+Shift+F, View → Zoom, or right-click the measure ruler) shows the whole song and the range of its notes; zooming out goes on until a long song fits, with measure numbers thinned so it stays readable |
 | 🕒 **Cursor Time Display** | Retro seven-segment toolbar clock - cursor / playback time with POS / LEN / REM / BPM / BAR readouts (left-click) and 6 LED colour themes (right-click) |
 | 🔊 **Built-in FluidSynth** | Play MIDI without external softsynth - load SF2/SF3 SoundFonts, SoundFont stacking, FFXIV SoundFont Mode with bard-accurate playback (dry, 16-voice cap, cubic CC7·CC11 curve, per-instrument min note length) |
 | 🎚️ **FFXIV SoundFont Equalizer** | Per-instrument volume mixer for the FFXIV bard SoundFont with 0-200 % gain sliders, mute, master gain, per-row ▶ Preview, plus user presets. Affects live playback **and** offline export via `GEN_ATTENUATION` |
-| 🎶 **Audio Export** | Export MIDI to WAV, FLAC, OGG Vorbis, or MP3 using loaded SoundFonts - built-in LAME 3.100 encoder. Honours channel mute/solo, per-track mute, and auto-routes named FFXIV percussion tracks to the correct bard preset |
+| 🎶 **Audio Export** | Export MIDI to WAV, FLAC, OGG Vorbis, or MP3 using your SoundFonts - built-in LAME 3.100 encoder, works with any MIDI output selected for playback. Honours channel mute/solo, per-track mute, and auto-routes named FFXIV percussion tracks to the correct bard preset |
 | 🎻 **FFXIV Voice Limiter** | Read-only audit against the in-game 16-voice ceiling - per-tick voice peak, overflow ranges, per-channel rate hotspots; optional voice-load lane under the velocity strip |
 | 🔎 **Check FFXIV Playability** | Workbench that examines a file the way the game plays it - chords and stacked duplicates on monophonic performers, notes outside C3-C6, track names no FFXIV instrument matches, voice peak, channel spread, empty tracks. Click a finding to select its notes, double-click to focus the track; delete exactly the marked notes, or hand the report to MidiPilot for a prioritised assessment |
 | ⏱️ **Convert Tempo (Preserve Duration)** | Time-preserving tempo conversion - rescales every event tick by `target/source` and rewrites the tempo meta in one undoable step. Whole-file / events-only / per-channel / selected-events scopes |
@@ -429,9 +430,10 @@ MidiEditor AI can render your MIDI files to audio using the built-in FluidSynth 
 - **Background rendering** - progress dialog with cancel support for both FluidSynth and LAME phases
 - **Completion dialog** - Open File, Open Folder, or Close after export finishes
 - **Guitar Pro support** - GP3-GP8 files export seamlessly (temporary MIDI conversion is handled automatically)
+- **Any MIDI output** - the export always renders with the built-in FluidSynth and the SoundFonts set in *Settings → Midi I/O*, also while Microsoft GS Wavetable Synth, VirtualMIDISynth or a hardware synth plays live
 - **Authentic SID export** - with a `.sid` open and the C64 engine set to Emulation, export renders the *original* tune via libsidplayfp (the real chip sound, no SoundFont needed) instead of the converted MIDI
 
-Export via **File → Export Audio** (Ctrl+Shift+E), the right-click context menu on selections, or the **Export Audio** button in the FluidSynth settings panel.
+Export via **File → Export Audio** (Ctrl+Shift+X), the right-click context menu on selections, or the **Export Audio** button in the FluidSynth settings panel.
 
 📖 **[Audio Export Documentation →](https://happytunesai.github.io/MidiEditor_AI/export-audio.html)**
 

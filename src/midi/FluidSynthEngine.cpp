@@ -405,6 +405,27 @@ QList<QPair<int, QString>> FluidSynthEngine::loadedSoundFonts() const {
     return _loadedFonts;
 }
 
+QStringList FluidSynthEngine::exportSoundFontPaths() const {
+    QStringList fonts;
+    if (_initialized) {
+        for (const auto &pair : _loadedFonts) {
+            if (!_disabledSoundFontPaths.contains(pair.second)) {
+                fonts.append(pair.second);
+            }
+        }
+        return fonts;
+    }
+    // Engine down (another MIDI output plays live): the stack from Settings,
+    // UI order (first = highest priority) turned into load order.
+    const QStringList uiOrder = allSoundFontPaths();
+    for (int i = uiOrder.size() - 1; i >= 0; --i) {
+        if (isSoundFontEnabled(uiOrder[i]) && QFileInfo::exists(uiOrder[i])) {
+            fonts.append(uiOrder[i]);
+        }
+    }
+    return fonts;
+}
+
 void FluidSynthEngine::setSoundFontStack(const QStringList &paths) {
     if (!_initialized || !_synth) {
         // Not yet initialized — update the pending paths so the new order
@@ -800,11 +821,9 @@ void FluidSynthEngine::sendMidiData(const QByteArray &data) {
 // ============================================================================
 
 void FluidSynthEngine::exportAudio(const ExportOptions &options) {
-    if (!_initialized) {
-        emit exportFinished(false, options.outputFilePath);
-        return;
-    }
-
+    // No _initialized check: the render below runs on its own synth. With
+    // another MIDI output selected the live engine is shut down, and the
+    // export still renders with the SoundFonts from Settings (issue #17).
     _cancelExport.store(false);
 
     // Create a separate FluidSynth instance for offline rendering
@@ -828,15 +847,12 @@ void FluidSynthEngine::exportAudio(const ExportOptions &options) {
     fluid_settings_setint(expSettings, "synth.chorus.active", _chorusEnabled ? 1 : 0);
     fluid_settings_setstr(expSettings, "synth.reverb.engine",
                           _reverbEngine.toUtf8().constData());  // may fail silently on v2.5.x
+    // The player resets the synth when it finishes, which clears the reverb
+    // and chorus lines - inside the 2 s tail that cut the decay short.
+    fluid_settings_setint(expSettings, "player.reset-synth", 0);
 
-    // Collect loaded SoundFont paths (under no lock needed — read-only snapshot)
-    // Only include enabled SoundFonts
-    QStringList fontsToLoad;
-    for (int i = 0; i < _loadedFonts.size(); ++i) {
-        if (!_disabledSoundFontPaths.contains(_loadedFonts[i].second)) {
-            fontsToLoad.append(_loadedFonts[i].second);
-        }
-    }
+    // The enabled SoundFonts in load order (read-only snapshot, no lock needed)
+    const QStringList fontsToLoad = exportSoundFontPaths();
 
     if (fontsToLoad.isEmpty()) {
         delete_fluid_settings(expSettings);
@@ -851,9 +867,20 @@ void FluidSynthEngine::exportAudio(const ExportOptions &options) {
         return;
     }
 
-    // Load SoundFonts into the export synth
+    // Load SoundFonts into the export synth. With the live engine off, the
+    // list comes from Settings unchecked (an unreadable .sf2 only fails here):
+    // no font loaded means a silent file - report the export as failed.
+    int fontsLoaded = 0;
     for (const QString &f : fontsToLoad) {
-        fluid_synth_sfload(expSynth, f.toUtf8().constData(), 1);
+        if (fluid_synth_sfload(expSynth, f.toUtf8().constData(), 1) != FLUID_FAILED) {
+            ++fontsLoaded;
+        }
+    }
+    if (fontsLoaded == 0) {
+        delete_fluid_synth(expSynth);
+        delete_fluid_settings(expSettings);
+        emit exportFinished(false, options.outputFilePath);
+        return;
     }
 
     // Apply the FFXIV / C64 channel mode if active: all channels melodic on
@@ -960,13 +987,23 @@ void FluidSynthEngine::exportAudio(const ExportOptions &options) {
     // Set encoding quality for lossy formats (e.g., OGG Vorbis)
     fluid_file_set_encoding_quality(renderer, options.encodingQuality);
 
+    // A file renderer block is audio.period-size frames (512 by default),
+    // not 64: counting 64-frame blocks rendered a "2 s" tail of 16 s.
+    int periodSize = 64;
+    if (fluid_settings_getint(expSettings, "audio.period-size", &periodSize) != FLUID_OK
+        || periodSize <= 0) {
+        periodSize = 64;
+    }
+    auto blocksFor = [&](double seconds) {
+        return static_cast<int>(std::ceil(options.sampleRate * seconds / periodSize));
+    };
+
+    // fluid_player_get_total_ticks() stays 0 until the player's first
+    // callback has loaded the file - read again inside the loop below.
     int totalTicks = fluid_player_get_total_ticks(player);
-    if (totalTicks <= 0) totalTicks = 1;
-    int rangeStart = hasRange ? options.startTick : 0;
-    int rangeEnd = (hasRange && options.endTick > 0) ? options.endTick : totalTicks;
-    int rangeLen = rangeEnd - rangeStart;
-    if (rangeLen <= 0) rangeLen = 1;
+    const int rangeStart = hasRange ? options.startTick : 0;
     int lastPercent = -1;
+    int releaseBlocks = 0; // rendered after the song end without the tail
 
     // Render loop
     while (fluid_player_get_status(player) == FLUID_PLAYER_PLAYING) {
@@ -982,9 +1019,29 @@ void FluidSynthEngine::exportAudio(const ExportOptions &options) {
         }
 
         int curTick = fluid_player_get_current_tick(player);
+        if (totalTicks <= 0) {
+            totalTicks = fluid_player_get_total_ticks(player);
+        }
 
-        // Stop rendering when we reach the end of the requested range
+        // Stop at the end of the requested range. With the reverb tail, stop
+        // at the song's last tick too: the tail below renders exactly the
+        // 2 s decay. Without it the loop runs on while FluidSynth keeps the
+        // player PLAYING for the sounding voices, so the last notes fade out
+        // naturally instead of being cut mid-release.
         if (hasRange && options.endTick > 0 && curTick >= options.endTick) {
+            break;
+        }
+        if (options.includeReverbTail && totalTicks > 0 && curTick >= totalTicks) {
+            break;
+        }
+        // Without the tail, stop once the last notes have faded: FluidSynth
+        // itself keeps the player PLAYING for 2 more seconds after the last
+        // voice, which made both options render the same file. A note that
+        // never ends (no note-off) would keep the player PLAYING forever:
+        // at most 10 s of release after the song end.
+        if (!options.includeReverbTail && totalTicks > 0 && curTick >= totalTicks
+            && (fluid_synth_get_active_voice_count(expSynth) == 0
+                || ++releaseBlocks > blocksFor(10.0))) {
             break;
         }
 
@@ -992,6 +1049,8 @@ void FluidSynthEngine::exportAudio(const ExportOptions &options) {
             break;
         }
 
+        const int rangeEnd = (hasRange && options.endTick > 0) ? options.endTick : totalTicks;
+        const int rangeLen = qMax(1, rangeEnd - rangeStart);
         int percent = static_cast<int>(100.0 * (curTick - rangeStart) / rangeLen);
         if (percent > 100) percent = 100;
         if (percent < 0) percent = 0;
@@ -1007,12 +1066,12 @@ void FluidSynthEngine::exportAudio(const ExportOptions &options) {
         // blocks below keep advancing it: without stopping it first, a range
         // export appends 2s of the notes AFTER the range instead of the decay.
         // all-notes-off then releases whatever was still sounding at the cut.
-        // A player that is still running (the range case) is NOT stopped:
-        // FluidSynth's stop sends All Sound Off on the next tick, which hard-cuts
-        // the release of the last notes - and a full-song player has already
-        // reached its end anyway (review R231-14). Instead keep it clocking but
-        // drop every further event, then release the sounding notes so they
-        // decay naturally into the tail.
+        // A player that is still running (the range case, and the song end -
+        // FluidSynth keeps the player PLAYING while voices sound) is NOT
+        // stopped: FluidSynth's stop sends All Sound Off on the next tick, which
+        // hard-cuts the release of the last notes (review R231-14). Instead keep
+        // it clocking but drop every further event, then release the sounding
+        // notes so they decay naturally into the tail.
         if (fluid_player_get_status(player) == FLUID_PLAYER_PLAYING) {
             fluid_player_set_playback_callback(
                 player, [](void *, fluid_midi_event_t *) -> int { return FLUID_OK; }, nullptr);
@@ -1020,7 +1079,7 @@ void FluidSynthEngine::exportAudio(const ExportOptions &options) {
                 fluid_synth_all_notes_off(expSynth, ch);
             }
         }
-        int tailBlocks = static_cast<int>((options.sampleRate * 2.0) / 64.0);
+        const int tailBlocks = blocksFor(2.0);
         for (int i = 0; i < tailBlocks; ++i) {
             if (_cancelExport.load()) break;
             if (fluid_file_renderer_process_block(renderer) != FLUID_OK) break;

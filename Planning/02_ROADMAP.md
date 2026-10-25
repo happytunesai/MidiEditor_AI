@@ -14036,6 +14036,26 @@ stored as separate files next to the conversation.
   with the model's events, program changes included (keeping foreign ones would leave conflicting
   programs whenever the model changes an instrument).
 
+**2.5.3 - SHIPPED 2026-10-25**
+* EXPORT-OUT-001 (GitHub issue #17): with another MIDI output selected, MidiOutput shuts the
+  FluidSynth engine down and unloads its SoundFonts, and Export Audio's button stayed grey (the
+  render returned on a stopped engine too). FluidSynthEngine::exportSoundFontPaths() takes the
+  enabled SoundFonts from Settings when the engine is off; the dialog notes that FluidSynth
+  renders while the selected output only plays live. External synths (VirtualMIDISynth, Windows
+  GM, hardware) cannot be captured offline. Idea for later, not planned: a real-time 'export via
+  live recording' (WASAPI loopback) that would work with any output.
+* EXPORT-TAIL-001: the '2 s' reverb tail counted 64-frame blocks while FluidSynth's file renderer
+  uses audio.period-size (512) - 16 s of silence per export; the render also waited past the song
+  end for inaudible release envelopes, and the progress bar jumped to 100 % (total ticks are 0
+  until the player's first callback). Tail from the real block size; with the tail the render ends
+  at the last tick, without it once no voice sounds (capped at 10 s); player.reset-synth off so the
+  tail keeps its reverb; an export with no loadable SoundFont fails instead of writing silence.
+  Release review: no-tail exports must not stop at the last tick (cut release), and must not wait
+  for FluidSynth's own 2 s after the last voice either (both options rendered the same file).
+* ZOOM-FIT-001: horizontal zoom-out stopped at 0.1 (10 px/s); the floor now follows the song
+  length (down to 0.01), steps of a fifth below 0.2, Zoom to fit (Ctrl+Shift+F, View > Zoom,
+  measure ruler menu), measure bars/numbers/lines and the division raster thinned when dense.
+
 **From the 2.5 review (2026-09-28, verified, deferred)**
 * Same-tick order after undo/redo - DONE in 2.5.1 (UNDO-TICKORDER-001, see above).
 * Attachments: a size cap over the whole conversation that is sent (today 14 MB per message).
