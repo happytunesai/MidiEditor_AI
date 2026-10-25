@@ -51,6 +51,7 @@
 #include <QSettings>
 #include <QMenu>
 #include <QContextMenuEvent>
+#include <climits>
 #include <cmath>
 
 #include "MainWindow.h"
@@ -504,12 +505,18 @@ void MatrixWidget::paintEvent(QPaintEvent *event) {
         while (tick + ticksPerMeasure <= startTick) {
             tick += ticksPerMeasure;
         }
+        // Measure thinning reference (see below): pixels per millisecond
+        // without rounding, and the room a three-digit number needs.
+        const QFontMetrics measureFm(pixpainter->font());
+        const int numberRoom = measureFm.horizontalAdvance(QStringLiteral("888")) + 8;
+        const double pxPerMs = double(width() - lineNameWidth) / double(qMax(1, endTimeX - startTimeX));
         while (tick < endTick) {
             TimeSignatureEvent *measureEvent = currentTimeSignatureEvents->at(i);
             int xfrom = xPosOfMs(msOfTick(tick));
             currentDivs.append(QPair<int, int>(xfrom, tick));
             measure++;
             int measureStartTick = tick;
+            const int nominalTicks = ticksPerMeasure; // before a meter change cuts it short
             tick += ticksPerMeasure;
             if (i < currentTimeSignatureEvents->length() - 1) {
                 if (currentTimeSignatureEvents->at(i + 1)->midiTime() <= tick) {
@@ -520,30 +527,58 @@ void MatrixWidget::paintEvent(QPaintEvent *event) {
                 }
             }
             int xto = xPosOfMs(msOfTick(tick));
-            pixpainter->setBrush(_cachedMeasureBarColor);
-            pixpainter->setPen(Qt::NoPen);
-            pixpainter->drawRoundedRect(xfrom + 2, timeHeight / 2 + 4, xto - xfrom - 4, timeHeight / 2 - 10, 5, 5);
+            // Zoomed far out a measure is only a few pixels wide and the bar,
+            // the number, the line and the division raster merge into a grey
+            // wash. When a three-digit number no longer fits a measure, the
+            // number goes on every n-th measure only (n a power of two),
+            // left-aligned at its line; the bars are left out (they would
+            // paint over it), and the lines of the other measures stay below
+            // the ruler - or, under 4 px, away. The step is decided on the
+            // unrounded width of a full measure of this meter and that fixed
+            // room, so measures of 13 and 14 px, numbers of one to three digits
+            // and a measure cut short by a meter change get the same step.
+            // No division raster closer than 6 px (the snap points stay).
+            const int measureWidth = xto - xfrom;
+            const double measurePx =
+                (msOfTick(measureStartTick + nominalTicks) - msOfTick(measureStartTick)) * pxPerMs;
+            QString text = tr("Measure ") + QString::number(measure - 1);
+            const QFontMetrics &fm = measureFm;
+            int textlength = fm.horizontalAdvance(text);
+            if (textlength + 4 > measureWidth) {
+                text = QString::number(measure - 1);
+                textlength = fm.horizontalAdvance(text);
+            }
+            int labelEvery = 1;
+            if (measurePx < numberRoom) {
+                labelEvery = 2;
+                while (labelEvery * qMax(1.0, measurePx) < numberRoom && labelEvery < 4096) {
+                    labelEvery *= 2;
+                }
+            }
+            const bool labelled = labelEvery == 1 || ((measure - 2) % labelEvery) == 0; // 1, 1+n ...
+            if (labelEvery == 1 && measureWidth > 6) {
+                pixpainter->setBrush(_cachedMeasureBarColor);
+                pixpainter->setPen(Qt::NoPen);
+                pixpainter->drawRoundedRect(xfrom + 2, timeHeight / 2 + 4, measureWidth - 4, timeHeight / 2 - 10, 5, 5);
+            }
             if (tick > startTick) {
                 pixpainter->setPen(_cachedMeasureLineColor);
-                pixpainter->drawLine(xfrom, timeHeight / 2, xfrom, height());
-                QString text = tr("Measure ") + QString::number(measure - 1);
-
-                QFont font = pixpainter->font();
-                QFontMetrics fm(font);
-                int textlength = fm.horizontalAdvance(text);
-                if (textlength > xto - xfrom) {
-                    text = QString::number(measure - 1);
-                    textlength = fm.horizontalAdvance(text);
+                if (labelled) {
+                    pixpainter->drawLine(xfrom, timeHeight / 2, xfrom, height());
+                } else if (measureWidth >= 4) {
+                    pixpainter->drawLine(xfrom, timeHeight, xfrom, height());
                 }
 
                 // Align text to pixel boundaries for sharper rendering
-                int pos = (xfrom + xto) / 2;
+                int pos = labelEvery > 1 ? xfrom + textlength / 2 + 3 : (xfrom + xto) / 2;
                 int textX = static_cast<int>(std::round(pos - textlength / 2.0));
                 // Use constant Y so measure numbers don't shift when marker bar appears
                 int textY = 41;
 
-                pixpainter->setPen(_cachedMeasureTextColor);
-                pixpainter->drawText(textX, textY, text);
+                if (labelled) {
+                    pixpainter->setPen(_cachedMeasureTextColor);
+                    pixpainter->drawText(textX, textY, text);
+                }
 
                 if (_div >= 0 || _div <= -100) {
                     int ticksPerDiv;
@@ -596,6 +631,8 @@ void MatrixWidget::paintEvent(QPaintEvent *event) {
                     // dense tuplet rasters, which would hang the paint loop.
                     if (ticksPerDiv < 1) ticksPerDiv = 1;
                     int startTickDiv = ticksPerDiv;
+                    const bool drawDivs =
+                        xPosOfMs(msOfTick(measureStartTick + ticksPerDiv)) - xfrom >= 6;
                     QPen oldPen = pixpainter->pen();
                     QPen dashPen = QPen(_cachedTimelineGridColor, 1, Qt::DashLine);
                     pixpainter->setPen(dashPen);
@@ -603,7 +640,9 @@ void MatrixWidget::paintEvent(QPaintEvent *event) {
                         int divTick = startTickDiv + measureStartTick;
                         int xDiv = xPosOfMs(msOfTick(divTick));
                         currentDivs.append(QPair<int, int>(xDiv, divTick));
-                        pixpainter->drawLine(xDiv, timeHeight, xDiv, height());
+                        if (drawDivs) {
+                            pixpainter->drawLine(xDiv, timeHeight, xDiv, height());
+                        }
                         startTickDiv += ticksPerDiv;
                     }
                     pixpainter->setPen(oldPen);
@@ -1676,10 +1715,14 @@ void MatrixWidget::resizeEvent(QResizeEvent *event) {
     calcSizes();
 }
 
+// The time <-> pixel conversions multiply in 64 bit: zoomed out to a whole
+// long song, milliseconds times pixels passes 2^31 (a 29-minute medley in a
+// 2263 px wide editor stopped drawing at 15:49 - notes, measures, the lanes
+// below). Every lane maps through these three, so they cover all of them.
 int MatrixWidget::xPosOfMs(int ms) {
     int range = endTimeX - startTimeX;
     if (range == 0) return lineNameWidth;
-    return lineNameWidth + (ms - startTimeX) * (width() - lineNameWidth) / range;
+    return lineNameWidth + int(qint64(ms - startTimeX) * (width() - lineNameWidth) / range);
 }
 
 int MatrixWidget::yPosOfLine(int line) {
@@ -1950,7 +1993,7 @@ QList<MidiEvent *> *MatrixWidget::velocityEvents() {
 int MatrixWidget::msOfXPos(int x) {
     int pixelRange = width() - lineNameWidth;
     if (pixelRange == 0) return startTimeX;
-    return startTimeX + ((x - lineNameWidth) * (endTimeX - startTimeX)) / pixelRange;
+    return startTimeX + int(qint64(x - lineNameWidth) * (endTimeX - startTimeX) / pixelRange);
 }
 
 int MatrixWidget::msOfTick(int tick) {
@@ -1960,7 +2003,7 @@ int MatrixWidget::msOfTick(int tick) {
 int MatrixWidget::timeMsOfWidth(int w) {
     int pixelRange = width() - lineNameWidth;
     if (pixelRange == 0) return 0;
-    return (w * (endTimeX - startTimeX)) / pixelRange;
+    return int(qint64(w) * (endTimeX - startTimeX) / pixelRange);
 }
 
 bool MatrixWidget::eventInWidget(MidiEvent *event) {
@@ -2020,6 +2063,35 @@ void MatrixWidget::zoomStd() {
     calcSizes();
 }
 
+void MatrixWidget::zoomToFit() {
+    if (!file) return;
+    const int songMs = file->maxTime();
+    if (songMs <= 0) return;
+
+    // The pitch range of the notes that are shown (visible channels, tracks
+    // not hidden); a line is 127 - note.
+    int minLine = INT_MAX;
+    int maxLine = -1;
+    for (int ch = 0; ch < 16; ++ch) {
+        // This view's own document (in split view the compare pane fits too).
+        if (!ChannelVisibilityManager::instance().isChannelVisible(ch, file)) continue;
+        const QMultiMap<int, MidiEvent *> *map = file->channel(ch)->eventMap();
+        for (auto it = map->cbegin(); it != map->cend(); ++it) {
+            auto *on = dynamic_cast<NoteOnEvent *>(it.value());
+            if (!on || (on->track() && on->track()->hidden())) continue;
+            minLine = qMin(minLine, on->line());
+            maxLine = qMax(maxLine, on->line());
+        }
+    }
+    if (maxLine < 0) {
+        // No notes to frame: keep the vertical view, fit the time only.
+        fitToFocus(0, songMs, startLineY, qMax(startLineY + 1, endLineY));
+        return;
+    }
+    // Two lines of room above and below the outer notes.
+    fitToFocus(0, songMs, qMax(0, minLine - 2), qMin(127, maxLine + 2) + 1);
+}
+
 void MatrixWidget::applyZoom(double newScaleX, double newScaleY) {
     // Phase 9.9f §15.2: a viewer applies the presenter's zoom level.
     // Guards: keep the factors strictly positive — a zero or negative
@@ -2061,11 +2133,13 @@ void MatrixWidget::fitToFocus(int startMs, int endMs, int startLine, int endLine
     double requiredScaleY = double(availPxY)
                             / (double(paddedLines) * double(PIXEL_PER_LINE));
 
-    // Clamp to a sane window. Extreme zoom-out makes notes invisible;
-    // extreme zoom-in makes scrolling unusable. The user can manually
-    // override afterwards if they want; this is the auto-fit pick.
-    requiredScaleX = qBound(0.05, requiredScaleX, 20.0);
-    requiredScaleY = qBound(0.10, requiredScaleY, 10.0);
+    // Clamp to a sane window. Extreme zoom-in makes scrolling unusable; the
+    // horizontal floor is the one zooming out may reach (1 pixel per second -
+    // a ten-minute song still fits), vertically never more lines than exist.
+    // The user can manually override afterwards; this is the auto-fit pick.
+    requiredScaleX = qBound(0.01, requiredScaleX, 20.0);
+    const double allLinesScaleY = double(availPxY) / (double(NUM_LINES) * double(PIXEL_PER_LINE));
+    requiredScaleY = qBound(qMax(0.10, allLinesScaleY), requiredScaleY, 10.0);
 
     applyZoom(requiredScaleX, requiredScaleY);
 
@@ -2081,6 +2155,13 @@ void MatrixWidget::fitToFocus(int startMs, int endMs, int startLine, int endLine
 
     scrollXChanged(newStartMs);
     scrollYChanged(newStartLine);
+    // Resync the scrollbars: applyZoom's calcSizes() reported the position
+    // BEFORE the two scrolls above, and they move the view without emitting -
+    // the next scrollbar interaction would jump back (as in zoomHorAnchored).
+    if (file) {
+        emit scrollChanged(startTimeX, file->maxTime() - (endTimeX - startTimeX),
+                           startLineY, NUM_LINES - (endLineY - startLineY));
+    }
 }
 
 void MatrixWidget::resetView() {
@@ -2110,16 +2191,35 @@ void MatrixWidget::resetView() {
     update();
 }
 
+// Above 0.2 a zoom step is 0.1 as it always was; below, where 0.1 would
+// halve or zero the scale, a step takes or gives a fifth, so the way out to a
+// whole long song stays smooth (and back in lands on 0.2 again).
 void MatrixWidget::zoomHorIn() {
     if (scaleX <= 3.0) { // Prevent excessive zoom in
-        zoomHorAnchored(scaleX + 0.1);
+        const double next = (scaleX < 0.2 - 1e-6) ? qMin(0.2, scaleX * 1.25) : scaleX + 0.1;
+        zoomHorAnchored(next);
     }
 }
 
 void MatrixWidget::zoomHorOut() {
-    if (scaleX >= 0.2) {
-        zoomHorAnchored(scaleX - 0.1);
+    const double floor = minScaleX();
+    if (scaleX <= floor + 1e-6) return;
+    const double next = (scaleX > 0.25) ? scaleX - 0.1 : scaleX / 1.25;
+    zoomHorAnchored(qMax(floor, next));
+}
+
+double MatrixWidget::minScaleX() {
+    double floor = 0.1;
+    if (file) {
+        const int availPx = width() - lineNameWidth;
+        const int songMs = file->maxTime();
+        if (availPx > 0 && songMs > 0) {
+            // The whole song plus 5 % room fits the matrix at this scale.
+            const double fit = double(availPx) * 1000.0 / (double(PIXEL_PER_S) * songMs * 1.05);
+            floor = qMin(floor, fit);
+        }
     }
+    return qMax(0.01, floor);
 }
 
 void MatrixWidget::zoomHorAnchored(double newScaleX) {
@@ -2276,7 +2376,9 @@ void MatrixWidget::wheelEvent(QWheelEvent *event) {
         int widgetRange = endTimeX - startTimeX;
 
         if (horScrollAmount != 0) {
-            int scroll = -1 * horScrollAmount * widgetRange / 1000;
+            // 64 bit: zoomed out to a whole long song widgetRange alone is
+            // millions of milliseconds (see xPosOfMs).
+            int scroll = int(-qint64(horScrollAmount) * widgetRange / 1000);
 
             int newStartTime = startTimeX + scroll;
 
@@ -2358,6 +2460,10 @@ void MatrixWidget::contextMenuEvent(QContextMenuEvent *event) {
             QAction *thinAct = rulerMenu.addAction(tr("Thin Tempo Map..."));
             connect(thinAct, &QAction::triggered, host,
                     &MainWindow::thinTempoMap);
+            // The time axis is the spatial target of the whole-song view too.
+            rulerMenu.addSeparator();
+            QAction *fitAct = rulerMenu.addAction(tr("Zoom to Fit"));
+            connect(fitAct, &QAction::triggered, host, &MainWindow::zoomToFit);
             rulerMenu.exec(event->globalPos());
         }
         event->accept();

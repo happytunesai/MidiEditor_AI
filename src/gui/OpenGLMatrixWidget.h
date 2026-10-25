@@ -243,6 +243,12 @@ public slots:
         update();
     }
 
+    void zoomToFit() {
+        _matrixWidget->zoomToFit();
+        // Hidden widget's calcSizes()->update() doesn't trigger OpenGL repaint
+        update();
+    }
+
     void resetView() {
         _matrixWidget->resetView();
         // Hidden widget's calcSizes()->update() doesn't trigger OpenGL repaint

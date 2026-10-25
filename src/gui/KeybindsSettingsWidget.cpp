@@ -155,7 +155,7 @@ QStringList KeybindsSettingsWidget::getActionOrder() const {
     
     // View menu
     order << "zoom_hor_out" << "zoom_hor_in" << "zoom_ver_out" << "zoom_ver_in"
-          << "zoom_std" << "reset_view";
+          << "zoom_std" << "zoom_fit" << "reset_view";
     
     // Playback menu
     order << "play_stop" << "play" << "pause" << "record" << "stop"

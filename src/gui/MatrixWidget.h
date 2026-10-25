@@ -433,6 +433,12 @@ public slots:
     void zoomStd();
 
     /**
+     * \brief Zooms so the whole song fits the matrix: all of it horizontally,
+     *        the range of the visible notes vertically.
+     */
+    void zoomToFit();
+
+    /**
      * \brief Resets the view to show the entire file.
      */
     void resetView();
@@ -654,6 +660,13 @@ private:
      * \param newScaleX The horizontal scale factor to apply
      */
     void zoomHorAnchored(double newScaleX);
+
+    /**
+     * \brief The smallest horizontal scale zooming out may reach: 0.1 as
+     *        before for short songs, lower for a long one until all of it
+     *        fits the matrix - never below 0.01 (1 pixel per second).
+     */
+    double minScaleX();
 
     /**
      * \brief Handles piano emulation for keyboard input.

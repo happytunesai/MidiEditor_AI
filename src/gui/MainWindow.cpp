@@ -3648,6 +3648,10 @@ void MainWindow::scrollActiveViewToTickMs(int ms) {
     }
 }
 
+void MainWindow::zoomToFit() {
+    zoomActiveView("zoomToFit");
+}
+
 void MainWindow::zoomActiveView(const char *method) {
     QWidget *vc = activeViewContainer();
     if (vc) {
@@ -11438,6 +11442,13 @@ QWidget *MainWindow::setupActions(QWidget *parent) {
     connect(zoomStdAction, &QAction::triggered, this, [this] { zoomActiveView("zoomStd"); });
     zoomMenu->addAction(zoomStdAction);
     _actionMap["zoom_std"] = zoomStdAction;
+
+    QAction *zoomFitAction = new QAction(tr("Zoom to fit"), this);
+    zoomFitAction->setShortcut(QKeySequence(QKeyCombination(Qt::CTRL | Qt::SHIFT, Qt::Key_F)));
+    _defaultShortcuts["zoom_fit"] = QList<QKeySequence>() << zoomFitAction->shortcut();
+    connect(zoomFitAction, &QAction::triggered, this, &MainWindow::zoomToFit);
+    zoomMenu->addAction(zoomFitAction);
+    _actionMap["zoom_fit"] = zoomFitAction;
 
     viewMB->addMenu(zoomMenu);
 

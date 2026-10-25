@@ -334,6 +334,12 @@ public slots:
     void updateAll();
 
     /**
+     * \brief Zooms the active editor view so the whole song fits (View >
+     *        Zoom > Zoom to fit, Ctrl+Shift+F, the measure ruler's menu).
+     */
+    void zoomToFit();
+
+    /**
      * \brief Applies a changed rendering option at once: refreshes the render
      *        hint caches of both editor views and repaints the (OpenGL)
      *        containers. Connected to PerformanceSettingsWidget's

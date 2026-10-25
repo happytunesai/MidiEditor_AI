@@ -143,6 +143,17 @@ public:
     QList<QPair<int, QString>> loadedSoundFonts() const;
 
     /**
+     * \brief The enabled SoundFonts an audio export renders with, in load
+     *        order (the last one has the highest priority).
+     *
+     * The export renders with its own offline synth, so it does not need the
+     * live engine: with another MIDI output selected (Microsoft GS Wavetable
+     * Synth, VirtualMIDISynth, hardware) the engine is shut down and the list
+     * comes from the SoundFont stack in Settings - enabled files that exist.
+     */
+    QStringList exportSoundFontPaths() const;
+
+    /**
      * \brief Replaces the entire SoundFont stack with the given paths.
      *
      * Unloads all current SoundFonts and reloads in the given order.

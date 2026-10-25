@@ -42,6 +42,7 @@
 
 #include "../midi/MidiFile.h"
 #include "../midi/FluidSynthEngine.h"
+#include "../midi/MidiOutput.h"
 #include "../midi/SidAudioPlayer.h"
 
 // ============================================================================
@@ -241,19 +242,26 @@ void ExportDialog::setupUi() {
     _reverbTailCheck->setChecked(true);
     optLayout->addWidget(_reverbTailCheck);
 
-    // Show current SoundFont stack info
+    // Show the SoundFonts the export renders with. The export always uses the
+    // built-in synthesizer offline - also while another MIDI output (Microsoft
+    // GS Wavetable Synth, VirtualMIDISynth, hardware) plays live (issue #17).
     FluidSynthEngine *engine = FluidSynthEngine::instance();
-    auto fonts = engine->loadedSoundFonts();
+    const QStringList fonts = engine->exportSoundFontPaths(); // last = highest priority
     QString sfInfo;
     if (fonts.isEmpty()) {
-        sfInfo = tr("<i>No SoundFont loaded</i>");
+        sfInfo = tr("<i>No SoundFont set - add one in Settings &gt; Midi I/O</i>");
     } else {
-        sfInfo = tr("SoundFont: %1").arg(QFileInfo(fonts.last().second).fileName());
+        sfInfo = tr("SoundFont: %1").arg(QFileInfo(fonts.last()).fileName());
         if (fonts.size() > 1) {
             sfInfo += tr(" (+%1 more)").arg(fonts.size() - 1);
         }
+        if (!MidiOutput::isFluidSynthOutput()) {
+            sfInfo += tr("<br><i>Rendered with the built-in FluidSynth and these SoundFonts - "
+                         "the selected MIDI output only plays live.</i>");
+        }
     }
     _soundFontLabel = new QLabel(sfInfo, optionsGroup);
+    _soundFontLabel->setWordWrap(true);
     optLayout->addWidget(_soundFontLabel);
 
     // SID export goes through libsidplayfp, not FluidSynth: the reverb tail and
@@ -422,11 +430,13 @@ void ExportDialog::updateExportEnabled() {
     // Original-SID export renders via libsidplayfp - no SoundFont required.
     // Converted-MIDI export renders via FluidSynth - needs a loaded SoundFont.
     const bool sidSource = exportOriginalSid();
-    const bool haveFont = !FluidSynthEngine::instance()->loadedSoundFonts().isEmpty();
+    // Any enabled SoundFont from Settings will do - the render does not need
+    // FluidSynth to be the selected MIDI output (issue #17).
+    const bool haveFont = !FluidSynthEngine::instance()->exportSoundFontPaths().isEmpty();
     const bool enable = sidSource || haveFont;
     _exportBtn->setEnabled(enable);
     _exportBtn->setToolTip(enable ? QString()
-                                  : tr("Load a SoundFont in Settings first"));
+                                  : tr("Add a SoundFont in Settings > Midi I/O first"));
 }
 
 // ============================================================================

@@ -59,7 +59,7 @@
 
 <p>
   MidiEditor AI can render your MIDI files to audio using the built-in
-  <a href="soundfont.html">FluidSynth synthesizer</a> and loaded SoundFonts. Export to
+  <a href="soundfont.html">FluidSynth synthesizer</a> and your SoundFonts. Export to
   <b>WAV</b>, <b>FLAC</b>, <b>OGG Vorbis</b>, or <b>MP3</b> - no external tools required.
 </p>
 
@@ -131,7 +131,7 @@
 </tr>
 <tr>
   <td><b>Reverb Tail</b></td>
-  <td>When enabled, adds extra time at the end so reverb and sustain can fade out naturally instead of cutting off abruptly.</td>
+  <td>When enabled, the export runs 2 seconds past the last note, so reverb and the release of the last notes fade out naturally. Without it the file ends as soon as the last notes have faded.</td>
 </tr>
 <tr>
   <td><b>Estimated Size</b></td>
@@ -219,11 +219,20 @@
 <h3 id="soundfonts">SoundFont Requirement</h3>
 
 <p>
-  Audio export uses the currently loaded <a href="soundfont.html">SoundFonts</a> to determine
-  instrument sounds. Make sure at least one SoundFont is loaded before exporting. If no SoundFonts
-  are available, the export will fail with an error message. <i>(The one exception is the
-  <a href="#sid">authentic SID export</a> above, which renders through libsidplayfp and needs no
-  SoundFont.)</i>
+  Audio export renders with the built-in FluidSynth synthesizer and the
+  <a href="soundfont.html">SoundFonts</a> set in <b>Settings &rarr; Midi I/O</b>. Without an enabled
+  SoundFont the <b>Export</b> button stays disabled and its tooltip says where to add one.
+  <i>(The one exception is the <a href="#sid">authentic SID export</a> above, which renders through
+  libsidplayfp and needs no SoundFont.)</i>
+</p>
+
+<p id="other-outputs">
+  The export does not depend on the MIDI output used for playback. With another output selected -
+  for example Microsoft GS Wavetable Synth, VirtualMIDISynth or a hardware synthesizer - the export
+  still renders with FluidSynth and your SoundFonts, and the dialog says so under the SoundFont
+  line; the selected output only plays live. To get the sound of a SoundFont-based synthesizer such
+  as VirtualMIDISynth, add the same <code>.sf2</code> / <code>.sf3</code> files it uses to the
+  SoundFont list.
 </p>
 
 <p>
@@ -256,7 +265,7 @@
 <h3 id="tips">Tips</h3>
 
 <ul>
-  <li><b>No sound in export?</b> Make sure SoundFonts are loaded. The export uses the same SoundFont stack as playback.</li>
+  <li><b>No sound in export?</b> Make sure at least one SoundFont is enabled in Settings &rarr; Midi I/O. The export uses the same SoundFont stack as playback through FluidSynth.</li>
   <li><b>Wrong instruments?</b> Check your <a href="soundfont.html#priority">SoundFont priority order</a>. The export renders exactly what you hear during playback.</li>
   <li><b>Export is slow?</b> Hi-Res quality (96 kHz) takes longer to render. Try CD quality (44.1 kHz) for faster exports.</li>
   <li><b>MP3 for sharing:</b> MP3 at CD quality is the best choice for sharing online or via messaging apps.</li>

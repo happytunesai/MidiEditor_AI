@@ -268,6 +268,83 @@ private slots:
             QStringLiteral("void MainWindow::moveSelectedEventsToChannel(QAction *action)"));
         QVERIFY(!moveSel.contains(QStringLiteral("setChannel(")));
     }
+
+    // EXPORT-OUT-001 (issue #17): another MIDI output shuts the live
+    // FluidSynth down and unloads its SoundFonts. The export renders on its
+    // own offline synth, so neither the dialog nor the render may depend on
+    // the live engine - both take the SoundFonts from exportSoundFontPaths(),
+    // which falls back to the stack in Settings.
+    void audioExportDoesNotNeedTheLiveSynthesizer()
+    {
+        const QString engine = readRepoFile(QStringLiteral("src/midi/FluidSynthEngine.cpp"));
+        QVERIFY2(!engine.isEmpty(), "src/midi/FluidSynthEngine.cpp is not readable");
+        const QString render = functionBody(
+            engine, QStringLiteral("void FluidSynthEngine::exportAudio(const ExportOptions &options)"));
+        QVERIFY2(!render.isEmpty(), "FluidSynthEngine::exportAudio not found");
+        QVERIFY2(!render.contains(QStringLiteral("if (!_initialized)")),
+                 "exportAudio refuses again while another MIDI output is selected (issue #17)");
+        QVERIFY(render.contains(QStringLiteral("exportSoundFontPaths()")));
+        QVERIFY(!render.contains(QStringLiteral("_loadedFonts")));
+        const QString fonts = functionBody(
+            engine, QStringLiteral("QStringList FluidSynthEngine::exportSoundFontPaths() const"));
+        QVERIFY2(!fonts.isEmpty(), "FluidSynthEngine::exportSoundFontPaths not found");
+        QVERIFY(fonts.contains(QStringLiteral("allSoundFontPaths()")));
+        QVERIFY(fonts.contains(QStringLiteral("isSoundFontEnabled(")));
+        // EXPORT-TAIL-001: 18 s of silence after a 3-minute song. The "2 s"
+        // reverb tail counted 64-frame blocks, but a file renderer block is
+        // audio.period-size frames (512 by default) - 16 s; and the render
+        // follows the song to its last tick (the total is 0 until the player
+        // loaded the file, so it is read inside the loop).
+        QVERIFY2(render.contains(QStringLiteral("\"audio.period-size\"")),
+                 "the reverb tail counts blocks of an assumed size again (16 s instead of 2 s)");
+        QVERIFY(!render.contains(QStringLiteral("/ 64.0)")));
+        QVERIFY2(render.contains(QStringLiteral("totalTicks > 0 && curTick >= totalTicks")),
+                 "the render follows the player's PLAYING state past the song end again");
+        // Without the tail FluidSynth's own 2 s grace after the last voice made
+        // both options render the same file: stop once no voice sounds.
+        QVERIFY2(render.contains(QStringLiteral("fluid_synth_get_active_voice_count(expSynth) == 0")),
+                 "an export without the tail waits for FluidSynth's 2 s grace again");
+
+        const QString dialog = readRepoFile(QStringLiteral("src/gui/ExportDialog.cpp"));
+        QVERIFY2(!dialog.isEmpty(), "src/gui/ExportDialog.cpp is not readable");
+        const QString enable = functionBody(dialog, QStringLiteral("void ExportDialog::updateExportEnabled()"));
+        QVERIFY2(!enable.isEmpty(), "ExportDialog::updateExportEnabled not found");
+        QVERIFY(enable.contains(QStringLiteral("exportSoundFontPaths()")));
+        QVERIFY2(!dialog.contains(QStringLiteral("loadedSoundFonts()")),
+                 "the export dialog reads the live engine's SoundFonts again - empty with "
+                 "any MIDI output but FluidSynth (issue #17)");
+    }
+
+    // ZOOM-FIT-001: zooming out stopped at a fixed 0.1 (10 px per second),
+    // so a song over about two minutes never fit. The floor follows the song
+    // length now, and Zoom to fit is reachable from the View menu and the
+    // measure ruler's right-click menu.
+    void zoomOutReachesTheWholeSong()
+    {
+        const QString matrix = readRepoFile(QStringLiteral("src/gui/MatrixWidget.cpp"));
+        QVERIFY2(!matrix.isEmpty(), "src/gui/MatrixWidget.cpp is not readable");
+        const QString out = functionBody(matrix, QStringLiteral("void MatrixWidget::zoomHorOut()"));
+        QVERIFY2(!out.isEmpty(), "MatrixWidget::zoomHorOut not found");
+        QVERIFY2(out.contains(QStringLiteral("minScaleX()")),
+                 "zoomHorOut no longer follows the song length (fixed floor again)");
+        const QString floor = functionBody(matrix, QStringLiteral("double MatrixWidget::minScaleX()"));
+        QVERIFY(floor.contains(QStringLiteral("maxTime()")));
+        const QString fit = functionBody(matrix, QStringLiteral("void MatrixWidget::zoomToFit()"));
+        QVERIFY(fit.contains(QStringLiteral("fitToFocus(0, songMs")));
+        QVERIFY(matrix.contains(QStringLiteral("&MainWindow::zoomToFit")));
+        QVERIFY(_mainWindow.contains(QStringLiteral("_actionMap[\"zoom_fit\"]")));
+        // Zoomed out to a whole long song, ms * pixels passes 2^31: the time
+        // <-> pixel conversions every lane uses must multiply in 64 bit (a
+        // 29-minute medley stopped drawing at 15:49 in a 2263 px editor).
+        for (const QString &signature : {QStringLiteral("int MatrixWidget::xPosOfMs(int ms)"),
+                                         QStringLiteral("int MatrixWidget::msOfXPos(int x)"),
+                                         QStringLiteral("int MatrixWidget::timeMsOfWidth(int w)")}) {
+            const QString body = functionBody(matrix, signature);
+            QVERIFY2(!body.isEmpty(), qPrintable(signature + QStringLiteral(" not found")));
+            QVERIFY2(body.contains(QStringLiteral("qint64(")),
+                     qPrintable(signature + QStringLiteral(" multiplies in 32 bit again")));
+        }
+    }
 };
 
 QTEST_GUILESS_MAIN(TestShutdownGuards)
