@@ -31,6 +31,7 @@
 #include "../src/ai/SecretRedactor.h"
 
 #include <QJsonArray>
+#include <QJsonDocument>
 #include <QJsonObject>
 
 class TestStreamingFallback : public QObject {
@@ -523,6 +524,85 @@ private slots:
         QVERIFY(!AiClient::modelRequiresResponsesApi(QStringLiteral("openai"), QStringLiteral("gpt-4o-prod-v2")));
         QVERIFY(!AiClient::modelRequiresResponsesApi(QStringLiteral("openai"), QStringLiteral("my-project-model")));
         QVERIFY(!AiClient::modelRequiresResponsesApi(QStringLiteral("openai"), QStringLiteral("gpt-5-provider")));
+    }
+
+    // ------------------------------------------------------------------
+    // v2.5.4 Claude: the error texts steer the two retry mechanisms.
+    //  - A tool call with broken JSON must be recognised by the SAME predicate
+    //    AgentRunner and MidiPilot use (corrective retry in Agent mode, no
+    //    blind replay in Simple mode).
+    //  - A Simple-mode answer that hit the token limit must NOT read as
+    //    retriable to MidiPilotWidget::onErrorOccurred (its word list is
+    //    mirrored here): the identical request would hit the limit again, at
+    //    the price of a full generation each time. Agent mode keeps
+    //    "truncated", which AgentRunner answers with a hint.
+    // ------------------------------------------------------------------
+    void claude_errorTextsSteerTheRetries()
+    {
+        AnthropicMessages::StreamAccumulator acc;
+        auto feed = [&acc](const char *json) {
+            acc.consume(QJsonDocument::fromJson(QByteArray(json)).object());
+        };
+        feed("{\"type\":\"message_start\",\"message\":{\"model\":\"claude-opus-5-5\"}}");
+        feed("{\"type\":\"content_block_start\",\"index\":0,\"content_block\":"
+             "{\"type\":\"tool_use\",\"id\":\"toolu_1\",\"name\":\"insert_events\",\"input\":{}}}");
+        feed("{\"type\":\"content_block_delta\",\"index\":0,\"delta\":"
+             "{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"events\\\": [\"}}");
+        feed("{\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"tool_use\"}}");
+        const AnthropicMessages::Result broken = acc.finish();
+        QCOMPARE(broken.errorType, QStringLiteral("invalid_tool_json"));
+        QVERIFY(AiClient::errorIndicatesUnparsableToolCall(broken.errorMessage));
+
+        const QString simple = AiClient::anthropicTokenLimitMessage(true).toLower();
+        for (const char *word : {"malformed", "max_tokens", "max tokens", "cut off", "truncated",
+                                 "empty response", "ended without output",
+                                 "no text and no tool call", "timeout", "timed out",
+                                 "connection", "network", "http 5", "500", "502", "503",
+                                 "504", "429"}) {
+            QVERIFY2(!simple.contains(QLatin1String(word)),
+                     qPrintable(QStringLiteral("Simple-mode token-limit text is retriable again: ")
+                                + QLatin1String(word)));
+        }
+        QVERIFY(simple.contains(QStringLiteral("token limit")));
+        QVERIFY(AiClient::anthropicTokenLimitMessage(false).contains(QStringLiteral("truncated")));
+    }
+
+    // ------------------------------------------------------------------
+    // v2.5.4 output limit: the "Token Limit" setting is Automatic or a step.
+    //  - Native OpenAI takes max_completion_tokens: its reasoning models
+    //    answer max_tokens with HTTP 400 ("Unsupported parameter").
+    //  - A step above the model's own limit is an HTTP 400 as well ("supports
+    //    at most 16384 completion tokens"), so it is lowered to that limit.
+    // ------------------------------------------------------------------
+    void outputLimit_fieldAndCeiling()
+    {
+        QCOMPARE(AiClient::outputLimitField(QStringLiteral("openai")),
+                 QStringLiteral("max_completion_tokens"));
+        QCOMPARE(AiClient::outputLimitField(QString()), QStringLiteral("max_completion_tokens"));
+        for (const char *p : {"openrouter", "gemini", "ollama", "custom"})
+            QCOMPARE(AiClient::outputLimitField(QLatin1String(p)), QStringLiteral("max_tokens"));
+
+        // Automatic sends nothing; a step is capped by a known ceiling only.
+        QCOMPARE(AiClient::outputLimitToSend(false, 64000, 128000), 0);
+        QCOMPARE(AiClient::outputLimitToSend(true, 0, 128000), 0);
+        QCOMPARE(AiClient::outputLimitToSend(true, 64000, 128000), 64000);
+        QCOMPARE(AiClient::outputLimitToSend(true, 128000, 16384), 16384);
+        QCOMPARE(AiClient::outputLimitToSend(true, 128000, 0), 128000);
+
+        QCOMPARE(AiClient::outputTokenCeilingFromId(QStringLiteral("gpt-5.6-luna")), 128000);
+        QCOMPARE(AiClient::outputTokenCeilingFromId(QStringLiteral("gpt-6-astra")), 128000);
+        QCOMPARE(AiClient::outputTokenCeilingFromId(QStringLiteral("gpt-5.2-chat")), 16384);
+        QCOMPARE(AiClient::outputTokenCeilingFromId(QStringLiteral("gpt-4.1-mini")), 32768);
+        QCOMPARE(AiClient::outputTokenCeilingFromId(QStringLiteral("gpt-4o-mini")), 16384);
+        QCOMPARE(AiClient::outputTokenCeilingFromId(QStringLiteral("claude-opus-5-5")), 128000);
+        QCOMPARE(AiClient::outputTokenCeilingFromId(QStringLiteral("claude-haiku-4-5")), 64000);
+        QCOMPARE(AiClient::outputTokenCeilingFromId(QStringLiteral("gemini-2.5-pro")), 65536);
+        QCOMPARE(AiClient::outputTokenCeilingFromId(QStringLiteral("gemini-3.8-flash")), 65536);
+        // Vendor-prefixed ids of an OpenRouter-style catalogue.
+        QCOMPARE(AiClient::outputTokenCeilingFromId(QStringLiteral("openai/gpt-5.4")), 128000);
+        // Unknown: no ceiling, the chosen step goes out as it is.
+        QCOMPARE(AiClient::outputTokenCeilingFromId(QStringLiteral("qwen3.6:latest")), 0);
+        QCOMPARE(AiClient::outputTokenCeilingFromId(QStringLiteral("gemini-4-argon")), 0);
     }
 
     // ------------------------------------------------------------------

@@ -274,6 +274,74 @@ private slots:
     // own offline synth, so neither the dialog nor the render may depend on
     // the live engine - both take the SoundFonts from exportSoundFontPaths(),
     // which falls back to the stack in Settings.
+    void claudeAgentLoopKeepsItsHistoryAppendOnly()
+    {
+        // v2.5.4: Claude binds every thinking block to the exact conversation
+        // before it. AgentRunner must (a) keep Claude's own content blocks on
+        // the assistant turn it stores, and (b) append the state layer for
+        // Claude instead of re-inserting a fresh one after the system prompt.
+        const QString runner = readRepoFile(QStringLiteral("src/ai/AgentRunner.cpp"));
+        QVERIFY2(!runner.isEmpty(), "src/ai/AgentRunner.cpp is not readable");
+
+        const QString response = functionBody(
+            runner, QStringLiteral("void AgentRunner::onApiResponse("));
+        QVERIFY2(!response.isEmpty(), "AgentRunner::onApiResponse not found");
+        QVERIFY2(response.contains(QStringLiteral("replayContentKey()")),
+                 "the stored assistant turn drops Claude's thinking blocks again");
+
+        const QString send = functionBody(
+            runner, QStringLiteral("void AgentRunner::sendNextRequest()"));
+        QVERIFY2(!send.isEmpty(), "AgentRunner::sendNextRequest not found");
+        QVERIFY2(send.contains(QStringLiteral("isAnthropicProvider"))
+                     && send.contains(QStringLiteral("withAppendedStateLayer")),
+                 "Claude gets the per-request state inserted after the system prompt again");
+
+        // A run whose provider changed in Settings keeps Claude's blocks off
+        // the other provider's wire.
+        QVERIFY2(send.contains(QStringLiteral("withoutReplayContent(messagesForNextRequest())")),
+                 "Claude's content blocks can reach another provider's API again");
+
+        // The settings page finds the end of its fixed provider entries by
+        // entry: a fixed COUNT that was not raised with the Claude entry cut
+        // "Custom" off the list, and confirming the page then overwrote a
+        // custom endpoint with OpenAI's.
+        const QString settings = readRepoFile(QStringLiteral("src/gui/AiSettingsWidget.cpp"));
+        QVERIFY2(!settings.isEmpty(), "src/gui/AiSettingsWidget.cpp is not readable");
+        QVERIFY2(!settings.contains(QStringLiteral("kFixedProviderCount")),
+                 "the provider combo is trimmed by a fixed count again");
+        const QString populate = functionBody(
+            settings, QStringLiteral("void AiSettingsWidget::populateProviderComboProfiles()"));
+        QVERIFY2(!populate.isEmpty(), "AiSettingsWidget::populateProviderComboProfiles not found");
+        QVERIFY(populate.contains(QStringLiteral("indexOfFixedProvider(QLatin1String(kCustomProvider))")));
+
+        const QString client = readRepoFile(QStringLiteral("src/ai/AiClient.cpp"));
+        QVERIFY2(!client.isEmpty(), "src/ai/AiClient.cpp is not readable");
+        // The output limit goes through ONE helper on every Chat Completions
+        // builder: a literal "max_tokens" there is HTTP 400 on OpenAI's
+        // reasoning models, and an unclamped step is HTTP 400 on small models.
+        for (const QString &signature : {
+                 QStringLiteral("void AiClient::sendMessagesInternal("),
+                 QStringLiteral("void AiClient::sendStreamingMessages("),
+                 QStringLiteral("void AiClient::sendStreamingRequest(")}) {
+            const QString body = functionBody(client, signature);
+            QVERIFY2(body.contains(QStringLiteral("applyChatOutputLimit(body)")),
+                     qPrintable(signature + QStringLiteral(" sends no output limit")));
+            QVERIFY2(!body.contains(QStringLiteral("QStringLiteral(\"max_tokens\")")),
+                     qPrintable(signature + QStringLiteral(" writes max_tokens itself again")));
+        }
+        // Every transport entry point routes Claude to the Messages API.
+        for (const QString &signature : {
+                 QStringLiteral("void AiClient::sendMessagesInternal("),
+                 QStringLiteral("void AiClient::sendStreamingMessages("),
+                 QStringLiteral("void AiClient::sendStreamingRequest("),
+                 QStringLiteral("void AiClient::testConnection()")}) {
+            const QString body = functionBody(client, signature);
+            QVERIFY2(!body.isEmpty(), qPrintable(signature + QStringLiteral(" not found")));
+            QVERIFY2(body.contains(QStringLiteral("isAnthropicProvider")),
+                     qPrintable(signature + QStringLiteral(" no longer routes Claude")));
+        }
+    }
+
     void audioExportDoesNotNeedTheLiveSynthesizer()
     {
         const QString engine = readRepoFile(QStringLiteral("src/midi/FluidSynthEngine.cpp"));

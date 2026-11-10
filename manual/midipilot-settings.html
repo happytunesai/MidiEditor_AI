@@ -120,16 +120,16 @@ Configure your AI connection from <b>Settings &rarr; MidiPilot AI</b>. Select a 
 <table>
 <tr><th>Setting</th><th>Description</th></tr>
 <tr><td><b>Provider profile</b></td><td>Fills provider, base URL, API key and model from a <a href="#provider-profiles">saved endpoint</a>. <b>Save as&hellip;</b> stores the current four fields under a name - it is also how a profile is edited, since it offers the name of the profile on screen. <b>Delete</b> removes the selected profile and is available only while one is selected.</td></tr>
-<tr><td><b>Provider</b></td><td>OpenAI, OpenRouter, Google Gemini, Ollama (local), or Custom - and below a separator, every saved <a href="#provider-profiles">provider profile</a> as its own entry, whichever provider it was saved with. <b>Custom</b> is the unsaved, ad-hoc endpoint: picking it loads the custom base URL you last worked with (empty if there is none) rather than keeping the previous entry's URL and key.</td></tr>
+<tr><td><b>Provider</b></td><td>OpenAI, OpenRouter, Google Gemini, <a href="#claude">Anthropic Claude</a>, Ollama (local), or Custom - and below a separator, every saved <a href="#provider-profiles">provider profile</a> as its own entry, whichever provider it was saved with. <b>Custom</b> is the unsaved, ad-hoc endpoint: picking it loads the custom base URL you last worked with (empty if there is none) rather than keeping the previous entry's URL and key.</td></tr>
 <tr><td><b>Base URL</b></td><td>Filled in for you by the provider entry. <b>Ollama (local)</b> and <b>Custom</b> keep it editable so you can point at another host, port or OpenAI-compatible server.</td></tr>
-<tr><td><b>API Key</b></td><td>Your provider API key - get one from <a href="https://platform.openai.com/settings/organization/api-keys" target="_blank" rel="noopener noreferrer">OpenAI</a>, <a href="https://openrouter.ai/settings/keys" target="_blank" rel="noopener noreferrer">OpenRouter</a>, or <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Google Gemini</a>. Not needed for <a href="#ollama">Ollama (local)</a>, and not needed for a <b>Custom</b> base URL that points at this machine: the field then says so instead of showing the <code>sk-&hellip;</code> hint, and the connection counts as configured with the key left empty.</td></tr>
+<tr><td><b>API Key</b></td><td>Your provider API key - get one from <a href="https://platform.openai.com/settings/organization/api-keys" target="_blank" rel="noopener noreferrer">OpenAI</a>, <a href="https://openrouter.ai/settings/keys" target="_blank" rel="noopener noreferrer">OpenRouter</a>, <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Google Gemini</a>, or the <a href="https://platform.claude.com/settings/keys" target="_blank" rel="noopener noreferrer">Claude Console</a>. Not needed for <a href="#ollama">Ollama (local)</a>, and not needed for a <b>Custom</b> base URL that points at this machine: the field then says so instead of showing the <code>sk-&hellip;</code> hint, and the connection counts as configured with the key left empty.</td></tr>
 <tr><td><b>Model</b></td><td>Editable dropdown populated from the active provider's cached model list. If no cache exists, MidiPilot falls back to a small built-in starter list.</td></tr>
 <tr><td><b>Refresh Models</b></td><td>Fetches the live provider model list from <code>/models</code>, normalizes provider-specific fields, filters obvious non-chat models, and stores the result in <code>&lt;userdata&gt;/midipilot_models.json</code>.</td></tr>
 <tr><td><b>Manage favourites&hellip;</b></td><td>Pick the models that should stay visible per provider, and per <a href="#provider-profiles">custom provider profile</a>. If no favourites are selected, all cached chat-capable models are shown.</td></tr>
 <tr><td><b>Streaming OK</b> / <b>Force Streaming</b></td><td>The button below the model row. It reads <b>Streaming OK</b> and stays greyed out while nothing is blocked; once the selected provider/model has failed live streaming during this app session it becomes clickable and names the blocked path - <b>Force Streaming (Simple Mode blocked)</b>, <b>(Agent Mode blocked)</b> or <b>(Simple + Agent blocked)</b>. Clicking it clears the mark so the next request tries live streaming again.</td></tr>
-<tr><td><b>Token Limit</b></td><td>Optional cap on output tokens to control costs</td></tr>
-<tr><td><b>Thinking</b></td><td>Enable reasoning for o-series, GPT-5.x and GPT-6 models. These models take no temperature; with tools (Agent Mode) their requests go through OpenAI's Responses API automatically.</td></tr>
-<tr><td><b>Reasoning Effort</b></td><td>None / Low / Medium / High / Extra High / Max. <b>Max</b> is accepted by GPT-6 (Astra); every other model is sent Extra High instead. GPT-6 has no <b>None</b> level - it runs at Low when None is selected.</td></tr>
+<tr><td><b>Token Limit</b></td><td>The most tokens one answer may use - thinking counts toward it. <b>Automatic</b> lets the model use its full output capacity. The steps from 8,000 to 128,000 tokens cap the cost of a single answer. Next to the list the page shows what the selected model can write in one answer; a step above that is lowered to the model's maximum. Agent Mode with OpenAI's GPT-5 and GPT-6 models runs on Automatic.</td></tr>
+<tr><td><b>Thinking</b></td><td>Enable reasoning for o-series, GPT-5.x and GPT-6 models. These models take no temperature; with tools (Agent Mode) their requests go through OpenAI's Responses API automatically. For Claude, Thinking shows Claude's summarized reasoning live - see <a href="#claude">Claude (Anthropic)</a>.</td></tr>
+<tr><td><b>Reasoning Effort</b></td><td>None / Low / Medium / High / Extra High / Max. <b>Max</b> is accepted by GPT-6 (Astra) and by current Claude models; every other model is sent Extra High instead. GPT-6 has no <b>None</b> level - it runs at Low when None is selected, and so do the Claude models that always think.</td></tr>
 <tr><td><b>Live Streaming</b></td><td>Streams both Simple and Agent responses live (text, reasoning summaries, and tool-call arguments) when the provider supports it. Failed paths automatically fall back to non-streaming for the rest of the session.</td></tr>
 <tr><td><b>Prompt Profiles&hellip;</b></td><td>Open the <a href="#prompt-profiles">Prompt Profiles</a> dialog to attach custom system prompts to specific provider/model combinations.</td></tr>
 <tr><td><b>Context Range</b></td><td>Measures before/after cursor sent as musical context (0-50)</td></tr>
@@ -182,6 +182,7 @@ If a model fails live streaming but still works without streaming, MidiPilot ret
 <tr><td><b>OpenAI</b></td><td>api.openai.com/v1</td><td><a href="https://platform.openai.com/settings/organization/api-keys" target="_blank" rel="noopener noreferrer">Get API Key &rarr;</a></td><td>Limited</td></tr>
 <tr><td><b>OpenRouter</b></td><td>openrouter.ai/api/v1</td><td><a href="https://openrouter.ai/settings/keys" target="_blank" rel="noopener noreferrer">Get API Key &rarr;</a></td><td>Free models available</td></tr>
 <tr><td><b>Google Gemini</b></td><td>generativelanguage.googleapis.com/v1beta/openai</td><td><a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Get API Key &rarr;</a></td><td>15 RPM, 1M TPM</td></tr>
+<tr><td><b><a href="#claude">Anthropic Claude</a></b></td><td>api.anthropic.com/v1</td><td><a href="https://platform.claude.com/settings/keys" target="_blank" rel="noopener noreferrer">Get API Key &rarr;</a></td><td>Monthly API credits with a Claude Max or Team plan</td></tr>
 <tr><td><b>Ollama (local)</b></td><td>localhost:11434/v1</td><td>None - runs on your PC</td><td>Free &amp; unlimited</td></tr>
 <tr><td><b>Hugging Face</b> (via Custom)</td><td>router.huggingface.co/v1</td><td><a href="https://huggingface.co/settings/tokens" target="_blank" rel="noopener noreferrer">HF token</a> (Inference permission)</td><td>Free monthly credits</td></tr>
 <tr><td><b>Custom</b></td><td>User-specified</td><td>User-specified - none when the URL points at this machine</td><td>Varies</td></tr>
@@ -193,6 +194,34 @@ The base URLs above are what the provider entries fill in for you. <b>Ollama (lo
 OpenAI-compatible endpoint can be typed in. Each provider remembers its own API key, so switching
 back and forth between two cloud providers does not make you paste a key again.
 </p>
+
+<h3 id="claude">Claude (Anthropic)</h3>
+
+<p>
+<b>Anthropic Claude</b> talks to Claude through Anthropic's own Messages API, in Simple and in Agent
+Mode. Pick it as the provider, paste an API key from the
+<a href="https://platform.claude.com/settings/keys" target="_blank" rel="noopener noreferrer">Claude Console</a>
+and choose a model - <b>&#x1F504; Refresh</b> lists every Claude model the key can use. A Claude
+<b>Max</b> or <b>Team</b> plan includes monthly API credits: link a Console organization to the plan
+on claude.ai (<b>Settings &rarr; Billing</b>), and the keys of that organization use them
+(<a href="https://platform.claude.com/docs/en/about-claude/api-credits-for-subscribers" target="_blank" rel="noopener noreferrer">how the credits work</a>).
+</p>
+
+<ul>
+<li><b>Thinking and effort</b> - with <b>Thinking</b> on, MidiPilot shows Claude's summarized reasoning
+live and sends the selected <b>Reasoning Effort</b>. With Thinking off or effort <b>None</b>, the models
+that always think (Opus 5.5, Sonnet 5.5, Haiku 5.5, Fable) run at Low effort and the others do not
+think. A level a model does not have is sent as the next lower one.</li>
+<li><b>Prompt caching</b> - the tool list, the system prompt and the conversation so far are cached,
+so each step of an Agent run pays the full price only for what it adds. The token counter's prompt
+count includes the cached part.</li>
+<li><b>Live streaming</b> - text, reasoning summaries and tool-call arguments appear as Claude writes
+them.</li>
+<li><b>Declined requests</b> - when a safety check of Opus 5.5, Sonnet 5.5 or Fable declines a
+request, Anthropic answers it with another Claude model instead. A request no model answers is
+reported in the chat together with its category.</li>
+<li><b>Attachments</b> - images go to Claude as images, PDFs as documents.</li>
+</ul>
 
 <h3 id="provider-profiles">Provider profiles (saved endpoints)</h3>
 
@@ -453,7 +482,7 @@ Different MIDI files may need different AI settings. A 16-track orchestral arran
 <h3>What&rsquo;s Saved</h3>
 
 <ul>
-<li><b>Provider</b> - OpenAI, OpenRouter, Gemini, Ollama (local), or Custom</li>
+<li><b>Provider</b> - OpenAI, OpenRouter, Gemini, Claude, Ollama (local), or Custom</li>
 <li><b>Model</b> - e.g., gpt-5.4, gemini-2.5-flash</li>
 <li><b>Provider profile name</b> - the name of the active <a href="#provider-profiles">provider profile</a>, if one is in use. Only the name is stored, never a URL or an API key; a machine that has a profile of that name reconnects to the same endpoint, and every other machine uses the provider and model above.</li>
 <li><b>Mode</b> - Simple or Agent</li>
@@ -575,7 +604,7 @@ Different providers report token usage in different formats. MidiPilot normalize
 <ul>
 <li><b>OpenAI Chat Completions</b> - <code>prompt_tokens</code> / <code>completion_tokens</code> (native format)</li>
 <li><b>OpenAI Responses API</b> - <code>input_tokens</code> / <code>output_tokens</code> &rarr; normalized</li>
-<li><b>Anthropic</b> - <code>input_tokens</code> / <code>output_tokens</code> &rarr; normalized</li>
+<li><b>Anthropic</b> - <code>input_tokens</code> + <code>cache_read_input_tokens</code> + <code>cache_creation_input_tokens</code> / <code>output_tokens</code> &rarr; normalized (the prompt count is the sum - <code>input_tokens</code> alone is only the uncached part)</li>
 <li><b>Google Gemini</b> - <code>usageMetadata.promptTokenCount</code> / <code>candidatesTokenCount</code> &rarr; normalized</li>
 <li><b>Estimation fallback</b> - When a provider returns no usage data, MidiPilot estimates ~4 characters per token</li>
 </ul>

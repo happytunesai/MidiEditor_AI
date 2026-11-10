@@ -12,6 +12,8 @@
 #include <QHash>
 #include <QSet>
 
+#include "AnthropicMessages.h"
+
 /**
  * \class AiClient
  *
@@ -142,7 +144,8 @@ public:
 
     /**
      * \brief Checks whether the current model is a reasoning-native model.
-     * \return true for o-series and GPT-5.x models
+     * \return true for o-series and GPT-5.x/6.x models, and for Claude models
+     *         that take an effort level
      */
     bool isReasoningModel() const;
     bool isGeminiThinkingModel() const;
@@ -281,6 +284,61 @@ public:
         static void geminiContentsFromMessages(const QJsonArray &messages,
                                                QJsonArray &outContents,
                                                QJsonObject &outSystemInstruction);
+
+        /**
+        * \brief True for the Anthropic (Claude) provider, which speaks the
+        *        native Messages API (AnthropicMessages) instead of Chat
+        *        Completions in every mode.
+        *
+        *        Defined INLINE for the same reason as
+        *        errorIndicatesUnparsableToolCall(): AgentRunner needs it (Claude
+        *        wants an append-only history) and its unit test does not link
+        *        AiClient.cpp.
+        */
+        static bool isAnthropicProvider(const QString &provider)
+        {
+            return provider.trimmed().compare(QLatin1String("anthropic"),
+                                              Qt::CaseInsensitive) == 0;
+        }
+
+        /**
+        * \brief The most output tokens \a model can write in one answer, or 0
+        *        when unknown: the refreshed model list when it states one
+        *        (Anthropic, Gemini, OpenRouter), else \ref
+        *        outputTokenCeilingFromId.
+        */
+        static int outputTokenCeilingForModel(const QString &model);
+
+        /**
+        * \brief The same limit from the model id alone (Claude by family and
+        *        version, gpt-5 and gpt-6 128000, gpt-4.1 32768, gpt-4o 16384,
+        *        Gemini 2.5 and 3.x 65536); 0 for an id it does not know.
+        */
+        static int outputTokenCeilingFromId(const QString &model);
+
+        /**
+        * \brief The output-token limit a request carries for the "Output
+        *        limit" setting: 0 (send none) while the setting is on
+        *        Automatic, else the chosen limit, lowered to \a ceiling when
+        *        the model's limit is known - a value above it is an HTTP 400.
+        */
+        static int outputLimitToSend(bool enabled, int limit, int ceiling);
+
+        /**
+        * \brief The Chat Completions field that carries the limit. Native
+        *        OpenAI takes `max_completion_tokens` (its reasoning models
+        *        reject `max_tokens` with HTTP 400); every other provider the
+        *        classic `max_tokens`.
+        */
+        static QString outputLimitField(const QString &provider);
+
+        /**
+        * \brief The error text for a Claude answer that hit the output token
+        *        limit. Simple mode gets a text MidiPilot does not replay
+        *        (the same request would hit the limit again); Agent mode
+        *        the "truncated" text AgentRunner answers with a hint.
+        */
+        static QString anthropicTokenLimitMessage(bool simpleMode);
 
         /**
         * \brief True for the OpenAI model families that reject sampling
@@ -513,6 +571,26 @@ private:
     void sendStreamingMessagesGemini(const QJsonArray &messages,
                                      const QJsonArray &tools);
 
+    /**
+     * \brief Streams one request against Claude's `/v1/messages` (SSE).
+     *        Used for both modes: \a simpleMode ends in streamFinished, the
+     *        Agent mode in responseReceived with a synthetic Chat-Completions
+     *        response (AnthropicMessages::StreamAccumulator). The caller has
+     *        checked the configuration and armed the streaming-fallback
+     *        retry for its mode.
+     */
+    void sendStreamingMessagesAnthropic(const QJsonArray &messages,
+                                        const QJsonArray &tools,
+                                        bool simpleMode);
+    /// The "Output limit" setting for the current model (0: Automatic).
+    int outputLimitToSend() const;
+    /// Adds the limit to a Chat Completions body when one is set.
+    void applyChatOutputLimit(QJsonObject &body) const;
+    /// Model, thinking, effort and token limit of the next Claude request.
+    AnthropicMessages::RequestOptions anthropicRequestOptions(bool stream) const;
+    /// x-api-key, anthropic-version and (when the body needs one) anthropic-beta.
+    void applyAnthropicHeaders(QNetworkRequest &request, const QJsonObject &body) const;
+
 public:
 
 signals:
@@ -609,6 +687,12 @@ private slots:
      *        and accumulate function-call arguments.
      */
     void onResponsesStreamDataAvailable();
+    /**
+     * \brief SSE parser for Claude's `/v1/messages` stream: feeds every
+     *        event to the StreamAccumulator and forwards its text, thinking
+     *        and tool-call deltas live.
+     */
+    void onAnthropicStreamDataAvailable();
 
 private:
     QNetworkAccessManager *_manager;
@@ -624,6 +708,13 @@ private:
     QString _provider;
     bool _isTestRequest;
     bool _useResponsesApi;
+    // The non-streamed request in flight went to Claude's /v1/messages, so
+    // onReplyFinished translates the answer (AnthropicMessages::fromMessage).
+    bool _useAnthropicApi = false;
+    // Claude streaming: which signal ends the stream, and the message being
+    // rebuilt from its events.
+    bool _anthropicSimpleMode = false;
+    AnthropicMessages::StreamAccumulator _anthropicStream;
     bool _thinkingEnabled;
     QString _reasoningEffort;
     bool _maxTokensEnabled;

@@ -415,6 +415,17 @@ QJsonArray AgentRunner::messagesForNextRequest(const QJsonArray &messages,
     return requestMessages;
 }
 
+QJsonArray AgentRunner::withAppendedStateLayer(const QJsonArray &messages,
+                                               const AgentWorkingState &state)
+{
+    QJsonArray result = messages;
+    QJsonObject stateMessage;
+    stateMessage[QStringLiteral("role")] = firstDeveloperRole(messages);
+    stateMessage[QStringLiteral("content")] = stateLayerContent(state);
+    result.append(stateMessage);
+    return result;
+}
+
 AgentRunner::AgentRunner(AiClient *client, QObject *parent)
     : QObject(parent),
       _client(client),
@@ -604,7 +615,11 @@ void AgentRunner::applyFfxivModeChange(bool enabled)
     // when the mode is switched back off instead of leaving stale rules in the
     // conversation.
     if (_ffxivOverlayIndex >= 0 && _ffxivOverlayIndex < _messages.size()) {
-        _messages.removeAt(_ffxivOverlayIndex);
+        // Claude: the earlier overlay stays where it is - removing a message
+        // from the middle would unbind every later thinking block (see
+        // withAppendedStateLayer). The new overlay below supersedes it.
+        if (!AiClient::isAnthropicProvider(_client->provider()))
+            _messages.removeAt(_ffxivOverlayIndex);
         _ffxivOverlayIndex = -1;
     }
 
@@ -687,7 +702,17 @@ void AgentRunner::sendNextRequest()
         return;
     }
 
-    const QJsonArray requestMessages = messagesForNextRequest();
+    QJsonArray requestMessages;
+    if (AiClient::isAnthropicProvider(_client->provider())) {
+        // Claude: the state goes at the end and stays in the history
+        // (withAppendedStateLayer explains why).
+        _messages = withAppendedStateLayer(_messages, _workingState);
+        requestMessages = _messages;
+    } else {
+        // The provider can change mid-run (Settings confirmed while the agent
+        // works): Claude's own blocks never go to another provider's API.
+        requestMessages = AnthropicMessages::withoutReplayContent(messagesForNextRequest());
+    }
     logAgentState(_currentStep, _workingState);
 
     // Phase 31 — apply per-request policy overrides (always called so that
@@ -752,6 +777,12 @@ void AgentRunner::onApiResponse(const QString &content, const QJsonObject &fullR
         cleanMsg["role"] = message["role"];
         cleanMsg["content"] = message["content"];
         cleanMsg["tool_calls"] = message["tool_calls"];
+        // Claude's own blocks (thinking with its signature) must go back
+        // unchanged with the tool results. Only the Claude transport reads
+        // the field; sendNextRequest() leaves it out for every other provider.
+        const QString replayKey = AnthropicMessages::replayContentKey();
+        if (message.contains(replayKey))
+            cleanMsg[replayKey] = message[replayKey];
         _messages.append(cleanMsg);
 
         processToolCalls(message);
@@ -794,7 +825,9 @@ void AgentRunner::onApiError(const QString &error)
         // assistant sees concrete feedback in its context. We keep it
         // short to avoid bloating prompt tokens.
         QString hint = hintForRetry(kind, error);
-        if (!hint.isEmpty())
+        // Claude gets the state appended by sendNextRequest() and keeps it -
+        // repeating it inside the hint would store it twice.
+        if (!hint.isEmpty() && !AiClient::isAnthropicProvider(_client->provider()))
             hint += QStringLiteral("\n\n") + stateLayerContent(_workingState);
         if (!hint.isEmpty()) {
             QJsonObject hintMsg;

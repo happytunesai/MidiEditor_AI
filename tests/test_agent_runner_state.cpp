@@ -42,6 +42,7 @@ void AiClient::onReplyFinished(QNetworkReply *) {}
 void AiClient::onStreamDataAvailable() {}
 void AiClient::onGeminiStreamDataAvailable() {}
 void AiClient::onResponsesStreamDataAvailable() {}
+void AiClient::onAnthropicStreamDataAvailable() {}
 QString AiClient::model() const { return QString(); }
 QString AiClient::provider() const { return QString(); }
 void AiClient::setNextRequestPolicyOverride(bool, const QString &) {}
@@ -193,6 +194,42 @@ private slots:
                  QStringLiteral("developer"));
         QVERIFY(requestMessages.at(1).toObject().value(QStringLiteral("content")).toString()
                     .contains(QStringLiteral("Current Agent State")));
+    }
+
+    void claudeStateLayer_isAppendedAndKept()
+    {
+        // Claude binds each thinking block to the exact conversation before
+        // it: the state must go at the END and stay there, so every request
+        // only extends the previous one (never an insert at index 1 that is
+        // rebuilt each step).
+        AgentRunner::AgentWorkingState state = AgentRunner::initialWorkingState(
+            QStringLiteral("Compose a lofi loop"));
+
+        QJsonArray messages;
+        messages.append(QJsonObject{{QStringLiteral("role"), QStringLiteral("developer")},
+                                    {QStringLiteral("content"), QStringLiteral("System prompt")}});
+        messages.append(QJsonObject{{QStringLiteral("role"), QStringLiteral("user")},
+                                    {QStringLiteral("content"), QStringLiteral("Compose a lofi loop")}});
+
+        const QJsonArray first = AgentRunner::withAppendedStateLayer(messages, state);
+        QCOMPARE(first.size(), 3);
+        QCOMPARE(first.at(0), messages.at(0));
+        QCOMPARE(first.at(1), messages.at(1));
+        QCOMPARE(first.at(2).toObject().value(QStringLiteral("role")).toString(),
+                 QStringLiteral("developer"));
+        QVERIFY(first.at(2).toObject().value(QStringLiteral("content")).toString()
+                    .contains(QStringLiteral("Current Agent State")));
+
+        AgentRunner::updateWorkingStateFromToolResult(
+            state, QStringLiteral("set_tempo"),
+            QJsonObject{{QStringLiteral("bpm"), 82}, {QStringLiteral("tick"), 0}},
+            QJsonObject{{QStringLiteral("success"), true}});
+        const QJsonArray second = AgentRunner::withAppendedStateLayer(first, state);
+        QCOMPARE(second.size(), 4);
+        for (int i = 0; i < first.size(); ++i)
+            QCOMPARE(second.at(i), first.at(i)); // the earlier state stays as it was
+        QVERIFY(second.at(3).toObject().value(QStringLiteral("content")).toString()
+                    .contains(QStringLiteral("Tempo set to 82 BPM")));
     }
 
     void repeatedDuplicateWriteRejectionIncrementsFailureCount()

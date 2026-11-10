@@ -10,6 +10,7 @@
 #include <QScopedValueRollback>
 #include <QLabel>
 #include <QLineEdit>
+#include <QLocale>
 #include <QComboBox>
 #include <QPushButton>
 #include <QStyle>
@@ -34,9 +35,8 @@ namespace {
 // the stored-profile entries (which carry "custom"). The profile name lives
 // here instead, so it can never leak into AI/provider or into a request.
 constexpr int kProviderProfileRole = Qt::UserRole + 1;
-// The five fixed entries at the top of the provider combo; everything after
-// them is the separator plus the stored profiles.
-constexpr int kFixedProviderCount = 5;
+// The LAST fixed entry of the provider combo; everything after it is the
+// separator plus the stored profiles.
 constexpr const char *kCustomProvider = "custom";
 } // namespace
 
@@ -106,6 +106,7 @@ AiSettingsWidget::AiSettingsWidget(QSettings *settings, QWidget *parent)
     _providerCombo->addItem("OpenAI", "openai");
     _providerCombo->addItem("OpenRouter", "openrouter");
     _providerCombo->addItem("Google Gemini", "gemini");
+    _providerCombo->addItem("Anthropic Claude", "anthropic");
     _providerCombo->addItem("Ollama (local)", "ollama");
     _providerCombo->addItem("Custom", "custom");
     _providerCombo->setToolTip(
@@ -240,23 +241,36 @@ AiSettingsWidget::AiSettingsWidget(QSettings *settings, QWidget *parent)
     layout->addWidget(_modelsStatusLabel, row, 1, 1, 2);
     row++;
 
-    // Output token limit
+    // Output token limit: Automatic or a step. Stored as before in
+    // AI/max_token_enabled + AI/max_token_limit, so a limit set with the old
+    // free number field is kept and shown as its own entry.
     layout->addWidget(new QLabel("Token Limit:"), row, 0);
-    _tokenLimitCheck = new QCheckBox("Limit output tokens", this);
-    _tokenLimitCheck->setChecked(_settings->value("AI/max_token_enabled", false).toBool());
-    _tokenLimitCheck->setToolTip("When enabled, limits the maximum number of output tokens per API request.\n"
-                                  "By default, models use their full output capacity.\n"
-                                  "Enable this if you want to control costs or if your provider\n"
-                                  "charges based on max_tokens rather than actual usage.");
-    layout->addWidget(_tokenLimitCheck, row, 1);
-    _tokenLimitSpin = new QSpinBox(this);
-    _tokenLimitSpin->setRange(1024, 131072);
-    _tokenLimitSpin->setSingleStep(1024);
-    _tokenLimitSpin->setValue(_settings->value("AI/max_token_limit", 16384).toInt());
-    _tokenLimitSpin->setSuffix(" tokens");
-    _tokenLimitSpin->setEnabled(_tokenLimitCheck->isChecked());
-    connect(_tokenLimitCheck, &QCheckBox::toggled, _tokenLimitSpin, &QSpinBox::setEnabled);
-    layout->addWidget(_tokenLimitSpin, row, 2);
+    _tokenLimitCombo = new QComboBox(this);
+    _tokenLimitCombo->addItem(tr("Automatic (the model's maximum)"), 0);
+    const QLocale grouped(QLocale::English);
+    for (int step : {8000, 16000, 32000, 64000, 128000})
+        _tokenLimitCombo->addItem(tr("%1 tokens").arg(grouped.toString(step)), step);
+    {
+        const int stored = _settings->value("AI/max_token_limit", 16384).toInt();
+        if (_settings->value("AI/max_token_enabled", false).toBool() && stored > 0) {
+            int idx = _tokenLimitCombo->findData(stored);
+            if (idx < 0) {
+                _tokenLimitCombo->addItem(tr("%1 tokens").arg(grouped.toString(stored)), stored);
+                idx = _tokenLimitCombo->count() - 1;
+            }
+            _tokenLimitCombo->setCurrentIndex(idx);
+        }
+    }
+    _tokenLimitCombo->setToolTip(tr(
+        "The most tokens one answer may use - thinking counts toward it.\n"
+        "Automatic lets the model use its full output capacity (recommended).\n"
+        "A step caps the cost of a single answer; a step above what the selected\n"
+        "model can write is lowered to the model's maximum.\n"
+        "Agent mode with OpenAI GPT-5 and GPT-6 models always runs on Automatic."));
+    layout->addWidget(_tokenLimitCombo, row, 1);
+    _tokenLimitHint = new QLabel(this);
+    _tokenLimitHint->setStyleSheet("color: gray; font-size: 11px;");
+    layout->addWidget(_tokenLimitHint, row, 2);
     row++;
 
     // Connect provider changes (after _modelCombo is created)
@@ -297,6 +311,11 @@ AiSettingsWidget::AiSettingsWidget(QSettings *settings, QWidget *parent)
             this, &AiSettingsWidget::updateProviderProfileSelection);
     connect(_modelCombo, &QComboBox::currentTextChanged,
             this, &AiSettingsWidget::updateProviderProfileSelection);
+    connect(_modelCombo, &QComboBox::currentTextChanged,
+            this, &AiSettingsWidget::updateTokenLimitHint);
+    connect(_tokenLimitCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &AiSettingsWidget::updateTokenLimitHint);
+    updateTokenLimitHint();
     // The page is opening, so there is no local selection state yet - this is
     // one of the moments where it may be derived at all, and it is derived from
     // the VALIDATED global hint alone. Never by scanning the stored profiles
@@ -325,10 +344,11 @@ AiSettingsWidget::AiSettingsWidget(QSettings *settings, QWidget *parent)
     _effortCombo->addItem("Medium (balanced)", "medium");
     _effortCombo->addItem("High (thorough, slower)", "high");
     _effortCombo->addItem("Extra High (most thorough)", "xhigh");
-    // "max" is a gpt-6 (Astra) level; every other model is sent Extra High
-    // instead (AiClient::reasoningEffortForModel), so the choice is safe to
-    // keep when switching models.
-    _effortCombo->addItem("Max (GPT-6 Astra; other models use Extra High)", "max");
+    // "max" is a gpt-6 (Astra) and Claude level; every other model is sent
+    // Extra High instead (AiClient::reasoningEffortForModel,
+    // AnthropicMessages::effortFor), so the choice is safe to keep when
+    // switching models.
+    _effortCombo->addItem("Max (GPT-6 Astra, Claude; other models use Extra High)", "max");
     QString currentEffort = _settings->value("AI/reasoning_effort", "medium").toString();
     int effortIdx = _effortCombo->findData(currentEffort);
     if (effortIdx >= 0) _effortCombo->setCurrentIndex(effortIdx);
@@ -654,8 +674,11 @@ bool AiSettingsWidget::accept() {
     _settings->setValue("AI/agent_max_steps", _agentMaxStepsSpin->value());
     _settings->setValue("AI/existing_file_save", _existingFileSaveCombo->currentData().toString());
     _settings->setValue("AI/ffxiv_mode", _ffxivCheck->isChecked());
-    _settings->setValue("AI/max_token_enabled", _tokenLimitCheck->isChecked());
-    _settings->setValue("AI/max_token_limit", _tokenLimitSpin->value());
+    // Automatic keeps the last chosen step in AI/max_token_limit.
+    const int tokenLimit = _tokenLimitCombo->currentData().toInt();
+    _settings->setValue("AI/max_token_enabled", tokenLimit > 0);
+    if (tokenLimit > 0)
+        _settings->setValue("AI/max_token_limit", tokenLimit);
     _settings->setValue("MCP/enabled", _mcpEnableCheck->isChecked());
     _settings->setValue("MCP/port", _mcpPortSpin->value());
     _settings->setValue("MCP/auth_token", _mcpTokenEdit->text().trimmed());
@@ -824,6 +847,7 @@ void AiSettingsWidget::applyProviderSwitch(const QString &provider,
         {"openai",     "https://api.openai.com/v1"},
         {"openrouter", "https://openrouter.ai/api/v1"},
         {"gemini",     "https://generativelanguage.googleapis.com/v1beta/openai"},
+        {"anthropic",  "https://api.anthropic.com/v1"},
         {"ollama",     "http://localhost:11434/v1"},
     };
 
@@ -860,7 +884,8 @@ void AiSettingsWidget::applyProviderSwitch(const QString &provider,
         // still holds a cloud default, so a user-set local URL is preserved.
         const QString cur = _baseUrlEdit->text().trimmed();
         if (cur.isEmpty() || defaultUrls.value("openai") == cur ||
-            defaultUrls.value("openrouter") == cur || defaultUrls.value("gemini") == cur)
+            defaultUrls.value("openrouter") == cur || defaultUrls.value("gemini") == cur ||
+            defaultUrls.value("anthropic") == cur)
             _baseUrlEdit->setText(defaultUrls.value("ollama"));
         _baseUrlEdit->setReadOnly(false);
     } else {
@@ -984,6 +1009,11 @@ void AiSettingsWidget::populateModelsForProvider(const QString &provider) {
         addModel("gemini-3-flash", "gemini-3-flash-preview");
         addModel("gemini-3.1-flash-lite", "gemini-3.1-flash-lite-preview");
         addModel("gemini-3.1-pro", "gemini-3.1-pro-preview");
+    } else if (provider == "anthropic") {
+        addModel("Claude Opus 5.5", "claude-opus-5-5");
+        addModel("Claude Sonnet 5.5", "claude-sonnet-5-5");
+        addModel("Claude Haiku 5.5", "claude-haiku-5-5");
+        addModel("Claude Fable 5.2", "claude-fable-5-2");
     } else {
         // Custom provider — no presets, user types the model
         addModel("(enter model name)", "");
@@ -1016,6 +1046,21 @@ void AiSettingsWidget::updateStreamingBlockStatus()
         _forceStreamingButton->setText(tr("Force Streaming (Agent Mode blocked)"));
         _forceStreamingButton->setToolTip(tr("Streaming was disabled for Agent Mode this session. Simple Mode still streams."));
     }
+}
+
+void AiSettingsWidget::updateTokenLimitHint()
+{
+    if (!_tokenLimitHint || !_tokenLimitCombo || !_modelCombo)
+        return;
+    const int ceiling = AiClient::outputTokenCeilingForModel(currentModelId());
+    if (ceiling <= 0) {
+        _tokenLimitHint->clear();
+        return;
+    }
+    const QString max = QLocale(QLocale::English).toString(ceiling);
+    _tokenLimitHint->setText(_tokenLimitCombo->currentData().toInt() > ceiling
+                                 ? tr("This model: up to %1 - used instead").arg(max)
+                                 : tr("This model: up to %1").arg(max));
 }
 
 void AiSettingsWidget::onForceStreamingForCurrentModel()
@@ -1275,7 +1320,10 @@ void AiSettingsWidget::populateProviderComboProfiles()
     const QString keepProfile = _selectedProviderProfile;
 
     const bool blocked = _providerCombo->blockSignals(true);
-    while (_providerCombo->count() > kFixedProviderCount)
+    // Found by entry, not by a count of the fixed providers: a count that was
+    // not raised with a new provider cut "Custom" off the list.
+    const int lastFixed = indexOfFixedProvider(QLatin1String(kCustomProvider));
+    while (lastFixed >= 0 && _providerCombo->count() > lastFixed + 1)
         _providerCombo->removeItem(_providerCombo->count() - 1);
 
     bool separatorAdded = false;

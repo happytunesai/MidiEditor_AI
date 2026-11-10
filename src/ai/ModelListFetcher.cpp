@@ -85,6 +85,15 @@ void ModelListFetcher::fetch(const QString &provider,
         QUrlQuery q;
         q.addQueryItem(QStringLiteral("key"), apiKey);
         url.setQuery(q);
+    } else if (provider == QStringLiteral("anthropic")) {
+        // The list is paged (20 per page by default); one page of the
+        // maximum size holds every model.
+        url = QUrl(QStringLiteral("https://api.anthropic.com/v1/models"));
+        QUrlQuery q;
+        q.addQueryItem(QStringLiteral("limit"), QStringLiteral("1000"));
+        url.setQuery(q);
+        req.setRawHeader("x-api-key", apiKey.toUtf8());
+        req.setRawHeader("anthropic-version", "2026-10-21");
     } else if (provider == QStringLiteral("ollama")) {
         // Phase 26.2c: use Ollama's native /api/tags (NOT the OpenAI-compat
         // /v1/models, which returns only {id}). /api/tags lists the user's
@@ -173,6 +182,8 @@ void ModelListFetcher::onReplyFinished()
         normalised = normaliseOpenRouter(rawArr);
     else if (_provider == QStringLiteral("gemini"))
         normalised = normaliseGemini(rawArr);
+    else if (_provider == QStringLiteral("anthropic"))
+        normalised = normaliseAnthropic(rawArr);
     else if (_provider == QStringLiteral("ollama"))
         normalised = normaliseOllama(rawArr);
     else
@@ -247,6 +258,9 @@ QJsonArray ModelListFetcher::normaliseOpenRouter(const QJsonArray &raw) const
         n.insert(QStringLiteral("id"), id);
         n.insert(QStringLiteral("displayName"), name.isEmpty() ? id : name);
         n.insert(QStringLiteral("contextWindow"), cw);
+        n.insert(QStringLiteral("maxOutputTokens"),
+                 m.value(QStringLiteral("top_provider")).toObject()
+                     .value(QStringLiteral("max_completion_tokens")).toInt(0));
         n.insert(QStringLiteral("supportsTools"),
                  m.value(QStringLiteral("supported_parameters"))
                      .toArray().contains(QJsonValue(QStringLiteral("tools"))));
@@ -287,11 +301,46 @@ QJsonArray ModelListFetcher::normaliseGemini(const QJsonArray &raw) const
         n.insert(QStringLiteral("id"), id);
         n.insert(QStringLiteral("displayName"), display.isEmpty() ? id : display);
         n.insert(QStringLiteral("contextWindow"), cw);
+        n.insert(QStringLiteral("maxOutputTokens"),
+                 m.value(QStringLiteral("outputTokenLimit")).toInt(0));
         n.insert(QStringLiteral("supportsTools"), true);
         n.insert(QStringLiteral("supportsReasoning"),
                  id.contains(QStringLiteral("thinking"), Qt::CaseInsensitive)
                      || id.startsWith(QStringLiteral("gemini-2.5"))
                      || id.startsWith(QStringLiteral("gemini-3")));
+        out.append(n);
+    }
+    return out;
+}
+
+QJsonArray ModelListFetcher::normaliseAnthropic(const QJsonArray &raw)
+{
+    QJsonArray out;
+    for (const QJsonValue &v : raw) {
+        const QJsonObject m = v.toObject();
+        const QString id = m.value(QStringLiteral("id")).toString();
+        if (!id.startsWith(QStringLiteral("claude-")))
+            continue;
+        const QString display = m.value(QStringLiteral("display_name")).toString();
+        // max_input_tokens is the context window (since March 2026).
+        int cw = m.value(QStringLiteral("max_input_tokens")).toInt(0);
+        if (cw <= 0)
+            cw = contextWindowFromId(id);
+
+        QJsonObject n;
+        n.insert(QStringLiteral("id"), id);
+        n.insert(QStringLiteral("displayName"), display.isEmpty() ? id : display);
+        n.insert(QStringLiteral("contextWindow"), cw);
+        // max_tokens is the model's output limit.
+        n.insert(QStringLiteral("maxOutputTokens"), m.value(QStringLiteral("max_tokens")).toInt(0));
+        n.insert(QStringLiteral("supportsTools"), true);
+        // Thinking (adaptive or with a budget) from the 3.7 generation on;
+        // the model ids of 3.5 and older start with "claude-3-".
+        n.insert(QStringLiteral("supportsReasoning"),
+                 !id.startsWith(QStringLiteral("claude-3-5"))
+                     && !id.startsWith(QStringLiteral("claude-3-haiku"))
+                     && !id.startsWith(QStringLiteral("claude-3-opus"))
+                     && !id.startsWith(QStringLiteral("claude-3-sonnet")));
         out.append(n);
     }
     return out;
@@ -389,8 +438,12 @@ int ModelListFetcher::contextWindowFromId(const QString &id)
     if (m.contains(QStringLiteral("o4-mini")))   return 200000;
     if (m.contains(QStringLiteral("o3")))        return 200000;
     if (m.contains(QStringLiteral("o1")))        return 200000;
-    if (m.contains(QStringLiteral("claude-4")))  return 200000;
-    if (m.contains(QStringLiteral("claude-3")))  return 200000;
+    // Claude: 1M tokens from the 4.6 generation on (and every Fable/Mythos),
+    // 200K before. Ids are claude-<family>-<major>-<minor>.
+    static const QRegularExpression claudeLong(QStringLiteral(
+        "claude-(fable|mythos)|claude-(opus|sonnet|haiku)-([5-9]|4-[6-9])"));
+    if (claudeLong.match(m).hasMatch())          return 1000000;
+    if (m.contains(QStringLiteral("claude-")))   return 200000;
     if (m.contains(QStringLiteral("gemini-3")))  return 1000000;
     if (m.contains(QStringLiteral("gemini-2")))  return 1000000;
     if (m.contains(QStringLiteral("gemini-1.5"))) return 1000000;

@@ -38,6 +38,7 @@ ModelFavoritesDialog::ModelFavoritesDialog(QWidget *parent)
     buildTab(QStringLiteral("openai"),     tr("OpenAI"),     QString(), QString());
     buildTab(QStringLiteral("openrouter"), tr("OpenRouter"), QString(), QString());
     buildTab(QStringLiteral("gemini"),     tr("Gemini"),     QString(), QString());
+    buildTab(QStringLiteral("anthropic"),  tr("Claude"),     QString(), QString());
     buildTab(QStringLiteral("ollama"),     tr("Ollama"),     QString(), QString());
     buildTab(QStringLiteral("custom"),     tr("Custom"),     QString(),
              tr("The Custom provider configured by hand, without a provider profile."));
