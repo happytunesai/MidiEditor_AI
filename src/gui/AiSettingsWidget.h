@@ -58,6 +58,9 @@ private:
     void populateModelsForProvider(const QString &provider);
     void updateModelsStatusLabel(const QString &provider);
     void updateStreamingBlockStatus();
+    /** Shows the selected model's output limit next to the token-limit steps,
+     *  and says so when the chosen step is above it. */
+    void updateTokenLimitHint();
 
     /** Model id of the current selection (item data, falling back to the
      *  typed text) - the value \ref accept writes to AI/model. */
@@ -216,8 +219,8 @@ private:
     QPushButton *_refreshModelsButton;
     QPushButton *_forceStreamingButton = nullptr;
     QLabel *_modelsStatusLabel;
-    QCheckBox *_tokenLimitCheck;
-    QSpinBox *_tokenLimitSpin;
+    QComboBox *_tokenLimitCombo;   ///< Automatic (data 0) or a step in tokens
+    QLabel *_tokenLimitHint;       ///< what the selected model can write
     QCheckBox *_thinkingCheck;
     QComboBox *_effortCombo;
     QLabel *_effortLabel;

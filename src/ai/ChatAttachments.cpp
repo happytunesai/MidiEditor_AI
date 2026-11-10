@@ -341,6 +341,58 @@ QJsonArray toGeminiParts(const QJsonValue &content) {
     return parts;
 }
 
+QJsonArray toAnthropicContent(const QJsonValue &content) {
+    QJsonArray blocks;
+    auto addText = [&blocks](const QString &s) {
+        // The API rejects a text block without visible text.
+        if (!s.trimmed().isEmpty())
+            blocks.append(QJsonObject{{QStringLiteral("type"), QStringLiteral("text")},
+                                      {QStringLiteral("text"), s}});
+    };
+    if (!content.isArray()) {
+        addText(content.toString());
+        return blocks;
+    }
+    for (const QJsonValue &v : content.toArray()) {
+        const QJsonObject part = v.toObject();
+        const QString type = part.value(QStringLiteral("type")).toString();
+        QString url;
+        QString title;
+        if (type == QLatin1String("text")) {
+            addText(part.value(QStringLiteral("text")).toString());
+            continue;
+        } else if (type == QLatin1String("image_url")) {
+            url = part.value(QStringLiteral("image_url")).toObject()
+                      .value(QStringLiteral("url")).toString();
+        } else if (type == QLatin1String("file")) {
+            const QJsonObject file = part.value(QStringLiteral("file")).toObject();
+            url = file.value(QStringLiteral("file_data")).toString();
+            title = file.value(QStringLiteral("filename")).toString();
+        } else {
+            continue;
+        }
+        const int comma = url.indexOf(QLatin1Char(','));
+        if (!url.startsWith(QLatin1String("data:")) || comma < 0
+            || !url.left(comma).endsWith(QLatin1String(";base64")))
+            continue;
+        const QString mime = url.mid(5, comma - 5 - 7);
+        const QJsonObject source{{QStringLiteral("type"), QStringLiteral("base64")},
+                                 {QStringLiteral("media_type"), mime},
+                                 {QStringLiteral("data"), url.mid(comma + 1)}};
+        // Images go as images; every other file as a document - a type the
+        // API cannot read comes back as its own error (attaching is never
+        // gated by model).
+        QJsonObject block{{QStringLiteral("type"), mime.startsWith(QLatin1String("image/"))
+                                                       ? QStringLiteral("image")
+                                                       : QStringLiteral("document")},
+                          {QStringLiteral("source"), source}};
+        if (!title.isEmpty() && !mime.startsWith(QLatin1String("image/")))
+            block[QStringLiteral("title")] = title;
+        blocks.append(block);
+    }
+    return blocks;
+}
+
 QString primaryText(const QJsonValue &content) {
     if (!content.isArray())
         return content.toString();

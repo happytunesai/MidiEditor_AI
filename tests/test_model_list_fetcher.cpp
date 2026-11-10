@@ -81,6 +81,32 @@ private slots:
         QCOMPARE(ModelListFetcher::contextWindowFromId(QStringLiteral("gpt-5.6-sol")), 1000000);
     }
 
+    // v2.5.4: Anthropic's /v1/models - display name, context window from
+    // max_input_tokens, id fallback, non-Claude entries dropped.
+    void anthropic_displayNameAndContextWindow() {
+        QJsonArray raw{QJsonObject{{"id", "claude-opus-5-5"},
+                                   {"display_name", "Claude Opus 5.5"},
+                                   {"max_input_tokens", 1000000},
+                                   {"max_tokens", 128000}},
+                       QJsonObject{{"id", "claude-haiku-4-5"}},
+                       QJsonObject{{"id", "not-a-claude-model"}}};
+        QJsonArray out = ModelListFetcher::normaliseAnthropic(raw);
+        QCOMPARE(out.size(), 2);
+        QJsonObject opus = byId(out, QStringLiteral("claude-opus-5-5"));
+        QCOMPARE(opus.value("displayName").toString(), QStringLiteral("Claude Opus 5.5"));
+        QCOMPARE(opus.value("contextWindow").toInt(), 1000000);
+        QCOMPARE(opus.value("maxOutputTokens").toInt(), 128000); // the output limit
+        QCOMPARE(opus.value("supportsTools").toBool(), true);
+        QCOMPARE(opus.value("supportsReasoning").toBool(), true);
+        QJsonObject haiku = byId(out, QStringLiteral("claude-haiku-4-5"));
+        QCOMPARE(haiku.value("displayName").toString(), QStringLiteral("claude-haiku-4-5"));
+        QCOMPARE(haiku.value("contextWindow").toInt(), 200000);
+        QCOMPARE(haiku.value("maxOutputTokens").toInt(), 0); // not stated: unknown
+        QCOMPARE(ModelListFetcher::contextWindowFromId(QStringLiteral("claude-sonnet-4-6")), 1000000);
+        QCOMPARE(ModelListFetcher::contextWindowFromId(QStringLiteral("claude-sonnet-4-20250514")), 200000);
+        QCOMPARE(ModelListFetcher::contextWindowFromId(QStringLiteral("claude-fable-5-1")), 1000000);
+    }
+
     // capabilities present: tools + thinking -> flags set; completion kept.
     void capabilities_toolsAndThinking_flagged() {
         QStringList caps{"vision", "completion", "tools", "thinking"};

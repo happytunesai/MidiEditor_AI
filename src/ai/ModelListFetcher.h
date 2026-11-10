@@ -17,6 +17,7 @@
  *  - openai     GET https://api.openai.com/v1/models
  *  - openrouter GET https://openrouter.ai/api/v1/models  (no auth needed)
  *  - gemini     GET https://generativelanguage.googleapis.com/v1beta/models?key=...
+ *  - anthropic  GET https://api.anthropic.com/v1/models?limit=1000  (x-api-key)
  *  - ollama     GET <host>/api/tags   (installed models + size/capabilities)
  *  - custom     GET <baseUrl>/models   (OpenAI-compatible)
  *
@@ -31,7 +32,7 @@ public:
 
     /**
      * \brief Starts the fetch.
-     * \param provider one of "openai" / "openrouter" / "gemini" / "ollama" / "custom"
+     * \param provider one of "openai" / "openrouter" / "gemini" / "anthropic" / "ollama" / "custom"
      * \param apiKey Bearer key (Gemini uses ?key=, others use Authorization header)
      * \param baseUrl Used for the "custom" provider; ignored otherwise.
      * \param scope Cache/favourites scope the result belongs to
@@ -53,6 +54,13 @@ public:
      *        a network round-trip. Uses no instance state.
      */
     static QJsonArray normaliseOllama(const QJsonArray &raw);
+
+    /**
+     * \brief Normalise Anthropic's /v1/models `data` array: the display name,
+     *        the context window from `max_input_tokens` (id fallback). Static
+     *        + public for test_model_list_fetcher. Uses no instance state.
+     */
+    static QJsonArray normaliseAnthropic(const QJsonArray &raw);
 
     /**
      * \brief Normalise OpenAI's /v1/models list into the cache schema. Public

@@ -105,6 +105,7 @@ const QMap<QString, QString> &builtInBaseUrls() {
         {QStringLiteral("openai"),     QStringLiteral("https://api.openai.com/v1")},
         {QStringLiteral("openrouter"), QStringLiteral("https://openrouter.ai/api/v1")},
         {QStringLiteral("gemini"),     QStringLiteral("https://generativelanguage.googleapis.com/v1beta/openai")},
+        {QStringLiteral("anthropic"),  QStringLiteral("https://api.anthropic.com/v1")},
         {QStringLiteral("ollama"),     QStringLiteral("http://localhost:11434/v1")},
     };
     return urls;
@@ -117,6 +118,7 @@ QString fixedProviderLabel(const QString &providerId) {
     if (providerId == QLatin1String("openai"))     return QStringLiteral("OpenAI");
     if (providerId == QLatin1String("openrouter")) return QStringLiteral("OpenRouter");
     if (providerId == QLatin1String("gemini"))     return QStringLiteral("Gemini");
+    if (providerId == QLatin1String("anthropic"))  return QStringLiteral("Claude");
     if (providerId == QLatin1String("ollama"))     return QStringLiteral("Ollama (local)");
     if (providerId == QLatin1String("custom"))     return QStringLiteral("Custom");
     return providerId;
@@ -1342,6 +1344,11 @@ void MidiPilotWidget::populateFooterModels() {
         addModel("gemini-3-flash", "gemini-3-flash-preview");
         addModel("gemini-3.1-flash-lite", "gemini-3.1-flash-lite-preview");
         addModel("gemini-3.1-pro", "gemini-3.1-pro-preview");
+    } else if (provider == "anthropic") {
+        addModel("Claude Opus 5.5", "claude-opus-5-5");
+        addModel("Claude Sonnet 5.5", "claude-sonnet-5-5");
+        addModel("Claude Haiku 5.5", "claude-haiku-5-5");
+        addModel("Claude Fable 5.2", "claude-fable-5-2");
     } else if (provider == "ollama") {
         // Local models live on the Ollama server — no useful hardcoded list.
         // The combo is editable and the refresh button fetches /v1/models.
@@ -2992,7 +2999,8 @@ void MidiPilotWidget::onProviderComboChanged(int index) {
         const bool isCloudDefault = (cur.isEmpty()
             || cur == defaultUrls.value("openai")
             || cur == defaultUrls.value("openrouter")
-            || cur == defaultUrls.value("gemini"));
+            || cur == defaultUrls.value("gemini")
+            || cur == defaultUrls.value("anthropic"));
         _client->setApiBaseUrl(isCloudDefault ? defaultUrls.value("ollama") : cur);
     } else if (provider == "custom") {
         // Fully user-defined - keep the configured endpoint. Correct HERE
@@ -3114,6 +3122,7 @@ void MidiPilotWidget::populateProviderProfiles() {
     _providerCombo->addItem(fixedProviderLabel(QStringLiteral("openai")), "openai");
     _providerCombo->addItem(fixedProviderLabel(QStringLiteral("openrouter")), "openrouter");
     _providerCombo->addItem(fixedProviderLabel(QStringLiteral("gemini")), "gemini");
+    _providerCombo->addItem(fixedProviderLabel(QStringLiteral("anthropic")), "anthropic");
     _providerCombo->addItem(fixedProviderLabel(QStringLiteral("ollama")), "ollama");
     // The plain "Custom" entry is conditional here (the settings page always
     // offers it - that is where a custom endpoint gets configured). Two reasons

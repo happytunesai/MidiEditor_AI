@@ -362,7 +362,11 @@ bool AiClient::providerRequiresKey() const
 void AiClient::applyAuthHeader(QNetworkRequest &request) const
 {
     const QString key = apiKey();
-    if (!key.isEmpty())
+    if (key.isEmpty())
+        return;
+    if (isAnthropicProvider(_provider))
+        request.setRawHeader("x-api-key", key.toUtf8());
+    else
         request.setRawHeader("Authorization", QStringLiteral("Bearer %1").arg(key).toUtf8());
 }
 
@@ -470,6 +474,10 @@ bool AiClient::isReasoningModel() const
     // Models that are inherently reasoning-capable and don't support temperature.
     // They require "developer" role instead of "system". One definition for
     // every family (o-series, gpt-5*, gpt-6*): isOpenAiReasoningFamily().
+    // Claude: every model that takes an effort level (the footer shows the
+    // effort picker for it); the Messages API treats both roles alike.
+    if (isAnthropicProvider(_provider))
+        return AnthropicMessages::traitsFor(_model).effort;
     return isOpenAiReasoningFamily(_model);
 }
 
@@ -533,6 +541,11 @@ int AiClient::contextWindowForModel(const QString &model) const
 
     QString m = idRaw.toLower();
 
+    // Claude ids carry family and version (claude-opus-5-5): 1M tokens from
+    // the 4.6 generation on, 200K before.
+    if (AnthropicMessages::traitsFor(m).known)
+        return AnthropicMessages::traitsFor(m).contextWindow;
+
     // Match by prefix — handles version variants like gpt-4o-2024-08-06
     if (m.startsWith(QStringLiteral("gpt-6")))       return 1050000; // gpt-6-astra: 1.05M
     if (m.startsWith(QStringLiteral("gpt-5")))       return 1000000;
@@ -548,6 +561,74 @@ int AiClient::contextWindowForModel(const QString &model) const
     if (m.startsWith(QStringLiteral("gemini-1.5")))   return 1000000;
 
     return 128000; // safe default
+}
+
+// === Output token limit ===
+//
+// What the models can write in one answer grew from 16384 (gpt-4o) to 128000
+// (gpt-5 and later, Claude 4.6 and later) and 65536 (Gemini 2.5 and 3.x) -
+// and thinking counts toward it. The setting is therefore "Automatic" (the
+// provider's or the model's own maximum) or one of a few steps, and a step is
+// never sent above what the model takes.
+
+int AiClient::outputTokenCeilingFromId(const QString &model)
+{
+    QString m = model.trimmed().toLower();
+    // "vendor/model" ids of OpenRouter-style catalogues.
+    const int slash = m.lastIndexOf(QLatin1Char('/'));
+    if (slash >= 0)
+        m = m.mid(slash + 1);
+
+    const AnthropicMessages::ModelTraits claude = AnthropicMessages::traitsFor(m);
+    if (claude.known)
+        return claude.maxOutputTokens;
+
+    if (m.startsWith(QStringLiteral("gpt-5")) || m.startsWith(QStringLiteral("gpt-6"))) {
+        // The "-chat" variants are the small-output ones (gpt-5.2-chat: 32000).
+        return m.contains(QStringLiteral("chat")) ? 16384 : 128000;
+    }
+    if (m.startsWith(QStringLiteral("gpt-4.1")))  return 32768;
+    if (m.startsWith(QStringLiteral("gpt-4o")) || m.startsWith(QStringLiteral("chatgpt-4o")))
+        return 16384;
+    if (m.startsWith(QStringLiteral("o3")) || m.startsWith(QStringLiteral("o4")))
+        return 100000;
+    if (m.startsWith(QStringLiteral("gemini-2.5")) || m.startsWith(QStringLiteral("gemini-3")))
+        return 65536;
+    return 0;
+}
+
+int AiClient::outputTokenCeilingForModel(const QString &model)
+{
+    const int cached = ModelListCache::maxOutputTokensFor(model);
+    return cached > 0 ? cached : outputTokenCeilingFromId(model);
+}
+
+int AiClient::outputLimitToSend(bool enabled, int limit, int ceiling)
+{
+    if (!enabled || limit <= 0)
+        return 0;
+    return ceiling > 0 ? qMin(limit, ceiling) : limit;
+}
+
+QString AiClient::outputLimitField(const QString &provider)
+{
+    const QString p = provider.trimmed().toLower();
+    return (p.isEmpty() || p == QStringLiteral("openai"))
+               ? QStringLiteral("max_completion_tokens")
+               : QStringLiteral("max_tokens");
+}
+
+int AiClient::outputLimitToSend() const
+{
+    return outputLimitToSend(_maxTokensEnabled, _maxTokensLimit,
+                             outputTokenCeilingForModel(_model));
+}
+
+void AiClient::applyChatOutputLimit(QJsonObject &body) const
+{
+    const int limit = outputLimitToSend();
+    if (limit > 0)
+        body[outputLimitField(_provider)] = limit;
 }
 
 void AiClient::sendRequest(const QString &systemPrompt,
@@ -619,6 +700,32 @@ void AiClient::sendMessagesInternal(const QJsonArray &messages,
     _isTestRequest = false;
     _hasToolsInRequest = !tools.isEmpty();
     _retryCount = 0;
+
+    // Claude: the native Messages API in every mode (no Chat-Completions
+    // shim). onReplyFinished translates the answer back.
+    _useAnthropicApi = isAnthropicProvider(_provider);
+    if (_useAnthropicApi) {
+        _useResponsesApi = false;
+        const QJsonObject body = AnthropicMessages::requestBody(
+            messages, tools, anthropicRequestOptions(false));
+        const QByteArray data = QJsonDocument(body).toJson(QJsonDocument::Compact);
+        QNetworkRequest request{QUrl(_apiBaseUrl + QStringLiteral("/messages"))};
+        applyAnthropicHeaders(request, body);
+        request.setTransferTimeout(requestTimeoutMs(true));
+
+        logAttachmentSummary(QStringLiteral("CLAUDE-REQ"), messages);
+        logApi(QStringLiteral("[CLAUDE-REQ] model=%1 stream=no tools=%2 beta=%3 body=%4")
+               .arg(_model,
+                    tools.isEmpty() ? QStringLiteral("none") : QString::number(tools.size()),
+                    QString::fromLatin1(AnthropicMessages::betaHeader(body)),
+                    QString::fromUtf8(data.left(4000))));
+
+        _lastRequest = request;
+        _lastRequestData = data;
+        _userCancelled = false; // a new request supersedes any earlier Stop
+        _currentReply = _manager->post(request, data);
+        return;
+    }
 
     bool reasoning = isReasoningModel();
     bool geminiThinking = isGeminiThinkingModel();
@@ -779,11 +886,9 @@ void AiClient::sendMessagesInternal(const QJsonArray &messages,
             body[QStringLiteral("temperature")] = 0.3;
         }
 
-        // Only set max_tokens if the user explicitly enabled a token limit
-        // in settings.  By default, let models use their full output capacity.
-        if (_maxTokensEnabled && _maxTokensLimit > 0) {
-            body[QStringLiteral("max_tokens")] = _maxTokensLimit;
-        }
+        // Only with an output limit chosen in Settings. On "Automatic" the
+        // model uses its full output capacity.
+        applyChatOutputLimit(body);
     }
 
     QJsonDocument doc(body);
@@ -851,6 +956,7 @@ void AiClient::testConnection()
 
     _sendGeneration++; // supersedes any pending auto-retry
     _isTestRequest = true;
+    _useAnthropicApi = isAnthropicProvider(_provider);
 
     bool reasoning = isReasoningModel();
 
@@ -862,6 +968,26 @@ void AiClient::testConnection()
 
     QByteArray data;
     QString endpointPath;
+
+    if (_useAnthropicApi) {
+        // Claude: one short Messages request. Models that always think do so
+        // here too, so leave room for that thinking beyond the two words.
+        QJsonObject body;
+        body[QStringLiteral("model")] = _model;
+        body[QStringLiteral("messages")] = messages;
+        body[QStringLiteral("max_tokens")] = 512;
+        if (AnthropicMessages::traitsFor(_model).effort)
+            body[QStringLiteral("output_config")] =
+                QJsonObject{{QStringLiteral("effort"), QStringLiteral("low")}};
+        data = QJsonDocument(body).toJson(QJsonDocument::Compact);
+        QNetworkRequest request{QUrl(_apiBaseUrl + QStringLiteral("/messages"))};
+        applyAnthropicHeaders(request, body);
+        request.setTransferTimeout(30000);
+        logApi(QStringLiteral("[TEST-REQ] model=%1 body=%2").arg(_model, QString::fromUtf8(data)));
+        _userCancelled = false; // a new request supersedes any earlier Stop
+        _currentReply = _manager->post(request, data);
+        return;
+    }
 
     if (modelRequiresResponsesApi(_provider, _model)) {
         // "Pro" OpenAI models are served only by the Responses API; the chat
@@ -1176,6 +1302,7 @@ static QString providerDisplayName(const QString &id)
     if (id == QStringLiteral("openai"))     return QStringLiteral("OpenAI");
     if (id == QStringLiteral("openrouter")) return QStringLiteral("OpenRouter");
     if (id == QStringLiteral("gemini"))     return QStringLiteral("Google Gemini");
+    if (id == QStringLiteral("anthropic"))  return QStringLiteral("Claude");
     if (id == QStringLiteral("ollama"))     return QStringLiteral("Ollama");
     if (id.isEmpty() || id == QStringLiteral("custom")) return QStringLiteral("the API");
     return id;
@@ -1234,6 +1361,7 @@ void AiClient::onReplyFinished(QNetworkReply *reply)
         // we don't sit through three useless retries on a hard billing error.
         bool insufficientQuota = false;
         QString apiErrorMessage;
+        QString apiErrorType;
         {
             const QJsonDocument errDoc = QJsonDocument::fromJson(responseData);
             if (errDoc.isObject()) {
@@ -1243,6 +1371,7 @@ void AiClient::onReplyFinished(QNetworkReply *reply)
                 // key with it.
                 apiErrorMessage = redactForOutput(
                     e.value(QStringLiteral("message")).toString().trimmed());
+                apiErrorType = e.value(QStringLiteral("type")).toString();
                 insufficientQuota =
                     e.value(QStringLiteral("code")).toString() == QStringLiteral("insufficient_quota")
                     || e.value(QStringLiteral("type")).toString() == QStringLiteral("insufficient_quota");
@@ -1305,6 +1434,12 @@ void AiClient::onReplyFinished(QNetworkReply *reply)
             } else {
                 errorMsg = tr("Unable to connect to the API. Please check your internet connection.");
             }
+        } else if (_useAnthropicApi && statusCode >= 400) {
+            // Claude's error body names the cause (an unknown model, a
+            // rejected attachment, an empty credit balance) - show it instead
+            // of Qt's generic reply text.
+            errorMsg = AnthropicMessages::httpErrorMessage(statusCode, apiErrorType,
+                                                           apiErrorMessage);
         } else if (statusCode == 0 &&
                    (reply->error() == QNetworkReply::TimeoutError ||
                     reply->error() == QNetworkReply::TemporaryNetworkFailureError ||
@@ -1421,6 +1556,44 @@ void AiClient::onReplyFinished(QNetworkReply *reply)
     // so AgentRunner and Simple mode don't need separate code paths.
     if (_useResponsesApi) {
         responseObj = normalizeResponsesApiResponse(responseObj);
+    }
+
+    // Claude: translate the Messages API answer the same way (its thinking
+    // was already forwarded above).
+    if (_useAnthropicApi) {
+        const AnthropicMessages::Result claude = AnthropicMessages::fromMessage(responseObj);
+        const QJsonObject u = claude.usage;
+        logApi(QStringLiteral("[CLAUDE-DONE] model=%1 stop=%2 chars=%3 toolCalls=%4 "
+                              "in=%5 cache_read=%6 cache_write=%7 out=%8 dropped=%9")
+               .arg(claude.servedModel, claude.stopReason)
+               .arg(claude.text.size()).arg(claude.toolCalls)
+               .arg(u.value(QStringLiteral("input_tokens")).toInt())
+               .arg(u.value(QStringLiteral("cache_read_input_tokens")).toInt())
+               .arg(u.value(QStringLiteral("cache_creation_input_tokens")).toInt())
+               .arg(u.value(QStringLiteral("output_tokens")).toInt())
+               .arg(QString::fromUtf8(QJsonDocument(claude.inputTransformations)
+                                          .toJson(QJsonDocument::Compact))));
+        if (claude.stopReason == QStringLiteral("refusal")) {
+            emit errorOccurred(AnthropicMessages::refusalMessage(claude));
+            reply->deleteLater();
+            return;
+        }
+        // Same outcomes as on the streamed path: the token limit, and an
+        // answer with neither text nor a tool call (AgentRunner would
+        // otherwise end the run with "Done.").
+        if (claude.stopReason == QStringLiteral("max_tokens")) {
+            emit errorOccurred(anthropicTokenLimitMessage(!_hasToolsInRequest));
+            reply->deleteLater();
+            return;
+        }
+        if (claude.text.isEmpty() && claude.toolCalls == 0) {
+            emit errorOccurred(tr("Claude ended without output (stop_reason=%1) - "
+                                  "the model returned no text and no tool call.")
+                                   .arg(claude.stopReason));
+            reply->deleteLater();
+            return;
+        }
+        responseObj = claude.response;
     }
 
     // Normalize provider-specific usage fields to canonical OpenAI format
@@ -1922,6 +2095,14 @@ void AiClient::sendStreamingMessages(const QJsonArray &messages, const QJsonArra
         return;
     }
 
+    // Claude streams text, thinking and tool calls through its own SSE
+    // events on /v1/messages.
+    if (isAnthropicProvider(_provider)) {
+        armStreamingRetryAgent(messages, tools);
+        sendStreamingMessagesAnthropic(messages, tools, /*simpleMode=*/false);
+        return;
+    }
+
     _sendGeneration++; // supersedes any pending auto-retry
     _isTestRequest = false;
     _isStreaming = true;
@@ -1975,8 +2156,7 @@ void AiClient::sendStreamingMessages(const QJsonArray &messages, const QJsonArra
         body[QStringLiteral("temperature")] = 0.3;
     }
 
-    if (_maxTokensEnabled && _maxTokensLimit > 0)
-        body[QStringLiteral("max_tokens")] = _maxTokensLimit;
+    applyChatOutputLimit(body);
 
     QByteArray data = QJsonDocument(body).toJson(QJsonDocument::Compact);
 
@@ -2151,6 +2331,19 @@ void AiClient::sendStreamingRequest(const QString &systemPrompt,
         return;
     }
 
+    if (isAnthropicProvider(_provider)) {
+        armStreamingRetrySimple(systemPrompt, conversationHistory, userMessage);
+        QJsonArray messages;
+        messages.append(QJsonObject{{QStringLiteral("role"), QStringLiteral("system")},
+                                    {QStringLiteral("content"), systemPrompt}});
+        for (const QJsonValue &msg : conversationHistory)
+            messages.append(msg);
+        messages.append(QJsonObject{{QStringLiteral("role"), QStringLiteral("user")},
+                                    {QStringLiteral("content"), userMessage}});
+        sendStreamingMessagesAnthropic(messages, QJsonArray(), /*simpleMode=*/true);
+        return;
+    }
+
     _sendGeneration++; // supersedes any pending auto-retry
     _isTestRequest = false;
     _isStreaming = true;
@@ -2209,8 +2402,7 @@ void AiClient::sendStreamingRequest(const QString &systemPrompt,
         body[QStringLiteral("temperature")] = 0.3;
     }
 
-    if (_maxTokensEnabled && _maxTokensLimit > 0)
-        body[QStringLiteral("max_tokens")] = _maxTokensLimit;
+    applyChatOutputLimit(body);
 
     QByteArray data = QJsonDocument(body).toJson(QJsonDocument::Compact);
 
@@ -3234,9 +3426,14 @@ void AiClient::sendStreamingMessagesGemini(const QJsonArray &messages,
     // Always set a generous maxOutputTokens so the model has room to actually
     // emit text/tool calls AFTER thinking. Gemini counts thinking tokens
     // separately but in practice exhausts the response budget too.
-    int maxOut = (_maxTokensEnabled && _maxTokensLimit > 0) ? _maxTokensLimit : 0;
-    if (maxOut <= 0) maxOut = 16384;
+    // "Automatic": the model's own limit (65536 on Gemini 2.5 and 3.x - the
+    // fixed 16384 this used to send left a thinking model little room for a
+    // large tool call); 16384 for a model whose limit is unknown.
+    const int ceiling = outputTokenCeilingForModel(_model);
+    int maxOut = outputLimitToSend();
+    if (maxOut <= 0) maxOut = ceiling > 0 ? ceiling : 16384;
     if (maxOut < thinkingBudget + 4096) maxOut = thinkingBudget + 4096;
+    if (ceiling > 0 && maxOut > ceiling) maxOut = ceiling;
     genCfg[QStringLiteral("maxOutputTokens")] = maxOut;
     body[QStringLiteral("generationConfig")] = genCfg;
 
@@ -3598,6 +3795,342 @@ void AiClient::onGeminiStreamDataAvailable()
                 .arg(QString::fromUtf8(QJsonDocument(
                     obj.value(QStringLiteral("usageMetadata")).toObject()
                 ).toJson(QJsonDocument::Compact))));
+        }
+    }
+}
+
+// =============================================================================
+// Anthropic Claude - native Messages API (/v1/messages)
+// =============================================================================
+//
+// The wire format lives in AnthropicMessages; this part only does the network
+// side: headers, the SSE stream, retries and the signals. The stream events:
+//   message_start -> content_block_start / _delta / _stop per block (text,
+//   thinking, tool_use; deltas text_delta, thinking_delta, signature_delta,
+//   input_json_delta) -> message_delta (stop_reason, final usage) ->
+//   message_stop; `ping` while the model thinks; `error` when the stream
+//   breaks off (overloaded_error).
+
+AnthropicMessages::RequestOptions AiClient::anthropicRequestOptions(bool stream) const
+{
+    AnthropicMessages::RequestOptions options;
+    options.model = _model;
+    options.stream = stream;
+    options.thinking = _thinkingEnabled;
+    // Phase 31's one-shot override wins over the configured effort, as on
+    // every other transport.
+    options.effort = _nextReasoningEffortOverride.isEmpty() ? _reasoningEffort
+                                                            : _nextReasoningEffortOverride;
+    options.maxTokens = outputLimitToSend();
+    options.sequentialTools = _nextForceSequentialTools;
+    return options;
+}
+
+QString AiClient::anthropicTokenLimitMessage(bool simpleMode)
+{
+    // Simple mode replays a failed request unchanged (MidiPilotWidget's
+    // self-healing retry), and an answer that hit the limit would hit it
+    // again - each time at the price of a full generation. Its text therefore
+    // avoids the words that retry looks for ("truncated", "cut off", "max
+    // tokens"). Agent mode keeps the usual wording: AgentRunner answers it
+    // with a hint to write smaller steps, which changes the next attempt.
+    if (simpleMode) {
+        return tr("The answer reached the output token limit before it was complete. "
+                  "Ask for less at once, raise or switch off the token limit in Settings, "
+                  "or use Agent mode for large compositions.");
+    }
+    return tr("Response was truncated (output token limit reached). "
+              "Try a simpler request, reduce the number of tracks/measures, "
+              "or increase the token limit in Settings.");
+}
+
+void AiClient::applyAnthropicHeaders(QNetworkRequest &request, const QJsonObject &body) const
+{
+    request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
+    applyAuthHeader(request); // x-api-key for this provider
+    request.setRawHeader("anthropic-version", AnthropicMessages::apiVersion());
+    const QByteArray beta = AnthropicMessages::betaHeader(body);
+    if (!beta.isEmpty())
+        request.setRawHeader("anthropic-beta", beta);
+}
+
+void AiClient::sendStreamingMessagesAnthropic(const QJsonArray &messages,
+                                              const QJsonArray &tools,
+                                              bool simpleMode)
+{
+    _sendGeneration++; // supersedes any pending auto-retry
+    _isTestRequest = false;
+    _isStreaming = true;
+    _streamHasTools = !tools.isEmpty();
+    _hasToolsInRequest = _streamHasTools;
+    _useResponsesApi = false;
+    _anthropicSimpleMode = simpleMode;
+    _anthropicStream = AnthropicMessages::StreamAccumulator();
+    _streamBuffer.clear();
+    _streamContent.clear();
+    _streamReasoning.clear();
+    _streamToolCalls.clear();
+
+    const QJsonObject body = AnthropicMessages::requestBody(
+        messages, tools, anthropicRequestOptions(true));
+    const QByteArray data = QJsonDocument(body).toJson(QJsonDocument::Compact);
+    QNetworkRequest request{QUrl(_apiBaseUrl + QStringLiteral("/messages"))};
+    applyAnthropicHeaders(request, body);
+    // An inactivity timeout: the stream sends `ping` events while Claude thinks.
+    request.setTransferTimeout(requestTimeoutMs(true));
+
+    logAttachmentSummary(QStringLiteral("STREAM-CLAUDE-REQ"), messages);
+    logApi(QStringLiteral("[STREAM-CLAUDE-REQ] model=%1 mode=%2 tools=%3 beta=%4 body=%5")
+        .arg(_model,
+             simpleMode ? QStringLiteral("simple") : QStringLiteral("agent"),
+             QString::number(tools.size()),
+             QString::fromLatin1(AnthropicMessages::betaHeader(body)),
+             QString::fromUtf8(data.left(4000))));
+
+    _userCancelled = false; // a new request supersedes any earlier Stop
+    _currentReply = _manager->post(request, data);
+    disconnect(_manager, &QNetworkAccessManager::finished,
+               this, &AiClient::onReplyFinished);
+    connect(_currentReply, &QNetworkReply::readyRead,
+            this, &AiClient::onAnthropicStreamDataAvailable);
+    connect(_currentReply, &QNetworkReply::finished, this, [this]() {
+        // Drain the socket and parse a last event that arrived without its
+        // closing blank line.
+        if (_currentReply)
+            onAnthropicStreamDataAvailable();
+        QNetworkReply *reply = _currentReply;
+        _currentReply = nullptr;
+        _isStreaming = false;
+        connect(_manager, &QNetworkAccessManager::finished,
+                this, &AiClient::onReplyFinished);
+
+        auto resetStreamState = [this]() {
+            _streamHasTools = false;
+            _streamToolCalls.clear();
+            _streamBuffer.clear();
+        };
+
+        if (reply->error() == QNetworkReply::OperationCanceledError) {
+            logApi(QStringLiteral("[STREAM-CLAUDE-CANCEL]"));
+            emitStreamTransferTimeout(); // STREAMSILENT-001
+            resetStreamState();
+            clearStreamingRetryContext();
+            reply->deleteLater();
+            return;
+        }
+
+        if (reply->error() != QNetworkReply::NoError) {
+            const int statusCode =
+                reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+            // An HTTP error answers with one JSON object, not SSE; the
+            // readyRead handler left it in the buffer.
+            QByteArray raw = _streamBuffer;
+            raw += reply->readAll();
+            QString errorType;
+            QString errorMessage;
+            const QJsonDocument errDoc = QJsonDocument::fromJson(raw.trimmed());
+            if (errDoc.isObject()) {
+                const QJsonObject e = errDoc.object().value(QStringLiteral("error")).toObject();
+                errorType = e.value(QStringLiteral("type")).toString();
+                errorMessage = redactForOutput(e.value(QStringLiteral("message")).toString().trimmed());
+            }
+            logApi(QStringLiteral("[STREAM-CLAUDE-ERR] http=%1 type=%2 body=%3")
+                   .arg(statusCode)
+                   .arg(errorType, redactForOutput(QString::fromUtf8(raw.left(800)))));
+            resetStreamState();
+            // A rate limit or an overload says nothing against streaming:
+            // retry this one request without it, through the backoff of the
+            // non-streamed path (a transient skip, not a session block).
+            if (isTransientHttpStatus(statusCode)
+                && shouldFallbackToNonStreaming(statusCode, reply->error(), false, false)) {
+                reply->deleteLater();
+                tryStreamingFallback(QStringLiteral("Claude HTTP %1").arg(statusCode), true);
+                return;
+            }
+            clearStreamingRetryContext();
+            QString message;
+            if (statusCode == 401)
+                message = tr("Invalid API key. Please check your key in Settings.");
+            else if (statusCode >= 400)
+                message = AnthropicMessages::httpErrorMessage(statusCode, errorType, errorMessage);
+            else
+                message = tr("Streaming error: %1").arg(redactForOutput(reply->errorString()));
+            emit errorOccurred(message);
+            reply->deleteLater();
+            return;
+        }
+
+        const AnthropicMessages::Result claude = _anthropicStream.finish();
+        const QJsonObject u = claude.usage;
+        if (!_streamReasoning.isEmpty()) {
+            logApi(QStringLiteral("[STREAM-CLAUDE-REASONING] %1 chars: %2")
+                   .arg(_streamReasoning.size())
+                   .arg(_streamReasoning));
+        }
+        logApi(QStringLiteral("[STREAM-CLAUDE-DONE] model=%1 stop=%2 chars=%3 toolCalls=%4 "
+                              "in=%5 cache_read=%6 cache_write=%7 out=%8 dropped=%9")
+               .arg(claude.servedModel, claude.stopReason)
+               .arg(claude.text.size()).arg(claude.toolCalls)
+               .arg(u.value(QStringLiteral("input_tokens")).toInt())
+               .arg(u.value(QStringLiteral("cache_read_input_tokens")).toInt())
+               .arg(u.value(QStringLiteral("cache_creation_input_tokens")).toInt())
+               .arg(u.value(QStringLiteral("output_tokens")).toInt())
+               .arg(QString::fromUtf8(QJsonDocument(claude.inputTransformations)
+                                          .toJson(QJsonDocument::Compact))));
+        const QJsonObject message = claude.response.value(QStringLiteral("choices")).toArray()
+                                        .first().toObject().value(QStringLiteral("message")).toObject();
+        for (const QJsonValue &tcVal : message.value(QStringLiteral("tool_calls")).toArray()) {
+            const QJsonObject fn = tcVal.toObject().value(QStringLiteral("function")).toObject();
+            logApi(QStringLiteral("[STREAM-CLAUDE-TOOLCALL] id=%1 name=%2 args=%3")
+                   .arg(tcVal.toObject().value(QStringLiteral("id")).toString(),
+                        fn.value(QStringLiteral("name")).toString(),
+                        fn.value(QStringLiteral("arguments")).toString()));
+        }
+        resetStreamState();
+
+        // A tool call whose arguments did not parse: never run it.
+        if (claude.errorType == QStringLiteral("invalid_tool_json")) {
+            clearStreamingRetryContext();
+            emit errorOccurred(claude.errorMessage);
+            reply->deleteLater();
+            return;
+        }
+
+        // The stream broke off (an `error` event, typically overloaded_error).
+        // Nothing usable yet: retry the request once without streaming,
+        // through the backoff. Otherwise report it, worded with the HTTP
+        // status so MidiPilot's and AgentRunner's retries recognise it.
+        if (!claude.errorType.isEmpty() || !claude.errorMessage.isEmpty()) {
+            const bool nothingYet = claude.text.isEmpty() && claude.toolCalls == 0;
+            if (nothingYet && shouldFallbackToNonStreaming(0, QNetworkReply::NoError, false, false)) {
+                reply->deleteLater();
+                tryStreamingFallback(QStringLiteral("Claude stream %1").arg(claude.errorType), true);
+                return;
+            }
+            clearStreamingRetryContext();
+            int status = 0;
+            if (claude.errorType == QStringLiteral("overloaded_error")) status = 529;
+            else if (claude.errorType == QStringLiteral("rate_limit_error")) status = 429;
+            else if (claude.errorType == QStringLiteral("api_error")) status = 500;
+            emit errorOccurred(status > 0
+                ? tr("Claude stopped mid-answer (%1, HTTP %2): %3 Please try again.")
+                      .arg(claude.errorType).arg(status).arg(claude.errorMessage)
+                : tr("Claude stopped mid-answer (%1): %2")
+                      .arg(claude.errorType, claude.errorMessage));
+            reply->deleteLater();
+            return;
+        }
+
+        clearStreamingRetryContext();
+
+        if (claude.stopReason == QStringLiteral("refusal")) {
+            emit errorOccurred(AnthropicMessages::refusalMessage(claude));
+            reply->deleteLater();
+            return;
+        }
+        // The output token limit cut the answer off - reported like on the
+        // non-streamed path. A tool call cut off this way may still parse as
+        // a valid, shorter object (never run it), and thinking counts toward
+        // the limit, so a small limit can end before any text.
+        if (claude.stopReason == QStringLiteral("max_tokens")) {
+            emit errorOccurred(anthropicTokenLimitMessage(_anthropicSimpleMode));
+            reply->deleteLater();
+            return;
+        }
+        if (claude.text.isEmpty() && claude.toolCalls == 0) {
+            emit errorOccurred(tr("Claude ended without output (stop_reason=%1) - "
+                                  "the model returned no text and no tool call.")
+                                   .arg(claude.stopReason));
+            reply->deleteLater();
+            return;
+        }
+
+        // WHY: see sendStreamingMessages() - the emit re-enters AgentRunner,
+        // which may send the next turn synchronously, so per-request state is
+        // read out before emitting.
+        const bool simple = _anthropicSimpleMode;
+        const QString finalContent = claude.text;
+        const QJsonObject responseObj = claude.response;
+        if (simple)
+            emit streamFinished(finalContent, responseObj);
+        else
+            emit responseReceived(finalContent, responseObj);
+        reply->deleteLater();
+    });
+}
+
+void AiClient::onAnthropicStreamDataAvailable()
+{
+    if (!_currentReply)
+        return;
+
+    _streamBuffer += _currentReply->readAll();
+    // An HTTP error answers with one JSON object, not SSE - the finished
+    // handler reads it from the buffer.
+    if (_currentReply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt() >= 400)
+        return;
+    const bool finished = _currentReply->isFinished();
+
+    while (true) {
+        // Events end with a blank line; tolerate CRLF like the other parsers.
+        int idx = _streamBuffer.indexOf("\n\n");
+        int sep = 2;
+        const int crIdx = _streamBuffer.indexOf("\r\n\r\n");
+        if (crIdx >= 0 && (idx < 0 || crIdx < idx)) {
+            idx = crIdx;
+            sep = 4;
+        }
+        QByteArray chunk;
+        if (idx < 0) {
+            if (!finished || _streamBuffer.trimmed().isEmpty())
+                break;
+            chunk = _streamBuffer;
+            _streamBuffer.clear();
+        } else {
+            chunk = _streamBuffer.left(idx);
+            _streamBuffer.remove(0, idx + sep);
+        }
+
+        // The `event:` line repeats the type that the JSON carries - only
+        // the data lines matter.
+        QByteArray payload;
+        for (const QByteArray &line : chunk.split('\n')) {
+            const QByteArray trimmed = line.trimmed();
+            if (!trimmed.startsWith("data:"))
+                continue;
+            if (!payload.isEmpty())
+                payload += '\n';
+            payload += trimmed.mid(5).trimmed();
+        }
+        if (payload.isEmpty())
+            continue;
+        const QJsonDocument doc = QJsonDocument::fromJson(payload);
+        if (!doc.isObject())
+            continue;
+
+        const QList<AnthropicMessages::StreamEvent> events = _anthropicStream.consume(doc.object());
+        for (const AnthropicMessages::StreamEvent &e : events) {
+            switch (e.kind) {
+            case AnthropicMessages::StreamEvent::Text:
+                _streamContent += e.text;
+                emit streamDelta(e.text);
+                if (_streamHasTools)
+                    emit streamAssistantTextDelta(e.text);
+                break;
+            case AnthropicMessages::StreamEvent::Reasoning:
+                _streamReasoning += e.text;
+                emit streamReasoningDelta(e.text);
+                break;
+            case AnthropicMessages::StreamEvent::ToolStarted:
+                emit streamToolCallStarted(e.id, e.text);
+                break;
+            case AnthropicMessages::StreamEvent::ToolArgs:
+                emit streamToolCallArgsDelta(e.id, e.text);
+                break;
+            case AnthropicMessages::StreamEvent::ToolDone:
+                emit streamToolCallArgsDone(e.id);
+                break;
+            }
         }
     }
 }

@@ -102,6 +102,16 @@ bool ModelListCache::forget(const QString &scope)
 
 int ModelListCache::contextWindowFor(const QString &modelId)
 {
+    return intFieldFor(modelId, QStringLiteral("contextWindow"));
+}
+
+int ModelListCache::maxOutputTokensFor(const QString &modelId)
+{
+    return intFieldFor(modelId, QStringLiteral("maxOutputTokens"));
+}
+
+int ModelListCache::intFieldFor(const QString &modelId, const QString &field)
+{
     if (modelId.isEmpty())
         return 0;
     QJsonObject root = readFile();
@@ -111,9 +121,12 @@ int ModelListCache::contextWindowFor(const QString &modelId)
                               .value(QStringLiteral("models")).toArray();
         for (const QJsonValue &v : arr) {
             QJsonObject m = v.toObject();
-            if (m.value(QStringLiteral("id")).toString() == modelId) {
-                int cw = m.value(QStringLiteral("contextWindow")).toInt();
-                return cw;
+            // The same id can be cached under several scopes, and an entry
+            // written before a field existed lacks it - take the first that
+            // states a value.
+            if (m.value(QStringLiteral("id")).toString() == modelId
+                && m.value(field).toInt() > 0) {
+                return m.value(field).toInt();
             }
         }
     }

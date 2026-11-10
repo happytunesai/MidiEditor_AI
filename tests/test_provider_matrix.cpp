@@ -22,6 +22,7 @@
 //   MIDIPILOT_TEST_OPENAI_MODEL      (default gpt-4o-mini)
 //   MIDIPILOT_TEST_OPENROUTER_MODEL  (default openai/gpt-4o-mini)
 //   MIDIPILOT_TEST_GEMINI_MODEL      (default gemini-2.5-flash)
+//   MIDIPILOT_TEST_ANTHROPIC_MODEL   (default claude-haiku-5-5)
 //
 // The test reuses MidiPilot's QSettings store ("MidiEditor"/"NONE") because
 // AiClient reads its key/model directly from there. Original values are
@@ -193,7 +194,7 @@ private slots:
         for (const QString &k : QStringList{
                 "AI/provider", "AI/model", "AI/api_base_url", "AI/api_key",
                 "AI/api_key/openai", "AI/api_key/openrouter",
-                "AI/api_key/gemini", "AI/api_key/custom"}) {
+                "AI/api_key/gemini", "AI/api_key/anthropic", "AI/api_key/custom"}) {
             backup(k);
         }
     }
@@ -265,6 +266,16 @@ private slots:
                                  QStringLiteral("gemini-2.5-flash")),
                     resolveKey("MIDIPILOT_TEST_GEMINI_KEY", "gemini"),
                     QStringLiteral("https://generativelanguage.googleapis.com/v1beta/openai"));
+    }
+
+    void anthropic()
+    {
+        if (skipRequested("MIDIPILOT_TEST_SKIP_ANTHROPIC")) QSKIP("anthropic: skipped via env");
+        runProvider(QStringLiteral("anthropic"),
+                    resolveModel("MIDIPILOT_TEST_ANTHROPIC_MODEL", "anthropic",
+                                 QStringLiteral("claude-haiku-5-5")),
+                    resolveKey("MIDIPILOT_TEST_ANTHROPIC_KEY", "anthropic"),
+                    QStringLiteral("https://api.anthropic.com/v1"));
     }
 };
 

@@ -12,6 +12,8 @@
  *     (input_text / input_image / input_file);
  *   - toGeminiParts() translates it for the native Gemini endpoint
  *     (text / inline_data);
+ *   - toAnthropicContent() translates it for Claude's Messages API
+ *     (text / image / document);
  *   - toStoredContent() / fromStoredContent() swap the base64 payloads for
  *     references to files next to the saved conversation and back.
  *
@@ -94,6 +96,10 @@ QJsonValue toResponsesContent(const QJsonValue &content);
 
 /// A message content (string or part array) as native Gemini parts.
 QJsonArray toGeminiParts(const QJsonValue &content);
+
+/// A message content (string or part array) as Anthropic content blocks:
+/// text, image (base64) and document (base64, titled with the file name).
+QJsonArray toAnthropicContent(const QJsonValue &content);
 
 /// The first text part (the user's own message); a string stays as it is.
 QString primaryText(const QJsonValue &content);

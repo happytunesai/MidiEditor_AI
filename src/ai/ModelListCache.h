@@ -29,10 +29,13 @@
  *   "id": "gpt-5.4",
  *   "displayName": "GPT-5.4",
  *   "contextWindow": 1000000,
+ *   "maxOutputTokens": 128000,
  *   "supportsTools": true,
  *   "supportsReasoning": true
  * }
  * \endcode
+ * \c maxOutputTokens is present only where the provider's model list states
+ * it (Anthropic, Gemini, OpenRouter); entries written before it existed lack it.
  *
  * TTL is 7 days. The cache is intentionally synchronous and tiny: the file
  * never exceeds a few KB because we keep at most a few hundred model entries
@@ -102,7 +105,15 @@ public:
      */
     static int contextWindowFor(const QString &modelId);
 
+    /**
+     * rief Returns the output-token limit declared in the cache for the
+     *        given model id, or 0 if unknown.
+     */
+    static int maxOutputTokensFor(const QString &modelId);
+
 private:
+    /// One integer field of the first cached entry with this id, any scope.
+    static int intFieldFor(const QString &modelId, const QString &field);
     static QJsonObject readFile();
     /// \return false when the cache file could not be (re)written.
     static bool writeFile(const QJsonObject &obj);

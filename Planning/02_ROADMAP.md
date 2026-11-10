@@ -14056,6 +14056,65 @@ stored as separate files next to the conversation.
   length (down to 0.01), steps of a fifth below 0.2, Zoom to fit (Ctrl+Shift+F, View > Zoom,
   measure ruler menu), measure bars/numbers/lines and the division raster thinned when dense.
 
+**2.5.4 - SHIPPED 2026-11-10**
+* CLAUDE-001 (owner request 2026-10-28; Claude Max and Team plans include monthly API credits since
+  2026-10-07, used through an API key of the linked Console organization - a subscription login
+  stays out, see the 2026-09-24 decision): Anthropic Claude as a native MidiPilot provider
+  (`anthropic`). `src/ai/AnthropicMessages` (pure Qt Core, test_anthropic_messages) holds the wire
+  format, AiClient the transport in every entry point (non-streamed, streamed Simple and Agent
+  mode, Test Connection): `x-api-key`, `anthropic-version: 2026-10-21` (no sampling parameters).
+  - Thinking per model (traitsFor/effortFor): adaptive with summarized display when the toggle is
+    on; the models that always think (Opus 5.5, Sonnet 5.5, Haiku 5.5, Fable) run at low effort
+    when it is off; effort levels step down to what a model takes.
+  - Preserved thinking: every thinking block is bound to the exact conversation before it, so
+    AgentRunner keeps Claude's content blocks on the stored assistant turn (`_anthropic_content`)
+    and appends the state layer instead of inserting it after the system prompt
+    (withAppendedStateLayer). Safety net: `thinking.block_binding` drop_block (beta
+    thinking-binding-controls-2026-08-01). The FFXIV overlay is appended for Claude without
+    removing the earlier one. The one edit that remains: a mid-run tool list change by
+    set_ffxiv_mode (rare; drop_block degrades instead of failing).
+  - Prompt caching: last tool, system prompt, automatic top-level breakpoint.
+  - Refusal fallback `fallbacks: "default"` (beta server-side-fallback-2026-07-01) on Opus 5+,
+    Sonnet 5.5+ and Fable 5.1+; after a fallback only the declined model's text is replayed.
+  - Eager tool-input streaming with the JSON check on the client: a call that does not parse, or
+    one cut off by max_tokens, is never run.
+  - Live: owner test in Simple and Agent mode with Opus 5.5 (2026-10-28; the cache is read on
+    every step, no thinking block dropped). test_provider_matrix has an `anthropic` row
+    (MIDIPILOT_TEST_ANTHROPIC_KEY).
+  - Claude Fable 5.2 (released 2026-11, checked 2026-11-10): same request surface as Fable 5.1 -
+    thinking always on, effort default high (always sent explicitly), no forced tool choice - and
+    the conversation check on replayed thinking blocks applies to EVERY account there. Wire format
+    run against the API for Fable 5.2, Opus 5.5 and Haiku 5.5: a three-step tool loop with replayed
+    thinking, non-streamed with thinking off, streamed at max effort - no block dropped.
+    `claude-fable-5-2` replaces 5.1 in the starter model list.
+  - Release review (2026-11-10), fixed before the release: the settings page cut its "Custom"
+    entry off (fixed entries were found by a count that the Claude entry made wrong; confirming
+    the page then overwrote a custom endpoint) - now found by entry; a stream that ends without
+    message_delta is an error (retried), not an answer; an answer at the output token limit is
+    reported on both paths, in Simple mode with a text the self-healing retry does not replay;
+    text blocks without visible text are left out (the API rejects them); the non-streamed path
+    reports an answer with neither text nor tool call; a provider changed in Settings mid-run
+    no longer gets Claude's content blocks; a retry hint no longer stores the state twice.
+  - Not changed: non-streamed Claude requests keep max_tokens 16000 on Automatic (thinking
+    included) so one request stays inside the transfer timeout - that path runs only with
+    streaming switched off or for a minute after a rate limit, and Agent mode answers a
+    truncation with a smaller step. A chosen Token Limit step applies there as well.
+* TOKENLIMIT-001 (owner 2026-11-10: models write far more than when 16384 was chosen): Token
+  Limit is Automatic or a step (8000 / 16000 / 32000 / 64000 / 128000; stored as before in
+  AI/max_token_enabled + AI/max_token_limit, an old free value stays as its own entry). Output
+  limits read from the providers' model lists on 2026-11-10: Claude from Opus 4.6 on 128000
+  (Opus/Sonnet/Haiku 4.5: 64000), GPT-5 to 5.6 128000, GPT-4.1 32768, GPT-4o 16384, Gemini 2.5 and
+  3.x 65536. The refreshed model list stores `maxOutputTokens` where the provider states it
+  (Anthropic max_tokens, Gemini outputTokenLimit, OpenRouter top_provider.max_completion_tokens);
+  AiClient::outputTokenCeilingForModel falls back to the id. One helper for the limit:
+  native OpenAI gets max_completion_tokens (max_tokens is HTTP 400 on its reasoning models - the
+  limit broke Simple mode there), a step is lowered to the ceiling (above it is HTTP 400), the
+  native Gemini request carries the model's limit on Automatic instead of a fixed 16384.
+  - Open: the Responses API requests (Agent mode with GPT-5 / GPT-6) still carry no limit - a
+    max_output_tokens there needs the stream's `response.incomplete` handled first.
+  - Open: after a rate limit on a Claude stream, retry STREAMED with a wait instead of the
+    non-streamed fallback, which runs with the smaller 16000 limit.
+
 **From the 2.5 review (2026-09-28, verified, deferred)**
 * Same-tick order after undo/redo - DONE in 2.5.1 (UNDO-TICKORDER-001, see above).
 * Attachments: a size cap over the whole conversation that is sent (today 14 MB per message).

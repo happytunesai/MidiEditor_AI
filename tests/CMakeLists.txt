@@ -873,10 +873,10 @@ add_test(NAME AgentRunnerState COMMAND test_agent_runner_state)
 # test_provider_matrix
 # -----------------------------------------------------------------------------
 # Live-API smoke test that exercises the four AiClient code paths
-# (non-stream / stream  ×  no tools / +tools) for OpenAI, OpenRouter and
-# Gemini. Each provider is SKIPPED unless the matching env var is set:
+# (non-stream / stream  ×  no tools / +tools) for OpenAI, OpenRouter,
+# Gemini and Claude. Each provider is SKIPPED unless the matching env var is set:
 #   MIDIPILOT_TEST_OPENAI_KEY / MIDIPILOT_TEST_OPENROUTER_KEY /
-#   MIDIPILOT_TEST_GEMINI_KEY
+#   MIDIPILOT_TEST_GEMINI_KEY / MIDIPILOT_TEST_ANTHROPIC_KEY
 # Uses MidiPilot's QSettings store but snapshots+restores the touched keys.
 # Not added to add_test() by default to avoid slow/network-dependent CI runs;
 # configure with -DMIDIPILOT_ENABLE_LIVE_API_TESTS=ON, then run manually:
@@ -885,6 +885,7 @@ option(MIDIPILOT_ENABLE_LIVE_API_TESTS "Register live provider API smoke tests" 
 add_executable(test_provider_matrix
     test_provider_matrix.cpp
     ../src/ai/AiClient.cpp
+    ../src/ai/AnthropicMessages.cpp # v2.5.4: Claude's Messages API
     ../src/ai/ChatAttachments.cpp # Phase 52: attachment parts per transport
     ../src/ai/ModelListCache.cpp
     ../src/AppPaths.cpp # Phase 45: AiClient's API-log path
@@ -915,6 +916,7 @@ endif()
 add_executable(test_streaming_fallback
     test_streaming_fallback.cpp
     ../src/ai/AiClient.cpp
+    ../src/ai/AnthropicMessages.cpp # v2.5.4: Claude's Messages API
     ../src/ai/ChatAttachments.cpp # Phase 52: attachment parts per transport
     ../src/ai/ModelListCache.cpp
     ../src/AppPaths.cpp # Phase 45: AiClient's API-log path
@@ -2004,6 +2006,26 @@ target_link_libraries(test_chat_attachments PRIVATE
 )
 add_test(NAME ChatAttachments COMMAND test_chat_attachments)
 
+# -----------------------------------------------------------------------------
+# test_anthropic_messages
+# -----------------------------------------------------------------------------
+# v2.5.4: Claude's Messages API for MidiPilot - model traits and effort
+# levels, the Chat-Completions -> Messages conversion (tool_use/tool_result,
+# notes added mid-run, attachments, replayed thinking blocks), the request body
+# (cache breakpoints, thinking per toggle, eager tool streaming, refusal
+# fallback, beta header), the answer from a full message and from SSE events,
+# and an agent loop whose requests stay append-only. Pure Qt Core, no network.
+add_executable(test_anthropic_messages
+    test_anthropic_messages.cpp
+    ../src/ai/AnthropicMessages.cpp
+    ../src/ai/ChatAttachments.cpp
+)
+target_link_libraries(test_anthropic_messages PRIVATE
+    Qt6::Core
+    Qt6::Test
+)
+add_test(NAME AnthropicMessages COMMAND test_anthropic_messages)
+
 # Make Qt DLLs visible to the tests at runtime on Windows.
 if(WIN32)
     get_target_property(_qmake_exe Qt6::qmake IMPORTED_LOCATION)
@@ -2072,6 +2094,7 @@ if(WIN32)
         McpSessionTable
         AiFileNaming
         ChatAttachments
+        AnthropicMessages
         PROPERTIES
             ENVIRONMENT "PATH=${_qt_bin_dir};$ENV{PATH}"
     )

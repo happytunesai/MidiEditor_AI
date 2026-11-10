@@ -5,6 +5,51 @@ Releases: https://github.com/happytunesai/MidiEditor_AI/releases
 
 ---
 
+## [2.5.4] - 2026-11-10 - Claude in MidiPilot
+
+### Summary
+* **[Claude as a MidiPilot provider](https://midieditor-ai.de/midipilot-settings.html#claude)** - *Anthropic Claude* is a provider entry of its own in Settings and in the MidiPilot footer: Claude's models (Opus 5.5, Sonnet 5.5, Haiku 5.5, Fable 5.2 and older ones) work in Simple and Agent mode through Anthropic's own Messages API, with text, reasoning summaries and tool calls streamed live (CLAUDE-001).
+* **Uses the API credits of a Claude Max or Team plan** - an API key from the Console organization linked to the plan draws on the plan's monthly API credits (CLAUDE-001).
+* **Agent runs pay full price only for each new step** - the tool list, the system prompt and the conversation so far are cached between the steps of a run (CLAUDE-001).
+* **[Token limit in steps, matched to today's models](https://midieditor-ai.de/midipilot-settings.html#settings)** - the limit is now *Automatic* or one of five steps from 8,000 to 128,000 tokens, the page shows what the selected model can write, and a step above that is lowered to it. With the limit on, Simple mode failed on OpenAI's GPT-5 models; Gemini's Agent mode now uses the model's 65,536 tokens where it worked with 16,384 (TOKENLIMIT-001).
+
+<details>
+<summary>Full Changelog - Claude in MidiPilot</summary>
+
+### New Features
+* **[Claude as a MidiPilot provider](https://midieditor-ai.de/midipilot-settings.html#claude)** - *Anthropic Claude* in the provider list of Settings, the MidiPilot footer, the model favourites and the prompt profiles. MidiPilot talks to Claude through Anthropic's native Messages API (`/v1/messages`), not through an OpenAI compatibility layer, in both modes and in Test Connection. *Refresh models* lists every Claude model the key can use with its name and context window (1M tokens on current models). The token counter counts cached prompt tokens as part of the prompt.
+* **Thinking and effort per model** - with *Thinking* on, Claude's summarized reasoning streams into the chat and the selected *Reasoning Effort* is sent (Low to Max; a level a model does not have is sent as the next lower one). With Thinking off or effort *None*, the models that always think run at Low effort and the others do not think.
+* **Agent mode built for Claude** - Claude's thinking blocks go back unchanged with the tool results, and the agent's state notes are added at the end of the conversation instead of after the system prompt, so a run's reasoning and its cache stay valid from step to step - Fable 5.2 requires this of every account. Tool-call arguments stream as Claude writes them; a call whose arguments are not valid JSON, or that the output limit cut off, is never run, and an answer whose connection closed before its end is retried instead of being taken as complete.
+* **Declined requests** - when a safety check of Opus 5.5, Sonnet 5.5 or Fable 5.2 declines a request, Anthropic answers it with another Claude model; a request no model answers is reported with its category.
+* **Attachments for Claude** - images are sent as images, PDFs and other files as documents.
+* **Claude's own error texts** - the chat shows what Claude's API says (an unknown model name, a rejected attachment, an empty credit balance - with a hint where the Max/Team credits live); a rate limit or an overload is retried with a short wait first.
+
+### Changed
+* **[Token Limit: Automatic or a step](https://midieditor-ai.de/midipilot-settings.html#settings)** - the checkbox with a free number field (default 16,384 - the output limit of GPT-4o) became one list: *Automatic (the model's maximum)*, 8,000, 16,000, 32,000, 64,000 or 128,000 tokens. Next to it the page shows what the selected model can write in one answer - 128,000 for GPT-5 and later and for Claude from Opus 4.6 on, 65,536 for Gemini 2.5 and 3.x - taken from the refreshed model list where the provider states it. A limit set with the old number field is kept and shown as its own entry.
+* **Reasoning Effort *Max*** - the settings entry now names Claude next to GPT-6 Astra as models that take it.
+
+### Bug Fixes
+* **The token limit broke Simple mode with OpenAI's GPT-5 models (TOKENLIMIT-001)** - with *Token Limit* on, chat requests carried the limit as `max_tokens`, which OpenAI's reasoning models (GPT-5, GPT-6, o-series) answer with HTTP 400 "Unsupported parameter". Requests to OpenAI now use `max_completion_tokens`; every other provider keeps `max_tokens`.
+* **A limit above what the model can write failed the request (TOKENLIMIT-001)** - 32,768 tokens on GPT-4o, for example, came back as HTTP 400 "supports at most 16384 completion tokens". A limit is now lowered to the model's own maximum where that is known.
+* **Gemini's Agent mode wrote at most 16,384 tokens per answer (TOKENLIMIT-001)** - the native Gemini requests carried a fixed 16,384 as their output limit although Gemini 2.5 and 3.x take 65,536, so a thinking model had little room left for a large tool call ("response cut off"). On *Automatic* they now carry the model's own limit.
+
+### Files Modified
+* `src/ai/AnthropicMessages.h/.cpp` (new) - Claude's wire format: model traits and effort levels, Chat-Completions -> Messages conversion (system prompt, tool_use/tool_result, notes appended to the current user turn, replayed content blocks), the request body (three cache breakpoints, thinking and effort, eager tool streaming, refusal fallback, beta header), the answer from a full message or from SSE events (usage, refusal, fallback boundary, broken tool JSON), error texts
+* `src/ai/AiClient.h/.cpp` - the Claude transport in every entry point (non-streamed, streamed Simple and Agent mode, connection test), `x-api-key` and `anthropic-version` headers, its SSE parser, retries and error texts; context window and effort picker for Claude models; the output limit through one helper (`outputTokenCeilingForModel()`, `outputLimitToSend()`, `outputLimitField()`) on the Chat Completions, Gemini and Claude requests
+* `src/ai/AgentRunner.h/.cpp` - `withAppendedStateLayer()`: for Claude the state notes are appended and kept, and an FFXIV mode notice is added without removing the earlier one; the stored assistant turn keeps Claude's content blocks, which stay off every other provider's requests
+* `src/ai/ChatAttachments.h/.cpp` - `toAnthropicContent()`: text, image and document blocks
+* `src/ai/ModelListFetcher.h/.cpp`, `src/ai/ModelListCache.h/.cpp` - Anthropic's `/v1/models` and `normaliseAnthropic()`; Claude context windows by id; the output limit of a model (`maxOutputTokens`) from the Anthropic, Gemini and OpenRouter lists
+* `src/ai/ProviderProfileStore.h` - provider id list
+* `src/gui/AiSettingsWidget.h/.cpp`, `src/gui/MidiPilotWidget.cpp` - the *Anthropic Claude* entry, its base URL and starter models; *Token Limit* as a list of steps with the selected model's maximum beside it
+* `src/gui/ModelFavoritesDialog.cpp`, `src/gui/PromptProfilesDialog.cpp` - a Claude tab / provider row
+* `tests/test_anthropic_messages.cpp` (new) - conversion, request body, full and streamed answers, fallback boundary, broken tool JSON, an append-only agent loop
+* `tests/test_agent_runner_state.cpp`, `tests/test_model_list_fetcher.cpp`, `tests/test_streaming_fallback.cpp`, `tests/test_shutdown_guards.cpp`, `tests/test_provider_matrix.cpp`, `tests/CMakeLists.txt` - the appended state layer, the Claude model list, the error texts that steer the retries, the output limit's field and ceiling, guards for the agent loop, the transport routing, the output-limit helper and the settings provider list; a live Claude row (`MIDIPILOT_TEST_ANTHROPIC_KEY`)
+* `README.md`, `manual/midipilot-settings.html`, `manual/midipilot.html`, `manual/midipilot-modes.html`, `manual/download.html`, `run_environment/help_db.json`
+
+</details>
+
+---
+
 ## [2.5.3] - 2026-10-25 - Audio Export With Any MIDI Output, Zoom Out to the Whole Song
 
 ### Summary

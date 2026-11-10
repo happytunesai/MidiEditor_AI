@@ -46,7 +46,7 @@ class ProviderProfileStore {
 public:
     struct Profile {
         QString name;
-        QString provider;  ///< "openai" | "openrouter" | "gemini" | "ollama" | "custom"
+        QString provider;  ///< "openai" | "openrouter" | "gemini" | "anthropic" | "ollama" | "custom"
         QString baseUrl;   ///< meaningful for custom; informational otherwise
         QString model;     ///< optional default model
     };

@@ -13,7 +13,7 @@
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 [![Platform: Windows](https://img.shields.io/badge/platform-Windows-0078D6?logo=windows)](https://github.com/happytunesai/MidiEditor_AI/releases)
 
-**Version:** 2.5.3
+**Version:** 2.5.4
 **Status:** Release
 
 📥 **[Download Latest Release](https://github.com/happytunesai/MidiEditor_AI/releases/latest)**
@@ -95,9 +95,10 @@ MidiPilot is the AI brain embedded directly in MidiEditor AI. Open the sidebar, 
 | 📥 **Paste Special** | Cross-instance Ctrl+V opens a dialog: *Create new tracks per source* (default), *Preserve source mapping (1:1)*, or *Paste to current edit track* (legacy). Track creation + paste in one undo step |
 | 📋 **Copy to Track / Copy to Channel** | Duplicate the current selection onto another track or channel (program changes stay with their channel); originals stay in place, the copies become the active selection |
 | 📊 **MIDI Visualizer** | Real-time 16-channel equalizer bars in the toolbar with velocity-based color and smooth decay animation |
-| 🔌 **Multi-Provider** | OpenAI, OpenRouter, Google Gemini, Ollama, or any OpenAI-compatible endpoint |
+| 🔌 **Multi-Provider** | OpenAI, OpenRouter, Google Gemini, Anthropic Claude, Ollama, or any OpenAI-compatible endpoint |
+| 🟠 **Claude in MidiPilot** | Claude (Opus, Sonnet, Haiku, Fable) through Anthropic's own Messages API in Simple and Agent mode - live text, reasoning summaries and tool calls, prompt caching across the steps of an Agent run, and the monthly API credits of a Claude Max or Team plan with a key from the linked Console organization |
 | 🗃️ **Provider Profiles** | Save several AI endpoints (provider, base URL, API key, model) under a name and switch with one click from the Provider dropdown - in Settings and in the MidiPilot footer. Every custom endpoint keeps its own model list and favourites; a local server (llama.cpp, LM Studio) needs no API key |
-| 🧠 **Reasoning Support** | Configurable thinking/reasoning effort (None → Extra High) |
+| 🧠 **Reasoning Support** | Configurable thinking/reasoning effort (None → Max) |
 | 📊 **Token Tracking** | Real-time token & context window usage display with multi-provider normalization |
 | ✏️ **Custom System Prompts** | Edit AI behavior via JSON - no recompiling needed |
 | 🔄 **Auto-Updater** | In-app updates from GitHub Releases - Update Now, After Exit, or Download Manual |
@@ -115,6 +116,7 @@ MidiEditor AI
 ├── MatrixWidget         → Piano roll note editor with OpenGL rendering
 ├── MidiPilot            → AI copilot sidebar (chat + tools)
 │   ├── AiClient         → OpenAI-compatible API client (SSE streaming)
+│   ├── AnthropicMessages → Claude's native Messages API (thinking, tools, prompt caching)
 │   ├── ConversationStore → Persistent history (JSON save/load/resume)
 │   ├── EditorContext     → Musical context extraction for AI
 │   ├── ToolDefinitions   → 39 MIDI and document tools (32 core + switch_document + 6 FFXIV)
@@ -132,7 +134,7 @@ MidiEditor AI
 ├── FFXIV Module         → Bard Performance validation & drum conversion
 ├── FluidSynth Engine    → Built-in software synthesizer with SoundFont support
 ├── LAME Encoder         → Built-in MP3 encoder (LAME 3.100, static library)
-├── Multi-Provider       → OpenAI / OpenRouter / Gemini / Custom / Local
+├── Multi-Provider       → OpenAI / OpenRouter / Gemini / Claude / Custom / Local
 ├── MCP Server           → Model Context Protocol server for external AI clients
 ├── LoggingConfig        → 5-level severity ladder, file rotation (10 MB × 3), per-category overrides
 ├── MIDI I/O             → RtMidi for real-time MIDI device communication
@@ -152,8 +154,8 @@ MidiEditor AI
 ### 2. Configure AI
 
 1. Open **Settings** (gear icon) and go to the **MidiPilot AI** page
-2. Select your provider (OpenAI, OpenRouter, Google Gemini, Ollama for local/free, or Custom)
-3. Enter your API key (not needed for Ollama - install it from [ollama.com](https://ollama.com) and `ollama pull` a model instead)
+2. Select your provider (OpenAI, OpenRouter, Google Gemini, Anthropic Claude, Ollama for local/free, or Custom)
+3. Enter your API key (not needed for Ollama - install it from [ollama.com](https://ollama.com) and `ollama pull` a model instead; for Claude, a key from the [Claude Console](https://platform.claude.com/settings/keys) - with a Claude Max or Team plan, from the Console organization linked to the plan, so it uses the plan's monthly API credits)
 4. Choose a model
 
 ### 3. Start Creating
@@ -467,6 +469,7 @@ MidiEditor AI checks for new versions on GitHub at every startup. When an update
 | **OpenAI** | `api.openai.com/v1` | Required | Limited |
 | **OpenRouter** | `openrouter.ai/api/v1` | Required | Free models available |
 | **Google Gemini** | `generativelanguage.googleapis.com` | Required | 15 RPM, 1M TPM |
+| **Anthropic Claude** | `api.anthropic.com/v1` | Required | Monthly API credits with a Claude Max or Team plan |
 | **Ollama** (local) | `localhost:11434/v1` | No | Unlimited |
 | **LM Studio** (local) | `localhost:1234/v1` | No | Unlimited |
 | **Custom** | User-specified | User-specified | Varies |
@@ -608,7 +611,7 @@ Five-level ladder (Off → Errors → Warnings → Info → Debug) selected via 
 | **Thinking / Reasoning** | Toggle reasoning and set effort level (None → Extra High) |
 | **Context Range** | Measures before/after cursor included as musical context (0-50) |
 | **Agent Max Steps** | Maximum tool calls per Agent request (5-100, default 50) |
-| **Output Token Limit** | Optional cap on output tokens to control costs |
+| **Output Token Limit** | *Automatic* (the model's maximum) or a step from 8,000 to 128,000 tokens; the page shows what the selected model can write and lowers a step above it |
 | **System Prompts** | Customize AI behavior for each mode via built-in editor |
 | **Per-File Presets** | Save/auto-load provider, model, mode, FFXIV, effort, and custom instructions per MIDI file |
 

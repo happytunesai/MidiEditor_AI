@@ -51,6 +51,18 @@ public:
     static QString stateLayerContent(const AgentWorkingState &state);
     static QJsonArray messagesForNextRequest(const QJsonArray &messages,
                                              const AgentWorkingState &state);
+    /**
+     * \brief Claude's form of the per-request state layer: \a messages with
+     *        the state appended at the END, for the caller to keep.
+     *
+     * messagesForNextRequest() puts a fresh state right after the system
+     * prompt of every request and forgets it again. Claude binds every
+     * thinking block to the exact conversation before it and caches by
+     * prefix, so that edit would drop the run's reasoning and miss the cache
+     * on every step. Appending keeps the history append-only.
+     */
+    static QJsonArray withAppendedStateLayer(const QJsonArray &messages,
+                                             const AgentWorkingState &state);
 
     /**
      * \brief Starts the agent loop.
