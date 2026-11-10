@@ -78,11 +78,15 @@ jobs:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5
+        with:
+          timeout: 1800000
         continue-on-error: true
 
       - name: Deploy to GitHub Pages (retry after backend hiccup)
         if: steps.deployment.outcome == 'failure'
         uses: actions/deploy-pages@v5
+        with:
+          timeout: 1800000
 
       - name: "Deployment Summary"
         if: always()
