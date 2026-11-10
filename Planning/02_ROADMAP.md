@@ -14088,12 +14088,18 @@ stored as separate files next to the conversation.
     thinking, non-streamed with thinking off, streamed at max effort - no block dropped.
     `claude-fable-5-2` replaces 5.1 in the starter model list.
   - Website deployment on release day: the Pages run of the release commit started during a
-    GitHub incident (Git operations, Actions) and its deployment hung until the timeout; every
-    later deployment of the same commit hung as well, also after the incident was resolved. Two
-    rules from it: never re-run the failed job of a Pages run (the re-run uploads a second
-    artifact named github-pages and the deploy step aborts) - start a fresh run with
-    workflow_dispatch; and when a commit's deployment stays stuck, deploy from a new commit on
-    main (the deployment is identified by the commit).
+    GitHub incident (Git operations, Actions) and its deployment hung until the 10-minute timeout.
+    For three and a half hours every further deployment hung the same way (an empty deployment
+    status until the timeout), also after GitHub had closed the incident - a problem of GitHub's
+    Pages backend that other repositories reported on the same day. Then a fresh run went through
+    in 17 seconds, with nothing changed on our side. What it taught:
+    - Never re-run the failed job of a Pages run: the re-run uploads a second artifact named
+      github-pages and the deploy step aborts. Start a fresh run (workflow_dispatch).
+    - Nothing on our side fixes a hanging deployment. Tried without effect: a new commit on main
+      (the deployment is not blocked per commit) and a longer `timeout` on the deploy step
+      (actions/deploy-pages caps it at 10 minutes in its own code).
+    - Do not repeat it every few minutes - each failed attempt takes 20 minutes. Try a fresh run
+      every hour or two.
   - Release review (2026-11-10), fixed before the release: the settings page cut its "Custom"
     entry off (fixed entries were found by a count that the Claude entry made wrong; confirming
     the page then overwrote a custom endpoint) - now found by entry; a stream that ends without
