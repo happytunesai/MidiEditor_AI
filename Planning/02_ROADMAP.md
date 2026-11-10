@@ -14087,6 +14087,13 @@ stored as separate files next to the conversation.
     run against the API for Fable 5.2, Opus 5.5 and Haiku 5.5: a three-step tool loop with replayed
     thinking, non-streamed with thinking off, streamed at max effort - no block dropped.
     `claude-fable-5-2` replaces 5.1 in the starter model list.
+  - Website deployment on release day: the Pages run of the release commit started during a
+    GitHub incident (Git operations, Actions) and its deployment hung until the timeout; every
+    later deployment of the same commit hung as well, also after the incident was resolved. Two
+    rules from it: never re-run the failed job of a Pages run (the re-run uploads a second
+    artifact named github-pages and the deploy step aborts) - start a fresh run with
+    workflow_dispatch; and when a commit's deployment stays stuck, deploy from a new commit on
+    main (the deployment is identified by the commit).
   - Release review (2026-11-10), fixed before the release: the settings page cut its "Custom"
     entry off (fixed entries were found by a count that the Claude entry made wrong; confirming
     the page then overwrote a custom endpoint) - now found by entry; a stream that ends without
